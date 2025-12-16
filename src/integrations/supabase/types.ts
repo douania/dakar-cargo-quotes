@@ -14,7 +14,132 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      hs_codes: {
+        Row: {
+          bic: boolean | null
+          chapter: number | null
+          code: string
+          code_normalized: string
+          cosec: number
+          created_at: string | null
+          dd: number
+          description: string | null
+          id: string
+          mercurialis: boolean | null
+          pcc: number
+          pcs: number
+          ref: number | null
+          rs: number
+          surtaxe: number | null
+          t_ciment: number | null
+          t_conj: number | null
+          t_para: number | null
+          t_past: number | null
+          ta: number | null
+          tev: number | null
+          tin: number | null
+          tva: number
+          uemoa: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          bic?: boolean | null
+          chapter?: number | null
+          code: string
+          code_normalized: string
+          cosec?: number
+          created_at?: string | null
+          dd?: number
+          description?: string | null
+          id?: string
+          mercurialis?: boolean | null
+          pcc?: number
+          pcs?: number
+          ref?: number | null
+          rs?: number
+          surtaxe?: number | null
+          t_ciment?: number | null
+          t_conj?: number | null
+          t_para?: number | null
+          t_past?: number | null
+          ta?: number | null
+          tev?: number | null
+          tin?: number | null
+          tva?: number
+          uemoa?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          bic?: boolean | null
+          chapter?: number | null
+          code?: string
+          code_normalized?: string
+          cosec?: number
+          created_at?: string | null
+          dd?: number
+          description?: string | null
+          id?: string
+          mercurialis?: boolean | null
+          pcc?: number
+          pcs?: number
+          ref?: number | null
+          rs?: number
+          surtaxe?: number | null
+          t_ciment?: number | null
+          t_conj?: number | null
+          t_para?: number | null
+          t_past?: number | null
+          ta?: number | null
+          tev?: number | null
+          tin?: number | null
+          tva?: number
+          uemoa?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      tax_rates: {
+        Row: {
+          applies_to: string | null
+          base_calculation: string
+          code: string
+          created_at: string | null
+          effective_date: string
+          exemptions: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          rate: number
+          updated_at: string | null
+        }
+        Insert: {
+          applies_to?: string | null
+          base_calculation: string
+          code: string
+          created_at?: string | null
+          effective_date?: string
+          exemptions?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          rate: number
+          updated_at?: string | null
+        }
+        Update: {
+          applies_to?: string | null
+          base_calculation?: string
+          code?: string
+          created_at?: string | null
+          effective_date?: string
+          exemptions?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          rate?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

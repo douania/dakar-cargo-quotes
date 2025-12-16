@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.firecrawl-map]
 verify_jwt = false
+
+[functions.import-hs-codes]
+verify_jwt = false
+
+[functions.hs-lookup]
+verify_jwt = false
+
+[functions.calculate-duties]
+verify_jwt = false
