@@ -142,14 +142,86 @@ Après expiration franchise : +30% sur tarif de base par m² et par jour sur tot
 - Dédouanement véhicule : ~120 000 FCFA
 - Dédouanement aérien (base) : ~100 000 FCFA
 
-**DÉBOURS DOUANIERS (formules officielles) :**
-- Droit de Douane (DD) : 5% à 20% selon code SH
-- Redevance Statistique (RS) : 1%
-- Prélèvement COSEC : 0,4%
-- TVA : 18% sur (Valeur CIF + DD + RS)
+**TARIF EXTÉRIEUR COMMUN (TEC) CEDEAO/UEMOA - DROITS DE DOUANE OFFICIELS**
+Source : douanes.sn - Tableau des droits et taxes
 
-✅ Les tarifs THC et franchises ci-dessus sont des données officielles vérifiées.
-⚠️ Les honoraires SODATRA et frais portuaires PAD détaillés restent indicatifs.
+Le Sénégal applique le TEC CEDEAO structuré en 4 catégories tarifaires :
+
+| Catégorie | Droit de Douane (DD) | Redevance Statistique (RS) | Prélèvement Communautaire de Solidarité (PCS) |
+|-----------|---------------------|---------------------------|----------------------------------------------|
+| 0 - Produits sociaux essentiels | 0% | 1% | 1% |
+| 1 - Produits de base, matières premières, biens d'équipement | 5% | 1% | 1% |
+| 2 - Intrants et produits intermédiaires | 10% | 1% | 1% |
+| 3 - Produits de consommation finale | 20% | 1% | 1% |
+
+**CLASSIFICATION DES PRODUITS PAR CATÉGORIE :**
+- **Catégorie 0** : Produits pharmaceutiques, appareils médico-chirurgicaux, livres, journaux
+- **Catégorie 1** : Matières premières, biens d'équipement, intrants spécifiques agricoles
+- **Catégorie 2** : Intrants industriels, produits intermédiaires
+- **Catégorie 3** : Tous produits de consommation finale non listés ailleurs
+
+**TAXES ADDITIONNELLES :**
+- Prélèvement CEDEAO : 0,5% sur valeur CAF
+- Prélèvement COSEC : 0,4% sur valeur CAF
+- TVA : 18% sur (Valeur CAF + DD + RS + PCS)
+
+**FORMULE DE CALCUL DES DÉBOURS DOUANIERS :**
+Assiette = Valeur CAF de la marchandise
+1. DD = Valeur CAF × Taux DD (0%, 5%, 10% ou 20%)
+2. RS = Valeur CAF × 1%
+3. PCS = Valeur CAF × 1%
+4. Prélèvement CEDEAO = Valeur CAF × 0,5%
+5. COSEC = Valeur CAF × 0,4%
+6. TVA = (Valeur CAF + DD + RS + PCS) × 18%
+Total débours = DD + RS + PCS + Prél. CEDEAO + COSEC + TVA
+
+**TAXE CONJONCTURELLE À L'IMPORTATION (TCI) - Produits protégés :**
+Applicable au sucre et huiles végétales selon prix de déclenchement UEMOA :
+- Sucre roux granulés : 261 464 FCFA/T
+- Sucre roux morceaux : 321 464 FCFA/T
+- Sucre blanc granulés : 325 056 FCFA/T
+- Sucre blanc morceaux : 385 059 FCFA/T
+- Huiles végétales (soja, arachide, colza) : TCI 10% si prix CAF < prix déclenchement
+
+**SECTIONS DU SYSTÈME HARMONISÉ (SH) - TEC CEDEAO :**
+- Section I : Animaux vivants et produits du règne animal (Ch. 01-05)
+- Section II : Produits du règne végétal (Ch. 06-14)
+- Section III : Graisses et huiles (Ch. 15)
+- Section IV : Industries alimentaires, boissons, tabacs (Ch. 16-24)
+- Section V : Produits minéraux (Ch. 25-27)
+- Section VI : Produits chimiques (Ch. 28-38)
+- Section VII : Plastiques et caoutchouc (Ch. 39-40)
+- Section VIII : Peaux, cuirs, articles de voyage (Ch. 41-43)
+- Section IX : Bois et liège (Ch. 44-46)
+- Section X : Pâtes, papiers (Ch. 47-49)
+- Section XI : Textiles (Ch. 50-63)
+- Section XII : Chaussures, coiffures (Ch. 64-67)
+- Section XIII : Pierres, céramiques, verre (Ch. 68-70)
+- Section XIV : Métaux précieux, bijoux (Ch. 71)
+- Section XV : Métaux communs (Ch. 72-83)
+- Section XVI : Machines et appareils électriques (Ch. 84-85)
+- Section XVII : Matériel de transport (Ch. 86-89)
+- Section XVIII : Instruments optiques, médicaux, horlogerie (Ch. 90-92)
+- Section XIX : Armes et munitions (Ch. 93)
+- Section XX : Marchandises diverses (Ch. 94-96)
+- Section XXI : Objets d'art et antiquités (Ch. 97)
+
+**EXEMPLES DE CODES SH COURANTS ET CATÉGORIES :**
+| Code SH | Description | Catégorie | DD |
+|---------|-------------|-----------|-----|
+| 8703 | Voitures de tourisme | 3 | 20% |
+| 8704 | Véhicules transport marchandises | 1-3 | 5-20% |
+| 8701 | Tracteurs | 1 | 5% |
+| 3004 | Médicaments | 0 | 0% |
+| 1006 | Riz | 1 | 5% |
+| 1701 | Sucre | 3 | 20% + TCI |
+| 2710 | Huiles de pétrole | 1 | 5% |
+| 7308 | Constructions métalliques | 2 | 10% |
+| 8528 | Téléviseurs | 3 | 20% |
+| 8471 | Ordinateurs | 1 | 5% |
+
+✅ Les taux TEC CEDEAO et classifications ci-dessus sont des données officielles (source: douanes.sn).
+⚠️ Pour un code SH précis, consulter le tarif intégral ou GAINDE pour le taux exact.
 
 Tu dois être capable de :
 - Produire une cotation complète sans assistance
