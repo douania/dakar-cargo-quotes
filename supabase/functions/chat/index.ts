@@ -95,31 +95,61 @@ Toute cotation SODATRA suit strictement cette structure :
 5. Débours douaniers (droits & taxes)
 6. Honoraires SODATRA
 
-GRILLES DE RÉFÉRENCE (ESTIMATIONS)
+GRILLES TARIFAIRES OFFICIELLES
 
-**Manutention DP World Dakar (estimations courantes) :**
-- Conteneur 20' DRY : ~120 000 FCFA
-- Conteneur 40' DRY : ~150 000 FCFA
-- Conteneur 40' HC : ~180 000 FCFA
-- Véhicule RORO : ~75 000 FCFA
+**TARIFS THC DP WORLD DAKAR (Arrêté ministériel - homologué)**
+Source : Arrêté portant homologation des tarifs de manutention de conteneurs (THC)
 
-**Frais portuaires PAD (estimations) :**
-- Droits de port conteneur 20' : ~40 000 FCFA
-- Droits de port conteneur 40' : ~60 000 FCFA
-- Redevances véhicule : ~50 000 FCFA
+EXPORT (par TEU = 20') :
+| Classification | THC (FCFA) | Surcharge |
+|----------------|------------|-----------|
+| C1 - Coton (Mali/Sénégal) | 70 000 | Néant |
+| C2 - Produits Frigorifiques | 80 000 | Néant |
+| C3 - Produits Standards | 110 000 | +50% produits dangereux (Classe 1-5), +20% colis lourds (20'>15T, 40'>26T), +50% pénalité (20'>20T, 40'>30T) |
 
-**Honoraires SODATRA (base) :**
+IMPORT (par TEU = 20') :
+| Classification | THC (FCFA) | Surcharge |
+|----------------|------------|-----------|
+| C4 - Produits de Base (Farine, huile, lait, pharma, riz, sucre) | 87 000 | Néant |
+| C5 - Produits Standards | 133 500 | Mêmes surcharges que C3 |
+
+TRANSIT (par TEU = 20') :
+| Classification | THC (FCFA) | Surcharge |
+|----------------|------------|-----------|
+| C6 - Import/Export (sauf coton) | 110 000 | Néant |
+
+RELEVAGE (par TEU = 20') :
+| Classification | THC (FCFA) |
+|----------------|------------|
+| C1 à C5 | 18 280 |
+| C6 (Transit) | 36 560 |
+
+Note : Pour conteneur 40', multiplier par 2 le tarif TEU.
+
+**FRANCHISES MAGASINAGE PORT AUTONOME DE DAKAR**
+Source : portdakar.sn - Stockage/Entreposage
+
+| Type de marchandise | Franchise (jours après fin opérations navire) |
+|---------------------|----------------------------------------------|
+| Import Sénégal (conventionnel + véhicules) | 7 jours |
+| Transit conventionnel | 20 jours |
+| Véhicules en transit | 12 jours |
+
+Après expiration franchise : +30% sur tarif de base par m² et par jour sur totalité des surfaces non libérées (à partir du 8ème jour après fin de franchise).
+
+**HONORAIRES SODATRA (base) :**
 - Dédouanement conteneur : ~150 000 FCFA
 - Dédouanement véhicule : ~120 000 FCFA
 - Dédouanement aérien (base) : ~100 000 FCFA
 
-**Débours douaniers (formule) :**
+**DÉBOURS DOUANIERS (formules officielles) :**
 - Droit de Douane (DD) : 5% à 20% selon code SH
 - Redevance Statistique (RS) : 1%
 - Prélèvement COSEC : 0,4%
 - TVA : 18% sur (Valeur CIF + DD + RS)
 
-⚠️ Ces tarifs sont des estimations à titre indicatif. Les montants exacts doivent être vérifiés auprès des sources officielles.
+✅ Les tarifs THC et franchises ci-dessus sont des données officielles vérifiées.
+⚠️ Les honoraires SODATRA et frais portuaires PAD détaillés restent indicatifs.
 
 Tu dois être capable de :
 - Produire une cotation complète sans assistance
