@@ -14,6 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
+      documents: {
+        Row: {
+          content_text: string | null
+          created_at: string | null
+          email_date: string | null
+          email_from: string | null
+          email_subject: string | null
+          extracted_data: Json | null
+          file_size: number | null
+          file_type: string
+          filename: string
+          id: string
+          source: string | null
+          tags: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          content_text?: string | null
+          created_at?: string | null
+          email_date?: string | null
+          email_from?: string | null
+          email_subject?: string | null
+          extracted_data?: Json | null
+          file_size?: number | null
+          file_type: string
+          filename: string
+          id?: string
+          source?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          content_text?: string | null
+          created_at?: string | null
+          email_date?: string | null
+          email_from?: string | null
+          email_subject?: string | null
+          extracted_data?: Json | null
+          file_size?: number | null
+          file_type?: string
+          filename?: string
+          id?: string
+          source?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      email_configs: {
+        Row: {
+          created_at: string | null
+          folder: string | null
+          host: string
+          id: string
+          is_active: boolean | null
+          last_sync_at: string | null
+          name: string
+          password_encrypted: string
+          port: number
+          use_ssl: boolean | null
+          username: string
+        }
+        Insert: {
+          created_at?: string | null
+          folder?: string | null
+          host: string
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          name: string
+          password_encrypted: string
+          port?: number
+          use_ssl?: boolean | null
+          username: string
+        }
+        Update: {
+          created_at?: string | null
+          folder?: string | null
+          host?: string
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          name?: string
+          password_encrypted?: string
+          port?: number
+          use_ssl?: boolean | null
+          username?: string
+        }
+        Relationships: []
+      }
       hs_codes: {
         Row: {
           bic: boolean | null
