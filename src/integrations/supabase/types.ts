@@ -104,6 +104,121 @@ export type Database = {
         }
         Relationships: []
       }
+      email_drafts: {
+        Row: {
+          ai_generated: boolean | null
+          body_html: string | null
+          body_text: string | null
+          cc_addresses: string[] | null
+          created_at: string | null
+          id: string
+          original_email_id: string | null
+          sent_at: string | null
+          status: string | null
+          subject: string
+          to_addresses: string[]
+        }
+        Insert: {
+          ai_generated?: boolean | null
+          body_html?: string | null
+          body_text?: string | null
+          cc_addresses?: string[] | null
+          created_at?: string | null
+          id?: string
+          original_email_id?: string | null
+          sent_at?: string | null
+          status?: string | null
+          subject: string
+          to_addresses: string[]
+        }
+        Update: {
+          ai_generated?: boolean | null
+          body_html?: string | null
+          body_text?: string | null
+          cc_addresses?: string[] | null
+          created_at?: string | null
+          id?: string
+          original_email_id?: string | null
+          sent_at?: string | null
+          status?: string | null
+          subject?: string
+          to_addresses?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_drafts_original_email_id_fkey"
+            columns: ["original_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      emails: {
+        Row: {
+          body_html: string | null
+          body_text: string | null
+          cc_addresses: string[] | null
+          created_at: string | null
+          email_config_id: string | null
+          extracted_data: Json | null
+          from_address: string
+          id: string
+          is_quotation_request: boolean | null
+          is_read: boolean | null
+          message_id: string
+          received_at: string | null
+          sent_at: string | null
+          subject: string | null
+          thread_id: string | null
+          to_addresses: string[]
+        }
+        Insert: {
+          body_html?: string | null
+          body_text?: string | null
+          cc_addresses?: string[] | null
+          created_at?: string | null
+          email_config_id?: string | null
+          extracted_data?: Json | null
+          from_address: string
+          id?: string
+          is_quotation_request?: boolean | null
+          is_read?: boolean | null
+          message_id: string
+          received_at?: string | null
+          sent_at?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_addresses: string[]
+        }
+        Update: {
+          body_html?: string | null
+          body_text?: string | null
+          cc_addresses?: string[] | null
+          created_at?: string | null
+          email_config_id?: string | null
+          extracted_data?: Json | null
+          from_address?: string
+          id?: string
+          is_quotation_request?: boolean | null
+          is_read?: boolean | null
+          message_id?: string
+          received_at?: string | null
+          sent_at?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_addresses?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emails_email_config_id_fkey"
+            columns: ["email_config_id"]
+            isOneToOne: false
+            referencedRelation: "email_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hs_codes: {
         Row: {
           bic: boolean | null
@@ -185,6 +300,54 @@ export type Database = {
           tva?: number
           uemoa?: number | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      learned_knowledge: {
+        Row: {
+          category: string
+          confidence: number | null
+          created_at: string | null
+          data: Json
+          description: string | null
+          id: string
+          is_validated: boolean | null
+          last_used_at: string | null
+          name: string
+          source_id: string | null
+          source_type: string | null
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          category: string
+          confidence?: number | null
+          created_at?: string | null
+          data: Json
+          description?: string | null
+          id?: string
+          is_validated?: boolean | null
+          last_used_at?: string | null
+          name: string
+          source_id?: string | null
+          source_type?: string | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          category?: string
+          confidence?: number | null
+          created_at?: string | null
+          data?: Json
+          description?: string | null
+          id?: string
+          is_validated?: boolean | null
+          last_used_at?: string | null
+          name?: string
+          source_id?: string | null
+          source_type?: string | null
+          updated_at?: string | null
+          usage_count?: number | null
         }
         Relationships: []
       }

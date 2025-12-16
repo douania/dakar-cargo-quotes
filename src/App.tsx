@@ -8,6 +8,8 @@ import NotFound from "./pages/NotFound";
 import HsCodesAdmin from "./pages/admin/HsCodes";
 import TaxRatesAdmin from "./pages/admin/TaxRates";
 import DocumentsAdmin from "./pages/admin/Documents";
+import EmailsAdmin from "./pages/admin/Emails";
+import KnowledgeAdmin from "./pages/admin/Knowledge";
 
 const queryClient = new QueryClient();
 
@@ -22,7 +24,8 @@ const App = () => (
           <Route path="/admin/hs-codes" element={<HsCodesAdmin />} />
           <Route path="/admin/tax-rates" element={<TaxRatesAdmin />} />
           <Route path="/admin/documents" element={<DocumentsAdmin />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/admin/emails" element={<EmailsAdmin />} />
+          <Route path="/admin/knowledge" element={<KnowledgeAdmin />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
