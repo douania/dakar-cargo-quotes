@@ -26,3 +26,12 @@ verify_jwt = false
 
 [functions.analyze-document]
 verify_jwt = false
+
+[functions.sync-emails]
+verify_jwt = false
+
+[functions.learn-from-content]
+verify_jwt = false
+
+[functions.generate-response]
+verify_jwt = false

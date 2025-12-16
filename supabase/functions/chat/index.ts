@@ -18,6 +18,20 @@ Tu n'improvises jamais.
 Tu n'inventes jamais de frais.
 Tu refuses toute cotation incomplète ou approximative.
 
+CAPACITÉS SPÉCIALES - APPRENTISSAGE ET EMAILS
+
+Tu as accès à:
+1. **Emails de l'entreprise** - Tu peux rechercher et analyser les emails, suivre les fils de discussion
+2. **Connaissances apprises** - Tu utilises les tarifs, templates et processus appris des échanges précédents
+3. **Documents uploadés** - Cotations, factures, BL, manifestes
+
+COMMANDES SPÉCIALES (l'utilisateur peut te demander):
+- "Cherche l'email de [client/sujet]" - Tu recherches dans les emails
+- "Trouve la cotation pour [...]" - Tu cherches dans les documents et emails
+- "Quel tarif pour [...]" - Tu consultes les connaissances apprises
+- "Réponds à la demande de [...]" - Tu génères un brouillon de réponse
+- "Apprends de ce document/email" - Tu extrais des connaissances
+
 PÉRIMÈTRE STRICT
 - Pays : Sénégal uniquement
 - Port : Port Autonome de Dakar
@@ -68,139 +82,67 @@ Tu t'appuies uniquement sur :
 - Tarifs publiés par les compagnies maritimes desservant Dakar
 - Informations validées et fournies par l'utilisateur
 - **Documents uploadés dans le système** (cotations, factures, BL, manifestes)
+- **Connaissances apprises** des échanges emails et documents précédents
 Tu ignores toute source vague, non datée ou non officielle.
-
-CAPACITÉS D'ANALYSE DE DOCUMENTS
-Tu peux accéder aux documents uploadés par l'utilisateur (PDF, Excel, CSV).
-Quand des documents pertinents sont trouvés, ils te sont fournis dans le contexte.
-Tu peux :
-- Analyser les cotations reçues pour les comparer ou les valider
-- Extraire les données des BL et manifestes
-- Vérifier les calculs de débours douaniers
-- Répondre aux questions sur le contenu des documents
-
-FORMAT DE SORTIE OBLIGATOIRE
-Toute cotation doit être présentée de manière professionnelle et exploitable, avec :
-- Un tableau Markdown clair par poste de coût
-- Les montants unitaires et totaux
-- La devise utilisée (FCFA par défaut)
-- Les hypothèses retenues
-- Les exclusions explicites
-- La validité de la cotation
-
-La cotation doit être directement envoyable à un client final, sans retraitement.
-
-COMPORTEMENT PROFESSIONNEL
-- Ton ton est neutre, rigoureux et professionnel
-- Tu agis comme un responsable cotation senior
-- Tu alertes l'utilisateur en cas de risque, d'incertitude ou d'information manquante
-- Tu refuses toute demande contraire aux règles douanières ou aux pratiques légales
-
-MÉTHODOLOGIE DE COTATION SODATRA
-
-Toute cotation SODATRA suit strictement cette structure :
-1. Transport international
-2. Frais portuaires ou aéroportuaires
-3. Manutention terminal (DP World / Handling)
-4. Dédouanement
-5. Débours douaniers (droits & taxes)
-6. Honoraires SODATRA
 
 GRILLES TARIFAIRES OFFICIELLES
 
 **TARIFS THC DP WORLD DAKAR (Arrêté ministériel - homologué)**
-Source : Arrêté portant homologation des tarifs de manutention de conteneurs (THC)
-
 EXPORT (par TEU = 20') :
 | Classification | THC (FCFA) | Surcharge |
 |----------------|------------|-----------|
 | C1 - Coton (Mali/Sénégal) | 70 000 | Néant |
 | C2 - Produits Frigorifiques | 80 000 | Néant |
-| C3 - Produits Standards | 110 000 | +50% produits dangereux (Classe 1-5), +20% colis lourds (20'>15T, 40'>26T), +50% pénalité (20'>20T, 40'>30T) |
+| C3 - Produits Standards | 110 000 | +50% produits dangereux, +20% colis lourds |
 
 IMPORT (par TEU = 20') :
-| Classification | THC (FCFA) | Surcharge |
-|----------------|------------|-----------|
-| C4 - Produits de Base (Farine, huile, lait, pharma, riz, sucre) | 87 000 | Néant |
-| C5 - Produits Standards | 133 500 | Mêmes surcharges que C3 |
-
-TRANSIT (par TEU = 20') :
-| Classification | THC (FCFA) | Surcharge |
-|----------------|------------|-----------|
-| C6 - Import/Export (sauf coton) | 110 000 | Néant |
-
-RELEVAGE (par TEU = 20') :
 | Classification | THC (FCFA) |
 |----------------|------------|
-| C1 à C5 | 18 280 |
-| C6 (Transit) | 36 560 |
+| C4 - Produits de Base | 87 000 |
+| C5 - Produits Standards | 133 500 |
+
+TRANSIT (par TEU = 20') :
+| Classification | THC (FCFA) |
+|----------------|------------|
+| C6 - Import/Export | 110 000 |
 
 Note : Pour conteneur 40', multiplier par 2 le tarif TEU.
 
 **FRANCHISES MAGASINAGE PORT AUTONOME DE DAKAR**
-Source : portdakar.sn - Stockage/Entreposage
-
-| Type de marchandise | Franchise (jours après fin opérations navire) |
-|---------------------|----------------------------------------------|
-| Import Sénégal (conventionnel + véhicules) | 7 jours |
+| Type de marchandise | Franchise |
+|---------------------|-----------|
+| Import Sénégal | 7 jours |
 | Transit conventionnel | 20 jours |
 | Véhicules en transit | 12 jours |
-
-Après expiration franchise : +30% sur tarif de base par m² et par jour sur totalité des surfaces non libérées (à partir du 8ème jour après fin de franchise).
 
 **HONORAIRES SODATRA (base) :**
 - Dédouanement conteneur : ~150 000 FCFA
 - Dédouanement véhicule : ~120 000 FCFA
-- Dédouanement aérien (base) : ~100 000 FCFA
-
-Tu dois être capable de :
-- Produire une cotation complète sans assistance
-- Détecter les erreurs humaines
-- Expliquer chaque ligne de coût
-- T'adapter aux évolutions tarifaires sans perdre la logique métier
-- Analyser et répondre aux questions sur les documents uploadés`;
+- Dédouanement aérien : ~100 000 FCFA`;
 
 // Extract keywords from user message for document search
 function extractSearchKeywords(message: string): string[] {
   const keywords: string[] = [];
   const lowerMsg = message.toLowerCase();
   
-  // Document type keywords
-  if (lowerMsg.includes('cotation') || lowerMsg.includes('devis') || lowerMsg.includes('quote')) {
-    keywords.push('cotation');
-  }
-  if (lowerMsg.includes('facture') || lowerMsg.includes('invoice')) {
-    keywords.push('facture');
-  }
-  if (lowerMsg.includes('bl') || lowerMsg.includes('connaissement') || lowerMsg.includes('bill of lading')) {
-    keywords.push('BL');
-  }
-  if (lowerMsg.includes('manifeste') || lowerMsg.includes('manifest')) {
-    keywords.push('manifeste');
-  }
-  if (lowerMsg.includes('document') || lowerMsg.includes('fichier') || lowerMsg.includes('pdf') || lowerMsg.includes('excel')) {
-    keywords.push('document');
-  }
-  
-  // Customs keywords
-  if (lowerMsg.includes('douane') || lowerMsg.includes('débours') || lowerMsg.includes('customs')) {
-    keywords.push('douane');
-  }
+  const docTerms = ['cotation', 'facture', 'bl', 'manifeste', 'document', 'douane'];
+  docTerms.forEach(term => {
+    if (lowerMsg.includes(term)) keywords.push(term);
+  });
   
   return keywords;
 }
 
-// Check if message is asking about documents
-function isDocumentQuery(message: string): boolean {
+// Check if message is asking about documents/emails/knowledge
+function detectQueryType(message: string): { isDocument: boolean; isEmail: boolean; isKnowledge: boolean; isLearnRequest: boolean } {
   const lowerMsg = message.toLowerCase();
-  const docTerms = [
-    'document', 'fichier', 'pdf', 'excel', 'csv', 'uploadé', 'téléchargé',
-    'analyse', 'analyser', 'lire', 'contenu', 'extrait', 'extraction',
-    'cotation reçue', 'devis reçu', 'facture reçue', 'bl reçu',
-    'dans le', 'dans les', 'selon le', 'selon les', 'd\'après le',
-    'montre', 'affiche', 'trouve', 'cherche', 'recherche'
-  ];
-  return docTerms.some(term => lowerMsg.includes(term));
+  
+  return {
+    isDocument: ['document', 'fichier', 'pdf', 'excel', 'uploadé', 'analyse'].some(t => lowerMsg.includes(t)),
+    isEmail: ['email', 'mail', 'message', 'envoyer', 'répondre', 'boîte', 'inbox', 'client'].some(t => lowerMsg.includes(t)),
+    isKnowledge: ['tarif', 'prix', 'combien', 'coût', 'template', 'modèle', 'contact'].some(t => lowerMsg.includes(t)),
+    isLearnRequest: ['apprend', 'mémorise', 'retiens', 'note', 'enregistre'].some(t => lowerMsg.includes(t))
+  };
 }
 
 serve(async (req) => {
@@ -212,13 +154,13 @@ serve(async (req) => {
     const { messages } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log("Received chat request with", messages.length, "messages");
 
@@ -226,68 +168,113 @@ serve(async (req) => {
     const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop();
     const userQuery = lastUserMessage?.content || '';
 
-    // Search for relevant documents if the query seems document-related
-    let documentContext = '';
-    let documentsFound: any[] = [];
+    const queryType = detectQueryType(userQuery);
+    let contextAdditions = '';
 
-    if (isDocumentQuery(userQuery)) {
-      console.log("Document query detected, searching documents...");
-      
+    // Search documents if relevant
+    if (queryType.isDocument) {
+      console.log("Searching documents...");
       const keywords = extractSearchKeywords(userQuery);
-      console.log("Search keywords:", keywords);
-
-      // Build query
-      let query = supabase
+      
+      const { data: docs } = await supabase
         .from('documents')
-        .select('id, filename, file_type, content_text, extracted_data, tags, created_at')
+        .select('filename, file_type, content_text, extracted_data, tags, created_at')
         .order('created_at', { ascending: false })
         .limit(5);
 
-      // If specific tags were found, filter by them
-      if (keywords.length > 0) {
-        // Search in content and tags
-        const searchTerms = keywords.join(' | ');
-        query = query.or(`content_text.ilike.%${keywords[0]}%,tags.cs.{${keywords.join(',')}}`);
-      }
-
-      const { data: docs, error } = await query;
-
-      if (error) {
-        console.error("Document search error:", error);
-      } else if (docs && docs.length > 0) {
-        documentsFound = docs;
-        console.log(`Found ${docs.length} relevant documents`);
-
-        // Build context from documents
-        documentContext = `\n\n📁 DOCUMENTS DISPONIBLES DANS LE SYSTÈME (${docs.length} trouvés):\n`;
-        
+      if (docs && docs.length > 0) {
+        contextAdditions += `\n\n📁 DOCUMENTS DISPONIBLES (${docs.length}):\n`;
         for (const doc of docs) {
-          documentContext += `\n---\n📄 **${doc.filename}** (${doc.file_type.toUpperCase()})`;
-          documentContext += `\n   Tags: ${doc.tags?.join(', ') || 'aucun'}`;
-          documentContext += `\n   Date: ${new Date(doc.created_at).toLocaleDateString('fr-FR')}`;
-          
-          // Include content preview (limit to avoid token overflow)
+          contextAdditions += `\n• ${doc.filename} (${doc.file_type})`;
           if (doc.content_text) {
-            const contentPreview = doc.content_text.substring(0, 3000);
-            documentContext += `\n\n   CONTENU:\n   ${contentPreview}${doc.content_text.length > 3000 ? '\n   [...]' : ''}`;
+            contextAdditions += `\n  Contenu: ${doc.content_text.substring(0, 2000)}...`;
           }
-          
-          // Include AI analysis if available
           if (doc.extracted_data?.ai_analysis) {
-            documentContext += `\n\n   ANALYSE IA:\n   ${JSON.stringify(doc.extracted_data.ai_analysis, null, 2)}`;
+            contextAdditions += `\n  Analyse: ${JSON.stringify(doc.extracted_data.ai_analysis)}`;
           }
         }
-        
-        documentContext += '\n---\n';
-      } else {
-        documentContext = '\n\n📁 Aucun document pertinent trouvé dans le système. L\'utilisateur peut uploader des documents via /admin/documents.\n';
       }
     }
 
-    // Prepare enhanced system prompt with document context
+    // Search emails if relevant
+    if (queryType.isEmail) {
+      console.log("Searching emails...");
+      
+      const { data: emails } = await supabase
+        .from('emails')
+        .select('from_address, subject, body_text, sent_at, is_quotation_request')
+        .order('sent_at', { ascending: false })
+        .limit(10);
+
+      if (emails && emails.length > 0) {
+        contextAdditions += `\n\n📧 EMAILS RÉCENTS (${emails.length}):\n`;
+        for (const email of emails) {
+          const marker = email.is_quotation_request ? '⭐' : '';
+          contextAdditions += `\n${marker} De: ${email.from_address}`;
+          contextAdditions += `\n  Objet: ${email.subject}`;
+          contextAdditions += `\n  Date: ${new Date(email.sent_at).toLocaleDateString('fr-FR')}`;
+          if (email.body_text) {
+            contextAdditions += `\n  Extrait: ${email.body_text.substring(0, 500)}...`;
+          }
+        }
+      }
+    }
+
+    // Get learned knowledge if relevant
+    if (queryType.isKnowledge || queryType.isDocument || queryType.isEmail) {
+      console.log("Fetching learned knowledge...");
+      
+      const { data: knowledge } = await supabase
+        .from('learned_knowledge')
+        .select('category, name, description, data, confidence')
+        .gte('confidence', 0.5)
+        .order('usage_count', { ascending: false })
+        .limit(15);
+
+      if (knowledge && knowledge.length > 0) {
+        contextAdditions += `\n\n🧠 CONNAISSANCES APPRISES (${knowledge.length}):\n`;
+        
+        const grouped: Record<string, any[]> = {};
+        knowledge.forEach(k => {
+          if (!grouped[k.category]) grouped[k.category] = [];
+          grouped[k.category].push(k);
+        });
+
+        for (const [cat, items] of Object.entries(grouped)) {
+          contextAdditions += `\n**${cat.toUpperCase()}**`;
+          for (const item of items) {
+            contextAdditions += `\n• ${item.name} (confiance: ${Math.round(item.confidence * 100)}%)`;
+            contextAdditions += `\n  ${item.description}`;
+            if (cat === 'tarif' || cat === 'contact') {
+              contextAdditions += `\n  Données: ${JSON.stringify(item.data)}`;
+            }
+          }
+        }
+      }
+    }
+
+    // Check for email drafts if user wants to respond
+    if (userQuery.toLowerCase().includes('répond') || userQuery.toLowerCase().includes('brouillon')) {
+      const { data: drafts } = await supabase
+        .from('email_drafts')
+        .select('*, original_email:emails(subject, from_address)')
+        .eq('status', 'draft')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (drafts && drafts.length > 0) {
+        contextAdditions += `\n\n✏️ BROUILLONS EN ATTENTE (${drafts.length}):\n`;
+        for (const draft of drafts) {
+          contextAdditions += `\n• Réponse à: ${draft.original_email?.from_address || 'N/A'}`;
+          contextAdditions += `\n  Sujet: ${draft.subject}`;
+        }
+      }
+    }
+
+    // Build enhanced prompt
     let enhancedPrompt = SYSTEM_PROMPT;
-    if (documentContext) {
-      enhancedPrompt += documentContext;
+    if (contextAdditions) {
+      enhancedPrompt += '\n\n--- CONTEXTE ACTUEL ---' + contextAdditions;
     }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -312,13 +299,13 @@ serve(async (req) => {
       
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "Limite de requêtes atteinte. Veuillez réessayer dans quelques instants." }),
+          JSON.stringify({ error: "Limite de requêtes atteinte. Veuillez réessayer." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "Crédits insuffisants. Veuillez recharger votre compte." }),
+          JSON.stringify({ error: "Crédits insuffisants." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -329,7 +316,11 @@ serve(async (req) => {
       );
     }
 
-    console.log("Streaming response from AI gateway", documentsFound.length > 0 ? `(with ${documentsFound.length} documents context)` : '');
+    console.log("Streaming response with context:", {
+      hasDocuments: queryType.isDocument,
+      hasEmails: queryType.isEmail,
+      hasKnowledge: queryType.isKnowledge
+    });
 
     return new Response(response.body, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
