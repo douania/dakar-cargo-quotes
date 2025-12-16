@@ -30,7 +30,13 @@ serve(async (req) => {
     console.log('Processing file:', file.name, 'Type:', file.type, 'Size:', file.size);
 
     const fileExt = file.name.split('.').pop()?.toLowerCase();
-    const fileName = `${Date.now()}-${file.name}`;
+    // Sanitize filename for storage - remove special chars, spaces, accents
+    const sanitizedName = file.name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-zA-Z0-9.-]/g, '_') // Replace special chars with underscore
+      .replace(/_+/g, '_'); // Remove multiple underscores
+    const fileName = `${Date.now()}-${sanitizedName}`;
     
     // Upload to storage
     const { data: uploadData, error: uploadError } = await supabase.storage
