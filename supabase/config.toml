@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.calculate-duties]
 verify_jwt = false
+
+[functions.parse-document]
+verify_jwt = false
+
+[functions.analyze-document]
+verify_jwt = false
