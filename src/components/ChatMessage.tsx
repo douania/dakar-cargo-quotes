@@ -1,16 +1,23 @@
 import { motion } from "framer-motion";
-import { Bot, User, Copy, Check } from "lucide-react";
+import { Bot, User, Copy, Check, FileText } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
+
+interface AttachedFile {
+  id: string;
+  name: string;
+  content: string;
+}
 
 interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
   isLoading?: boolean;
+  attachedFiles?: AttachedFile[];
 }
 
-export function ChatMessage({ role, content, isLoading }: ChatMessageProps) {
+export function ChatMessage({ role, content, isLoading, attachedFiles }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isAssistant = role === "assistant";
 
@@ -26,7 +33,7 @@ export function ChatMessage({ role, content, isLoading }: ChatMessageProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className={cn(
-        "flex gap-4 p-4 rounded-xl",
+        "flex gap-4 p-4 rounded-xl group",
         isAssistant ? "bg-card/50" : "bg-transparent"
       )}
     >
@@ -65,6 +72,20 @@ export function ChatMessage({ role, content, isLoading }: ChatMessageProps) {
             </Button>
           )}
         </div>
+
+        {attachedFiles && attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {attachedFiles.map((file) => (
+              <div
+                key={file.id}
+                className="flex items-center gap-1 px-2 py-1 bg-gold/10 border border-gold/20 rounded-md text-xs text-gold"
+              >
+                <FileText className="w-3 h-3" />
+                <span className="max-w-[150px] truncate">{file.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="flex items-center gap-1">
