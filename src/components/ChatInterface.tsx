@@ -6,10 +6,17 @@ import { QuickActions } from "./QuickActions";
 import { WelcomeSection } from "./WelcomeSection";
 import { toast } from "sonner";
 
+interface AttachedFile {
+  id: string;
+  name: string;
+  content: string;
+}
+
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachedFiles?: AttachedFile[];
 };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
@@ -28,11 +35,21 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, attachedFiles?: AttachedFile[]) => {
+    // Build message content with attached files context
+    let fullContent = content;
+    if (attachedFiles && attachedFiles.length > 0) {
+      const filesContext = attachedFiles.map(f => 
+        `[Document joint: ${f.name}]\n${f.content.substring(0, 2000)}${f.content.length > 2000 ? '...(tronqué)' : ''}`
+      ).join('\n\n');
+      fullContent = `${content}\n\n--- Documents joints ---\n${filesContext}`;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
       content,
+      attachedFiles,
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -46,7 +63,7 @@ export function ChatInterface() {
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
+          messages: [...messages, { ...userMessage, content: fullContent }].map((m) => ({
             role: m.role,
             content: m.content,
           })),
@@ -192,6 +209,7 @@ export function ChatInterface() {
                     key={message.id}
                     role={message.role}
                     content={message.content}
+                    attachedFiles={message.attachedFiles}
                   />
                 ))}
                 {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
@@ -206,7 +224,7 @@ export function ChatInterface() {
 
       <div className="border-t border-border bg-background/80 backdrop-blur-sm p-4">
         <div className="max-w-3xl mx-auto">
-          <ChatInput onSend={handleSend} isLoading={isLoading} />
+          <ChatInput onSend={(msg, files) => handleSend(msg, files)} isLoading={isLoading} />
         </div>
       </div>
     </div>
