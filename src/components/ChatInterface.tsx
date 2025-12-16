@@ -12,25 +12,7 @@ type Message = {
   content: string;
 };
 
-// System prompt for the agent
-const SYSTEM_PROMPT = `Tu es un AGENT IA EXPERT EN COTATION LOGISTIQUE MARITIME ET AÉRIENNE POUR LE SÉNÉGAL, spécialisé exclusivement sur le Port Autonome de Dakar et ses pratiques réelles.
-
-Tu opères comme un transitaire sénégalais senior, avec une parfaite maîtrise :
-- des Incoterms® 2020 (ICC)
-- des pratiques portuaires locales (PAD / DP World Dakar)
-- des procédures douanières sénégalaises (GAINDE / ORBUS)
-- de la distinction stricte entre débours, honoraires et chiffre d'affaires
-
-RÈGLES ABSOLUES:
-1. Aucune cotation sans: Incoterm, Mode transport, Type marchandise, Type unité, Port/aéroport origine
-2. Sépare TOUJOURS: Transport international, Frais portuaires, Manutention, Dédouanement, Débours douaniers, Honoraires
-3. Les débours douaniers ne sont JAMAIS intégrés au chiffre d'affaires
-4. Applique strictement les Incoterms
-5. Utilise uniquement les grilles tarifaires officielles du Port de Dakar et DP World
-
-Format tes réponses avec des tableaux Markdown clairs et structurés pour les cotations.
-Pose des questions précises si des informations manquent.
-Ton ton est professionnel et rigoureux.`;
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
 export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -56,16 +38,119 @@ export function ChatInterface() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    // Simulate AI response (will be replaced with real API call when Cloud is connected)
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: generateMockResponse(content),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+    try {
+      const response = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 429) {
+          toast.error("Limite de requêtes atteinte. Veuillez réessayer dans quelques instants.");
+        } else if (response.status === 402) {
+          toast.error("Crédits insuffisants. Veuillez recharger votre compte.");
+        } else {
+          toast.error(errorData.error || "Une erreur est survenue");
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      let textBuffer = "";
+
+      // Create assistant message placeholder
+      const assistantId = (Date.now() + 1).toString();
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantId, role: "assistant", content: "" },
+      ]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        textBuffer += decoder.decode(value, { stream: true });
+
+        // Process line-by-line
+        let newlineIndex: number;
+        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+          let line = textBuffer.slice(0, newlineIndex);
+          textBuffer = textBuffer.slice(newlineIndex + 1);
+
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
+
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") break;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, content: assistantContent } : m
+                )
+              );
+            }
+          } catch {
+            // Incomplete JSON, put it back
+            textBuffer = line + "\n" + textBuffer;
+            break;
+          }
+        }
+      }
+
+      // Final flush
+      if (textBuffer.trim()) {
+        for (let raw of textBuffer.split("\n")) {
+          if (!raw) continue;
+          if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+          if (raw.startsWith(":") || raw.trim() === "") continue;
+          if (!raw.startsWith("data: ")) continue;
+          const jsonStr = raw.slice(6).trim();
+          if (jsonStr === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, content: assistantContent } : m
+                )
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Chat error:", error);
+      toast.error("Une erreur est survenue lors de la communication avec l'agent.");
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleQuickAction = (prompt: string) => {
@@ -109,12 +194,8 @@ export function ChatInterface() {
                     content={message.content}
                   />
                 ))}
-                {isLoading && (
-                  <ChatMessage
-                    role="assistant"
-                    content=""
-                    isLoading
-                  />
+                {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+                  <ChatMessage role="assistant" content="" isLoading />
                 )}
               </motion.div>
             )}
@@ -130,131 +211,4 @@ export function ChatInterface() {
       </div>
     </div>
   );
-}
-
-// Mock response generator (will be replaced with real AI when Cloud is connected)
-function generateMockResponse(userMessage: string): string {
-  const lowerMessage = userMessage.toLowerCase();
-  
-  if (lowerMessage.includes("conteneur") && lowerMessage.includes("40")) {
-    return `Merci pour votre demande. Pour établir une cotation précise pour un conteneur 40' HC Shanghai → Dakar en CIF, j'ai besoin de quelques précisions :
-
-**Informations requises :**
-1. **Nature exacte de la marchandise** (code SH si disponible)
-2. **Valeur CIF déclarée** (en USD ou FCFA)
-3. **Date d'arrivée estimée** (pour calcul des franchises)
-
-**Structure de la cotation prévisionnelle :**
-
-| Poste | Description | Montant estimé |
-|-------|-------------|----------------|
-| Transport International | Fret maritime (inclus en CIF) | Payé par expéditeur |
-| Frais portuaires PAD | Droits de port, redevances | À calculer |
-| Manutention DP World | Débarquement 40' HC | ~ 180 000 FCFA |
-| Dédouanement | Honoraires SODATRA | ~ 150 000 FCFA |
-| Débours douaniers | DD + TVA (estimation) | Sur base valeur CIF |
-
-⚠️ **Note importante** : Les débours douaniers seront calculés sur la valeur CIF déclarée et refacturés à l'identique (non inclus dans le CA).
-
-Merci de me fournir les informations manquantes pour finaliser cette cotation.`;
-  }
-  
-  if (lowerMessage.includes("aérien") || lowerMessage.includes("aibd")) {
-    return `Pour votre demande de cotation fret aérien Paris CDG → Dakar AIBD (500 kg, FOB), voici les éléments :
-
-**Informations à préciser :**
-1. **Dimensions des colis** (pour calcul poids volumétrique)
-2. **Nature de la marchandise** (classification IATA)
-3. **Valeur FOB déclarée**
-
-**Rappel règle IATA :**
-- Poids taxable = MAX (poids réel, poids volumétrique)
-- Poids volumétrique = L×l×H (cm) / 6000
-
-**Structure prévisionnelle :**
-
-| Poste | Description | Base |
-|-------|-------------|------|
-| Fret aérien | Tarif au kg taxable | En cours de cotation |
-| Surcharge carburant | % du fret | Variable |
-| Sûreté | Forfait | ~ 15 000 FCFA |
-| Handling AIBD | Manutention | ~ 50 000 FCFA |
-| Dédouanement | Honoraires | ~ 100 000 FCFA |
-| Débours | DD + TVA | Sur valeur CAF |
-
-En attente de vos précisions pour finaliser.`;
-  }
-  
-  if (lowerMessage.includes("roro") || lowerMessage.includes("véhicule")) {
-    return `Pour l'importation d'un véhicule d'occasion Anvers → Dakar (RORO, FOB), voici ma demande de précisions :
-
-**Informations requises :**
-1. **Type de véhicule** (berline, SUV, utilitaire)
-2. **Année de mise en circulation**
-3. **Cylindrée** (cm³)
-4. **Valeur FOB déclarée** (attestation de valeur requise)
-
-**⚠️ Réglementation véhicules d'occasion Sénégal :**
-- Âge maximum : 8 ans pour les particuliers
-- Malus écologique si > 5 ans
-- Taxe spéciale selon cylindrée
-
-**Structure prévisionnelle :**
-
-| Poste | Applicable |
-|-------|-----------|
-| Fret maritime RORO | À charge du client (FOB) |
-| Frais PAD véhicule | ~ 50 000 FCFA |
-| Manutention | ~ 75 000 FCFA |
-| Dédouanement | ~ 120 000 FCFA |
-| Débours (DD + Malus + TVA) | Sur valeur argus |
-
-Merci de me transmettre les caractéristiques du véhicule.`;
-  }
-  
-  if (lowerMessage.includes("débours") || lowerMessage.includes("douaniers")) {
-    return `Pour une marchandise générale d'une valeur CIF de 15 000 000 FCFA, voici une estimation des débours douaniers :
-
-**⚠️ ESTIMATION - Les taux exacts dépendent du code SH**
-
-| Taxe | Base | Taux | Montant estimé |
-|------|------|------|----------------|
-| Droit de Douane (DD) | Valeur CIF | 5-20%* | 750 000 - 3 000 000 FCFA |
-| Redevance Statistique (RS) | Valeur CIF | 1% | 150 000 FCFA |
-| Prélèvement COSEC | Valeur CIF | 0,4% | 60 000 FCFA |
-| TVA | CIF + DD + RS | 18% | ~ 2 900 000 - 3 300 000 FCFA |
-
-**Total estimé débours : 3 860 000 à 6 510 000 FCFA**
-
-*Le taux DD varie selon la position tarifaire (code SH).
-
-**Rappel important :**
-- Ces débours sont refacturés à l'identique
-- Non intégrés au chiffre d'affaires SODATRA
-- Montants définitifs après liquidation GAINDE
-
-Pour un calcul exact, merci de préciser :
-1. Nature exacte de la marchandise
-2. Code SH (si connu)
-3. Pays d'origine (pour accords préférentiels éventuels)`;
-  }
-
-  return `Merci pour votre message. Pour vous fournir une cotation précise et conforme à la méthodologie SODATRA, j'ai besoin des informations suivantes :
-
-**Informations minimales requises :**
-1. **Incoterm** (FOB, CIF, EXW, DAP, DDP...)
-2. **Mode de transport** (Maritime conteneur, RORO, Breakbulk, Aérien)
-3. **Type de marchandise** (nature, code SH si disponible)
-4. **Unité** (20', 40', poids/volume, nombre de colis)
-5. **Port/aéroport d'origine**
-
-**Structure de ma cotation :**
-- Transport international
-- Frais portuaires/aéroportuaires (PAD/AIBD)
-- Manutention (DP World/Handling)
-- Dédouanement (honoraires)
-- Débours douaniers (estimation, refacturés à l'identique)
-- Honoraires SODATRA
-
-Je reste à votre disposition pour toute précision.`;
 }
