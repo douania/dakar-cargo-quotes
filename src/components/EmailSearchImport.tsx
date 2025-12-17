@@ -115,7 +115,23 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      toast.success(`${data.imported} email(s) importé(s) pour apprentissage`);
+      // Build informative message
+      let message = '';
+      if (data.imported > 0) {
+        message = `${data.imported} nouvel email(s) importé(s)`;
+      }
+      if (data.alreadyExisted > 0) {
+        message += message ? ' + ' : '';
+        message += `${data.alreadyExisted} email(s) déjà présent(s)`;
+      }
+      if (data.analysis) {
+        message += `. Analyse IA: ${data.analysis.knowledgeStored} connaissance(s) extraite(s)`;
+        if (data.analysis.quotationDetected) {
+          message += ` - Cotation détectée${data.analysis.quotationAmount ? `: ${data.analysis.quotationAmount}` : ''}`;
+        }
+      }
+      
+      toast.success(message || 'Import terminé');
       
       // Clear selection and refresh
       setSelectedThreads(new Set());

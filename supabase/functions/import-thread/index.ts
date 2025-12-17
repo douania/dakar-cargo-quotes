@@ -496,40 +496,64 @@ serve(async (req) => {
     client = null;
 
     const newlyImportedEmails = importedEmails.filter(e => !e.alreadyExists);
-    const emailIds = newlyImportedEmails.map(e => e.id);
+    const existingEmailIds = importedEmails.filter(e => e.alreadyExists).map(e => e.id);
+    const allEmailIds = importedEmails.map(e => e.id);
 
-    // AI Analysis of the thread
+    // Fetch complete data for existing emails
+    let allEmailsForAnalysis = [...newlyImportedEmails];
+    if (existingEmailIds.length > 0) {
+      const { data: existingEmails } = await supabase
+        .from('emails')
+        .select('*')
+        .in('id', existingEmailIds);
+      
+      if (existingEmails) {
+        allEmailsForAnalysis = [...allEmailsForAnalysis, ...existingEmails];
+      }
+    }
+
+    // AI Analysis of the thread (even if all emails already exist)
     let analysisResult = null;
     let knowledgeStored = 0;
 
-    if (learningCase && newlyImportedEmails.length > 0) {
-      console.log("Starting AI analysis of imported thread...");
+    if (learningCase && allEmailsForAnalysis.length > 0) {
+      console.log(`Starting AI analysis of thread with ${allEmailsForAnalysis.length} emails (${newlyImportedEmails.length} new, ${existingEmailIds.length} existing)...`);
       
       // Analyze the complete thread
-      analysisResult = await analyzeThreadWithAI(newlyImportedEmails, supabase);
+      analysisResult = await analyzeThreadWithAI(allEmailsForAnalysis, supabase);
       
       if (analysisResult) {
         // Store extracted knowledge
         knowledgeStored = await storeExtractedKnowledge(
           analysisResult, 
           threadId!, 
-          emailIds, 
+          allEmailIds, 
           supabase
         );
 
-        // Create main thread knowledge entry with analysis summary
-        await supabase.from('learned_knowledge').insert({
-          name: `Échange: ${newlyImportedEmails[0]?.subject?.substring(0, 80) || 'Sans titre'}`,
+        // Create/update main thread knowledge entry with analysis summary
+        const threadKnowledgeName = `Échange: ${allEmailsForAnalysis[0]?.subject?.substring(0, 80) || 'Sans titre'}`;
+        
+        // Check if thread knowledge already exists
+        const { data: existingKnowledge } = await supabase
+          .from('learned_knowledge')
+          .select('id')
+          .eq('name', threadKnowledgeName)
+          .eq('category', 'quotation_exchange')
+          .maybeSingle();
+
+        const threadKnowledgeData = {
+          name: threadKnowledgeName,
           category: 'quotation_exchange',
-          description: analysisResult.summary || `Échange de ${newlyImportedEmails.length} emails analysé`,
+          description: analysisResult.summary || `Échange de ${allEmailsForAnalysis.length} emails analysé`,
           source_type: 'email_thread',
           data: {
-            email_ids: emailIds,
+            email_ids: allEmailIds,
             thread_id: threadId,
-            participants: [...new Set(newlyImportedEmails.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))],
+            participants: [...new Set(allEmailsForAnalysis.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))],
             date_range: {
-              first: newlyImportedEmails[newlyImportedEmails.length - 1]?.sent_at,
-              last: newlyImportedEmails[0]?.sent_at
+              first: allEmailsForAnalysis[allEmailsForAnalysis.length - 1]?.sent_at,
+              last: allEmailsForAnalysis[0]?.sent_at
             },
             learning_case: learningCase,
             quotation_detected: analysisResult.quotation_detected,
@@ -538,19 +562,32 @@ serve(async (req) => {
             extractions_count: analysisResult.extractions?.length || 0
           },
           confidence: 0.7,
-          is_validated: false
-        });
+          is_validated: false,
+          updated_at: new Date().toISOString()
+        };
 
-        // Update emails with analysis results
-        for (const email of newlyImportedEmails) {
+        if (existingKnowledge) {
+          await supabase
+            .from('learned_knowledge')
+            .update(threadKnowledgeData)
+            .eq('id', existingKnowledge.id);
+          console.log('Updated existing thread knowledge');
+        } else {
+          await supabase.from('learned_knowledge').insert(threadKnowledgeData);
+          console.log('Created new thread knowledge');
+        }
+
+        // Update all emails with analysis results
+        for (const email of allEmailsForAnalysis) {
           await supabase
             .from('emails')
             .update({
               extracted_data: {
-                ...email.extracted_data,
+                ...(typeof email.extracted_data === 'object' ? email.extracted_data : {}),
                 ai_analyzed: true,
                 analyzed_at: new Date().toISOString(),
-                thread_summary: analysisResult.summary
+                thread_summary: analysisResult.summary,
+                learning_case: learningCase
               }
             })
             .eq('id', email.id);
@@ -562,7 +599,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         imported: newlyImportedEmails.length,
-        total: importedEmails.length,
+        alreadyExisted: existingEmailIds.length,
+        totalAnalyzed: allEmailsForAnalysis.length,
         threadId,
         emails: importedEmails,
         analysis: analysisResult ? {
