@@ -54,6 +54,15 @@ serve(async (req) => {
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
 
+    // Helper function to sanitize text for database storage
+    const sanitizeText = (text: string): string => {
+      return text
+        .replace(/\u0000/g, '') // Remove null characters
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove control characters except newline, tab, carriage return
+        .replace(/\\u0000/g, '') // Remove escaped null sequences
+        .trim();
+    };
+
     if (fileExt === 'pdf') {
       // For PDF, we'll extract what we can - basic text detection
       // Note: Full PDF parsing requires external service
@@ -68,7 +77,7 @@ serve(async (req) => {
           .filter(t => t.length > 2 && /[a-zA-Z0-9àéèêëïîôùûüçÀÉÈÊËÏÎÔÙÛÜÇ]/.test(t))
           .join(' ');
         
-        extractedText = extractedParts || '[PDF détecté - pour une extraction complète, utilisez l\'analyse IA]';
+        extractedText = sanitizeText(extractedParts) || '[PDF détecté - pour une extraction complète, utilisez l\'analyse IA]';
         extractedData = {
           type: 'pdf',
           rawSize: uint8Array.length,
@@ -133,10 +142,13 @@ serve(async (req) => {
         console.error('CSV parse error:', csvError);
       }
     } else if (fileExt === 'txt' || fileExt === 'md') {
-      extractedText = new TextDecoder().decode(uint8Array);
+      extractedText = sanitizeText(new TextDecoder().decode(uint8Array));
     } else {
       extractedText = '[Format non supporté pour l\'extraction de texte]';
     }
+
+    // Ensure text is sanitized before database insertion
+    extractedText = sanitizeText(extractedText);
 
     // Detect document type based on content
     const docType = detectDocumentType(extractedText);
@@ -145,7 +157,7 @@ serve(async (req) => {
     const { data: docData, error: docError } = await supabase
       .from('documents')
       .insert({
-        filename: file.name,
+        filename: sanitizeText(file.name),
         file_type: fileExt,
         file_size: file.size,
         content_text: extractedText.substring(0, 100000), // Limit text size
