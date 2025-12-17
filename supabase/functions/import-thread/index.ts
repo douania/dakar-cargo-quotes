@@ -119,66 +119,145 @@ interface AttachmentInfo {
   size: number;
 }
 
-// Parse BODYSTRUCTURE to find attachments
+// Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
 function parseBodyStructure(response: string): AttachmentInfo[] {
   const attachments: AttachmentInfo[] = [];
   
-  // Match attachment parts with filename
-  const filenameRegex = /\("name"\s+"([^"]+)"\)|filename\*?=(?:"([^"]+)"|([^\s\)]+))/gi;
-  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))\s*\)/i);
-  
-  if (!structureMatch) return attachments;
+  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s*\)|\s*$)/i);
+  if (!structureMatch) {
+    console.log("No BODYSTRUCTURE match found");
+    return attachments;
+  }
   
   const structure = structureMatch[1];
+  console.log("Parsing BODYSTRUCTURE:", structure.substring(0, 500));
   
-  // Simple parsing for common attachment patterns
-  // Look for parts like: ("application" "pdf" ... "base64" 12345 ...)
-  const partRegex = /\(?"(application|image|audio|video|text)"\s+"([^"]+)"[^)]*?"([^"]*)"[^)]*?"(base64|quoted-printable|7bit|8bit)"[^)]*?(\d+)/gi;
+  // Recursive function to parse MIME structure and track part numbers
+  function parsePart(str: string, partPath: string): void {
+    // Check if this is a multipart (starts with nested parentheses)
+    const trimmed = str.trim();
+    
+    if (trimmed.startsWith('((')) {
+      // This is a multipart - extract subparts
+      let depth = 0;
+      let partStart = 0;
+      let subPartNum = 1;
+      
+      for (let i = 0; i < trimmed.length; i++) {
+        if (trimmed[i] === '(') {
+          if (depth === 0) partStart = i;
+          depth++;
+        } else if (trimmed[i] === ')') {
+          depth--;
+          if (depth === 0) {
+            const subPart = trimmed.substring(partStart, i + 1);
+            // Check if this looks like a subtype declaration (e.g., "MIXED" "ALTERNATIVE")
+            if (!subPart.match(/^\s*\(\s*"[A-Z]+"\s*\(/i)) {
+              const newPath = partPath ? `${partPath}.${subPartNum}` : String(subPartNum);
+              parsePart(subPart, newPath);
+              subPartNum++;
+            }
+          }
+        }
+      }
+    } else if (trimmed.startsWith('(')) {
+      // This is a single part - check if it's an attachment
+      // Pattern: ("type" "subtype" (params) "id" "desc" "encoding" size ...)
+      const singlePartMatch = trimmed.match(/^\(\s*"([^"]+)"\s+"([^"]+)"\s+(NIL|\([^)]*\))\s+(NIL|"[^"]*")\s+(NIL|"[^"]*")\s+"([^"]+)"\s+(\d+)/i);
+      
+      if (singlePartMatch) {
+        const [, type, subtype, params, , , encoding, size] = singlePartMatch;
+        const contentType = `${type}/${subtype}`.toLowerCase();
+        
+        // Skip body text parts
+        if (contentType === 'text/plain' || contentType === 'text/html') return;
+        
+        // Extract filename from params
+        let filename = `attachment`;
+        const nameMatch = params.match(/(?:"name"\s+"([^"]+)"|name\s+"([^"]+)")/i) || 
+                         trimmed.match(/(?:"name"\s+"([^"]+)"|filename\*?[^"]*"([^"]+)")/i);
+        if (nameMatch) {
+          filename = decodeHeader(nameMatch[1] || nameMatch[2] || filename);
+        }
+        
+        // Add extension if missing
+        if (!filename.includes('.')) {
+          const extMap: Record<string, string> = {
+            'application/pdf': '.pdf',
+            'application/vnd.ms-excel': '.xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+          };
+          filename += extMap[contentType] || '';
+        }
+        
+        const finalPath = partPath || "1";
+        console.log(`Found attachment: ${filename} at part ${finalPath}, type: ${contentType}`);
+        
+        attachments.push({
+          partNumber: finalPath,
+          filename,
+          contentType,
+          encoding: encoding.toLowerCase(),
+          size: parseInt(size) || 0
+        });
+      }
+    }
+  }
+  
+  // Alternative simpler approach: scan for attachment patterns with context
+  // Pattern for inline/attachment parts with disposition
+  const dispositionRegex = /\(\s*"(application|image|audio|video)"[^)]*?"([^"]+)"[^)]*?\((?:[^)]*"name"\s*"([^"]+)")?[^)]*\)[^)]*(?:NIL|"[^"]*")[^)]*(?:NIL|"[^"]*")[^)]*"(base64|quoted-printable|7bit)"[^)]*?(\d+)/gi;
   
   let match;
-  let partNum = 1;
+  let foundWithRegex = false;
   
-  while ((match = partRegex.exec(structure)) !== null) {
-    const [, type, subtype, , encoding, size] = match;
+  // First, try to identify parts by looking at the raw structure
+  // Count opening parens to determine part depth
+  let currentPart = 0;
+  let inMultipart = structure.startsWith('((');
+  
+  // Simpler approach: find all attachment-like patterns and assign sequential part numbers
+  const attachmentPattern = /\("(application|image|audio|video)"\s+"([^"]+)"\s+(?:NIL|\([^)]*\))[^)]*"(base64|quoted-printable|7bit|8bit)"\s+(\d+)/gi;
+  
+  while ((match = attachmentPattern.exec(structure)) !== null) {
+    const [fullMatch, type, subtype, encoding, size] = match;
     const contentType = `${type}/${subtype}`.toLowerCase();
-    
-    // Skip text/plain and text/html (these are body parts, not attachments)
-    if (contentType === 'text/plain' || contentType === 'text/html') continue;
+    currentPart++;
     
     // Try to find filename near this match
-    const beforeMatch = structure.substring(0, match.index);
-    const afterMatch = structure.substring(match.index, match.index + 500);
-    const contextStr = beforeMatch.slice(-200) + afterMatch;
+    const contextStart = Math.max(0, match.index - 100);
+    const contextEnd = Math.min(structure.length, match.index + fullMatch.length + 200);
+    const context = structure.substring(contextStart, contextEnd);
     
-    let filename = `attachment_${partNum}`;
-    const fnMatch = contextStr.match(/(?:"name"\s*"([^"]+)"|filename\*?=(?:"([^"]+)"|'[^']*'([^']+)'|([^\s\);"]+)))/i);
+    let filename = `attachment_${currentPart}`;
+    const fnMatch = context.match(/(?:"name"\s*"([^"]+)"|filename[^"]*"([^"]+)")/i);
     if (fnMatch) {
-      filename = decodeHeader(fnMatch[1] || fnMatch[2] || fnMatch[3] || fnMatch[4] || filename);
+      filename = decodeHeader(fnMatch[1] || fnMatch[2] || filename);
     }
     
-    // Add extension based on content type if missing
-    if (!filename.includes('.')) {
-      const extMap: Record<string, string> = {
-        'application/pdf': '.pdf',
-        'application/vnd.ms-excel': '.xls',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-        'application/msword': '.doc',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-        'image/jpeg': '.jpg',
-        'image/png': '.png',
-      };
-      filename += extMap[contentType] || '';
-    }
+    // For multipart messages, the first non-text part is typically at position 2 or higher
+    // The actual part number depends on structure, but we can estimate
+    const partNumber = inMultipart ? String(currentPart + 1) : String(currentPart);
+    
+    console.log(`Detected attachment via pattern: ${filename} (${contentType}) at estimated part ${partNumber}`);
     
     attachments.push({
-      partNumber: String(partNum),
+      partNumber,
       filename,
       contentType,
       encoding: encoding.toLowerCase(),
       size: parseInt(size) || 0
     });
-    
-    partNum++;
+    foundWithRegex = true;
+  }
+  
+  // If regex approach found nothing, try recursive parse
+  if (!foundWithRegex) {
+    parsePart(structure, "");
   }
   
   return attachments;
@@ -322,15 +401,53 @@ class IMAPClient {
   }
 
   async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
+    console.log(`Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    console.log(`Fetch response length: ${response.length}, preview: ${response.substring(0, 200)}`);
     
-    // Extract the content from the response
-    const sizeMatch = response.match(/BODY\[\d+\] \{(\d+)\}/i);
-    if (!sizeMatch) {
-      // Try alternative format
-      const contentMatch = response.match(/BODY\[\d+\]\s+"([^"]+)"/i);
-      if (contentMatch) {
-        const content = contentMatch[1];
+    // Pattern 1: BODY[X] {size}\r\ncontent
+    const sizeMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
+    if (sizeMatch) {
+      const size = parseInt(sizeMatch[1]);
+      const afterBrace = response.indexOf(`{${size}}`);
+      if (afterBrace !== -1) {
+        const contentStart = response.indexOf('\r\n', afterBrace);
+        if (contentStart !== -1) {
+          // Extract exactly 'size' bytes after the \r\n
+          const content = response.substring(contentStart + 2, contentStart + 2 + size);
+          console.log(`Extracted content (pattern 1), length: ${content.length}`);
+          
+          if (content.length > 0) {
+            if (encoding === 'base64') {
+              return decodeBase64(content);
+            } else if (encoding === 'quoted-printable') {
+              return decodeQuotedPrintable(content);
+            }
+            return new TextEncoder().encode(content);
+          }
+        }
+      }
+    }
+    
+    // Pattern 2: BODY[X] "content"
+    const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
+    if (quotedMatch && quotedMatch[1]) {
+      const content = quotedMatch[1];
+      console.log(`Extracted content (pattern 2), length: ${content.length}`);
+      if (encoding === 'base64') {
+        return decodeBase64(content);
+      } else if (encoding === 'quoted-printable') {
+        return decodeQuotedPrintable(content);
+      }
+      return new TextEncoder().encode(content);
+    }
+    
+    // Pattern 3: Try to extract everything between BODY[X] and the closing )
+    const bodyMatch = response.match(/BODY\[[\d.]+\]\s*(?:\{\d+\}\r\n)?([\s\S]*?)(?:\)\r\n[A-Z]\d+|$)/i);
+    if (bodyMatch && bodyMatch[1]) {
+      const content = bodyMatch[1].trim();
+      console.log(`Extracted content (pattern 3), length: ${content.length}`);
+      if (content.length > 0) {
         if (encoding === 'base64') {
           return decodeBase64(content);
         } else if (encoding === 'quoted-printable') {
@@ -338,22 +455,10 @@ class IMAPClient {
         }
         return new TextEncoder().encode(content);
       }
-      return new Uint8Array(0);
     }
     
-    // Get content after the size indicator
-    const afterSize = response.indexOf(`{${sizeMatch[1]}}`);
-    if (afterSize === -1) return new Uint8Array(0);
-    
-    const contentStart = response.indexOf('\r\n', afterSize) + 2;
-    const content = response.substring(contentStart).replace(/\)\r\n.*$/, '');
-    
-    if (encoding === 'base64') {
-      return decodeBase64(content);
-    } else if (encoding === 'quoted-printable') {
-      return decodeQuotedPrintable(content);
-    }
-    return new TextEncoder().encode(content);
+    console.log("No content pattern matched, returning empty");
+    return new Uint8Array(0);
   }
 
   async fetchMessage(uid: number): Promise<{
