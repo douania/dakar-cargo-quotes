@@ -1,32 +1,18 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
-  Brain, CheckCircle, XCircle, Eye, Trash2, 
+  Brain, CheckCircle, XCircle, Trash2, 
   Tag, DollarSign, FileText, Users, Clock, Package,
   TrendingUp, Loader2, RefreshCw
 } from 'lucide-react';
-
-interface LearnedKnowledge {
-  id: string;
-  name: string;
-  category: string;
-  description: string | null;
-  data: any;
-  source_type: string | null;
-  confidence: number;
-  is_validated: boolean;
-  usage_count: number;
-  created_at: string;
-  updated_at: string;
-}
+import { useKnowledge, useToggleValidation, useDeleteKnowledge } from '@/hooks/useKnowledge';
+import type { LearnedKnowledge as LearnedKnowledgeType } from '@/types';
 
 const categoryIcons: Record<string, React.ReactNode> = {
   tarif: <DollarSign className="h-4 w-4" />,
@@ -48,100 +34,44 @@ const categoryLabels: Record<string, string> = {
   quotation_exchange: 'Échanges',
 };
 
+function formatDate(dateStr: string) {
+  try {
+    return format(new Date(dateStr), 'dd MMM yyyy HH:mm', { locale: fr });
+  } catch {
+    return dateStr;
+  }
+}
+
+function getConfidenceBadge(confidence: number) {
+  if (confidence >= 0.8) {
+    return <Badge className="bg-green-500/20 text-green-600 border-green-500/30">Haute ({Math.round(confidence * 100)}%)</Badge>;
+  } else if (confidence >= 0.5) {
+    return <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30">Moyenne ({Math.round(confidence * 100)}%)</Badge>;
+  }
+  return <Badge className="bg-red-500/20 text-red-600 border-red-500/30">Basse ({Math.round(confidence * 100)}%)</Badge>;
+}
+
 export function LearnedKnowledge() {
-  const [knowledge, setKnowledge] = useState<LearnedKnowledge[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedItem, setSelectedItem] = useState<LearnedKnowledge | null>(null);
+  const { data: knowledge = [], isLoading, refetch } = useKnowledge();
+  const toggleValidation = useToggleValidation();
+  const deleteKnowledgeMutation = useDeleteKnowledge();
+  
+  const [selectedItem, setSelectedItem] = useState<LearnedKnowledgeType | null>(null);
   const [filter, setFilter] = useState<string>('all');
 
-  useEffect(() => {
-    loadKnowledge();
-  }, []);
+  const categories = useMemo(() => 
+    [...new Set(knowledge.map(k => k.category))],
+    [knowledge]
+  );
 
-  const loadKnowledge = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('learned_knowledge')
-        .select('*')
-        .order('created_at', { ascending: false });
+  const filteredKnowledge = useMemo(() => {
+    if (filter === 'all') return knowledge;
+    if (filter === 'validated') return knowledge.filter(k => k.is_validated);
+    if (filter === 'pending') return knowledge.filter(k => !k.is_validated);
+    return knowledge.filter(k => k.category === filter);
+  }, [knowledge, filter]);
 
-      if (error) throw error;
-      setKnowledge(data || []);
-    } catch (error) {
-      console.error('Error loading knowledge:', error);
-      toast.error('Erreur de chargement');
-    }
-    setLoading(false);
-  };
-
-  const toggleValidation = async (id: string, currentState: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('learned_knowledge')
-        .update({ 
-          is_validated: !currentState,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      toast.success(currentState ? 'Connaissance invalidée' : 'Connaissance validée');
-      loadKnowledge();
-    } catch (error) {
-      console.error('Error toggling validation:', error);
-      toast.error('Erreur de mise à jour');
-    }
-  };
-
-  const deleteKnowledge = async (id: string) => {
-    if (!confirm('Supprimer cette connaissance ?')) return;
-    
-    try {
-      const { error } = await supabase
-        .from('learned_knowledge')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      toast.success('Connaissance supprimée');
-      setSelectedItem(null);
-      loadKnowledge();
-    } catch (error) {
-      console.error('Error deleting knowledge:', error);
-      toast.error('Erreur de suppression');
-    }
-  };
-
-  const formatDate = (dateStr: string) => {
-    try {
-      return format(new Date(dateStr), 'dd MMM yyyy HH:mm', { locale: fr });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const getConfidenceBadge = (confidence: number) => {
-    if (confidence >= 0.8) {
-      return <Badge className="bg-green-500/20 text-green-600 border-green-500/30">Haute ({Math.round(confidence * 100)}%)</Badge>;
-    } else if (confidence >= 0.5) {
-      return <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30">Moyenne ({Math.round(confidence * 100)}%)</Badge>;
-    }
-    return <Badge className="bg-red-500/20 text-red-600 border-red-500/30">Basse ({Math.round(confidence * 100)}%)</Badge>;
-  };
-
-  const categories = [...new Set(knowledge.map(k => k.category))];
-  const filteredKnowledge = filter === 'all' 
-    ? knowledge 
-    : filter === 'validated' 
-      ? knowledge.filter(k => k.is_validated)
-      : filter === 'pending'
-        ? knowledge.filter(k => !k.is_validated)
-        : knowledge.filter(k => k.category === filter);
-
-  const stats = {
+  const stats = useMemo(() => ({
     total: knowledge.length,
     validated: knowledge.filter(k => k.is_validated).length,
     pending: knowledge.filter(k => !k.is_validated).length,
@@ -149,9 +79,19 @@ export function LearnedKnowledge() {
       acc[cat] = knowledge.filter(k => k.category === cat).length;
       return acc;
     }, {} as Record<string, number>)
-  };
+  }), [knowledge, categories]);
 
-  if (loading) {
+  const handleToggleValidation = useCallback((id: string, currentState: boolean) => {
+    toggleValidation.mutate({ id, currentState });
+  }, [toggleValidation]);
+
+  const handleDelete = useCallback((id: string) => {
+    if (!confirm('Supprimer cette connaissance ?')) return;
+    deleteKnowledgeMutation.mutate(id);
+    setSelectedItem(null);
+  }, [deleteKnowledgeMutation]);
+
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -201,7 +141,7 @@ export function LearnedKnowledge() {
             <Button 
               variant="outline" 
               className="w-full h-full"
-              onClick={loadKnowledge}
+              onClick={() => refetch()}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Actualiser
@@ -285,7 +225,7 @@ export function LearnedKnowledge() {
                       variant={item.is_validated ? "outline" : "default"}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleValidation(item.id, item.is_validated);
+                        handleToggleValidation(item.id, item.is_validated);
                       }}
                     >
                       {item.is_validated ? (
@@ -356,14 +296,14 @@ export function LearnedKnowledge() {
                   <Button 
                     variant="destructive" 
                     size="sm"
-                    onClick={() => deleteKnowledge(selectedItem.id)}
+                    onClick={() => handleDelete(selectedItem.id)}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Supprimer
                   </Button>
                   <Button 
                     variant={selectedItem.is_validated ? "outline" : "default"}
-                    onClick={() => toggleValidation(selectedItem.id, selectedItem.is_validated)}
+                    onClick={() => handleToggleValidation(selectedItem.id, selectedItem.is_validated)}
                   >
                     {selectedItem.is_validated ? (
                       <>

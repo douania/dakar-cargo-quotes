@@ -1,14 +1,10 @@
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { Bot, User, Copy, Check, FileText } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
-
-interface AttachedFile {
-  id: string;
-  name: string;
-  content: string;
-}
+import type { AttachedFile } from "@/types";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -17,15 +13,20 @@ interface ChatMessageProps {
   attachedFiles?: AttachedFile[];
 }
 
-export function ChatMessage({ role, content, isLoading, attachedFiles }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ 
+  role, 
+  content, 
+  isLoading, 
+  attachedFiles 
+}: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isAssistant = role === "assistant";
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [content]);
 
   return (
     <motion.div
@@ -103,4 +104,4 @@ export function ChatMessage({ role, content, isLoading, attachedFiles }: ChatMes
       </div>
     </motion.div>
   );
-}
+});
