@@ -171,15 +171,15 @@ export default function HsCodesAdmin() {
       }
       const csvContent = await csvResponse.text();
       
-      // Send the CSV content directly to the edge function
+      // Send the CSV content directly to the edge function (full mode = rates + descriptions)
       const response = await supabase.functions.invoke("import-hs-codes", {
-        body: { csvContent },
+        body: { csvContent, mode: "full" },
       });
       
       if (response.error) throw new Error(response.error.message);
       
       const result = response.data;
-      toast.success(`Import réussi: ${result.stats.inserted} codes importés`);
+      toast.success(`Import réussi: ${result.stats.updated} mis à jour, ${result.stats.inserted} ajoutés`);
       queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
       queryClient.invalidateQueries({ queryKey: ["hs-codes-stats"] });
     } catch (error: unknown) {
