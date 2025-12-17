@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,9 +27,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Upload, Download, Edit2, Trash2, RefreshCw, FileSpreadsheet, FileText } from "lucide-react";
+import { ArrowLeft, Search, Upload, Download, Edit2, Trash2, RefreshCw, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import * as pdfjsLib from "pdfjs-dist";
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
 
 interface HsCode {
   id: string;
@@ -60,7 +65,10 @@ export default function HsCodesAdmin() {
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [pdfText, setPdfText] = useState("");
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfStatus, setPdfStatus] = useState("");
   const [editingCode, setEditingCode] = useState<HsCode | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const limit = 50;
 
   // Fetch HS codes
@@ -212,14 +220,98 @@ export default function HsCodesAdmin() {
     }
   };
 
-  // Extract descriptions from PDF
-  const handleExtractPdfDescriptions = async () => {
-    if (!pdfText.trim()) {
-      toast.error("Veuillez coller le texte du PDF");
+  // Extract text from PDF file
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const numPages = pdf.numPages;
+    let fullText = "";
+    
+    for (let i = 1; i <= numPages; i++) {
+      setPdfProgress(Math.round((i / numPages) * 50));
+      setPdfStatus(`Lecture page ${i}/${numPages}...`);
+      
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(" ");
+      fullText += pageText + "\n";
+    }
+    
+    return fullText;
+  };
+
+  // Handle PDF file upload
+  const handlePdfFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error("Veuillez sélectionner un fichier PDF");
       return;
     }
     
     setIsExtractingPdf(true);
+    setPdfProgress(0);
+    setPdfStatus("Chargement du PDF...");
+    
+    try {
+      const extractedText = await extractTextFromPdf(file);
+      setPdfText(extractedText);
+      setPdfProgress(50);
+      setPdfStatus("Texte extrait. Prêt pour l'extraction des descriptions.");
+      toast.success(`PDF chargé: ${extractedText.length.toLocaleString()} caractères extraits`);
+    } catch (error) {
+      console.error("PDF extraction error:", error);
+      toast.error("Erreur lors de la lecture du PDF");
+      setPdfStatus("");
+    } finally {
+      setIsExtractingPdf(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // Load pre-configured PDF
+  const handleLoadDefaultPdf = async () => {
+    setIsExtractingPdf(true);
+    setPdfProgress(0);
+    setPdfStatus("Chargement du PDF TEC UEMOA...");
+    
+    try {
+      const response = await fetch("/data/TEC_UEMOA.pdf");
+      if (!response.ok) throw new Error("PDF non trouvé");
+      
+      const blob = await response.blob();
+      const file = new File([blob], "TEC_UEMOA.pdf", { type: "application/pdf" });
+      const extractedText = await extractTextFromPdf(file);
+      
+      setPdfText(extractedText);
+      setPdfProgress(50);
+      setPdfStatus("Texte extrait. Prêt pour l'extraction des descriptions.");
+      toast.success(`PDF chargé: ${extractedText.length.toLocaleString()} caractères extraits`);
+    } catch (error) {
+      console.error("Default PDF load error:", error);
+      toast.error("Erreur lors du chargement du PDF par défaut");
+      setPdfStatus("");
+    } finally {
+      setIsExtractingPdf(false);
+    }
+  };
+
+  // Extract descriptions from PDF
+  const handleExtractPdfDescriptions = async () => {
+    if (!pdfText.trim()) {
+      toast.error("Veuillez d'abord charger un PDF");
+      return;
+    }
+    
+    setIsExtractingPdf(true);
+    setPdfProgress(60);
+    setPdfStatus("Extraction des descriptions en cours...");
+    
     try {
       const response = await supabase.functions.invoke("extract-pdf-descriptions", {
         body: { pdfText, useAI: true },
@@ -227,14 +319,18 @@ export default function HsCodesAdmin() {
       
       if (response.error) throw new Error(response.error.message);
       
+      setPdfProgress(100);
       const result = response.data;
       toast.success(result.message);
       queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
       setShowPdfDialog(false);
       setPdfText("");
+      setPdfProgress(0);
+      setPdfStatus("");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Erreur inconnue";
       toast.error("Erreur d'extraction: " + message);
+      setPdfStatus("");
     } finally {
       setIsExtractingPdf(false);
     }
@@ -269,7 +365,14 @@ export default function HsCodesAdmin() {
               <Download className="h-4 w-4 mr-2" />
               Exporter CSV
             </Button>
-            <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
+            <Dialog open={showPdfDialog} onOpenChange={(open) => {
+              setShowPdfDialog(open);
+              if (!open) {
+                setPdfText("");
+                setPdfProgress(0);
+                setPdfStatus("");
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button variant="outline">
                   <FileText className="h-4 w-4 mr-2" />
@@ -278,25 +381,81 @@ export default function HsCodesAdmin() {
               </DialogTrigger>
               <DialogContent className="max-w-2xl">
                 <DialogHeader>
-                  <DialogTitle>Extraire les descriptions du PDF</DialogTitle>
+                  <DialogTitle>Extraire les descriptions du PDF TEC UEMOA</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Copiez et collez le texte du PDF TEC UEMOA ci-dessous. L'IA extraira automatiquement les codes SH et leurs descriptions pour mettre à jour la base de données.
+                    Chargez le PDF TEC UEMOA pour extraire automatiquement les descriptions des codes SH.
                   </p>
-                  <Textarea
-                    placeholder="Collez le texte du PDF ici..."
-                    value={pdfText}
-                    onChange={(e) => setPdfText(e.target.value)}
-                    rows={15}
-                    className="font-mono text-xs"
-                  />
+                  
+                  {/* File upload options */}
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={handleLoadDefaultPdf}
+                      disabled={isExtractingPdf}
+                      className="flex-1"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Charger PDF TEC UEMOA
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf"
+                      onChange={handlePdfFileUpload}
+                      className="hidden"
+                    />
+                    <Button 
+                      variant="outline" 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isExtractingPdf}
+                      className="flex-1"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Importer autre PDF
+                    </Button>
+                  </div>
+                  
+                  {/* Progress */}
+                  {(pdfProgress > 0 || pdfStatus) && (
+                    <div className="space-y-2">
+                      <Progress value={pdfProgress} className="h-2" />
+                      <p className="text-xs text-muted-foreground flex items-center gap-2">
+                        {isExtractingPdf && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {pdfStatus}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Text preview */}
+                  {pdfText && (
+                    <Textarea
+                      placeholder="Texte extrait du PDF..."
+                      value={pdfText}
+                      onChange={(e) => setPdfText(e.target.value)}
+                      rows={12}
+                      className="font-mono text-xs"
+                      readOnly={isExtractingPdf}
+                    />
+                  )}
+                  
                   <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">
-                      {pdfText.length.toLocaleString()} caractères
+                      {pdfText.length > 0 && `${pdfText.length.toLocaleString()} caractères`}
                     </p>
-                    <Button onClick={handleExtractPdfDescriptions} disabled={isExtractingPdf || !pdfText.trim()}>
-                      {isExtractingPdf ? "Extraction en cours..." : "Lancer l'extraction"}
+                    <Button 
+                      onClick={handleExtractPdfDescriptions} 
+                      disabled={isExtractingPdf || !pdfText.trim()}
+                    >
+                      {isExtractingPdf ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Extraction...
+                        </>
+                      ) : (
+                        "Extraire les descriptions"
+                      )}
                     </Button>
                   </div>
                 </div>
