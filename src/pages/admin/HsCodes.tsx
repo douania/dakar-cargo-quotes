@@ -154,8 +154,16 @@ export default function HsCodesAdmin() {
   const handleImportCSV = async () => {
     setIsImporting(true);
     try {
+      // Fetch CSV content directly from the client side
+      const csvResponse = await fetch("/data/nomenclature_douaniere.csv");
+      if (!csvResponse.ok) {
+        throw new Error("Impossible de charger le fichier CSV");
+      }
+      const csvContent = await csvResponse.text();
+      
+      // Send the CSV content directly to the edge function
       const response = await supabase.functions.invoke("import-hs-codes", {
-        body: { csvUrl: `${window.location.origin}/data/nomenclature_douaniere.csv` },
+        body: { csvContent },
       });
       
       if (response.error) throw new Error(response.error.message);
