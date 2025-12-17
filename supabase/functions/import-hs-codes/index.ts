@@ -33,9 +33,14 @@ serve(async (req) => {
       );
     }
 
+    // Remove BOM character if present and normalize line endings
+    csvData = csvData.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
     // Parse CSV
     const lines = csvData.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
+    const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/[^\w]/g, ''));
+    
+    console.log('CSV Headers (cleaned):', headers);
     
     console.log('CSV Headers:', headers);
     console.log('Total lines to process:', lines.length - 1);
