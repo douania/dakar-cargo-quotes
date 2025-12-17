@@ -852,6 +852,13 @@ serve(async (req) => {
   try {
     const { configId, uids, learningCase } = await req.json();
     
+    // Limit batch size to prevent CPU timeout
+    const MAX_EMAILS_PER_BATCH = 10;
+    const batchUids = uids.slice(0, MAX_EMAILS_PER_BATCH);
+    const remainingUids = uids.slice(MAX_EMAILS_PER_BATCH);
+    
+    console.log(`Processing batch of ${batchUids.length} emails (${remainingUids.length} remaining)`);
+    
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -880,7 +887,7 @@ serve(async (req) => {
     let threadId: string | null = null;
     let totalAttachments = 0;
 
-    for (const uid of uids) {
+    for (const uid of batchUids) {
       const msg = await client.fetchMessage(uid);
       
       // Check by actual message_id
@@ -1095,6 +1102,8 @@ serve(async (req) => {
         attachmentsProcessed: totalAttachments,
         threadId,
         emails: importedEmails,
+        remainingUids: remainingUids,
+        hasMore: remainingUids.length > 0,
         analysis: analysisResult ? {
           summary: analysisResult.summary,
           extractionsCount: analysisResult.extractions?.length || 0,
