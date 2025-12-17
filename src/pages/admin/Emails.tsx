@@ -12,6 +12,7 @@ import {
   MessageSquare, Brain, Trash2, Eye, Edit, Search
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
+import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 
 interface EmailConfig {
   id: string;
@@ -220,6 +221,10 @@ export default function Emails() {
               <Search className="h-4 w-4 mr-2" />
               Import sélectif
             </TabsTrigger>
+            <TabsTrigger value="knowledge">
+              <Brain className="h-4 w-4 mr-2" />
+              Connaissances
+            </TabsTrigger>
             <TabsTrigger value="inbox">
               <Mail className="h-4 w-4 mr-2" />
               Emails importés ({emails.length})
@@ -267,6 +272,11 @@ export default function Emails() {
                 />
               </div>
             )}
+          </TabsContent>
+
+
+          <TabsContent value="knowledge">
+            <LearnedKnowledge />
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
