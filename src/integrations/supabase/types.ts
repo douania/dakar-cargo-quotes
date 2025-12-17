@@ -266,6 +266,54 @@ export type Database = {
           },
         ]
       }
+      expert_profiles: {
+        Row: {
+          communication_style: Json | null
+          created_at: string
+          email: string
+          expertise: string[] | null
+          id: string
+          is_primary: boolean | null
+          last_learned_at: string | null
+          learned_from_count: number | null
+          name: string
+          quotation_templates: Json | null
+          response_patterns: Json | null
+          role: string | null
+          updated_at: string
+        }
+        Insert: {
+          communication_style?: Json | null
+          created_at?: string
+          email: string
+          expertise?: string[] | null
+          id?: string
+          is_primary?: boolean | null
+          last_learned_at?: string | null
+          learned_from_count?: number | null
+          name: string
+          quotation_templates?: Json | null
+          response_patterns?: Json | null
+          role?: string | null
+          updated_at?: string
+        }
+        Update: {
+          communication_style?: Json | null
+          created_at?: string
+          email?: string
+          expertise?: string[] | null
+          id?: string
+          is_primary?: boolean | null
+          last_learned_at?: string | null
+          learned_from_count?: number | null
+          name?: string
+          quotation_templates?: Json | null
+          response_patterns?: Json | null
+          role?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hs_codes: {
         Row: {
           bic: boolean | null
@@ -395,6 +443,87 @@ export type Database = {
           source_type?: string | null
           updated_at?: string | null
           usage_count?: number | null
+        }
+        Relationships: []
+      }
+      market_intelligence: {
+        Row: {
+          category: string
+          content: string | null
+          created_at: string
+          detected_at: string
+          id: string
+          impact_level: string | null
+          is_processed: boolean | null
+          processed_at: string | null
+          source: string
+          summary: string | null
+          title: string
+          url: string | null
+        }
+        Insert: {
+          category: string
+          content?: string | null
+          created_at?: string
+          detected_at?: string
+          id?: string
+          impact_level?: string | null
+          is_processed?: boolean | null
+          processed_at?: string | null
+          source: string
+          summary?: string | null
+          title: string
+          url?: string | null
+        }
+        Update: {
+          category?: string
+          content?: string | null
+          created_at?: string
+          detected_at?: string
+          id?: string
+          impact_level?: string | null
+          is_processed?: boolean | null
+          processed_at?: string | null
+          source?: string
+          summary?: string | null
+          title?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
+      surveillance_sources: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          is_active: boolean | null
+          last_scraped_at: string | null
+          name: string
+          scrape_frequency: string | null
+          selectors: Json | null
+          url: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          last_scraped_at?: string | null
+          name: string
+          scrape_frequency?: string | null
+          selectors?: Json | null
+          url: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          last_scraped_at?: string | null
+          name?: string
+          scrape_frequency?: string | null
+          selectors?: Json | null
+          url?: string
         }
         Relationships: []
       }

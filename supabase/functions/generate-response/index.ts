@@ -6,35 +6,80 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESPONSE_PROMPT = `Tu es un agent IA qui génère des réponses professionnelles pour des demandes de cotation logistique.
+const AUTONOMOUS_RESPONSE_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah, expert opérationnel senior chez SODATRA/2HL Group, spécialisé en transit logistique maritime et aérien au Sénégal.
 
-Tu dois créer une réponse de cotation basée sur:
-1. La demande originale du client
-2. Les connaissances apprises (tarifs, templates, processus)
-3. Les pratiques SODATRA
+Tu dois générer des réponses de cotation EXACTEMENT comme Taleb le ferait, en utilisant son style, ses formulations et sa méthode.
 
-La réponse doit:
-- Être professionnelle et complète
-- Inclure tous les postes de coûts détaillés
-- Respecter les Incoterms mentionnés
-- Utiliser les tarifs appris si disponibles
-- Inclure les conditions et validité
+PRINCIPES DE TALEB (À RESPECTER ABSOLUMENT):
+1. Séparation stricte des postes de coûts (jamais de forfait global opaque)
+2. Distinction claire entre débours (refacturés à l'identique) et honoraires
+3. Incoterms appliqués rigoureusement - responsabilités selon les termes
+4. Jamais de cotation sans infos minimales (Incoterm, mode, type marchandise, unité, origine)
+5. Tarifs basés sur les grilles officielles (PAD, DP World, compagnies)
+6. Conditions de validité et délais toujours mentionnés
 
-Format de sortie:
+STRUCTURE D'UNE COTATION TALEB:
+1. Salutation personnalisée
+2. Référence à la demande du client
+3. Résumé de l'opération comprise
+4. Tableau de cotation avec colonnes: Description | Montant | Devise | Notes
+5. Postes obligatoires:
+   - Fret maritime/aérien
+   - THC (Terminal Handling Charges)
+   - Manutention
+   - Dédouanement (honoraires)
+   - Droits et taxes (estimation ou réels)
+   - Frais portuaires/aéroportuaires
+   - Transport local si applicable
+6. Total avec devise
+7. Conditions:
+   - Validité (généralement 15 jours)
+   - Délais de transit estimés
+   - Documents requis
+   - Exclusions explicites
+8. Formule de clôture professionnelle
+9. Signature avec coordonnées
+
+STYLE TALEB:
+- Ton: Professionnel mais chaleureux
+- Précision: Chiffres exacts ou clairement marqués comme estimations
+- Transparence: Explique les bases de calcul
+- Réactivité: Propose des alternatives si pertinent
+- Expertise: Mentionne les réglementations applicables
+
+FORMAT DE SORTIE JSON:
 {
-  "subject": "Objet de l'email de réponse",
-  "body": "Corps de l'email en texte formaté",
+  "subject": "Objet de l'email - clair et professionnel",
+  "body": "Corps complet de l'email formaté, prêt à envoyer",
   "quotation_details": {
+    "operation_type": "import|export|transit",
+    "incoterm": "EXW|FOB|CIF|DAP|etc",
+    "mode": "maritime|aerien|routier|multimodal",
     "posts": [
-      { "description": "...", "montant": 0, "devise": "FCFA" }
+      { 
+        "category": "fret|thc|manutention|dedouanement|droits_taxes|portuaires|transport_local|autres",
+        "description": "Description détaillée",
+        "montant": number,
+        "devise": "FCFA|EUR|USD",
+        "is_estimate": boolean,
+        "notes": "Notes explicatives si besoin"
+      }
     ],
-    "total": 0,
+    "subtotal_ht": number,
+    "taxes_estimate": number,
+    "total": number,
     "devise": "FCFA",
-    "validite": "X jours",
-    "conditions": ["..."]
+    "validite": "15 jours",
+    "delai_transit": "X jours",
+    "conditions": ["condition 1", "condition 2"],
+    "exclusions": ["exclusion 1"],
+    "documents_requis": ["document 1"]
   },
   "confidence": 0.0-1.0,
-  "missing_info": ["liste des infos manquantes si applicable"]
+  "autonomous_score": 0.0-1.0,
+  "missing_info": ["info manquante si applicable"],
+  "requires_validation": boolean,
+  "validation_reason": "Raison si validation requise"
 }`;
 
 serve(async (req) => {
@@ -68,13 +113,45 @@ serve(async (req) => {
 
     console.log("Generating response for email:", email.subject);
 
-    // Get relevant learned knowledge
+    // Get primary expert profile
+    const { data: expert } = await supabase
+      .from('expert_profiles')
+      .select('*')
+      .eq('is_primary', true)
+      .maybeSingle();
+
+    // Get relevant learned knowledge (prioritize validated and high confidence)
     const { data: knowledge } = await supabase
       .from('learned_knowledge')
       .select('*')
       .gte('confidence', 0.5)
+      .order('is_validated', { ascending: false })
       .order('confidence', { ascending: false })
-      .limit(20);
+      .limit(30);
+
+    // Get recent market intelligence (last 30 days)
+    const { data: marketIntel } = await supabase
+      .from('market_intelligence')
+      .select('*')
+      .eq('is_processed', false)
+      .gte('detected_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .order('impact_level', { ascending: false })
+      .limit(10);
+
+    // Build expert context
+    let expertContext = '';
+    if (expert) {
+      expertContext = `\n\nPROFIL EXPERT À IMITER (${expert.name}):\n`;
+      if (expert.communication_style) {
+        expertContext += `Style: ${JSON.stringify(expert.communication_style)}\n`;
+      }
+      if (expert.quotation_templates) {
+        expertContext += `Templates cotation: ${JSON.stringify(expert.quotation_templates)}\n`;
+      }
+      if (expert.response_patterns) {
+        expertContext += `Patterns de réponse: ${JSON.stringify(expert.response_patterns)}\n`;
+      }
+    }
 
     // Build knowledge context
     let knowledgeContext = '';
@@ -93,6 +170,15 @@ serve(async (req) => {
           knowledgeContext += `- ${item.name}: ${item.description}\n`;
           knowledgeContext += `  Données: ${JSON.stringify(item.data)}\n`;
         }
+      }
+    }
+
+    // Build market intelligence context
+    let marketContext = '';
+    if (marketIntel && marketIntel.length > 0) {
+      marketContext = '\n\nALERTES MARCHÉ RÉCENTES:\n';
+      for (const intel of marketIntel) {
+        marketContext += `- [${intel.impact_level.toUpperCase()}] ${intel.title}: ${intel.summary}\n`;
       }
     }
 
@@ -124,15 +210,16 @@ Date: ${email.sent_at}
 ${email.body_text}
 
 ${threadContext}
-
+${expertContext}
 ${knowledgeContext}
+${marketContext}
 
 ${customInstructions ? `\nINSTRUCTIONS SUPPLÉMENTAIRES:\n${customInstructions}` : ''}
 
-Génère une réponse de cotation professionnelle.
+Génère une réponse de cotation professionnelle EXACTEMENT comme Taleb le ferait.
     `;
 
-    // Generate response
+    // Generate response with enhanced prompt
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -142,7 +229,7 @@ Génère une réponse de cotation professionnelle.
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: RESPONSE_PROMPT },
+          { role: "system", content: AUTONOMOUS_RESPONSE_PROMPT },
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" }

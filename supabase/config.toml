@@ -53,3 +53,9 @@ verify_jwt = false
 
 [functions.force-download-attachment]
 verify_jwt = false
+
+[functions.learn-from-expert]
+verify_jwt = false
+
+[functions.market-surveillance]
+verify_jwt = false
