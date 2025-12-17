@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
-  MessageSquare, Brain, Trash2, Eye, Edit, Search
+  MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
+import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 
 interface EmailConfig {
@@ -463,6 +464,10 @@ export default function Emails() {
                       {selectedEmail.body_text}
                     </pre>
                   </div>
+                  
+                  {/* Attachments */}
+                  <EmailAttachments emailId={selectedEmail.id} />
+                  
                   <div className="flex gap-2">
                     <Button onClick={() => generateResponse(selectedEmail.id)}>
                       <MessageSquare className="h-4 w-4 mr-2" />
