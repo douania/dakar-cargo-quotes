@@ -2,32 +2,29 @@ import { supabase } from '@/integrations/supabase/client';
 import type { LearnedKnowledge } from '@/types';
 
 export async function fetchKnowledge() {
-  const { data, error } = await supabase
-    .from('learned_knowledge')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.functions.invoke('data-admin', {
+    body: { action: 'get_all' }
+  });
   
   if (error) throw error;
-  return data as LearnedKnowledge[];
+  if (!data?.success) throw new Error(data?.error || 'Erreur');
+  return data.knowledge as LearnedKnowledge[];
 }
 
 export async function toggleKnowledgeValidation(id: string, currentState: boolean) {
-  const { error } = await supabase
-    .from('learned_knowledge')
-    .update({ 
-      is_validated: !currentState,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id);
+  const { data, error } = await supabase.functions.invoke('data-admin', {
+    body: { action: 'toggle_validation', data: { id, currentState } }
+  });
   
   if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || 'Erreur');
 }
 
 export async function deleteKnowledge(id: string) {
-  const { error } = await supabase
-    .from('learned_knowledge')
-    .delete()
-    .eq('id', id);
+  const { data, error } = await supabase.functions.invoke('data-admin', {
+    body: { action: 'delete', data: { id } }
+  });
   
   if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || 'Erreur');
 }

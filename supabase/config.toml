@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.email-admin]
 verify_jwt = false
+
+[functions.data-admin]
+verify_jwt = false
