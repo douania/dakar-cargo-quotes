@@ -69,6 +69,7 @@ export default function Emails() {
   const [configs, setConfigs] = useState<EmailConfig[]>([]);
   const [emails, setEmails] = useState<Email[]>([]);
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
+  const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -89,15 +90,27 @@ export default function Emails() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [configsRes, emailsRes, draftsRes] = await Promise.all([
+      const [configsRes, emailsRes, draftsRes, attachmentsRes] = await Promise.all([
         supabase.from('email_configs').select('*').order('created_at', { ascending: false }),
         supabase.from('emails').select('*').order('sent_at', { ascending: false }).limit(50),
-        supabase.from('email_drafts').select('*').order('created_at', { ascending: false })
+        supabase.from('email_drafts').select('*').order('created_at', { ascending: false }),
+        supabase.from('email_attachments').select('email_id')
       ]);
 
       if (configsRes.data) setConfigs(configsRes.data);
       if (emailsRes.data) setEmails(emailsRes.data);
       if (draftsRes.data) setDrafts(draftsRes.data);
+      
+      // Count attachments per email
+      if (attachmentsRes.data) {
+        const counts: Record<string, number> = {};
+        attachmentsRes.data.forEach((att) => {
+          if (att.email_id) {
+            counts[att.email_id] = (counts[att.email_id] || 0) + 1;
+          }
+        });
+        setAttachmentCounts(counts);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Erreur de chargement');
@@ -304,8 +317,14 @@ export default function Emails() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{email.from_address}</span>
+                            {attachmentCounts[email.id] > 0 && (
+                              <Badge variant="outline" className="text-muted-foreground">
+                                <Paperclip className="h-3 w-3 mr-1" />
+                                {attachmentCounts[email.id]}
+                              </Badge>
+                            )}
                             {email.is_quotation_request && (
                               <Badge variant="secondary">
                                 <Star className="h-3 w-3 mr-1" />
