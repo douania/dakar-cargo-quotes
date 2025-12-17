@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,66 +65,126 @@ serve(async (req) => {
     };
 
     if (fileExt === 'pdf') {
-      // Use Lovable AI (Gemini) for proper PDF text extraction
       try {
-        const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-        
-        if (LOVABLE_API_KEY) {
-          // Convert PDF to base64
-          const base64Pdf = btoa(String.fromCharCode(...uint8Array));
-          
-          console.log('Sending PDF to AI for text extraction...');
-          
-          const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'text',
-                      text: `Extrais TOUT le texte de ce document PDF. Conserve la structure (titres, paragraphes, tableaux, listes). Ne résume pas, ne commente pas, extrais simplement tout le contenu textuel visible. Si c'est un document avec des codes et des descriptions (comme un tarif douanier), extrais chaque ligne avec son code et sa description.`
-                    },
-                    {
-                      type: 'file',
-                      file: {
-                        filename: file.name,
-                        file_data: `data:application/pdf;base64,${base64Pdf}`
-                      }
-                    }
-                  ]
-                }
-              ],
-              max_tokens: 100000,
-            }),
-          });
-          
-          if (aiResponse.ok) {
-            const aiData = await aiResponse.json();
-            const aiText = aiData.choices?.[0]?.message?.content || '';
-            extractedText = sanitizeText(aiText);
-            console.log('AI extraction successful, text length:', extractedText.length);
-          } else {
-            const errorText = await aiResponse.text();
-            console.error('AI extraction failed:', aiResponse.status, errorText);
-            extractedText = '[Erreur lors de l\'extraction IA du PDF]';
+        // 1) Try local extraction with PDF.js (no network, avoids gibberish)
+        try {
+          const loadingTask = pdfjsLib.getDocument({
+            data: uint8Array,
+            disableWorker: true,
+          } as any);
+
+          const pdf = await loadingTask.promise;
+          const pagesText: string[] = [];
+
+          for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+            const page = await pdf.getPage(pageNo);
+            const textContent = await page.getTextContent();
+            const pageText = (textContent.items as any[])
+              .map((it) => (it?.str ?? ''))
+              .filter((s) => typeof s === 'string' && s.trim().length > 0)
+              .join(' ');
+            pagesText.push(pageText);
           }
-        } else {
-          console.log('LOVABLE_API_KEY not available, using basic extraction');
-          extractedText = '[PDF détecté - clé API non configurée pour l\'extraction IA]';
+
+          const fullText = sanitizeText(pagesText.join('\n\n'));
+
+          if (!fullText || fullText.length < 50) {
+            throw new Error('PDF.js extraction produced empty/short text');
+          }
+
+          extractedText = fullText;
+          extractedData = {
+            type: 'pdf',
+            rawSize: uint8Array.length,
+            pages: pdf.numPages,
+            extractionMethod: 'pdfjs',
+          };
+
+          console.log('PDF.js extraction successful, text length:', extractedText.length);
+        } catch (pdfjsError) {
+          console.warn('PDF.js extraction failed, falling back to AI:', pdfjsError);
+
+          // 2) Fallback: AI extraction (chunked base64 to avoid stack overflow)
+          const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+
+          if (!LOVABLE_API_KEY) {
+            extractedText = '[PDF détecté - extraction texte indisponible]';
+            extractedData = {
+              type: 'pdf',
+              rawSize: uint8Array.length,
+              extractionMethod: 'none',
+            };
+          } else {
+            const bytesToBase64 = (bytes: Uint8Array): string => {
+              const chunkSize = 8192;
+              let binary = '';
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+              }
+              return btoa(binary);
+            };
+
+            const base64Pdf = bytesToBase64(uint8Array);
+
+            console.log('Sending PDF to AI for text extraction...');
+
+            const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.5-flash',
+                messages: [
+                  {
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'text',
+                        text: `Extrais TOUT le texte de ce document PDF. Conserve la structure (titres, paragraphes, tableaux, listes). Ne résume pas, ne commente pas, extrais simplement tout le contenu textuel visible.`
+                      },
+                      {
+                        type: 'file',
+                        file: {
+                          filename: file.name,
+                          file_data: `data:application/pdf;base64,${base64Pdf}`
+                        }
+                      }
+                    ]
+                  }
+                ],
+                max_tokens: 8192,
+              }),
+            });
+
+            if (aiResponse.ok) {
+              const aiData = await aiResponse.json();
+              const content = aiData.choices?.[0]?.message?.content;
+              const aiText = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+
+              extractedText = sanitizeText(aiText);
+              extractedData = {
+                type: 'pdf',
+                rawSize: uint8Array.length,
+                extractionMethod: 'ai',
+              };
+
+              console.log('AI extraction successful, text length:', extractedText.length);
+            } else {
+              const errorText = await aiResponse.text();
+              console.error('AI extraction failed:', aiResponse.status, errorText);
+
+              extractedText = '[Erreur lors de l\'extraction IA du PDF]';
+              extractedData = {
+                type: 'pdf',
+                rawSize: uint8Array.length,
+                extractionMethod: 'ai',
+                aiStatus: aiResponse.status,
+              };
+            }
+          }
         }
-        
-        extractedData = {
-          type: 'pdf',
-          rawSize: uint8Array.length,
-          extractionMethod: LOVABLE_API_KEY ? 'ai' : 'none',
-        };
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
         extractedText = '[Erreur lors de la lecture du PDF]';
