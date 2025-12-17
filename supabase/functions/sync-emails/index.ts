@@ -42,8 +42,12 @@ function getTlsServerNameCandidates(host: string): string[] {
     const domain = parts.slice(1).join(".");
     push(domain);
     push(`mail.${domain}`);
+    push(`webmail.${domain}`);
+    push(`smtp.${domain}`);
   } else if (parts.length === 2) {
     push(`mail.${host}`);
+    push(`webmail.${host}`);
+    push(`smtp.${host}`);
   }
 
   return candidates;
