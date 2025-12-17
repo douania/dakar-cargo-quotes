@@ -1,0 +1,378 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// Decode MIME encoded headers
+function decodeHeader(text: string): string {
+  return text.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_: string, charset: string, encoding: string, content: string) => {
+    try {
+      if (encoding.toUpperCase() === 'B') {
+        const decoded = atob(content);
+        return new TextDecoder(charset).decode(new Uint8Array([...decoded].map(c => c.charCodeAt(0))));
+      } else {
+        return content
+          .replace(/_/g, ' ')
+          .replace(/=([0-9A-F]{2})/gi, (_m: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+      }
+    } catch {
+      return content;
+    }
+  });
+}
+
+// Parse email date
+function parseEmailDate(dateStr: string): string {
+  try {
+    const cleaned = dateStr.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const parsed = new Date(cleaned);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    const original = new Date(dateStr);
+    if (!isNaN(original.getTime())) return original.toISOString();
+  } catch { /* ignore */ }
+  return new Date().toISOString();
+}
+
+// Simple IMAP client for search
+class IMAPSearchClient {
+  private conn: Deno.TlsConn | Deno.TcpConn | null = null;
+  private encoder = new TextEncoder();
+  private decoder = new TextDecoder();
+  private tagCounter = 0;
+  private buffer = "";
+
+  constructor(
+    private host: string,
+    private port: number
+  ) {}
+
+  private getTag(): string {
+    return `A${++this.tagCounter}`;
+  }
+
+  async connect(): Promise<void> {
+    console.log(`Connecting to ${this.host}:143 for search...`);
+    this.conn = await Deno.connect({ hostname: this.host, port: 143 });
+    await this.readLine(); // greeting
+    await this.startTls();
+  }
+
+  private async readLine(): Promise<string> {
+    const buf = new Uint8Array(4096);
+    let result = this.buffer;
+    while (!result.includes('\r\n')) {
+      const n = await this.conn!.read(buf);
+      if (n === null) break;
+      result += this.decoder.decode(buf.subarray(0, n));
+    }
+    const idx = result.indexOf('\r\n');
+    if (idx >= 0) {
+      this.buffer = result.substring(idx + 2);
+      return result.substring(0, idx);
+    }
+    this.buffer = "";
+    return result;
+  }
+
+  private async readUntilTag(tag: string): Promise<string> {
+    let result = "";
+    while (true) {
+      const line = await this.readLine();
+      result += line + '\r\n';
+      if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) break;
+    }
+    return result;
+  }
+
+  private async writeCommand(command: string): Promise<void> {
+    await this.conn!.write(this.encoder.encode(command + '\r\n'));
+  }
+
+  private async sendCommand(command: string): Promise<string> {
+    const tag = this.getTag();
+    await this.writeCommand(`${tag} ${command}`);
+    return await this.readUntilTag(tag);
+  }
+
+  private getTlsCandidates(): string[] {
+    const candidates = [this.host];
+    const parts = this.host.split(".").filter(Boolean);
+    if (parts.length >= 3) {
+      const domain = parts.slice(1).join(".");
+      candidates.push(domain, `mail.${domain}`, `webmail.${domain}`, `smtp.${domain}`);
+    } else if (parts.length === 2) {
+      candidates.push(`mail.${this.host}`, `webmail.${this.host}`, `smtp.${this.host}`);
+    }
+    return [...new Set(candidates)];
+  }
+
+  private async startTls(): Promise<void> {
+    const candidates = this.getTlsCandidates();
+    for (const serverName of candidates) {
+      try {
+        const tag = this.getTag();
+        await this.writeCommand(`${tag} STARTTLS`);
+        const response = await this.readUntilTag(tag);
+        if (!response.includes(`${tag} OK`)) throw new Error("STARTTLS failed");
+        
+        this.buffer = "";
+        const tcpConn = this.conn as Deno.TcpConn;
+        this.conn = await Deno.startTls(tcpConn, { hostname: serverName });
+        
+        const noopTag = this.getTag();
+        await this.writeCommand(`${noopTag} NOOP`);
+        await this.readUntilTag(noopTag);
+        console.log(`TLS upgraded with ${serverName}`);
+        return;
+      } catch (e) {
+        console.error(`TLS failed for ${serverName}:`, e);
+        // Reconnect for next attempt
+        try { this.conn?.close(); } catch { /* ignore */ }
+        this.buffer = "";
+        this.conn = await Deno.connect({ hostname: this.host, port: 143 });
+        await this.readLine();
+      }
+    }
+    throw new Error("Could not establish TLS connection");
+  }
+
+  async login(username: string, password: string): Promise<boolean> {
+    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    return response.includes("OK");
+  }
+
+  async select(mailbox: string): Promise<number> {
+    const response = await this.sendCommand(`SELECT "${mailbox}"`);
+    const match = response.match(/\* (\d+) EXISTS/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
+  async search(criteria: string): Promise<number[]> {
+    console.log(`Searching: ${criteria}`);
+    const response = await this.sendCommand(`SEARCH ${criteria}`);
+    const match = response.match(/\* SEARCH([\d\s]*)/);
+    if (!match) return [];
+    return match[1].trim().split(/\s+/).filter(Boolean).map(Number);
+  }
+
+  async fetchHeaders(seqNums: number[]): Promise<Array<{
+    seq: number;
+    uid: number;
+    subject: string;
+    from: string;
+    to: string[];
+    date: string;
+    messageId: string;
+    references: string;
+  }>> {
+    if (seqNums.length === 0) return [];
+    
+    const range = seqNums.join(',');
+    const response = await this.sendCommand(
+      `FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])`
+    );
+    
+    const messages: Array<{
+      seq: number;
+      uid: number;
+      subject: string;
+      from: string;
+      to: string[];
+      date: string;
+      messageId: string;
+      references: string;
+    }> = [];
+
+    const fetchRegex = /\* (\d+) FETCH \(UID (\d+).*?BODY\[HEADER\.FIELDS.*?\] \{(\d+)\}\r\n([\s\S]*?)(?=\* \d+ FETCH|\r\nA\d+|$)/gi;
+    let match;
+    
+    while ((match = fetchRegex.exec(response)) !== null) {
+      const seq = parseInt(match[1]);
+      const uid = parseInt(match[2]);
+      const headerBlock = match[4];
+      
+      const subjectMatch = headerBlock.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const fromMatch = headerBlock.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const toMatch = headerBlock.match(/To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const dateMatch = headerBlock.match(/Date:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const messageIdMatch = headerBlock.match(/Message-ID:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const referencesMatch = headerBlock.match(/References:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      const inReplyToMatch = headerBlock.match(/In-Reply-To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
+      
+      let subject = decodeHeader(subjectMatch?.[1]?.trim() || '(Sans sujet)');
+      let from = fromMatch?.[1]?.trim() || '';
+      const emailMatch = from.match(/<([^>]+)>/);
+      if (emailMatch) from = emailMatch[1];
+      
+      const to = (toMatch?.[1]?.trim() || '').split(',').map(e => {
+        const m = e.match(/<([^>]+)>/);
+        return m ? m[1].trim() : e.trim();
+      }).filter(e => e);
+      
+      messages.push({
+        seq,
+        uid,
+        subject,
+        from,
+        to,
+        date: dateMatch?.[1]?.trim() || new Date().toISOString(),
+        messageId: messageIdMatch?.[1]?.trim() || `<${uid}@imported>`,
+        references: referencesMatch?.[1]?.trim() || inReplyToMatch?.[1]?.trim() || ''
+      });
+    }
+    
+    return messages;
+  }
+
+  async fetchBody(uid: number): Promise<{ text: string; html: string }> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
+    let text = '';
+    let html = '';
+    
+    const bodyMatch = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/);
+    if (bodyMatch) {
+      const rawBody = bodyMatch[2]
+        .replace(/=\r\n/g, '')
+        .replace(/=([0-9A-F]{2})/gi, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+      
+      if (rawBody.includes('<html') || rawBody.includes('<HTML')) {
+        html = rawBody;
+        text = rawBody
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      } else {
+        text = rawBody;
+      }
+    }
+    
+    return { text, html };
+  }
+
+  async logout(): Promise<void> {
+    try { await this.sendCommand('LOGOUT'); } catch { /* ignore */ }
+    try { this.conn?.close(); } catch { /* ignore */ }
+  }
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  let client: IMAPSearchClient | null = null;
+
+  try {
+    const { configId, searchType, query, limit = 30 } = await req.json();
+    
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get config
+    const { data: config, error: configError } = await supabase
+      .from('email_configs')
+      .select('*')
+      .eq('id', configId)
+      .single();
+
+    if (configError || !config) {
+      throw new Error("Configuration email non trouvée");
+    }
+
+    client = new IMAPSearchClient(config.host, config.port);
+    await client.connect();
+    
+    const loggedIn = await client.login(config.username, config.password_encrypted);
+    if (!loggedIn) throw new Error("Échec de l'authentification IMAP");
+
+    const mailbox = config.folder || 'INBOX';
+    await client.select(mailbox);
+
+    // Build search criteria
+    let criteria = 'ALL';
+    if (searchType === 'subject' && query) {
+      criteria = `SUBJECT "${query}"`;
+    } else if (searchType === 'from' && query) {
+      criteria = `FROM "${query}"`;
+    } else if (searchType === 'text' && query) {
+      criteria = `TEXT "${query}"`;
+    }
+
+    // Search emails
+    const seqNums = await client.search(criteria);
+    console.log(`Found ${seqNums.length} matching emails`);
+
+    // Get last N results (most recent)
+    const selectedSeqs = seqNums.slice(-limit);
+    
+    // Fetch headers
+    const messages = await client.fetchHeaders(selectedSeqs);
+    
+    // Group by thread (subject-based for simplicity)
+    const threads = new Map<string, typeof messages>();
+    for (const msg of messages) {
+      // Normalize subject for threading (remove Re:, Fwd:, etc.)
+      const normalizedSubject = msg.subject
+        .replace(/^(Re|Fwd|Fw|TR):\s*/gi, '')
+        .trim()
+        .toLowerCase();
+      
+      if (!threads.has(normalizedSubject)) {
+        threads.set(normalizedSubject, []);
+      }
+      threads.get(normalizedSubject)!.push(msg);
+    }
+
+    // Convert to array format
+    const threadList = Array.from(threads.entries()).map(([subject, msgs]) => ({
+      subject: msgs[0].subject, // Use original subject from first message
+      normalizedSubject: subject,
+      messageCount: msgs.length,
+      participants: [...new Set(msgs.map(m => m.from))],
+      dateRange: {
+        first: parseEmailDate(msgs[msgs.length - 1].date),
+        last: parseEmailDate(msgs[0].date)
+      },
+      messages: msgs.map(m => ({
+        uid: m.uid,
+        seq: m.seq,
+        subject: m.subject,
+        from: m.from,
+        to: m.to,
+        date: parseEmailDate(m.date),
+        messageId: m.messageId
+      }))
+    })).sort((a, b) => new Date(b.dateRange.last).getTime() - new Date(a.dateRange.last).getTime());
+
+    await client.logout();
+    client = null;
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        totalFound: seqNums.length,
+        threads: threadList
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
+  } catch (error) {
+    console.error("Search error:", error);
+    if (client) {
+      try { await client.logout(); } catch { /* ignore */ }
+    }
+    return new Response(
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Erreur de recherche",
+        details: error instanceof Error ? error.stack : undefined
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
