@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
-  MessageSquare, Brain, Trash2, Eye, Edit
+  MessageSquare, Brain, Trash2, Eye, Edit, Search
 } from 'lucide-react';
+import { EmailSearchImport } from '@/components/EmailSearchImport';
 
 interface EmailConfig {
   id: string;
@@ -213,24 +214,60 @@ export default function Emails() {
           </Button>
         </div>
 
-        <Tabs defaultValue="inbox" className="space-y-4">
-          <TabsList>
+        <Tabs defaultValue="import" className="space-y-4">
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="import">
+              <Search className="h-4 w-4 mr-2" />
+              Import sélectif
+            </TabsTrigger>
             <TabsTrigger value="inbox">
               <Mail className="h-4 w-4 mr-2" />
-              Boîte de réception
+              Emails importés ({emails.length})
             </TabsTrigger>
             <TabsTrigger value="quotations">
               <Star className="h-4 w-4 mr-2" />
-              Demandes de cotation
+              Cotations
             </TabsTrigger>
             <TabsTrigger value="drafts">
               <Edit className="h-4 w-4 mr-2" />
               Brouillons ({drafts.length})
             </TabsTrigger>
             <TabsTrigger value="configs">
-              Comptes email
+              Comptes
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="import" className="space-y-4">
+            {configs.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">Aucun compte email configuré</p>
+                  <Button className="mt-4" onClick={() => setShowConfigDialog(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Ajouter un compte
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Compte actif</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      {configs[0]?.username} @ {configs[0]?.host}
+                    </p>
+                  </CardContent>
+                </Card>
+                <EmailSearchImport 
+                  configId={configs[0]?.id} 
+                  onImportComplete={loadData}
+                />
+              </div>
+            )}
+          </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
             {emails.length === 0 ? (
