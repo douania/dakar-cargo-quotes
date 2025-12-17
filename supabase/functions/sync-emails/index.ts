@@ -28,6 +28,27 @@ function extractThreadId(messageId: string, references: string): string {
   return messageId;
 }
 
+function getTlsServerNameCandidates(host: string): string[] {
+  const candidates: string[] = [];
+  const push = (value?: string) => {
+    if (!value) return;
+    if (!candidates.includes(value)) candidates.push(value);
+  };
+
+  push(host);
+
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length >= 3) {
+    const domain = parts.slice(1).join(".");
+    push(domain);
+    push(`mail.${domain}`);
+  } else if (parts.length === 2) {
+    push(`mail.${host}`);
+  }
+
+  return candidates;
+}
+
 // Simple IMAP client implementation for basic operations
 class SimpleIMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
@@ -89,7 +110,7 @@ class SimpleIMAPClient {
     
     // If using STARTTLS, upgrade connection
     if (this.useStartTls) {
-      await this.startTls();
+      await this.startTls(getTlsServerNameCandidates(this.host));
     }
   }
 
@@ -128,32 +149,75 @@ class SimpleIMAPClient {
     return result;
   }
 
-  private async startTls(): Promise<void> {
-    console.log("Initiating STARTTLS...");
-    
-    // Send STARTTLS command
-    const tag = this.getTag();
-    await this.writeCommand(`${tag} STARTTLS`);
-    
-    // Read response
-    const response = await this.readUntilTag(tag);
-    
-    if (!response.includes(`${tag} OK`)) {
-      throw new Error("STARTTLS not supported or failed: " + response);
+  private async reconnectPlain(): Promise<void> {
+    try {
+      this.conn?.close();
+    } catch {
+      // ignore
     }
-    
-    console.log("STARTTLS accepted, upgrading connection...");
-    
-    // Clear buffer before upgrade
+
     this.buffer = "";
-    
-    // Upgrade to TLS
-    const tcpConn = this.conn as Deno.TcpConn;
-    this.conn = await Deno.startTls(tcpConn, { 
+    this.conn = await Deno.connect({
       hostname: this.host,
+      port: this.port,
     });
-    
-    console.log("TLS connection upgraded successfully");
+
+    const greeting = await this.readLine();
+    console.log("Server greeting:", greeting.substring(0, 100));
+  }
+
+  private async startTls(serverNameCandidates: string[]): Promise<void> {
+    console.log("Initiating STARTTLS...");
+
+    let lastError: unknown = null;
+
+    for (const serverName of serverNameCandidates) {
+      console.log(`STARTTLS: trying TLS server name \"${serverName}\"`);
+
+      try {
+        const tag = this.getTag();
+        await this.writeCommand(`${tag} STARTTLS`);
+
+        const response = await this.readUntilTag(tag);
+        if (!response.includes(`${tag} OK`)) {
+          throw new Error(`STARTTLS failed: ${response}`);
+        }
+
+        console.log("STARTTLS accepted, upgrading connection...");
+
+        // Clear buffer before upgrade
+        this.buffer = "";
+
+        // Upgrade to TLS (certificate is validated against serverName)
+        const tcpConn = this.conn as Deno.TcpConn;
+        this.conn = await Deno.startTls(tcpConn, {
+          hostname: serverName,
+        });
+
+        // Force TLS handshake + validate certificate now (avoid failing later on LOGIN)
+        const noopTag = this.getTag();
+        await this.writeCommand(`${noopTag} NOOP`);
+        await this.readUntilTag(noopTag);
+
+        console.log(`TLS connection upgraded successfully (server name: ${serverName})`);
+        return;
+      } catch (e) {
+        lastError = e;
+        console.error(`STARTTLS attempt failed for \"${serverName}\":`, e);
+        await this.reconnectPlain();
+      }
+    }
+
+    const lastMsg =
+      lastError instanceof Error ? lastError.message : String(lastError ?? "");
+
+    throw new Error(
+      `Certificat SSL invalide pour ${this.host}. ` +
+        `Veuillez utiliser un nom de serveur correspondant au certificat (ex: mail.domaine.tld) ` +
+        `ou corriger le certificat côté serveur. ` +
+        `Noms testés: ${serverNameCandidates.join(", ")}. ` +
+        (lastMsg ? `Dernière erreur: ${lastMsg}` : "")
+    );
   }
 
   private async writeCommand(command: string): Promise<void> {
