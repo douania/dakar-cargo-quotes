@@ -6,9 +6,15 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { 
   FileText, FileSpreadsheet, File, Download, Eye, 
-  CheckCircle, Loader2, Image as ImageIcon, Sparkles
+  CheckCircle, Loader2, Image as ImageIcon, Sparkles, AlertTriangle
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface Attachment {
   id: string;
@@ -25,6 +31,26 @@ interface Attachment {
 interface EmailAttachmentsProps {
   emailId: string;
 }
+
+type AttachmentStatus = 'analyzed' | 'pending' | 'skipped';
+
+interface AttachmentStatusInfo {
+  status: AttachmentStatus;
+  reason: string | null;
+}
+
+const getAttachmentStatus = (attachment: Attachment): AttachmentStatusInfo => {
+  // Check if extracted_text contains a skip reason (in brackets)
+  if (attachment.extracted_text?.startsWith('[')) {
+    const match = attachment.extracted_text.match(/\[(.*?)\]/);
+    const reason = match ? match[1] : 'Non traité';
+    return { status: 'skipped', reason };
+  }
+  if (attachment.is_analyzed) {
+    return { status: 'analyzed', reason: null };
+  }
+  return { status: 'pending', reason: null };
+};
 
 export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -78,9 +104,13 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const analyzeAllAttachments = async () => {
     setAnalyzing('all');
     try {
-      const unanalyzed = attachments.filter(a => !a.is_analyzed);
-      if (unanalyzed.length === 0) {
-        toast.info('Toutes les pièces jointes sont déjà analysées');
+      const analyzable = attachments.filter(a => {
+        const status = getAttachmentStatus(a);
+        return status.status === 'pending';
+      });
+      
+      if (analyzable.length === 0) {
+        toast.info('Aucune pièce jointe à analyser');
         setAnalyzing(null);
         return;
       }
@@ -176,15 +206,73 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
     return null;
   }
 
-  const unanalyzedCount = attachments.filter(a => !a.is_analyzed).length;
+  // Count attachments by status
+  const statusCounts = attachments.reduce(
+    (acc, attachment) => {
+      const { status } = getAttachmentStatus(attachment);
+      acc[status]++;
+      return acc;
+    },
+    { analyzed: 0, pending: 0, skipped: 0 }
+  );
+
+  const renderStatusBadge = (attachment: Attachment) => {
+    const { status, reason } = getAttachmentStatus(attachment);
+
+    if (status === 'analyzed') {
+      return (
+        <Badge variant="outline" className="text-xs py-0 px-1">
+          <CheckCircle className="h-3 w-3 mr-1 text-green-500" />
+          Analysé
+        </Badge>
+      );
+    }
+
+    if (status === 'skipped') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-amber-500/50 bg-amber-500/10">
+                <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
+                Non traité
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-muted-foreground">
-          Pièces jointes ({attachments.length})
-        </h4>
-        {unanalyzedCount > 0 && (
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Pièces jointes ({attachments.length})
+          </h4>
+          {statusCounts.skipped > 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs py-0 px-1.5 border-amber-500/50 bg-amber-500/10 text-amber-600">
+                    <AlertTriangle className="h-3 w-3 mr-1" />
+                    {statusCounts.skipped} non traité{statusCounts.skipped > 1 ? 's' : ''}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-sm">Fichiers trop volumineux ou images inline ignorées</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+        {statusCounts.pending > 0 && (
           <Button 
             size="sm" 
             variant="outline"
@@ -196,71 +284,97 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
             ) : (
               <Sparkles className="h-4 w-4 mr-2" />
             )}
-            Analyser tout ({unanalyzedCount})
+            Analyser ({statusCounts.pending})
           </Button>
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        {attachments.map((attachment) => (
-          <Card key={attachment.id} className="bg-muted/50">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-3">
-                {getFileIcon(attachment.content_type, attachment.filename)}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" title={attachment.filename}>
-                    {attachment.filename}
-                  </p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{formatFileSize(attachment.size)}</span>
-                    {attachment.is_analyzed && (
-                      <Badge variant="outline" className="text-xs py-0 px-1">
-                        <CheckCircle className="h-3 w-3 mr-1 text-green-500" />
-                        Analysé
-                      </Badge>
+        {attachments.map((attachment) => {
+          const { status, reason } = getAttachmentStatus(attachment);
+          const isSkipped = status === 'skipped';
+          
+          return (
+            <Card 
+              key={attachment.id} 
+              className={`bg-muted/50 ${isSkipped ? 'border-amber-500/30' : ''}`}
+            >
+              <CardContent className="p-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    {getFileIcon(attachment.content_type, attachment.filename)}
+                    {isSkipped && (
+                      <AlertTriangle className="h-3 w-3 text-amber-500 absolute -bottom-1 -right-1" />
                     )}
                   </div>
-                </div>
-                <div className="flex gap-1">
-                  {!attachment.is_analyzed && (
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" title={attachment.filename}>
+                      {attachment.filename}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                      <span>{formatFileSize(attachment.size)}</span>
+                      {renderStatusBadge(attachment)}
+                    </div>
+                    {isSkipped && reason && (
+                      <p className="text-xs text-amber-600 mt-1 truncate" title={reason}>
+                        {reason}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    {status === 'pending' && (
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-8 w-8"
+                        onClick={() => analyzeAttachment(attachment.id)}
+                        disabled={analyzing === attachment.id}
+                        title="Analyser"
+                      >
+                        {analyzing === attachment.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
                     <Button 
                       size="icon" 
                       variant="ghost" 
                       className="h-8 w-8"
-                      onClick={() => analyzeAttachment(attachment.id)}
-                      disabled={analyzing === attachment.id}
-                      title="Analyser"
+                      onClick={() => openPreview(attachment)}
+                      title="Aperçu"
                     >
-                      {analyzing === attachment.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
+                      <Eye className="h-4 w-4" />
                     </Button>
-                  )}
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-8 w-8"
-                    onClick={() => openPreview(attachment)}
-                    title="Aperçu"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-8 w-8"
-                    onClick={() => downloadAttachment(attachment)}
-                    title="Télécharger"
-                    disabled={!attachment.storage_path}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-8 w-8"
+                              onClick={() => downloadAttachment(attachment)}
+                              title="Télécharger"
+                              disabled={!attachment.storage_path}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {!attachment.storage_path && (
+                          <TooltipContent side="bottom">
+                            <p className="text-sm">Fichier non disponible (non téléchargé)</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Preview Dialog */}
@@ -272,9 +386,28 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                 <DialogTitle className="flex items-center gap-2">
                   {getFileIcon(previewAttachment.content_type, previewAttachment.filename)}
                   {previewAttachment.filename}
+                  {getAttachmentStatus(previewAttachment).status === 'skipped' && (
+                    <Badge variant="outline" className="ml-2 text-xs border-amber-500/50 bg-amber-500/10">
+                      <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
+                      Non traité
+                    </Badge>
+                  )}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                {/* Skipped reason alert */}
+                {getAttachmentStatus(previewAttachment).status === 'skipped' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {getAttachmentStatus(previewAttachment).reason}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Image preview */}
                 {previewUrl && previewAttachment.content_type?.includes('image') && (
                   <div className="flex justify-center">
@@ -297,8 +430,9 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                   </div>
                 )}
 
-                {/* Extracted text */}
-                {previewAttachment.extracted_text && (
+                {/* Extracted text - only show if not a skip message */}
+                {previewAttachment.extracted_text && 
+                 !previewAttachment.extracted_text.startsWith('[') && (
                   <div className="space-y-2">
                     <h5 className="text-sm font-medium">Contenu extrait</h5>
                     <pre className="whitespace-pre-wrap bg-muted p-4 rounded-lg text-sm max-h-[300px] overflow-y-auto">
@@ -319,7 +453,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
 
                 {/* Download button */}
                 <div className="flex justify-end">
-                  <Button onClick={() => downloadAttachment(previewAttachment)}>
+                  <Button 
+                    onClick={() => downloadAttachment(previewAttachment)}
+                    disabled={!previewAttachment.storage_path}
+                  >
                     <Download className="h-4 w-4 mr-2" />
                     Télécharger
                   </Button>
