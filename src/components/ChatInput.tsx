@@ -1,15 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Paperclip, X, FileText, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-interface AttachedFile {
-  id: string;
-  name: string;
-  content: string;
-}
+import type { AttachedFile } from "@/types";
 
 interface ChatInputProps {
   onSend: (message: string, attachedFiles?: AttachedFile[]) => void;
