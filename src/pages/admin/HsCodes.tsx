@@ -31,10 +31,6 @@ import { ArrowLeft, Search, Upload, Download, Edit2, Trash2, RefreshCw, FileSpre
 import { Link } from "react-router-dom";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import * as pdfjsLib from "pdfjs-dist";
-
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
 
 interface HsCode {
   id: string;
@@ -220,26 +216,29 @@ export default function HsCodesAdmin() {
     }
   };
 
-  // Extract text from PDF file
-  const extractTextFromPdf = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const numPages = pdf.numPages;
-    let fullText = "";
+  // Send PDF to edge function for text extraction
+  const sendPdfForExtraction = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
     
-    for (let i = 1; i <= numPages; i++) {
-      setPdfProgress(Math.round((i / numPages) * 50));
-      setPdfStatus(`Lecture page ${i}/${numPages}...`);
-      
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(" ");
-      fullText += pageText + "\n";
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: formData,
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Erreur lors du parsing du PDF');
     }
     
-    return fullText;
+    const data = await response.json();
+    return data.document?.text_preview || '';
   };
 
   // Handle PDF file upload
@@ -253,11 +252,11 @@ export default function HsCodesAdmin() {
     }
     
     setIsExtractingPdf(true);
-    setPdfProgress(0);
-    setPdfStatus("Chargement du PDF...");
+    setPdfProgress(10);
+    setPdfStatus("Envoi du PDF pour extraction...");
     
     try {
-      const extractedText = await extractTextFromPdf(file);
+      const extractedText = await sendPdfForExtraction(file);
       setPdfText(extractedText);
       setPdfProgress(50);
       setPdfStatus("Texte extrait. Prêt pour l'extraction des descriptions.");
@@ -286,7 +285,11 @@ export default function HsCodesAdmin() {
       
       const blob = await response.blob();
       const file = new File([blob], "TEC_UEMOA.pdf", { type: "application/pdf" });
-      const extractedText = await extractTextFromPdf(file);
+      
+      setPdfProgress(20);
+      setPdfStatus("Extraction du texte...");
+      
+      const extractedText = await sendPdfForExtraction(file);
       
       setPdfText(extractedText);
       setPdfProgress(50);
