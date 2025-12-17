@@ -746,13 +746,41 @@ serve(async (req) => {
         .eq('message_id', msg.messageId)
         .maybeSingle();
 
+      let emailId: string;
+
       if (existingByMsgId) {
-        console.log(`Email ${msg.messageId} already exists, skipping`);
-        importedEmails.push({ id: existingByMsgId.id, ...msg, alreadyExists: true });
+        emailId = existingByMsgId.id;
+        console.log(`Email ${msg.messageId} already exists (id: ${emailId})`);
+        
+        // Check if attachments need to be processed for this existing email
+        if (msg.attachments.length > 0) {
+          const { data: existingAttachments } = await supabase
+            .from('email_attachments')
+            .select('id')
+            .eq('email_id', emailId);
+          
+          if (!existingAttachments || existingAttachments.length === 0) {
+            console.log(`Processing ${msg.attachments.length} missing attachment(s) for existing email ${emailId}`);
+            
+            for (const attachment of msg.attachments) {
+              const result = await processAttachment(client, uid, attachment, emailId, supabase);
+              if (result) {
+                totalAttachments++;
+                if (result.extractedText) {
+                  allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
+                }
+              }
+            }
+          } else {
+            console.log(`Email ${emailId} already has ${existingAttachments.length} attachment(s), skipping`);
+          }
+        }
+        
+        importedEmails.push({ id: emailId, ...msg, alreadyExists: true });
         continue;
       }
 
-      // Determine thread ID
+      // Determine thread ID for new email
       if (!threadId) {
         if (msg.references) {
           threadId = msg.references.split(/\s+/)[0];
@@ -784,12 +812,14 @@ serve(async (req) => {
         continue;
       }
 
-      // Process attachments
+      emailId = inserted.id;
+
+      // Process attachments for new email
       if (msg.attachments.length > 0) {
-        console.log(`Processing ${msg.attachments.length} attachment(s) for email ${inserted.id}`);
+        console.log(`Processing ${msg.attachments.length} attachment(s) for new email ${emailId}`);
         
         for (const attachment of msg.attachments) {
-          const result = await processAttachment(client, uid, attachment, inserted.id, supabase);
+          const result = await processAttachment(client, uid, attachment, emailId, supabase);
           if (result) {
             totalAttachments++;
             if (result.extractedText) {
