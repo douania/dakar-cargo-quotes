@@ -196,36 +196,58 @@ serve(async (req) => {
   }
 
   try {
-    const { pdfText, useAI = true } = await req.json();
-    
-    if (!pdfText) {
-      return new Response(
-        JSON.stringify({ error: 'pdfText is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { documentId, pdfText, useAI = true } = await req.json();
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
+
+    let effectiveText = typeof pdfText === 'string' ? pdfText : '';
+    let sourceLabel = 'pdfText';
+
+    if (documentId) {
+      const { data: doc, error: docError } = await supabase
+        .from('documents')
+        .select('content_text, filename')
+        .eq('id', documentId)
+        .single();
+
+      if (docError || !doc) {
+        return new Response(
+          JSON.stringify({ error: 'Document introuvable' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      effectiveText = doc.content_text || '';
+      sourceLabel = doc.filename || 'document';
+    }
+
+    if (!effectiveText) {
+      return new Response(
+        JSON.stringify({ error: 'pdfText ou documentId est requis' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log('Starting extraction from PDF text...');
-    console.log('Text length:', pdfText.length);
-    
+    console.log('Source:', sourceLabel);
+    console.log('Text length:', effectiveText.length);
+
     let extractedCodes: ExtractedCode[] = [];
-    
+
     // First try regex-based extraction
-    extractedCodes = extractCodesFromText(pdfText);
+    extractedCodes = extractCodesFromText(effectiveText);
     console.log('Regex extraction found:', extractedCodes.length, 'codes');
-    
+
     // If regex didn't find much and AI is enabled, use AI
     if (extractedCodes.length < 100 && useAI && lovableApiKey) {
       console.log('Using AI for enhanced extraction...');
-      const aiCodes = await extractWithAI(pdfText, lovableApiKey);
+      const aiCodes = await extractWithAI(effectiveText, lovableApiKey);
       console.log('AI extraction found:', aiCodes.length, 'codes');
-      
+
       // Merge results, preferring AI descriptions
       const codeMap = new Map<string, ExtractedCode>();
       for (const code of extractedCodes) {

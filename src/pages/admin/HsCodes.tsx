@@ -61,6 +61,7 @@ export default function HsCodesAdmin() {
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [pdfText, setPdfText] = useState("");
+  const [pdfDocumentId, setPdfDocumentId] = useState<string | null>(null);
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfStatus, setPdfStatus] = useState("");
   const [editingCode, setEditingCode] = useState<HsCode | null>(null);
@@ -216,29 +217,25 @@ export default function HsCodesAdmin() {
     }
   };
 
-  // Send PDF to edge function for text extraction
+  // Send PDF to backend function for text extraction
   const sendPdfForExtraction = async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: formData,
-      }
-    );
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Erreur lors du parsing du PDF');
+
+    const { data, error } = await supabase.functions.invoke("parse-document", {
+      body: formData,
+    });
+
+    if (error) throw error;
+
+    const documentId = data?.document?.id as string | undefined;
+    const previewText = (data?.document?.text_preview as string | undefined) ?? "";
+
+    if (!documentId) {
+      throw new Error("Réponse invalide: documentId manquant");
     }
-    
-    const data = await response.json();
-    return data.document?.text_preview || '';
+
+    return { documentId, previewText };
   };
 
   // Handle PDF file upload
@@ -256,11 +253,12 @@ export default function HsCodesAdmin() {
     setPdfStatus("Envoi du PDF pour extraction...");
     
     try {
-      const extractedText = await sendPdfForExtraction(file);
-      setPdfText(extractedText);
+      const { documentId, previewText } = await sendPdfForExtraction(file);
+      setPdfDocumentId(documentId);
+      setPdfText(previewText);
       setPdfProgress(50);
-      setPdfStatus("Texte extrait. Prêt pour l'extraction des descriptions.");
-      toast.success(`PDF chargé: ${extractedText.length.toLocaleString()} caractères extraits`);
+      setPdfStatus("PDF analysé. Prêt pour l'extraction des descriptions.");
+      toast.success(`PDF chargé (aperçu): ${previewText.length.toLocaleString()} caractères`);
     } catch (error) {
       console.error("PDF extraction error:", error);
       toast.error("Erreur lors de la lecture du PDF");
@@ -289,12 +287,13 @@ export default function HsCodesAdmin() {
       setPdfProgress(20);
       setPdfStatus("Extraction du texte...");
       
-      const extractedText = await sendPdfForExtraction(file);
-      
-      setPdfText(extractedText);
+      const { documentId, previewText } = await sendPdfForExtraction(file);
+
+      setPdfDocumentId(documentId);
+      setPdfText(previewText);
       setPdfProgress(50);
-      setPdfStatus("Texte extrait. Prêt pour l'extraction des descriptions.");
-      toast.success(`PDF chargé: ${extractedText.length.toLocaleString()} caractères extraits`);
+      setPdfStatus("PDF analysé. Prêt pour l'extraction des descriptions.");
+      toast.success(`PDF chargé (aperçu): ${previewText.length.toLocaleString()} caractères`);
     } catch (error) {
       console.error("Default PDF load error:", error);
       toast.error("Erreur lors du chargement du PDF par défaut");
@@ -306,7 +305,7 @@ export default function HsCodesAdmin() {
 
   // Extract descriptions from PDF
   const handleExtractPdfDescriptions = async () => {
-    if (!pdfText.trim()) {
+    if (!pdfDocumentId) {
       toast.error("Veuillez d'abord charger un PDF");
       return;
     }
@@ -317,7 +316,7 @@ export default function HsCodesAdmin() {
     
     try {
       const response = await supabase.functions.invoke("extract-pdf-descriptions", {
-        body: { pdfText, useAI: true },
+        body: { documentId: pdfDocumentId, useAI: true },
       });
       
       if (response.error) throw new Error(response.error.message);
@@ -328,6 +327,7 @@ export default function HsCodesAdmin() {
       queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
       setShowPdfDialog(false);
       setPdfText("");
+      setPdfDocumentId(null);
       setPdfProgress(0);
       setPdfStatus("");
     } catch (error: unknown) {
@@ -372,6 +372,7 @@ export default function HsCodesAdmin() {
               setShowPdfDialog(open);
               if (!open) {
                 setPdfText("");
+                setPdfDocumentId(null);
                 setPdfProgress(0);
                 setPdfStatus("");
               }
