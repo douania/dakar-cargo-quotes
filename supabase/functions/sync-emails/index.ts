@@ -28,6 +28,27 @@ function extractThreadId(messageId: string, references: string): string {
   return messageId;
 }
 
+// Parse email date strings - remove timezone names in parentheses that PostgreSQL can't handle
+function parseEmailDate(dateStr: string): string {
+  try {
+    // Remove timezone name in parentheses like (UTC), (CST), (GMT+08:00)
+    const cleaned = dateStr.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const parsed = new Date(cleaned);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+    // Fallback: try original
+    const original = new Date(dateStr);
+    if (!isNaN(original.getTime())) {
+      return original.toISOString();
+    }
+  } catch {
+    // ignore
+  }
+  // Last fallback: current time
+  return new Date().toISOString();
+}
+
 function getTlsServerNameCandidates(host: string): string[] {
   const candidates: string[] = [];
   const push = (value?: string) => {
@@ -395,7 +416,7 @@ serve(async (req) => {
   let client: SimpleIMAPClient | null = null;
 
   try {
-    const { configId, limit = 50 } = await req.json();
+    const { configId, limit = 20 } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -483,7 +504,7 @@ serve(async (req) => {
               subject: msg.subject,
               body_text: bodyText || null,
               body_html: bodyHtml || null,
-              sent_at: msg.date,
+              sent_at: parseEmailDate(msg.date),
               is_quotation_request: isQuotation
             })
             .select()
