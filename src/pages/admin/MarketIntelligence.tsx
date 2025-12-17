@@ -85,38 +85,31 @@ export default function MarketIntelligence() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load market intelligence
-      const { data: intelData } = await supabase
-        .from('market_intelligence')
-        .select('*')
-        .order('detected_at', { ascending: false })
-        .limit(100);
-      
-      if (intelData) {
+      // Load all data via secure edge function
+      const [intelRes, expertsRes, sourcesRes] = await Promise.all([
+        supabase.functions.invoke('data-admin', { body: { action: 'get_market_intelligence' } }),
+        supabase.functions.invoke('data-admin', { body: { action: 'get_expert_profiles' } }),
+        supabase.functions.invoke('data-admin', { body: { action: 'get_surveillance_sources' } })
+      ]);
+
+      if (intelRes.data?.success) {
+        const intelData = intelRes.data.intelligence || [];
         setIntelligence(intelData);
         setStats({
           total: intelData.length,
-          unprocessed: intelData.filter(i => !i.is_processed).length,
-          critical: intelData.filter(i => i.impact_level === 'critical').length,
-          high: intelData.filter(i => i.impact_level === 'high').length,
+          unprocessed: intelData.filter((i: MarketIntelligence) => !i.is_processed).length,
+          critical: intelData.filter((i: MarketIntelligence) => i.impact_level === 'critical').length,
+          high: intelData.filter((i: MarketIntelligence) => i.impact_level === 'high').length,
         });
       }
 
-      // Load expert profiles
-      const { data: expertsData } = await supabase
-        .from('expert_profiles')
-        .select('*')
-        .order('is_primary', { ascending: false });
-      
-      if (expertsData) setExperts(expertsData);
+      if (expertsRes.data?.success) {
+        setExperts(expertsRes.data.experts || []);
+      }
 
-      // Load surveillance sources
-      const { data: sourcesData } = await supabase
-        .from('surveillance_sources')
-        .select('*')
-        .order('name');
-      
-      if (sourcesData) setSources(sourcesData);
+      if (sourcesRes.data?.success) {
+        setSources(sourcesRes.data.sources || []);
+      }
 
     } catch (error) {
       console.error('Error loading data:', error);
@@ -178,10 +171,12 @@ export default function MarketIntelligence() {
 
   const markAsProcessed = async (id: string) => {
     try {
-      await supabase
-        .from('market_intelligence')
-        .update({ is_processed: true, processed_at: new Date().toISOString() })
-        .eq('id', id);
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { action: 'mark_intel_processed', data: { id } }
+      });
+      
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
       
       toast.success('Marqué comme traité');
       loadData();
