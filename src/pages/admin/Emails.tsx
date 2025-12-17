@@ -90,21 +90,21 @@ export default function Emails() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [configsRes, emailsRes, draftsRes, attachmentsRes] = await Promise.all([
-        supabase.from('email_configs').select('*').order('created_at', { ascending: false }),
-        supabase.from('emails').select('*').order('sent_at', { ascending: false }).limit(50),
-        supabase.from('email_drafts').select('*').order('created_at', { ascending: false }),
-        supabase.from('email_attachments').select('email_id')
-      ]);
+      // Use edge function to fetch data securely
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'get_all' }
+      });
 
-      if (configsRes.data) setConfigs(configsRes.data);
-      if (emailsRes.data) setEmails(emailsRes.data);
-      if (draftsRes.data) setDrafts(draftsRes.data);
-      
-      // Count attachments per email
-      if (attachmentsRes.data) {
+      if (error) throw error;
+
+      if (data?.success) {
+        setConfigs(data.configs || []);
+        setEmails(data.emails || []);
+        setDrafts(data.drafts || []);
+        
+        // Count attachments per email
         const counts: Record<string, number> = {};
-        attachmentsRes.data.forEach((att) => {
+        (data.attachments || []).forEach((att: any) => {
           if (att.email_id) {
             counts[att.email_id] = (counts[att.email_id] || 0) + 1;
           }
@@ -125,15 +125,21 @@ export default function Emails() {
     }
 
     try {
-      const { error } = await supabase.from('email_configs').insert({
-        name: newConfig.name,
-        host: newConfig.host,
-        port: newConfig.port,
-        username: newConfig.username,
-        password_encrypted: newConfig.password // In production, encrypt this
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { 
+          action: 'add_config',
+          data: {
+            name: newConfig.name,
+            host: newConfig.host,
+            port: newConfig.port,
+            username: newConfig.username,
+            password: newConfig.password
+          }
+        }
       });
 
       if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
 
       toast.success('Configuration ajoutée');
       setShowConfigDialog(false);
@@ -202,7 +208,13 @@ export default function Emails() {
     if (!confirm('Supprimer cette configuration ?')) return;
     
     try {
-      await supabase.from('email_configs').delete().eq('id', id);
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'delete_config', data: { configId: id } }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
       toast.success('Configuration supprimée');
       loadData();
     } catch (error) {
