@@ -97,43 +97,65 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
 
     try {
       // Collect all UIDs from selected threads
-      const selectedUids: number[] = [];
+      let remainingUids: number[] = [];
       for (const thread of threads) {
         if (selectedThreads.has(thread.normalizedSubject)) {
-          selectedUids.push(...thread.messages.map(m => m.uid));
+          remainingUids.push(...thread.messages.map(m => m.uid));
         }
       }
 
-      const { data, error } = await supabase.functions.invoke('import-thread', {
-        body: { 
-          configId, 
-          uids: selectedUids,
-          learningCase: 'quotation' // Mark as quotation learning case
-        }
-      });
+      let totalImported = 0;
+      let totalExisting = 0;
+      let totalAttachments = 0;
+      let lastAnalysis: any = null;
+      let batchNum = 0;
 
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      // Process in batches
+      while (remainingUids.length > 0) {
+        batchNum++;
+        toast.info(`Import en cours... (lot ${batchNum}, ${remainingUids.length} email(s) restant(s))`);
+
+        const { data, error } = await supabase.functions.invoke('import-thread', {
+          body: { 
+            configId, 
+            uids: remainingUids,
+            learningCase: 'quotation'
+          }
+        });
+
+        if (error) throw error;
+        if (data.error) throw new Error(data.error);
+
+        totalImported += data.imported || 0;
+        totalExisting += data.alreadyExisted || 0;
+        totalAttachments += data.attachmentsProcessed || 0;
+        if (data.analysis) lastAnalysis = data.analysis;
+
+        // Update remaining UIDs from response
+        remainingUids = data.remainingUids || [];
+        
+        if (!data.hasMore) break;
+      }
 
       // Build informative message
       let message = '';
-      if (data.imported > 0) {
-        message = `${data.imported} nouvel email(s) importé(s)`;
+      if (totalImported > 0) {
+        message = `${totalImported} nouvel email(s) importé(s)`;
       }
-      if (data.alreadyExisted > 0) {
+      if (totalExisting > 0) {
         message += message ? ' + ' : '';
-        message += `${data.alreadyExisted} email(s) déjà présent(s)`;
+        message += `${totalExisting} email(s) déjà présent(s)`;
       }
-      if (data.attachmentsProcessed > 0) {
-        message += `. ${data.attachmentsProcessed} pièce(s) jointe(s) traitée(s)`;
+      if (totalAttachments > 0) {
+        message += `. ${totalAttachments} pièce(s) jointe(s) traitée(s)`;
       }
-      if (data.analysis) {
-        message += `. Analyse IA: ${data.analysis.knowledgeStored} connaissance(s) extraite(s)`;
-        if (data.analysis.attachmentsAnalyzed > 0) {
-          message += ` (incl. ${data.analysis.attachmentsAnalyzed} document(s))`;
+      if (lastAnalysis) {
+        message += `. Analyse IA: ${lastAnalysis.knowledgeStored} connaissance(s) extraite(s)`;
+        if (lastAnalysis.attachmentsAnalyzed > 0) {
+          message += ` (incl. ${lastAnalysis.attachmentsAnalyzed} document(s))`;
         }
-        if (data.analysis.quotationDetected) {
-          message += ` - Cotation détectée${data.analysis.quotationAmount ? `: ${data.analysis.quotationAmount}` : ''}`;
+        if (lastAnalysis.quotationDetected) {
+          message += ` - Cotation détectée${lastAnalysis.quotationAmount ? `: ${lastAnalysis.quotationAmount}` : ''}`;
         }
       }
       
