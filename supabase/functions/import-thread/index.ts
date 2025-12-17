@@ -6,6 +6,66 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const THREAD_ANALYSIS_PROMPT = `Tu es un expert en analyse d'échanges commerciaux pour une entreprise de transit logistique au Sénégal (SODATRA).
+
+Analyse cet échange d'emails complet et extrais les connaissances suivantes:
+
+1. **TARIFS & PRICING** (category: "tarif")
+   - Prix mentionnés (transport, manutention, dédouanement, frais portuaires)
+   - Devise et conditions de paiement
+   - Validité des tarifs
+   Format: { origine, destination, type_transport, montant, devise, conditions, validite }
+
+2. **TEMPLATES DE RÉPONSE** (category: "template")
+   - Structure des cotations envoyées
+   - Formules d'introduction et de conclusion
+   - Mentions légales et conditions
+   Format: { type_document, structure_sections, phrases_cles, style_communication }
+
+3. **CONTACTS** (category: "contact")
+   - Clients identifiés avec leurs préférences
+   - Compagnies maritimes/aériennes mentionnées
+   - Agents et partenaires
+   Format: { nom, email, entreprise, role, preferences, historique_interactions }
+
+4. **PATTERNS DE NÉGOCIATION** (category: "negociation")
+   - Étapes de la négociation observées
+   - Concessions accordées
+   - Arguments utilisés
+   - Délais de réponse typiques
+   Format: { etapes, arguments_cles, concessions, delai_moyen, resultat }
+
+5. **DÉLAIS & CONDITIONS** (category: "condition")
+   - Délais de transit mentionnés
+   - Conditions de livraison
+   - Franchises et pénalités
+   Format: { type, valeur, conditions_application }
+
+6. **MARCHANDISES** (category: "marchandise")
+   - Types de marchandises traitées
+   - Codes SH mentionnés
+   - Volumes/poids typiques
+   Format: { description, code_sh, volume, poids, conditionnement }
+
+Réponds UNIQUEMENT avec un JSON valide au format:
+{
+  "summary": "Résumé de l'échange en 2-3 phrases",
+  "extractions": [
+    {
+      "category": "tarif|template|contact|negociation|condition|marchandise",
+      "name": "Nom court descriptif",
+      "description": "Description détaillée",
+      "data": { ... données structurées ... },
+      "confidence": 0.0-1.0
+    }
+  ],
+  "quotation_detected": true/false,
+  "quotation_amount": "montant si détecté",
+  "client_satisfaction": "satisfied|neutral|unsatisfied|unknown"
+}
+
+Si aucune connaissance exploitable n'est trouvée, retourne: { "summary": "Aucune information exploitable", "extractions": [], "quotation_detected": false }`;
+
 // Decode MIME encoded headers
 function decodeHeader(text: string): string {
   return text.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_: string, charset: string, encoding: string, content: string) => {
@@ -143,7 +203,6 @@ class IMAPClient {
     bodyText: string;
     bodyHtml: string;
   }> {
-    // Fetch headers
     const headerResp = await this.sendCommand(
       `UID FETCH ${uid} BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)]`
     );
@@ -182,7 +241,6 @@ class IMAPClient {
       references = refm?.[1]?.trim() || irm?.[1]?.trim() || '';
     }
 
-    // Fetch body
     const bodyResp = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
     let bodyText = '';
     let bodyHtml = '';
@@ -213,6 +271,137 @@ class IMAPClient {
     try { await this.sendCommand('LOGOUT'); } catch { /* ignore */ }
     try { this.conn?.close(); } catch { /* ignore */ }
   }
+}
+
+async function analyzeThreadWithAI(emails: any[], supabase: any): Promise<any> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!LOVABLE_API_KEY) {
+    console.log("LOVABLE_API_KEY not configured, skipping AI analysis");
+    return null;
+  }
+
+  // Build thread context
+  const sortedEmails = [...emails].sort((a, b) => 
+    new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+  );
+
+  const threadContent = sortedEmails.map((email, idx) => `
+--- EMAIL ${idx + 1}/${sortedEmails.length} ---
+DATE: ${email.sent_at}
+DE: ${email.from_address}
+À: ${email.to_addresses?.join(', ') || 'N/A'}
+SUJET: ${email.subject}
+
+CONTENU:
+${email.body_text || '(Pas de contenu texte)'}
+`).join('\n\n');
+
+  console.log(`Analyzing thread with ${emails.length} emails...`);
+
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: THREAD_ANALYSIS_PROMPT },
+          { role: "user", content: threadContent }
+        ],
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("AI analysis error:", response.status, errorText);
+      return null;
+    }
+
+    const aiResult = await response.json();
+    const content = aiResult.choices?.[0]?.message?.content;
+    
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error("Failed to parse AI response:", content);
+      return null;
+    }
+  } catch (error) {
+    console.error("AI analysis failed:", error);
+    return null;
+  }
+}
+
+async function storeExtractedKnowledge(
+  analysis: any, 
+  threadId: string, 
+  emailIds: string[], 
+  supabase: any
+): Promise<number> {
+  if (!analysis || !analysis.extractions || analysis.extractions.length === 0) {
+    return 0;
+  }
+
+  let stored = 0;
+
+  for (const extraction of analysis.extractions) {
+    if (extraction.confidence < 0.3) {
+      console.log(`Skipping low confidence extraction: ${extraction.name}`);
+      continue;
+    }
+
+    // Check for existing similar knowledge
+    const { data: existing } = await supabase
+      .from('learned_knowledge')
+      .select('id, confidence')
+      .eq('category', extraction.category)
+      .eq('name', extraction.name)
+      .maybeSingle();
+
+    if (existing) {
+      if (extraction.confidence > existing.confidence) {
+        await supabase
+          .from('learned_knowledge')
+          .update({
+            data: extraction.data,
+            confidence: extraction.confidence,
+            description: extraction.description,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+        console.log(`Updated knowledge: ${extraction.name}`);
+      }
+      continue;
+    }
+
+    const { error } = await supabase
+      .from('learned_knowledge')
+      .insert({
+        category: extraction.category,
+        name: extraction.name,
+        description: extraction.description,
+        data: {
+          ...extraction.data,
+          source_thread_id: threadId,
+          source_email_ids: emailIds
+        },
+        source_type: 'email_thread',
+        source_id: emailIds[0],
+        confidence: extraction.confidence,
+        is_validated: extraction.confidence >= 0.8
+      });
+
+    if (!error) {
+      stored++;
+      console.log(`Stored knowledge: ${extraction.name} (${extraction.category})`);
+    }
+  }
+
+  return stored;
 }
 
 serve(async (req) => {
@@ -252,13 +441,6 @@ serve(async (req) => {
     let threadId: string | null = null;
 
     for (const uid of uids) {
-      // Check if already exists
-      const { data: existing } = await supabase
-        .from('emails')
-        .select('id')
-        .eq('message_id', `<${uid}@check>`)
-        .maybeSingle();
-
       const msg = await client.fetchMessage(uid);
       
       // Check by actual message_id
@@ -313,39 +495,83 @@ serve(async (req) => {
     await client.logout();
     client = null;
 
-    // If this is a learning case, create a knowledge entry linking all emails
-    if (learningCase && importedEmails.length > 0) {
-      const emailIds = importedEmails.filter(e => !e.alreadyExists).map(e => e.id);
-      if (emailIds.length > 0) {
-        const firstEmail = importedEmails[0];
+    const newlyImportedEmails = importedEmails.filter(e => !e.alreadyExists);
+    const emailIds = newlyImportedEmails.map(e => e.id);
+
+    // AI Analysis of the thread
+    let analysisResult = null;
+    let knowledgeStored = 0;
+
+    if (learningCase && newlyImportedEmails.length > 0) {
+      console.log("Starting AI analysis of imported thread...");
+      
+      // Analyze the complete thread
+      analysisResult = await analyzeThreadWithAI(newlyImportedEmails, supabase);
+      
+      if (analysisResult) {
+        // Store extracted knowledge
+        knowledgeStored = await storeExtractedKnowledge(
+          analysisResult, 
+          threadId!, 
+          emailIds, 
+          supabase
+        );
+
+        // Create main thread knowledge entry with analysis summary
         await supabase.from('learned_knowledge').insert({
-          name: `Échange: ${firstEmail.subject?.substring(0, 100) || 'Sans titre'}`,
+          name: `Échange: ${newlyImportedEmails[0]?.subject?.substring(0, 80) || 'Sans titre'}`,
           category: 'quotation_exchange',
-          description: `Échange de ${importedEmails.length} emails importé pour apprentissage`,
+          description: analysisResult.summary || `Échange de ${newlyImportedEmails.length} emails analysé`,
           source_type: 'email_thread',
           data: {
             email_ids: emailIds,
             thread_id: threadId,
-            participants: [...new Set(importedEmails.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))],
+            participants: [...new Set(newlyImportedEmails.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))],
             date_range: {
-              first: importedEmails[importedEmails.length - 1]?.sent_at,
-              last: importedEmails[0]?.sent_at
+              first: newlyImportedEmails[newlyImportedEmails.length - 1]?.sent_at,
+              last: newlyImportedEmails[0]?.sent_at
             },
-            learning_case: learningCase
+            learning_case: learningCase,
+            quotation_detected: analysisResult.quotation_detected,
+            quotation_amount: analysisResult.quotation_amount,
+            client_satisfaction: analysisResult.client_satisfaction,
+            extractions_count: analysisResult.extractions?.length || 0
           },
-          confidence: 0.3, // Will increase after AI analysis
+          confidence: 0.7,
           is_validated: false
         });
+
+        // Update emails with analysis results
+        for (const email of newlyImportedEmails) {
+          await supabase
+            .from('emails')
+            .update({
+              extracted_data: {
+                ...email.extracted_data,
+                ai_analyzed: true,
+                analyzed_at: new Date().toISOString(),
+                thread_summary: analysisResult.summary
+              }
+            })
+            .eq('id', email.id);
+        }
       }
     }
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        imported: importedEmails.filter(e => !e.alreadyExists).length,
+        imported: newlyImportedEmails.length,
         total: importedEmails.length,
         threadId,
-        emails: importedEmails
+        emails: importedEmails,
+        analysis: analysisResult ? {
+          summary: analysisResult.summary,
+          extractionsCount: analysisResult.extractions?.length || 0,
+          knowledgeStored,
+          quotationDetected: analysisResult.quotation_detected,
+          quotationAmount: analysisResult.quotation_amount
+        } : null
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
