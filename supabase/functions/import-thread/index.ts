@@ -685,6 +685,9 @@ async function storeExtractedKnowledge(
   return stored;
 }
 
+// Maximum attachment size to process (5MB) - prevents memory limit errors
+const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+
 async function processAttachment(
   client: IMAPClient,
   uid: number,
@@ -693,7 +696,35 @@ async function processAttachment(
   supabase: any
 ): Promise<{ id: string; extractedText: string } | null> {
   try {
-    console.log(`Processing attachment: ${attachment.filename} (${attachment.contentType})`);
+    console.log(`Processing attachment: ${attachment.filename} (${attachment.contentType}, ~${attachment.size} bytes)`);
+    
+    // Skip large attachments to prevent memory limit errors
+    if (attachment.size > MAX_ATTACHMENT_SIZE) {
+      console.log(`Skipping large attachment ${attachment.filename} (${(attachment.size / 1024 / 1024).toFixed(2)}MB > 5MB limit)`);
+      
+      // Still create a record for the attachment but mark it as too large
+      const { data: attachmentRecord } = await supabase
+        .from('email_attachments')
+        .insert({
+          email_id: emailId,
+          filename: attachment.filename,
+          content_type: attachment.contentType,
+          size: attachment.size,
+          storage_path: null,
+          is_analyzed: false,
+          extracted_text: `[Pièce jointe trop volumineuse: ${(attachment.size / 1024 / 1024).toFixed(2)}MB - non traitée automatiquement]`
+        })
+        .select()
+        .single();
+      
+      return attachmentRecord ? { id: attachmentRecord.id, extractedText: '' } : null;
+    }
+    
+    // Skip inline images that are typically not relevant for analysis
+    if (attachment.contentType.startsWith('image/') && attachment.filename.startsWith('image')) {
+      console.log(`Skipping inline image: ${attachment.filename}`);
+      return null;
+    }
     
     // Download attachment content
     const content = await client.fetchAttachment(uid, attachment.partNumber, attachment.encoding);
