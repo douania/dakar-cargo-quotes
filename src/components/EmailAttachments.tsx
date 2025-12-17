@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { 
   FileText, FileSpreadsheet, File, Download, Eye, 
-  CheckCircle, Loader2, Image as ImageIcon, Sparkles, AlertTriangle
+  CheckCircle, Loader2, Image as ImageIcon, Sparkles, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -56,6 +56,7 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
+  const [forceDownloading, setForceDownloading] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -132,6 +133,28 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
       toast.error('Erreur lors de l\'analyse');
     }
     setAnalyzing(null);
+  };
+
+  const forceDownloadAttachment = async (attachmentId: string) => {
+    setForceDownloading(attachmentId);
+    try {
+      const { data, error } = await supabase.functions.invoke('force-download-attachment', {
+        body: { attachmentId }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success('Pièce jointe téléchargée avec succès');
+        loadAttachments();
+      } else {
+        toast.error(data.error || 'Échec du téléchargement');
+      }
+    } catch (error) {
+      console.error('Force download error:', error);
+      toast.error('Erreur lors du téléchargement forcé');
+    }
+    setForceDownloading(null);
   };
 
   const getFileIcon = (contentType: string | null, filename: string) => {
@@ -337,6 +360,31 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                         )}
                       </Button>
                     )}
+                    {isSkipped && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-100"
+                              onClick={() => forceDownloadAttachment(attachment.id)}
+                              disabled={forceDownloading === attachment.id}
+                              title="Forcer le téléchargement"
+                            >
+                              {forceDownloading === attachment.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p className="text-sm">Forcer le téléchargement depuis le serveur</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                     <Button 
                       size="icon" 
                       variant="ghost" 
@@ -395,15 +443,29 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {/* Skipped reason alert */}
+                {/* Skipped reason alert with force download option */}
                 {getAttachmentStatus(previewAttachment).status === 'skipped' && (
                   <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
                     <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         {getAttachmentStatus(previewAttachment).reason}
                       </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                        onClick={() => forceDownloadAttachment(previewAttachment.id)}
+                        disabled={forceDownloading === previewAttachment.id}
+                      >
+                        {forceDownloading === previewAttachment.id ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        Forcer le téléchargement
+                      </Button>
                     </div>
                   </div>
                 )}
