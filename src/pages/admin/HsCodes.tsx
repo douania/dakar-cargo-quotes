@@ -27,8 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Upload, Download, Edit2, Trash2, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft, Search, Upload, Download, Edit2, Trash2, RefreshCw, FileSpreadsheet, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Textarea } from "@/components/ui/textarea";
 
 interface HsCode {
   id: string;
@@ -56,6 +57,9 @@ export default function HsCodesAdmin() {
   const [filterChapter, setFilterChapter] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+  const [showPdfDialog, setShowPdfDialog] = useState(false);
+  const [pdfText, setPdfText] = useState("");
   const [editingCode, setEditingCode] = useState<HsCode | null>(null);
   const limit = 50;
 
@@ -208,6 +212,34 @@ export default function HsCodesAdmin() {
     }
   };
 
+  // Extract descriptions from PDF
+  const handleExtractPdfDescriptions = async () => {
+    if (!pdfText.trim()) {
+      toast.error("Veuillez coller le texte du PDF");
+      return;
+    }
+    
+    setIsExtractingPdf(true);
+    try {
+      const response = await supabase.functions.invoke("extract-pdf-descriptions", {
+        body: { pdfText, useAI: true },
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      const result = response.data;
+      toast.success(result.message);
+      queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
+      setShowPdfDialog(false);
+      setPdfText("");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      toast.error("Erreur d'extraction: " + message);
+    } finally {
+      setIsExtractingPdf(false);
+    }
+  };
+
   const totalPages = Math.ceil((data?.count || 0) / limit);
 
   return (
@@ -237,6 +269,39 @@ export default function HsCodesAdmin() {
               <Download className="h-4 w-4 mr-2" />
               Exporter CSV
             </Button>
+            <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Extraire descriptions PDF
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Extraire les descriptions du PDF</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Copiez et collez le texte du PDF TEC UEMOA ci-dessous. L'IA extraira automatiquement les codes SH et leurs descriptions pour mettre à jour la base de données.
+                  </p>
+                  <Textarea
+                    placeholder="Collez le texte du PDF ici..."
+                    value={pdfText}
+                    onChange={(e) => setPdfText(e.target.value)}
+                    rows={15}
+                    className="font-mono text-xs"
+                  />
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-muted-foreground">
+                      {pdfText.length.toLocaleString()} caractères
+                    </p>
+                    <Button onClick={handleExtractPdfDescriptions} disabled={isExtractingPdf || !pdfText.trim()}>
+                      {isExtractingPdf ? "Extraction en cours..." : "Lancer l'extraction"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Button onClick={handleImportCSV} disabled={isImporting}>
               <Upload className="h-4 w-4 mr-2" />
               {isImporting ? "Import en cours..." : "Importer CSV"}

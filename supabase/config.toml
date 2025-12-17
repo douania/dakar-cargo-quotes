@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.generate-response]
 verify_jwt = false
+
+[functions.extract-pdf-descriptions]
+verify_jwt = false
