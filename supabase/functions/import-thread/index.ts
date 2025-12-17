@@ -763,12 +763,17 @@ serve(async (req) => {
             console.log(`Processing ${msg.attachments.length} missing attachment(s) for existing email ${emailId}`);
             
             for (const attachment of msg.attachments) {
-              const result = await processAttachment(client, uid, attachment, emailId, supabase);
-              if (result) {
-                totalAttachments++;
-                if (result.extractedText) {
-                  allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
+              console.log(`Calling processAttachment for: ${JSON.stringify(attachment)}`);
+              try {
+                const result = await processAttachment(client, uid, attachment, emailId, supabase);
+                if (result) {
+                  totalAttachments++;
+                  if (result.extractedText) {
+                    allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
+                  }
                 }
+              } catch (attError) {
+                console.error(`Error processing attachment ${attachment.filename}:`, attError);
               }
             }
           } else {
