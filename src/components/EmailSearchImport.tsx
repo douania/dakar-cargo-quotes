@@ -124,8 +124,14 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         message += message ? ' + ' : '';
         message += `${data.alreadyExisted} email(s) déjà présent(s)`;
       }
+      if (data.attachmentsProcessed > 0) {
+        message += `. ${data.attachmentsProcessed} pièce(s) jointe(s) traitée(s)`;
+      }
       if (data.analysis) {
         message += `. Analyse IA: ${data.analysis.knowledgeStored} connaissance(s) extraite(s)`;
+        if (data.analysis.attachmentsAnalyzed > 0) {
+          message += ` (incl. ${data.analysis.attachmentsAnalyzed} document(s))`;
+        }
         if (data.analysis.quotationDetected) {
           message += ` - Cotation détectée${data.analysis.quotationAmount ? `: ${data.analysis.quotationAmount}` : ''}`;
         }
