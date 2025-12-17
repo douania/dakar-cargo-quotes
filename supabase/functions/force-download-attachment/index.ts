@@ -57,25 +57,32 @@ function parseBodyStructure(response: string): AttachmentInfo[] {
   
   const structure = structureMatch[1];
   
-  function parsePart(str: string, partPath: string): void {
+  function parsePart(str: string, partPath: string, depth: number = 0): void {
+    // Prevent infinite recursion
+    if (depth > 20) return;
+    
     const trimmed = str.trim();
     
     if (trimmed.startsWith('((')) {
-      let depth = 0;
-      let partStart = 0;
+      // Skip the outer wrapper parenthesis
+      let parenDepth = 0;
+      let partStart = -1;
       let subPartNum = 1;
       
-      for (let i = 0; i < trimmed.length; i++) {
+      for (let i = 1; i < trimmed.length - 1; i++) {
         if (trimmed[i] === '(') {
-          if (depth === 0) partStart = i;
-          depth++;
+          if (parenDepth === 0) partStart = i;
+          parenDepth++;
         } else if (trimmed[i] === ')') {
-          depth--;
-          if (depth === 0) {
+          parenDepth--;
+          if (parenDepth === 0 && partStart !== -1) {
             const subPart = trimmed.substring(partStart, i + 1);
-            const newPath = partPath ? `${partPath}.${subPartNum}` : `${subPartNum}`;
-            parsePart(subPart, newPath);
-            subPartNum++;
+            if (!subPart.match(/^\s*"[A-Z]+"/i)) {
+              const newPath = partPath ? `${partPath}.${subPartNum}` : String(subPartNum);
+              parsePart(subPart, newPath, depth + 1);
+              subPartNum++;
+            }
+            partStart = -1;
           }
         }
       }
