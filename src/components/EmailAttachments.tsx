@@ -3,9 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { 
   FileText, FileSpreadsheet, File, Download, Eye, 
-  CheckCircle, Loader2, Image as ImageIcon
+  CheckCircle, Loader2, Image as ImageIcon, Sparkles
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -28,6 +29,7 @@ interface EmailAttachmentsProps {
 export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -49,6 +51,57 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
       console.error('Error loading attachments:', error);
     }
     setLoading(false);
+  };
+
+  const analyzeAttachment = async (attachmentId: string) => {
+    setAnalyzing(attachmentId);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-attachments', {
+        body: { attachmentId }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success('Pièce jointe analysée');
+        loadAttachments();
+      } else {
+        toast.error(data.error || 'Erreur d\'analyse');
+      }
+    } catch (error) {
+      console.error('Analyze error:', error);
+      toast.error('Erreur lors de l\'analyse');
+    }
+    setAnalyzing(null);
+  };
+
+  const analyzeAllAttachments = async () => {
+    setAnalyzing('all');
+    try {
+      const unanalyzed = attachments.filter(a => !a.is_analyzed);
+      if (unanalyzed.length === 0) {
+        toast.info('Toutes les pièces jointes sont déjà analysées');
+        setAnalyzing(null);
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('analyze-attachments', {
+        body: {}
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        toast.success(`${data.analyzed} pièce(s) jointe(s) analysée(s)`);
+        loadAttachments();
+      } else {
+        toast.error(data.error || 'Erreur d\'analyse');
+      }
+    } catch (error) {
+      console.error('Analyze error:', error);
+      toast.error('Erreur lors de l\'analyse');
+    }
+    setAnalyzing(null);
   };
 
   const getFileIcon = (contentType: string | null, filename: string) => {
@@ -123,11 +176,30 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
     return null;
   }
 
+  const unanalyzedCount = attachments.filter(a => !a.is_analyzed).length;
+
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-medium text-muted-foreground">
-        Pièces jointes ({attachments.length})
-      </h4>
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-muted-foreground">
+          Pièces jointes ({attachments.length})
+        </h4>
+        {unanalyzedCount > 0 && (
+          <Button 
+            size="sm" 
+            variant="outline"
+            onClick={analyzeAllAttachments}
+            disabled={analyzing === 'all'}
+          >
+            {analyzing === 'all' ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4 mr-2" />
+            )}
+            Analyser tout ({unanalyzedCount})
+          </Button>
+        )}
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {attachments.map((attachment) => (
           <Card key={attachment.id} className="bg-muted/50">
@@ -149,6 +221,22 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                   </div>
                 </div>
                 <div className="flex gap-1">
+                  {!attachment.is_analyzed && (
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-8 w-8"
+                      onClick={() => analyzeAttachment(attachment.id)}
+                      disabled={analyzing === attachment.id}
+                      title="Analyser"
+                    >
+                      {analyzing === attachment.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
                   <Button 
                     size="icon" 
                     variant="ghost" 

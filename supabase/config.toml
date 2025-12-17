@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.import-thread]
 verify_jwt = false
+
+[functions.analyze-attachments]
+verify_jwt = false
