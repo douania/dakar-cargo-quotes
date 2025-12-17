@@ -65,6 +65,7 @@ export default function HsCodesAdmin() {
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfStatus, setPdfStatus] = useState("");
   const [editingCode, setEditingCode] = useState<HsCode | null>(null);
+  const [isImportingDescriptions, setIsImportingDescriptions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const limit = 50;
 
@@ -186,6 +187,34 @@ export default function HsCodesAdmin() {
       toast.error("Erreur d'import: " + message);
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  // Import descriptions from TEC UEMOA CSV
+  const handleImportDescriptions = async () => {
+    setIsImportingDescriptions(true);
+    try {
+      const csvResponse = await fetch("/data/TEC_UEMOA_HS_Codes.csv");
+      if (!csvResponse.ok) {
+        throw new Error("Impossible de charger le fichier CSV des descriptions");
+      }
+      const csvContent = await csvResponse.text();
+      
+      const response = await supabase.functions.invoke("import-hs-codes", {
+        body: { csvContent, mode: "descriptions_only" },
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      const result = response.data;
+      toast.success(`Import terminé: ${result.stats.updated} mis à jour, ${result.stats.inserted} ajoutés`);
+      queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["hs-codes-stats"] });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      toast.error("Erreur d'import: " + message);
+    } finally {
+      setIsImportingDescriptions(false);
     }
   };
 
@@ -465,6 +494,14 @@ export default function HsCodesAdmin() {
                 </div>
               </DialogContent>
             </Dialog>
+            <Button 
+              variant="secondary"
+              onClick={handleImportDescriptions} 
+              disabled={isImportingDescriptions}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              {isImportingDescriptions ? "Import descriptions..." : "Importer descriptions CSV"}
+            </Button>
             <Button onClick={handleImportCSV} disabled={isImporting}>
               <Upload className="h-4 w-4 mr-2" />
               {isImporting ? "Import en cours..." : "Importer CSV"}
