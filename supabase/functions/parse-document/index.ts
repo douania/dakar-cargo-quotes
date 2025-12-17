@@ -3,6 +3,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
 
+const PDF_WORKER_SRC =
+  "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
+
+try {
+  // Required by pdfjs-dist in non-browser runtimes
+  (pdfjsLib as any).GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+} catch (e) {
+  console.warn("Unable to set PDF.js workerSrc:", e);
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -262,7 +272,7 @@ serve(async (req) => {
         filename: sanitizeText(file.name),
         file_type: fileExt,
         file_size: file.size,
-        content_text: extractedText.substring(0, 100000), // Limit text size
+        content_text: extractedText.substring(0, 2000000), // Limit text size
         extracted_data: extractedData,
         source: 'upload',
         tags: docType.tags,
