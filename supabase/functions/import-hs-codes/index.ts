@@ -35,7 +35,7 @@ serve(async (req) => {
     // Remove BOM and normalize line endings
     csvData = csvData.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    // Detect delimiter (comma or semicolon)
+    // Detect delimiter
     const firstLine = csvData.split('\n')[0];
     const delimiter = firstLine.includes(';') ? ';' : ',';
     console.log('Detected delimiter:', delimiter);
@@ -48,7 +48,6 @@ serve(async (req) => {
       
       for (let i = 0; i < line.length; i++) {
         const char = line[i];
-        
         if (char === '"') {
           if (inQuotes && line[i + 1] === '"') {
             current += '"';
@@ -72,24 +71,18 @@ serve(async (req) => {
       h.toLowerCase().replace(/[^\w]/g, '').replace(/^"/, '').replace(/"$/, '')
     );
     
-    console.log('CSV Headers:', headers);
+    console.log('CSV Headers:', headers.slice(0, 5));
     console.log('Total lines:', lines.length - 1);
 
-    // Determine mode: 'descriptions_only' just updates descriptions, 'full' does full upsert
     const importMode = mode || 'descriptions_only';
     console.log('Import mode:', importMode);
 
-    const hsCodesData: any[] = [];
-    let skipped = 0;
-    let processed = 0;
+    // Parse all data first
+    const hsCodesData: { code: string; description: string }[] = [];
 
     for (let i = 1; i < lines.length; i++) {
       const values = parseCSVLine(lines[i]);
-      
-      if (values.length < 2) {
-        skipped++;
-        continue;
-      }
+      if (values.length < 2) continue;
 
       const getVal = (keys: string[]) => {
         for (const key of keys) {
@@ -101,146 +94,115 @@ serve(async (req) => {
         return '';
       };
 
-      // Support both 'hs_code' and 'code' column names
       const code = getVal(['hscode', 'hs_code', 'code']);
       const description = getVal(['description', 'libelle', 'designation']);
       
-      if (!code) {
-        skipped++;
-        continue;
-      }
+      if (!code) continue;
 
       // Normalize code (remove dots, spaces, dashes)
       const codeNormalized = code.replace(/[\.\s\-]/g, '');
-      
-      if (importMode === 'descriptions_only') {
-        // Only update descriptions for existing codes
-        hsCodesData.push({
-          code_normalized: codeNormalized,
-          description: description || null,
-        });
-      } else {
-        // Full import with all fields
-        const parseNumber = (val: string): number => {
-          if (!val || val === '' || val.toUpperCase() === 'FALSE') return 0;
-          if (val.toUpperCase() === 'TRUE') return 1;
-          const num = parseFloat(val.replace(',', '.'));
-          return isNaN(num) ? 0 : num;
-        };
-
-        const parseBool = (val: string): boolean => {
-          if (!val) return false;
-          return val.toUpperCase() === 'TRUE' || val === '1';
-        };
-
-        const chapter = parseInt(codeNormalized.substring(0, 2)) || 0;
-
-        hsCodesData.push({
-          code: codeNormalized,
-          code_normalized: codeNormalized,
-          dd: parseNumber(getVal(['dd'])),
-          surtaxe: parseNumber(getVal(['surtaxe'])),
-          rs: parseNumber(getVal(['rs'])) || 1,
-          pcs: parseNumber(getVal(['pcs'])) || 0.8,
-          pcc: parseNumber(getVal(['pcc'])) || 0.5,
-          cosec: parseNumber(getVal(['cosec'])) || 0.4,
-          uemoa: parseNumber(getVal(['uemoa'])) || 5,
-          tin: parseNumber(getVal(['tin'])),
-          tva: parseNumber(getVal(['tva'])) || 18,
-          tev: parseNumber(getVal(['tev'])),
-          ta: parseNumber(getVal(['ta'])),
-          t_past: parseNumber(getVal(['t_past', 'tpast'])),
-          t_para: parseNumber(getVal(['t_para', 'tpara'])),
-          t_conj: parseNumber(getVal(['t_conj', 'tconj'])),
-          t_ciment: parseNumber(getVal(['t_ciment', 'tciment'])),
-          ref: parseNumber(getVal(['ref'])),
-          bic: parseBool(getVal(['bic'])),
-          mercurialis: parseBool(getVal(['mercurialis'])),
-          description: description || null,
-          chapter: chapter,
-        });
-      }
-
-      processed++;
+      hsCodesData.push({ code: codeNormalized, description: description || '' });
     }
 
-    console.log(`Processed ${processed} codes, skipped ${skipped}`);
+    console.log(`Parsed ${hsCodesData.length} codes`);
 
-    // Process in batches
-    const batchSize = 100;
+    // Build a map for quick lookup
+    const descriptionMap = new Map(hsCodesData.map(d => [d.code, d.description]));
+
+    // Process in larger batches using upsert
+    const batchSize = 500;
     let updatedCount = 0;
     let insertedCount = 0;
-    let errors: string[] = [];
+    const errors: string[] = [];
 
-    if (importMode === 'descriptions_only') {
-      // Update descriptions for existing codes using code_normalized match
-      for (let i = 0; i < hsCodesData.length; i += batchSize) {
-        const batch = hsCodesData.slice(i, i + batchSize);
-        
-        for (const item of batch) {
-          // Try to update by matching code_normalized to code
-          const { data: updated, error } = await supabase
-            .from('hs_codes')
-            .update({ description: item.description })
-            .eq('code', item.code_normalized)
-            .select('id');
+    // For descriptions_only mode, we'll do batch upserts with full records
+    // First, fetch all existing codes to know which ones exist
+    const { data: existingCodes, error: fetchError } = await supabase
+      .from('hs_codes')
+      .select('code, id, dd, rs, pcs, pcc, cosec, tva, chapter, code_normalized');
 
-          if (error) {
-            errors.push(`Update ${item.code_normalized}: ${error.message}`);
-          } else if (updated && updated.length > 0) {
-            updatedCount++;
-          } else {
-            // Code doesn't exist, try to insert
-            const chapter = parseInt(item.code_normalized.substring(0, 2)) || 0;
-            const { error: insertError } = await supabase
-              .from('hs_codes')
-              .insert({
-                code: item.code_normalized,
-                code_normalized: item.code_normalized,
-                description: item.description,
-                chapter: chapter,
-                dd: 0,
-                rs: 1,
-                pcs: 0.8,
-                pcc: 0.5,
-                cosec: 0.4,
-                tva: 18,
-              });
-            
-            if (insertError) {
-              // Might be duplicate, ignore
-              if (!insertError.message.includes('duplicate')) {
-                errors.push(`Insert ${item.code_normalized}: ${insertError.message}`);
-              }
-            } else {
-              insertedCount++;
-            }
-          }
-        }
-        
-        console.log(`Processed batch ${Math.floor(i / batchSize) + 1}, updated: ${updatedCount}, inserted: ${insertedCount}`);
-      }
-    } else {
-      // Full upsert
-      for (let i = 0; i < hsCodesData.length; i += batchSize) {
-        const batch = hsCodesData.slice(i, i + batchSize);
-        
-        const { error } = await supabase
-          .from('hs_codes')
-          .upsert(batch, { 
-            onConflict: 'code_normalized',
-            ignoreDuplicates: false 
-          });
+    if (fetchError) {
+      throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+    }
 
-        if (error) {
-          console.error(`Batch ${i / batchSize + 1} error:`, error);
-          errors.push(`Batch ${i / batchSize + 1}: ${error.message}`);
-        } else {
-          insertedCount += batch.length;
-          console.log(`Upserted batch ${i / batchSize + 1}, total: ${insertedCount}`);
-        }
+    console.log(`Found ${existingCodes?.length || 0} existing codes in database`);
+
+    // Create a map of existing codes
+    const existingMap = new Map(existingCodes?.map(c => [c.code, c]) || []);
+
+    // Prepare records for upsert
+    const recordsToUpsert: any[] = [];
+    const recordsToInsert: any[] = [];
+
+    for (const item of hsCodesData) {
+      const existing = existingMap.get(item.code);
+      
+      if (existing) {
+        // Update existing record with description
+        recordsToUpsert.push({
+          id: existing.id,
+          code: existing.code,
+          code_normalized: existing.code_normalized || item.code,
+          description: item.description,
+          dd: existing.dd,
+          rs: existing.rs,
+          pcs: existing.pcs,
+          pcc: existing.pcc,
+          cosec: existing.cosec,
+          tva: existing.tva,
+          chapter: existing.chapter,
+        });
+      } else {
+        // New record
+        const chapter = parseInt(item.code.substring(0, 2)) || 0;
+        recordsToInsert.push({
+          code: item.code,
+          code_normalized: item.code,
+          description: item.description,
+          chapter: chapter,
+          dd: 0,
+          rs: 1,
+          pcs: 0.8,
+          pcc: 0.5,
+          cosec: 0.4,
+          tva: 18,
+        });
       }
     }
+
+    console.log(`Records to update: ${recordsToUpsert.length}, to insert: ${recordsToInsert.length}`);
+
+    // Batch upsert existing records (updates)
+    for (let i = 0; i < recordsToUpsert.length; i += batchSize) {
+      const batch = recordsToUpsert.slice(i, i + batchSize);
+      const { error } = await supabase
+        .from('hs_codes')
+        .upsert(batch, { onConflict: 'id' });
+
+      if (error) {
+        console.error(`Update batch error:`, error.message);
+        errors.push(`Update batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+      } else {
+        updatedCount += batch.length;
+      }
+    }
+
+    // Batch insert new records
+    for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+      const batch = recordsToInsert.slice(i, i + batchSize);
+      const { error } = await supabase
+        .from('hs_codes')
+        .insert(batch);
+
+      if (error) {
+        console.error(`Insert batch error:`, error.message);
+        errors.push(`Insert batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+      } else {
+        insertedCount += batch.length;
+      }
+    }
+
+    console.log(`Completed: updated ${updatedCount}, inserted ${insertedCount}`);
 
     return new Response(
       JSON.stringify({
@@ -248,11 +210,10 @@ serve(async (req) => {
         message: `Import completed`,
         stats: {
           totalLines: lines.length - 1,
-          processed,
-          skipped,
+          parsed: hsCodesData.length,
           updated: updatedCount,
           inserted: insertedCount,
-          errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
+          errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
           totalErrors: errors.length
         }
       }),
