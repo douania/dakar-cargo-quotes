@@ -31,8 +31,6 @@ function extractThreadId(messageId: string, references: string): string {
 // Simple IMAP client implementation for basic operations
 class SimpleIMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
-  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
   private tagCounter = 0;
@@ -85,10 +83,8 @@ class SimpleIMAPClient {
       }
     }
     
-    this.reader = this.conn.readable.getReader();
-    
     // Read greeting
-    const greeting = await this.readResponse();
+    const greeting = await this.readLine();
     console.log("Server greeting:", greeting.substring(0, 100));
     
     // If using STARTTLS, upgrade connection
@@ -97,104 +93,77 @@ class SimpleIMAPClient {
     }
   }
 
+  private async readLine(): Promise<string> {
+    const buf = new Uint8Array(4096);
+    let result = this.buffer;
+    
+    while (!result.includes('\r\n')) {
+      const n = await this.conn!.read(buf);
+      if (n === null) break;
+      result += this.decoder.decode(buf.subarray(0, n));
+    }
+    
+    const idx = result.indexOf('\r\n');
+    if (idx >= 0) {
+      this.buffer = result.substring(idx + 2);
+      return result.substring(0, idx);
+    }
+    
+    this.buffer = "";
+    return result;
+  }
+
+  private async readUntilTag(tag: string): Promise<string> {
+    let result = "";
+    
+    while (true) {
+      const line = await this.readLine();
+      result += line + '\r\n';
+      
+      if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) {
+        break;
+      }
+    }
+    
+    return result;
+  }
+
   private async startTls(): Promise<void> {
     console.log("Initiating STARTTLS...");
     
     // Send STARTTLS command
     const tag = this.getTag();
-    await this.writeRaw(`${tag} STARTTLS\r\n`);
+    await this.writeCommand(`${tag} STARTTLS`);
     
     // Read response
-    let response = "";
-    while (!response.includes(`${tag} OK`) && !response.includes(`${tag} NO`) && !response.includes(`${tag} BAD`)) {
-      const chunk = await this.readChunk();
-      response += chunk;
-    }
+    const response = await this.readUntilTag(tag);
     
     if (!response.includes(`${tag} OK`)) {
-      throw new Error("STARTTLS not supported or failed");
+      throw new Error("STARTTLS not supported or failed: " + response);
     }
     
     console.log("STARTTLS accepted, upgrading connection...");
     
-    // Release the reader before upgrading
-    this.reader?.releaseLock();
+    // Clear buffer before upgrade
+    this.buffer = "";
     
-    // Upgrade to TLS - use startTls which is more lenient with certificates
+    // Upgrade to TLS
     const tcpConn = this.conn as Deno.TcpConn;
     this.conn = await Deno.startTls(tcpConn, { 
       hostname: this.host,
     });
     
-    this.reader = this.conn.readable.getReader();
     console.log("TLS connection upgraded successfully");
   }
 
-  private async writeRaw(data: string): Promise<void> {
-    const writer = this.conn!.writable.getWriter();
-    await writer.write(this.encoder.encode(data));
-    writer.releaseLock();
-  }
-
-  private async readChunk(): Promise<string> {
-    const { value, done } = await this.reader!.read();
-    if (done || !value) return "";
-    return this.decoder.decode(value);
-  }
-
-  private async readResponse(): Promise<string> {
-    const chunks: string[] = [];
-    
-    while (true) {
-      const { value, done } = await this.reader!.read();
-      if (done) break;
-      
-      const text = this.decoder.decode(value);
-      this.buffer += text;
-      
-      // Check for complete response (ends with tagged response or untagged final)
-      const lines = this.buffer.split('\r\n');
-      
-      for (let i = 0; i < lines.length - 1; i++) {
-        chunks.push(lines[i]);
-      }
-      this.buffer = lines[lines.length - 1];
-      
-      // Check if we have a complete response
-      const fullResponse = chunks.join('\r\n');
-      if (fullResponse.match(/^A\d+ (OK|NO|BAD)/m) || fullResponse.includes('* OK')) {
-        if (!fullResponse.match(/^A\d+ /m) && !fullResponse.startsWith('*')) {
-          continue;
-        }
-        return fullResponse;
-      }
-      
-      if (chunks.length > 0 && chunks[chunks.length - 1].match(/^A\d+ /)) {
-        return fullResponse;
-      }
-    }
-    
-    return chunks.join('\r\n');
+  private async writeCommand(command: string): Promise<void> {
+    await this.conn!.write(this.encoder.encode(command + '\r\n'));
   }
 
   private async sendCommand(command: string): Promise<string> {
     const tag = this.getTag();
-    const fullCommand = `${tag} ${command}\r\n`;
-    
-    await this.writeRaw(fullCommand);
-    
-    // Read until we get the tagged response
-    let response = "";
-    while (true) {
-      const chunk = await this.readResponse();
-      response += chunk + "\r\n";
-      
-      if (response.includes(`${tag} OK`) || response.includes(`${tag} NO`) || response.includes(`${tag} BAD`)) {
-        break;
-      }
-    }
-    
-    return response;
+    await this.writeCommand(`${tag} ${command}`);
+    return await this.readUntilTag(tag);
   }
 
   async login(username: string, password: string): Promise<boolean> {
@@ -232,7 +201,7 @@ class SimpleIMAPClient {
     }> = [];
 
     // Parse FETCH responses
-    const fetchRegex = /\* (\d+) FETCH \(UID (\d+).*?BODY\[HEADER\.FIELDS.*?\] \{(\d+)\}\r\n([\s\S]*?)(?=\* \d+ FETCH|\nA\d+|$)/gi;
+    const fetchRegex = /\* (\d+) FETCH \(UID (\d+).*?BODY\[HEADER\.FIELDS.*?\] \{(\d+)\}\r\n([\s\S]*?)(?=\* \d+ FETCH|\r\nA\d+|$)/gi;
     let match;
     
     while ((match = fetchRegex.exec(response)) !== null) {
@@ -284,7 +253,7 @@ class SimpleIMAPClient {
     let html = '';
     
     // Extract body content
-    const bodyMatch = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n([\s\S]*?)(?=\)\r\n|\nA\d+)/);
+    const bodyMatch = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/);
     if (bodyMatch) {
       const rawBody = bodyMatch[2];
       text = decodeBody(rawBody);
@@ -301,14 +270,13 @@ class SimpleIMAPClient {
   async logout(): Promise<void> {
     try {
       await this.sendCommand('LOGOUT');
-    } catch (e) {
+    } catch (_e) {
       // Ignore logout errors
     }
     
     try {
-      this.reader?.releaseLock();
       this.conn?.close();
-    } catch (e) {
+    } catch (_e) {
       // Ignore close errors
     }
   }
