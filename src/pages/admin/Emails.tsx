@@ -44,6 +44,24 @@ interface EmailDraft {
   original_email_id: string;
 }
 
+function getInvokeErrorMessage(err: unknown): string {
+  const anyErr = err as any;
+
+  // Supabase Functions errors often carry the response body in context
+  const body = anyErr?.context?.body;
+  if (typeof body === 'string' && body.trim()) {
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed?.error === 'string' && parsed.error.trim()) return parsed.error;
+    } catch {
+      // ignore JSON parse errors
+    }
+  }
+
+  if (typeof anyErr?.message === 'string' && anyErr.message.trim()) return anyErr.message;
+  return 'Erreur de synchronisation';
+}
+
 export default function Emails() {
   const [configs, setConfigs] = useState<EmailConfig[]>([]);
   const [emails, setEmails] = useState<Email[]>([]);
@@ -127,7 +145,7 @@ export default function Emails() {
       loadData();
     } catch (error) {
       console.error('Sync error:', error);
-      toast.error('Erreur de synchronisation');
+      toast.error(getInvokeErrorMessage(error));
     }
     setSyncing(false);
   };
