@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.analyze-attachments]
 verify_jwt = false
+
+[functions.learn-from-contact]
+verify_jwt = false
