@@ -86,9 +86,19 @@ serve(async (req) => {
           continue;
         }
         
-        // Convert to base64
+        // Convert to base64 using chunked approach to avoid stack overflow
         const arrayBuffer = await fileData.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // Convert to base64 in chunks to avoid "Maximum call stack size exceeded"
+        const CHUNK_SIZE = 8192;
+        let base64 = '';
+        for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+          const chunk = uint8Array.slice(i, i + CHUNK_SIZE);
+          base64 += String.fromCharCode.apply(null, Array.from(chunk));
+        }
+        base64 = btoa(base64);
+        
         const mimeType = attachment.content_type || 'image/jpeg';
         const dataUrl = `data:${mimeType};base64,${base64}`;
         
