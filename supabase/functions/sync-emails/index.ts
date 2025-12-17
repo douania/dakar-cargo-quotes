@@ -32,34 +32,57 @@ function extractThreadId(messageId: string, references: string): string {
 class SimpleIMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
   private tagCounter = 0;
   private buffer = "";
+  private useStartTls: boolean;
 
   constructor(
     private host: string,
     private port: number,
-    private secure: boolean
-  ) {}
+    private secure: boolean,
+    useStartTls = false
+  ) {
+    this.useStartTls = useStartTls;
+  }
 
   private getTag(): string {
     return `A${++this.tagCounter}`;
   }
 
   async connect(): Promise<void> {
-    console.log(`Connecting to ${this.host}:${this.port} (secure: ${this.secure})`);
+    console.log(`Connecting to ${this.host}:${this.port} (secure: ${this.secure}, starttls: ${this.useStartTls})`);
     
-    if (this.secure) {
-      this.conn = await Deno.connectTls({
-        hostname: this.host,
-        port: this.port,
-      });
-    } else {
-      this.conn = await Deno.connect({
-        hostname: this.host,
-        port: this.port,
-      });
+    try {
+      if (this.secure && !this.useStartTls) {
+        // Direct TLS connection (port 993)
+        this.conn = await Deno.connectTls({
+          hostname: this.host,
+          port: this.port,
+        });
+      } else {
+        // Plain connection first (port 143 or with STARTTLS)
+        this.conn = await Deno.connect({
+          hostname: this.host,
+          port: this.port,
+        });
+      }
+    } catch (tlsError) {
+      console.error("TLS connection failed, trying alternative approach:", tlsError);
+      // If TLS fails, try plain connection on port 143 with STARTTLS
+      if (this.secure) {
+        console.log("Falling back to STARTTLS on port 143...");
+        this.port = 143;
+        this.useStartTls = true;
+        this.conn = await Deno.connect({
+          hostname: this.host,
+          port: 143,
+        });
+      } else {
+        throw tlsError;
+      }
     }
     
     this.reader = this.conn.readable.getReader();
@@ -67,6 +90,56 @@ class SimpleIMAPClient {
     // Read greeting
     const greeting = await this.readResponse();
     console.log("Server greeting:", greeting.substring(0, 100));
+    
+    // If using STARTTLS, upgrade connection
+    if (this.useStartTls) {
+      await this.startTls();
+    }
+  }
+
+  private async startTls(): Promise<void> {
+    console.log("Initiating STARTTLS...");
+    
+    // Send STARTTLS command
+    const tag = this.getTag();
+    await this.writeRaw(`${tag} STARTTLS\r\n`);
+    
+    // Read response
+    let response = "";
+    while (!response.includes(`${tag} OK`) && !response.includes(`${tag} NO`) && !response.includes(`${tag} BAD`)) {
+      const chunk = await this.readChunk();
+      response += chunk;
+    }
+    
+    if (!response.includes(`${tag} OK`)) {
+      throw new Error("STARTTLS not supported or failed");
+    }
+    
+    console.log("STARTTLS accepted, upgrading connection...");
+    
+    // Release the reader before upgrading
+    this.reader?.releaseLock();
+    
+    // Upgrade to TLS - use startTls which is more lenient with certificates
+    const tcpConn = this.conn as Deno.TcpConn;
+    this.conn = await Deno.startTls(tcpConn, { 
+      hostname: this.host,
+    });
+    
+    this.reader = this.conn.readable.getReader();
+    console.log("TLS connection upgraded successfully");
+  }
+
+  private async writeRaw(data: string): Promise<void> {
+    const writer = this.conn!.writable.getWriter();
+    await writer.write(this.encoder.encode(data));
+    writer.releaseLock();
+  }
+
+  private async readChunk(): Promise<string> {
+    const { value, done } = await this.reader!.read();
+    if (done || !value) return "";
+    return this.decoder.decode(value);
   }
 
   private async readResponse(): Promise<string> {
@@ -108,7 +181,7 @@ class SimpleIMAPClient {
     const tag = this.getTag();
     const fullCommand = `${tag} ${command}\r\n`;
     
-    await this.conn!.write(this.encoder.encode(fullCommand));
+    await this.writeRaw(fullCommand);
     
     // Read until we get the tagged response
     let response = "";
@@ -307,11 +380,13 @@ serve(async (req) => {
 
     console.log(`Connecting to ${config.host}:${config.port} as ${config.username}`);
 
-    // Create IMAP client
+    // Create IMAP client - use STARTTLS for better certificate compatibility
+    const useStartTls = config.port === 993; // If port 993, try STARTTLS as fallback
     client = new SimpleIMAPClient(
       config.host,
-      config.port,
-      config.use_ssl !== false
+      useStartTls ? 143 : config.port, // Use port 143 for STARTTLS
+      config.use_ssl !== false,
+      useStartTls
     );
 
     await client.connect();
