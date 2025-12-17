@@ -66,7 +66,7 @@ Réponds UNIQUEMENT avec un JSON valide au format:
 
 Si aucune connaissance exploitable n'est trouvée, retourne: { "summary": "Aucune information exploitable", "extractions": [], "quotation_detected": false }`;
 
-// Decode MIME encoded headers
+// Decode MIME encoded headers/filenames
 function decodeHeader(text: string): string {
   return text.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_: string, charset: string, encoding: string, content: string) => {
     try {
@@ -91,7 +91,100 @@ function parseEmailDate(dateStr: string): string {
   return new Date().toISOString();
 }
 
-// Simple IMAP client
+// Decode base64 content
+function decodeBase64(content: string): Uint8Array {
+  try {
+    const cleaned = content.replace(/[\r\n\s]/g, '');
+    const binary = atob(cleaned);
+    return new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+  } catch (e) {
+    console.error("Base64 decode error:", e);
+    return new Uint8Array(0);
+  }
+}
+
+// Decode quoted-printable content
+function decodeQuotedPrintable(content: string): Uint8Array {
+  const decoded = content
+    .replace(/=\r\n/g, '')
+    .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  return new TextEncoder().encode(decoded);
+}
+
+interface AttachmentInfo {
+  partNumber: string;
+  filename: string;
+  contentType: string;
+  encoding: string;
+  size: number;
+}
+
+// Parse BODYSTRUCTURE to find attachments
+function parseBodyStructure(response: string): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  
+  // Match attachment parts with filename
+  const filenameRegex = /\("name"\s+"([^"]+)"\)|filename\*?=(?:"([^"]+)"|([^\s\)]+))/gi;
+  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))\s*\)/i);
+  
+  if (!structureMatch) return attachments;
+  
+  const structure = structureMatch[1];
+  
+  // Simple parsing for common attachment patterns
+  // Look for parts like: ("application" "pdf" ... "base64" 12345 ...)
+  const partRegex = /\(?"(application|image|audio|video|text)"\s+"([^"]+)"[^)]*?"([^"]*)"[^)]*?"(base64|quoted-printable|7bit|8bit)"[^)]*?(\d+)/gi;
+  
+  let match;
+  let partNum = 1;
+  
+  while ((match = partRegex.exec(structure)) !== null) {
+    const [, type, subtype, , encoding, size] = match;
+    const contentType = `${type}/${subtype}`.toLowerCase();
+    
+    // Skip text/plain and text/html (these are body parts, not attachments)
+    if (contentType === 'text/plain' || contentType === 'text/html') continue;
+    
+    // Try to find filename near this match
+    const beforeMatch = structure.substring(0, match.index);
+    const afterMatch = structure.substring(match.index, match.index + 500);
+    const contextStr = beforeMatch.slice(-200) + afterMatch;
+    
+    let filename = `attachment_${partNum}`;
+    const fnMatch = contextStr.match(/(?:"name"\s*"([^"]+)"|filename\*?=(?:"([^"]+)"|'[^']*'([^']+)'|([^\s\);"]+)))/i);
+    if (fnMatch) {
+      filename = decodeHeader(fnMatch[1] || fnMatch[2] || fnMatch[3] || fnMatch[4] || filename);
+    }
+    
+    // Add extension based on content type if missing
+    if (!filename.includes('.')) {
+      const extMap: Record<string, string> = {
+        'application/pdf': '.pdf',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+      };
+      filename += extMap[contentType] || '';
+    }
+    
+    attachments.push({
+      partNumber: String(partNum),
+      filename,
+      contentType,
+      encoding: encoding.toLowerCase(),
+      size: parseInt(size) || 0
+    });
+    
+    partNum++;
+  }
+  
+  return attachments;
+}
+
+// Simple IMAP client with attachment support
 class IMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private encoder = new TextEncoder();
@@ -132,6 +225,36 @@ class IMAPClient {
       const line = await this.readLine();
       result += line + '\r\n';
       if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) break;
+    }
+    return result;
+  }
+
+  private async readBytes(count: number): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    let totalRead = 0;
+    
+    // First, use any buffered data
+    if (this.buffer.length > 0) {
+      const bufferedBytes = new TextEncoder().encode(this.buffer);
+      const toUse = Math.min(bufferedBytes.length, count);
+      chunks.push(bufferedBytes.subarray(0, toUse));
+      totalRead += toUse;
+      this.buffer = this.buffer.substring(toUse);
+    }
+    
+    while (totalRead < count) {
+      const buf = new Uint8Array(Math.min(8192, count - totalRead));
+      const n = await this.conn!.read(buf);
+      if (n === null) break;
+      chunks.push(buf.subarray(0, n));
+      totalRead += n;
+    }
+    
+    const result = new Uint8Array(totalRead);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
     }
     return result;
   }
@@ -193,6 +316,46 @@ class IMAPClient {
     await this.sendCommand(`SELECT "${mailbox}"`);
   }
 
+  async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
+    return parseBodyStructure(response);
+  }
+
+  async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    
+    // Extract the content from the response
+    const sizeMatch = response.match(/BODY\[\d+\] \{(\d+)\}/i);
+    if (!sizeMatch) {
+      // Try alternative format
+      const contentMatch = response.match(/BODY\[\d+\]\s+"([^"]+)"/i);
+      if (contentMatch) {
+        const content = contentMatch[1];
+        if (encoding === 'base64') {
+          return decodeBase64(content);
+        } else if (encoding === 'quoted-printable') {
+          return decodeQuotedPrintable(content);
+        }
+        return new TextEncoder().encode(content);
+      }
+      return new Uint8Array(0);
+    }
+    
+    // Get content after the size indicator
+    const afterSize = response.indexOf(`{${sizeMatch[1]}}`);
+    if (afterSize === -1) return new Uint8Array(0);
+    
+    const contentStart = response.indexOf('\r\n', afterSize) + 2;
+    const content = response.substring(contentStart).replace(/\)\r\n.*$/, '');
+    
+    if (encoding === 'base64') {
+      return decodeBase64(content);
+    } else if (encoding === 'quoted-printable') {
+      return decodeQuotedPrintable(content);
+    }
+    return new TextEncoder().encode(content);
+  }
+
   async fetchMessage(uid: number): Promise<{
     subject: string;
     from: string;
@@ -202,7 +365,9 @@ class IMAPClient {
     references: string;
     bodyText: string;
     bodyHtml: string;
+    attachments: AttachmentInfo[];
   }> {
+    // Fetch headers
     const headerResp = await this.sendCommand(
       `UID FETCH ${uid} BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)]`
     );
@@ -241,6 +406,7 @@ class IMAPClient {
       references = refm?.[1]?.trim() || irm?.[1]?.trim() || '';
     }
 
+    // Fetch body text
     const bodyResp = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
     let bodyText = '';
     let bodyHtml = '';
@@ -264,7 +430,11 @@ class IMAPClient {
       }
     }
 
-    return { subject, from, to, date, messageId, references, bodyText, bodyHtml };
+    // Fetch attachments info
+    const attachments = await this.fetchBodyStructure(uid);
+    console.log(`Message ${uid} has ${attachments.length} attachment(s)`);
+
+    return { subject, from, to, date, messageId, references, bodyText, bodyHtml, attachments };
   }
 
   async logout(): Promise<void> {
@@ -273,7 +443,7 @@ class IMAPClient {
   }
 }
 
-async function analyzeThreadWithAI(emails: any[], supabase: any): Promise<any> {
+async function analyzeThreadWithAI(emails: any[], attachmentTexts: string[], supabase: any): Promise<any> {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   if (!LOVABLE_API_KEY) {
     console.log("LOVABLE_API_KEY not configured, skipping AI analysis");
@@ -285,7 +455,7 @@ async function analyzeThreadWithAI(emails: any[], supabase: any): Promise<any> {
     new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   );
 
-  const threadContent = sortedEmails.map((email, idx) => `
+  let threadContent = sortedEmails.map((email, idx) => `
 --- EMAIL ${idx + 1}/${sortedEmails.length} ---
 DATE: ${email.sent_at}
 DE: ${email.from_address}
@@ -296,7 +466,13 @@ CONTENU:
 ${email.body_text || '(Pas de contenu texte)'}
 `).join('\n\n');
 
-  console.log(`Analyzing thread with ${emails.length} emails...`);
+  // Add attachment content if available
+  if (attachmentTexts.length > 0) {
+    threadContent += '\n\n=== PIÈCES JOINTES ANALYSÉES ===\n';
+    threadContent += attachmentTexts.join('\n---\n');
+  }
+
+  console.log(`Analyzing thread with ${emails.length} emails and ${attachmentTexts.length} attachments...`);
 
   try {
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -404,6 +580,124 @@ async function storeExtractedKnowledge(
   return stored;
 }
 
+async function processAttachment(
+  client: IMAPClient,
+  uid: number,
+  attachment: AttachmentInfo,
+  emailId: string,
+  supabase: any
+): Promise<{ id: string; extractedText: string } | null> {
+  try {
+    console.log(`Processing attachment: ${attachment.filename} (${attachment.contentType})`);
+    
+    // Download attachment content
+    const content = await client.fetchAttachment(uid, attachment.partNumber, attachment.encoding);
+    
+    if (content.length === 0) {
+      console.log(`Empty attachment content for ${attachment.filename}`);
+      return null;
+    }
+    
+    console.log(`Downloaded ${content.length} bytes for ${attachment.filename}`);
+    
+    // Generate storage path
+    const timestamp = Date.now();
+    const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const storagePath = `email-attachments/${emailId}/${timestamp}_${safeName}`;
+    
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(storagePath, content, {
+        contentType: attachment.contentType,
+        upsert: true
+      });
+    
+    if (uploadError) {
+      console.error(`Failed to upload ${attachment.filename}:`, uploadError);
+      return null;
+    }
+    
+    console.log(`Uploaded to storage: ${storagePath}`);
+    
+    // Insert attachment record
+    const { data: attachmentRecord, error: insertError } = await supabase
+      .from('email_attachments')
+      .insert({
+        email_id: emailId,
+        filename: attachment.filename,
+        content_type: attachment.contentType,
+        size: content.length,
+        storage_path: storagePath,
+        is_analyzed: false
+      })
+      .select()
+      .single();
+    
+    if (insertError) {
+      console.error(`Failed to insert attachment record:`, insertError);
+      return null;
+    }
+    
+    // Analyze document content if it's a supported type
+    let extractedText = '';
+    const analyzableTypes = [
+      'application/pdf',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/csv',
+      'text/plain'
+    ];
+    
+    if (analyzableTypes.some(t => attachment.contentType.includes(t))) {
+      try {
+        // Get public URL for the file
+        const { data: urlData } = supabase.storage
+          .from('documents')
+          .getPublicUrl(storagePath);
+        
+        if (urlData?.publicUrl) {
+          // Call parse-document function
+          const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-document', {
+            body: { 
+              url: urlData.publicUrl,
+              filename: attachment.filename 
+            }
+          });
+          
+          if (!parseError && parseResult?.text) {
+            extractedText = parseResult.text;
+            
+            // Update attachment with extracted text
+            await supabase
+              .from('email_attachments')
+              .update({
+                extracted_text: extractedText.substring(0, 50000), // Limit size
+                extracted_data: parseResult.data || null,
+                is_analyzed: true
+              })
+              .eq('id', attachmentRecord.id);
+            
+            console.log(`Analyzed ${attachment.filename}: ${extractedText.length} chars extracted`);
+          }
+        }
+      } catch (analyzeError) {
+        console.error(`Failed to analyze ${attachment.filename}:`, analyzeError);
+      }
+    }
+    
+    return {
+      id: attachmentRecord.id,
+      extractedText
+    };
+  } catch (error) {
+    console.error(`Error processing attachment ${attachment.filename}:`, error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -438,7 +732,9 @@ serve(async (req) => {
     await client.select(config.folder || 'INBOX');
 
     const importedEmails: any[] = [];
+    const allAttachmentTexts: string[] = [];
     let threadId: string | null = null;
+    let totalAttachments = 0;
 
     for (const uid of uids) {
       const msg = await client.fetchMessage(uid);
@@ -478,7 +774,7 @@ serve(async (req) => {
           body_html: msg.bodyHtml || null,
           sent_at: parseEmailDate(msg.date),
           is_quotation_request: learningCase === 'quotation',
-          extracted_data: learningCase ? { learning_case: learningCase, imported_for_learning: true } : null
+          extracted_data: learningCase ? { learning_case: learningCase, imported_for_learning: true, attachments_count: msg.attachments.length } : null
         })
         .select()
         .single();
@@ -488,8 +784,23 @@ serve(async (req) => {
         continue;
       }
 
+      // Process attachments
+      if (msg.attachments.length > 0) {
+        console.log(`Processing ${msg.attachments.length} attachment(s) for email ${inserted.id}`);
+        
+        for (const attachment of msg.attachments) {
+          const result = await processAttachment(client, uid, attachment, inserted.id, supabase);
+          if (result) {
+            totalAttachments++;
+            if (result.extractedText) {
+              allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
+            }
+          }
+        }
+      }
+
       importedEmails.push(inserted);
-      console.log(`Imported: ${msg.subject.substring(0, 50)}...`);
+      console.log(`Imported: ${msg.subject.substring(0, 50)}... with ${msg.attachments.length} attachment(s)`);
     }
 
     await client.logout();
@@ -519,8 +830,8 @@ serve(async (req) => {
     if (learningCase && allEmailsForAnalysis.length > 0) {
       console.log(`Starting AI analysis of thread with ${allEmailsForAnalysis.length} emails (${newlyImportedEmails.length} new, ${existingEmailIds.length} existing)...`);
       
-      // Analyze the complete thread
-      analysisResult = await analyzeThreadWithAI(allEmailsForAnalysis, supabase);
+      // Analyze the complete thread with attachment content
+      analysisResult = await analyzeThreadWithAI(allEmailsForAnalysis, allAttachmentTexts, supabase);
       
       if (analysisResult) {
         // Store extracted knowledge
@@ -559,7 +870,8 @@ serve(async (req) => {
             quotation_detected: analysisResult.quotation_detected,
             quotation_amount: analysisResult.quotation_amount,
             client_satisfaction: analysisResult.client_satisfaction,
-            extractions_count: analysisResult.extractions?.length || 0
+            extractions_count: analysisResult.extractions?.length || 0,
+            attachments_analyzed: allAttachmentTexts.length
           },
           confidence: 0.7,
           is_validated: false,
@@ -601,6 +913,7 @@ serve(async (req) => {
         imported: newlyImportedEmails.length,
         alreadyExisted: existingEmailIds.length,
         totalAnalyzed: allEmailsForAnalysis.length,
+        attachmentsProcessed: totalAttachments,
         threadId,
         emails: importedEmails,
         analysis: analysisResult ? {
@@ -608,7 +921,8 @@ serve(async (req) => {
           extractionsCount: analysisResult.extractions?.length || 0,
           knowledgeStored,
           quotationDetected: analysisResult.quotation_detected,
-          quotationAmount: analysisResult.quotation_amount
+          quotationAmount: analysisResult.quotation_amount,
+          attachmentsAnalyzed: allAttachmentTexts.length
         } : null
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

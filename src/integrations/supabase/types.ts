@@ -62,6 +62,53 @@ export type Database = {
         }
         Relationships: []
       }
+      email_attachments: {
+        Row: {
+          content_type: string | null
+          created_at: string | null
+          email_id: string | null
+          extracted_data: Json | null
+          extracted_text: string | null
+          filename: string
+          id: string
+          is_analyzed: boolean | null
+          size: number | null
+          storage_path: string | null
+        }
+        Insert: {
+          content_type?: string | null
+          created_at?: string | null
+          email_id?: string | null
+          extracted_data?: Json | null
+          extracted_text?: string | null
+          filename: string
+          id?: string
+          is_analyzed?: boolean | null
+          size?: number | null
+          storage_path?: string | null
+        }
+        Update: {
+          content_type?: string | null
+          created_at?: string | null
+          email_id?: string | null
+          extracted_data?: Json | null
+          extracted_text?: string | null
+          filename?: string
+          id?: string
+          is_analyzed?: boolean | null
+          size?: number | null
+          storage_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_attachments_email_id_fkey"
+            columns: ["email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_configs: {
         Row: {
           created_at: string | null
