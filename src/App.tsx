@@ -11,6 +11,7 @@ import DocumentsAdmin from "./pages/admin/Documents";
 import EmailsAdmin from "./pages/admin/Emails";
 import KnowledgeAdmin from "./pages/admin/Knowledge";
 import MarketIntelligence from "./pages/admin/MarketIntelligence";
+import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/admin/hs-codes" element={<HsCodesAdmin />} />
           <Route path="/admin/tax-rates" element={<TaxRatesAdmin />} />
+          <Route path="/admin/customs-regimes" element={<CustomsRegimesAdmin />} />
           <Route path="/admin/documents" element={<DocumentsAdmin />} />
           <Route path="/admin/emails" element={<EmailsAdmin />} />
           <Route path="/admin/knowledge" element={<KnowledgeAdmin />} />

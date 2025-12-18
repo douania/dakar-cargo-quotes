@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      customs_regimes: {
+        Row: {
+          code: string
+          cosec: boolean | null
+          created_at: string | null
+          dd: boolean | null
+          fixed_amount: number | null
+          id: string
+          is_active: boolean | null
+          name: string | null
+          pcc: boolean | null
+          pcs: boolean | null
+          rs: boolean | null
+          stx: boolean | null
+          ta: boolean | null
+          tin: boolean | null
+          tpast: boolean | null
+          tva: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          code: string
+          cosec?: boolean | null
+          created_at?: string | null
+          dd?: boolean | null
+          fixed_amount?: number | null
+          id?: string
+          is_active?: boolean | null
+          name?: string | null
+          pcc?: boolean | null
+          pcs?: boolean | null
+          rs?: boolean | null
+          stx?: boolean | null
+          ta?: boolean | null
+          tin?: boolean | null
+          tpast?: boolean | null
+          tva?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          code?: string
+          cosec?: boolean | null
+          created_at?: string | null
+          dd?: boolean | null
+          fixed_amount?: number | null
+          id?: string
+          is_active?: boolean | null
+          name?: string | null
+          pcc?: boolean | null
+          pcs?: boolean | null
+          rs?: boolean | null
+          stx?: boolean | null
+          ta?: boolean | null
+          tin?: boolean | null
+          tpast?: boolean | null
+          tva?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       documents: {
         Row: {
           content_text: string | null
