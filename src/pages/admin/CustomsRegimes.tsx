@@ -29,6 +29,9 @@ interface CustomsRegime {
   id: string;
   code: string;
   name: string | null;
+  category: string | null;
+  use_case: string | null;
+  keywords: string[] | null;
   dd: boolean;
   stx: boolean;
   rs: boolean;
@@ -56,6 +59,13 @@ const TAX_LABELS: Record<string, string> = {
   pcc: 'PCC',
   tpast: 'TPAST',
   ta: 'TA'
+};
+
+const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
+  C: { label: 'Consommation', color: 'bg-blue-500' },
+  S: { label: 'Suspensif', color: 'bg-amber-500' },
+  R: { label: 'Réexportation', color: 'bg-purple-500' },
+  E: { label: 'Exportation', color: 'bg-green-500' },
 };
 
 export default function CustomsRegimesAdmin() {
@@ -242,9 +252,11 @@ export default function CustomsRegimesAdmin() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="font-semibold min-w-[100px]">Code</TableHead>
+                    <TableHead className="font-semibold min-w-[80px]">Code</TableHead>
+                    <TableHead className="font-semibold min-w-[80px]">Cat.</TableHead>
+                    <TableHead className="font-semibold min-w-[200px]">Description</TableHead>
                     {TAX_COLUMNS.map((tax) => (
-                      <TableHead key={tax} className="text-center font-semibold w-16">
+                      <TableHead key={tax} className="text-center font-semibold w-12 text-xs">
                         {TAX_LABELS[tax]}
                       </TableHead>
                     ))}
@@ -265,13 +277,30 @@ export default function CustomsRegimesAdmin() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredRegimes?.map((regime) => (
+                    filteredRegimes?.map((regime) => {
+                      const catInfo = CATEGORY_LABELS[regime.category || 'C'] || CATEGORY_LABELS['C'];
+                      return (
                       <TableRow
                         key={regime.id}
                         className={editingId === regime.id ? "bg-primary/5" : ""}
                       >
-                        <TableCell className="font-medium text-primary">
+                        <TableCell className="font-mono font-medium text-primary">
                           {regime.code}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded text-white ${catInfo.color}`}>
+                            {regime.category || 'C'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="max-w-[250px]">
+                          <div className="truncate text-sm" title={regime.name || ''}>
+                            {regime.name || '-'}
+                          </div>
+                          {regime.use_case && (
+                            <div className="truncate text-xs text-muted-foreground" title={regime.use_case}>
+                              {regime.use_case}
+                            </div>
+                          )}
                         </TableCell>
                         {TAX_COLUMNS.map((tax) => (
                           <TableCell key={tax} className="text-center">
@@ -311,7 +340,7 @@ export default function CustomsRegimesAdmin() {
                           )}
                         </TableCell>
                       </TableRow>
-                    ))
+                    )})
                   )}
                 </TableBody>
               </Table>

@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       customs_regimes: {
         Row: {
+          category: string | null
           code: string
           cosec: boolean | null
           created_at: string | null
@@ -23,6 +24,7 @@ export type Database = {
           fixed_amount: number | null
           id: string
           is_active: boolean | null
+          keywords: string[] | null
           name: string | null
           pcc: boolean | null
           pcs: boolean | null
@@ -33,8 +35,10 @@ export type Database = {
           tpast: boolean | null
           tva: boolean | null
           updated_at: string | null
+          use_case: string | null
         }
         Insert: {
+          category?: string | null
           code: string
           cosec?: boolean | null
           created_at?: string | null
@@ -42,6 +46,7 @@ export type Database = {
           fixed_amount?: number | null
           id?: string
           is_active?: boolean | null
+          keywords?: string[] | null
           name?: string | null
           pcc?: boolean | null
           pcs?: boolean | null
@@ -52,8 +57,10 @@ export type Database = {
           tpast?: boolean | null
           tva?: boolean | null
           updated_at?: string | null
+          use_case?: string | null
         }
         Update: {
+          category?: string | null
           code?: string
           cosec?: boolean | null
           created_at?: string | null
@@ -61,6 +68,7 @@ export type Database = {
           fixed_amount?: number | null
           id?: string
           is_active?: boolean | null
+          keywords?: string[] | null
           name?: string | null
           pcc?: boolean | null
           pcs?: boolean | null
@@ -71,6 +79,7 @@ export type Database = {
           tpast?: boolean | null
           tva?: boolean | null
           updated_at?: string | null
+          use_case?: string | null
         }
         Relationships: []
       }
