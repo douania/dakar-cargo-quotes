@@ -70,6 +70,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
 
 export default function CustomsRegimesAdmin() {
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedRegime, setEditedRegime] = useState<Partial<CustomsRegime> | null>(null);
@@ -121,11 +122,20 @@ export default function CustomsRegimesAdmin() {
     },
   });
 
-  const filteredRegimes = regimes?.filter(
-    (r) =>
+  const filteredRegimes = regimes?.filter((r) => {
+    const matchesSearch =
       r.code.toLowerCase().includes(search.toLowerCase()) ||
-      r.name?.toLowerCase().includes(search.toLowerCase())
-  );
+      r.name?.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = !categoryFilter || r.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  // Count by category
+  const categoryCounts = regimes?.reduce((acc, r) => {
+    const cat = r.category || 'C';
+    acc[cat] = (acc[cat] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>) || {};
 
   const startEdit = (regime: CustomsRegime) => {
     setEditingId(regime.id);
@@ -216,33 +226,57 @@ export default function CustomsRegimesAdmin() {
         </div>
 
         {/* Search and Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Rechercher un régime..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Ajouter un régime
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nouveau Régime Douanier</DialogTitle>
-              </DialogHeader>
-              <AddRegimeForm
-                onSave={(data) => createMutation.mutate(data)}
-                isLoading={createMutation.isPending}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 justify-between">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher un régime..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
               />
-            </DialogContent>
-          </Dialog>
+            </div>
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ajouter un régime
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nouveau Régime Douanier</DialogTitle>
+                </DialogHeader>
+                <AddRegimeForm
+                  onSave={(data) => createMutation.mutate(data)}
+                  isLoading={createMutation.isPending}
+                />
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={categoryFilter === null ? "default" : "outline"}
+              size="sm"
+              onClick={() => setCategoryFilter(null)}
+            >
+              Tous ({regimes?.length || 0})
+            </Button>
+            {Object.entries(CATEGORY_LABELS).map(([key, { label, color }]) => (
+              <Button
+                key={key}
+                variant={categoryFilter === key ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCategoryFilter(categoryFilter === key ? null : key)}
+                className={categoryFilter === key ? color : ""}
+              >
+                {key} - {label} ({categoryCounts[key] || 0})
+              </Button>
+            ))}
+          </div>
         </div>
 
         {/* Table */}
