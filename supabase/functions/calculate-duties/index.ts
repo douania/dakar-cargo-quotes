@@ -13,6 +13,7 @@ interface CalculationRequest {
   is_cge?: boolean;
   is_cedeao?: boolean;
   quantity?: number;
+  regime_code?: string;
 }
 
 interface DutyBreakdown {
@@ -22,6 +23,19 @@ interface DutyBreakdown {
   base: number;
   amount: number;
   notes?: string;
+}
+
+interface RegimeFlags {
+  dd: boolean;
+  stx: boolean;
+  rs: boolean;
+  tin: boolean;
+  tva: boolean;
+  cosec: boolean;
+  pcs: boolean;
+  pcc: boolean;
+  tpast: boolean;
+  ta: boolean;
 }
 
 serve(async (req) => {
@@ -35,7 +49,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const body: CalculationRequest = await req.json();
-    const { code, caf_value, origin, is_cge = false, is_cedeao = false, quantity = 1 } = body;
+    const { code, caf_value, origin, is_cge = false, is_cedeao = false, quantity = 1, regime_code } = body;
 
     if (!code || !caf_value) {
       return new Response(
@@ -44,7 +58,7 @@ serve(async (req) => {
       );
     }
 
-    console.log('Calculate duties for:', { code, caf_value, origin, is_cge, is_cedeao });
+    console.log('Calculate duties for:', { code, caf_value, origin, is_cge, is_cedeao, regime_code });
 
     // Normalize code for lookup
     const normalizedCode = code.replace(/[\.\s]/g, '');
@@ -76,6 +90,43 @@ serve(async (req) => {
       );
     }
 
+    // Fetch customs regime if specified
+    let regimeFlags: RegimeFlags = {
+      dd: true, stx: true, rs: true, tin: true, tva: true,
+      cosec: true, pcs: true, pcc: true, tpast: true, ta: true
+    };
+    let regimeName: string | null = null;
+
+    if (regime_code) {
+      const { data: regime, error: regimeError } = await supabase
+        .from('customs_regimes')
+        .select('*')
+        .eq('code', regime_code)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (regimeError) {
+        console.error('Regime lookup error:', regimeError);
+      } else if (regime) {
+        regimeFlags = {
+          dd: regime.dd ?? false,
+          stx: regime.stx ?? false,
+          rs: regime.rs ?? false,
+          tin: regime.tin ?? false,
+          tva: regime.tva ?? false,
+          cosec: regime.cosec ?? false,
+          pcs: regime.pcs ?? false,
+          pcc: regime.pcc ?? false,
+          tpast: regime.tpast ?? false,
+          ta: regime.ta ?? false,
+        };
+        regimeName = regime.name;
+        console.log('Applied regime:', regime_code, regimeName, regimeFlags);
+      } else {
+        console.warn('Regime not found:', regime_code);
+      }
+    }
+
     // Fetch current tax rates
     const { data: taxRates } = await supabase
       .from('tax_rates')
@@ -92,7 +143,7 @@ serve(async (req) => {
     let runningBase = caf_value;
 
     // 1. Droit de Douane (DD)
-    const ddRate = parseFloat(hsCode.dd) || 0;
+    const ddRate = regimeFlags.dd ? (parseFloat(hsCode.dd) || 0) : 0;
     const ddAmount = caf_value * (ddRate / 100);
     breakdown.push({
       name: 'Droit de Douane',
@@ -100,11 +151,12 @@ serve(async (req) => {
       rate: ddRate,
       base: caf_value,
       amount: ddAmount,
+      notes: !regimeFlags.dd ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
-    // 2. Surtaxe (if applicable)
-    const surtaxeRate = parseFloat(hsCode.surtaxe) || 0;
-    if (surtaxeRate > 0) {
+    // 2. Surtaxe (STX) - if applicable and regime allows
+    const surtaxeRate = regimeFlags.stx ? (parseFloat(hsCode.surtaxe) || 0) : 0;
+    if (surtaxeRate > 0 || !regimeFlags.stx) {
       const surtaxeAmount = caf_value * (surtaxeRate / 100);
       breakdown.push({
         name: 'Surtaxe',
@@ -112,11 +164,12 @@ serve(async (req) => {
         rate: surtaxeRate,
         base: caf_value,
         amount: surtaxeAmount,
+        notes: !regimeFlags.stx ? `Exonéré (régime ${regime_code})` : undefined,
       });
     }
 
     // 3. Redevance Statistique (RS)
-    const rsRate = parseFloat(hsCode.rs) || 1;
+    const rsRate = regimeFlags.rs ? (parseFloat(hsCode.rs) || 1) : 0;
     const rsAmount = caf_value * (rsRate / 100);
     breakdown.push({
       name: 'Redevance Statistique',
@@ -124,10 +177,11 @@ serve(async (req) => {
       rate: rsRate,
       base: caf_value,
       amount: rsAmount,
+      notes: !regimeFlags.rs ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
     // 4. Prélèvement Communautaire de Solidarité (PCS)
-    const pcsRate = parseFloat(hsCode.pcs) || 0.8;
+    const pcsRate = regimeFlags.pcs ? (parseFloat(hsCode.pcs) || 0.8) : 0;
     const pcsAmount = caf_value * (pcsRate / 100);
     breakdown.push({
       name: 'Prélèvement Communautaire de Solidarité',
@@ -135,22 +189,33 @@ serve(async (req) => {
       rate: pcsRate,
       base: caf_value,
       amount: pcsAmount,
+      notes: !regimeFlags.pcs ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
-    // 5. Prélèvement CEDEAO (PCC) - only for non-CEDEAO origins
-    const pccRate = parseFloat(hsCode.pcc) || 0.5;
-    const pccAmount = is_cedeao ? 0 : caf_value * (pccRate / 100);
+    // 5. Prélèvement CEDEAO (PCC) - only for non-CEDEAO origins and if regime allows
+    let pccRate = 0;
+    let pccNotes: string | undefined;
+    if (!regimeFlags.pcc) {
+      pccRate = 0;
+      pccNotes = `Exonéré (régime ${regime_code})`;
+    } else if (is_cedeao) {
+      pccRate = 0;
+      pccNotes = 'Exonéré (origine CEDEAO)';
+    } else {
+      pccRate = parseFloat(hsCode.pcc) || 0.5;
+    }
+    const pccAmount = caf_value * (pccRate / 100);
     breakdown.push({
       name: 'Prélèvement CEDEAO',
       code: 'PCC',
-      rate: is_cedeao ? 0 : pccRate,
+      rate: pccRate,
       base: caf_value,
       amount: pccAmount,
-      notes: is_cedeao ? 'Exonéré (origine CEDEAO)' : undefined,
+      notes: pccNotes,
     });
 
     // 6. COSEC
-    const cosecRate = parseFloat(hsCode.cosec) || 0.4;
+    const cosecRate = regimeFlags.cosec ? (parseFloat(hsCode.cosec) || 0.4) : 0;
     const cosecAmount = caf_value * (cosecRate / 100);
     breakdown.push({
       name: 'COSEC',
@@ -158,15 +223,16 @@ serve(async (req) => {
       rate: cosecRate,
       base: caf_value,
       amount: cosecAmount,
+      notes: !regimeFlags.cosec ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
     // Calculate intermediary base for taxes
     const baseTaxeIntermediaire = caf_value + ddAmount + rsAmount;
 
-    // 7. Taxe Intérieure (TIN) if applicable
-    const tinRate = parseFloat(hsCode.tin) || 0;
+    // 7. Taxe Intérieure (TIN) if applicable and regime allows
+    const tinRate = regimeFlags.tin ? (parseFloat(hsCode.tin) || 0) : 0;
     let tinAmount = 0;
-    if (tinRate > 0) {
+    if (tinRate > 0 || (hsCode.tin > 0 && !regimeFlags.tin)) {
       tinAmount = baseTaxeIntermediaire * (tinRate / 100);
       breakdown.push({
         name: 'Taxe Intérieure',
@@ -174,6 +240,7 @@ serve(async (req) => {
         rate: tinRate,
         base: baseTaxeIntermediaire,
         amount: tinAmount,
+        notes: !regimeFlags.tin ? `Exonéré (régime ${regime_code})` : undefined,
       });
     }
 
@@ -205,18 +272,20 @@ serve(async (req) => {
       });
     }
 
-    // 10. Other special taxes
-    const tPastRate = parseFloat(hsCode.t_past) || 0;
-    if (tPastRate > 0) {
+    // 10. Taxe Pastorale (TPAST) if applicable and regime allows
+    const tPastRate = regimeFlags.tpast ? (parseFloat(hsCode.t_past) || 0) : 0;
+    if (tPastRate > 0 || (hsCode.t_past > 0 && !regimeFlags.tpast)) {
       breakdown.push({
         name: 'Taxe Pastorale',
         code: 'T_PAST',
         rate: tPastRate,
         base: caf_value,
         amount: caf_value * (tPastRate / 100),
+        notes: !regimeFlags.tpast ? `Exonéré (régime ${regime_code})` : undefined,
       });
     }
 
+    // 11. Taxe Parafiscale (T_PARA)
     const tParaRate = parseFloat(hsCode.t_para) || 0;
     if (tParaRate > 0) {
       breakdown.push({
@@ -228,6 +297,7 @@ serve(async (req) => {
       });
     }
 
+    // 12. Taxe sur le Ciment (T_CIMENT)
     const tCimentRate = parseFloat(hsCode.t_ciment) || 0;
     if (tCimentRate > 0) {
       breakdown.push({
@@ -242,19 +312,25 @@ serve(async (req) => {
     // Calculate TVA base
     const baseTVA = caf_value + ddAmount + rsAmount + tinAmount + tciAmount;
 
-    // 11. TVA
-    const tvaRate = parseFloat(hsCode.tva) || 18;
-    const tvaAmount = tvaRate > 0 ? baseTVA * (tvaRate / 100) : 0;
+    // 13. TVA - if regime allows
+    const tvaRate = regimeFlags.tva ? (parseFloat(hsCode.tva) || 18) : 0;
+    const tvaAmount = baseTVA * (tvaRate / 100);
+    let tvaNotes: string | undefined;
+    if (!regimeFlags.tva) {
+      tvaNotes = `Exonéré (régime ${regime_code})`;
+    } else if (tvaRate === 0) {
+      tvaNotes = 'Exonéré';
+    }
     breakdown.push({
       name: 'Taxe sur la Valeur Ajoutée',
       code: 'TVA',
       rate: tvaRate,
       base: baseTVA,
       amount: tvaAmount,
-      notes: tvaRate === 0 ? 'Exonéré' : undefined,
+      notes: tvaNotes,
     });
 
-    // 12. Acompte BIC (only for non-CGE importers)
+    // 14. Acompte BIC (only for non-CGE importers)
     const bicApplicable = hsCode.bic && !is_cge;
     const bicRate = bicApplicable ? 3 : 0;
     const bicAmount = bicApplicable ? baseTVA * (bicRate / 100) : 0;
@@ -289,12 +365,18 @@ serve(async (req) => {
         chapter: hsCode.chapter,
         mercurialis: hsCode.mercurialis,
       },
+      regime: regime_code ? {
+        code: regime_code,
+        name: regimeName,
+        flags: regimeFlags,
+      } : null,
       input: {
         caf_value,
         origin: origin || 'Non spécifié',
         is_cge,
         is_cedeao,
         quantity,
+        regime_code: regime_code || null,
       },
       breakdown,
       totals: {
