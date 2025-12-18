@@ -12,6 +12,7 @@ import EmailsAdmin from "./pages/admin/Emails";
 import KnowledgeAdmin from "./pages/admin/Knowledge";
 import MarketIntelligence from "./pages/admin/MarketIntelligence";
 import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
+import PricingIntelligence from "./pages/admin/PricingIntelligence";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ const App = () => (
           <Route path="/admin/emails" element={<EmailsAdmin />} />
           <Route path="/admin/knowledge" element={<KnowledgeAdmin />} />
           <Route path="/admin/market-intelligence" element={<MarketIntelligence />} />
+          <Route path="/admin/pricing-intelligence" element={<PricingIntelligence />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
