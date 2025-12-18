@@ -167,6 +167,20 @@ serve(async (req) => {
         );
       }
 
+      case 'get_attachments': {
+        const { data: attachments, error } = await supabase
+          .from('email_attachments')
+          .select('id, filename, content_type, size, is_analyzed, extracted_data, email_id, created_at')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        return new Response(
+          JSON.stringify({ success: true, attachments }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       default:
         throw new Error(`Action inconnue: ${action}`);
     }
