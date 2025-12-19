@@ -7,36 +7,234 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Response templates for different request types
+// Response templates for different request types - BILINGUAL
 const RESPONSE_TEMPLATES = {
   quotation_standard: {
-    greeting: "Gd day Dear {contact_name},",
-    body: "Please find attached our best offer for the captioned.\n\nFor any questions, please don't hesitate.",
-    closing: "With we remain,\nBest Regards / Meilleures Salutations"
+    EN: {
+      greeting: "Gd day Dear {contact_name},",
+      body: "Pls find attached our best offer for the captioned.\n\nFor any questions, pls don't hesitate.",
+      closing: "With we remain,\nBest Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Pls find notre meilleure offre en pièce jointe.\n\nN'hésitez pas pour toute question.",
+      closing: "Bien à vous,\nMeilleures Salutations"
+    }
+  },
+  pi_only_needs_clarification: {
+    EN: {
+      greeting: "Dear {contact_name},",
+      body: "Well noted the PI, thks.\n\nTo prepare our offer, pls kindly confirm:\n{questions}\n\nWe'll revert soonest upon receipt.",
+      closing: "With we remain,\nBest Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Bien reçu la PI, merci.\n\nPour établir notre offre, pls confirm:\n{questions}\n\nDès réception, nous revenons vers vous asap.",
+      closing: "Bav / Meilleures Salutations"
+    }
   },
   quotation_exempt: {
-    greeting: "Gd day Dear {contact_name},",
-    body: "Please find below our offer for exempt project shipment.\n\nDuty free as per {regime} regime.\nAll docs to be provided for customs clearance.",
-    closing: "With we remain,\nBest Regards"
+    EN: {
+      greeting: "Gd day Dear {contact_name},",
+      body: "Pls find below our offer for exempt project shipment.\n\nDuty free as per {regime} regime.\nAll docs to be provided for customs clearance.",
+      closing: "With we remain,\nBest Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Pls find notre offre pour l'expédition projet exonéré.\n\nExonération selon régime {regime}.\nDocs requis pour dédouanement.",
+      closing: "Bien à vous,\nMeilleures Salutations"
+    }
   },
   regime_question: {
-    greeting: "Dear {contact_name},",
-    body: "Kindly note:\n\n{response}\n\n@Cherif pls confirm if needed.",
-    closing: "Best Regards"
+    EN: {
+      greeting: "Dear {contact_name},",
+      body: "Kindly note:\n\n{response}\n\n@Cherif pls confirm if needed.",
+      closing: "Best Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Pour info:\n\n{response}\n\n@Cherif pls confirmer si besoin.",
+      closing: "Meilleures Salutations"
+    }
   },
   acknowledgment: {
-    greeting: "Dear {contact_name},",
-    body: "Well noted with thanks.\nWe'll revert soonest.",
-    closing: "Best Regards"
+    EN: {
+      greeting: "Dear {contact_name},",
+      body: "Well noted w/ thks.\nWe'll revert soonest.",
+      closing: "Best Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Bien noté, merci.\nNous revenons vers vous asap.",
+      closing: "Meilleures Salutations"
+    }
   },
   rate_confirmation: {
-    greeting: "Hi Dear {contact_name},",
-    body: "Pls find below rates as discussed:\n\n{rates}\n\nRates valid until {validity}.",
-    closing: "With we remain,\nBest Regards"
+    EN: {
+      greeting: "Hi Dear {contact_name},",
+      body: "Pls find below rates as discussed:\n\n{rates}\n\nRates valid until {validity}.",
+      closing: "With we remain,\nBest Regards"
+    },
+    FR: {
+      greeting: "Bonjour {contact_name},",
+      body: "Pls find les tarifs comme discuté:\n\n{rates}\n\nValidité: {validity}.",
+      closing: "Bien à vous,\nMeilleures Salutations"
+    }
   }
 };
 
+// ============ LANGUAGE DETECTION ============
+function detectEmailLanguage(body: string, subject: string): 'FR' | 'EN' {
+  const content = ((body || '') + ' ' + (subject || '')).toLowerCase();
+  
+  // French markers
+  const frenchWords = ['bonjour', 'cher', 'madame', 'monsieur', 'veuillez', 'merci', 
+    'cordialement', 'pièce jointe', 'en attaché', 'prière de', 's\'il vous plaît',
+    'ci-joint', 'nous vous prions', 'salutations', 'meilleures', 'sincères',
+    'objet', 'demande', 'concernant', 'suite à', 'selon', 'notre offre'];
+  // English markers  
+  const englishWords = ['dear', 'please', 'kindly', 'attached', 'regards', 'thank you',
+    'find below', 'best regards', 'looking forward', 'further to', 'as per',
+    'herewith', 'enclosed', 'subject', 'request', 'concerning', 'following'];
+  
+  const frScore = frenchWords.filter(w => content.includes(w)).length;
+  const enScore = englishWords.filter(w => content.includes(w)).length;
+  
+  console.log(`Language detection: FR=${frScore}, EN=${enScore}`);
+  return frScore > enScore ? 'FR' : 'EN';
+}
+
+// ============ REQUEST TYPE ANALYSIS ============
+interface RequestAnalysis {
+  type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP';
+  missingContext: string[];
+  suggestedQuestions: string[];
+  canQuote: boolean;
+  detectedElements: {
+    hasPI: boolean;
+    hasIncoterm: boolean;
+    hasDestination: boolean;
+    hasOrigin: boolean;
+    hasContainerType: boolean;
+    hasGoodsDescription: boolean;
+    hasHsCode: boolean;
+    hasValue: boolean;
+  };
+}
+
+function analyzeRequestType(email: any, attachments: any[]): RequestAnalysis {
+  const hasPI = attachments?.some(a => 
+    /proforma|PI|invoice|facture/i.test(a.filename || '')
+  ) || false;
+  
+  const bodyText = ((email.body_text || '') + ' ' + (email.subject || '')).toLowerCase();
+  const attachmentData = attachments?.map(a => JSON.stringify(a.extracted_data || {})).join(' ').toLowerCase() || '';
+  const fullContent = bodyText + ' ' + attachmentData;
+  
+  // Detect what information is present
+  const hasIncoterm = /\b(FOB|CIF|DAP|DDP|EXW|CFR|CIP|CPT|FCA|FAS)\b/i.test(fullContent);
+  const hasDestination = /\b(Dakar|Bamako|Mali|Burkina|Ouaga|Niger|Guinée|destination|livraison)\b/i.test(fullContent);
+  const hasOrigin = /\b(from|de|origine|origin|port of loading|POL|departure|chargement|Shanghai|Ningbo|Rotterdam|Hamburg|Marseille|Anvers|Antwerp)\b/i.test(fullContent);
+  const hasContainerType = /\b(20['']?|40['']?|container|conteneur|ctnr|TEU|EVP|HC|high cube)\b/i.test(fullContent);
+  const hasGoodsDescription = /\b(marchandise|goods|cargo|merchandise|produit|équipement|machine|vehicle|véhicule)\b/i.test(fullContent);
+  const hasHsCode = /\b\d{4}[.\s]?\d{2}[.\s]?\d{2,4}\b/.test(fullContent) || /\bHS\s*:?\s*\d{4}/i.test(fullContent);
+  const hasValue = /\b(USD|EUR|FCFA|XOF|\$|€)\s*[\d,.]+|\d+[.,]\d{2,}\s*(USD|EUR|FCFA)/i.test(fullContent);
+  const hasQuestion = /\?|kindly|please confirm|pouvez-vous|could you|what is|quel est/i.test(bodyText);
+  
+  const detectedElements = {
+    hasPI,
+    hasIncoterm,
+    hasDestination,
+    hasOrigin,
+    hasContainerType,
+    hasGoodsDescription,
+    hasHsCode,
+    hasValue
+  };
+  
+  const missingContext: string[] = [];
+  const suggestedQuestions: string[] = [];
+  const language = detectEmailLanguage(email.body_text, email.subject);
+  
+  if (!hasIncoterm) {
+    missingContext.push(language === 'FR' ? 'Incoterm souhaité' : 'Required Incoterm');
+    suggestedQuestions.push(language === 'FR' 
+      ? '• Incoterm souhaité (FOB, CIF, DAP, DDP...) ?' 
+      : '• Required Incoterm (FOB, CIF, DAP, DDP...) ?');
+  }
+  if (!hasDestination) {
+    missingContext.push(language === 'FR' ? 'Destination finale' : 'Final destination');
+    suggestedQuestions.push(language === 'FR' 
+      ? '• Destination finale ?' 
+      : '• Final destination ?');
+  }
+  if (!hasOrigin && !hasPI) {
+    missingContext.push(language === 'FR' ? 'Port/Pays d\'origine' : 'Origin port/country');
+    suggestedQuestions.push(language === 'FR' 
+      ? '• Port/pays d\'origine ?' 
+      : '• Port/country of origin ?');
+  }
+  if (!hasContainerType && !hasPI) {
+    missingContext.push(language === 'FR' ? 'Type de conteneur/transport' : 'Container/transport type');
+    suggestedQuestions.push(language === 'FR' 
+      ? '• Type de conteneur ou mode de transport ?' 
+      : '• Container type or transport mode ?');
+  }
+  
+  // Determine type
+  let type: RequestAnalysis['type'] = 'QUOTATION_REQUEST';
+  
+  if (hasPI && missingContext.length >= 2) {
+    type = 'PI_ONLY';  // PI without enough context
+  } else if (hasQuestion && !hasPI && missingContext.length >= 2) {
+    type = 'QUESTION';
+  } else if (/well noted|bien noté|noted with thanks|accusé de réception/i.test(bodyText)) {
+    type = 'ACKNOWLEDGMENT';
+  } else if (/further to|suite à|following our|comme convenu|as discussed/i.test(bodyText)) {
+    type = 'FOLLOW_UP';
+  }
+  
+  const canQuote = missingContext.length <= 1; // Allow quoting with at most 1 missing element
+  
+  console.log(`Request analysis: type=${type}, canQuote=${canQuote}, missing=${missingContext.length}`);
+  
+  return {
+    type,
+    missingContext,
+    suggestedQuestions,
+    canQuote,
+    detectedElements
+  };
+}
+
 const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL Group / SODATRA), transitaire senior au Sénégal.
+
+=== RÈGLE DE LANGUE ABSOLUE ===
+🌍 TU RÉPONDS DANS LA MÊME LANGUE QUE L'EMAIL ORIGINAL.
+- detected_language = "FR" → Réponse 100% en français (sauf abréviations pro)
+- detected_language = "EN" → Réponse 100% en anglais
+⛔ INTERDIT: Mélanger les langues. Si l'email est en anglais, la réponse est ENTIÈREMENT en anglais.
+
+=== RÈGLE DE CONTEXTUALISATION (CRITIQUE) ===
+AVANT de donner des prix, vérifie si tu as TOUTES ces informations:
+1. Origine (port/pays de départ)
+2. Destination finale
+3. Incoterm souhaité (FOB, CIF, DAP, DDP...)
+4. Type de marchandise (HS code ou description)
+5. Mode de transport (container, breakbulk, air)
+
+📋 SI can_quote_now = FALSE (informations manquantes):
+- N'invente PAS de prix
+- Accuse réception du document (PI, demande, etc.)
+- Pose les questions de clarification fournies
+- Imagine le contexte opérationnel probable
+- NE SAUTE PAS aux tarifs prématurément
+
+📋 SI SEULE UNE PI EST FOURNIE SANS CONTEXTE (request_type = "PI_ONLY"):
+1. Accuse réception de la PI
+2. Analyse ce que le client attend CONCRÈTEMENT
+3. Pose 2-3 questions clés pour clarifier la demande
+4. NE DONNE PAS de prix à ce stade - c'est ILLOGIQUE et IRRELEVANT
 
 === RÈGLES DE STYLE ABSOLUES ===
 
@@ -61,7 +259,9 @@ const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL G
 - Pour suivi opérationnel: "@Eric to follow up..."
 - Pour booking/shipping: "@Samba pls check..."
 
-📝 FORMULE DE CLÔTURE OBLIGATOIRE: "With we remain," ou "With we remain,\nBest Regards"
+📝 FORMULE DE CLÔTURE:
+- EN: "With we remain," ou "With we remain,\\nBest Regards"
+- FR: "Bien à vous," ou "Meilleures Salutations"
 
 ⛔ INTERDIT:
 - Phrases longues explicatives
@@ -70,21 +270,27 @@ const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL G
 - Inclure des tableaux de tarifs détaillés DANS le mail (→ pièce jointe)
 - Ton robotique ou trop formel
 - Explications réglementaires longues (sauf si demandé)
+- DONNER DES PRIX SANS CONTEXTE SUFFISANT
 
 === RÈGLE TARIFAIRE ABSOLUE ===
 TU N'INVENTES JAMAIS DE TARIF.
 - Si tarif exact absent → "À CONFIRMER" ou "TBC"
 - Utilise UNIQUEMENT: PORT_TARIFFS, CARRIER_BILLING, TAX_RATES, HS_CODES
+- Si contexte insuffisant → PAS DE PRIX, pose des questions
 
 === FORMAT DE SORTIE JSON ===
 {
+  "detected_language": "FR" | "EN",
+  "request_type": "PI_ONLY" | "QUOTATION_REQUEST" | "QUESTION" | "ACKNOWLEDGMENT" | "FOLLOW_UP",
+  "can_quote_now": true | false,
+  "clarification_questions": ["Question 1?", "Question 2?"],
   "subject": "Re: [sujet original]",
-  "greeting": "Gd day Dear [Prénom]," ou "Dear [Name]," ou "Hi Dear [Prénom],",
-  "body_short": "Corps CONCIS du message (15-20 lignes MAX). Style télégraphique. NO tarifs détaillés ici.",
-  "delegation": "@Cherif pls confirm HS codes" ou "@Eric to follow up" ou null,
-  "closing": "With we remain,\\nBest Regards / Meilleures Salutations",
-  "signature": "Taleb HOBALLAH\\n2HL Group Transport & Logistics\\nTel: +221...\\nEmail: taleb@...",
-  "attachment_needed": true,
+  "greeting": "Gd day Dear [Prénom]," (EN) ou "Bonjour [Prénom]," (FR),
+  "body_short": "Corps CONCIS (15-20 lignes MAX). Style télégraphique. Si can_quote_now=false, pose les questions au lieu de donner des prix.",
+  "delegation": "@Cherif pls confirm HS codes" | "@Eric to follow up" | null,
+  "closing": "With we remain,\\nBest Regards" (EN) ou "Bien à vous,\\nMeilleures Salutations" (FR),
+  "signature": "Taleb HOBALLAH\\n2HL Group Transport & Logistics",
+  "attachment_needed": true | false,
   "attachment_type": "excel_quotation | rate_sheet | proforma | none",
   "attachment_data": {
     "filename": "Quotation_[Client]_[Date].xlsx",
@@ -94,7 +300,7 @@ TU N'INVENTES JAMAIS DE TARIF.
     "total": 850000,
     "currency": "FCFA"
   },
-  "response_template_used": "quotation_standard | quotation_exempt | regime_question | rate_confirmation | custom",
+  "response_template_used": "quotation_standard | pi_only_needs_clarification | quotation_exempt | regime_question | acknowledgment | custom",
   "carrier_detected": "MSC | HAPAG-LLOYD | MAERSK | CMA CGM | GRIMALDI | UNKNOWN",
   "container_info": { "type": "40", "evp_multiplier": 2 },
   "regulatory_analysis": {
@@ -697,8 +903,46 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       legalContext += '- Valeur en douane: Articles 18-19\n';
     }
 
+    // ============ LANGUAGE & REQUEST ANALYSIS ============
+    const detectedLanguage = detectEmailLanguage(email.body_text, email.subject);
+    const requestAnalysis = analyzeRequestType(email, attachments || []);
+    
+    console.log(`Language: ${detectedLanguage}, Request type: ${requestAnalysis.type}, Can quote: ${requestAnalysis.canQuote}`);
+
+    // Build analysis context for AI
+    let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE ===
+📌 LANGUE DÉTECTÉE: ${detectedLanguage}
+   → Tu DOIS répondre 100% en ${detectedLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
+   
+📌 TYPE DE DEMANDE: ${requestAnalysis.type}
+📌 PEUT COTER MAINTENANT: ${requestAnalysis.canQuote ? 'OUI' : 'NON - CONTEXTE INSUFFISANT'}
+
+${!requestAnalysis.canQuote ? `
+⚠️ INFORMATIONS MANQUANTES - NE PAS DONNER DE PRIX:
+${requestAnalysis.missingContext.map(m => `   • ${m}`).join('\n')}
+
+📋 QUESTIONS À POSER AU CLIENT:
+${requestAnalysis.suggestedQuestions.join('\n')}
+` : ''}
+
+📊 ÉLÉMENTS DÉTECTÉS:
+   • PI jointe: ${requestAnalysis.detectedElements.hasPI ? 'OUI' : 'NON'}
+   • Incoterm: ${requestAnalysis.detectedElements.hasIncoterm ? 'OUI' : 'NON'}
+   • Destination: ${requestAnalysis.detectedElements.hasDestination ? 'OUI' : 'NON'}
+   • Origine: ${requestAnalysis.detectedElements.hasOrigin ? 'OUI' : 'NON'}
+   • Type conteneur: ${requestAnalysis.detectedElements.hasContainerType ? 'OUI' : 'NON'}
+   • Code HS: ${requestAnalysis.detectedElements.hasHsCode ? 'OUI' : 'NON'}
+   • Valeur: ${requestAnalysis.detectedElements.hasValue ? 'OUI' : 'NON'}
+`;
+
     // ============ BUILD PROMPT ============
     const userPrompt = `
+=== PARAMÈTRES CRITIQUES ===
+detected_language: "${detectedLanguage}"
+request_type: "${requestAnalysis.type}"
+can_quote_now: ${requestAnalysis.canQuote}
+clarification_questions_suggested: ${JSON.stringify(requestAnalysis.suggestedQuestions)}
+
 DEMANDE CLIENT À ANALYSER:
 De: ${email.from_address}
 Objet: ${email.subject}
@@ -706,6 +950,7 @@ Date: ${email.sent_at}
 
 ${email.body_text}
 
+${analysisContext}
 ${portTariffsContext}
 ${carrierBillingContext}
 ${taxRatesContext}
@@ -718,20 +963,21 @@ ${expertContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
-RAPPEL CRITIQUE:
-- IDENTIFIER LE TRANSPORTEUR dans l'email (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
-- Pour les THC DP World: utilise EXACTEMENT les montants de PORT_TARIFFS (Arrêté 2025)
-- Calcul EVP: 20'=1 EVP, 40'=2 EVP, 45'=2.25 EVP
-- Pour les frais compagnie: utilise les templates de CARRIER_BILLING selon le transporteur
-- IMPORTANT pour Hapag-Lloyd: prévoir 3 factures séparées (PORT_CHARGES, DOCUMENTATION, SERVICES)
-- Pour les droits et taxes: utilise les TAUX OFFICIELS de TAX_RATES
-- Pour tout tarif non disponible → "À CONFIRMER"
-- ANALYSE LÉGALE: Si un régime est mentionné (ATE, TRIE, etc.), référence les articles du Code des Douanes dans ton analyse
-- Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE - CITE L'ARTICLE 161-169
-- Chaque montant doit indiquer sa SOURCE (PORT_TARIFFS, CARRIER_BILLING, TAX_RATES, etc.)
+RAPPELS CRITIQUES:
+1. 🌍 LANGUE: Réponds 100% en ${detectedLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'} - NE MÉLANGE PAS LES LANGUES
+2. 📋 SI can_quote_now = false: 
+   - N'invente PAS de prix
+   - Accuse réception (PI, demande)
+   - Pose les questions de clarification
+   - C'est ILLOGIQUE de donner des prix sans contexte
+3. Si can_quote_now = true:
+   - IDENTIFIER LE TRANSPORTEUR (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
+   - Pour les THC DP World: utilise EXACTEMENT les montants de PORT_TARIFFS
+   - Pour les frais compagnie: utilise les templates de CARRIER_BILLING
+   - Pour tout tarif non disponible → "À CONFIRMER" ou "TBC"
 `;
 
-    console.log("Calling AI with official tariffs context...");
+    console.log("Calling AI with language and context analysis...");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -770,10 +1016,10 @@ RAPPEL CRITIQUE:
     }
 
     // Build the complete email body from structured response
-    const greeting = parsedResponse.greeting || 'Dear Sir/Madam,';
+    const greeting = parsedResponse.greeting || (detectedLanguage === 'FR' ? 'Bonjour,' : 'Dear Sir/Madam,');
     const bodyShort = parsedResponse.body_short || parsedResponse.body || '';
     const delegation = parsedResponse.delegation ? `\n\n${parsedResponse.delegation}` : '';
-    const closing = parsedResponse.closing || 'Best Regards';
+    const closing = parsedResponse.closing || (detectedLanguage === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
     const signature = parsedResponse.signature || 'Taleb HOBALLAH\n2HL Group';
     
     const fullBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
@@ -797,12 +1043,19 @@ RAPPEL CRITIQUE:
       throw new Error("Erreur de création du brouillon");
     }
 
-    console.log("Generated concise expert draft:", draft.id);
+    console.log(`Generated ${detectedLanguage} draft (type: ${requestAnalysis.type}, canQuote: ${requestAnalysis.canQuote}):`, draft.id);
 
     return new Response(
       JSON.stringify({
         success: true,
         draft: draft,
+        // New analysis fields
+        detected_language: detectedLanguage,
+        request_type: requestAnalysis.type,
+        can_quote_now: requestAnalysis.canQuote,
+        clarification_questions: parsedResponse.clarification_questions || requestAnalysis.suggestedQuestions,
+        detected_elements: requestAnalysis.detectedElements,
+        // Existing fields
         structured_response: {
           greeting: parsedResponse.greeting,
           body_short: parsedResponse.body_short,
@@ -818,7 +1071,7 @@ RAPPEL CRITIQUE:
         response_template_used: parsedResponse.response_template_used,
         two_step_response: parsedResponse.two_step_response,
         confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
-        missing_info: parsedResponse.missing_info
+        missing_info: parsedResponse.missing_info || requestAnalysis.missingContext
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
