@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -18,13 +20,17 @@ import {
   AlertTriangle, 
   XCircle,
   Loader2,
-  Wand2
+  Wand2,
+  User,
+  Bot
 } from 'lucide-react';
+
+export type ExpertStyle = 'auto' | 'taleb' | 'cherif';
 
 interface ResponseGuidanceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerate: (instructions: string) => Promise<void>;
+  onGenerate: (instructions: string, expertStyle: ExpertStyle) => Promise<void>;
   emailSubject?: string;
   isRegenerating?: boolean;
 }
@@ -88,6 +94,27 @@ const ADVANCED_OPTIONS: AdvancedOption[] = [
   { id: 'validity', label: 'Mentionner validité de la cotation', instruction: 'Préciser la durée de validité de cette cotation.' }
 ];
 
+const EXPERT_OPTIONS = [
+  { 
+    value: 'auto' as ExpertStyle, 
+    label: 'Automatique', 
+    description: 'Sélection basée sur le contenu',
+    icon: <Bot className="h-4 w-4" />
+  },
+  { 
+    value: 'taleb' as ExpertStyle, 
+    label: 'Taleb Hoballah', 
+    description: 'Style direct, bilingue EN/FR',
+    icon: <User className="h-4 w-4" />
+  },
+  { 
+    value: 'cherif' as ExpertStyle, 
+    label: 'Cherif Sokhna', 
+    description: 'Style douane, semi-formel',
+    icon: <User className="h-4 w-4" />
+  }
+];
+
 export function ResponseGuidanceDialog({ 
   open, 
   onOpenChange, 
@@ -98,6 +125,7 @@ export function ResponseGuidanceDialog({
   const [customInstructions, setCustomInstructions] = useState('');
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [selectedExpert, setSelectedExpert] = useState<ExpertStyle>('auto');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const toggleTemplate = (templateId: string) => {
@@ -143,11 +171,12 @@ export function ResponseGuidanceDialog({
     setIsGenerating(true);
     try {
       const instructions = withInstructions ? buildInstructions() : '';
-      await onGenerate(instructions);
+      await onGenerate(instructions, selectedExpert);
       // Reset form on success
       setCustomInstructions('');
       setSelectedTemplates([]);
       setSelectedOptions([]);
+      setSelectedExpert('auto');
       onOpenChange(false);
     } finally {
       setIsGenerating(false);
@@ -171,6 +200,36 @@ export function ResponseGuidanceDialog({
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          {/* Expert Selection */}
+          <div>
+            <h4 className="text-sm font-medium mb-3">Répondre en tant que</h4>
+            <RadioGroup 
+              value={selectedExpert} 
+              onValueChange={(val) => setSelectedExpert(val as ExpertStyle)}
+              className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+            >
+              {EXPERT_OPTIONS.map(option => (
+                <div key={option.value}>
+                  <RadioGroupItem
+                    value={option.value}
+                    id={`expert-${option.value}`}
+                    className="peer sr-only"
+                  />
+                  <Label
+                    htmlFor={`expert-${option.value}`}
+                    className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer transition-all"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      {option.icon}
+                      <span className="font-medium text-sm">{option.label}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground text-center">{option.description}</span>
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+          </div>
+
           {/* Quick Templates */}
           <div>
             <h4 className="text-sm font-medium mb-3">Templates rapides</h4>

@@ -48,7 +48,10 @@ ANALYSE EXPERTE REQUISE:
 FORMAT DE SORTIE JSON:
 {
   "subject": "Objet email professionnel",
-  "body": "Corps complet avec détail des postes, tous les montants doivent être justifiés par une source (tarif officiel, code HS, etc.)",
+  "greeting": "Formule d'ouverture selon le style expert (ex: 'Hi Dear [Prénom],' ou 'Dear [Name],')",
+  "body": "Corps du message - style de l'expert, SANS formule d'ouverture ni signature - uniquement le contenu métier",
+  "closing": "Formule de clôture selon le style expert (ex: 'With we remain,' ou 'Best Regards')",
+  "signature": "Signature complète de l'expert avec coordonnées",
   "carrier_detected": "Nom de la compagnie maritime identifiée",
   "container_info": {
     "type": "20|40|45",
@@ -126,13 +129,98 @@ FORMAT DE SORTIE JSON:
   "missing_info": ["Éléments manquants pour cotation exacte"]
 }`;
 
+// Helper function to select the best expert based on email content
+function selectExpertForResponse(emailContent: string, subject: string): 'taleb' | 'cherif' {
+  const douaneKeywords = ['douane', 'hs code', 'customs', 'dédouanement', 'tarif douanier', 'nomenclature', 'duty', 'tax', 'droits de douane', 'clearance', 'declaration'];
+  const transportKeywords = ['transport', 'fret', 'shipping', 'thc', 'dam', 'transit', 'incoterm', 'booking', 'bl', 'conteneur', 'container', 'vessel', 'freight', 'port', 'logistique'];
+  
+  const content = (emailContent + ' ' + subject).toLowerCase();
+  
+  const douaneScore = douaneKeywords.filter(k => content.includes(k)).length;
+  const transportScore = transportKeywords.filter(k => content.includes(k)).length;
+  
+  // Cherif for customs-focused, Taleb for transport/global quotations
+  return douaneScore > transportScore ? 'cherif' : 'taleb';
+}
+
+// Build the style injection prompt from expert profile
+function buildStyleInjection(expert: any): string {
+  if (!expert || !expert.communication_style) {
+    return '';
+  }
+  
+  const style = expert.communication_style;
+  const patterns = expert.response_patterns || [];
+  
+  let injection = `
+
+=== STYLE D'ÉCRITURE OBLIGATOIRE (IMITER ${expert.name.toUpperCase()}) ===
+
+TU DOIS ÉCRIRE EXACTEMENT COMME ${expert.name}. C'est CRITIQUE.
+
+📝 TON: ${style.tone || 'professionnel'}
+🌍 LANGUE: ${style.language || 'français'}
+
+`;
+
+  if (style.formulas) {
+    if (style.formulas.opening && style.formulas.opening.length > 0) {
+      injection += `📨 FORMULES D'OUVERTURE (utiliser l'une d'elles):\n`;
+      style.formulas.opening.slice(0, 3).forEach((f: string) => {
+        injection += `   - "${f}"\n`;
+      });
+    }
+    if (style.formulas.closing && style.formulas.closing.length > 0) {
+      injection += `📨 FORMULES DE CLÔTURE (utiliser l'une d'elles):\n`;
+      style.formulas.closing.slice(0, 3).forEach((f: string) => {
+        injection += `   - "${f}"\n`;
+      });
+    }
+    if (style.formulas.signature) {
+      injection += `✍️ SIGNATURE EXACTE À UTILISER:\n${style.formulas.signature}\n\n`;
+    }
+  }
+
+  if (style.distinctive_traits && style.distinctive_traits.length > 0) {
+    injection += `🎯 TRAITS DISTINCTIFS À REPRODUIRE:\n`;
+    style.distinctive_traits.forEach((t: string) => {
+      injection += `   - ${t}\n`;
+    });
+  }
+
+  if (patterns.length > 0) {
+    injection += `\n📋 EXEMPLES DE RÉPONSES TYPIQUES:\n`;
+    patterns.slice(0, 3).forEach((p: any) => {
+      if (p.trigger && p.examples && p.examples.length > 0) {
+        injection += `   Quand "${p.trigger}" → "${p.examples[0].substring(0, 100)}..."\n`;
+      }
+    });
+  }
+
+  injection += `
+⛔ INTERDIT (NE JAMAIS ÉCRIRE):
+- "Je reste à votre entière disposition pour tout renseignement complémentaire"
+- "N'hésitez pas à me contacter si vous avez des questions"
+- "Cordialement," (trop générique)
+- Phrases robotiques ou trop formelles
+- Structures de mail typiquement AI
+
+✅ UTILISER À LA PLACE:
+- Les formules exactes ci-dessus
+- Le ton direct et professionnel de ${expert.name}
+- Les expressions caractéristiques extraites des vrais emails
+`;
+
+  return injection;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { emailId, customInstructions } = await req.json();
+    const { emailId, customInstructions, expertStyle } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -511,19 +599,50 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       }
     }
 
-    // ============ FETCH EXPERT PROFILE ============
-    const { data: expert } = await supabase
+    // ============ FETCH EXPERT PROFILES AND SELECT STYLE ============
+    const { data: allExperts } = await supabase
       .from('expert_profiles')
-      .select('*')
-      .eq('is_primary', true)
-      .maybeSingle();
+      .select('*');
 
+    // Find Taleb and Cherif profiles
+    const talebProfile = allExperts?.find(e => 
+      e.email?.toLowerCase().includes('taleb') || 
+      e.name?.toLowerCase().includes('taleb') ||
+      e.is_primary
+    );
+    const cherifProfile = allExperts?.find(e => 
+      e.email?.toLowerCase().includes('douane@sodatra') || 
+      e.name?.toLowerCase().includes('cherif')
+    );
+
+    // Determine which expert style to use
+    let selectedExpert = talebProfile; // Default to Taleb
+    let expertName = 'taleb';
+    
+    if (expertStyle === 'cherif' && cherifProfile) {
+      selectedExpert = cherifProfile;
+      expertName = 'cherif';
+    } else if (expertStyle === 'auto' || !expertStyle) {
+      // Auto-detect based on email content
+      const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
+      expertName = selectExpertForResponse(emailContent, email.subject || '');
+      selectedExpert = expertName === 'cherif' ? cherifProfile : talebProfile;
+    } else if (expertStyle === 'taleb') {
+      selectedExpert = talebProfile;
+      expertName = 'taleb';
+    }
+
+    console.log(`Selected expert style: ${expertName} (${selectedExpert?.name || 'default'})`);
+
+    // Build the style injection for the selected expert
+    const styleInjection = buildStyleInjection(selectedExpert);
+    
     let expertContext = '';
-    if (expert) {
-      expertContext = `\n\n=== PROFIL EXPERT (${expert.name}) ===\n`;
-      if (expert.communication_style) {
-        expertContext += `Style: ${JSON.stringify(expert.communication_style)}\n`;
-      }
+    if (selectedExpert) {
+      expertContext = `\n\n=== PROFIL EXPERT SÉLECTIONNÉ: ${selectedExpert.name} ===\n`;
+      expertContext += `Email: ${selectedExpert.email}\n`;
+      expertContext += `Role: ${selectedExpert.role || 'Expert'}\n`;
+      expertContext += styleInjection;
     }
 
     // ============ GET THREAD CONTEXT ============

@@ -17,7 +17,7 @@ import {
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
-import { ResponseGuidanceDialog } from '@/components/ResponseGuidanceDialog';
+import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
 
 interface EmailConfig {
   id: string;
@@ -199,10 +199,10 @@ export default function Emails() {
     }
   };
 
-  const generateResponse = async (emailId: string, customInstructions?: string) => {
+  const generateResponse = async (emailId: string, customInstructions?: string, expertStyle: ExpertStyle = 'auto') => {
     try {
       const { data, error } = await supabase.functions.invoke('generate-response', {
-        body: { emailId, customInstructions }
+        body: { emailId, customInstructions, expertStyle }
       });
 
       if (error) throw error;
@@ -221,9 +221,9 @@ export default function Emails() {
     setShowGuidanceDialog(true);
   };
 
-  const handleGenerateWithGuidance = async (instructions: string) => {
+  const handleGenerateWithGuidance = async (instructions: string, expertStyle: ExpertStyle) => {
     if (!guidanceEmailId) return;
-    await generateResponse(guidanceEmailId, instructions || undefined);
+    await generateResponse(guidanceEmailId, instructions || undefined, expertStyle);
     setGuidanceEmailId(null);
     setGuidanceEmailSubject('');
   };

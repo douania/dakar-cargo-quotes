@@ -92,9 +92,15 @@ export async function learnFromEmail(emailId: string) {
   return data;
 }
 
-export async function generateEmailResponse(emailId: string) {
+export type ExpertStyle = 'auto' | 'taleb' | 'cherif';
+
+export async function generateEmailResponse(
+  emailId: string, 
+  customInstructions?: string,
+  expertStyle: ExpertStyle = 'auto'
+) {
   const { data, error } = await supabase.functions.invoke('generate-response', {
-    body: { emailId },
+    body: { emailId, customInstructions, expertStyle },
   });
   
   if (error) throw error;
