@@ -4,12 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
-  MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip
+  MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip,
+  AlertTriangle, Filter, CheckSquare
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
@@ -50,7 +53,6 @@ interface EmailDraft {
 function getInvokeErrorMessage(err: unknown): string {
   const anyErr = err as any;
 
-  // Supabase Functions errors often carry the response body in context
   const body = anyErr?.context?.body;
   if (typeof body === 'string' && body.trim()) {
     try {
@@ -75,6 +77,11 @@ export default function Emails() {
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   
+  // Multi-selection state
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'quotation' | 'other'>('all');
+  
   const [newConfig, setNewConfig] = useState({
     name: '',
     host: '',
@@ -90,7 +97,6 @@ export default function Emails() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Use edge function to fetch data securely
       const { data, error } = await supabase.functions.invoke('email-admin', {
         body: { action: 'get_all' }
       });
@@ -102,7 +108,6 @@ export default function Emails() {
         setEmails(data.emails || []);
         setDrafts(data.drafts || []);
         
-        // Count attachments per email
         const counts: Record<string, number> = {};
         (data.attachments || []).forEach((att: any) => {
           if (att.email_id) {
@@ -116,6 +121,7 @@ export default function Emails() {
       toast.error('Erreur de chargement');
     }
     setLoading(false);
+    setSelectedEmailIds(new Set());
   };
 
   const addConfig = async () => {
@@ -222,6 +228,107 @@ export default function Emails() {
     }
   };
 
+  const deleteEmail = async (emailId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!confirm('Supprimer cet email et toutes les données associées ?')) return;
+    
+    setIsDeleting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'delete_email', data: { emailId } }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success('Email supprimé');
+      setSelectedEmail(null);
+      loadData();
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Erreur de suppression');
+    }
+    setIsDeleting(false);
+  };
+
+  const deleteSelectedEmails = async () => {
+    if (selectedEmailIds.size === 0) return;
+    if (!confirm(`Supprimer ${selectedEmailIds.size} email(s) sélectionné(s) ?`)) return;
+    
+    setIsDeleting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'delete_emails', data: { emailIds: Array.from(selectedEmailIds) } }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.deleted} email(s) supprimé(s)`);
+      loadData();
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Erreur de suppression');
+    }
+    setIsDeleting(false);
+  };
+
+  const purgeNonQuotation = async () => {
+    const nonQuotationCount = emails.filter(e => !e.is_quotation_request).length;
+    if (nonQuotationCount === 0) {
+      toast.info('Aucun email non-cotation à purger');
+      return;
+    }
+    
+    if (!confirm(`Supprimer ${nonQuotationCount} email(s) non-cotation (notifications, spam, etc.) ?`)) return;
+    
+    setIsDeleting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'purge_non_quotation' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.deleted} email(s) purgé(s)`);
+      loadData();
+    } catch (error) {
+      console.error('Purge error:', error);
+      toast.error('Erreur de purge');
+    }
+    setIsDeleting(false);
+  };
+
+  const toggleEmailSelection = (emailId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSelection = new Set(selectedEmailIds);
+    if (newSelection.has(emailId)) {
+      newSelection.delete(emailId);
+    } else {
+      newSelection.add(emailId);
+    }
+    setSelectedEmailIds(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedEmailIds.size === filteredEmails.length) {
+      setSelectedEmailIds(new Set());
+    } else {
+      setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
+    }
+  };
+
+  // Filter emails
+  const filteredEmails = emails.filter(email => {
+    if (filter === 'quotation') return email.is_quotation_request;
+    if (filter === 'other') return !email.is_quotation_request;
+    return true;
+  });
+
+  const quotationCount = emails.filter(e => e.is_quotation_request).length;
+  const otherCount = emails.filter(e => !e.is_quotation_request).length;
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
@@ -306,28 +413,99 @@ export default function Emails() {
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
-            {emails.length === 0 ? (
+            {/* Toolbar */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Filter */}
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <Select value={filter} onValueChange={(v: 'all' | 'quotation' | 'other') => setFilter(v)}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Tous ({emails.length})</SelectItem>
+                        <SelectItem value="quotation">Cotations ({quotationCount})</SelectItem>
+                        <SelectItem value="other">Autres ({otherCount})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Selection actions */}
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={toggleSelectAll}
+                    >
+                      <CheckSquare className="h-4 w-4 mr-1" />
+                      {selectedEmailIds.size === filteredEmails.length && filteredEmails.length > 0 
+                        ? 'Désélectionner' 
+                        : 'Tout sélectionner'}
+                    </Button>
+
+                    {selectedEmailIds.size > 0 && (
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={deleteSelectedEmails}
+                        disabled={isDeleting}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Supprimer ({selectedEmailIds.size})
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Purge button */}
+                  {otherCount > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={purgeNonQuotation}
+                      disabled={isDeleting}
+                      className="text-destructive border-destructive hover:bg-destructive/10"
+                    >
+                      <AlertTriangle className="h-4 w-4 mr-1" />
+                      Purger non-cotations ({otherCount})
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {filteredEmails.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
                   <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Aucun email synchronisé</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Ajoutez un compte email et synchronisez pour commencer
+                  <p className="text-muted-foreground">
+                    {emails.length === 0 
+                      ? 'Aucun email synchronisé' 
+                      : 'Aucun email avec ce filtre'}
                   </p>
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-2">
-                {emails.map((email) => (
+                {filteredEmails.map((email) => (
                   <Card 
                     key={email.id} 
                     className={`cursor-pointer hover:bg-accent/50 transition-colors ${
                       email.is_quotation_request ? 'border-l-4 border-l-primary' : ''
-                    }`}
+                    } ${selectedEmailIds.has(email.id) ? 'ring-2 ring-primary' : ''}`}
                     onClick={() => setSelectedEmail(email)}
                   >
                     <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <div className="pt-1" onClick={(e) => toggleEmailSelection(email.id, e)}>
+                          <Checkbox 
+                            checked={selectedEmailIds.has(email.id)}
+                            onCheckedChange={() => {}}
+                          />
+                        </div>
+
                         <div className="flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{email.from_address}</span>
@@ -355,9 +533,21 @@ export default function Emails() {
                             {email.body_text?.substring(0, 150)}...
                           </p>
                         </div>
-                        <div className="text-right text-sm text-muted-foreground">
-                          <Clock className="h-3 w-3 inline mr-1" />
-                          {new Date(email.sent_at).toLocaleDateString('fr-FR')}
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">
+                            <Clock className="h-3 w-3 inline mr-1" />
+                            {new Date(email.sent_at).toLocaleDateString('fr-FR')}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={(e) => deleteEmail(email.id, e)}
+                            disabled={isDeleting}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -395,6 +585,16 @@ export default function Emails() {
                       >
                         <Brain className="h-4 w-4 mr-1" />
                         Apprendre
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={(e) => deleteEmail(email.id, e)}
+                        disabled={isDeleting}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Supprimer
                       </Button>
                     </div>
                   </div>
@@ -499,7 +699,7 @@ export default function Emails() {
                   {/* Attachments */}
                   <EmailAttachments emailId={selectedEmail.id} />
                   
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Button onClick={() => generateResponse(selectedEmail.id)}>
                       <MessageSquare className="h-4 w-4 mr-2" />
                       Générer réponse
@@ -507,6 +707,14 @@ export default function Emails() {
                     <Button variant="outline" onClick={() => learnFromEmail(selectedEmail.id)}>
                       <Brain className="h-4 w-4 mr-2" />
                       Apprendre
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => deleteEmail(selectedEmail.id)}
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Supprimer
                     </Button>
                   </div>
                 </div>
