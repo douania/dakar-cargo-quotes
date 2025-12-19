@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
@@ -75,6 +75,7 @@ export default function Emails() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [selectedDraft, setSelectedDraft] = useState<EmailDraft | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   
   // Multi-selection state
@@ -619,7 +620,7 @@ export default function Emails() {
                       <p className="text-sm mt-2 line-clamp-3">{draft.body_text}</p>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" onClick={() => setSelectedDraft(draft)}>
                         <Eye className="h-4 w-4" />
                       </Button>
                       {draft.status === 'draft' && (
@@ -682,6 +683,7 @@ export default function Emails() {
               <>
                 <DialogHeader>
                   <DialogTitle>{selectedEmail.subject}</DialogTitle>
+                  <DialogDescription>De: {selectedEmail.from_address}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-sm">
@@ -728,6 +730,7 @@ export default function Emails() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Ajouter un compte email</DialogTitle>
+              <DialogDescription>Configurez votre compte IMAP pour synchroniser vos emails</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <Input
@@ -761,6 +764,36 @@ export default function Emails() {
                 Ajouter
               </Button>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Draft Detail Dialog */}
+        <Dialog open={!!selectedDraft} onOpenChange={() => setSelectedDraft(null)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            {selectedDraft && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{selectedDraft.subject}</DialogTitle>
+                  <DialogDescription>Brouillon de réponse</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>À: <strong>{selectedDraft.to_addresses.join(', ')}</strong></span>
+                    <Badge variant={selectedDraft.status === 'sent' ? 'default' : 'secondary'}>
+                      {selectedDraft.status}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Créé le: {new Date(selectedDraft.created_at).toLocaleString('fr-FR')}
+                  </div>
+                  <div className="prose prose-sm max-w-none">
+                    <pre className="whitespace-pre-wrap bg-muted p-4 rounded-lg text-sm">
+                      {selectedDraft.body_text}
+                    </pre>
+                  </div>
+                </div>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>
