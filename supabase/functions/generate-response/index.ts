@@ -11,26 +11,46 @@ const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL EXPERT de Taleb Hoballah
 RÈGLE ABSOLUE: TU N'INVENTES JAMAIS DE TARIF.
 - Si un tarif exact n'est PAS dans les données fournies → tu écris "À CONFIRMER" ou "SUR DEMANDE"
 - Tu ne donnes JAMAIS d'estimation de prix si le tarif officiel n'est pas disponible
-- Tu utilises UNIQUEMENT les tarifs officiels fournis dans les sections PORT_TARIFFS et TAX_RATES
+- Tu utilises UNIQUEMENT les tarifs officiels fournis dans les sections PORT_TARIFFS, CARRIER_BILLING et TAX_RATES
 
 SOURCES DE TARIFS AUTORISÉES (dans l'ordre de priorité):
-1. PORT_TARIFFS - Tarifs portuaires officiels (THC DP World, Magasinage PAD, etc.) - SOURCE PRIMAIRE
-2. TAX_RATES - Taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
-3. HS_CODES - Droits par code SH de la marchandise
-4. CONNAISSANCES APPRISES - Tarifs validés des opérations précédentes
-5. Si le tarif n'est dans AUCUNE de ces sources → "À CONFIRMER AVEC LE SERVICE"
+1. PORT_TARIFFS - Tarifs THC DP World (Arrêté 2025) - SOURCE PRIMAIRE pour les THC
+2. CARRIER_BILLING_TEMPLATES - Structure de facturation par compagnie maritime
+3. TAX_RATES - Taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
+4. HS_CODES - Droits par code SH de la marchandise
+5. CONNAISSANCES APPRISES - Tarifs validés des opérations précédentes
+6. Si le tarif n'est dans AUCUNE de ces sources → "À CONFIRMER AVEC LE SERVICE"
+
+CALCUL DES THC DP WORLD:
+- 20 pieds = 1 EVP
+- 40 pieds = 2 EVP
+- 45 pieds = 2,25 EVP
+- Le tarif dans PORT_TARIFFS est par EVP, multiplier par le nombre d'EVP
+
+STRUCTURE DE FACTURATION PAR COMPAGNIE:
+- MSC, CMA CGM, Grimaldi: Facture unique consolidée
+- Hapag-Lloyd: 3 factures séparées (PORT_CHARGES, DOCUMENTATION, SERVICES)
+- Maersk: Factures séparées (PORT_CHARGES, DOCUMENTATION)
 
 ANALYSE EXPERTE REQUISE:
-1. Identifier le régime douanier CORRECT (TRIE pour Mali, pas ATE)
-2. Calculer droits et taxes avec les TAUX OFFICIELS fournis
-3. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
-4. Séparer clairement: débours officiels vs honoraires transitaire
-5. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
+1. Identifier le transporteur (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
+2. Appliquer le template de facturation correspondant
+3. Identifier le régime douanier CORRECT (TRIE pour Mali, pas ATE)
+4. Calculer droits et taxes avec les TAUX OFFICIELS fournis
+5. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
+6. Séparer clairement: débours officiels vs honoraires transitaire
+7. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
 
 FORMAT DE SORTIE JSON:
 {
   "subject": "Objet email professionnel",
   "body": "Corps complet avec détail des postes, tous les montants doivent être justifiés par une source (tarif officiel, code HS, etc.)",
+  "carrier_detected": "Nom de la compagnie maritime identifiée",
+  "container_info": {
+    "type": "20|40|45",
+    "evp_multiplier": 1|2|2.25,
+    "cargo_nature": "STANDARD|REEFER|DANGEROUS|SPECIAL|BASIC|COTON"
+  },
   "regulatory_analysis": {
     "requested_regime": "Régime demandé par le client",
     "recommended_regime": "Régime recommandé",
@@ -39,22 +59,47 @@ FORMAT DE SORTIE JSON:
     "correction_needed": true/false,
     "correction_explanation": "Explication si correction"
   },
+  "billing_structure": {
+    "invoice_count": 1|2|3,
+    "invoices": [
+      {
+        "type": "CONSOLIDATED|PORT_CHARGES|DOCUMENTATION|SERVICES",
+        "sequence": 1|2|3,
+        "posts": [
+          { 
+            "charge_code": "THO|TBL|ISPS|etc",
+            "description": "Description",
+            "montant": number,
+            "devise": "FCFA|EUR",
+            "tva": number,
+            "source": "PORT_TARIFFS|CARRIER_BILLING|A_CONFIRMER",
+            "calculation": "Ex: 155000 x 2 EVP = 310000"
+          }
+        ],
+        "subtotal_ht": number,
+        "tva": number,
+        "subtotal_ttc": number
+      }
+    ]
+  },
   "quotation_details": {
     "operation_type": "import|export|transit",
     "destination": "Pays destination",
     "posts": [
       { 
-        "category": "droits_douane|taxes_internes|thc|manutention|honoraires|transport|autres",
+        "category": "thc_dpw|frais_compagnie|droits_douane|taxes_internes|honoraires|transport|autres",
         "description": "Description",
         "montant": number,
         "devise": "FCFA",
-        "source": "PORT_TARIFFS|TAX_RATES|HS_CODE|A_CONFIRMER",
+        "source": "PORT_TARIFFS|CARRIER_BILLING|TAX_RATES|HS_CODE|A_CONFIRMER",
         "source_document": "Référence document si disponible",
         "is_estimate": false,
         "base_calcul": "Ex: 0.4% x CAF"
       }
     ],
-    "total": number,
+    "total_debours": number,
+    "total_honoraires": number,
+    "total_general": number,
     "devise": "FCFA"
   },
   "attachments_analysis": {
@@ -133,6 +178,66 @@ serve(async (req) => {
       }
     } else {
       portTariffsContext += '⚠️ AUCUN TARIF PORTUAIRE CONFIGURÉ - TOUS LES THC/MANUTENTION À CONFIRMER\n';
+    }
+
+    // ============ FETCH CARRIER BILLING TEMPLATES ============
+    const { data: carrierTemplates } = await supabase
+      .from('carrier_billing_templates')
+      .select('*')
+      .eq('is_active', true)
+      .order('carrier')
+      .order('invoice_sequence')
+      .order('charge_code');
+
+    let carrierBillingContext = '\n\n=== TEMPLATES DE FACTURATION PAR COMPAGNIE (carrier_billing_templates) ===\n';
+    carrierBillingContext += '⚠️ UTILISER CETTE STRUCTURE POUR IDENTIFIER LES FRAIS SELON LE TRANSPORTEUR\n\n';
+    
+    if (carrierTemplates && carrierTemplates.length > 0) {
+      // Group by carrier
+      const byCarrier = carrierTemplates.reduce((acc: Record<string, typeof carrierTemplates>, t) => {
+        if (!acc[t.carrier]) acc[t.carrier] = [];
+        acc[t.carrier].push(t);
+        return acc;
+      }, {});
+
+      for (const [carrier, templates] of Object.entries(byCarrier)) {
+        // Check if multi-invoice structure
+        const invoiceTypes = [...new Set(templates.map(t => t.invoice_type))];
+        const isMultiInvoice = invoiceTypes.length > 1 || templates.some(t => t.invoice_sequence > 1);
+        
+        carrierBillingContext += `## ${carrier.replace('_', '-')}`;
+        if (isMultiInvoice) {
+          carrierBillingContext += ` (${invoiceTypes.length} factures séparées)`;
+        } else {
+          carrierBillingContext += ' (facture unique consolidée)';
+        }
+        carrierBillingContext += '\n';
+
+        // Group by invoice_type for multi-invoice carriers
+        const byInvoiceType = templates.reduce((acc: Record<string, typeof templates>, t) => {
+          const key = `${t.invoice_type}_${t.invoice_sequence}`;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(t);
+          return acc;
+        }, {});
+
+        for (const [invoiceKey, charges] of Object.entries(byInvoiceType)) {
+          const firstCharge = charges[0];
+          if (isMultiInvoice) {
+            carrierBillingContext += `\n### Facture ${firstCharge.invoice_sequence}: ${firstCharge.invoice_type}\n`;
+          }
+          carrierBillingContext += '| Code | Frais | Méthode | Montant | Devise | TVA | Notes |\n';
+          carrierBillingContext += '|------|-------|---------|---------|--------|-----|-------|\n';
+          for (const c of charges) {
+            const montant = c.is_variable ? 'VARIABLE' : (c.default_amount?.toLocaleString('fr-FR') || 'À CONFIRMER');
+            const notes = [c.base_reference, c.notes].filter(Boolean).join(' - ') || '-';
+            carrierBillingContext += `| ${c.charge_code} | ${c.charge_name} | ${c.calculation_method} | ${montant} | ${c.currency} | ${c.vat_rate}% | ${notes.substring(0, 50)} |\n`;
+          }
+        }
+        carrierBillingContext += '\n';
+      }
+    } else {
+      carrierBillingContext += '⚠️ AUCUN TEMPLATE DE FACTURATION CONFIGURÉ\n';
     }
 
     // ============ FETCH OFFICIAL TAX RATES ============
@@ -257,6 +362,7 @@ Date: ${email.sent_at}
 ${email.body_text}
 
 ${portTariffsContext}
+${carrierBillingContext}
 ${taxRatesContext}
 ${regimesContext}
 ${attachmentsContext}
@@ -267,11 +373,15 @@ ${expertContext}
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
 RAPPEL CRITIQUE:
-- Pour les THC et frais de manutention: utilise EXACTEMENT les montants de PORT_TARIFFS (tarifs DP World 2025)
+- IDENTIFIER LE TRANSPORTEUR dans l'email (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
+- Pour les THC DP World: utilise EXACTEMENT les montants de PORT_TARIFFS (Arrêté 2025)
+- Calcul EVP: 20'=1 EVP, 40'=2 EVP, 45'=2.25 EVP
+- Pour les frais compagnie: utilise les templates de CARRIER_BILLING selon le transporteur
+- IMPORTANT pour Hapag-Lloyd: prévoir 3 factures séparées (PORT_CHARGES, DOCUMENTATION, SERVICES)
 - Pour les droits et taxes: utilise les TAUX OFFICIELS de TAX_RATES
-- Pour tout tarif non disponible dans ces tables → "À CONFIRMER"
+- Pour tout tarif non disponible → "À CONFIRMER"
 - Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE
-- Chaque montant dans ta réponse doit indiquer sa SOURCE (PORT_TARIFFS, TAX_RATES, etc.)
+- Chaque montant doit indiquer sa SOURCE (PORT_TARIFFS, CARRIER_BILLING, TAX_RATES, etc.)
 `;
 
     console.log("Calling AI with official tariffs context...");
