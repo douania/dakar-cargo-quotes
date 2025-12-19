@@ -290,6 +290,21 @@ serve(async (req) => {
             continue;
           }
           
+          // Skip files larger than 4MB (API limit)
+          const MAX_FILE_SIZE = 4 * 1024 * 1024;
+          if (attachment.size && attachment.size > MAX_FILE_SIZE) {
+            console.log(`Skipping ${attachment.filename} - file too large (${attachment.size} bytes)`);
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_text: `Fichier trop volumineux (${Math.round(attachment.size / 1024)}KB) - analyse manuelle requise`,
+                extracted_data: { type: 'too_large', size: attachment.size, filename: attachment.filename }
+              })
+              .eq('id', attId);
+            continue;
+          }
+          
           // Download the file
           const { data: fileData, error: downloadError } = await supabase
             .storage
@@ -298,6 +313,13 @@ serve(async (req) => {
           
           if (downloadError || !fileData) {
             console.error(`Failed to download ${attachment.filename}:`, downloadError);
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_data: { type: 'download_failed', error: downloadError?.message || 'Unknown error' }
+              })
+              .eq('id', attId);
             continue;
           }
           
@@ -314,6 +336,8 @@ serve(async (req) => {
           
           const mimeType = attachment.content_type || 'image/jpeg';
           const dataUrl = `data:${mimeType};base64,${base64}`;
+          
+          console.log(`Sending ${attachment.filename} to AI (${Math.round(arrayBuffer.byteLength / 1024)}KB)...`);
           
           // Analyze with AI
           const aiAnalysisResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -336,7 +360,7 @@ Analyse l'image fournie et extrais TOUTES les informations pertinentes pour une 
 - Coordonnées bancaires
 - Quantités et poids
 - Conditions de paiement
-Réponds en JSON: { "type": "facture|proforma|bl|autre", "valeur_caf": number|null, "devise": "USD|EUR|FCFA", "descriptions": [], "codes_hs": [], "fournisseur": "", "quantites": "", "poids": "", "text_content": "texte visible", "confidence": 0.0-1.0 }`
+Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_caf": number|null, "devise": "USD|EUR|FCFA", "descriptions": [], "codes_hs": [], "fournisseur": "", "quantites": "", "poids": "", "text_content": "texte visible", "confidence": 0.0-1.0 }`
                 },
                 {
                   role: 'user',
@@ -377,7 +401,18 @@ Réponds en JSON: { "type": "facture|proforma|bl|autre", "valeur_caf": number|nu
               
             console.log(`Successfully analyzed: ${attachment.filename}`);
           } else {
-            console.error(`AI analysis failed for ${attachment.filename}:`, aiAnalysisResponse.status);
+            const errorText = await aiAnalysisResponse.text();
+            console.error(`AI analysis failed for ${attachment.filename}:`, aiAnalysisResponse.status, errorText);
+            
+            // Mark as analyzed with error info
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_text: `Analyse AI échouée (${aiAnalysisResponse.status})`,
+                extracted_data: { type: 'ai_error', status: aiAnalysisResponse.status, error: errorText.substring(0, 500) }
+              })
+              .eq('id', attId);
           }
         } catch (error) {
           console.error(`Error analyzing attachment ${attId}:`, error);
