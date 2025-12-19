@@ -8,90 +8,115 @@ const corsHeaders = {
 
 const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL EXPERT de Taleb Hoballah, transitaire senior chez SODATRA/2HL Group, spécialisé en logistique internationale et réglementation douanière au Sénégal.
 
-RÔLE PRINCIPAL: Tu analyses les demandes de cotation et génères des réponses EXPERTES en vérifiant:
-1. La FAISABILITÉ de l'opération selon la réglementation
-2. Le RÉGIME DOUANIER approprié selon la destination et le type de marchandise
-3. Les TARIFS exacts en utilisant les données fournies
-4. Les PIÈCES JOINTES pour extraire les informations techniques
+RÈGLE ABSOLUE: TU N'INVENTES JAMAIS DE TARIF.
+- Si un tarif exact n'est PAS dans les données fournies → tu écris "À CONFIRMER" ou "SUR DEMANDE"
+- Tu ne donnes JAMAIS d'estimation de prix si le tarif officiel n'est pas disponible
+- Tu utilises UNIQUEMENT les tarifs officiels fournis ci-dessous
 
-RÈGLES ABSOLUES DE L'EXPERT:
+SOURCES DE TARIFS AUTORISÉES (dans l'ordre de priorité):
+1. TARIFS OFFICIELS TAX_RATES - taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
+2. TARIFS HS_CODES - droits par code SH de la marchandise
+3. TARIFS DP WORLD / PAD - THC, magasinage, manutention (voir GRILLES ci-dessous)
+4. CONNAISSANCES APPRISES - tarifs validés des opérations précédentes
+5. Si le tarif n'est dans AUCUNE de ces sources → "À CONFIRMER AVEC LE SERVICE"
 
-## DESTINATION MALI / PAYS TIERS (HORS SÉNÉGAL)
-- Le régime ATE (Admission Temporaire Exceptionnelle) N'EST PAS APPROPRIÉ pour du transit vers pays tiers
-- Pour marchandises destinées au Mali: utiliser TRIE (Transit International Routier Interétatique) - code S120
-- Pour transit ordinaire vers pays tiers: codes S110, S111
-- L'ATE est réservée aux marchandises restant temporairement au Sénégal pour réexportation
+GRILLES TARIFAIRES OFFICIELLES (Port Autonome de Dakar / DP World):
 
-## VÉRIFICATION DES PIÈCES JOINTES
-- Si des pièces jointes sont mentionnées (PDF, Excel, facture pro forma), tu DOIS les analyser
-- Extraire: valeurs CAF, descriptions marchandises, quantités, origine
-- Signaler si les pièces jointes n'ont pas pu être analysées
+## THC DP WORLD DAKAR (Arrêté ministériel - homologué)
+EXPORT (par TEU = 20'):
+| Classification | THC (FCFA) |
+|----------------|------------|
+| C1 - Coton (Mali/Sénégal) | 70 000 |
+| C2 - Produits Frigorifiques | 80 000 |
+| C3 - Produits Standards | 110 000 (+50% dangereux, +20% lourds) |
 
-## CALCUL DES DROITS ET TAXES
-- Utiliser les codes HS fournis pour calculs exacts
-- Appliquer les taux du régime identifié
-- Pour le TRIE: pas de droits de douane mais COSEC, PCS, PCC applicables
+IMPORT (par TEU = 20'):
+| Classification | THC (FCFA) |
+|----------------|------------|
+| C4 - Produits de Base | 87 000 |
+| C5 - Produits Standards | 133 500 |
 
-## STRUCTURE DE RÉPONSE EXPERTE
-1. Analyse de la demande avec vérification réglementaire
-2. Régime recommandé avec justification
-3. Si ATE demandé mais inapproprié → corriger et expliquer
-4. Détail des frais par poste
-5. Documents requis selon le régime
-6. Risques et points d'attention
+TRANSIT (par TEU = 20'):
+| Classification | THC (FCFA) |
+|----------------|------------|
+| C6 - Import/Export | 110 000 |
 
-PRINCIPES DE TALEB (À RESPECTER ABSOLUMENT):
-1. Séparation stricte des postes de coûts (jamais de forfait global opaque)
-2. Distinction claire entre débours (refacturés à l'identique) et honoraires
-3. Incoterms appliqués rigoureusement
-4. Jamais de cotation sans vérification du régime approprié
-5. Tarifs basés sur les grilles officielles (PAD, DP World)
+Note: Pour 40', multiplier par 2.
+
+## FRANCHISES MAGASINAGE PAD
+| Type | Franchise |
+|------|-----------|
+| Import Sénégal | 7 jours |
+| Transit conventionnel | 20 jours |
+| Véhicules en transit | 12 jours |
+
+## MAGASINAGE (après franchise)
+| Période | Tarif/TEU/jour |
+|---------|----------------|
+| 1-10 jours | 3 500 FCFA |
+| 11-20 jours | 5 250 FCFA |
+| 21+ jours | 7 000 FCFA |
+
+## HONORAIRES SODATRA (base, ajustables selon complexité)
+| Opération | Montant FCFA |
+|-----------|--------------|
+| Dédouanement conteneur | 150 000 |
+| Dédouanement véhicule | 120 000 |
+| Dédouanement aérien | 100 000 |
+| TRIE/Transit international | 200 000 |
+| Constitution dossier | 50 000 |
+
+## RÉGIMES TRANSIT VERS MALI
+- TRIE (S120): PAS de DD, PAS de TVA mais COSEC, PCS, PCC applicables
+- Transit Ordinaire (S110): Mêmes exonérations
+
+ANALYSE EXPERTE REQUISE:
+1. Identifier le régime douanier CORRECT (TRIE pour Mali, pas ATE)
+2. Calculer droits et taxes avec les TAUX OFFICIELS fournis
+3. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
+4. Séparer clairement: débours officiels vs honoraires transitaire
 
 FORMAT DE SORTIE JSON:
 {
   "subject": "Objet email professionnel",
-  "body": "Corps complet de l'email avec analyse experte et recommandations",
+  "body": "Corps complet avec détail des postes, tous les montants doivent être justifiés par une source (tarif officiel, code HS, etc.)",
   "regulatory_analysis": {
-    "requested_regime": "Régime demandé par le client (si mentionné)",
-    "recommended_regime": "Régime recommandé par l'expert",
-    "regime_code": "Code du régime (ex: S120 pour TRIE)",
+    "requested_regime": "Régime demandé par le client",
+    "recommended_regime": "Régime recommandé",
+    "regime_code": "Code (ex: S120)",
     "regime_appropriate": true/false,
     "correction_needed": true/false,
-    "correction_explanation": "Explication si correction nécessaire"
+    "correction_explanation": "Explication si correction"
   },
   "quotation_details": {
     "operation_type": "import|export|transit",
-    "destination": "Pays de destination finale",
-    "incoterm": "EXW|FOB|CIF|DAP|etc",
-    "mode": "maritime|aerien|routier|multimodal",
+    "destination": "Pays destination",
     "posts": [
       { 
-        "category": "fret|thc|manutention|dedouanement|droits_taxes|portuaires|transport_local|transit_fees|autres",
-        "description": "Description détaillée",
+        "category": "droits_douane|taxes_internes|thc|manutention|honoraires|transport|autres",
+        "description": "Description",
         "montant": number,
-        "devise": "FCFA|EUR|USD",
-        "is_estimate": boolean,
-        "notes": "Base de calcul ou référence"
+        "devise": "FCFA",
+        "source": "TAX_RATES|HS_CODE|DP_WORLD|PAD|SODATRA|A_CONFIRMER",
+        "is_estimate": false,
+        "base_calcul": "Ex: 0.4% x CAF"
       }
     ],
     "total": number,
-    "devise": "FCFA",
-    "validite": "15 jours",
-    "delai_transit": "X jours"
+    "devise": "FCFA"
   },
   "attachments_analysis": {
     "analyzed": true/false,
-    "extracted_info": "Résumé des informations extraites",
-    "missing_info": ["infos non trouvées dans les PJ"]
+    "extracted_info": "Valeur CAF, descriptions, etc.",
+    "missing_info": []
   },
   "feasibility": {
     "is_feasible": true/false,
-    "concerns": ["préoccupations identifiées"],
-    "recommendations": ["recommandations d'expert"]
+    "concerns": [],
+    "recommendations": []
   },
-  "documents_requis": ["liste des documents selon le régime"],
   "confidence": 0.0-1.0,
-  "missing_info": ["infos manquantes pour cotation complète"]
+  "missing_info": ["Éléments manquants pour cotation exacte"]
 }`;
 
 serve(async (req) => {
@@ -125,6 +150,21 @@ serve(async (req) => {
 
     console.log("Generating expert response for email:", email.subject);
 
+    // ============ FETCH OFFICIAL TAX RATES ============
+    const { data: taxRates } = await supabase
+      .from('tax_rates')
+      .select('*')
+      .eq('is_active', true);
+
+    let taxRatesContext = '\n\n=== TAUX OFFICIELS (tax_rates) ===\n';
+    if (taxRates && taxRates.length > 0) {
+      taxRatesContext += '| Code | Nom | Taux (%) | Base de calcul | Applicable à |\n';
+      taxRatesContext += '|------|-----|----------|----------------|---------------|\n';
+      for (const rate of taxRates) {
+        taxRatesContext += `| ${rate.code} | ${rate.name} | ${rate.rate}% | ${rate.base_calculation} | ${rate.applies_to || 'Tous'} |\n`;
+      }
+    }
+
     // ============ FETCH ATTACHMENTS ============
     const { data: attachments } = await supabase
       .from('email_attachments')
@@ -133,75 +173,58 @@ serve(async (req) => {
 
     let attachmentsContext = '';
     if (attachments && attachments.length > 0) {
-      attachmentsContext = '\n\nPIÈCES JOINTES DE L\'EMAIL:\n';
+      attachmentsContext = '\n\n=== PIÈCES JOINTES ===\n';
       for (const att of attachments) {
-        attachmentsContext += `\n📎 ${att.filename} (${att.content_type})\n`;
+        attachmentsContext += `📎 ${att.filename} (${att.content_type})\n`;
         if (att.extracted_text) {
-          attachmentsContext += `Contenu extrait:\n${att.extracted_text}\n`;
+          attachmentsContext += `Contenu:\n${att.extracted_text.substring(0, 3000)}\n`;
         }
         if (att.extracted_data) {
-          attachmentsContext += `Données structurées: ${JSON.stringify(att.extracted_data)}\n`;
+          attachmentsContext += `Données: ${JSON.stringify(att.extracted_data)}\n`;
         }
         if (!att.is_analyzed) {
-          attachmentsContext += `⚠️ ATTENTION: Cette pièce jointe n'a pas encore été analysée. Signaler au client que l'analyse complète nécessite le traitement des documents.\n`;
+          attachmentsContext += `⚠️ Non analysée - demander la facture pro forma pour calcul exact\n`;
         }
       }
     }
 
-    // ============ FETCH CUSTOMS REGIMES (for expert context) ============
+    // ============ FETCH CUSTOMS REGIMES ============
     const { data: regimes } = await supabase
       .from('customs_regimes')
       .select('*')
       .eq('is_active', true);
 
-    let regimesContext = '\n\nRÉGIMES DOUANIERS DISPONIBLES:\n';
+    let regimesContext = '\n\n=== RÉGIMES DOUANIERS ===\n';
     if (regimes && regimes.length > 0) {
-      // Group by category
-      const byCategory: Record<string, any[]> = {};
-      regimes.forEach(r => {
-        const cat = r.category || 'Autre';
-        if (!byCategory[cat]) byCategory[cat] = [];
-        byCategory[cat].push(r);
-      });
-
-      for (const [cat, items] of Object.entries(byCategory)) {
-        const catLabel = cat === 'S' ? 'RÉGIMES SUSPENSIFS' : cat === 'C' ? 'RÉGIMES DÉFINITIFS' : cat === 'R' ? 'RÉEXPORTATION' : cat;
-        regimesContext += `\n## ${catLabel}\n`;
-        for (const r of items) {
-          regimesContext += `- ${r.code} - ${r.name}: ${r.use_case || ''}\n`;
-          if (r.keywords && r.keywords.length > 0) {
-            regimesContext += `  Mots-clés: ${r.keywords.join(', ')}\n`;
-          }
-        }
+      regimesContext += '| Code | Nom | DD | TVA | COSEC | PCS | PCC | RS | Usage |\n';
+      regimesContext += '|------|-----|----|----|-------|-----|-----|----|---------|\n';
+      for (const r of regimes) {
+        regimesContext += `| ${r.code} | ${r.name} | ${r.dd ? 'Oui' : 'Non'} | ${r.tva ? 'Oui' : 'Non'} | ${r.cosec ? 'Oui' : 'Non'} | ${r.pcs ? 'Oui' : 'Non'} | ${r.pcc ? 'Oui' : 'Non'} | ${r.rs ? 'Oui' : 'Non'} | ${r.use_case || ''} |\n`;
       }
     }
 
-    // ============ FETCH HS CODES CONTEXT (sample for reference) ============
-    let hsContext = '\n\nRÉFÉRENCE TARIFS DOUANIERS (échantillon):\n';
-    hsContext += '- Droit de Douane (DD): varie selon code HS (0-35%)\n';
-    hsContext += '- TVA: 18% standard\n';
-    hsContext += '- COSEC: 0.4% de la valeur CAF\n';
-    hsContext += '- PCS: 0.8% de la valeur CAF\n';
-    hsContext += '- PCC: 0.5% de la valeur CAF\n';
-    hsContext += '- RS (Redevance Statistique): 1%\n';
-    hsContext += '\nPour TRANSIT (TRIE): DD et TVA non applicables, mais COSEC, PCS, PCC restent dus.\n';
-
-    // ============ FETCH LEARNED KNOWLEDGE ============
+    // ============ FETCH LEARNED TARIFFS (validated only) ============
     const { data: knowledge } = await supabase
       .from('learned_knowledge')
       .select('*')
-      .gte('confidence', 0.5)
-      .order('is_validated', { ascending: false })
+      .eq('is_validated', true)
+      .in('category', ['tarif', 'tariff', 'rate', 'frais', 'honoraires'])
       .order('confidence', { ascending: false })
-      .limit(30);
+      .limit(50);
 
-    let knowledgeContext = '';
+    let tariffKnowledgeContext = '';
     if (knowledge && knowledge.length > 0) {
-      knowledgeContext = '\n\nCONNAISSANCES APPRISES (tarifs, pratiques):\n';
+      tariffKnowledgeContext = '\n\n=== TARIFS VALIDÉS (opérations précédentes) ===\n';
       for (const k of knowledge) {
-        knowledgeContext += `- ${k.name}: ${k.description}\n`;
+        tariffKnowledgeContext += `• ${k.name}: ${k.description}\n`;
         if (k.data) {
-          knowledgeContext += `  Données: ${JSON.stringify(k.data)}\n`;
+          const data = k.data as any;
+          if (data.montant) {
+            tariffKnowledgeContext += `  Montant: ${data.montant} ${data.devise || 'FCFA'}\n`;
+          }
+          if (data.conditions) {
+            tariffKnowledgeContext += `  Conditions: ${data.conditions}\n`;
+          }
         }
       }
     }
@@ -215,12 +238,9 @@ serve(async (req) => {
 
     let expertContext = '';
     if (expert) {
-      expertContext = `\n\nPROFIL EXPERT À IMITER (${expert.name}):\n`;
+      expertContext = `\n\n=== PROFIL EXPERT (${expert.name}) ===\n`;
       if (expert.communication_style) {
         expertContext += `Style: ${JSON.stringify(expert.communication_style)}\n`;
-      }
-      if (expert.quotation_templates) {
-        expertContext += `Templates: ${JSON.stringify(expert.quotation_templates)}\n`;
       }
     }
 
@@ -234,19 +254,17 @@ serve(async (req) => {
         .order('sent_at', { ascending: true });
 
       if (threadEmails && threadEmails.length > 1) {
-        threadContext = '\n\nHISTORIQUE DU FIL DE DISCUSSION:\n';
+        threadContext = '\n\n=== HISTORIQUE DU FIL ===\n';
         for (const e of threadEmails) {
-          threadContext += `\n--- ${e.from_address} (${new Date(e.sent_at).toLocaleDateString('fr-FR')}) ---\n`;
+          threadContext += `--- ${e.from_address} (${new Date(e.sent_at).toLocaleDateString('fr-FR')}) ---\n`;
           threadContext += e.body_text?.substring(0, 1500) + '\n';
         }
       }
     }
 
-    // ============ BUILD COMPREHENSIVE PROMPT ============
+    // ============ BUILD PROMPT ============
     const userPrompt = `
-ANALYSE EXPERTE REQUISE:
-
-DEMANDE DU CLIENT:
+DEMANDE CLIENT À ANALYSER:
 De: ${email.from_address}
 Objet: ${email.subject}
 Date: ${email.sent_at}
@@ -254,27 +272,23 @@ Date: ${email.sent_at}
 ${email.body_text}
 
 ${attachmentsContext}
-${threadContext}
+${taxRatesContext}
 ${regimesContext}
-${hsContext}
-${knowledgeContext}
+${tariffKnowledgeContext}
+${threadContext}
 ${expertContext}
 
-${customInstructions ? `\nINSTRUCTIONS SUPPLÉMENTAIRES:\n${customInstructions}` : ''}
+${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
-INSTRUCTIONS CRITIQUES:
-1. Analyse si la destination est le SÉNÉGAL ou un PAYS TIERS (Mali, Guinée, etc.)
-2. Si pays tiers → le régime TRIE (S120) ou Transit Ordinaire (S110) est probablement plus approprié que l'ATE
-3. Vérifie les pièces jointes pour extraire valeurs et descriptions
-4. Calcule les frais selon le régime APPROPRIÉ, pas celui demandé si incorrect
-5. Génère une réponse professionnelle avec recommandations d'expert
+RAPPEL CRITIQUE:
+- Utilise UNIQUEMENT les tarifs fournis ci-dessus
+- Pour tout tarif non disponible → "À CONFIRMER"
+- Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE
+- Calcule les droits/taxes avec les TAUX OFFICIELS de tax_rates
+`;
 
-Génère une réponse de cotation EXPERTE avec analyse réglementaire.
-    `;
+    console.log("Calling AI with official tariffs context...");
 
-    console.log("Calling AI with comprehensive expert context...");
-
-    // Generate response with enhanced expert prompt
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -306,11 +320,11 @@ Génère une réponse de cotation EXPERTE avec analyse réglementaire.
     try {
       parsedResponse = JSON.parse(generatedContent);
     } catch (e) {
-      console.error("Parse error, raw content:", generatedContent);
+      console.error("Parse error, raw content:", generatedContent?.substring(0, 500));
       throw new Error("Erreur de parsing de la réponse");
     }
 
-    // Create draft with expert analysis
+    // Create draft
     const { data: draft, error: draftError } = await supabase
       .from('email_drafts')
       .insert({
@@ -329,9 +343,8 @@ Génère une réponse de cotation EXPERTE avec analyse réglementaire.
       throw new Error("Erreur de création du brouillon");
     }
 
-    console.log("Generated expert draft:", draft.id);
+    console.log("Generated expert draft with official tariffs:", draft.id);
 
-    // Return comprehensive response
     return new Response(
       JSON.stringify({
         success: true,
