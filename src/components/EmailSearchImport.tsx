@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Brain, CheckCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Mail, Users, Calendar, Download, Loader2, BookOpen } from 'lucide-react';
+import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-
+import { processQuotationRequest, type QuotationProcessResult } from '@/services/emailService';
+import { QuotationProcessor } from '@/components/QuotationProcessor';
 interface EmailThread {
   subject: string;
   normalizedSubject: string;
@@ -42,6 +42,11 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const [totalFound, setTotalFound] = useState(0);
+  
+  // Quotation processing state
+  const [processingQuotation, setProcessingQuotation] = useState(false);
+  const [quotationResult, setQuotationResult] = useState<QuotationProcessResult | null>(null);
+  const [showQuotationModal, setShowQuotationModal] = useState(false);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -172,6 +177,40 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     setImporting(false);
   };
 
+  const handleProcessQuotation = async () => {
+    if (selectedThreads.size === 0) {
+      toast.error('Sélectionnez une conversation');
+      return;
+    }
+
+    // Get UIDs from the first selected thread
+    const selectedThread = threads.find(t => selectedThreads.has(t.normalizedSubject));
+    if (!selectedThread) return;
+
+    const uids = selectedThread.messages.map(m => m.uid);
+    
+    setProcessingQuotation(true);
+    setShowQuotationModal(true);
+    setQuotationResult(null);
+
+    try {
+      const result = await processQuotationRequest(configId, uids);
+      setQuotationResult(result);
+      toast.success('Cotation générée avec succès');
+    } catch (error) {
+      console.error('Quotation processing error:', error);
+      toast.error(error instanceof Error ? error.message : 'Erreur lors du traitement');
+      setShowQuotationModal(false);
+    }
+
+    setProcessingQuotation(false);
+  };
+
+  const handleQuotationComplete = () => {
+    setSelectedThreads(new Set());
+    onImportComplete();
+  };
+
   const formatDate = (dateStr: string) => {
     try {
       return format(new Date(dateStr), 'dd MMM yyyy HH:mm', { locale: fr });
@@ -230,22 +269,37 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
 
       {threads.length > 0 && (
         <>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <p className="text-sm font-medium">
               {selectedThreads.size} conversation(s) sélectionnée(s)
             </p>
-            <Button 
-              onClick={handleImport} 
-              disabled={importing || selectedThreads.size === 0}
-              className="gap-2"
-            >
-              {importing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <BookOpen className="h-4 w-4" />
-              )}
-              Importer pour apprentissage
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button 
+                variant="outline"
+                onClick={handleImport} 
+                disabled={importing || processingQuotation || selectedThreads.size === 0}
+                className="gap-2"
+              >
+                {importing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <BookOpen className="h-4 w-4" />
+                )}
+                Importer pour apprentissage
+              </Button>
+              <Button 
+                onClick={handleProcessQuotation} 
+                disabled={importing || processingQuotation || selectedThreads.size === 0}
+                className="gap-2"
+              >
+                {processingQuotation ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Traiter cette cotation
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
@@ -293,6 +347,14 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           </div>
         </>
       )}
+
+      <QuotationProcessor
+        open={showQuotationModal}
+        onOpenChange={setShowQuotationModal}
+        result={quotationResult}
+        isLoading={processingQuotation}
+        onComplete={handleQuotationComplete}
+      />
     </div>
   );
 }

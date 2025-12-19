@@ -120,3 +120,71 @@ export async function importThread(configId: string, uids: number[]) {
   if (data.error) throw new Error(data.error);
   return data;
 }
+
+export interface QuotationProcessResult {
+  importedEmailId: string;
+  originalEmail: {
+    subject: string;
+    from: string;
+    body: string;
+    date: string;
+  };
+  draft: {
+    id: string;
+    subject: string;
+    body: string;
+    to: string[];
+  };
+  analysis: {
+    confidence: number;
+    missingInfo: string[];
+    quotationDetails: Record<string, unknown>;
+  };
+}
+
+export async function processQuotationRequest(
+  configId: string, 
+  uids: number[]
+): Promise<QuotationProcessResult> {
+  // Step 1: Import the email(s)
+  const importResult = await importThread(configId, uids);
+  
+  if (!importResult.emailIds || importResult.emailIds.length === 0) {
+    throw new Error('Aucun email importé');
+  }
+  
+  const emailId = importResult.emailIds[0];
+  
+  // Step 2: Get the imported email details
+  const { data: email, error: emailError } = await supabase
+    .from('emails')
+    .select('*')
+    .eq('id', emailId)
+    .single();
+  
+  if (emailError) throw emailError;
+  
+  // Step 3: Generate the response
+  const { data: responseData, error: responseError } = await supabase.functions.invoke('generate-response', {
+    body: { emailId },
+  });
+  
+  if (responseError) throw responseError;
+  if (responseData.error) throw new Error(responseData.error);
+  
+  return {
+    importedEmailId: emailId,
+    originalEmail: {
+      subject: email.subject || 'Sans sujet',
+      from: email.from_address,
+      body: email.body_text || email.body_html || '',
+      date: email.sent_at || email.received_at || email.created_at,
+    },
+    draft: responseData.draft,
+    analysis: {
+      confidence: responseData.confidence || 0.5,
+      missingInfo: responseData.missingInfo || [],
+      quotationDetails: responseData.quotationDetails || {},
+    },
+  };
+}
