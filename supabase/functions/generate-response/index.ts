@@ -11,70 +11,21 @@ const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL EXPERT de Taleb Hoballah
 RÈGLE ABSOLUE: TU N'INVENTES JAMAIS DE TARIF.
 - Si un tarif exact n'est PAS dans les données fournies → tu écris "À CONFIRMER" ou "SUR DEMANDE"
 - Tu ne donnes JAMAIS d'estimation de prix si le tarif officiel n'est pas disponible
-- Tu utilises UNIQUEMENT les tarifs officiels fournis ci-dessous
+- Tu utilises UNIQUEMENT les tarifs officiels fournis dans les sections PORT_TARIFFS et TAX_RATES
 
 SOURCES DE TARIFS AUTORISÉES (dans l'ordre de priorité):
-1. TARIFS OFFICIELS TAX_RATES - taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
-2. TARIFS HS_CODES - droits par code SH de la marchandise
-3. TARIFS DP WORLD / PAD - THC, magasinage, manutention (voir GRILLES ci-dessous)
-4. CONNAISSANCES APPRISES - tarifs validés des opérations précédentes
+1. PORT_TARIFFS - Tarifs portuaires officiels (THC DP World, Magasinage PAD, etc.) - SOURCE PRIMAIRE
+2. TAX_RATES - Taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
+3. HS_CODES - Droits par code SH de la marchandise
+4. CONNAISSANCES APPRISES - Tarifs validés des opérations précédentes
 5. Si le tarif n'est dans AUCUNE de ces sources → "À CONFIRMER AVEC LE SERVICE"
-
-GRILLES TARIFAIRES OFFICIELLES (Port Autonome de Dakar / DP World):
-
-## THC DP WORLD DAKAR (Arrêté ministériel - homologué)
-EXPORT (par TEU = 20'):
-| Classification | THC (FCFA) |
-|----------------|------------|
-| C1 - Coton (Mali/Sénégal) | 70 000 |
-| C2 - Produits Frigorifiques | 80 000 |
-| C3 - Produits Standards | 110 000 (+50% dangereux, +20% lourds) |
-
-IMPORT (par TEU = 20'):
-| Classification | THC (FCFA) |
-|----------------|------------|
-| C4 - Produits de Base | 87 000 |
-| C5 - Produits Standards | 133 500 |
-
-TRANSIT (par TEU = 20'):
-| Classification | THC (FCFA) |
-|----------------|------------|
-| C6 - Import/Export | 110 000 |
-
-Note: Pour 40', multiplier par 2.
-
-## FRANCHISES MAGASINAGE PAD
-| Type | Franchise |
-|------|-----------|
-| Import Sénégal | 7 jours |
-| Transit conventionnel | 20 jours |
-| Véhicules en transit | 12 jours |
-
-## MAGASINAGE (après franchise)
-| Période | Tarif/TEU/jour |
-|---------|----------------|
-| 1-10 jours | 3 500 FCFA |
-| 11-20 jours | 5 250 FCFA |
-| 21+ jours | 7 000 FCFA |
-
-## HONORAIRES SODATRA (base, ajustables selon complexité)
-| Opération | Montant FCFA |
-|-----------|--------------|
-| Dédouanement conteneur | 150 000 |
-| Dédouanement véhicule | 120 000 |
-| Dédouanement aérien | 100 000 |
-| TRIE/Transit international | 200 000 |
-| Constitution dossier | 50 000 |
-
-## RÉGIMES TRANSIT VERS MALI
-- TRIE (S120): PAS de DD, PAS de TVA mais COSEC, PCS, PCC applicables
-- Transit Ordinaire (S110): Mêmes exonérations
 
 ANALYSE EXPERTE REQUISE:
 1. Identifier le régime douanier CORRECT (TRIE pour Mali, pas ATE)
 2. Calculer droits et taxes avec les TAUX OFFICIELS fournis
 3. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
 4. Séparer clairement: débours officiels vs honoraires transitaire
+5. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
 
 FORMAT DE SORTIE JSON:
 {
@@ -97,7 +48,8 @@ FORMAT DE SORTIE JSON:
         "description": "Description",
         "montant": number,
         "devise": "FCFA",
-        "source": "TAX_RATES|HS_CODE|DP_WORLD|PAD|SODATRA|A_CONFIRMER",
+        "source": "PORT_TARIFFS|TAX_RATES|HS_CODE|A_CONFIRMER",
+        "source_document": "Référence document si disponible",
         "is_estimate": false,
         "base_calcul": "Ex: 0.4% x CAF"
       }
@@ -149,6 +101,39 @@ serve(async (req) => {
     }
 
     console.log("Generating expert response for email:", email.subject);
+
+    // ============ FETCH OFFICIAL PORT TARIFFS (PRIMARY SOURCE) ============
+    const { data: portTariffs } = await supabase
+      .from('port_tariffs')
+      .select('*')
+      .eq('is_active', true)
+      .order('provider')
+      .order('operation_type');
+
+    let portTariffsContext = '\n\n=== TARIFS PORTUAIRES OFFICIELS (port_tariffs) ===\n';
+    portTariffsContext += '⚠️ UTILISER CES MONTANTS EXACTS - NE PAS ESTIMER\n\n';
+    
+    if (portTariffs && portTariffs.length > 0) {
+      // Group by provider
+      const byProvider = portTariffs.reduce((acc: Record<string, typeof portTariffs>, t) => {
+        if (!acc[t.provider]) acc[t.provider] = [];
+        acc[t.provider].push(t);
+        return acc;
+      }, {});
+
+      for (const [provider, tariffs] of Object.entries(byProvider)) {
+        portTariffsContext += `## ${provider} (Source: ${tariffs[0]?.source_document || 'Officiel'})\n`;
+        portTariffsContext += '| Opération | Classification | Cargo | Montant (FCFA) | Surcharge |\n';
+        portTariffsContext += '|-----------|----------------|-------|----------------|------------|\n';
+        for (const t of tariffs) {
+          const surcharge = t.surcharge_percent > 0 ? `+${t.surcharge_percent}% (${t.surcharge_conditions || 'conditions'})` : '-';
+          portTariffsContext += `| ${t.operation_type} | ${t.classification} | ${t.cargo_type || 'N/A'} | ${t.amount.toLocaleString('fr-FR')} | ${surcharge} |\n`;
+        }
+        portTariffsContext += '\n';
+      }
+    } else {
+      portTariffsContext += '⚠️ AUCUN TARIF PORTUAIRE CONFIGURÉ - TOUS LES THC/MANUTENTION À CONFIRMER\n';
+    }
 
     // ============ FETCH OFFICIAL TAX RATES ============
     const { data: taxRates } = await supabase
@@ -271,9 +256,10 @@ Date: ${email.sent_at}
 
 ${email.body_text}
 
-${attachmentsContext}
+${portTariffsContext}
 ${taxRatesContext}
 ${regimesContext}
+${attachmentsContext}
 ${tariffKnowledgeContext}
 ${threadContext}
 ${expertContext}
@@ -281,10 +267,11 @@ ${expertContext}
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
 RAPPEL CRITIQUE:
-- Utilise UNIQUEMENT les tarifs fournis ci-dessus
-- Pour tout tarif non disponible → "À CONFIRMER"
+- Pour les THC et frais de manutention: utilise EXACTEMENT les montants de PORT_TARIFFS (tarifs DP World 2025)
+- Pour les droits et taxes: utilise les TAUX OFFICIELS de TAX_RATES
+- Pour tout tarif non disponible dans ces tables → "À CONFIRMER"
 - Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE
-- Calcule les droits/taxes avec les TAUX OFFICIELS de tax_rates
+- Chaque montant dans ta réponse doit indiquer sa SOURCE (PORT_TARIFFS, TAX_RATES, etc.)
 `;
 
     console.log("Calling AI with official tariffs context...");
