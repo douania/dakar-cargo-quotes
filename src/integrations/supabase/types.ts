@@ -560,6 +560,63 @@ export type Database = {
         }
         Relationships: []
       }
+      port_tariffs: {
+        Row: {
+          amount: number
+          cargo_type: string | null
+          category: string
+          classification: string
+          created_at: string | null
+          effective_date: string
+          expiry_date: string | null
+          id: string
+          is_active: boolean | null
+          operation_type: string
+          provider: string
+          source_document: string | null
+          surcharge_conditions: string | null
+          surcharge_percent: number | null
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount: number
+          cargo_type?: string | null
+          category: string
+          classification: string
+          created_at?: string | null
+          effective_date: string
+          expiry_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          operation_type: string
+          provider: string
+          source_document?: string | null
+          surcharge_conditions?: string | null
+          surcharge_percent?: number | null
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number
+          cargo_type?: string | null
+          category?: string
+          classification?: string
+          created_at?: string | null
+          effective_date?: string
+          expiry_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          operation_type?: string
+          provider?: string
+          source_document?: string | null
+          surcharge_conditions?: string | null
+          surcharge_percent?: number | null
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       surveillance_sources: {
         Row: {
           category: string
