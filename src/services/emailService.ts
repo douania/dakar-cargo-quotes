@@ -149,11 +149,13 @@ export async function processQuotationRequest(
   // Step 1: Import the email(s)
   const importResult = await importThread(configId, uids);
   
-  if (!importResult.emailIds || importResult.emailIds.length === 0) {
+  // FIX: import-thread returns "emails" array, not "emailIds"
+  const importedEmails = importResult.emails || [];
+  if (importedEmails.length === 0) {
     throw new Error('Aucun email importé');
   }
   
-  const emailId = importResult.emailIds[0];
+  const emailId = importedEmails[0].id;
   
   // Step 2: Get the imported email details
   const { data: email, error: emailError } = await supabase
