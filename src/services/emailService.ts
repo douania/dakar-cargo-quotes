@@ -121,6 +121,27 @@ export async function importThread(configId: string, uids: number[]) {
   return data;
 }
 
+export interface RegulatoryAnalysis {
+  requested_regime?: string;
+  recommended_regime?: string;
+  regime_code?: string;
+  regime_appropriate?: boolean;
+  correction_needed?: boolean;
+  correction_explanation?: string;
+}
+
+export interface AttachmentsAnalysis {
+  analyzed: boolean;
+  extracted_info?: string;
+  missing_info?: string[];
+}
+
+export interface Feasibility {
+  is_feasible: boolean;
+  concerns?: string[];
+  recommendations?: string[];
+}
+
 export interface QuotationProcessResult {
   importedEmailId: string;
   originalEmail: {
@@ -139,6 +160,9 @@ export interface QuotationProcessResult {
     confidence: number;
     missingInfo: string[];
     quotationDetails: Record<string, unknown>;
+    regulatoryAnalysis?: RegulatoryAnalysis;
+    attachmentsAnalysis?: AttachmentsAnalysis;
+    feasibility?: Feasibility;
   };
 }
 
@@ -166,7 +190,7 @@ export async function processQuotationRequest(
   
   if (emailError) throw emailError;
   
-  // Step 3: Generate the response
+  // Step 3: Generate the expert response
   const { data: responseData, error: responseError } = await supabase.functions.invoke('generate-response', {
     body: { emailId },
   });
@@ -195,6 +219,9 @@ export async function processQuotationRequest(
       confidence: responseData.confidence || 0.5,
       missingInfo: responseData.missing_info || [],
       quotationDetails: responseData.quotation || {},
+      regulatoryAnalysis: responseData.regulatory_analysis,
+      attachmentsAnalysis: responseData.attachments_analysis,
+      feasibility: responseData.feasibility,
     },
   };
 }
