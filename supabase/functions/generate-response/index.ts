@@ -7,126 +7,119 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL EXPERT de Taleb Hoballah, transitaire senior chez SODATRA/2HL Group, spécialisé en logistique internationale et réglementation douanière au Sénégal.
+// Response templates for different request types
+const RESPONSE_TEMPLATES = {
+  quotation_standard: {
+    greeting: "Gd day Dear {contact_name},",
+    body: "Please find attached our best offer for the captioned.\n\nFor any questions, please don't hesitate.",
+    closing: "With we remain,\nBest Regards / Meilleures Salutations"
+  },
+  quotation_exempt: {
+    greeting: "Gd day Dear {contact_name},",
+    body: "Please find below our offer for exempt project shipment.\n\nDuty free as per {regime} regime.\nAll docs to be provided for customs clearance.",
+    closing: "With we remain,\nBest Regards"
+  },
+  regime_question: {
+    greeting: "Dear {contact_name},",
+    body: "Kindly note:\n\n{response}\n\n@Cherif pls confirm if needed.",
+    closing: "Best Regards"
+  },
+  acknowledgment: {
+    greeting: "Dear {contact_name},",
+    body: "Well noted with thanks.\nWe'll revert soonest.",
+    closing: "Best Regards"
+  },
+  rate_confirmation: {
+    greeting: "Hi Dear {contact_name},",
+    body: "Pls find below rates as discussed:\n\n{rates}\n\nRates valid until {validity}.",
+    closing: "With we remain,\nBest Regards"
+  }
+};
 
-RÈGLE ABSOLUE: TU N'INVENTES JAMAIS DE TARIF.
-- Si un tarif exact n'est PAS dans les données fournies → tu écris "À CONFIRMER" ou "SUR DEMANDE"
-- Tu ne donnes JAMAIS d'estimation de prix si le tarif officiel n'est pas disponible
-- Tu utilises UNIQUEMENT les tarifs officiels fournis dans les sections PORT_TARIFFS, CARRIER_BILLING et TAX_RATES
+const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL Group / SODATRA), transitaire senior au Sénégal.
 
-SOURCES DE TARIFS AUTORISÉES (dans l'ordre de priorité):
-1. PORT_TARIFFS - Tarifs THC DP World (Arrêté 2025) - SOURCE PRIMAIRE pour les THC
-2. CARRIER_BILLING_TEMPLATES - Structure de facturation par compagnie maritime
-3. TAX_RATES - Taux réglementaires (DD, TVA, COSEC, PCS, PCC, RS, BIC)
-4. HS_CODES - Droits par code SH de la marchandise
-5. CONNAISSANCES APPRISES - Tarifs validés des opérations précédentes
-6. Si le tarif n'est dans AUCUNE de ces sources → "À CONFIRMER AVEC LE SERVICE"
+=== RÈGLES DE STYLE ABSOLUES ===
 
-CALCUL DES THC DP WORLD:
-- 20 pieds = 1 EVP
-- 40 pieds = 2 EVP
-- 45 pieds = 2,25 EVP
-- Le tarif dans PORT_TARIFFS est par EVP, multiplier par le nombre d'EVP
+📏 LONGUEUR MAXIMALE: 15-20 lignes dans le corps du mail. PAS PLUS.
+📎 TARIFS EN PIÈCE JOINTE: Les détails chiffrés vont dans un fichier Excel, PAS dans le mail.
+✍️ STYLE TÉLÉGRAPHIQUE: Phrases courtes, bullet points, abréviations professionnelles.
 
-STRUCTURE DE FACTURATION PAR COMPAGNIE:
-- MSC, CMA CGM, Grimaldi: Facture unique consolidée
-- Hapag-Lloyd: 3 factures séparées (PORT_CHARGES, DOCUMENTATION, SERVICES)
-- Maersk: Factures séparées (PORT_CHARGES, DOCUMENTATION)
+🗣️ ABRÉVIATIONS OBLIGATOIRES:
+- pls = please / veuillez
+- vsl = vessel / navire  
+- ctnr = container / conteneur
+- docs = documents
+- tcs = terms and conditions
+- bav = bien à vous
+- asap = as soon as possible
+- fyi = for your information
+- w/ = with
+- thks = thanks
 
-ANALYSE EXPERTE REQUISE:
-1. Identifier le transporteur (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
-2. Appliquer le template de facturation correspondant
-3. Identifier le régime douanier CORRECT et CITER les articles du Code des Douanes
-4. Pour l'ATE: vérifier que la marchandise sera réexportée (Articles 217-218)
-5. Pour le Mali/pays tiers: imposer TRIE, pas ATE (Articles 161-169)
-6. Calculer droits et taxes avec les TAUX OFFICIELS fournis
-7. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
-8. Séparer clairement: débours officiels vs honoraires transitaire
-9. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
-10. Si régime inapproprié demandé, expliquer la correction avec base légale
+👥 DÉLÉGATION D'ÉQUIPE (utiliser quand approprié):
+- Pour questions douane/HS codes: "@Cherif pls confirm..."
+- Pour suivi opérationnel: "@Eric to follow up..."
+- Pour booking/shipping: "@Samba pls check..."
 
-FORMAT DE SORTIE JSON:
+📝 FORMULE DE CLÔTURE OBLIGATOIRE: "With we remain," ou "With we remain,\nBest Regards"
+
+⛔ INTERDIT:
+- Phrases longues explicatives
+- "Je reste à votre entière disposition pour tout renseignement complémentaire"
+- "N'hésitez pas à me contacter si vous avez des questions"
+- Inclure des tableaux de tarifs détaillés DANS le mail (→ pièce jointe)
+- Ton robotique ou trop formel
+- Explications réglementaires longues (sauf si demandé)
+
+=== RÈGLE TARIFAIRE ABSOLUE ===
+TU N'INVENTES JAMAIS DE TARIF.
+- Si tarif exact absent → "À CONFIRMER" ou "TBC"
+- Utilise UNIQUEMENT: PORT_TARIFFS, CARRIER_BILLING, TAX_RATES, HS_CODES
+
+=== FORMAT DE SORTIE JSON ===
 {
-  "subject": "Objet email professionnel",
-  "greeting": "Formule d'ouverture selon le style expert (ex: 'Hi Dear [Prénom],' ou 'Dear [Name],')",
-  "body": "Corps du message - style de l'expert, SANS formule d'ouverture ni signature - uniquement le contenu métier",
-  "closing": "Formule de clôture selon le style expert (ex: 'With we remain,' ou 'Best Regards')",
-  "signature": "Signature complète de l'expert avec coordonnées",
-  "carrier_detected": "Nom de la compagnie maritime identifiée",
-  "container_info": {
-    "type": "20|40|45",
-    "evp_multiplier": 1|2|2.25,
-    "cargo_nature": "STANDARD|REEFER|DANGEROUS|SPECIAL|BASIC|COTON"
-  },
-  "regulatory_analysis": {
-    "requested_regime": "Régime demandé par le client",
-    "recommended_regime": "Régime recommandé",
-    "regime_code": "Code (ex: S120)",
-    "regime_appropriate": true/false,
-    "correction_needed": true/false,
-    "correction_explanation": "Explication si correction",
-    "legal_references": {
-      "articles_cited": ["Art. 217-218 pour ATE", "Art. 161-169 pour TRIE"],
-      "code_source": "Loi 2014-10 du 28 février 2014 - Code des Douanes du Sénégal",
-      "key_provisions": "Résumé des dispositions applicables",
-      "warnings": ["Alertes légales si régime inapproprié"]
-    }
-  },
-  "billing_structure": {
-    "invoice_count": 1|2|3,
-    "invoices": [
-      {
-        "type": "CONSOLIDATED|PORT_CHARGES|DOCUMENTATION|SERVICES",
-        "sequence": 1|2|3,
-        "posts": [
-          { 
-            "charge_code": "THO|TBL|ISPS|etc",
-            "description": "Description",
-            "montant": number,
-            "devise": "FCFA|EUR",
-            "tva": number,
-            "source": "PORT_TARIFFS|CARRIER_BILLING|A_CONFIRMER",
-            "calculation": "Ex: 155000 x 2 EVP = 310000"
-          }
-        ],
-        "subtotal_ht": number,
-        "tva": number,
-        "subtotal_ttc": number
-      }
-    ]
-  },
-  "quotation_details": {
-    "operation_type": "import|export|transit",
-    "destination": "Pays destination",
+  "subject": "Re: [sujet original]",
+  "greeting": "Gd day Dear [Prénom]," ou "Dear [Name]," ou "Hi Dear [Prénom],",
+  "body_short": "Corps CONCIS du message (15-20 lignes MAX). Style télégraphique. NO tarifs détaillés ici.",
+  "delegation": "@Cherif pls confirm HS codes" ou "@Eric to follow up" ou null,
+  "closing": "With we remain,\\nBest Regards / Meilleures Salutations",
+  "signature": "Taleb HOBALLAH\\n2HL Group Transport & Logistics\\nTel: +221...\\nEmail: taleb@...",
+  "attachment_needed": true,
+  "attachment_type": "excel_quotation | rate_sheet | proforma | none",
+  "attachment_data": {
+    "filename": "Quotation_[Client]_[Date].xlsx",
     "posts": [
-      { 
-        "category": "thc_dpw|frais_compagnie|droits_douane|taxes_internes|honoraires|transport|autres",
-        "description": "Description",
-        "montant": number,
-        "devise": "FCFA",
-        "source": "PORT_TARIFFS|CARRIER_BILLING|TAX_RATES|HS_CODE|A_CONFIRMER",
-        "source_document": "Référence document si disponible",
-        "is_estimate": false,
-        "base_calcul": "Ex: 0.4% x CAF"
-      }
+      { "description": "THC 40'", "montant": 310000, "devise": "FCFA", "source": "PORT_TARIFFS" }
     ],
-    "total_debours": number,
-    "total_honoraires": number,
-    "total_general": number,
-    "devise": "FCFA"
+    "total": 850000,
+    "currency": "FCFA"
   },
-  "attachments_analysis": {
-    "analyzed": true/false,
-    "extracted_info": "Valeur CAF, descriptions, etc.",
-    "missing_info": []
+  "response_template_used": "quotation_standard | quotation_exempt | regime_question | rate_confirmation | custom",
+  "carrier_detected": "MSC | HAPAG-LLOYD | MAERSK | CMA CGM | GRIMALDI | UNKNOWN",
+  "container_info": { "type": "40", "evp_multiplier": 2 },
+  "regulatory_analysis": {
+    "requested_regime": "ATE",
+    "recommended_regime": "TRIE",
+    "regime_code": "S120",
+    "regime_appropriate": false,
+    "correction_needed": true,
+    "correction_explanation": "BREF: Mali = TRIE obligatoire (Art. 161-169)",
+    "legal_references": { "articles_cited": ["Art. 161-169"], "code_source": "Loi 2014-10" }
   },
-  "feasibility": {
-    "is_feasible": true/false,
-    "concerns": [],
-    "recommendations": []
+  "quotation_summary": {
+    "total_debours": 850000,
+    "total_honoraires": 150000,
+    "total_general": 1000000,
+    "devise": "FCFA",
+    "confidence": 0.85
   },
-  "confidence": 0.0-1.0,
-  "missing_info": ["Éléments manquants pour cotation exacte"]
+  "missing_info": ["Valeur CAF", "Code HS exact"],
+  "follow_up_needed": true,
+  "two_step_response": {
+    "is_two_step": false,
+    "step_1_content": "Container rates attached. Breakbulk to follow.",
+    "step_2_pending": "Breakbulk rates"
+  }
 }`;
 
 // Helper function to select the best expert based on email content
@@ -143,7 +136,7 @@ function selectExpertForResponse(emailContent: string, subject: string): 'taleb'
   return douaneScore > transportScore ? 'cherif' : 'taleb';
 }
 
-// Build the style injection prompt from expert profile
+// Build the style injection prompt from expert profile - REINFORCES CONCISE STYLE
 function buildStyleInjection(expert: any): string {
   if (!expert || !expert.communication_style) {
     return '';
@@ -154,61 +147,50 @@ function buildStyleInjection(expert: any): string {
   
   let injection = `
 
-=== STYLE D'ÉCRITURE OBLIGATOIRE (IMITER ${expert.name.toUpperCase()}) ===
+=== STYLE OBLIGATOIRE: ${expert.name.toUpperCase()} ===
 
-TU DOIS ÉCRIRE EXACTEMENT COMME ${expert.name}. C'est CRITIQUE.
+📏 RAPPEL CRITIQUE: 15-20 LIGNES MAXIMUM. Style télégraphique.
 
-📝 TON: ${style.tone || 'professionnel'}
-🌍 LANGUE: ${style.language || 'français'}
+📝 TON: ${style.tone || 'professionnel, direct'}
+🌍 LANGUE: ${style.language || 'bilingue FR/EN'}
 
 `;
 
   if (style.formulas) {
     if (style.formulas.opening && style.formulas.opening.length > 0) {
-      injection += `📨 FORMULES D'OUVERTURE (utiliser l'une d'elles):\n`;
+      injection += `📨 OUVERTURE (choisir UNE):\n`;
       style.formulas.opening.slice(0, 3).forEach((f: string) => {
-        injection += `   - "${f}"\n`;
+        injection += `   • "${f}"\n`;
       });
     }
     if (style.formulas.closing && style.formulas.closing.length > 0) {
-      injection += `📨 FORMULES DE CLÔTURE (utiliser l'une d'elles):\n`;
+      injection += `📨 CLÔTURE (choisir UNE):\n`;
       style.formulas.closing.slice(0, 3).forEach((f: string) => {
-        injection += `   - "${f}"\n`;
+        injection += `   • "${f}"\n`;
       });
     }
     if (style.formulas.signature) {
-      injection += `✍️ SIGNATURE EXACTE À UTILISER:\n${style.formulas.signature}\n\n`;
+      injection += `✍️ SIGNATURE:\n${style.formulas.signature}\n\n`;
     }
   }
 
   if (style.distinctive_traits && style.distinctive_traits.length > 0) {
-    injection += `🎯 TRAITS DISTINCTIFS À REPRODUIRE:\n`;
-    style.distinctive_traits.forEach((t: string) => {
-      injection += `   - ${t}\n`;
-    });
+    injection += `🎯 TRAITS À REPRODUIRE: ${style.distinctive_traits.slice(0, 5).join(' | ')}\n`;
   }
 
   if (patterns.length > 0) {
-    injection += `\n📋 EXEMPLES DE RÉPONSES TYPIQUES:\n`;
-    patterns.slice(0, 3).forEach((p: any) => {
+    injection += `\n📋 EXEMPLES RÉELS (imiter ce style):\n`;
+    patterns.slice(0, 2).forEach((p: any) => {
       if (p.trigger && p.examples && p.examples.length > 0) {
-        injection += `   Quand "${p.trigger}" → "${p.examples[0].substring(0, 100)}..."\n`;
+        const example = p.examples[0].substring(0, 80).replace(/\n/g, ' ');
+        injection += `   "${p.trigger}" → "${example}..."\n`;
       }
     });
   }
 
   injection += `
-⛔ INTERDIT (NE JAMAIS ÉCRIRE):
-- "Je reste à votre entière disposition pour tout renseignement complémentaire"
-- "N'hésitez pas à me contacter si vous avez des questions"
-- "Cordialement," (trop générique)
-- Phrases robotiques ou trop formelles
-- Structures de mail typiquement AI
-
-✅ UTILISER À LA PLACE:
-- Les formules exactes ci-dessus
-- Le ton direct et professionnel de ${expert.name}
-- Les expressions caractéristiques extraites des vrais emails
+⛔ INTERDIT: phrases longues, ton robotique, "Je reste à votre disposition...", tableaux dans le mail
+✅ OBLIGATOIRE: abréviations (pls, vsl, ctnr), "With we remain,", tarifs en pièce jointe
 `;
 
   return injection;
@@ -787,6 +769,15 @@ RAPPEL CRITIQUE:
       throw new Error("Erreur de parsing de la réponse");
     }
 
+    // Build the complete email body from structured response
+    const greeting = parsedResponse.greeting || 'Dear Sir/Madam,';
+    const bodyShort = parsedResponse.body_short || parsedResponse.body || '';
+    const delegation = parsedResponse.delegation ? `\n\n${parsedResponse.delegation}` : '';
+    const closing = parsedResponse.closing || 'Best Regards';
+    const signature = parsedResponse.signature || 'Taleb HOBALLAH\n2HL Group';
+    
+    const fullBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
+
     // Create draft
     const { data: draft, error: draftError } = await supabase
       .from('email_drafts')
@@ -794,7 +785,7 @@ RAPPEL CRITIQUE:
         original_email_id: emailId,
         to_addresses: [email.from_address],
         subject: parsedResponse.subject || `Re: ${email.subject}`,
-        body_text: parsedResponse.body,
+        body_text: fullBodyText,
         status: 'draft',
         ai_generated: true
       })
@@ -806,18 +797,27 @@ RAPPEL CRITIQUE:
       throw new Error("Erreur de création du brouillon");
     }
 
-    console.log("Generated expert draft with official tariffs:", draft.id);
+    console.log("Generated concise expert draft:", draft.id);
 
     return new Response(
       JSON.stringify({
         success: true,
         draft: draft,
-        quotation: parsedResponse.quotation_details,
+        structured_response: {
+          greeting: parsedResponse.greeting,
+          body_short: parsedResponse.body_short,
+          delegation: parsedResponse.delegation,
+          closing: parsedResponse.closing,
+          signature: parsedResponse.signature
+        },
+        attachment_needed: parsedResponse.attachment_needed,
+        attachment_data: parsedResponse.attachment_data,
+        quotation_summary: parsedResponse.quotation_summary,
         regulatory_analysis: parsedResponse.regulatory_analysis,
-        attachments_analysis: parsedResponse.attachments_analysis,
-        feasibility: parsedResponse.feasibility,
-        documents_requis: parsedResponse.documents_requis,
-        confidence: parsedResponse.confidence,
+        carrier_detected: parsedResponse.carrier_detected,
+        response_template_used: parsedResponse.response_template_used,
+        two_step_response: parsedResponse.two_step_response,
+        confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
         missing_info: parsedResponse.missing_info
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
