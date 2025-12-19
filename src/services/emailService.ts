@@ -174,6 +174,9 @@ export async function processQuotationRequest(
   if (responseError) throw responseError;
   if (responseData.error) throw new Error(responseData.error);
   
+  // Map the response data to the expected format
+  const draft = responseData.draft || {};
+  
   return {
     importedEmailId: emailId,
     originalEmail: {
@@ -182,11 +185,16 @@ export async function processQuotationRequest(
       body: email.body_text || email.body_html || '',
       date: email.sent_at || email.received_at || email.created_at,
     },
-    draft: responseData.draft,
+    draft: {
+      id: draft.id || '',
+      subject: draft.subject || `Re: ${email.subject}`,
+      body: draft.body_text || draft.body || '',
+      to: draft.to_addresses || [email.from_address],
+    },
     analysis: {
       confidence: responseData.confidence || 0.5,
-      missingInfo: responseData.missingInfo || [],
-      quotationDetails: responseData.quotationDetails || {},
+      missingInfo: responseData.missing_info || [],
+      quotationDetails: responseData.quotation || {},
     },
   };
 }
