@@ -151,11 +151,13 @@ export function QuotationProcessor({
                   <FileText className="h-4 w-4" />
                   Réponse générée
                 </div>
-                <Badge variant="outline">
-                  À: {result.draft.to.join(', ')}
-                </Badge>
+                {result.draft.to && result.draft.to.length > 0 && (
+                  <Badge variant="outline">
+                    À: {result.draft.to.join(', ')}
+                  </Badge>
+                )}
               </div>
-              
+
               <p className="text-sm text-muted-foreground">
                 Objet: {result.draft.subject}
               </p>
