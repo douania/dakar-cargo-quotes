@@ -71,3 +71,12 @@ verify_jwt = false
 
 [functions.analyze-pricing-patterns]
 verify_jwt = false
+
+[functions.audit-coherence]
+verify_jwt = false
+
+[functions.arbitrage-incoterm]
+verify_jwt = false
+
+[functions.analyze-risks]
+verify_jwt = false

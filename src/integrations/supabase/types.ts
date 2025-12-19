@@ -536,6 +536,66 @@ export type Database = {
         }
         Relationships: []
       }
+      imo_classes: {
+        Row: {
+          class_code: string
+          created_at: string
+          description: string | null
+          division: string | null
+          examples: string[] | null
+          handling_notes: string | null
+          id: string
+          max_stacking_height: number | null
+          name_en: string
+          name_fr: string
+          placard_required: boolean
+          port_surcharge_percent: number
+          requires_imo_declaration: boolean
+          requires_msds: boolean
+          requires_segregation: boolean
+          requires_special_storage: boolean
+          storage_surcharge_percent: number
+        }
+        Insert: {
+          class_code: string
+          created_at?: string
+          description?: string | null
+          division?: string | null
+          examples?: string[] | null
+          handling_notes?: string | null
+          id?: string
+          max_stacking_height?: number | null
+          name_en: string
+          name_fr: string
+          placard_required?: boolean
+          port_surcharge_percent?: number
+          requires_imo_declaration?: boolean
+          requires_msds?: boolean
+          requires_segregation?: boolean
+          requires_special_storage?: boolean
+          storage_surcharge_percent?: number
+        }
+        Update: {
+          class_code?: string
+          created_at?: string
+          description?: string | null
+          division?: string | null
+          examples?: string[] | null
+          handling_notes?: string | null
+          id?: string
+          max_stacking_height?: number | null
+          name_en?: string
+          name_fr?: string
+          placard_required?: boolean
+          port_surcharge_percent?: number
+          requires_imo_declaration?: boolean
+          requires_msds?: boolean
+          requires_segregation?: boolean
+          requires_special_storage?: boolean
+          storage_surcharge_percent?: number
+        }
+        Relationships: []
+      }
       learned_knowledge: {
         Row: {
           category: string
