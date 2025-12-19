@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CUSTOMS_CODE_REFERENCE, getLegalContextForRegime, analyzeRegimeAppropriateness } from "../_shared/customs-code-reference.ts";
+import { CTU_CODE_REFERENCE, isCTURelevant, getAllRelevantCTUContexts } from "../_shared/ctu-code-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -903,6 +904,22 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       legalContext += '- Valeur en douane: Articles 18-19\n';
     }
 
+    // ============ CTU CODE CONTEXT (Container Loading Best Practices) ============
+    let ctuContext = '';
+    const fullEmailContent = (email.body_text || '') + ' ' + (email.subject || '') + ' ' + 
+      (attachments?.map(a => a.extracted_text || '').join(' ') || '');
+    
+    if (isCTURelevant(fullEmailContent)) {
+      const relevantCTUContexts = getAllRelevantCTUContexts(fullEmailContent);
+      if (relevantCTUContexts.length > 0) {
+        ctuContext = '\n\n=== CODE CTU - BONNES PRATIQUES EMPOTAGE/CHARGEMENT ===\n';
+        ctuContext += 'Source: Code de bonnes pratiques OMI/OIT/CEE-ONU pour le chargement des cargaisons (Janvier 2014)\n';
+        ctuContext += 'Document: public/data/CTU_Code_French_01.pdf\n\n';
+        ctuContext += relevantCTUContexts.join('\n---\n');
+        console.log(`CTU context added: ${relevantCTUContexts.length} sections`);
+      }
+    }
+
     // ============ LANGUAGE & REQUEST ANALYSIS ============
     const detectedLanguage = detectEmailLanguage(email.body_text, email.subject);
     const requestAnalysis = analyzeRequestType(email, attachments || []);
@@ -956,6 +973,7 @@ ${carrierBillingContext}
 ${taxRatesContext}
 ${regimesContext}
 ${legalContext}
+${ctuContext}
 ${attachmentsContext}
 ${tariffKnowledgeContext}
 ${threadContext}
