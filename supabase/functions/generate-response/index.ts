@@ -208,6 +208,125 @@ function analyzeRequestType(email: any, attachments: any[]): RequestAnalysis {
   };
 }
 
+// ============ SHIPMENT DATA EXTRACTION ============
+interface ExtractedShipmentData {
+  weight_kg: number | null;
+  volume_cbm: number | null;
+  container_type: string | null;
+  incoterm: string | null;
+  carrier: string | null;
+  origin: string | null;
+  destination: string | null;
+  cargo_description: string | null;
+  value: number | null;
+  currency: string | null;
+  eta_date: string | null;
+}
+
+function extractShipmentData(content: string, attachments: any[]): ExtractedShipmentData {
+  const fullContent = content + ' ' + attachments.map(a => 
+    (a.extracted_text || '') + ' ' + JSON.stringify(a.extracted_data || {})
+  ).join(' ');
+  
+  const result: ExtractedShipmentData = {
+    weight_kg: null,
+    volume_cbm: null,
+    container_type: null,
+    incoterm: null,
+    carrier: null,
+    origin: null,
+    destination: null,
+    cargo_description: null,
+    value: null,
+    currency: null,
+    eta_date: null,
+  };
+
+  // Extract weight (kg)
+  const weightMatch = fullContent.match(/(\d+[\s,.]?\d*)\s*(kg|kgs|kilos?|kilogrammes?)/i);
+  if (weightMatch) {
+    result.weight_kg = parseFloat(weightMatch[1].replace(/[\s,]/g, '').replace(',', '.'));
+  }
+
+  // Extract volume (cbm/m³)
+  const volumeMatch = fullContent.match(/(\d+[\s,.]?\d*)\s*(cbm|m³|m3|cubic\s*met)/i);
+  if (volumeMatch) {
+    result.volume_cbm = parseFloat(volumeMatch[1].replace(/[\s,]/g, '').replace(',', '.'));
+  }
+
+  // Extract container type
+  const containerMatch = fullContent.match(/\b(20['']?\s*(?:ft|pieds|GP|DV|HC|RF|OT)?|40['']?\s*(?:ft|pieds|GP|DV|HC|HQ|RF|OT)?)\b/i);
+  if (containerMatch) {
+    let type = containerMatch[1].replace(/['\s]/g, '').toUpperCase();
+    if (type === '20' || type === '20FT' || type === '20GP') type = '20DV';
+    if (type === '40' || type === '40FT' || type === '40GP') type = '40DV';
+    if (type === '40HQ') type = '40HC';
+    result.container_type = type;
+  }
+
+  // Extract Incoterm
+  const incotermMatch = fullContent.match(/\b(EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DPU|DDP)\b/i);
+  if (incotermMatch) {
+    result.incoterm = incotermMatch[1].toUpperCase();
+  }
+
+  // Extract carrier
+  const carriers = ['CMA CGM', 'MSC', 'MAERSK', 'HAPAG-LLOYD', 'HAPAG LLOYD', 'ONE', 'EVERGREEN', 'GRIMALDI', 'COSCO', 'PIL'];
+  for (const carrier of carriers) {
+    if (fullContent.toUpperCase().includes(carrier)) {
+      result.carrier = carrier.replace(' ', '-');
+      break;
+    }
+  }
+
+  // Extract origin
+  const origins = ['Shanghai', 'Ningbo', 'Shenzhen', 'Guangzhou', 'Qingdao', 'Rotterdam', 'Hamburg', 'Anvers', 'Antwerp', 'Marseille', 'Le Havre', 'Fos', 'Chine', 'China', 'France', 'Turquie', 'Turkey', 'Inde', 'India', 'Italie', 'Italy', 'Espagne', 'Spain', 'Dubai', 'UAE'];
+  for (const origin of origins) {
+    if (new RegExp(`\\b${origin}\\b`, 'i').test(fullContent)) {
+      result.origin = origin;
+      break;
+    }
+  }
+
+  // Extract destination
+  const destinations = ['Dakar', 'Bamako', 'Mali', 'Ouagadougou', 'Burkina', 'Niamey', 'Niger', 'Conakry', 'Guinée', 'Banjul', 'Gambie', 'Abidjan', 'Sénégal', 'Senegal'];
+  for (const dest of destinations) {
+    if (new RegExp(`\\b${dest}\\b`, 'i').test(fullContent)) {
+      result.destination = dest;
+      break;
+    }
+  }
+
+  // Extract value and currency
+  const valueMatch = fullContent.match(/(USD|EUR|FCFA|XOF|\$|€)\s*([\d\s,.]+)|([\d\s,.]+)\s*(USD|EUR|FCFA|XOF)/i);
+  if (valueMatch) {
+    const curr = (valueMatch[1] || valueMatch[4] || 'USD').toUpperCase();
+    const val = (valueMatch[2] || valueMatch[3]).replace(/[\s,]/g, '').replace(',', '.');
+    result.value = parseFloat(val);
+    result.currency = curr === '$' ? 'USD' : curr === '€' ? 'EUR' : curr;
+  }
+
+  // Extract ETA date
+  const etaMatch = fullContent.match(/(?:ETA|arrivée|arrival)[:\s]*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/i);
+  if (etaMatch) {
+    const day = etaMatch[1].padStart(2, '0');
+    const month = etaMatch[2].padStart(2, '0');
+    let year = etaMatch[3];
+    if (year.length === 2) year = '20' + year;
+    result.eta_date = `${year}-${month}-${day}`;
+  }
+
+  // Extract cargo description from attachments
+  for (const att of attachments) {
+    if (att.extracted_data?.descriptions?.length > 0) {
+      result.cargo_description = att.extracted_data.descriptions.slice(0, 3).join(', ');
+      break;
+    }
+  }
+
+  return result;
+}
+
 const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL Group / SODATRA), transitaire senior au Sénégal.
 
 === RÈGLE DE LANGUE ABSOLUE ===
@@ -926,6 +1045,157 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
     
     console.log(`Language: ${detectedLanguage}, Request type: ${requestAnalysis.type}, Can quote: ${requestAnalysis.canQuote}`);
 
+    // ============ V5 WORKFLOW: EXTRACT DATA FOR ANALYSIS ============
+    // Extract weight, volume, container, carrier, incoterm from email and attachments
+    const extractedData = extractShipmentData(fullEmailContent, attachments || []);
+    console.log("Extracted shipment data:", JSON.stringify(extractedData));
+
+    // ============ V5 WORKFLOW: CALL NEW ANALYSIS FUNCTIONS ============
+    let coherenceResult: any = null;
+    let incotermResult: any = null;
+    let riskResult: any = null;
+    let v5AnalysisContext = '';
+
+    try {
+      // 1. Audit Coherence (poids/volume validation)
+      if (extractedData.weight_kg || extractedData.volume_cbm || extractedData.container_type) {
+        console.log("Calling audit-coherence...");
+        const coherenceResponse = await fetch(`${supabaseUrl}/functions/v1/audit-coherence`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            weight_kg: extractedData.weight_kg,
+            volume_cbm: extractedData.volume_cbm,
+            container_type: extractedData.container_type,
+            cargo_description: extractedData.cargo_description,
+          }),
+        });
+        if (coherenceResponse.ok) {
+          coherenceResult = await coherenceResponse.json();
+          console.log("Coherence result:", JSON.stringify(coherenceResult));
+        }
+      }
+
+      // 2. Arbitrage Incoterm
+      if (extractedData.incoterm) {
+        console.log("Calling arbitrage-incoterm...");
+        const incotermResponse = await fetch(`${supabaseUrl}/functions/v1/arbitrage-incoterm`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            incoterm: extractedData.incoterm,
+            origin_country: extractedData.origin,
+            destination_country: extractedData.destination,
+            fob_value: extractedData.value,
+            currency: extractedData.currency,
+          }),
+        });
+        if (incotermResponse.ok) {
+          incotermResult = await incotermResponse.json();
+          console.log("Incoterm result:", JSON.stringify(incotermResult));
+        }
+      }
+
+      // 3. Analyze Risks (temps, nature, provisions)
+      console.log("Calling analyze-risks...");
+      const riskResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-risks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          eta_date: extractedData.eta_date,
+          cargo_nature: extractedData.cargo_description,
+          destination: extractedData.destination,
+          container_type: extractedData.container_type,
+          carrier: extractedData.carrier,
+          is_transit: /mali|bamako|burkina|ouaga|niger|guinée/i.test(extractedData.destination || ''),
+          transit_destination: extractedData.destination,
+        }),
+      });
+      if (riskResponse.ok) {
+        riskResult = await riskResponse.json();
+        console.log("Risk result:", JSON.stringify(riskResult));
+      }
+
+    } catch (analysisError) {
+      console.error("V5 analysis error (non-blocking):", analysisError);
+    }
+
+    // ============ BUILD V5 ANALYSIS CONTEXT ============
+    if (coherenceResult || incotermResult || riskResult) {
+      v5AnalysisContext = '\n\n=== ANALYSE V5 WORKFLOW ===\n';
+
+      // Coherence analysis
+      if (coherenceResult) {
+        v5AnalysisContext += '\n📦 AUDIT COHÉRENCE POIDS/VOLUME:\n';
+        v5AnalysisContext += `   Cohérent: ${coherenceResult.is_coherent ? '✅ OUI' : '❌ NON'}\n`;
+        if (coherenceResult.density_kg_cbm) {
+          v5AnalysisContext += `   Densité: ${coherenceResult.density_kg_cbm} kg/m³\n`;
+        }
+        if (coherenceResult.alerts?.length > 0) {
+          v5AnalysisContext += `   ⚠️ ALERTES:\n`;
+          for (const alert of coherenceResult.alerts) {
+            v5AnalysisContext += `      • ${alert.message_fr}\n`;
+          }
+        }
+        if (coherenceResult.ctu_code_check_needed) {
+          v5AnalysisContext += `   📋 Vérification CTU Code recommandée\n`;
+        }
+      }
+
+      // Incoterm analysis
+      if (incotermResult?.incoterm) {
+        v5AnalysisContext += `\n📋 ARBITRAGE INCOTERM ${incotermResult.incoterm.code} (Groupe ${incotermResult.incoterm.groupe}):\n`;
+        v5AnalysisContext += `   ${incotermResult.incoterm.description_fr}\n`;
+        v5AnalysisContext += `   Méthode CAF: ${incotermResult.caf_calculation?.method}\n`;
+        if (incotermResult.quotation_guidance?.what_to_include_fr?.length > 0) {
+          v5AnalysisContext += `   COÛTS À INCLURE DANS LA COTATION:\n`;
+          for (const cost of incotermResult.quotation_guidance.what_to_include_fr) {
+            v5AnalysisContext += `      ${cost}\n`;
+          }
+        }
+        if (incotermResult.quotation_guidance?.vigilance_points_fr?.length > 0) {
+          v5AnalysisContext += `   ⚠️ POINTS DE VIGILANCE:\n`;
+          for (const point of incotermResult.quotation_guidance.vigilance_points_fr) {
+            v5AnalysisContext += `      ${point}\n`;
+          }
+        }
+      }
+
+      // Risk analysis
+      if (riskResult) {
+        v5AnalysisContext += '\n🎯 ANALYSE DES RISQUES:\n';
+        v5AnalysisContext += `   Risque temps: ${riskResult.time_risk?.level?.toUpperCase() || 'N/A'} - ${riskResult.time_risk?.risk_explanation_fr || ''}\n`;
+        v5AnalysisContext += `   Risque nature: ${riskResult.nature_risk?.level?.toUpperCase() || 'N/A'} - ${riskResult.nature_risk?.risk_explanation_fr || ''}\n`;
+        
+        if (riskResult.provisions?.total_provisions_fcfa > 0) {
+          v5AnalysisContext += `   💰 PROVISIONS RECOMMANDÉES: ${riskResult.provisions.total_provisions_fcfa.toLocaleString('fr-FR')} FCFA\n`;
+          for (const line of riskResult.provisions.breakdown || []) {
+            v5AnalysisContext += `      • ${line.item}: ${line.amount.toLocaleString('fr-FR')} ${line.currency} (${line.reason})\n`;
+          }
+        }
+
+        if (riskResult.vigilance_points?.length > 0) {
+          v5AnalysisContext += `   📌 POINTS DE VIGILANCE À MENTIONNER:\n`;
+          for (const vp of riskResult.vigilance_points) {
+            v5AnalysisContext += `      [${vp.severity.toUpperCase()}] ${vp.message_fr}\n`;
+          }
+        }
+
+        if (riskResult.demurrage_info) {
+          v5AnalysisContext += `   🚢 SURESTARIES ${riskResult.demurrage_info.carrier}: ${riskResult.demurrage_info.free_days}j franchise, puis ${riskResult.demurrage_info.rate_after_free_days_usd} USD/jour\n`;
+        }
+      }
+    }
+
     // Build analysis context for AI
     let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE ===
 📌 LANGUE DÉTECTÉE: ${detectedLanguage}
@@ -944,13 +1214,16 @@ ${requestAnalysis.suggestedQuestions.join('\n')}
 
 📊 ÉLÉMENTS DÉTECTÉS:
    • PI jointe: ${requestAnalysis.detectedElements.hasPI ? 'OUI' : 'NON'}
-   • Incoterm: ${requestAnalysis.detectedElements.hasIncoterm ? 'OUI' : 'NON'}
-   • Destination: ${requestAnalysis.detectedElements.hasDestination ? 'OUI' : 'NON'}
-   • Origine: ${requestAnalysis.detectedElements.hasOrigin ? 'OUI' : 'NON'}
-   • Type conteneur: ${requestAnalysis.detectedElements.hasContainerType ? 'OUI' : 'NON'}
+   • Incoterm: ${extractedData.incoterm || (requestAnalysis.detectedElements.hasIncoterm ? 'OUI (non identifié)' : 'NON')}
+   • Destination: ${extractedData.destination || (requestAnalysis.detectedElements.hasDestination ? 'OUI' : 'NON')}
+   • Origine: ${extractedData.origin || (requestAnalysis.detectedElements.hasOrigin ? 'OUI' : 'NON')}
+   • Type conteneur: ${extractedData.container_type || (requestAnalysis.detectedElements.hasContainerType ? 'OUI' : 'NON')}
+   • Poids: ${extractedData.weight_kg ? extractedData.weight_kg + ' kg' : 'NON'}
+   • Volume: ${extractedData.volume_cbm ? extractedData.volume_cbm + ' m³' : 'NON'}
+   • Transporteur: ${extractedData.carrier || 'NON DÉTECTÉ'}
    • Code HS: ${requestAnalysis.detectedElements.hasHsCode ? 'OUI' : 'NON'}
-   • Valeur: ${requestAnalysis.detectedElements.hasValue ? 'OUI' : 'NON'}
-`;
+   • Valeur: ${extractedData.value ? extractedData.value + ' ' + (extractedData.currency || '') : (requestAnalysis.detectedElements.hasValue ? 'OUI' : 'NON')}
+${v5AnalysisContext}`;
 
     // ============ BUILD PROMPT ============
     const userPrompt = `
@@ -1073,6 +1346,22 @@ RAPPELS CRITIQUES:
         can_quote_now: requestAnalysis.canQuote,
         clarification_questions: parsedResponse.clarification_questions || requestAnalysis.suggestedQuestions,
         detected_elements: requestAnalysis.detectedElements,
+        // V5 Workflow: Extracted shipment data
+        extracted_data: extractedData,
+        // V5 Workflow: Analysis results
+        v5_analysis: {
+          coherence_audit: coherenceResult,
+          incoterm_analysis: incotermResult,
+          risk_analysis: riskResult,
+        },
+        // V5 Workflow: Vigilance points (combined from all analyses)
+        vigilance_points: [
+          ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
+          ...(incotermResult?.quotation_guidance?.vigilance_points_fr?.map((p: string) => ({ type: 'incoterm', message_fr: p })) || []),
+          ...(riskResult?.vigilance_points || []),
+        ],
+        // V5 Workflow: Provisions summary
+        provisions: riskResult?.provisions || null,
         // Existing fields
         structured_response: {
           greeting: parsedResponse.greeting,
@@ -1085,7 +1374,7 @@ RAPPELS CRITIQUES:
         attachment_data: parsedResponse.attachment_data,
         quotation_summary: parsedResponse.quotation_summary,
         regulatory_analysis: parsedResponse.regulatory_analysis,
-        carrier_detected: parsedResponse.carrier_detected,
+        carrier_detected: extractedData.carrier || parsedResponse.carrier_detected,
         response_template_used: parsedResponse.response_template_used,
         two_step_response: parsedResponse.two_step_response,
         confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
