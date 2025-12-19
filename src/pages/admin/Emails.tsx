@@ -12,11 +12,12 @@ import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
   MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip,
-  AlertTriangle, Filter, CheckSquare
+  AlertTriangle, Filter, CheckSquare, RotateCcw
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
+import { ResponseGuidanceDialog } from '@/components/ResponseGuidanceDialog';
 
 interface EmailConfig {
   id: string;
@@ -77,6 +78,9 @@ export default function Emails() {
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [selectedDraft, setSelectedDraft] = useState<EmailDraft | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [showGuidanceDialog, setShowGuidanceDialog] = useState(false);
+  const [guidanceEmailId, setGuidanceEmailId] = useState<string | null>(null);
+  const [guidanceEmailSubject, setGuidanceEmailSubject] = useState<string>('');
   
   // Multi-selection state
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
@@ -195,10 +199,10 @@ export default function Emails() {
     }
   };
 
-  const generateResponse = async (emailId: string) => {
+  const generateResponse = async (emailId: string, customInstructions?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('generate-response', {
-        body: { emailId }
+        body: { emailId, customInstructions }
       });
 
       if (error) throw error;
@@ -209,6 +213,19 @@ export default function Emails() {
       console.error('Generate error:', error);
       toast.error('Erreur de génération');
     }
+  };
+
+  const openGuidanceDialog = (emailId: string, subject: string) => {
+    setGuidanceEmailId(emailId);
+    setGuidanceEmailSubject(subject);
+    setShowGuidanceDialog(true);
+  };
+
+  const handleGenerateWithGuidance = async (instructions: string) => {
+    if (!guidanceEmailId) return;
+    await generateResponse(guidanceEmailId, instructions || undefined);
+    setGuidanceEmailId(null);
+    setGuidanceEmailSubject('');
   };
 
   const deleteConfig = async (id: string) => {
@@ -574,7 +591,7 @@ export default function Emails() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => generateResponse(email.id)}
+                        onClick={() => openGuidanceDialog(email.id, email.subject || 'Sans objet')}
                       >
                         <MessageSquare className="h-4 w-4 mr-1" />
                         Répondre
@@ -702,7 +719,10 @@ export default function Emails() {
                   <EmailAttachments emailId={selectedEmail.id} />
                   
                   <div className="flex gap-2 flex-wrap">
-                    <Button onClick={() => generateResponse(selectedEmail.id)}>
+                    <Button onClick={() => {
+                      setSelectedEmail(null);
+                      openGuidanceDialog(selectedEmail.id, selectedEmail.subject || 'Sans objet');
+                    }}>
                       <MessageSquare className="h-4 w-4 mr-2" />
                       Générer réponse
                     </Button>
@@ -791,11 +811,36 @@ export default function Emails() {
                       {selectedDraft.body_text}
                     </pre>
                   </div>
+                  {selectedDraft.original_email_id && selectedDraft.status === 'draft' && (
+                    <div className="flex gap-2 pt-2 border-t">
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          const emailId = selectedDraft.original_email_id;
+                          const subject = selectedDraft.subject.replace('Re: ', '');
+                          setSelectedDraft(null);
+                          openGuidanceDialog(emailId, subject);
+                        }}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Régénérer avec instructions
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Response Guidance Dialog */}
+        <ResponseGuidanceDialog
+          open={showGuidanceDialog}
+          onOpenChange={setShowGuidanceDialog}
+          onGenerate={handleGenerateWithGuidance}
+          emailSubject={guidanceEmailSubject}
+          isRegenerating={!!selectedDraft}
+        />
       </div>
     </div>
   );
