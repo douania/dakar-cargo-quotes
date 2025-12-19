@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      carrier_billing_templates: {
+        Row: {
+          base_reference: string | null
+          calculation_method: string
+          carrier: string
+          charge_code: string
+          charge_name: string
+          created_at: string | null
+          currency: string | null
+          default_amount: number | null
+          effective_date: string | null
+          id: string
+          invoice_sequence: number | null
+          invoice_type: string | null
+          is_active: boolean | null
+          is_variable: boolean | null
+          notes: string | null
+          operation_type: string | null
+          source_documents: string[] | null
+          updated_at: string | null
+          variable_unit: string | null
+          vat_rate: number | null
+        }
+        Insert: {
+          base_reference?: string | null
+          calculation_method: string
+          carrier: string
+          charge_code: string
+          charge_name: string
+          created_at?: string | null
+          currency?: string | null
+          default_amount?: number | null
+          effective_date?: string | null
+          id?: string
+          invoice_sequence?: number | null
+          invoice_type?: string | null
+          is_active?: boolean | null
+          is_variable?: boolean | null
+          notes?: string | null
+          operation_type?: string | null
+          source_documents?: string[] | null
+          updated_at?: string | null
+          variable_unit?: string | null
+          vat_rate?: number | null
+        }
+        Update: {
+          base_reference?: string | null
+          calculation_method?: string
+          carrier?: string
+          charge_code?: string
+          charge_name?: string
+          created_at?: string | null
+          currency?: string | null
+          default_amount?: number | null
+          effective_date?: string | null
+          id?: string
+          invoice_sequence?: number | null
+          invoice_type?: string | null
+          is_active?: boolean | null
+          is_variable?: boolean | null
+          notes?: string | null
+          operation_type?: string | null
+          source_documents?: string[] | null
+          updated_at?: string | null
+          variable_unit?: string | null
+          vat_rate?: number | null
+        }
+        Relationships: []
+      }
       customs_regimes: {
         Row: {
           category: string | null
