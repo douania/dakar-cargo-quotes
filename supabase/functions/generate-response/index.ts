@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { CUSTOMS_CODE_REFERENCE, getLegalContextForRegime, analyzeRegimeAppropriateness } from "../_shared/customs-code-reference.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,11 +36,14 @@ STRUCTURE DE FACTURATION PAR COMPAGNIE:
 ANALYSE EXPERTE REQUISE:
 1. Identifier le transporteur (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
 2. Appliquer le template de facturation correspondant
-3. Identifier le régime douanier CORRECT (TRIE pour Mali, pas ATE)
-4. Calculer droits et taxes avec les TAUX OFFICIELS fournis
-5. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
-6. Séparer clairement: débours officiels vs honoraires transitaire
-7. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
+3. Identifier le régime douanier CORRECT et CITER les articles du Code des Douanes
+4. Pour l'ATE: vérifier que la marchandise sera réexportée (Articles 217-218)
+5. Pour le Mali/pays tiers: imposer TRIE, pas ATE (Articles 161-169)
+6. Calculer droits et taxes avec les TAUX OFFICIELS fournis
+7. Ne jamais inventer de montant - indiquer "À CONFIRMER" si absent
+8. Séparer clairement: débours officiels vs honoraires transitaire
+9. Pour chaque montant THC/manutention, utiliser EXACTEMENT le tarif de PORT_TARIFFS
+10. Si régime inapproprié demandé, expliquer la correction avec base légale
 
 FORMAT DE SORTIE JSON:
 {
@@ -57,7 +61,13 @@ FORMAT DE SORTIE JSON:
     "regime_code": "Code (ex: S120)",
     "regime_appropriate": true/false,
     "correction_needed": true/false,
-    "correction_explanation": "Explication si correction"
+    "correction_explanation": "Explication si correction",
+    "legal_references": {
+      "articles_cited": ["Art. 217-218 pour ATE", "Art. 161-169 pour TRIE"],
+      "code_source": "Loi 2014-10 du 28 février 2014 - Code des Douanes du Sénégal",
+      "key_provisions": "Résumé des dispositions applicables",
+      "warnings": ["Alertes légales si régime inapproprié"]
+    }
   },
   "billing_structure": {
     "invoice_count": 1|2|3,
@@ -534,6 +544,58 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       }
     }
 
+    // ============ DETECT REGIME AND ADD LEGAL CONTEXT ============
+    const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
+    const detectedRegimes: string[] = [];
+    
+    // Detect mentioned regimes
+    if (/\bATE\b|admission\s+temporaire/i.test(emailContent)) {
+      detectedRegimes.push('ATE');
+    }
+    if (/\bTRIE\b|S120|transit\s+international/i.test(emailContent)) {
+      detectedRegimes.push('TRIE');
+    }
+    if (/\bC10\b|mise\s+à\s+la\s+consommation|import\s+définitif/i.test(emailContent)) {
+      detectedRegimes.push('C10');
+    }
+    if (/\bMali\b|Burkina|Niger|Guinée/i.test(emailContent)) {
+      detectedRegimes.push('TRIE'); // Transit likely needed for these destinations
+    }
+    
+    // Generate legal context based on detected regimes
+    let legalContext = '';
+    if (detectedRegimes.length > 0) {
+      legalContext = '\n\n=== RÉFÉRENCE LÉGALE - CODE DES DOUANES (Loi 2014-10) ===\n';
+      legalContext += `Source: ${CUSTOMS_CODE_REFERENCE.source}\n`;
+      
+      for (const regime of [...new Set(detectedRegimes)]) {
+        legalContext += getLegalContextForRegime(regime);
+      }
+      
+      // Add regime appropriateness analysis for detected destinations
+      const maliMatch = emailContent.match(/\b(Mali|Bamako)\b/i);
+      const burkinaMatch = emailContent.match(/\b(Burkina|Ouagadougou)\b/i);
+      const destination = maliMatch?.[1] || burkinaMatch?.[1] || '';
+      
+      if (destination && detectedRegimes.includes('ATE')) {
+        const analysis = analyzeRegimeAppropriateness('ATE', destination, 'import');
+        if (!analysis.isAppropriate) {
+          legalContext += `\n\n⚠️ ALERTE RÉGIME INAPPROPRIÉ:\n`;
+          legalContext += `${analysis.explanation}\n`;
+          legalContext += `📋 Régime recommandé: ${analysis.recommendedRegime}\n`;
+          legalContext += `📖 Base légale: ${analysis.legalBasis}\n`;
+        }
+      }
+    } else {
+      // Add general legal context
+      legalContext = '\n\n=== RÉFÉRENCE LÉGALE DISPONIBLE ===\n';
+      legalContext += 'Code des Douanes du Sénégal (Loi 2014-10 du 28 février 2014)\n';
+      legalContext += '- Admission Temporaire (ATE): Articles 217-218\n';
+      legalContext += '- Transit International (TRIE): Articles 161-169\n';
+      legalContext += '- Mise à la consommation: Articles 155-160\n';
+      legalContext += '- Valeur en douane: Articles 18-19\n';
+    }
+
     // ============ BUILD PROMPT ============
     const userPrompt = `
 DEMANDE CLIENT À ANALYSER:
@@ -547,6 +609,7 @@ ${portTariffsContext}
 ${carrierBillingContext}
 ${taxRatesContext}
 ${regimesContext}
+${legalContext}
 ${attachmentsContext}
 ${tariffKnowledgeContext}
 ${threadContext}
@@ -562,7 +625,8 @@ RAPPEL CRITIQUE:
 - IMPORTANT pour Hapag-Lloyd: prévoir 3 factures séparées (PORT_CHARGES, DOCUMENTATION, SERVICES)
 - Pour les droits et taxes: utilise les TAUX OFFICIELS de TAX_RATES
 - Pour tout tarif non disponible → "À CONFIRMER"
-- Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE
+- ANALYSE LÉGALE: Si un régime est mentionné (ATE, TRIE, etc.), référence les articles du Code des Douanes dans ton analyse
+- Si destination = Mali ou autre pays tiers → régime TRIE (S120) obligatoire, pas ATE - CITE L'ARTICLE 161-169
 - Chaque montant doit indiquer sa SOURCE (PORT_TARIFFS, CARRIER_BILLING, TAX_RATES, etc.)
 `;
 
