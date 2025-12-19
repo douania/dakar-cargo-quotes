@@ -255,25 +255,172 @@ serve(async (req) => {
       }
     }
 
-    // ============ FETCH ATTACHMENTS ============
-    const { data: attachments } = await supabase
+    // ============ FETCH AND ANALYZE ATTACHMENTS ============
+    let { data: attachments } = await supabase
       .from('email_attachments')
       .select('*')
       .eq('email_id', emailId);
 
+    // Auto-analyze unanalyzed attachments
+    if (attachments && attachments.some(att => !att.is_analyzed)) {
+      console.log("Found unanalyzed attachments, triggering analysis...");
+      
+      const unanalyzedIds = attachments.filter(att => !att.is_analyzed).map(att => att.id);
+      
+      for (const attId of unanalyzedIds) {
+        try {
+          console.log(`Analyzing attachment ${attId}...`);
+          
+          // Get the attachment details
+          const attachment = attachments.find(a => a.id === attId);
+          if (!attachment) continue;
+          
+          const isImage = attachment.content_type?.startsWith('image/');
+          const isPdf = attachment.content_type === 'application/pdf';
+          
+          if (!isImage && !isPdf) {
+            // Mark non-visual files as analyzed
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_data: { type: 'unsupported', content_type: attachment.content_type }
+              })
+              .eq('id', attId);
+            continue;
+          }
+          
+          // Download the file
+          const { data: fileData, error: downloadError } = await supabase
+            .storage
+            .from('documents')
+            .download(attachment.storage_path);
+          
+          if (downloadError || !fileData) {
+            console.error(`Failed to download ${attachment.filename}:`, downloadError);
+            continue;
+          }
+          
+          // Convert to base64
+          const arrayBuffer = await fileData.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          const CHUNK_SIZE = 8192;
+          let base64 = '';
+          for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+            const chunk = uint8Array.slice(i, i + CHUNK_SIZE);
+            base64 += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          base64 = btoa(base64);
+          
+          const mimeType = attachment.content_type || 'image/jpeg';
+          const dataUrl = `data:${mimeType};base64,${base64}`;
+          
+          // Analyze with AI
+          const aiAnalysisResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-flash',
+              messages: [
+                {
+                  role: 'system',
+                  content: `Tu es un assistant expert en analyse de documents commerciaux et logistiques.
+Analyse l'image fournie et extrais TOUTES les informations pertinentes pour une cotation:
+- Valeur CAF/FOB des marchandises
+- Description des produits
+- Codes SH si visibles
+- Nom du fournisseur/client
+- Coordonnées bancaires
+- Quantités et poids
+- Conditions de paiement
+Réponds en JSON: { "type": "facture|proforma|bl|autre", "valeur_caf": number|null, "devise": "USD|EUR|FCFA", "descriptions": [], "codes_hs": [], "fournisseur": "", "quantites": "", "poids": "", "text_content": "texte visible", "confidence": 0.0-1.0 }`
+                },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: `Analyse cette pièce jointe (${attachment.filename}) pour en extraire les données commerciales.` },
+                    { type: 'image_url', image_url: { url: dataUrl } }
+                  ]
+                }
+              ]
+            }),
+          });
+          
+          if (aiAnalysisResponse.ok) {
+            const aiData = await aiAnalysisResponse.json();
+            const content = aiData.choices?.[0]?.message?.content || '';
+            
+            let extractedData: any = { raw_response: content };
+            let extractedText = '';
+            
+            try {
+              const jsonMatch = content.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                extractedData = JSON.parse(jsonMatch[0]);
+                extractedText = extractedData.text_content || extractedData.descriptions?.join('\n') || '';
+              }
+            } catch {
+              extractedText = content;
+            }
+            
+            await supabase
+              .from('email_attachments')
+              .update({
+                is_analyzed: true,
+                extracted_text: extractedText,
+                extracted_data: extractedData
+              })
+              .eq('id', attId);
+              
+            console.log(`Successfully analyzed: ${attachment.filename}`);
+          } else {
+            console.error(`AI analysis failed for ${attachment.filename}:`, aiAnalysisResponse.status);
+          }
+        } catch (error) {
+          console.error(`Error analyzing attachment ${attId}:`, error);
+        }
+      }
+      
+      // Re-fetch attachments after analysis
+      const { data: updatedAttachments } = await supabase
+        .from('email_attachments')
+        .select('*')
+        .eq('email_id', emailId);
+      
+      if (updatedAttachments) {
+        attachments = updatedAttachments;
+      }
+    }
+
     let attachmentsContext = '';
     if (attachments && attachments.length > 0) {
-      attachmentsContext = '\n\n=== PIÈCES JOINTES ===\n';
+      attachmentsContext = '\n\n=== PIÈCES JOINTES ANALYSÉES ===\n';
       for (const att of attachments) {
         attachmentsContext += `📎 ${att.filename} (${att.content_type})\n`;
         if (att.extracted_text) {
-          attachmentsContext += `Contenu:\n${att.extracted_text.substring(0, 3000)}\n`;
+          attachmentsContext += `Contenu extrait:\n${att.extracted_text.substring(0, 3000)}\n`;
         }
         if (att.extracted_data) {
-          attachmentsContext += `Données: ${JSON.stringify(att.extracted_data)}\n`;
+          const data = att.extracted_data as any;
+          if (data.valeur_caf) {
+            attachmentsContext += `💰 VALEUR CAF: ${data.valeur_caf} ${data.devise || ''}\n`;
+          }
+          if (data.descriptions?.length) {
+            attachmentsContext += `📦 Descriptions: ${data.descriptions.join(', ')}\n`;
+          }
+          if (data.codes_hs?.length) {
+            attachmentsContext += `🏷️ Codes HS: ${data.codes_hs.join(', ')}\n`;
+          }
+          if (data.fournisseur) {
+            attachmentsContext += `🏢 Fournisseur: ${data.fournisseur}\n`;
+          }
+          attachmentsContext += `Données complètes: ${JSON.stringify(data)}\n`;
         }
         if (!att.is_analyzed) {
-          attachmentsContext += `⚠️ Non analysée - demander la facture pro forma pour calcul exact\n`;
+          attachmentsContext += `⚠️ Analyse impossible - format non supporté\n`;
         }
       }
     }
