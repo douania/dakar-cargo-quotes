@@ -580,7 +580,8 @@ RAPPEL CRITIQUE:
           { role: "system", content: EXPERT_SYSTEM_PROMPT },
           { role: "user", content: userPrompt }
         ],
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
+        max_tokens: 8192
       }),
     });
 
