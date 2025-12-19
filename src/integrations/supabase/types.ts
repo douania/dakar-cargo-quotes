@@ -83,6 +83,78 @@ export type Database = {
         }
         Relationships: []
       }
+      container_specifications: {
+        Row: {
+          created_at: string | null
+          door_height_m: number
+          door_width_m: number
+          external_height_m: number
+          external_length_m: number
+          external_width_m: number
+          id: string
+          internal_height_m: number
+          internal_length_m: number
+          internal_volume_cbm: number
+          internal_width_m: number
+          is_high_cube: boolean | null
+          is_open_top: boolean | null
+          is_refrigerated: boolean | null
+          length_ft: number
+          max_gross_weight_kg: number
+          max_payload_kg: number
+          tare_weight_kg: number
+          type_code: string
+          type_name_en: string
+          type_name_fr: string
+        }
+        Insert: {
+          created_at?: string | null
+          door_height_m: number
+          door_width_m: number
+          external_height_m: number
+          external_length_m: number
+          external_width_m: number
+          id?: string
+          internal_height_m: number
+          internal_length_m: number
+          internal_volume_cbm: number
+          internal_width_m: number
+          is_high_cube?: boolean | null
+          is_open_top?: boolean | null
+          is_refrigerated?: boolean | null
+          length_ft: number
+          max_gross_weight_kg: number
+          max_payload_kg: number
+          tare_weight_kg: number
+          type_code: string
+          type_name_en: string
+          type_name_fr: string
+        }
+        Update: {
+          created_at?: string | null
+          door_height_m?: number
+          door_width_m?: number
+          external_height_m?: number
+          external_length_m?: number
+          external_width_m?: number
+          id?: string
+          internal_height_m?: number
+          internal_length_m?: number
+          internal_volume_cbm?: number
+          internal_width_m?: number
+          is_high_cube?: boolean | null
+          is_open_top?: boolean | null
+          is_refrigerated?: boolean | null
+          length_ft?: number
+          max_gross_weight_kg?: number
+          max_payload_kg?: number
+          tare_weight_kg?: number
+          type_code?: string
+          type_name_en?: string
+          type_name_fr?: string
+        }
+        Relationships: []
+      }
       customs_regimes: {
         Row: {
           category: string | null
@@ -593,6 +665,66 @@ export type Database = {
           requires_segregation?: boolean
           requires_special_storage?: boolean
           storage_surcharge_percent?: number
+        }
+        Relationships: []
+      }
+      incoterms_reference: {
+        Row: {
+          buyer_pays_import_customs: boolean
+          caf_calculation_method: string | null
+          code: string
+          created_at: string | null
+          group_name: string
+          id: string
+          name_en: string
+          name_fr: string
+          notes_en: string | null
+          notes_fr: string | null
+          seller_pays_export_customs: boolean
+          seller_pays_insurance: boolean
+          seller_pays_loading: boolean
+          seller_pays_transport: boolean
+          seller_pays_unloading: boolean
+          transfer_risk_point: string
+          transport_modes: string
+        }
+        Insert: {
+          buyer_pays_import_customs?: boolean
+          caf_calculation_method?: string | null
+          code: string
+          created_at?: string | null
+          group_name: string
+          id?: string
+          name_en: string
+          name_fr: string
+          notes_en?: string | null
+          notes_fr?: string | null
+          seller_pays_export_customs?: boolean
+          seller_pays_insurance?: boolean
+          seller_pays_loading?: boolean
+          seller_pays_transport?: boolean
+          seller_pays_unloading?: boolean
+          transfer_risk_point: string
+          transport_modes: string
+        }
+        Update: {
+          buyer_pays_import_customs?: boolean
+          caf_calculation_method?: string | null
+          code?: string
+          created_at?: string | null
+          group_name?: string
+          id?: string
+          name_en?: string
+          name_fr?: string
+          notes_en?: string | null
+          notes_fr?: string | null
+          seller_pays_export_customs?: boolean
+          seller_pays_insurance?: boolean
+          seller_pays_loading?: boolean
+          seller_pays_transport?: boolean
+          seller_pays_unloading?: boolean
+          transfer_risk_point?: string
+          transport_modes?: string
         }
         Relationships: []
       }
