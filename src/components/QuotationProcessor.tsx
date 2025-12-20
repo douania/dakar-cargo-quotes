@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   ShieldCheck,
   FileWarning,
-  Scale
 } from 'lucide-react';
 import {
   Dialog,
@@ -31,6 +30,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { V5AnalysisDisplay } from '@/components/V5AnalysisDisplay';
 import type { QuotationProcessResult } from '@/services/emailService';
 
 interface Props {
@@ -197,6 +197,11 @@ export function QuotationProcessor({
                     </div>
                   </CardContent>
                 </Card>
+              )}
+
+              {/* V5 Analysis Display */}
+              {result.analysis?.v5Analysis && (
+                <V5AnalysisDisplay v5Analysis={result.analysis.v5Analysis} />
               )}
 
               {/* Original Email Section */}
