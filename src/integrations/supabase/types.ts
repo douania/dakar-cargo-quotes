@@ -224,6 +224,63 @@ export type Database = {
         }
         Relationships: []
       }
+      demurrage_rates: {
+        Row: {
+          carrier: string
+          container_type: string
+          created_at: string | null
+          currency: string
+          day_1_7_rate: number
+          day_15_plus_rate: number
+          day_8_14_rate: number
+          effective_date: string
+          expiry_date: string | null
+          free_days_export: number
+          free_days_import: number
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          source_document: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          carrier: string
+          container_type?: string
+          created_at?: string | null
+          currency?: string
+          day_1_7_rate?: number
+          day_15_plus_rate?: number
+          day_8_14_rate?: number
+          effective_date?: string
+          expiry_date?: string | null
+          free_days_export?: number
+          free_days_import?: number
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          source_document?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          carrier?: string
+          container_type?: string
+          created_at?: string | null
+          currency?: string
+          day_1_7_rate?: number
+          day_15_plus_rate?: number
+          day_8_14_rate?: number
+          effective_date?: string
+          expiry_date?: string | null
+          free_days_export?: number
+          free_days_import?: number
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          source_document?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       documents: {
         Row: {
           content_text: string | null
@@ -521,6 +578,33 @@ export type Database = {
           response_patterns?: Json | null
           role?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      holidays_pad: {
+        Row: {
+          created_at: string | null
+          holiday_date: string
+          id: string
+          is_recurring: boolean | null
+          name_en: string | null
+          name_fr: string
+        }
+        Insert: {
+          created_at?: string | null
+          holiday_date: string
+          id?: string
+          is_recurring?: boolean | null
+          name_en?: string | null
+          name_fr: string
+        }
+        Update: {
+          created_at?: string | null
+          holiday_date?: string
+          id?: string
+          is_recurring?: boolean | null
+          name_en?: string | null
+          name_fr?: string
         }
         Relationships: []
       }
@@ -952,6 +1036,60 @@ export type Database = {
           is_active?: boolean | null
           name?: string
           rate?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      warehouse_franchise: {
+        Row: {
+          cargo_type: string
+          container_type: string | null
+          created_at: string | null
+          effective_date: string
+          expiry_date: string | null
+          free_days: number
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          provider: string
+          rate_per_day: number
+          rate_unit: string
+          source_document: string | null
+          storage_zone: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cargo_type: string
+          container_type?: string | null
+          created_at?: string | null
+          effective_date?: string
+          expiry_date?: string | null
+          free_days?: number
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          provider?: string
+          rate_per_day: number
+          rate_unit?: string
+          source_document?: string | null
+          storage_zone?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cargo_type?: string
+          container_type?: string | null
+          created_at?: string | null
+          effective_date?: string
+          expiry_date?: string | null
+          free_days?: number
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          provider?: string
+          rate_per_day?: number
+          rate_unit?: string
+          source_document?: string | null
+          storage_zone?: string | null
           updated_at?: string | null
         }
         Relationships: []
