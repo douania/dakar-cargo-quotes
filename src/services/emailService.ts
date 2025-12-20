@@ -148,6 +148,76 @@ export interface Feasibility {
   recommendations?: string[];
 }
 
+export interface V5Analysis {
+  coherence_audit?: {
+    container_type?: string;
+    declared_weight_kg?: number;
+    declared_volume_cbm?: number;
+    max_payload_kg?: number;
+    max_volume_cbm?: number;
+    alerts: Array<{
+      type: string;
+      severity: 'critical' | 'warning' | 'info';
+      message_fr: string;
+      message_en: string;
+      ctu_reference?: string;
+    }>;
+    is_compliant: boolean;
+    recommendations_fr?: string[];
+    recommendations_en?: string[];
+  };
+  incoterm_analysis?: {
+    detected_incoterm?: string;
+    incoterm_details?: {
+      code: string;
+      name_fr: string;
+      name_en: string;
+      group_name: string;
+      transfer_risk_point: string;
+      seller_pays_transport: boolean;
+      seller_pays_insurance: boolean;
+    };
+    quotation_guidance?: {
+      include_freight: boolean;
+      include_insurance: boolean;
+      include_origin_charges: boolean;
+      include_destination_charges: boolean;
+      include_customs_export: boolean;
+      include_customs_import: boolean;
+    };
+    responsibility_map?: {
+      seller_responsibilities: string[];
+      buyer_responsibilities: string[];
+    };
+    caf_calculation?: {
+      method: string;
+      includes_fob: boolean;
+      includes_freight: boolean;
+      includes_insurance: boolean;
+    };
+  };
+  risk_analysis?: {
+    time_risk?: {
+      type: string;
+      level: 'low' | 'medium' | 'high';
+      message_fr: string;
+      message_en: string;
+    };
+    nature_risk?: {
+      type: string;
+      level: 'low' | 'medium' | 'high';
+      message_fr: string;
+      message_en: string;
+    };
+  };
+  vigilance_points?: Array<{
+    category: string;
+    message_fr: string;
+    message_en: string;
+    priority: 'high' | 'medium' | 'low';
+  }>;
+}
+
 export interface QuotationProcessResult {
   importedEmailId: string;
   originalEmail: {
@@ -169,6 +239,7 @@ export interface QuotationProcessResult {
     regulatoryAnalysis?: RegulatoryAnalysis;
     attachmentsAnalysis?: AttachmentsAnalysis;
     feasibility?: Feasibility;
+    v5Analysis?: V5Analysis;
   };
 }
 
@@ -228,6 +299,7 @@ export async function processQuotationRequest(
       regulatoryAnalysis: responseData.regulatory_analysis,
       attachmentsAnalysis: responseData.attachments_analysis,
       feasibility: responseData.feasibility,
+      v5Analysis: responseData.v5_analysis,
     },
   };
 }
