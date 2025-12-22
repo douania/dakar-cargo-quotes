@@ -18,6 +18,7 @@ import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
+import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
 
 interface EmailConfig {
   id: string;
@@ -56,7 +57,7 @@ interface EmailThread {
   subject_normalized: string;
   first_message_at: string;
   last_message_at: string;
-  participants: string[];
+  participants: ParticipantWithRole[] | string[];
   client_email: string | null;
   client_company: string | null;
   our_role: 'direct_quote' | 'assist_partner' | null;
@@ -511,19 +512,8 @@ export default function Emails() {
                           
                           <p className="font-semibold">{thread.subject_normalized}</p>
                           
-                          <div className="flex flex-wrap gap-4 mt-2 text-sm text-muted-foreground">
-                            {thread.client_company && (
-                              <span className="flex items-center gap-1">
-                                <Building className="h-3 w-3" />
-                                Client: {thread.client_company}
-                              </span>
-                            )}
-                            {thread.partner_email && (
-                              <span className="flex items-center gap-1">
-                                <Users className="h-3 w-3" />
-                                Partenaire: {thread.partner_email}
-                              </span>
-                            )}
+                          <div className="mt-2">
+                            <ThreadParticipantsSummary participants={thread.participants} />
                           </div>
                           
                           <div className="text-xs text-muted-foreground mt-2">
