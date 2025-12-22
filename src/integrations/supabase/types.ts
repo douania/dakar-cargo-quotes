@@ -83,6 +83,51 @@ export type Database = {
         }
         Relationships: []
       }
+      contacts: {
+        Row: {
+          company: string | null
+          country: string | null
+          created_at: string | null
+          email: string
+          id: string
+          interaction_count: number | null
+          is_trusted: boolean | null
+          last_interaction_at: string | null
+          name: string | null
+          notes: string | null
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          company?: string | null
+          country?: string | null
+          created_at?: string | null
+          email: string
+          id?: string
+          interaction_count?: number | null
+          is_trusted?: boolean | null
+          last_interaction_at?: string | null
+          name?: string | null
+          notes?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          company?: string | null
+          country?: string | null
+          created_at?: string | null
+          email?: string
+          id?: string
+          interaction_count?: number | null
+          is_trusted?: boolean | null
+          last_interaction_at?: string | null
+          name?: string | null
+          notes?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       container_specifications: {
         Row: {
           created_at: string | null
@@ -468,6 +513,57 @@ export type Database = {
           },
         ]
       }
+      email_threads: {
+        Row: {
+          client_company: string | null
+          client_email: string | null
+          created_at: string | null
+          email_count: number | null
+          first_message_at: string | null
+          id: string
+          last_message_at: string | null
+          our_role: string | null
+          participants: Json | null
+          partner_email: string | null
+          project_name: string | null
+          status: string | null
+          subject_normalized: string
+          updated_at: string | null
+        }
+        Insert: {
+          client_company?: string | null
+          client_email?: string | null
+          created_at?: string | null
+          email_count?: number | null
+          first_message_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          our_role?: string | null
+          participants?: Json | null
+          partner_email?: string | null
+          project_name?: string | null
+          status?: string | null
+          subject_normalized: string
+          updated_at?: string | null
+        }
+        Update: {
+          client_company?: string | null
+          client_email?: string | null
+          created_at?: string | null
+          email_count?: number | null
+          first_message_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          our_role?: string | null
+          participants?: Json | null
+          partner_email?: string | null
+          project_name?: string | null
+          status?: string | null
+          subject_normalized?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       emails: {
         Row: {
           body_html: string | null
@@ -485,6 +581,7 @@ export type Database = {
           sent_at: string | null
           subject: string | null
           thread_id: string | null
+          thread_ref: string | null
           to_addresses: string[]
         }
         Insert: {
@@ -503,6 +600,7 @@ export type Database = {
           sent_at?: string | null
           subject?: string | null
           thread_id?: string | null
+          thread_ref?: string | null
           to_addresses: string[]
         }
         Update: {
@@ -521,6 +619,7 @@ export type Database = {
           sent_at?: string | null
           subject?: string | null
           thread_id?: string | null
+          thread_ref?: string | null
           to_addresses?: string[]
         }
         Relationships: [
@@ -529,6 +628,13 @@ export type Database = {
             columns: ["email_config_id"]
             isOneToOne: false
             referencedRelation: "email_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emails_thread_ref_fkey"
+            columns: ["thread_ref"]
+            isOneToOne: false
+            referencedRelation: "email_threads"
             referencedColumns: ["id"]
           },
         ]

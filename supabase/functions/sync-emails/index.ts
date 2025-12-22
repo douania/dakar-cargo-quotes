@@ -132,6 +132,107 @@ function extractThreadId(messageId: string, references: string): string {
   return messageId;
 }
 
+// ============ THREAD & ROLE IDENTIFICATION ============
+
+// Partenaires connus
+const KNOWN_PARTNERS = [
+  '2hlgroup.com', '2hl.com', '@2hl', 'th@2hlgroup', 'taleb'
+];
+
+// Fournisseurs connus (compagnies maritimes, agents)
+const KNOWN_SUPPLIERS = [
+  'msc.com', 'cma-cgm.com', 'maersk.com', 'hapag-lloyd.com', 'hapag.com',
+  'one-line.com', 'evergreen-line.com', 'cosco', 'grimaldi',
+  'dpworld', 'bollore', 'necotrans', 'getma'
+];
+
+// Normaliser le sujet (retirer RE:, FW:, etc.)
+function normalizeSubject(subject: string): string {
+  return (subject || '')
+    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:|\[external\]|\(sans sujet\))\s*/gi, '')
+    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:)\s*/gi, '') // Second pass
+    .trim()
+    .toLowerCase();
+}
+
+// Extraire le nom de l'entreprise depuis l'email
+function extractCompanyFromEmail(email: string): string {
+  const match = email.match(/@([^.]+)\./);
+  if (match) {
+    const domain = match[1].toLowerCase();
+    // Map common domain patterns
+    if (domain.includes('group-7') || domain.includes('group7')) return 'GROUP7 AG';
+    if (domain.includes('2hl')) return '2HL Group';
+    if (domain.includes('sodatra')) return 'SODATRA';
+    if (domain.includes('msc')) return 'MSC';
+    if (domain.includes('cma-cgm') || domain.includes('cma')) return 'CMA CGM';
+    if (domain.includes('maersk')) return 'MAERSK';
+    if (domain.includes('hapag')) return 'HAPAG-LLOYD';
+    return domain.toUpperCase();
+  }
+  return 'UNKNOWN';
+}
+
+// Identifier le rôle d'un contact
+function identifyContactRole(email: string, isFirstSender: boolean, bodyText: string): 'client' | 'partner' | 'supplier' | 'internal' | 'prospect' {
+  const emailLower = email.toLowerCase();
+  
+  // SODATRA = internal
+  if (emailLower.includes('@sodatra')) return 'internal';
+  
+  // Partenaires connus
+  if (KNOWN_PARTNERS.some(p => emailLower.includes(p))) return 'partner';
+  
+  // Fournisseurs connus
+  if (KNOWN_SUPPLIERS.some(s => emailLower.includes(s))) return 'supplier';
+  
+  // Si c'est le premier expéditeur et demande une cotation = client
+  const bodyLower = (bodyText || '').toLowerCase();
+  const quotationMarkers = ['quote', 'quotation', 'cotation', 'devis', 'rates', 'tarif', 'price', 'prix', 'offer', 'offre'];
+  
+  if (isFirstSender && quotationMarkers.some(m => bodyLower.includes(m))) {
+    return 'client';
+  }
+  
+  return 'prospect';
+}
+
+// Déterminer le rôle de SODATRA dans le fil
+function determineOurRole(
+  emails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[] }>,
+  firstSender: string
+): 'direct_quote' | 'assist_partner' {
+  // Si le premier email est envoyé par un partenaire à SODATRA en CC
+  const firstEmail = emails[0];
+  if (!firstEmail) return 'direct_quote';
+  
+  const firstFromLower = firstEmail.from_address.toLowerCase();
+  
+  // Si le premier expéditeur est un partenaire connu
+  if (KNOWN_PARTNERS.some(p => firstFromLower.includes(p))) {
+    return 'direct_quote'; // Partenaire nous contacte directement
+  }
+  
+  // Si SODATRA n'est pas dans les destinataires principaux mais en CC
+  for (const email of emails) {
+    const toAddresses = (email.to_addresses || []).map(e => e.toLowerCase());
+    const ccAddresses = (email.cc_addresses || []).map(e => e.toLowerCase());
+    
+    const sodatraInTo = toAddresses.some(a => a.includes('@sodatra'));
+    const sodatraInCc = ccAddresses.some(a => a.includes('@sodatra'));
+    
+    if (!sodatraInTo && sodatraInCc) {
+      // SODATRA ajouté en CC par un partenaire = assist_partner
+      const fromLower = email.from_address.toLowerCase();
+      if (KNOWN_PARTNERS.some(p => fromLower.includes(p))) {
+        return 'assist_partner';
+      }
+    }
+  }
+  
+  return 'direct_quote';
+}
+
 // Parse email date strings - remove timezone names in parentheses that PostgreSQL can't handle
 function parseEmailDate(dateStr: string): string {
   try {
@@ -512,6 +613,163 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Créer ou mettre à jour un fil de discussion
+async function upsertEmailThread(
+  supabase: any,
+  normalizedSubject: string,
+  email: {
+    from_address: string;
+    to_addresses: string[];
+    cc_addresses?: string[];
+    sent_at: string;
+    body_text?: string;
+  },
+  existingThreadEmails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[]; sent_at: string }>
+): Promise<string | null> {
+  try {
+    // Chercher un fil existant avec ce sujet normalisé
+    const { data: existingThread } = await supabase
+      .from('email_threads')
+      .select('*')
+      .eq('subject_normalized', normalizedSubject)
+      .maybeSingle();
+    
+    const allEmails = [...existingThreadEmails, email].sort(
+      (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+    );
+    
+    const firstEmail = allEmails[0];
+    const lastEmail = allEmails[allEmails.length - 1];
+    
+    // Identifier les participants
+    const participants = new Set<string>();
+    allEmails.forEach(e => {
+      participants.add(e.from_address.toLowerCase());
+      (e.to_addresses || []).forEach(a => participants.add(a.toLowerCase()));
+      (e.cc_addresses || []).forEach(a => participants.add(a.toLowerCase()));
+    });
+    
+    // Identifier le client (premier expéditeur non-SODATRA, non-partenaire)
+    let clientEmail = '';
+    let clientCompany = '';
+    for (const e of allEmails) {
+      const fromLower = e.from_address.toLowerCase();
+      if (!fromLower.includes('@sodatra') && !KNOWN_PARTNERS.some(p => fromLower.includes(p))) {
+        clientEmail = e.from_address;
+        clientCompany = extractCompanyFromEmail(e.from_address);
+        break;
+      }
+    }
+    
+    // Identifier si un partenaire est impliqué
+    let partnerEmail = '';
+    for (const p of Array.from(participants)) {
+      if (KNOWN_PARTNERS.some(kp => p.includes(kp))) {
+        partnerEmail = p;
+        break;
+      }
+    }
+    
+    // Déterminer notre rôle
+    const ourRole = determineOurRole(allEmails as any, firstEmail?.from_address || '');
+    
+    // Extraire un nom de projet potentiel
+    let projectName = '';
+    const projectPatterns = [
+      /projet\s+([^,.\n]+)/i,
+      /project\s+([^,.\n]+)/i,
+      /olympic/i,
+      /jeux\s+olympiques/i,
+    ];
+    for (const e of allEmails) {
+      const content = (e as any).body_text || '';
+      for (const pattern of projectPatterns) {
+        const match = content.match(pattern);
+        if (match) {
+          projectName = match[1]?.trim() || match[0];
+          break;
+        }
+      }
+      if (projectName) break;
+    }
+    
+    const threadData = {
+      subject_normalized: normalizedSubject,
+      first_message_at: firstEmail?.sent_at,
+      last_message_at: lastEmail?.sent_at,
+      participants: Array.from(participants),
+      client_email: clientEmail,
+      client_company: clientCompany,
+      our_role: ourRole,
+      partner_email: partnerEmail || null,
+      project_name: projectName || null,
+      email_count: allEmails.length,
+      updated_at: new Date().toISOString(),
+    };
+    
+    if (existingThread) {
+      // Mettre à jour le fil existant
+      await supabase
+        .from('email_threads')
+        .update(threadData)
+        .eq('id', existingThread.id);
+      return existingThread.id;
+    } else {
+      // Créer un nouveau fil
+      const { data: newThread, error } = await supabase
+        .from('email_threads')
+        .insert(threadData)
+        .select('id')
+        .single();
+      
+      if (error) {
+        console.error('Error creating thread:', error);
+        return null;
+      }
+      return newThread?.id || null;
+    }
+  } catch (error) {
+    console.error('Error in upsertEmailThread:', error);
+    return null;
+  }
+}
+
+// Créer ou mettre à jour un contact
+async function upsertContact(
+  supabase: any,
+  email: string,
+  role: string,
+  name?: string
+): Promise<void> {
+  try {
+    const company = extractCompanyFromEmail(email);
+    
+    // Upsert le contact
+    await supabase
+      .from('contacts')
+      .upsert({
+        email: email.toLowerCase(),
+        name: name || null,
+        company,
+        role,
+        interaction_count: 1,
+        last_interaction_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'email',
+        ignoreDuplicates: false
+      });
+    
+    // Incrémenter le compteur d'interaction
+    await supabase.rpc('increment_contact_interaction', { contact_email: email.toLowerCase() })
+      .catch(() => {
+        // Function may not exist yet, that's ok
+      });
+  } catch (error) {
+    console.error('Error upserting contact:', error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -596,6 +854,35 @@ serve(async (req) => {
           
           const isQuotation = isQuotationRelated(msg.from, msg.subject, bodyText || bodyHtml || '');
           const threadId = extractThreadId(msg.messageId, msg.references);
+          const normalizedSubject = normalizeSubject(msg.subject);
+          
+          // Récupérer les emails existants du même fil pour analyse
+          const { data: existingThreadEmails } = await supabase
+            .from('emails')
+            .select('from_address, to_addresses, cc_addresses, sent_at, body_text')
+            .or(`thread_id.eq.${threadId},subject.ilike.%${normalizedSubject.substring(0, 30)}%`)
+            .order('sent_at', { ascending: true });
+          
+          // Créer/mettre à jour le fil de discussion
+          const emailData = {
+            from_address: msg.from,
+            to_addresses: msg.to.length > 0 ? msg.to : [config.username],
+            cc_addresses: [] as string[],
+            sent_at: parseEmailDate(msg.date),
+            body_text: bodyText || '',
+          };
+          
+          const threadRefId = await upsertEmailThread(
+            supabase,
+            normalizedSubject,
+            emailData,
+            existingThreadEmails || []
+          );
+          
+          // Identifier et enregistrer le contact
+          const isFirstInThread = !existingThreadEmails || existingThreadEmails.length === 0;
+          const contactRole = identifyContactRole(msg.from, isFirstInThread, bodyText || '');
+          await upsertContact(supabase, msg.from, contactRole);
 
           const { data: inserted, error: insertError } = await supabase
             .from('emails')
@@ -603,6 +890,7 @@ serve(async (req) => {
               email_config_id: configId,
               message_id: msg.messageId,
               thread_id: threadId,
+              thread_ref: threadRefId,
               from_address: msg.from,
               to_addresses: msg.to.length > 0 ? msg.to : [config.username],
               subject: msg.subject,
@@ -620,7 +908,7 @@ serve(async (req) => {
           }
 
           processedEmails.push(inserted);
-          console.log(`Imported: ${msg.subject.substring(0, 50)}...`);
+          console.log(`Imported: ${msg.subject.substring(0, 50)}... (thread: ${threadRefId || 'none'})`);
         } catch (msgError) {
           console.error("Error processing message:", msgError);
         }

@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
   MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip,
-  AlertTriangle, Filter, CheckSquare, RotateCcw
+  AlertTriangle, Filter, CheckSquare, RotateCcw, GitBranch, Users, Building
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
@@ -51,6 +51,21 @@ interface EmailDraft {
   original_email_id: string;
 }
 
+interface EmailThread {
+  id: string;
+  subject_normalized: string;
+  first_message_at: string;
+  last_message_at: string;
+  participants: string[];
+  client_email: string | null;
+  client_company: string | null;
+  our_role: 'direct_quote' | 'assist_partner' | null;
+  partner_email: string | null;
+  project_name: string | null;
+  status: string;
+  email_count: number;
+}
+
 function getInvokeErrorMessage(err: unknown): string {
   const anyErr = err as any;
 
@@ -72,6 +87,7 @@ export default function Emails() {
   const [configs, setConfigs] = useState<EmailConfig[]>([]);
   const [emails, setEmails] = useState<Email[]>([]);
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
+  const [threads, setThreads] = useState<EmailThread[]>([]);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -113,6 +129,7 @@ export default function Emails() {
         setConfigs(data.configs || []);
         setEmails(data.emails || []);
         setDrafts(data.drafts || []);
+        setThreads(data.threads || []);
         
         const counts: Record<string, number> = {};
         (data.attachments || []).forEach((att: any) => {
@@ -394,6 +411,10 @@ export default function Emails() {
               <Search className="h-4 w-4 mr-2" />
               Import sélectif
             </TabsTrigger>
+            <TabsTrigger value="threads">
+              <GitBranch className="h-4 w-4 mr-2" />
+              Fils ({threads.length})
+            </TabsTrigger>
             <TabsTrigger value="knowledge">
               <Brain className="h-4 w-4 mr-2" />
               Connaissances
@@ -447,6 +468,78 @@ export default function Emails() {
             )}
           </TabsContent>
 
+          {/* Threads Tab */}
+          <TabsContent value="threads" className="space-y-4">
+            {threads.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">Aucun fil de discussion détecté</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Les fils seront créés automatiquement lors de la synchronisation des emails
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {threads.map((thread) => (
+                  <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : 'border-l-4 border-l-primary'}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            {thread.project_name && (
+                              <Badge variant="secondary" className="text-xs">
+                                📋 {thread.project_name}
+                              </Badge>
+                            )}
+                            {thread.our_role === 'assist_partner' ? (
+                              <Badge variant="outline" className="text-amber-600 border-amber-500">
+                                <Users className="h-3 w-3 mr-1" />
+                                Assister Partenaire
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-primary">
+                                <Star className="h-3 w-3 mr-1" />
+                                Cotation Directe
+                              </Badge>
+                            )}
+                            <Badge variant="outline">
+                              {thread.email_count} message(s)
+                            </Badge>
+                          </div>
+                          
+                          <p className="font-semibold">{thread.subject_normalized}</p>
+                          
+                          <div className="flex flex-wrap gap-4 mt-2 text-sm text-muted-foreground">
+                            {thread.client_company && (
+                              <span className="flex items-center gap-1">
+                                <Building className="h-3 w-3" />
+                                Client: {thread.client_company}
+                              </span>
+                            )}
+                            {thread.partner_email && (
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                Partenaire: {thread.partner_email}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="text-xs text-muted-foreground mt-2">
+                            <Clock className="h-3 w-3 inline mr-1" />
+                            {thread.first_message_at && new Date(thread.first_message_at).toLocaleDateString('fr-FR')} 
+                            {' → '}
+                            {thread.last_message_at && new Date(thread.last_message_at).toLocaleDateString('fr-FR')}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
           <TabsContent value="knowledge">
             <LearnedKnowledge />
