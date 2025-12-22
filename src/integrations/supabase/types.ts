@@ -918,6 +918,42 @@ export type Database = {
         }
         Relationships: []
       }
+      known_business_contacts: {
+        Row: {
+          company_name: string
+          country: string | null
+          created_at: string | null
+          default_role: string
+          domain_pattern: string
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          company_name: string
+          country?: string | null
+          created_at?: string | null
+          default_role: string
+          domain_pattern: string
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          company_name?: string
+          country?: string | null
+          created_at?: string | null
+          default_role?: string
+          domain_pattern?: string
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       learned_knowledge: {
         Row: {
           category: string
