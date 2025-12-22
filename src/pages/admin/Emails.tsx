@@ -85,6 +85,7 @@ export default function Emails() {
   // Multi-selection state
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isReclassifying, setIsReclassifying] = useState(false);
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other'>('all');
   
   const [newConfig, setNewConfig] = useState({
@@ -318,6 +319,27 @@ export default function Emails() {
     setIsDeleting(false);
   };
 
+  const reclassifyEmails = async () => {
+    if (!confirm('Recalculer la classification de tous les emails ?\n\nCela mettra à jour le statut "cotation" de tous les emails en appliquant les nouveaux filtres (exclusion banques, newsletters, etc.)')) return;
+    
+    setIsReclassifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'reclassify_emails' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.total} emails reclassifiés: ${data.quotations} cotations, ${data.nonQuotations} autres`);
+      loadData();
+    } catch (error) {
+      console.error('Reclassify error:', error);
+      toast.error('Erreur de reclassification');
+    }
+    setIsReclassifying(false);
+  };
+
   const toggleEmailSelection = (emailId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newSelection = new Set(selectedEmailIds);
@@ -475,6 +497,17 @@ export default function Emails() {
                       </Button>
                     )}
                   </div>
+
+                  {/* Reclassify button */}
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={reclassifyEmails}
+                    disabled={isReclassifying || emails.length === 0}
+                  >
+                    <RotateCcw className={`h-4 w-4 mr-1 ${isReclassifying ? 'animate-spin' : ''}`} />
+                    {isReclassifying ? 'Reclassification...' : 'Reclassifier'}
+                  </Button>
 
                   {/* Purge button */}
                   {otherCount > 0 && (

@@ -6,6 +6,93 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ============ EMAIL FILTERING CONFIGURATION ============
+// (Must match sync-emails function)
+
+const EXCLUDED_SENDERS = [
+  'banqueatlantique.net', 'banqueatlantique.com',
+  'afrikabanque.sn', 'afrikabanque.com',
+  'ecobank.com', 'ecobank.sn',
+  'sgbs.sn', 'societegenerale.sn',
+  'bicis.sn', 'bnpparibas',
+  'cbao.sn', 'attijariwafa',
+  'oaborable.sn', 'banque',
+  'linkedin.com', 'linkedinmail.com',
+  'facebook.com', 'facebookmail.com',
+  'twitter.com', 'x.com',
+  'broadcast@wcabroadcast.com', 'wcabroadcast.com',
+  'newsletter', 'noreply', 'no-reply', 'donotreply', 'do-not-reply',
+  'mailer-daemon', 'postmaster',
+  'mailchimp', 'sendgrid', 'mailgun',
+  '@sodatra.sn',
+  'google.com', 'accounts.google',
+  'microsoft.com', 'office365',
+  'zoom.us', 'teams.microsoft',
+  'dropbox.com', 'wetransfer.com'
+];
+
+const EXCLUDED_SUBJECTS = [
+  'spam:', '[spam]',
+  'notification de credit', 'notification de débit', 'notification de debit',
+  'avis de credit', 'avis de débit', 'avis de debit',
+  'encours ligne', 'relevé de compte', 'releve de compte',
+  'virement reçu', 'virement recu', 'transfert reçu',
+  'solde de compte', 'état de compte',
+  'alerte compte', 'mouvement compte',
+  'a publié récemment', 'has posted', 'a partagé',
+  'invitation à se connecter', 'wants to connect',
+  'a consulté votre profil', 'viewed your profile',
+  'new job', 'nouveau poste',
+  'holiday operating hours', 'operating hours update',
+  'membership updates', 'membership renewal',
+  'annual conference', 'webinar invitation',
+  'unsubscribe', 'se désabonner',
+  'new login from', 'nouvelle connexion',
+  'password reset', 'réinitialisation mot de passe',
+  'verify your email', 'vérifiez votre email',
+  'account security', 'sécurité du compte',
+  'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique'
+];
+
+const QUOTATION_KEYWORDS = [
+  'demande de cotation', 'request for quotation', 'rfq',
+  'demande de devis', 'request for quote', 'devis',
+  'demande de prix', 'price request', 'pricing request',
+  'besoin de cotation', 'need a quote', 'quote request',
+  'dap ', 'cif ', 'fob ', 'exw ', 'cfr ', 'cpt ', 'cip ', 'ddp ',
+  'dap:', 'cif:', 'fob:', 'exw:',
+  'sea freight', 'ocean freight', 'fret maritime',
+  'air freight', 'fret aérien', 'fret aerien',
+  'door to door', 'port to port',
+  'conteneur 20', 'conteneur 40', '20dv', '40dv', '40hc', '20gp', '40gp',
+  'container 20', 'container 40', 'fcl', 'lcl',
+  'breakbulk', 'roro', 'ro-ro', 'projet cargo', 'project cargo',
+  'conventionnel', 'conventional cargo', 'vrac', 'bulk cargo',
+  'dédouanement', 'dedouanement', 'customs clearance',
+  'droits de douane', 'duty structure', 'hs code',
+  'régime douanier', 'regime douanier', 'mise à la consommation',
+  'transit request', 'trucking request', 'transport request',
+  'livraison', 'delivery to', 'acheminement',
+  'dakar port', 'port de dakar', 'pad ', 'dpw dakar'
+];
+
+function isQuotationRelated(from: string, subject: string, body: string): boolean {
+  const fromLower = from.toLowerCase();
+  const subjectLower = subject.toLowerCase();
+  const bodyLower = body.toLowerCase();
+  
+  if (EXCLUDED_SENDERS.some(sender => fromLower.includes(sender.toLowerCase()))) {
+    return false;
+  }
+  
+  if (EXCLUDED_SUBJECTS.some(subj => subjectLower.includes(subj.toLowerCase()))) {
+    return false;
+  }
+  
+  const text = `${subjectLower} ${bodyLower}`;
+  return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -366,6 +453,71 @@ serve(async (req) => {
 
         return new Response(
           JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case 'reclassify_emails': {
+        // Recalculate is_quotation_request for all existing emails
+        console.log('Starting email reclassification...');
+        
+        // Fetch all emails with pagination
+        let allEmails: Array<{ id: string; from_address: string; subject: string | null; body_text: string | null; body_html: string | null }> = [];
+        let offset = 0;
+        const pageSize = 500;
+        
+        while (true) {
+          const { data: batch, error } = await supabase
+            .from('emails')
+            .select('id, from_address, subject, body_text, body_html')
+            .range(offset, offset + pageSize - 1);
+          
+          if (error) throw error;
+          if (!batch || batch.length === 0) break;
+          
+          allEmails = allEmails.concat(batch);
+          offset += pageSize;
+          
+          if (batch.length < pageSize) break;
+        }
+        
+        console.log(`Found ${allEmails.length} emails to reclassify`);
+        
+        let quotationCount = 0;
+        let nonQuotationCount = 0;
+        
+        for (const email of allEmails) {
+          const from = email.from_address || '';
+          const subject = email.subject || '';
+          const body = email.body_text || email.body_html || '';
+          
+          const isQuotation = isQuotationRelated(from, subject, body);
+          
+          const { error: updateError } = await supabase
+            .from('emails')
+            .update({ is_quotation_request: isQuotation })
+            .eq('id', email.id);
+          
+          if (updateError) {
+            console.error(`Error updating email ${email.id}:`, updateError);
+          } else {
+            if (isQuotation) {
+              quotationCount++;
+            } else {
+              nonQuotationCount++;
+            }
+          }
+        }
+        
+        console.log(`Reclassification complete: ${quotationCount} quotations, ${nonQuotationCount} non-quotations`);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            total: allEmails.length,
+            quotations: quotationCount,
+            nonQuotations: nonQuotationCount
+          }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
