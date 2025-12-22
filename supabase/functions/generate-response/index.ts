@@ -961,8 +961,67 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       expertContext += styleInjection;
     }
 
-    // ============ GET THREAD CONTEXT ============
+    // ============ GET THREAD CONTEXT WITH ROLE IDENTIFICATION ============
     let threadContext = '';
+    let threadRoleContext = '';
+    
+    // Récupérer les infos du fil de discussion
+    if (email.thread_ref) {
+      const { data: threadInfo } = await supabase
+        .from('email_threads')
+        .select('*')
+        .eq('id', email.thread_ref)
+        .single();
+      
+      if (threadInfo) {
+        threadRoleContext = `\n\n=== CONTEXTE FIL DE DISCUSSION ===\n`;
+        threadRoleContext += `📌 Sujet normalisé: ${threadInfo.subject_normalized}\n`;
+        if (threadInfo.project_name) {
+          threadRoleContext += `📋 Projet: ${threadInfo.project_name}\n`;
+        }
+        threadRoleContext += `👥 Participants: ${(threadInfo.participants || []).join(', ')}\n`;
+        
+        if (threadInfo.client_email) {
+          threadRoleContext += `\n🏢 CLIENT FINAL: ${threadInfo.client_company || 'N/A'} (${threadInfo.client_email})\n`;
+        }
+        
+        if (threadInfo.our_role === 'assist_partner') {
+          threadRoleContext += `\n⚠️ RÔLE SODATRA: ASSISTER LE PARTENAIRE\n`;
+          threadRoleContext += `👤 Partenaire: ${threadInfo.partner_email || '2HL Group'}\n`;
+          threadRoleContext += `📝 Action: Préparer une cotation que le PARTENAIRE transmettra au client final.\n`;
+          threadRoleContext += `   → Ne pas répondre directement au client.\n`;
+          threadRoleContext += `   → Adresser la réponse au partenaire.\n`;
+        } else {
+          threadRoleContext += `\n✅ RÔLE SODATRA: COTATION DIRECTE\n`;
+          threadRoleContext += `📝 Action: Répondre directement au client avec notre cotation.\n`;
+        }
+        
+        threadRoleContext += `\n📊 Statistiques fil:\n`;
+        threadRoleContext += `   • ${threadInfo.email_count || 1} message(s) dans le fil\n`;
+        threadRoleContext += `   • Premier message: ${threadInfo.first_message_at ? new Date(threadInfo.first_message_at).toLocaleDateString('fr-FR') : 'N/A'}\n`;
+        threadRoleContext += `   • Dernier message: ${threadInfo.last_message_at ? new Date(threadInfo.last_message_at).toLocaleDateString('fr-FR') : 'N/A'}\n`;
+      }
+    }
+    
+    // Récupérer les infos du contact expéditeur
+    const { data: senderContact } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('email', email.from_address.toLowerCase())
+      .maybeSingle();
+    
+    if (senderContact) {
+      threadRoleContext += `\n\n=== PROFIL EXPÉDITEUR ===\n`;
+      threadRoleContext += `📧 Email: ${senderContact.email}\n`;
+      threadRoleContext += `🏢 Entreprise: ${senderContact.company || 'N/A'}\n`;
+      threadRoleContext += `👤 Rôle: ${senderContact.role?.toUpperCase() || 'PROSPECT'}\n`;
+      threadRoleContext += `📊 Interactions: ${senderContact.interaction_count || 1}\n`;
+      if (senderContact.is_trusted) {
+        threadRoleContext += `✅ Contact de confiance\n`;
+      }
+    }
+    
+    // Historique du fil
     if (email.thread_id) {
       const { data: threadEmails } = await supabase
         .from('emails')
@@ -971,13 +1030,39 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
         .order('sent_at', { ascending: true });
 
       if (threadEmails && threadEmails.length > 1) {
-        threadContext = '\n\n=== HISTORIQUE DU FIL ===\n';
+        threadContext = '\n\n=== HISTORIQUE DU FIL (du plus ancien au plus récent) ===\n';
         for (const e of threadEmails) {
-          threadContext += `--- ${e.from_address} (${new Date(e.sent_at).toLocaleDateString('fr-FR')}) ---\n`;
-          threadContext += e.body_text?.substring(0, 1500) + '\n';
+          const senderRole = await identifySenderRole(supabase, e.from_address);
+          threadContext += `--- [${senderRole}] ${e.from_address} (${new Date(e.sent_at).toLocaleDateString('fr-FR')}) ---\n`;
+          threadContext += e.body_text?.substring(0, 1500) + '\n\n';
         }
       }
     }
+
+// Helper function pour identifier le rôle d'un expéditeur
+async function identifySenderRole(supabase: any, email: string): Promise<string> {
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('role')
+    .eq('email', email.toLowerCase())
+    .maybeSingle();
+  
+  if (contact?.role) {
+    const roleMap: Record<string, string> = {
+      'client': 'CLIENT',
+      'partner': 'PARTENAIRE',
+      'supplier': 'FOURNISSEUR',
+      'internal': 'SODATRA',
+      'agent': 'AGENT',
+      'prospect': 'PROSPECT',
+    };
+    return roleMap[contact.role] || contact.role.toUpperCase();
+  }
+  
+  if (email.toLowerCase().includes('@sodatra')) return 'SODATRA';
+  if (email.toLowerCase().includes('2hl')) return 'PARTENAIRE';
+  return 'EXTERNE';
+}
 
     // ============ DETECT REGIME AND ADD LEGAL CONTEXT ============
     const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
@@ -1257,6 +1342,7 @@ ${legalContext}
 ${ctuContext}
 ${attachmentsContext}
 ${tariffKnowledgeContext}
+${threadRoleContext}
 ${threadContext}
 ${expertContext}
 

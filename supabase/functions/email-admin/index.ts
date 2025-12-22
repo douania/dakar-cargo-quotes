@@ -110,11 +110,12 @@ serve(async (req) => {
     switch (action) {
       case 'get_all': {
         // Fetch all email-related data
-        const [configsRes, emailsRes, draftsRes, attachmentsRes] = await Promise.all([
+        const [configsRes, emailsRes, draftsRes, attachmentsRes, threadsRes] = await Promise.all([
           supabase.from('email_configs').select('*').order('created_at', { ascending: false }),
           supabase.from('emails').select('*').order('sent_at', { ascending: false }).limit(100),
           supabase.from('email_drafts').select('*').order('created_at', { ascending: false }),
-          supabase.from('email_attachments').select('email_id')
+          supabase.from('email_attachments').select('email_id'),
+          supabase.from('email_threads').select('*').order('last_message_at', { ascending: false }).limit(50)
         ]);
 
         // Mask passwords in configs
@@ -129,7 +130,8 @@ serve(async (req) => {
             configs,
             emails: emailsRes.data || [],
             drafts: draftsRes.data || [],
-            attachments: attachmentsRes.data || []
+            attachments: attachmentsRes.data || [],
+            threads: threadsRes.data || []
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
