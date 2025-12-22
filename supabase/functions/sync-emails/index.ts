@@ -6,18 +6,122 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Quotation-related keywords
-const QUOTATION_KEYWORDS = [
-  'cotation', 'devis', 'quote', 'quotation', 'pricing', 'tarif',
-  'demande de prix', 'prix', 'offre', 'proposition', 'estimation',
-  'import', 'export', 'transport', 'fret', 'freight', 'shipping',
-  'conteneur', 'container', 'roro', 'breakbulk', 'maritime', 'aérien',
-  'dédouanement', 'customs', 'clearance', 'transit'
+// ============ EMAIL FILTERING CONFIGURATION ============
+
+// Expéditeurs à exclure (banques, newsletters, notifications, emails SODATRA sortants)
+const EXCLUDED_SENDERS = [
+  // Domaines bancaires Sénégal/Afrique
+  'banqueatlantique.net', 'banqueatlantique.com',
+  'afrikabanque.sn', 'afrikabanque.com',
+  'ecobank.com', 'ecobank.sn',
+  'sgbs.sn', 'societegenerale.sn',
+  'bicis.sn', 'bnpparibas',
+  'cbao.sn', 'attijariwafa',
+  'oaborable.sn', 'banque',
+  // Notifications automatiques réseaux sociaux
+  'linkedin.com', 'linkedinmail.com',
+  'facebook.com', 'facebookmail.com',
+  'twitter.com', 'x.com',
+  // Newsletters et broadcasts
+  'broadcast@wcabroadcast.com', 'wcabroadcast.com',
+  'newsletter', 'noreply', 'no-reply', 'donotreply', 'do-not-reply',
+  'mailer-daemon', 'postmaster',
+  'mailchimp', 'sendgrid', 'mailgun',
+  // Domaine SODATRA (emails sortants/internes - on ne cote pas nos propres demandes)
+  '@sodatra.sn',
+  // Autres services automatiques
+  'google.com', 'accounts.google',
+  'microsoft.com', 'office365',
+  'zoom.us', 'teams.microsoft',
+  'dropbox.com', 'wetransfer.com'
 ];
 
-function isQuotationRelated(subject: string, body: string): boolean {
-  const text = `${subject} ${body}`.toLowerCase();
-  return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+// Sujets à exclure (notifications bancaires, spam, LinkedIn, etc.)
+const EXCLUDED_SUBJECTS = [
+  // Notifications bancaires
+  'spam:', '[spam]',
+  'notification de credit', 'notification de débit', 'notification de debit',
+  'avis de credit', 'avis de débit', 'avis de debit',
+  'encours ligne', 'relevé de compte', 'releve de compte',
+  'virement reçu', 'virement recu', 'transfert reçu',
+  'solde de compte', 'état de compte',
+  'alerte compte', 'mouvement compte',
+  // LinkedIn
+  'a publié récemment', 'has posted', 'a partagé',
+  'invitation à se connecter', 'wants to connect',
+  'a consulté votre profil', 'viewed your profile',
+  'new job', 'nouveau poste',
+  // Newsletters/Marketing
+  'holiday operating hours', 'operating hours update',
+  'membership updates', 'membership renewal',
+  'annual conference', 'webinar invitation',
+  'unsubscribe', 'se désabonner',
+  // Sécurité/Système
+  'new login from', 'nouvelle connexion',
+  'password reset', 'réinitialisation mot de passe',
+  'verify your email', 'vérifiez votre email',
+  'account security', 'sécurité du compte',
+  // Autres
+  'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique'
+];
+
+// Mots-clés positifs plus spécifiques pour les demandes de cotation
+const QUOTATION_KEYWORDS = [
+  // Demandes de cotation explicites
+  'demande de cotation', 'request for quotation', 'rfq',
+  'demande de devis', 'request for quote', 'devis',
+  'demande de prix', 'price request', 'pricing request',
+  'besoin de cotation', 'need a quote', 'quote request',
+  // Incoterms (espaces pour éviter faux positifs)
+  'dap ', 'cif ', 'fob ', 'exw ', 'cfr ', 'cpt ', 'cip ', 'ddp ',
+  'dap:', 'cif:', 'fob:', 'exw:',
+  // Transport maritime/aérien
+  'sea freight', 'ocean freight', 'fret maritime',
+  'air freight', 'fret aérien', 'fret aerien',
+  'door to door', 'port to port',
+  // Conteneurs
+  'conteneur 20', 'conteneur 40', '20dv', '40dv', '40hc', '20gp', '40gp',
+  'container 20', 'container 40', 'fcl', 'lcl',
+  // Types de cargo
+  'breakbulk', 'roro', 'ro-ro', 'projet cargo', 'project cargo',
+  'conventionnel', 'conventional cargo', 'vrac', 'bulk cargo',
+  // Dédouanement
+  'dédouanement', 'dedouanement', 'customs clearance',
+  'droits de douane', 'duty structure', 'hs code',
+  'régime douanier', 'regime douanier', 'mise à la consommation',
+  // Opérations transit
+  'transit request', 'trucking request', 'transport request',
+  'livraison', 'delivery to', 'acheminement',
+  // Ports/Destinations spécifiques pertinentes
+  'dakar port', 'port de dakar', 'pad ', 'dpw dakar'
+];
+
+function isQuotationRelated(from: string, subject: string, body: string): boolean {
+  const fromLower = from.toLowerCase();
+  const subjectLower = subject.toLowerCase();
+  const bodyLower = body.toLowerCase();
+  
+  // 1. EXCLURE si expéditeur dans la liste noire
+  if (EXCLUDED_SENDERS.some(sender => fromLower.includes(sender.toLowerCase()))) {
+    console.log(`Email excluded - sender blacklisted: ${from}`);
+    return false;
+  }
+  
+  // 2. EXCLURE si sujet dans la liste noire
+  if (EXCLUDED_SUBJECTS.some(subj => subjectLower.includes(subj.toLowerCase()))) {
+    console.log(`Email excluded - subject blacklisted: ${subject}`);
+    return false;
+  }
+  
+  // 3. INCLURE si mots-clés positifs trouvés dans sujet ou corps
+  const text = `${subjectLower} ${bodyLower}`;
+  const hasKeyword = QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+  
+  if (hasKeyword) {
+    console.log(`Email included - quotation keyword found in: ${subject}`);
+  }
+  
+  return hasKeyword;
 }
 
 function extractThreadId(messageId: string, references: string): string {
@@ -490,7 +594,7 @@ serve(async (req) => {
           // Fetch body
           const { text: bodyText, html: bodyHtml } = await client.fetchBody(msg.uid);
           
-          const isQuotation = isQuotationRelated(msg.subject, bodyText || bodyHtml || '');
+          const isQuotation = isQuotationRelated(msg.from, msg.subject, bodyText || bodyHtml || '');
           const threadId = extractThreadId(msg.messageId, msg.references);
 
           const { data: inserted, error: insertError } = await supabase
