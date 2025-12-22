@@ -113,171 +113,244 @@ serve(async (req) => {
       const codeNormalized = code.replace(/[\.\s\-]/g, '');
       const chapter = parseInt(codeNormalized.substring(0, 2)) || 0;
 
-      if (importMode === 'descriptions_only') {
-        const description = getVal(['description', 'libelle', 'designation']);
-        hsCodesData.push({ 
-          code: codeNormalized, 
-          description: description || '' 
+    if (importMode === 'descriptions_only') {
+      const description = getVal(['description', 'libelle', 'designation']);
+      hsCodesData.push({ 
+        code: codeNormalized, 
+        description: description || '' 
+      });
+    } else {
+      // Full mode with all rates
+      hsCodesData.push({
+        code: codeNormalized,
+        code_normalized: codeNormalized,
+        chapter: chapter,
+        dd: parseNumber(getVal(['dd'])),
+        surtaxe: parseNumber(getVal(['surtaxe'])),
+        rs: parseNumber(getVal(['rs'])) || 1,
+        pcs: parseNumber(getVal(['pcs'])) || 0.8,
+        pcc: parseNumber(getVal(['pcc'])) || 0.5,
+        cosec: parseNumber(getVal(['cosec'])) || 0.4,
+        uemoa: parseNumber(getVal(['uemoa'])) || 5,
+        tin: parseNumber(getVal(['tin'])),
+        tva: parseNumber(getVal(['tva'])) || 18,
+        tev: parseNumber(getVal(['tev'])),
+        ta: parseNumber(getVal(['ta'])),
+        t_past: parseNumber(getVal(['t_past', 'tpast'])),
+        t_para: parseNumber(getVal(['t_para', 'tpara'])),
+        t_conj: parseNumber(getVal(['t_conj', 'tconj'])),
+        t_ciment: parseNumber(getVal(['t_ciment', 'tciment'])),
+        ref: parseNumber(getVal(['ref'])),
+        bic: parseBool(getVal(['bic'])),
+        mercurialis: parseBool(getVal(['mercurialis'])),
+        description: getVal(['description', 'libelle', 'designation']) || null,
+      });
+    }
+  }
+
+  console.log(`Parsed ${hsCodesData.length} codes`);
+
+  const batchSize = 500;
+  let updatedCount = 0;
+  let insertedCount = 0;
+  let preservedCount = 0;
+  const errors: string[] = [];
+
+  if (importMode === 'descriptions_only') {
+    // Fetch existing codes for description updates
+    const { data: existingCodes, error: fetchError } = await supabase
+      .from('hs_codes')
+      .select('code, id, dd, rs, pcs, pcc, cosec, tva, chapter, code_normalized');
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+    }
+
+    const existingMap = new Map(existingCodes?.map(c => [c.code, c]) || []);
+
+    const recordsToUpsert: any[] = [];
+    const recordsToInsert: any[] = [];
+
+    for (const item of hsCodesData) {
+      const existing = existingMap.get(item.code);
+      
+      if (existing) {
+        recordsToUpsert.push({
+          id: existing.id,
+          code: existing.code,
+          code_normalized: existing.code_normalized || item.code,
+          description: item.description,
+          dd: existing.dd,
+          rs: existing.rs,
+          pcs: existing.pcs,
+          pcc: existing.pcc,
+          cosec: existing.cosec,
+          tva: existing.tva,
+          chapter: existing.chapter,
         });
       } else {
-        // Full mode with all rates
-        hsCodesData.push({
-          code: codeNormalized,
-          code_normalized: codeNormalized,
+        const chapter = parseInt(item.code.substring(0, 2)) || 0;
+        recordsToInsert.push({
+          code: item.code,
+          code_normalized: item.code,
+          description: item.description,
           chapter: chapter,
-          dd: parseNumber(getVal(['dd'])),
-          surtaxe: parseNumber(getVal(['surtaxe'])),
-          rs: parseNumber(getVal(['rs'])) || 1,
-          pcs: parseNumber(getVal(['pcs'])) || 0.8,
-          pcc: parseNumber(getVal(['pcc'])) || 0.5,
-          cosec: parseNumber(getVal(['cosec'])) || 0.4,
-          uemoa: parseNumber(getVal(['uemoa'])) || 5,
-          tin: parseNumber(getVal(['tin'])),
-          tva: parseNumber(getVal(['tva'])) || 18,
-          tev: parseNumber(getVal(['tev'])),
-          ta: parseNumber(getVal(['ta'])),
-          t_past: parseNumber(getVal(['t_past', 'tpast'])),
-          t_para: parseNumber(getVal(['t_para', 'tpara'])),
-          t_conj: parseNumber(getVal(['t_conj', 'tconj'])),
-          t_ciment: parseNumber(getVal(['t_ciment', 'tciment'])),
-          ref: parseNumber(getVal(['ref'])),
-          bic: parseBool(getVal(['bic'])),
-          mercurialis: parseBool(getVal(['mercurialis'])),
-          description: getVal(['description', 'libelle', 'designation']) || null,
+          dd: 0,
+          rs: 1,
+          pcs: 0.8,
+          pcc: 0.5,
+          cosec: 0.4,
+          tva: 18,
         });
       }
     }
 
-    console.log(`Parsed ${hsCodesData.length} codes`);
+    // Batch upsert
+    for (let i = 0; i < recordsToUpsert.length; i += batchSize) {
+      const batch = recordsToUpsert.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').upsert(batch, { onConflict: 'id' });
+      if (error) errors.push(`Update batch: ${error.message}`);
+      else updatedCount += batch.length;
+    }
 
-    const batchSize = 500;
-    let updatedCount = 0;
-    let insertedCount = 0;
-    const errors: string[] = [];
+    for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+      const batch = recordsToInsert.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').insert(batch);
+      if (error) errors.push(`Insert batch: ${error.message}`);
+      else insertedCount += batch.length;
+    }
+  } else if (importMode === 'update_zero_dd_only') {
+    // NEW MODE: Only update codes where DD = 0 in database
+    // Preserve codes where DD > 0
+    // Add new codes that don't exist
+    
+    console.log('Mode: update_zero_dd_only - Updating only codes with DD = 0');
+    
+    // Fetch all existing codes with their DD values
+    const { data: existingCodes, error: fetchError } = await supabase
+      .from('hs_codes')
+      .select('code, id, dd, description');
 
-    if (importMode === 'descriptions_only') {
-      // Fetch existing codes for description updates
-      const { data: existingCodes, error: fetchError } = await supabase
-        .from('hs_codes')
-        .select('code, id, dd, rs, pcs, pcc, cosec, tva, chapter, code_normalized');
+    if (fetchError) {
+      throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+    }
 
-      if (fetchError) {
-        throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
-      }
+    // Create a map of existing codes with their DD values
+    const existingMap = new Map(existingCodes?.map(c => [c.code, { id: c.id, dd: Number(c.dd), description: c.description }]) || []);
+    console.log(`Found ${existingMap.size} existing codes in database`);
 
-      const existingMap = new Map(existingCodes?.map(c => [c.code, c]) || []);
+    const recordsToUpdate: any[] = [];
+    const recordsToInsert: any[] = [];
 
-      const recordsToUpsert: any[] = [];
-      const recordsToInsert: any[] = [];
-
-      for (const item of hsCodesData) {
-        const existing = existingMap.get(item.code);
-        
-        if (existing) {
-          recordsToUpsert.push({
-            id: existing.id,
-            code: existing.code,
-            code_normalized: existing.code_normalized || item.code,
-            description: item.description,
-            dd: existing.dd,
-            rs: existing.rs,
-            pcs: existing.pcs,
-            pcc: existing.pcc,
-            cosec: existing.cosec,
-            tva: existing.tva,
-            chapter: existing.chapter,
-          });
-        } else {
-          const chapter = parseInt(item.code.substring(0, 2)) || 0;
-          recordsToInsert.push({
-            code: item.code,
-            code_normalized: item.code,
-            description: item.description,
-            chapter: chapter,
-            dd: 0,
-            rs: 1,
-            pcs: 0.8,
-            pcc: 0.5,
-            cosec: 0.4,
-            tva: 18,
-          });
-        }
-      }
-
-      // Batch upsert
-      for (let i = 0; i < recordsToUpsert.length; i += batchSize) {
-        const batch = recordsToUpsert.slice(i, i + batchSize);
-        const { error } = await supabase.from('hs_codes').upsert(batch, { onConflict: 'id' });
-        if (error) errors.push(`Update batch: ${error.message}`);
-        else updatedCount += batch.length;
-      }
-
-      for (let i = 0; i < recordsToInsert.length; i += batchSize) {
-        const batch = recordsToInsert.slice(i, i + batchSize);
-        const { error } = await supabase.from('hs_codes').insert(batch);
-        if (error) errors.push(`Insert batch: ${error.message}`);
-        else insertedCount += batch.length;
-      }
-    } else {
-      // Full mode: upsert all records with rates
-      // Fetch existing to preserve descriptions if not in CSV
-      const { data: existingCodes, error: fetchError } = await supabase
-        .from('hs_codes')
-        .select('code, id, description');
-
-      if (fetchError) {
-        throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
-      }
-
-      const existingMap = new Map(existingCodes?.map(c => [c.code, c]) || []);
-      console.log(`Found ${existingMap.size} existing codes`);
-
-      const recordsToUpsert: any[] = [];
-      const recordsToInsert: any[] = [];
-
-      for (const item of hsCodesData) {
-        const existing = existingMap.get(item.code);
-        
-        if (existing) {
-          // Update existing: keep description if CSV doesn't have one
-          recordsToUpsert.push({
+    for (const item of hsCodesData) {
+      const existing = existingMap.get(item.code);
+      
+      if (existing) {
+        // Code exists in database
+        if (existing.dd === 0 && item.dd > 0) {
+          // DD is 0 in database and CSV has DD > 0: UPDATE
+          recordsToUpdate.push({
             id: existing.id,
             ...item,
             description: item.description || existing.description,
           });
         } else {
-          recordsToInsert.push(item);
+          // DD > 0 in database: PRESERVE (don't touch)
+          preservedCount++;
         }
-      }
-
-      console.log(`To update: ${recordsToUpsert.length}, to insert: ${recordsToInsert.length}`);
-
-      // Batch upsert existing
-      for (let i = 0; i < recordsToUpsert.length; i += batchSize) {
-        const batch = recordsToUpsert.slice(i, i + batchSize);
-        const { error } = await supabase.from('hs_codes').upsert(batch, { onConflict: 'id' });
-        if (error) {
-          console.error(`Update batch ${Math.floor(i/batchSize)+1} error:`, error.message);
-          errors.push(`Update: ${error.message}`);
-        } else {
-          updatedCount += batch.length;
-        }
-      }
-
-      // Batch insert new
-      for (let i = 0; i < recordsToInsert.length; i += batchSize) {
-        const batch = recordsToInsert.slice(i, i + batchSize);
-        const { error } = await supabase.from('hs_codes').insert(batch);
-        if (error) {
-          console.error(`Insert batch ${Math.floor(i/batchSize)+1} error:`, error.message);
-          errors.push(`Insert: ${error.message}`);
-        } else {
-          insertedCount += batch.length;
-        }
+      } else {
+        // Code doesn't exist: INSERT
+        recordsToInsert.push(item);
       }
     }
 
-    console.log(`Completed: updated ${updatedCount}, inserted ${insertedCount}, errors ${errors.length}`);
+    console.log(`To update (DD was 0): ${recordsToUpdate.length}`);
+    console.log(`To insert (new codes): ${recordsToInsert.length}`);
+    console.log(`Preserved (DD > 0): ${preservedCount}`);
+
+    // Batch update existing codes with DD = 0
+    for (let i = 0; i < recordsToUpdate.length; i += batchSize) {
+      const batch = recordsToUpdate.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').upsert(batch, { onConflict: 'id' });
+      if (error) {
+        console.error(`Update batch ${Math.floor(i/batchSize)+1} error:`, error.message);
+        errors.push(`Update: ${error.message}`);
+      } else {
+        updatedCount += batch.length;
+      }
+    }
+
+    // Batch insert new codes
+    for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+      const batch = recordsToInsert.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').insert(batch);
+      if (error) {
+        console.error(`Insert batch ${Math.floor(i/batchSize)+1} error:`, error.message);
+        errors.push(`Insert: ${error.message}`);
+      } else {
+        insertedCount += batch.length;
+      }
+    }
+  } else {
+    // Full mode: upsert all records with rates
+    // Fetch existing to preserve descriptions if not in CSV
+    const { data: existingCodes, error: fetchError } = await supabase
+      .from('hs_codes')
+      .select('code, id, description');
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+    }
+
+    const existingMap = new Map(existingCodes?.map(c => [c.code, c]) || []);
+    console.log(`Found ${existingMap.size} existing codes`);
+
+    const recordsToUpsert: any[] = [];
+    const recordsToInsert: any[] = [];
+
+    for (const item of hsCodesData) {
+      const existing = existingMap.get(item.code);
+      
+      if (existing) {
+        // Update existing: keep description if CSV doesn't have one
+        recordsToUpsert.push({
+          id: existing.id,
+          ...item,
+          description: item.description || existing.description,
+        });
+      } else {
+        recordsToInsert.push(item);
+      }
+    }
+
+    console.log(`To update: ${recordsToUpsert.length}, to insert: ${recordsToInsert.length}`);
+
+    // Batch upsert existing
+    for (let i = 0; i < recordsToUpsert.length; i += batchSize) {
+      const batch = recordsToUpsert.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').upsert(batch, { onConflict: 'id' });
+      if (error) {
+        console.error(`Update batch ${Math.floor(i/batchSize)+1} error:`, error.message);
+        errors.push(`Update: ${error.message}`);
+      } else {
+        updatedCount += batch.length;
+      }
+    }
+
+    // Batch insert new
+    for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+      const batch = recordsToInsert.slice(i, i + batchSize);
+      const { error } = await supabase.from('hs_codes').insert(batch);
+      if (error) {
+        console.error(`Insert batch ${Math.floor(i/batchSize)+1} error:`, error.message);
+        errors.push(`Insert: ${error.message}`);
+      } else {
+        insertedCount += batch.length;
+      }
+    }
+  }
+
+    console.log(`Completed: updated ${updatedCount}, inserted ${insertedCount}, preserved ${preservedCount}, errors ${errors.length}`);
 
     return new Response(
       JSON.stringify({
@@ -288,6 +361,7 @@ serve(async (req) => {
           parsed: hsCodesData.length,
           updated: updatedCount,
           inserted: insertedCount,
+          preserved: preservedCount,
           errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
           totalErrors: errors.length
         }

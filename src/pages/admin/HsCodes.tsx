@@ -66,6 +66,7 @@ export default function HsCodesAdmin() {
   const [pdfStatus, setPdfStatus] = useState("");
   const [editingCode, setEditingCode] = useState<HsCode | null>(null);
   const [isImportingDescriptions, setIsImportingDescriptions] = useState(false);
+  const [isImportingZeroDdOnly, setIsImportingZeroDdOnly] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const limit = 50;
 
@@ -215,6 +216,37 @@ export default function HsCodesAdmin() {
       toast.error("Erreur d'import: " + message);
     } finally {
       setIsImportingDescriptions(false);
+    }
+  };
+
+  // Import CSV with update_zero_dd_only mode
+  const handleImportZeroDdOnly = async () => {
+    setIsImportingZeroDdOnly(true);
+    try {
+      const csvResponse = await fetch("/data/TEC_UEMOA_HS_Taxes.csv");
+      if (!csvResponse.ok) {
+        throw new Error("Impossible de charger le fichier CSV TEC_UEMOA_HS_Taxes.csv");
+      }
+      const csvContent = await csvResponse.text();
+      
+      const response = await supabase.functions.invoke("import-hs-codes", {
+        body: { csvContent, mode: "update_zero_dd_only" },
+      });
+      
+      if (response.error) throw new Error(response.error.message);
+      
+      const result = response.data;
+      const stats = result.stats;
+      toast.success(
+        `Import terminé: ${stats.updated} codes mis à jour (DD était 0), ${stats.inserted} nouveaux codes ajoutés, ${stats.preserved} codes préservés (DD > 0)`
+      );
+      queryClient.invalidateQueries({ queryKey: ["hs-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["hs-codes-stats"] });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      toast.error("Erreur d'import: " + message);
+    } finally {
+      setIsImportingZeroDdOnly(false);
     }
   };
 
@@ -502,9 +534,18 @@ export default function HsCodesAdmin() {
               <FileSpreadsheet className="h-4 w-4 mr-2" />
               {isImportingDescriptions ? "Import descriptions..." : "Importer descriptions CSV"}
             </Button>
-            <Button onClick={handleImportCSV} disabled={isImporting}>
+            <Button 
+              variant="default"
+              onClick={handleImportZeroDdOnly} 
+              disabled={isImportingZeroDdOnly}
+              title="Importe les taux depuis TEC_UEMOA_HS_Taxes.csv. Ne met à jour que les codes avec DD=0, préserve ceux avec DD>0"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              {isImportingZeroDdOnly ? "Import DD=0..." : "Importer CSV (DD=0 seulement)"}
+            </Button>
+            <Button variant="outline" onClick={handleImportCSV} disabled={isImporting}>
               <Upload className="h-4 w-4 mr-2" />
-              {isImporting ? "Import en cours..." : "Importer CSV"}
+              {isImporting ? "Import en cours..." : "Importer CSV complet"}
             </Button>
           </div>
         </div>
