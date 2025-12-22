@@ -327,7 +327,15 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
   return result;
 }
 
-const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de Taleb Hoballah (2HL Group / SODATRA), transitaire senior au Sénégal.
+const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de SODATRA, transitaire et commissionnaire en douane sénégalais.
+
+=== CONTEXTE ENTREPRISE (CRITIQUE) ===
+- **SODATRA** est notre entreprise - nous faisons les cotations et le dédouanement
+- **2HL Group** (propriété de Taleb HOBALLAH) est notre PARTENAIRE commercial
+  - 2HL sous-traite des opérations de dédouanement à SODATRA
+  - Emails de @2hl, @2hlgroup, Taleb = communications avec notre partenaire
+- CLIENTS = ceux qui nous demandent des cotations/services
+- Quand tu rédiges une réponse, tu parles AU NOM DE SODATRA
 
 === RÈGLE DE LANGUE ABSOLUE ===
 🌍 TU RÉPONDS DANS LA MÊME LANGUE QUE L'EMAIL ORIGINAL.
@@ -409,7 +417,7 @@ TU N'INVENTES JAMAIS DE TARIF.
   "body_short": "Corps CONCIS (15-20 lignes MAX). Style télégraphique. Si can_quote_now=false, pose les questions au lieu de donner des prix.",
   "delegation": "@Cherif pls confirm HS codes" | "@Eric to follow up" | null,
   "closing": "With we remain,\\nBest Regards" (EN) ou "Bien à vous,\\nMeilleures Salutations" (FR),
-  "signature": "Taleb HOBALLAH\\n2HL Group Transport & Logistics",
+  "signature": "SODATRA\\nTransit & Dédouanement",
   "attachment_needed": true | false,
   "attachment_type": "excel_quotation | rate_sheet | proforma | none",
   "attachment_data": {
