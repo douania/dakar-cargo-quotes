@@ -35,10 +35,37 @@ serve(async (req) => {
     // Remove BOM and normalize line endings
     csvData = csvData.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    // Detect delimiter
-    const firstLine = csvData.split('\n')[0];
-    const delimiter = firstLine.includes(';') ? ';' : ',';
+    // Check if it's a special format where the whole line is quoted with semicolons inside
+    // e.g. "0101.21.00.00;Reproducteurs de race pure;u;5;1;1","","",""...
+    let lines = csvData.split('\n').filter(line => line.trim());
+    let delimiter = ';';
+    
+    // Check if first line looks like the special format
+    const firstLine = lines[0];
+    const isSpecialFormat = firstLine.startsWith('"') && firstLine.includes(';') && firstLine.includes('","');
+    
+    if (isSpecialFormat) {
+      console.log('Detected special format: quoted lines with semicolon delimiters inside');
+      // Extract just the first quoted part of each line (before ","")
+      lines = lines.map(line => {
+        // Remove leading quote and extract content until we hit ","
+        if (line.startsWith('"')) {
+          const endIndex = line.indexOf('","');
+          if (endIndex > 0) {
+            return line.substring(1, endIndex);
+          }
+          // If no ",", just remove surrounding quotes
+          return line.replace(/^"/, '').replace(/".*$/, '');
+        }
+        return line;
+      });
+    } else {
+      // Detect delimiter normally
+      delimiter = firstLine.includes(';') ? ';' : ',';
+    }
+    
     console.log('Detected delimiter:', delimiter);
+    console.log('First processed line:', lines[0]?.substring(0, 100));
 
     // Parse CSV with proper quote handling
     const parseCSVLine = (line: string): string[] => {
@@ -66,9 +93,8 @@ serve(async (req) => {
       return result;
     };
 
-    const lines = csvData.split('\n').filter(line => line.trim());
     const headers = parseCSVLine(lines[0]).map(h => 
-      h.toLowerCase().replace(/[^\w]/g, '').replace(/^"/, '').replace(/"$/, '')
+      h.toLowerCase().replace(/[^\w_]/g, '').replace(/^"/, '').replace(/"$/, '')
     );
     
     console.log('CSV Headers:', headers.slice(0, 10));
@@ -226,17 +252,29 @@ serve(async (req) => {
     
     console.log('Mode: update_zero_dd_only - Updating only codes with DD = 0');
     
-    // Fetch all existing codes with their DD values
-    const { data: existingCodes, error: fetchError } = await supabase
-      .from('hs_codes')
-      .select('code, id, dd, description');
+    // Fetch ALL existing codes with their DD values (pagination needed for large datasets)
+    let allExistingCodes: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      const { data: batch, error: fetchError } = await supabase
+        .from('hs_codes')
+        .select('code, id, dd, description')
+        .range(from, from + pageSize - 1);
 
-    if (fetchError) {
-      throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+      if (fetchError) {
+        throw new Error(`Failed to fetch existing codes: ${fetchError.message}`);
+      }
+      
+      if (!batch || batch.length === 0) break;
+      allExistingCodes = allExistingCodes.concat(batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
     }
 
     // Create a map of existing codes with their DD values
-    const existingMap = new Map(existingCodes?.map(c => [c.code, { id: c.id, dd: Number(c.dd), description: c.description }]) || []);
+    const existingMap = new Map(allExistingCodes.map(c => [c.code, { id: c.id, dd: Number(c.dd), description: c.description }]));
     console.log(`Found ${existingMap.size} existing codes in database`);
 
     const recordsToUpdate: any[] = [];
