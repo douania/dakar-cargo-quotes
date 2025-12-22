@@ -613,6 +613,162 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Extraire un identifiant de projet unique depuis le contenu
+function extractProjectIdentifier(subject: string, bodyText: string): { projectId: string; projectName: string } {
+  const content = `${subject} ${bodyText}`.toLowerCase();
+  
+  // Patterns pour identifier un projet spécifique
+  const projectPatterns = [
+    // Événements sportifs internationaux
+    { regex: /(youth\s+olympic\s+games?\s*\d*)/i, weight: 10 },
+    { regex: /(olympic\s+games?\s*\d*)/i, weight: 10 },
+    { regex: /(jeux\s+olympiques?\s*(?:de\s+la\s+jeunesse)?\s*\d*)/i, weight: 10 },
+    { regex: /(world\s+cup\s*\d*)/i, weight: 10 },
+    { regex: /(coupe\s+du\s+monde\s*\d*)/i, weight: 10 },
+    { regex: /(afcon\s*\d*|can\s*\d{4})/i, weight: 10 },
+    
+    // Projets nommés explicitement
+    { regex: /projet[:\s]+([^,.\n]{3,40})/i, weight: 8 },
+    { regex: /project[:\s]+([^,.\n]{3,40})/i, weight: 8 },
+    { regex: /ref[:\s]+([A-Z0-9\-\/]{4,20})/i, weight: 7 },
+    { regex: /référence[:\s]+([A-Z0-9\-\/]{4,20})/i, weight: 7 },
+    
+    // Destinations spécifiques avec cargo
+    { regex: /(ham\s*[-–]\s*dkr|hamburg\s*[-–to]+\s*dakar)/i, weight: 6 },
+    { regex: /(muc\s*[-–]\s*dss|munich\s*[-–to]+\s*dakar)/i, weight: 6 },
+    { regex: /(par\s*[-–]\s*dkr|paris\s*[-–to]+\s*dakar)/i, weight: 6 },
+    
+    // Conteneurs avec référence
+    { regex: /(\d+\s*x\s*\d{2}['"]?\s*(?:hc|dv|gp|rf|ot))/i, weight: 5 },
+    
+    // Numéros de booking/reference
+    { regex: /(booking[:\s#]+[A-Z0-9]{6,})/i, weight: 5 },
+    { regex: /(bl[:\s#]+[A-Z0-9]{6,})/i, weight: 5 },
+  ];
+  
+  let bestMatch: { projectId: string; projectName: string; weight: number } | null = null;
+  
+  for (const pattern of projectPatterns) {
+    const match = content.match(pattern.regex);
+    if (match) {
+      const extracted = (match[1] || match[0]).trim();
+      if (!bestMatch || pattern.weight > bestMatch.weight) {
+        bestMatch = {
+          projectId: extracted.toLowerCase().replace(/\s+/g, '_').substring(0, 50),
+          projectName: extracted,
+          weight: pattern.weight,
+        };
+      }
+    }
+  }
+  
+  // Si un projet est trouvé, retourner
+  if (bestMatch) {
+    console.log(`Project identified: ${bestMatch.projectName} (ID: ${bestMatch.projectId})`);
+    return { projectId: bestMatch.projectId, projectName: bestMatch.projectName };
+  }
+  
+  // Fallback: combiner les éléments clés du sujet et des routes
+  return { projectId: '', projectName: '' };
+}
+
+// Trouver un fil existant par projet OU par participants similaires
+async function findExistingThread(
+  supabase: any,
+  projectId: string,
+  normalizedSubject: string,
+  participants: string[]
+): Promise<{ id: string; project_name: string } | null> {
+  try {
+    // 1. D'abord chercher par project_name si on a un projet
+    if (projectId) {
+      const { data: projectThread } = await supabase
+        .from('email_threads')
+        .select('id, project_name')
+        .ilike('project_name', `%${projectId.replace(/_/g, '%')}%`)
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (projectThread) {
+        console.log(`Found thread by project: ${projectThread.project_name}`);
+        return projectThread;
+      }
+    }
+    
+    // 2. Chercher par sujet normalisé similaire
+    const { data: subjectThread } = await supabase
+      .from('email_threads')
+      .select('id, project_name, subject_normalized, participants')
+      .eq('subject_normalized', normalizedSubject)
+      .order('last_message_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (subjectThread) {
+      console.log(`Found thread by subject: ${normalizedSubject}`);
+      return subjectThread;
+    }
+    
+    // 3. Chercher par participants communs (même client + même route/sujet partiel)
+    if (participants.length > 0) {
+      const clientEmail = participants.find(p => 
+        !p.includes('@sodatra') && 
+        !KNOWN_PARTNERS.some(kp => p.includes(kp)) &&
+        !KNOWN_SUPPLIERS.some(ks => p.includes(ks))
+      );
+      
+      if (clientEmail) {
+        const { data: threads } = await supabase
+          .from('email_threads')
+          .select('id, project_name, subject_normalized, participants')
+          .eq('client_email', clientEmail)
+          .order('last_message_at', { ascending: false })
+          .limit(5);
+        
+        // Vérifier si le sujet est similaire (même route/projet)
+        if (threads) {
+          for (const thread of threads) {
+            const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
+            if (similarity > 0.6) {
+              console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity})`);
+              return thread;
+            }
+          }
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error finding existing thread:', error);
+    return null;
+  }
+}
+
+// Calculer la similarité entre deux sujets
+function calculateSubjectSimilarity(subject1: string, subject2: string): number {
+  // Extraire les mots-clés importants
+  const extractKeywords = (s: string): Set<string> => {
+    const words = s.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2)
+      .filter(w => !['the', 'and', 'for', 'from', 'with', 'request', 'sea', 'air', 'freight'].includes(w));
+    return new Set(words);
+  };
+  
+  const kw1 = extractKeywords(subject1);
+  const kw2 = extractKeywords(subject2);
+  
+  if (kw1.size === 0 || kw2.size === 0) return 0;
+  
+  const intersection = new Set([...kw1].filter(x => kw2.has(x)));
+  const union = new Set([...kw1, ...kw2]);
+  
+  return intersection.size / union.size; // Jaccard similarity
+}
+
 // Créer ou mettre à jour un fil de discussion
 async function upsertEmailThread(
   supabase: any,
@@ -624,30 +780,37 @@ async function upsertEmailThread(
     sent_at: string;
     body_text?: string;
   },
-  existingThreadEmails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[]; sent_at: string }>
+  existingThreadEmails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[]; sent_at: string; body_text?: string }>
 ): Promise<string | null> {
   try {
-    // Chercher un fil existant avec ce sujet normalisé
-    const { data: existingThread } = await supabase
-      .from('email_threads')
-      .select('*')
-      .eq('subject_normalized', normalizedSubject)
-      .maybeSingle();
+    // Extraire le projet du contenu
+    const { projectId, projectName } = extractProjectIdentifier(
+      normalizedSubject,
+      email.body_text || ''
+    );
     
+    // Collecter tous les participants
     const allEmails = [...existingThreadEmails, email].sort(
       (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
     );
     
-    const firstEmail = allEmails[0];
-    const lastEmail = allEmails[allEmails.length - 1];
-    
-    // Identifier les participants
     const participants = new Set<string>();
     allEmails.forEach(e => {
       participants.add(e.from_address.toLowerCase());
       (e.to_addresses || []).forEach(a => participants.add(a.toLowerCase()));
       (e.cc_addresses || []).forEach(a => participants.add(a.toLowerCase()));
     });
+    
+    // Chercher un fil existant (par projet, sujet, ou participants)
+    const existingThread = await findExistingThread(
+      supabase,
+      projectId,
+      normalizedSubject,
+      Array.from(participants)
+    );
+    
+    const firstEmail = allEmails[0];
+    const lastEmail = allEmails[allEmails.length - 1];
     
     // Identifier le client (premier expéditeur non-SODATRA, non-partenaire)
     let clientEmail = '';
@@ -673,25 +836,8 @@ async function upsertEmailThread(
     // Déterminer notre rôle
     const ourRole = determineOurRole(allEmails as any, firstEmail?.from_address || '');
     
-    // Extraire un nom de projet potentiel
-    let projectName = '';
-    const projectPatterns = [
-      /projet\s+([^,.\n]+)/i,
-      /project\s+([^,.\n]+)/i,
-      /olympic/i,
-      /jeux\s+olympiques/i,
-    ];
-    for (const e of allEmails) {
-      const content = (e as any).body_text || '';
-      for (const pattern of projectPatterns) {
-        const match = content.match(pattern);
-        if (match) {
-          projectName = match[1]?.trim() || match[0];
-          break;
-        }
-      }
-      if (projectName) break;
-    }
+    // Utiliser le nom de projet trouvé ou celui existant
+    const finalProjectName = projectName || existingThread?.project_name || '';
     
     const threadData = {
       subject_normalized: normalizedSubject,
@@ -702,7 +848,7 @@ async function upsertEmailThread(
       client_company: clientCompany,
       our_role: ourRole,
       partner_email: partnerEmail || null,
-      project_name: projectName || null,
+      project_name: finalProjectName || null,
       email_count: allEmails.length,
       updated_at: new Date().toISOString(),
     };
@@ -713,6 +859,7 @@ async function upsertEmailThread(
         .from('email_threads')
         .update(threadData)
         .eq('id', existingThread.id);
+      console.log(`Updated thread ${existingThread.id} for project: ${finalProjectName || normalizedSubject}`);
       return existingThread.id;
     } else {
       // Créer un nouveau fil
@@ -726,6 +873,7 @@ async function upsertEmailThread(
         console.error('Error creating thread:', error);
         return null;
       }
+      console.log(`Created new thread ${newThread?.id} for project: ${finalProjectName || normalizedSubject}`);
       return newThread?.id || null;
     }
   } catch (error) {
