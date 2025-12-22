@@ -132,19 +132,41 @@ function extractThreadId(messageId: string, references: string): string {
   return messageId;
 }
 
+// ============ TYPES ============
+
+interface KnownBusinessContact {
+  id: string;
+  domain_pattern: string;
+  company_name: string;
+  default_role: 'partner' | 'client' | 'supplier' | 'agent' | 'internal';
+  country: string | null;
+  notes: string | null;
+}
+
+interface EmailRecord {
+  from_address: string;
+  to_addresses: string[];
+  cc_addresses?: string[];
+  sent_at: string;
+  body_text?: string;
+}
+
+interface ParticipantInfo {
+  email: string;
+  role: string;
+  company: string;
+  isKnown: boolean;
+}
+
+interface ThreadRoles {
+  clientEmail: string;
+  clientCompany: string;
+  partnerEmail: string | null;
+  ourRole: 'direct_quote' | 'assist_partner';
+  participants: ParticipantInfo[];
+}
+
 // ============ THREAD & ROLE IDENTIFICATION ============
-
-// Partenaires connus
-const KNOWN_PARTNERS = [
-  '2hlgroup.com', '2hl.com', '@2hl', 'th@2hlgroup', 'taleb'
-];
-
-// Fournisseurs connus (compagnies maritimes, agents)
-const KNOWN_SUPPLIERS = [
-  'msc.com', 'cma-cgm.com', 'maersk.com', 'hapag-lloyd.com', 'hapag.com',
-  'one-line.com', 'evergreen-line.com', 'cosco', 'grimaldi',
-  'dpworld', 'bollore', 'necotrans', 'getma'
-];
 
 // Normaliser le sujet (retirer RE:, FW:, etc.)
 function normalizeSubject(subject: string): string {
@@ -155,82 +177,20 @@ function normalizeSubject(subject: string): string {
     .toLowerCase();
 }
 
-// Extraire le nom de l'entreprise depuis l'email
+// Extraire le nom de l'entreprise depuis l'email (fallback si pas dans known_business_contacts)
 function extractCompanyFromEmail(email: string): string {
   const match = email.match(/@([^.]+)\./);
   if (match) {
     const domain = match[1].toLowerCase();
-    // Map common domain patterns
-    if (domain.includes('group-7') || domain.includes('group7')) return 'GROUP7 AG';
-    if (domain.includes('2hl')) return '2HL Group';
-    if (domain.includes('sodatra')) return 'SODATRA';
-    if (domain.includes('msc')) return 'MSC';
-    if (domain.includes('cma-cgm') || domain.includes('cma')) return 'CMA CGM';
-    if (domain.includes('maersk')) return 'MAERSK';
-    if (domain.includes('hapag')) return 'HAPAG-LLOYD';
-    return domain.toUpperCase();
+    return domain.toUpperCase().replace(/-/g, ' ');
   }
   return 'UNKNOWN';
 }
 
-// Identifier le rôle d'un contact
-function identifyContactRole(email: string, isFirstSender: boolean, bodyText: string): 'client' | 'partner' | 'supplier' | 'internal' | 'prospect' {
-  const emailLower = email.toLowerCase();
-  
-  // SODATRA = internal
-  if (emailLower.includes('@sodatra')) return 'internal';
-  
-  // Partenaires connus
-  if (KNOWN_PARTNERS.some(p => emailLower.includes(p))) return 'partner';
-  
-  // Fournisseurs connus
-  if (KNOWN_SUPPLIERS.some(s => emailLower.includes(s))) return 'supplier';
-  
-  // Si c'est le premier expéditeur et demande une cotation = client
-  const bodyLower = (bodyText || '').toLowerCase();
-  const quotationMarkers = ['quote', 'quotation', 'cotation', 'devis', 'rates', 'tarif', 'price', 'prix', 'offer', 'offre'];
-  
-  if (isFirstSender && quotationMarkers.some(m => bodyLower.includes(m))) {
-    return 'client';
-  }
-  
-  return 'prospect';
-}
-
-// Déterminer le rôle de SODATRA dans le fil
-function determineOurRole(
-  emails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[] }>,
-  firstSender: string
-): 'direct_quote' | 'assist_partner' {
-  // Si le premier email est envoyé par un partenaire à SODATRA en CC
-  const firstEmail = emails[0];
-  if (!firstEmail) return 'direct_quote';
-  
-  const firstFromLower = firstEmail.from_address.toLowerCase();
-  
-  // Si le premier expéditeur est un partenaire connu
-  if (KNOWN_PARTNERS.some(p => firstFromLower.includes(p))) {
-    return 'direct_quote'; // Partenaire nous contacte directement
-  }
-  
-  // Si SODATRA n'est pas dans les destinataires principaux mais en CC
-  for (const email of emails) {
-    const toAddresses = (email.to_addresses || []).map(e => e.toLowerCase());
-    const ccAddresses = (email.cc_addresses || []).map(e => e.toLowerCase());
-    
-    const sodatraInTo = toAddresses.some(a => a.includes('@sodatra'));
-    const sodatraInCc = ccAddresses.some(a => a.includes('@sodatra'));
-    
-    if (!sodatraInTo && sodatraInCc) {
-      // SODATRA ajouté en CC par un partenaire = assist_partner
-      const fromLower = email.from_address.toLowerCase();
-      if (KNOWN_PARTNERS.some(p => fromLower.includes(p))) {
-        return 'assist_partner';
-      }
-    }
-  }
-  
-  return 'direct_quote';
+// Extraire le domaine d'un email
+function extractDomain(email: string): string {
+  const match = email.match(/@([^>]+)$/);
+  return match ? match[1].toLowerCase() : '';
 }
 
 // Parse email date strings - remove timezone names in parentheses that PostgreSQL can't handle
@@ -252,6 +212,259 @@ function parseEmailDate(dateStr: string): string {
   }
   // Last fallback: current time
   return new Date().toISOString();
+}
+
+// ============ NOUVELLE LOGIQUE D'EXTRACTION DE L'EXPÉDITEUR ORIGINAL ============
+
+// Extraire l'expéditeur ORIGINEL depuis les citations dans le body
+function extractOriginalSender(bodyText: string): { email: string; name: string } | null {
+  if (!bodyText) return null;
+  
+  // Patterns pour trouver le message original cité
+  const patterns = [
+    // Format français: "Le jeu. 18 déc. 2025 à 19:29, Knoll, Matthias <M.Knoll@group-7.de> a écrit"
+    /Le\s+\w+\.?\s+\d+\s+\w+\.?\s+\d+\s+[àa]\s+\d+[:\d]+,\s*([^<]+)\s*<([^>]+)>\s*a\s+[eé]crit/i,
+    // Format anglais: "On Thu, Dec 18, 2025 at 7:29 PM Matthias Knoll <M.Knoll@group-7.de> wrote:"
+    /On\s+\w+,\s+\w+\s+\d+,\s+\d+\s+at\s+[\d:]+\s*(?:AM|PM)?\s*([^<]+)\s*<([^>]+)>\s*wrote/i,
+    // Format Outlook: "From: Knoll, Matthias <M.Knoll@group-7.de>"
+    /From:\s*([^<\r\n]+)\s*<([^>]+)>/i,
+    // Format simple: "De: M.Knoll@group-7.de"
+    /(?:From|De|Von):\s*<?([^\s<>\r\n]+@[^\s<>\r\n]+)>?/i,
+    // Format signature: "Matthias Knoll <M.Knoll@group-7.de>"
+    /([A-Za-z]+(?:\s+[A-Za-z]+)?)\s*<([^>]+@[^>]+)>/i,
+  ];
+  
+  // Chercher dans les citations les plus profondes (fin du body)
+  const lines = bodyText.split('\n').reverse();
+  
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (match) {
+        // Pattern avec 2 groupes (nom + email)
+        if (match[2]) {
+          return {
+            name: match[1].trim(),
+            email: match[2].trim().toLowerCase()
+          };
+        }
+        // Pattern avec 1 groupe (email seul)
+        if (match[1] && match[1].includes('@')) {
+          return {
+            name: '',
+            email: match[1].trim().toLowerCase()
+          };
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Valider qu'une chaîne est une adresse email valide
+function isValidEmail(str: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
+}
+
+// Nettoyer la liste des participants (supprimer les entrées invalides)
+function cleanParticipants(emails: EmailRecord[]): string[] {
+  const participants = new Set<string>();
+  
+  for (const email of emails) {
+    const allAddresses = [
+      email.from_address,
+      ...(email.to_addresses || []),
+      ...(email.cc_addresses || [])
+    ];
+    
+    for (const addr of allAddresses) {
+      const cleaned = addr.toLowerCase().trim();
+      if (isValidEmail(cleaned)) {
+        participants.add(cleaned);
+      }
+    }
+  }
+  
+  return Array.from(participants);
+}
+
+// ============ IDENTIFICATION DES RÔLES VIA known_business_contacts ============
+
+// Trouver le rôle d'un email via la table known_business_contacts
+function findKnownContact(
+  email: string,
+  knownContacts: KnownBusinessContact[]
+): KnownBusinessContact | null {
+  const domain = extractDomain(email);
+  
+  for (const contact of knownContacts) {
+    if (domain.includes(contact.domain_pattern) || email.toLowerCase().includes(contact.domain_pattern)) {
+      return contact;
+    }
+  }
+  
+  return null;
+}
+
+// Déterminer les rôles de tous les participants du fil
+async function determineThreadRoles(
+  supabase: any,
+  emails: EmailRecord[],
+  knownContacts: KnownBusinessContact[]
+): Promise<ThreadRoles> {
+  // 1. Collecter tous les participants avec leur rôle
+  const participantsMap = new Map<string, ParticipantInfo>();
+  const cleanedEmails = cleanParticipants(emails);
+  
+  for (const email of cleanedEmails) {
+    const knownContact = findKnownContact(email, knownContacts);
+    
+    if (knownContact) {
+      participantsMap.set(email, {
+        email,
+        role: knownContact.default_role,
+        company: knownContact.company_name,
+        isKnown: true
+      });
+    } else {
+      participantsMap.set(email, {
+        email,
+        role: 'prospect', // Par défaut, on ne sait pas
+        company: extractCompanyFromEmail(email),
+        isKnown: false
+      });
+    }
+  }
+  
+  // 2. Analyser le contenu pour trouver l'expéditeur ORIGINEL
+  let originalSenderEmail: string | null = null;
+  
+  // Trier les emails par date pour trouver le plus ancien
+  const sortedEmails = [...emails].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+  );
+  
+  // Chercher dans le corps des emails les citations (expéditeur original)
+  for (const email of sortedEmails) {
+    const originalSender = extractOriginalSender(email.body_text || '');
+    if (originalSender && isValidEmail(originalSender.email)) {
+      originalSenderEmail = originalSender.email;
+      break;
+    }
+  }
+  
+  // 3. Identifier le CLIENT
+  // Priorité: l'expéditeur original cité → le premier expéditeur non-internal/non-partner
+  let clientEmail = '';
+  let clientCompany = '';
+  
+  // D'abord vérifier si l'expéditeur original cité est le client
+  if (originalSenderEmail) {
+    const participant = participantsMap.get(originalSenderEmail);
+    if (participant && !['internal', 'partner'].includes(participant.role)) {
+      clientEmail = originalSenderEmail;
+      clientCompany = participant.company;
+      // Mettre à jour le rôle si c'était prospect
+      if (participant.role === 'prospect') {
+        participant.role = 'client';
+      }
+    }
+  }
+  
+  // Sinon, chercher le premier expéditeur non-internal, non-partner, non-supplier
+  if (!clientEmail) {
+    for (const email of sortedEmails) {
+      const senderEmail = email.from_address.toLowerCase();
+      const participant = participantsMap.get(senderEmail);
+      
+      if (participant && !['internal', 'partner', 'supplier', 'agent'].includes(participant.role)) {
+        clientEmail = senderEmail;
+        clientCompany = participant.company;
+        if (participant.role === 'prospect') {
+          participant.role = 'client';
+        }
+        break;
+      }
+    }
+  }
+  
+  // Si toujours pas de client, prendre le premier expéditeur non-internal
+  if (!clientEmail) {
+    for (const email of sortedEmails) {
+      const senderEmail = email.from_address.toLowerCase();
+      const participant = participantsMap.get(senderEmail);
+      
+      if (participant && participant.role !== 'internal') {
+        clientEmail = senderEmail;
+        clientCompany = participant.company;
+        if (participant.role === 'prospect') {
+          participant.role = 'client';
+        }
+        break;
+      }
+    }
+  }
+  
+  // 4. Identifier le PARTENAIRE
+  let partnerEmail: string | null = null;
+  
+  for (const [email, info] of participantsMap) {
+    if (info.role === 'partner') {
+      partnerEmail = email;
+      break;
+    }
+  }
+  
+  // 5. Déterminer notre rôle (SODATRA)
+  // assist_partner: Si un partenaire a transmis une demande client à SODATRA
+  // direct_quote: Si le client a contacté SODATRA directement
+  let ourRole: 'direct_quote' | 'assist_partner' = 'direct_quote';
+  
+  if (partnerEmail) {
+    // Vérifier si le client a JAMAIS contacté SODATRA directement
+    const clientContactedSodatraDirectly = sortedEmails.some(email => {
+      const senderEmail = email.from_address.toLowerCase();
+      if (senderEmail !== clientEmail) return false;
+      
+      const toAddresses = (email.to_addresses || []).map(e => e.toLowerCase());
+      const ccAddresses = (email.cc_addresses || []).map(e => e.toLowerCase());
+      
+      const allRecipients = [...toAddresses, ...ccAddresses];
+      return allRecipients.some(r => r.includes('@sodatra'));
+    });
+    
+    // Si le client n'a jamais contacté SODATRA directement, c'est une assist_partner
+    if (!clientContactedSodatraDirectly) {
+      ourRole = 'assist_partner';
+    }
+    
+    // OU si le partenaire nous a mis en CC (pas en TO) sur un email au client
+    const partnerPutUsInCC = sortedEmails.some(email => {
+      const senderEmail = email.from_address.toLowerCase();
+      if (!partnerEmail || senderEmail !== partnerEmail) return false;
+      
+      const toAddresses = (email.to_addresses || []).map(e => e.toLowerCase());
+      const ccAddresses = (email.cc_addresses || []).map(e => e.toLowerCase());
+      
+      const sodatraInTo = toAddresses.some(t => t.includes('@sodatra'));
+      const sodatraInCc = ccAddresses.some(c => c.includes('@sodatra'));
+      
+      return !sodatraInTo && sodatraInCc;
+    });
+    
+    if (partnerPutUsInCC) {
+      ourRole = 'assist_partner';
+    }
+  }
+  
+  return {
+    clientEmail,
+    clientCompany,
+    partnerEmail,
+    ourRole,
+    participants: Array.from(participantsMap.values())
+  };
 }
 
 function getTlsServerNameCandidates(host: string): string[] {
@@ -672,80 +885,6 @@ function extractProjectIdentifier(subject: string, bodyText: string): { projectI
   return { projectId: '', projectName: '' };
 }
 
-// Trouver un fil existant par projet OU par participants similaires
-async function findExistingThread(
-  supabase: any,
-  projectId: string,
-  normalizedSubject: string,
-  participants: string[]
-): Promise<{ id: string; project_name: string } | null> {
-  try {
-    // 1. D'abord chercher par project_name si on a un projet
-    if (projectId) {
-      const { data: projectThread } = await supabase
-        .from('email_threads')
-        .select('id, project_name')
-        .ilike('project_name', `%${projectId.replace(/_/g, '%')}%`)
-        .order('last_message_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (projectThread) {
-        console.log(`Found thread by project: ${projectThread.project_name}`);
-        return projectThread;
-      }
-    }
-    
-    // 2. Chercher par sujet normalisé similaire
-    const { data: subjectThread } = await supabase
-      .from('email_threads')
-      .select('id, project_name, subject_normalized, participants')
-      .eq('subject_normalized', normalizedSubject)
-      .order('last_message_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
-    if (subjectThread) {
-      console.log(`Found thread by subject: ${normalizedSubject}`);
-      return subjectThread;
-    }
-    
-    // 3. Chercher par participants communs (même client + même route/sujet partiel)
-    if (participants.length > 0) {
-      const clientEmail = participants.find(p => 
-        !p.includes('@sodatra') && 
-        !KNOWN_PARTNERS.some(kp => p.includes(kp)) &&
-        !KNOWN_SUPPLIERS.some(ks => p.includes(ks))
-      );
-      
-      if (clientEmail) {
-        const { data: threads } = await supabase
-          .from('email_threads')
-          .select('id, project_name, subject_normalized, participants')
-          .eq('client_email', clientEmail)
-          .order('last_message_at', { ascending: false })
-          .limit(5);
-        
-        // Vérifier si le sujet est similaire (même route/projet)
-        if (threads) {
-          for (const thread of threads) {
-            const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
-            if (similarity > 0.6) {
-              console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity})`);
-              return thread;
-            }
-          }
-        }
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error finding existing thread:', error);
-    return null;
-  }
-}
-
 // Calculer la similarité entre deux sujets
 function calculateSubjectSimilarity(subject1: string, subject2: string): number {
   // Extraire les mots-clés importants
@@ -769,89 +908,133 @@ function calculateSubjectSimilarity(subject1: string, subject2: string): number 
   return intersection.size / union.size; // Jaccard similarity
 }
 
+// Trouver un fil existant par projet OU par participants similaires
+async function findExistingThread(
+  supabase: any,
+  projectId: string,
+  normalizedSubject: string,
+  clientEmail: string
+): Promise<{ id: string; project_name: string } | null> {
+  try {
+    // 1. D'abord chercher par project_name si on a un projet
+    if (projectId) {
+      const { data: projectThread } = await supabase
+        .from('email_threads')
+        .select('id, project_name')
+        .ilike('project_name', `%${projectId.replace(/_/g, '%')}%`)
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (projectThread) {
+        console.log(`Found thread by project: ${projectThread.project_name}`);
+        return projectThread;
+      }
+    }
+    
+    // 2. Chercher par sujet normalisé exact
+    const { data: subjectThread } = await supabase
+      .from('email_threads')
+      .select('id, project_name, subject_normalized')
+      .eq('subject_normalized', normalizedSubject)
+      .order('last_message_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (subjectThread) {
+      console.log(`Found thread by subject: ${normalizedSubject}`);
+      return subjectThread;
+    }
+    
+    // 3. Chercher par client + sujet similaire
+    if (clientEmail) {
+      const { data: threads } = await supabase
+        .from('email_threads')
+        .select('id, project_name, subject_normalized')
+        .eq('client_email', clientEmail)
+        .order('last_message_at', { ascending: false })
+        .limit(5);
+      
+      if (threads) {
+        for (const thread of threads) {
+          const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
+          if (similarity > 0.6) {
+            console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity})`);
+            return thread;
+          }
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error finding existing thread:', error);
+    return null;
+  }
+}
+
 // Créer ou mettre à jour un fil de discussion
 async function upsertEmailThread(
   supabase: any,
   normalizedSubject: string,
-  email: {
-    from_address: string;
-    to_addresses: string[];
-    cc_addresses?: string[];
-    sent_at: string;
-    body_text?: string;
-  },
-  existingThreadEmails: Array<{ from_address: string; to_addresses: string[]; cc_addresses?: string[]; sent_at: string; body_text?: string }>
+  email: EmailRecord,
+  existingThreadEmails: EmailRecord[],
+  knownContacts: KnownBusinessContact[]
 ): Promise<string | null> {
   try {
+    // Collecter tous les emails du fil
+    const allEmails = [...existingThreadEmails, email].sort(
+      (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+    );
+    
+    // Déterminer les rôles avec la nouvelle logique
+    const threadRoles = await determineThreadRoles(supabase, allEmails, knownContacts);
+    
     // Extraire le projet du contenu
     const { projectId, projectName } = extractProjectIdentifier(
       normalizedSubject,
       email.body_text || ''
     );
     
-    // Collecter tous les participants
-    const allEmails = [...existingThreadEmails, email].sort(
-      (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-    );
+    // Nettoyer les participants
+    const cleanedParticipants = cleanParticipants(allEmails);
     
-    const participants = new Set<string>();
-    allEmails.forEach(e => {
-      participants.add(e.from_address.toLowerCase());
-      (e.to_addresses || []).forEach(a => participants.add(a.toLowerCase()));
-      (e.cc_addresses || []).forEach(a => participants.add(a.toLowerCase()));
-    });
-    
-    // Chercher un fil existant (par projet, sujet, ou participants)
+    // Chercher un fil existant
     const existingThread = await findExistingThread(
       supabase,
       projectId,
       normalizedSubject,
-      Array.from(participants)
+      threadRoles.clientEmail
     );
     
     const firstEmail = allEmails[0];
     const lastEmail = allEmails[allEmails.length - 1];
     
-    // Identifier le client (premier expéditeur non-SODATRA, non-partenaire)
-    let clientEmail = '';
-    let clientCompany = '';
-    for (const e of allEmails) {
-      const fromLower = e.from_address.toLowerCase();
-      if (!fromLower.includes('@sodatra') && !KNOWN_PARTNERS.some(p => fromLower.includes(p))) {
-        clientEmail = e.from_address;
-        clientCompany = extractCompanyFromEmail(e.from_address);
-        break;
-      }
-    }
-    
-    // Identifier si un partenaire est impliqué
-    let partnerEmail = '';
-    for (const p of Array.from(participants)) {
-      if (KNOWN_PARTNERS.some(kp => p.includes(kp))) {
-        partnerEmail = p;
-        break;
-      }
-    }
-    
-    // Déterminer notre rôle
-    const ourRole = determineOurRole(allEmails as any, firstEmail?.from_address || '');
-    
     // Utiliser le nom de projet trouvé ou celui existant
     const finalProjectName = projectName || existingThread?.project_name || '';
+    
+    // Construire les données enrichies des participants
+    const participantsData = threadRoles.participants.map(p => ({
+      email: p.email,
+      role: p.role,
+      company: p.company
+    }));
     
     const threadData = {
       subject_normalized: normalizedSubject,
       first_message_at: firstEmail?.sent_at,
       last_message_at: lastEmail?.sent_at,
-      participants: Array.from(participants),
-      client_email: clientEmail,
-      client_company: clientCompany,
-      our_role: ourRole,
-      partner_email: partnerEmail || null,
+      participants: participantsData,
+      client_email: threadRoles.clientEmail,
+      client_company: threadRoles.clientCompany,
+      our_role: threadRoles.ourRole,
+      partner_email: threadRoles.partnerEmail,
       project_name: finalProjectName || null,
       email_count: allEmails.length,
       updated_at: new Date().toISOString(),
     };
+    
+    console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}`);
     
     if (existingThread) {
       // Mettre à jour le fil existant
@@ -887,10 +1070,15 @@ async function upsertContact(
   supabase: any,
   email: string,
   role: string,
+  knownContacts: KnownBusinessContact[],
   name?: string
 ): Promise<void> {
   try {
-    const company = extractCompanyFromEmail(email);
+    // Chercher d'abord dans les contacts connus
+    const knownContact = findKnownContact(email, knownContacts);
+    
+    const company = knownContact?.company_name || extractCompanyFromEmail(email);
+    const finalRole = knownContact?.default_role || role;
     
     // Upsert le contact
     await supabase
@@ -899,19 +1087,14 @@ async function upsertContact(
         email: email.toLowerCase(),
         name: name || null,
         company,
-        role,
+        role: finalRole,
+        country: knownContact?.country || null,
         interaction_count: 1,
         last_interaction_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'email',
         ignoreDuplicates: false
-      });
-    
-    // Incrémenter le compteur d'interaction
-    await supabase.rpc('increment_contact_interaction', { contact_email: email.toLowerCase() })
-      .catch(() => {
-        // Function may not exist yet, that's ok
       });
   } catch (error) {
     console.error('Error upserting contact:', error);
@@ -933,6 +1116,14 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log("Syncing emails for config:", configId);
+
+    // Charger les contacts connus depuis la DB
+    const { data: knownContacts } = await supabase
+      .from('known_business_contacts')
+      .select('*')
+      .eq('is_active', true);
+    
+    console.log(`Loaded ${knownContacts?.length || 0} known business contacts`);
 
     // Get email config
     const { data: config, error: configError } = await supabase
@@ -1011,8 +1202,8 @@ serve(async (req) => {
             .or(`thread_id.eq.${threadId},subject.ilike.%${normalizedSubject.substring(0, 30)}%`)
             .order('sent_at', { ascending: true });
           
-          // Créer/mettre à jour le fil de discussion
-          const emailData = {
+          // Créer/mettre à jour le fil de discussion avec la nouvelle logique
+          const emailData: EmailRecord = {
             from_address: msg.from,
             to_addresses: msg.to.length > 0 ? msg.to : [config.username],
             cc_addresses: [] as string[],
@@ -1024,13 +1215,14 @@ serve(async (req) => {
             supabase,
             normalizedSubject,
             emailData,
-            existingThreadEmails || []
+            existingThreadEmails || [],
+            knownContacts || []
           );
           
-          // Identifier et enregistrer le contact
-          const isFirstInThread = !existingThreadEmails || existingThreadEmails.length === 0;
-          const contactRole = identifyContactRole(msg.from, isFirstInThread, bodyText || '');
-          await upsertContact(supabase, msg.from, contactRole);
+          // Identifier et enregistrer le contact avec les contacts connus
+          const knownContact = findKnownContact(msg.from, knownContacts || []);
+          const contactRole = knownContact?.default_role || 'prospect';
+          await upsertContact(supabase, msg.from, contactRole, knownContacts || []);
 
           const { data: inserted, error: insertError } = await supabase
             .from('emails')
