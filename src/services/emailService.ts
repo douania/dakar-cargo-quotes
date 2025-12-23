@@ -218,6 +218,14 @@ export interface V5Analysis {
   }>;
 }
 
+export interface GeneratedAttachment {
+  filename: string;
+  storage_path: string;
+  public_url: string;
+  csv_url?: string;
+  content_type: string;
+}
+
 export interface QuotationProcessResult {
   importedEmailId: string;
   originalEmail: {
@@ -240,6 +248,7 @@ export interface QuotationProcessResult {
     attachmentsAnalysis?: AttachmentsAnalysis;
     feasibility?: Feasibility;
     v5Analysis?: V5Analysis;
+    generatedAttachment?: GeneratedAttachment;
   };
 }
 
@@ -300,6 +309,7 @@ export async function processQuotationRequest(
       attachmentsAnalysis: responseData.attachments_analysis,
       feasibility: responseData.feasibility,
       v5Analysis: responseData.v5_analysis,
+      generatedAttachment: responseData.generated_attachment,
     },
   };
 }

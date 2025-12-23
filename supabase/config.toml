@@ -80,3 +80,6 @@ verify_jwt = false
 
 [functions.analyze-risks]
 verify_jwt = false
+
+[functions.generate-quotation-attachment]
+verify_jwt = false
