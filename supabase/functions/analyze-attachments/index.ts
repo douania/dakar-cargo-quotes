@@ -13,19 +13,8 @@ interface TariffLine {
   currency: string;
   unit?: string;
   notes?: string;
-}
-
-interface QuotationExtractedData {
-  type: 'quotation_sheet' | 'pricing_table' | 'rate_card' | 'document';
-  lines: TariffLine[];
-  total?: { amount: number; currency: string };
-  sheetNames?: string[];
-  metadata?: {
-    client?: string;
-    date?: string;
-    route?: string;
-    incoterm?: string;
-  };
+  container_type?: string;
+  sheet_name?: string;
 }
 
 // Extract tariff lines from AI response
@@ -34,14 +23,51 @@ function extractTariffLines(aiResponse: any): TariffLine[] {
   
   if (aiResponse.tariff_lines && Array.isArray(aiResponse.tariff_lines)) {
     for (const line of aiResponse.tariff_lines) {
-      if (line.service && typeof line.amount === 'number') {
+      if (line.service && (typeof line.amount === 'number' || typeof line.amount_xof === 'number')) {
         lines.push({
           service: line.service,
           description: line.description,
-          amount: line.amount,
+          amount: line.amount || line.amount_xof || 0,
           currency: normalizeCurrency(line.currency || 'FCFA'),
           unit: line.unit,
+          container_type: line.container_type || line.container,
+          sheet_name: line.sheet_name,
         });
+      }
+    }
+  }
+  
+  // Also handle sheets structure for Excel
+  if (aiResponse.sheets && Array.isArray(aiResponse.sheets)) {
+    for (const sheet of aiResponse.sheets) {
+      if (sheet.tariffs && Array.isArray(sheet.tariffs)) {
+        for (const tariff of sheet.tariffs) {
+          // Handle rates array structure (multi-container)
+          if (tariff.rates && Array.isArray(tariff.rates)) {
+            for (const rate of tariff.rates) {
+              lines.push({
+                service: tariff.service,
+                description: tariff.category || sheet.name,
+                amount: rate.amount_xof || rate.amount || 0,
+                currency: 'FCFA',
+                unit: rate.container || tariff.unit,
+                container_type: rate.container,
+                sheet_name: sheet.name,
+              });
+            }
+          } else {
+            // Simple tariff structure
+            lines.push({
+              service: tariff.service,
+              description: tariff.description || sheet.name,
+              amount: tariff.amount || tariff.amount_xof || 0,
+              currency: normalizeCurrency(tariff.currency || 'FCFA'),
+              unit: tariff.unit,
+              container_type: tariff.container_type,
+              sheet_name: sheet.name,
+            });
+          }
+        }
       }
     }
   }
@@ -60,13 +86,25 @@ function normalizeCurrency(currency: string): string {
 function detectCargoType(text: string): string {
   const textLower = text.toLowerCase();
   
+  if (textLower.includes('dg') || textLower.includes('dangerous')) return 'container_dg';
+  if (textLower.includes('oog') || textLower.includes('out-of-gauge') || textLower.includes('special')) return 'container_special';
   if (textLower.includes('breakbulk') || textLower.includes('break bulk')) return 'breakbulk';
-  if (textLower.includes('container') || textLower.includes('conteneur')) return 'container';
+  if (textLower.includes('container') || textLower.includes('conteneur') || textLower.includes('dry')) return 'container_dry';
   if (textLower.includes('project') || textLower.includes('projet')) return 'project';
-  if (textLower.includes('40fr') || textLower.includes('flat')) return 'container';
-  if (textLower.includes('oog') || textLower.includes('out-of-gauge')) return 'special';
+  if (textLower.includes('flat') || textLower.includes('40fr')) return 'container_flat';
   
   return 'container'; // Default
+}
+
+function detectCargoTypeFromSheet(sheetName: string): string {
+  const name = sheetName.toLowerCase();
+  if (name.includes('dry')) return 'container_dry';
+  if (name.includes('dg')) return 'container_dg';
+  if (name.includes('oog')) return 'container_oog';
+  if (name.includes('ig') || name.includes('special')) return 'container_special';
+  if (name.includes('transport')) return 'transport';
+  if (name.includes('service')) return 'services';
+  return 'container';
 }
 
 serve(async (req) => {
@@ -124,8 +162,9 @@ serve(async (req) => {
         const isPdf = attachment.content_type === 'application/pdf';
         const isExcel = attachment.content_type?.includes('spreadsheet') || 
                         attachment.content_type?.includes('excel') ||
-                        attachment.filename?.endsWith('.xlsx') ||
-                        attachment.filename?.endsWith('.xls');
+                        attachment.content_type?.includes('openxmlformats-officedocument') ||
+                        attachment.filename?.toLowerCase().endsWith('.xlsx') ||
+                        attachment.filename?.toLowerCase().endsWith('.xls');
         
         // Skip unsupported files
         if (!isImage && !isPdf && !isExcel) {
@@ -149,15 +188,37 @@ serve(async (req) => {
         
         if (downloadError || !fileData) {
           console.error(`Failed to download ${attachment.filename}:`, downloadError);
+          await supabase
+            .from('email_attachments')
+            .update({ 
+              is_analyzed: true,
+              extracted_text: null,
+              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message }
+            })
+            .eq('id', attachment.id);
           continue;
         }
         
         let extractedData: any = null;
         let extractedText = '';
         
-        // Convert to base64
+        // Convert to ArrayBuffer and base64
         const arrayBuffer = await fileData.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // Check if file is too small (likely corrupted)
+        if (uint8Array.length < 100) {
+          console.error(`File too small (${uint8Array.length} bytes): ${attachment.filename}`);
+          await supabase
+            .from('email_attachments')
+            .update({ 
+              is_analyzed: true,
+              extracted_text: null,
+              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length }
+            })
+            .eq('id', attachment.id);
+          continue;
+        }
         
         // Convert to base64 in chunks
         const CHUNK_SIZE = 8192;
@@ -168,39 +229,143 @@ serve(async (req) => {
         }
         base64 = btoa(base64);
         
-        const mimeType = attachment.content_type || (isExcel ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'image/jpeg');
+        console.log(`File converted to base64: ${attachment.filename} (${uint8Array.length} bytes)`);
         
-        // For Excel files, we'll use AI to analyze them as documents
-        // Since Gemini can understand file structure from context
-        const systemPrompt = isExcel 
-          ? `Tu es un expert en analyse de fichiers Excel de cotation logistique et maritime.
-Analyse le document Excel fourni et extrais TOUTES les lignes de tarifs/services avec leurs montants.
+        // Handle Excel files - send to AI with specialized prompt
+        if (isExcel) {
+          const mimeType = attachment.content_type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+          
+          const excelPrompt = `Tu es un expert en analyse de fichiers Excel de cotation logistique et maritime.
 
-Pour chaque ligne de tarif trouvée, extrais:
-- service: nom du service (ex: "DTHC 40'", "On-carriage", "Port charges")
-- amount: montant numérique
-- currency: devise (FCFA, EUR, USD)
-- unit: unité de facturation (EVP, tonne, forfait, voyage)
+Analyse ce fichier Excel de cotation et extrais TOUTES les données tarifaires.
 
-IMPORTANT: Extrais TOUTES les lignes avec des montants, même partiels.
+INSTRUCTIONS IMPORTANTES:
+1. Liste TOUS les onglets du fichier avec leur nom
+2. Pour CHAQUE onglet, extrais TOUTES les lignes tarifaires avec montants
+3. Identifie le type de cargo par onglet (dry containers, DG, OOG, transport, services)
+4. Extrais les tarifs pour chaque type de conteneur (20', 40', etc.)
+5. Préserve les catégories de poids (ex: <15t, <19t, <22t, <28t)
+6. Extrais les tarifs de transport par destination si présents
+7. Calcule les totaux par onglet si présents
 
-Réponds en JSON avec cette structure exacte:
+Réponds UNIQUEMENT en JSON valide avec cette structure:
 {
-  "type": "quotation_sheet",
-  "description": "description brève du document",
-  "tariff_lines": [
-    { "service": "nom", "amount": 123456, "currency": "FCFA", "unit": "EVP" }
+  "type": "quotation_excel",
+  "sheetNames": ["Dry Containers", "DG Cargo", "Special IG", "Special OOG", "Services on Site", "Transport Tariffs"],
+  "sheets": [
+    {
+      "name": "nom de l'onglet",
+      "cargo_type": "container_dry|container_dg|container_oog|transport|services",
+      "tariffs": [
+        { "service": "DTHC", "amount": 182900, "currency": "FCFA", "unit": "20'", "container_type": "20' <15t", "notes": "TTC" }
+      ],
+      "totals": { "20_15t": 1168170, "40_22t": 1849584 }
+    }
   ],
-  "total": { "amount": 123456, "currency": "FCFA" },
   "metadata": {
-    "client": "nom client si visible",
-    "route": "origine -> destination",
-    "incoterm": "DAP/FOB/etc"
+    "client": "nom si visible",
+    "partner": "nom du partenaire/transitaire",
+    "route": "origine -> destination", 
+    "date": "date si visible",
+    "incoterm": "DAP/FOB/etc si visible"
   },
-  "confidence": 0.9
-}`
-          : `Tu es un assistant expert en analyse de documents commerciaux et logistiques. 
-Analyse l'image fournie et extrais toutes les informations pertinentes.
+  "tariff_lines": [
+    { "service": "nom complet du service", "amount": 123456, "currency": "FCFA", "unit": "EVP", "container_type": "20'", "sheet_name": "Dry Containers" }
+  ],
+  "transport_destinations": [
+    { "name": "Saint-Louis", "distance_km": 268, "rates": { "20_dry": 383500, "40_dry": 713900 } }
+  ]
+}`;
+
+          console.log(`Sending Excel ${attachment.filename} to AI for analysis...`);
+          
+          // Send Excel file as base64 data URL
+          const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lovableApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-pro',  // Use Pro for complex Excel analysis
+              messages: [
+                { 
+                  role: 'system', 
+                  content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel multi-onglets. Réponds uniquement en JSON valide.' 
+                },
+                { 
+                  role: 'user', 
+                  content: [
+                    { type: 'text', text: excelPrompt },
+                    { 
+                      type: 'file', 
+                      file: {
+                        filename: attachment.filename,
+                        file_data: `data:${mimeType};base64,${base64}`
+                      }
+                    }
+                  ]
+                }
+              ]
+            }),
+          });
+          
+          if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            console.error(`AI analysis failed for Excel:`, aiResponse.status, errorText);
+            
+            if (aiResponse.status === 402) {
+              return new Response(
+                JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
+                { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            if (aiResponse.status === 429) {
+              return new Response(
+                JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
+                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            
+            // Mark as analyzed with error
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_text: null,
+                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status }
+              })
+              .eq('id', attachment.id);
+            continue;
+          }
+          
+          const aiData = await aiResponse.json();
+          const content = aiData.choices?.[0]?.message?.content || '';
+          
+          console.log(`AI response for Excel (first 800 chars):`, content.substring(0, 800));
+          
+          // Parse AI response
+          try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              extractedData = JSON.parse(jsonMatch[0]);
+              extractedText = `Excel analysé: ${extractedData.sheetNames?.join(', ') || 'onglets détectés'}`;
+            } else {
+              extractedData = { type: 'quotation_excel', raw_response: content };
+              extractedText = content.substring(0, 1000);
+            }
+          } catch (parseError) {
+            console.error('Failed to parse AI JSON response:', parseError);
+            extractedData = { type: 'quotation_excel', raw_response: content };
+            extractedText = content.substring(0, 1000);
+          }
+          
+        } else {
+          // Handle images and PDFs
+          const mimeType = attachment.content_type || 'image/jpeg';
+          
+          const systemPrompt = `Tu es un assistant expert en analyse de documents commerciaux et logistiques. 
+Analyse l'image/document fourni et extrais toutes les informations pertinentes.
 Pour les cotations et tarifs: identifie les lignes de services avec montants, devises, unités.
 Pour les documents: identifie le type, les données clés.
 Réponds en JSON avec cette structure:
@@ -215,137 +380,138 @@ Réponds en JSON avec cette structure:
   "confidence": 0.0-1.0
 }`;
 
-        console.log(`Sending ${attachment.filename} to AI for analysis...`);
-        
-        // Build message content based on file type
-        const userContent: any[] = [
-          {
-            type: 'text',
-            text: isExcel 
-              ? `Analyse ce fichier Excel de cotation (${attachment.filename}) et extrais TOUTES les lignes de tarifs avec leurs montants en FCFA ou EUR.`
-              : `Analyse ce document (${attachment.filename}) et extrais les tarifs et informations.`
+          console.log(`Sending ${attachment.filename} to AI for analysis...`);
+          
+          const userContent = [
+            { type: 'text', text: `Analyse ce document (${attachment.filename}) et extrais les tarifs et informations.` },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+          ];
+          
+          const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lovableApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-flash',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userContent }
+              ]
+            }),
+          });
+          
+          if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            console.error(`AI analysis failed for ${attachment.filename}:`, aiResponse.status, errorText);
+            
+            if (aiResponse.status === 402) {
+              return new Response(
+                JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
+                { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            if (aiResponse.status === 429) {
+              return new Response(
+                JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
+                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            continue;
           }
-        ];
-
-        // For images and PDFs, add image content
-        if (isImage || isPdf) {
-          const dataUrl = `data:${mimeType};base64,${base64}`;
-          userContent.push({
-            type: 'image_url',
-            image_url: { url: dataUrl }
-          });
-        } else if (isExcel) {
-          // For Excel, we pass the base64 data as context
-          userContent.push({
-            type: 'text',
-            text: `[Fichier Excel en base64 - ${attachment.filename}]\nLe fichier contient des données de cotation à analyser. Taille: ${uint8Array.length} octets.`
-          });
+          
+          const aiData = await aiResponse.json();
+          const content = aiData.choices?.[0]?.message?.content || '';
+          
+          console.log(`AI response for ${attachment.filename}:`, content.substring(0, 300));
+          
+          extractedData = { raw_response: content };
+          
+          try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              extractedData = JSON.parse(jsonMatch[0]);
+              extractedText = extractedData.text_content || extractedData.description || '';
+            }
+          } catch (parseError) {
+            console.log('Could not parse JSON, using raw response');
+            extractedText = content;
+          }
         }
         
-        // Analyze with AI
-        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${lovableApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userContent }
-            ]
-          }),
-        });
+        // Extract tariff lines and store in quotation_history
+        const tariffLines = extractTariffLines(extractedData);
         
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error(`AI analysis failed for ${attachment.filename}:`, aiResponse.status, errorText);
+        console.log(`Extracted ${tariffLines.length} tariff lines from ${attachment.filename}`);
+        
+        if (tariffLines.length > 0 && attachment.email_id) {
+          console.log(`Storing ${tariffLines.length} tariff lines in quotation_history...`);
           
-          if (aiResponse.status === 402) {
-            return new Response(
-              JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
-              { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
+          // Get email info for route detection
+          const { data: emailData } = await supabase
+            .from('emails')
+            .select('subject, from_address, extracted_data')
+            .eq('id', attachment.email_id)
+            .single();
           
-          if (aiResponse.status === 429) {
-            return new Response(
-              JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
-              { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
-          
-          continue;
-        }
-        
-        const aiData = await aiResponse.json();
-        const content = aiData.choices?.[0]?.message?.content || '';
-        
-        console.log(`AI response for ${attachment.filename}:`, content.substring(0, 300));
-        
-        // Parse the JSON response
-        extractedData = { raw_response: content };
-        extractedText = '';
-        
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            extractedData = parsed;
-            extractedText = parsed.text_content || parsed.description || '';
+          if (emailData) {
+            const subject = emailData.subject || '';
+            const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
+            const destination = routeMatch ? routeMatch[1].trim() : 
+                               (extractedData.metadata?.route?.split('->')[1]?.trim() || 'Dakar');
             
-            // Extract tariff lines
-            const tariffLines = extractTariffLines(parsed);
+            // Get unique cargo types from sheet names or tariff lines
+            const cargoTypes = new Set<string>();
+            if (extractedData.sheets && Array.isArray(extractedData.sheets)) {
+              for (const sheet of extractedData.sheets) {
+                const cargoType = sheet.cargo_type || detectCargoTypeFromSheet(sheet.name);
+                cargoTypes.add(cargoType);
+              }
+            }
+            if (cargoTypes.size === 0) {
+              cargoTypes.add(detectCargoType(subject + ' ' + attachment.filename));
+            }
             
-            // If tariff lines detected, store in quotation_history
-            if (tariffLines.length > 0 && attachment.email_id) {
-              console.log(`Extracted ${tariffLines.length} tariff lines, storing in history...`);
+            // Store one quotation_history entry per cargo type
+            for (const cargoType of cargoTypes) {
+              const relevantLines = extractedData.sheets 
+                ? tariffLines.filter(l => {
+                    if (!l.sheet_name) return true;
+                    const sheetCargoType = detectCargoTypeFromSheet(l.sheet_name);
+                    return sheetCargoType === cargoType;
+                  })
+                : tariffLines;
               
-              // Get email info for route detection
-              const { data: emailData } = await supabase
-                .from('emails')
-                .select('subject, from_address, extracted_data')
-                .eq('id', attachment.email_id)
-                .single();
+              if (relevantLines.length === 0) continue;
               
-              if (emailData) {
-                const subject = emailData.subject || '';
-                const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
-                const destination = routeMatch ? routeMatch[1].trim() : 
-                                   (parsed.metadata?.route?.split('->')[1]?.trim() || 'Dakar');
-                
-                // Calculate total
-                const totalFcfa = tariffLines
-                  .filter(l => l.currency === 'FCFA')
-                  .reduce((sum, l) => sum + l.amount, 0);
-                
-                const { error: historyError } = await supabase
-                  .from('quotation_history')
-                  .insert({
-                    route_port: 'Dakar',
-                    route_destination: destination,
-                    cargo_type: detectCargoType(subject + ' ' + attachment.filename),
-                    client_company: parsed.metadata?.client,
-                    incoterm: parsed.metadata?.incoterm,
-                    tariff_lines: tariffLines,
-                    total_amount: totalFcfa || parsed.total?.amount,
-                    total_currency: 'FCFA',
-                    source_email_id: attachment.email_id,
-                    source_attachment_id: attachment.id,
-                  });
-                
-                if (historyError) {
-                  console.error('Error storing quotation history:', historyError);
-                } else {
-                  console.log(`Quotation history stored successfully: ${tariffLines.length} lines`);
-                }
+              const totalFcfa = relevantLines
+                .filter(l => l.currency === 'FCFA')
+                .reduce((sum, l) => sum + l.amount, 0);
+              
+              const { error: historyError } = await supabase
+                .from('quotation_history')
+                .insert({
+                  route_port: 'Dakar',
+                  route_destination: destination,
+                  cargo_type: cargoType,
+                  client_company: extractedData.metadata?.client,
+                  partner_company: extractedData.metadata?.partner,
+                  incoterm: extractedData.metadata?.incoterm,
+                  tariff_lines: relevantLines,
+                  total_amount: totalFcfa || extractedData.total?.amount,
+                  total_currency: 'FCFA',
+                  source_email_id: attachment.email_id,
+                  source_attachment_id: attachment.id,
+                });
+              
+              if (historyError) {
+                console.error('Error storing quotation history:', historyError);
+              } else {
+                console.log(`Quotation history stored: ${cargoType} - ${relevantLines.length} lines`);
               }
             }
           }
-        } catch (parseError) {
-          console.log('Could not parse JSON, using raw response');
-          extractedText = content;
         }
         
         // Update the attachment record
@@ -353,7 +519,7 @@ Réponds en JSON avec cette structure:
           .from('email_attachments')
           .update({
             is_analyzed: true,
-            extracted_text: extractedText,
+            extracted_text: extractedText?.substring(0, 10000) || '', // Limit text length
             extracted_data: extractedData
           })
           .eq('id', attachment.id);
@@ -365,8 +531,9 @@ Réponds en JSON avec cette structure:
           results.push({
             id: attachment.id,
             filename: attachment.filename,
-            type: extractedData.type,
-            linesExtracted: extractedData.tariff_lines?.length || 0,
+            type: extractedData?.type || 'unknown',
+            sheetsFound: extractedData?.sheetNames?.length || 0,
+            linesExtracted: tariffLines.length,
             success: true
           });
         }
