@@ -17,10 +17,12 @@ export const COMPANY_CONTEXT = {
     relationship: "Partenaire commercial - sous-traite le dédouanement à SODATRA"
   },
   key_contacts: {
-    taleb: { name: "Taleb HOBALLAH", role: "Directeur 2HL Group", email_pattern: ["taleb", "2hl"] },
-    cherif: { name: "Cherif", role: "Responsable Douane", expertise: ["HS codes", "régimes douaniers"] },
-    eric: { name: "Eric", role: "Suivi opérationnel" },
-    samba: { name: "Samba", role: "Booking/Shipping" }
+    taleb: { name: "Taleb HOBALLAH", role: "Directeur 2HL Group", email_pattern: ["taleb", "2hl"] }
+  },
+  internal_teams: {
+    customs: { name: "Équipe Douane", expertise: ["HS codes", "régimes douaniers", "dédouanement"] },
+    operations: { name: "Équipe Opérations", expertise: ["suivi", "coordination", "livraison"] },
+    shipping: { name: "Équipe Shipping", expertise: ["booking", "BL", "réservations"] }
   }
 };
 
