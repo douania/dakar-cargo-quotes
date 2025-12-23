@@ -126,9 +126,15 @@ function escapeRegExp(str: string): string {
 }
 
 // Extract text/plain and text/html from multipart MIME email
-function extractTextFromMultipart(rawBody: string, outerBoundary?: string): { text: string; html: string } {
+function extractTextFromMultipart(rawBody: string, depth: number = 0): { text: string; html: string } {
   let text = '';
   let html = '';
+  
+  // Protection against infinite recursion
+  if (depth > 5) {
+    console.warn('Max MIME nesting depth reached, stopping recursion');
+    return { text: '', html: '' };
+  }
   
   // Detect the boundary from Content-Type header in the body
   const boundaryMatch = rawBody.match(/boundary\s*=\s*"?([^"\r\n;]+)"?/i);
@@ -148,13 +154,13 @@ function extractTextFromMultipart(rawBody: string, outerBoundary?: string): { te
   }
   
   const boundary = boundaryMatch[1].trim();
-  console.log(`Detected MIME boundary: ${boundary.substring(0, 50)}...`);
+  console.log(`Detected MIME boundary (depth ${depth}): ${boundary.substring(0, 50)}...`);
   
   // Split by boundary - use exact boundary delimiter
   const boundaryDelimiter = `--${boundary}`;
   const parts = rawBody.split(boundaryDelimiter);
   
-  console.log(`Found ${parts.length} MIME parts`);
+  console.log(`Found ${parts.length} MIME parts at depth ${depth}`);
   
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
@@ -165,9 +171,20 @@ function extractTextFromMultipart(rawBody: string, outerBoundary?: string): { te
     if (!partContentTypeMatch) {
       // Check for nested multipart
       if (part.match(/Content-Type:\s*multipart\//i)) {
-        const nestedResult = extractTextFromMultipart(part, boundary);
-        if (nestedResult.text && !text) text = nestedResult.text;
-        if (nestedResult.html && !html) html = nestedResult.html;
+        // Extract the NEW boundary for this nested part
+        const nestedBoundaryMatch = part.match(/boundary\s*=\s*"?([^"\r\n;]+)"?/i);
+        if (nestedBoundaryMatch) {
+          const nestedBoundary = nestedBoundaryMatch[1].trim();
+          // Only recurse if it's a different boundary to avoid infinite loop
+          if (nestedBoundary !== boundary) {
+            console.log(`Found nested multipart with boundary: ${nestedBoundary.substring(0, 30)}...`);
+            const nestedResult = extractTextFromMultipart(part, depth + 1);
+            if (nestedResult.text && !text) text = nestedResult.text;
+            if (nestedResult.html && !html) html = nestedResult.html;
+          } else {
+            console.warn(`Skipping nested multipart with same boundary to avoid recursion`);
+          }
+        }
       }
       continue;
     }
