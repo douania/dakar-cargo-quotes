@@ -1,3 +1,7 @@
+// Re-export the new puzzle-based processor as the main component
+export { QuotationProcessorWithPuzzle as QuotationProcessor } from './QuotationProcessorWithPuzzle';
+
+// Also keep the original for backwards compatibility
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -8,6 +12,17 @@ import {
   Mail, 
   FileText, 
   AlertCircle,
+  Sparkles,
+  Calendar,
+  User,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+  FileWarning,
+  Download,
+  FileSpreadsheet,
+  ExternalLink,
+} from 'lucide-react';
   Sparkles,
   Calendar,
   User,

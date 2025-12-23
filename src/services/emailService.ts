@@ -127,6 +127,47 @@ export async function importThread(configId: string, uids: number[]) {
   return data;
 }
 
+// Puzzle Analysis types
+export interface PuzzlePiece {
+  key: string;
+  label: string;
+  value: string | null;
+  source: 'email' | 'attachment' | 'learned' | 'manual';
+  confidence?: number;
+}
+
+export interface MissingClientInfo {
+  key: string;
+  label: string;
+  question: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface ResearchItem {
+  key: string;
+  label: string;
+  searchType: 'tariff' | 'hs_code' | 'customs_duty' | 'carrier' | 'contact' | 'historical';
+  suggestedActions: string[];
+  status: 'pending' | 'searching' | 'found' | 'not_found';
+  result?: string;
+}
+
+export interface Suggestion {
+  type: 'carrier' | 'historical_quote' | 'contact' | 'tip';
+  title: string;
+  items: { label: string; detail?: string; action?: string }[];
+}
+
+export interface PuzzleAnalysis {
+  provided: PuzzlePiece[];
+  needsFromClient: MissingClientInfo[];
+  needsResearch: ResearchItem[];
+  suggestions: Suggestion[];
+  completeness: number;
+  canGenerateQuote: boolean;
+  transportMode: 'maritime' | 'air' | 'road' | 'multimodal' | 'unknown';
+}
+
 export interface RegulatoryAnalysis {
   requested_regime?: string;
   recommended_regime?: string;
@@ -218,6 +259,31 @@ export interface V5Analysis {
   }>;
 }
 
+export interface ExtractedData {
+  weight_kg?: number | null;
+  volume_cbm?: number | null;
+  container_type?: string | null;
+  incoterm?: string | null;
+  carrier?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  cargo_description?: string | null;
+  value?: number | null;
+  currency?: string | null;
+  eta_date?: string | null;
+}
+
+export interface DetectedElements {
+  hasPI: boolean;
+  hasIncoterm: boolean;
+  hasDestination: boolean;
+  hasOrigin: boolean;
+  hasContainerType: boolean;
+  hasGoodsDescription: boolean;
+  hasHsCode: boolean;
+  hasValue: boolean;
+}
+
 export interface GeneratedAttachment {
   filename: string;
   storage_path: string;
@@ -250,6 +316,12 @@ export interface QuotationProcessResult {
     v5Analysis?: V5Analysis;
     generatedAttachment?: GeneratedAttachment;
   };
+  // New puzzle-related fields
+  extractedData?: ExtractedData;
+  detectedElements?: DetectedElements;
+  canQuoteNow?: boolean;
+  requestType?: string;
+  clarificationQuestions?: string[];
 }
 
 export async function processQuotationRequest(
@@ -311,5 +383,11 @@ export async function processQuotationRequest(
       v5Analysis: responseData.v5_analysis,
       generatedAttachment: responseData.generated_attachment,
     },
+    // Puzzle-related fields from backend
+    extractedData: responseData.extracted_data,
+    detectedElements: responseData.detected_elements,
+    canQuoteNow: responseData.can_quote_now,
+    requestType: responseData.request_type,
+    clarificationQuestions: responseData.clarification_questions,
   };
 }
