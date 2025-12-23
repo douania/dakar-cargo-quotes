@@ -1,7 +1,7 @@
 // Re-export the new puzzle-based processor as the main component
 export { QuotationProcessorWithPuzzle as QuotationProcessor } from './QuotationProcessorWithPuzzle';
 
-// Also keep the original for backwards compatibility
+// Legacy component kept for reference
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -12,17 +12,6 @@ import {
   Mail, 
   FileText, 
   AlertCircle,
-  Sparkles,
-  Calendar,
-  User,
-  AlertTriangle,
-  CheckCircle2,
-  ShieldCheck,
-  FileWarning,
-  Download,
-  FileSpreadsheet,
-  ExternalLink,
-} from 'lucide-react';
   Sparkles,
   Calendar,
   User,
@@ -51,7 +40,7 @@ import { toast } from 'sonner';
 import { V5AnalysisDisplay } from '@/components/V5AnalysisDisplay';
 import type { QuotationProcessResult } from '@/services/emailService';
 
-interface Props {
+interface LegacyProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   result: QuotationProcessResult | null;
@@ -59,13 +48,14 @@ interface Props {
   onComplete: () => void;
 }
 
-export function QuotationProcessor({ 
+// Keep the original component as legacy (not exported by default)
+export function QuotationProcessorLegacy({ 
   open, 
   onOpenChange, 
   result, 
   isLoading,
   onComplete 
-}: Props) {
+}: LegacyProps) {
   const [editedBody, setEditedBody] = useState('');
   const [copied, setCopied] = useState(false);
 
