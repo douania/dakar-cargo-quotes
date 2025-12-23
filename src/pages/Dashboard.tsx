@@ -1,99 +1,115 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
   Mail, 
-  FileText, 
-  Clock, 
-  TrendingUp, 
-  AlertTriangle,
-  CheckCircle2,
+  RefreshCw, 
+  Plus,
   Loader2,
-  ArrowRight,
-  Ship,
-  Calculator,
-  Package,
-  BarChart3,
-  RefreshCw
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  FileText,
+  TrendingUp,
+  Filter
 } from 'lucide-react';
-import { Header } from '@/components/Header';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { QuotationRequestCard } from '@/components/QuotationRequestCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-interface DashboardStats {
-  totalEmails: number;
-  quotationRequests: number;
-  pendingDrafts: number;
-  sentDrafts: number;
-  recentEmails: Array<{
-    id: string;
-    subject: string;
-    from_address: string;
-    received_at: string;
-    is_quotation_request: boolean;
-  }>;
-  recentDrafts: Array<{
-    id: string;
-    subject: string;
-    status: string;
-    created_at: string;
-  }>;
+interface QuotationRequest {
+  id: string;
+  subject: string;
+  from_address: string;
+  received_at: string;
+  body_text: string;
+  extracted_data: any;
+  thread_id?: string;
+  attachmentCount?: number;
+}
+
+interface Stats {
+  pending: number;
+  processed: number;
+  drafts: number;
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<QuotationRequest[]>([]);
+  const [stats, setStats] = useState<Stats>({ pending: 0, processed: 0, drafts: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'completeness'>('date');
 
-  const fetchStats = async () => {
+  const fetchData = async () => {
     try {
-      // Fetch email stats
-      const { data: emails, count: emailCount } = await supabase
+      // Fetch quotation requests (emails marked as quotation that haven't been processed)
+      const { data: emails, error: emailsError } = await supabase
         .from('emails')
-        .select('id, subject, from_address, received_at, is_quotation_request', { count: 'exact' })
+        .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
+        .eq('is_quotation_request', true)
         .order('received_at', { ascending: false })
-        .limit(10);
+        .limit(50);
 
-      // Fetch quotation request count
+      if (emailsError) throw emailsError;
+
+      // Get attachment counts
+      const { data: attachments } = await supabase
+        .from('email_attachments')
+        .select('email_id');
+
+      const attachmentCounts: Record<string, number> = {};
+      attachments?.forEach(att => {
+        if (att.email_id) {
+          attachmentCounts[att.email_id] = (attachmentCounts[att.email_id] || 0) + 1;
+        }
+      });
+
+      // Get draft count for processed emails
+      const { data: drafts } = await supabase
+        .from('email_drafts')
+        .select('original_email_id')
+        .not('original_email_id', 'is', null);
+
+      const processedEmailIds = new Set(drafts?.map(d => d.original_email_id) || []);
+
+      // Enrich emails with attachment count and filter out processed ones
+      const pendingRequests = (emails || [])
+        .filter(email => !processedEmailIds.has(email.id))
+        .map(email => ({
+          ...email,
+          attachmentCount: attachmentCounts[email.id] || 0,
+        }));
+
+      setRequests(pendingRequests);
+
+      // Calculate stats
       const { count: quotationCount } = await supabase
         .from('emails')
         .select('id', { count: 'exact' })
         .eq('is_quotation_request', true);
 
-      // Fetch draft stats
-      const { data: drafts } = await supabase
-        .from('email_drafts')
-        .select('id, subject, status, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      const { count: pendingCount } = await supabase
+      const { count: draftCount } = await supabase
         .from('email_drafts')
         .select('id', { count: 'exact' })
         .eq('status', 'draft');
 
-      const { count: sentCount } = await supabase
-        .from('email_drafts')
-        .select('id', { count: 'exact' })
-        .eq('status', 'sent');
-
       setStats({
-        totalEmails: emailCount || 0,
-        quotationRequests: quotationCount || 0,
-        pendingDrafts: pendingCount || 0,
-        sentDrafts: sentCount || 0,
-        recentEmails: emails || [],
-        recentDrafts: drafts || [],
+        pending: pendingRequests.length,
+        processed: processedEmailIds.size,
+        drafts: draftCount || 0,
       });
     } catch (error) {
-      console.error('Error fetching stats:', error);
-      toast.error('Erreur lors du chargement des statistiques');
+      console.error('Error fetching data:', error);
+      toast.error('Erreur de chargement des données');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -101,253 +117,167 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchStats();
+    fetchData();
   }, []);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchStats();
+    fetchData();
   };
 
-  const formatDate = (dateStr: string) => {
-    try {
-      return format(new Date(dateStr), "dd MMM 'à' HH:mm", { locale: fr });
-    } catch {
-      return '-';
+  const handleProcess = (emailId: string) => {
+    // Navigate to the quotation sheet with the email context
+    navigate(`/quotation/${emailId}`);
+  };
+
+  const handleNewQuotation = () => {
+    navigate('/quotation/new');
+  };
+
+  // Sort requests
+  const sortedRequests = [...requests].sort((a, b) => {
+    if (sortBy === 'date') {
+      return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
     }
-  };
-
-  const kpiCards = [
-    {
-      title: 'Emails reçus',
-      value: stats?.totalEmails || 0,
-      icon: Mail,
-      color: 'text-ocean',
-      bgColor: 'bg-ocean/10',
-    },
-    {
-      title: 'Demandes de cotation',
-      value: stats?.quotationRequests || 0,
-      icon: FileText,
-      color: 'text-primary',
-      bgColor: 'bg-primary/10',
-    },
-    {
-      title: 'Brouillons en attente',
-      value: stats?.pendingDrafts || 0,
-      icon: Clock,
-      color: 'text-amber-500',
-      bgColor: 'bg-amber-500/10',
-    },
-    {
-      title: 'Réponses envoyées',
-      value: stats?.sentDrafts || 0,
-      icon: CheckCircle2,
-      color: 'text-green-500',
-      bgColor: 'bg-green-500/10',
-    },
-  ];
-
-  const quickActions = [
-    {
-      title: 'Nouvelle cotation',
-      description: 'Créer une cotation manuelle',
-      icon: Calculator,
-      href: '/quotation/new',
-      color: 'text-primary',
-    },
-    {
-      title: 'Gérer les emails',
-      description: 'Voir tous les emails',
-      icon: Mail,
-      href: '/admin/emails',
-      color: 'text-ocean',
-    },
-    {
-      title: 'Codes SH',
-      description: 'Rechercher un code douanier',
-      icon: Package,
-      href: '/admin/hs-codes',
-      color: 'text-green-500',
-    },
-    {
-      title: 'Tarifs portuaires',
-      description: 'Consulter les tarifs DPW/PAD',
-      icon: Ship,
-      href: '/admin/tarifs-portuaires',
-      color: 'text-amber-500',
-    },
-  ];
+    // Sort by completeness (more complete first)
+    const getCompleteness = (r: QuotationRequest) => {
+      const data = r.extracted_data || {};
+      const fields = ['cargo', 'origin', 'incoterm'];
+      return fields.filter(f => data[f]).length;
+    };
+    return getCompleteness(b) - getCompleteness(a);
+  });
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container mx-auto px-4 py-8">
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        </main>
-      </div>
+      <MainLayout>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="container mx-auto px-4 py-8">
+    <MainLayout>
+      <div className="container mx-auto px-4 py-6 max-w-6xl">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gradient-gold">Tableau de bord</h1>
-            <p className="text-muted-foreground mt-1">Vue d'ensemble de l'activité cotation</p>
+            <h1 className="text-2xl font-bold text-gradient-gold">Demandes à traiter</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              {stats.pending} demande{stats.pending > 1 ? 's' : ''} de cotation en attente
+            </p>
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Actualiser
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Actualiser
+            </Button>
+            <Button size="sm" onClick={handleNewQuotation}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nouvelle cotation
+            </Button>
+          </div>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {kpiCards.map((kpi) => (
-            <Card key={kpi.title} className="border-border/50 bg-gradient-card">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">{kpi.title}</p>
-                    <p className="text-3xl font-bold mt-1">{kpi.value}</p>
-                  </div>
-                  <div className={`p-3 rounded-xl ${kpi.bgColor}`}>
-                    <kpi.icon className={`h-6 w-6 ${kpi.color}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Emails */}
-          <Card className="lg:col-span-2 border-border/50 bg-gradient-card">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Mail className="h-5 w-5 text-ocean" />
-                  Emails récents
-                </CardTitle>
-                <CardDescription>Derniers emails reçus</CardDescription>
-              </div>
-              <Link to="/admin/emails">
-                <Button variant="ghost" size="sm">
-                  Voir tout
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[300px]">
-                <div className="space-y-3">
-                  {stats?.recentEmails.map((email) => (
-                    <div 
-                      key={email.id} 
-                      className="flex items-start justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium truncate">{email.subject || 'Sans sujet'}</p>
-                          {email.is_quotation_request && (
-                            <Badge variant="secondary" className="text-xs bg-primary/20 text-primary">
-                              Cotation
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate">{email.from_address}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                        {formatDate(email.received_at)}
-                      </span>
-                    </div>
-                  ))}
-                  {(!stats?.recentEmails || stats.recentEmails.length === 0) && (
-                    <p className="text-center text-muted-foreground py-8">
-                      Aucun email récent
-                    </p>
-                  )}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <Card className="border-border/50 bg-gradient-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                Actions rapides
-              </CardTitle>
-              <CardDescription>Accès direct aux fonctionnalités</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {quickActions.map((action) => (
-                  <Link key={action.href} to={action.href}>
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer">
-                      <div className={`p-2 rounded-lg bg-muted`}>
-                        <action.icon className={`h-5 w-5 ${action.color}`} />
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{action.title}</p>
-                        <p className="text-xs text-muted-foreground">{action.description}</p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">En attente</p>
+                  <p className="text-2xl font-bold text-amber-500">{stats.pending}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-amber-500/10">
+                  <Clock className="h-5 w-5 text-amber-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-border/50 bg-gradient-card">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Traitées</p>
+                  <p className="text-2xl font-bold text-green-500">{stats.processed}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-green-500/10">
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-border/50 bg-gradient-card">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Brouillons</p>
+                  <p className="text-2xl font-bold text-ocean">{stats.drafts}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-ocean/10">
+                  <FileText className="h-5 w-5 text-ocean" />
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Recent Drafts */}
-        {stats?.recentDrafts && stats.recentDrafts.length > 0 && (
-          <Card className="mt-6 border-border/50 bg-gradient-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-amber-500" />
-                Brouillons récents
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {stats.recentDrafts.map((draft) => (
-                  <div 
-                    key={draft.id}
-                    className="p-3 rounded-lg bg-muted/30 border border-border/50"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <Badge 
-                        variant={draft.status === 'sent' ? 'default' : 'secondary'}
-                        className={draft.status === 'sent' ? 'bg-green-500/20 text-green-500' : ''}
-                      >
-                        {draft.status === 'sent' ? 'Envoyé' : 'Brouillon'}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(draft.created_at)}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium truncate">{draft.subject}</p>
-                  </div>
-                ))}
+        {/* Filter & Sort */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Mail className="h-5 w-5 text-primary" />
+            Demandes de cotation
+          </h2>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'completeness')}>
+            <SelectTrigger className="w-[180px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Trier par" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date">Date de réception</SelectItem>
+              <SelectItem value="completeness">Complétude</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Requests List */}
+        {sortedRequests.length === 0 ? (
+          <Card className="border-border/50 bg-gradient-card">
+            <CardContent className="py-12">
+              <div className="text-center">
+                <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
+                <h3 className="text-lg font-medium mb-2">Tout est à jour !</h3>
+                <p className="text-muted-foreground mb-4">
+                  Aucune demande de cotation en attente de traitement.
+                </p>
+                <Button onClick={handleNewQuotation}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Créer une cotation manuelle
+                </Button>
               </div>
             </CardContent>
           </Card>
+        ) : (
+          <div className="space-y-3">
+            {sortedRequests.map((request) => (
+              <QuotationRequestCard
+                key={request.id}
+                request={request}
+                onProcess={handleProcess}
+              />
+            ))}
+          </div>
         )}
-      </main>
-    </div>
+      </div>
+    </MainLayout>
   );
 }
