@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
@@ -11,7 +12,9 @@ import {
   DollarSign,
   Lightbulb,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Brain,
+  Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,8 +23,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSimilarQuotations, getSuggestedTariffs } from '@/hooks/useQuotationHistory';
+import { useTariffSuggestions } from '@/hooks/useTariffSuggestions';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
 
 interface TariffLine {
   service: string;
@@ -48,21 +51,32 @@ export function SimilarQuotationsPanel({
   const [expanded, setExpanded] = useState(true);
   const [showAllLines, setShowAllLines] = useState<string | null>(null);
   
-  const { data: similarQuotations, isLoading } = useSimilarQuotations(
+  const { data: similarQuotations, isLoading: isLoadingQuotations } = useSimilarQuotations(
     destination,
     cargoType,
     clientCompany
   );
   
-  if (isLoading || !similarQuotations || similarQuotations.length === 0) {
+  // Fallback to learned_knowledge tariffs
+  const { data: knowledgeTariffs, isLoading: isLoadingKnowledge } = useTariffSuggestions(
+    destination,
+    cargoType
+  );
+  
+  const isLoading = isLoadingQuotations || isLoadingKnowledge;
+  const hasQuotations = similarQuotations && similarQuotations.length > 0;
+  const hasTariffs = knowledgeTariffs && knowledgeTariffs.length > 0;
+  
+  // Don't render if no data available
+  if (!isLoading && !hasQuotations && !hasTariffs) {
     return null;
   }
   
-  // Get suggested tariffs for requested services
-  const suggestedTariffs = getSuggestedTariffs(similarQuotations, requestedServices);
+  // Get suggested tariffs for requested services (from quotation history)
+  const suggestedTariffs = hasQuotations ? getSuggestedTariffs(similarQuotations, requestedServices) : new Map();
   
   const formatCurrency = (amount: number, currency: string) => {
-    if (currency === 'FCFA') {
+    if (currency === 'FCFA' || currency === 'XOF') {
       return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
     }
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency }).format(amount);
@@ -75,6 +89,8 @@ export function SimilarQuotationsPanel({
       return dateStr;
     }
   };
+
+  const totalCount = (similarQuotations?.length || 0) + (knowledgeTariffs?.length || 0);
   
   return (
     <Card className="border-amber-500/30 bg-amber-500/5">
@@ -84,7 +100,8 @@ export function SimilarQuotationsPanel({
             <div className="flex items-center justify-between cursor-pointer">
               <CardTitle className="text-base flex items-center gap-2 text-amber-600">
                 <Sparkles className="h-4 w-4" />
-                Cotations similaires ({similarQuotations.length})
+                Suggestions tarifaires {isLoading ? '' : `(${totalCount})`}
+                {isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
               </CardTitle>
               {expanded ? (
                 <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -94,18 +111,71 @@ export function SimilarQuotationsPanel({
             </div>
           </CollapsibleTrigger>
           <CardDescription>
-            Tarifs basés sur l'historique des cotations
+            Tarifs basés sur l'historique et les connaissances
           </CardDescription>
         </CardHeader>
         
         <CollapsibleContent>
           <CardContent className="space-y-4">
+            {/* Knowledge-based tariff suggestions */}
+            {hasTariffs && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Brain className="h-4 w-4 text-primary" />
+                  Tarifs des connaissances
+                </p>
+                <div className="grid gap-2">
+                  {knowledgeTariffs.slice(0, 5).map((tariff) => (
+                    <div 
+                      key={tariff.sourceId}
+                      className="flex items-center justify-between p-2 rounded-lg bg-background border"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{tariff.service}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {tariff.source} {tariff.isValidated && '✓'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-mono">
+                          {formatCurrency(tariff.amount, tariff.currency)}
+                        </Badge>
+                        <Badge 
+                          variant="outline" 
+                          className={cn(
+                            "text-xs",
+                            tariff.confidence > 0.7 
+                              ? "border-green-500/50 text-green-600" 
+                              : "border-amber-500/50 text-amber-600"
+                          )}
+                        >
+                          {Math.round(tariff.confidence * 100)}%
+                        </Badge>
+                        {onApplyTariff && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-6 px-2"
+                            onClick={() => onApplyTariff(tariff.service, tariff.amount, tariff.currency)}
+                          >
+                            <ArrowRight className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasTariffs && hasQuotations && <Separator />}
+
             {/* Suggested tariffs for requested services */}
             {suggestedTariffs.size > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
-                  Tarifs suggérés
+                  Tarifs suggérés (historique)
                 </p>
                 <div className="grid gap-2">
                   {Array.from(suggestedTariffs.entries()).map(([service, data]) => (
