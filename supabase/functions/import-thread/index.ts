@@ -112,12 +112,54 @@ function decodeQuotedPrintable(content: string): Uint8Array {
 }
 
 // Decode quoted-printable content to string (for email body)
-function decodeQuotedPrintableText(content: string): string {
-  return content
-    .replace(/=\r?\n/g, '')  // Soft line breaks
-    .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => 
-      String.fromCharCode(parseInt(hex, 16))
-    );
+function decodeQuotedPrintableText(content: string, charset: string = 'utf-8'): string {
+  // First, handle soft line breaks (= at end of line means continue on next line)
+  let decoded = content.replace(/=\r?\n/g, '');
+  
+  // Then decode hex-encoded characters
+  decoded = decoded.replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => {
+    const charCode = parseInt(hex, 16);
+    return String.fromCharCode(charCode);
+  });
+  
+  // Handle Windows-1252 specific characters if detected
+  if (charset.toLowerCase().includes('windows-1252') || charset.toLowerCase().includes('iso-8859')) {
+    // Common Windows-1252 to UTF-8 mappings for French characters
+    decoded = decoded
+      .replace(/\x92/g, "'")  // Right single quotation mark
+      .replace(/\x93/g, '"')  // Left double quotation mark
+      .replace(/\x94/g, '"')  // Right double quotation mark
+      .replace(/\x85/g, '...') // Horizontal ellipsis
+      .replace(/\x96/g, '-')  // En dash
+      .replace(/\x97/g, '-'); // Em dash
+  }
+  
+  return decoded;
+}
+
+// Clean MIME headers and boundary markers from extracted content
+function cleanMimeContent(content: string): string {
+  let cleaned = content;
+  
+  // Remove any boundary markers at the start
+  cleaned = cleaned.replace(/^--[^\r\n]+[\r\n]*/g, '');
+  
+  // Remove Content-Type headers
+  cleaned = cleaned.replace(/^Content-Type:[^\r\n]*[\r\n]*/gim, '');
+  
+  // Remove Content-Transfer-Encoding headers
+  cleaned = cleaned.replace(/^Content-Transfer-Encoding:[^\r\n]*[\r\n]*/gim, '');
+  
+  // Remove Content-Disposition headers
+  cleaned = cleaned.replace(/^Content-Disposition:[^\r\n]*[\r\n]*/gim, '');
+  
+  // Remove any leading whitespace/newlines
+  cleaned = cleaned.replace(/^[\r\n\s]+/, '');
+  
+  // Remove trailing boundary markers
+  cleaned = cleaned.replace(/[\r\n]+--[^\r\n]*--?[\r\n]*$/g, '');
+  
+  return cleaned.trim();
 }
 
 // Escape special regex characters
@@ -191,6 +233,10 @@ function extractTextFromMultipart(rawBody: string, depth: number = 0): { text: s
     
     const partType = partContentTypeMatch[1].toLowerCase();
     
+    // Extract charset if present
+    const charsetMatch = part.match(/charset\s*=\s*"?([^"\r\n;]+)"?/i);
+    const charset = charsetMatch?.[1] || 'utf-8';
+    
     // Find the content (after double CRLF - header/body separator)
     const contentStart = part.indexOf('\r\n\r\n');
     if (contentStart === -1) continue;
@@ -203,12 +249,11 @@ function extractTextFromMultipart(rawBody: string, depth: number = 0): { text: s
     
     // First, clean up trailing content that might be after the actual content
     // This includes the closing -- or next boundary marker in the next part
-    // Look for the end marker which is either "--" alone (end of this part's content) or end of string
-    content = content.replace(/\r?\n--\s*$/, '').trim();
+    content = content.replace(/[\r\n]+--[^\r\n]*--?[\r\n]*$/, '').trim();
     
     // Decode based on encoding AFTER trimming
     if (encoding === 'quoted-printable') {
-      content = decodeQuotedPrintableText(content);
+      content = decodeQuotedPrintableText(content, charset);
     } else if (encoding === 'base64') {
       try {
         const cleaned = content.replace(/[\r\n\s]/g, '');
@@ -218,8 +263,8 @@ function extractTextFromMultipart(rawBody: string, depth: number = 0): { text: s
       }
     }
     
-    // Final cleanup - trim and ensure no leftover boundary markers
-    content = content.trim();
+    // Clean any residual MIME headers or boundary markers
+    content = cleanMimeContent(content);
     
     if (partType === 'plain' && !text) {
       text = content;
