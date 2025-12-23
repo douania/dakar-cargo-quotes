@@ -27,7 +27,11 @@ import {
   Anchor,
   Truck,
   Container,
-  Boxes
+  Boxes,
+  Clock,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,7 +43,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -96,7 +100,7 @@ interface ExtractedData {
   special_requirements?: string;
 }
 
-interface Email {
+interface ThreadEmail {
   id: string;
   subject: string | null;
   from_address: string;
@@ -104,7 +108,22 @@ interface Email {
   cc_addresses?: string[];
   body_text: string | null;
   received_at: string;
+  sent_at: string | null;
   extracted_data: ExtractedData | null;
+  thread_ref?: string | null;
+}
+
+interface ConsolidatedData {
+  incoterm?: string;
+  destination?: string;
+  finalDestination?: string;
+  cargoTypes: string[];
+  containerTypes: string[];
+  origins: string[];
+  specialRequirements: string[];
+  projectName?: string;
+  projectLocation?: string;
+  originalRequestor?: { email: string; name: string; company: string };
 }
 
 interface Suggestion {
@@ -142,6 +161,251 @@ const serviceTemplates = [
   { service: 'CUSTOMS', description: 'Dédouanement', unit: 'déclaration' },
 ];
 
+// Helper function to decode base64 content
+const decodeBase64Content = (content: string | null): string => {
+  if (!content) return '';
+  
+  // Check if content looks like base64
+  const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+  const cleanContent = content.replace(/\s/g, '');
+  
+  if (base64Pattern.test(cleanContent) && cleanContent.length > 100) {
+    try {
+      return atob(cleanContent);
+    } catch {
+      return content;
+    }
+  }
+  return content;
+};
+
+// Parse email subject to extract incoterm, destination, cargo type
+const parseSubject = (subject: string | null): Partial<ConsolidatedData> => {
+  if (!subject) return {};
+  
+  const result: Partial<ConsolidatedData> = {
+    cargoTypes: [],
+    containerTypes: [],
+    origins: [],
+  };
+  
+  const subjectUpper = subject.toUpperCase();
+  const subjectLower = subject.toLowerCase();
+  
+  // Extract incoterm
+  for (const inc of incoterms) {
+    if (subjectUpper.includes(inc)) {
+      result.incoterm = inc;
+      break;
+    }
+  }
+  
+  // Extract destination from subject
+  // Common patterns: "DAP SAINT LOUIS", "FOB DAKAR", etc.
+  const destinationPatterns = [
+    /(?:DAP|DDP|CIF|CFR|FOB|FCA)\s+([A-Z][A-Z\s-]+)/i,
+    /(?:to|vers|pour)\s+([A-Z][A-Z\s-]+)/i,
+    /(?:destination|dest[.:]?)\s*([A-Z][A-Z\s-]+)/i,
+  ];
+  
+  for (const pattern of destinationPatterns) {
+    const match = subject.match(pattern);
+    if (match) {
+      const dest = match[1].trim().replace(/\s+/g, ' ');
+      if (dest.length > 2 && dest.length < 50) {
+        result.finalDestination = dest;
+        break;
+      }
+    }
+  }
+  
+  // Extract cargo types from subject
+  if (subjectLower.includes('breakbulk') || subjectLower.includes('break bulk')) {
+    result.cargoTypes?.push('breakbulk');
+  }
+  if (subjectLower.includes('container') || subjectLower.includes('conteneur')) {
+    result.cargoTypes?.push('container');
+  }
+  if (subjectLower.includes('project') || subjectLower.includes('projet')) {
+    result.cargoTypes?.push('project');
+  }
+  
+  // Extract container types mentioned
+  const containerPatterns = ['40FR', '40HC', '40DV', '20DV', '20HC', '40OT', '40HC OT', 'FLAT RACK', 'OPEN TOP'];
+  for (const ct of containerPatterns) {
+    if (subjectUpper.includes(ct)) {
+      result.containerTypes?.push(ct.replace(' ', '-'));
+    }
+  }
+  
+  return result;
+};
+
+// Parse email body for additional data
+const parseEmailBody = (body: string | null): Partial<ConsolidatedData> => {
+  if (!body) return {};
+  
+  const result: Partial<ConsolidatedData> = {
+    cargoTypes: [],
+    specialRequirements: [],
+    origins: [],
+  };
+  
+  const bodyLower = body.toLowerCase();
+  
+  // Check for SOC/COC mentions
+  if (bodyLower.includes('soc') || bodyLower.includes('shipper owned')) {
+    result.specialRequirements?.push('SOC (Shipper Owned Containers)');
+  }
+  if (bodyLower.includes('coc') || bodyLower.includes('carrier owned')) {
+    result.specialRequirements?.push('COC (Carrier Owned Containers)');
+  }
+  
+  // Check for specific services mentioned
+  if (bodyLower.includes('dthc')) {
+    result.specialRequirements?.push('DTHC demandé');
+  }
+  if (bodyLower.includes('on carriage') || bodyLower.includes('on-carriage')) {
+    result.specialRequirements?.push('On-carriage demandé');
+  }
+  if (bodyLower.includes('empty return') || bodyLower.includes('retour vide')) {
+    result.specialRequirements?.push('Retour conteneur vide');
+  }
+  
+  // Check for location patterns for project site
+  const locationPatterns = [
+    /project\s+location\s*[:=]?\s*(https?:\/\/[^\s]+)/i,
+    /site\s*[:=]?\s*(https?:\/\/maps[^\s]+)/i,
+  ];
+  
+  for (const pattern of locationPatterns) {
+    const match = body.match(pattern);
+    if (match) {
+      result.projectLocation = match[1];
+      break;
+    }
+  }
+  
+  // Check for specific destinations
+  const destPatterns = [
+    /(?:POD|port of destination)\s*[:=]?\s*([A-Za-z\s-]+)/i,
+    /(?:destination finale|final destination)\s*[:=]?\s*([A-Za-z\s-]+)/i,
+  ];
+  
+  for (const pattern of destPatterns) {
+    const match = body.match(pattern);
+    if (match) {
+      const dest = match[1].trim();
+      if (dest.length > 2 && dest.length < 50) {
+        if (!result.destination) result.destination = dest;
+      }
+    }
+  }
+  
+  return result;
+};
+
+// Consolidate data from all thread emails
+const consolidateThreadData = (emails: ThreadEmail[]): ConsolidatedData => {
+  const consolidated: ConsolidatedData = {
+    cargoTypes: [],
+    containerTypes: [],
+    origins: [],
+    specialRequirements: [],
+  };
+  
+  // Sort by date (oldest first) to process chronologically
+  const sortedEmails = [...emails].sort((a, b) => {
+    const dateA = new Date(a.sent_at || a.received_at);
+    const dateB = new Date(b.sent_at || b.received_at);
+    return dateA.getTime() - dateB.getTime();
+  });
+  
+  // First email is the original request
+  const firstEmail = sortedEmails[0];
+  if (firstEmail) {
+    const senderEmail = firstEmail.from_address.toLowerCase();
+    const senderDomain = senderEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
+    const senderName = senderEmail.split('@')[0]
+      .replace(/[._-]/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
+    
+    consolidated.originalRequestor = {
+      email: firstEmail.from_address,
+      name: senderName,
+      company: senderDomain,
+    };
+  }
+  
+  // Process each email
+  for (const email of sortedEmails) {
+    // Parse subject
+    const subjectData = parseSubject(email.subject);
+    
+    // Override with latest incoterm found
+    if (subjectData.incoterm) {
+      consolidated.incoterm = subjectData.incoterm;
+    }
+    if (subjectData.finalDestination && !consolidated.finalDestination) {
+      consolidated.finalDestination = subjectData.finalDestination;
+    }
+    if (subjectData.cargoTypes) {
+      consolidated.cargoTypes = [...new Set([...consolidated.cargoTypes, ...subjectData.cargoTypes])];
+    }
+    if (subjectData.containerTypes) {
+      consolidated.containerTypes = [...new Set([...consolidated.containerTypes, ...subjectData.containerTypes])];
+    }
+    
+    // Parse body
+    const decodedBody = decodeBase64Content(email.body_text);
+    const bodyData = parseEmailBody(decodedBody);
+    
+    if (bodyData.destination && !consolidated.destination) {
+      consolidated.destination = bodyData.destination;
+    }
+    if (bodyData.projectLocation) {
+      consolidated.projectLocation = bodyData.projectLocation;
+    }
+    if (bodyData.specialRequirements) {
+      consolidated.specialRequirements = [...new Set([...consolidated.specialRequirements, ...bodyData.specialRequirements])];
+    }
+    
+    // Also check extracted_data if available
+    if (email.extracted_data) {
+      const ed = email.extracted_data;
+      if (ed.incoterm && !consolidated.incoterm) {
+        consolidated.incoterm = ed.incoterm;
+      }
+      if (ed.destination && !consolidated.destination) {
+        consolidated.destination = ed.destination;
+      }
+      if (ed.origin && !consolidated.origins.includes(ed.origin)) {
+        consolidated.origins.push(ed.origin);
+      }
+    }
+    
+    // Extract project name from first subject
+    if (!consolidated.projectName && email.subject) {
+      consolidated.projectName = email.subject
+        .replace(/^(RE:|FW:|TR:)\s*/gi, '')
+        .replace(/^(demande|offre|cotation|devis)[\s:]+/gi, '')
+        .substring(0, 100);
+    }
+  }
+  
+  return consolidated;
+};
+
+// Normalize subject for matching (remove Re:, Fwd:, etc.)
+const normalizeSubject = (subject: string | null): string => {
+  if (!subject) return '';
+  return subject
+    .replace(/^(RE:|FW:|TR:|AW:|SV:|VS:)\s*/gi, '')
+    .replace(/^(RE:|FW:|TR:|AW:|SV:|VS:)\s*/gi, '') // Do twice for "RE: FW:" patterns
+    .trim()
+    .toLowerCase();
+};
+
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
   const navigate = useNavigate();
@@ -149,11 +413,13 @@ export default function QuotationSheet() {
   
   const [isLoading, setIsLoading] = useState(!isNewQuotation);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [email, setEmail] = useState<Email | null>(null);
+  const [threadEmails, setThreadEmails] = useState<ThreadEmail[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<ThreadEmail | null>(null);
   const [attachments, setAttachments] = useState<Array<{ id: string; filename: string; content_type: string }>>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [generatedResponse, setGeneratedResponse] = useState('');
+  const [timelineExpanded, setTimelineExpanded] = useState(true);
   
   // Project context
   const [projectContext, setProjectContext] = useState<ProjectContext>({
@@ -176,12 +442,13 @@ export default function QuotationSheet() {
 
   useEffect(() => {
     if (!isNewQuotation && emailId) {
-      fetchEmailData();
+      fetchThreadData();
     }
   }, [emailId]);
 
-  const fetchEmailData = async () => {
+  const fetchThreadData = async () => {
     try {
+      // First, get the selected email
       const { data: emailData, error: emailError } = await supabase
         .from('emails')
         .select('*')
@@ -190,75 +457,179 @@ export default function QuotationSheet() {
 
       if (emailError) throw emailError;
       
-      const extractedData = emailData.extracted_data as ExtractedData | null;
-      const emailForState: Email = {
-        id: emailData.id,
-        subject: emailData.subject,
-        from_address: emailData.from_address,
-        to_addresses: emailData.to_addresses,
-        cc_addresses: emailData.cc_addresses,
-        body_text: emailData.body_text,
-        received_at: emailData.received_at || emailData.created_at || '',
-        extracted_data: extractedData,
-      };
-      setEmail(emailForState);
-
-      // Analyze email to determine project context
-      analyzeEmailContext(emailForState);
-
-      // Pre-fill form with extracted data
-      if (extractedData && typeof extractedData === 'object') {
-        if (extractedData.destination) setDestination(extractedData.destination);
-        if (extractedData.incoterm) setIncoterm(extractedData.incoterm);
-        if (extractedData.special_requirements) setSpecialRequirements(extractedData.special_requirements);
+      let threadEmailsList: ThreadEmail[] = [];
+      
+      // Try to get all emails from the thread
+      if (emailData.thread_ref) {
+        // Get all emails with same thread_ref
+        const { data: threadData } = await supabase
+          .from('emails')
+          .select('*')
+          .eq('thread_ref', emailData.thread_ref)
+          .order('sent_at', { ascending: true });
         
-        // Create initial cargo line if data exists
-        if (extractedData.cargo || extractedData.container_type) {
-          setCargoLines([{
-            id: crypto.randomUUID(),
-            description: extractedData.cargo || '',
-            origin: extractedData.origin || '',
-            cargo_type: 'container',
-            container_type: extractedData.container_type || '40HC',
-            container_count: parseInt(extractedData.container_count || '1'),
-            coc_soc: 'COC',
-            weight_kg: extractedData.weight ? parseFloat(extractedData.weight) : undefined,
-            volume_cbm: extractedData.volume ? parseFloat(extractedData.volume) : undefined,
-          }]);
+        if (threadData && threadData.length > 0) {
+          threadEmailsList = threadData.map(e => ({
+            id: e.id,
+            subject: e.subject,
+            from_address: e.from_address,
+            to_addresses: e.to_addresses,
+            cc_addresses: e.cc_addresses,
+            body_text: e.body_text,
+            received_at: e.received_at || e.created_at || '',
+            sent_at: e.sent_at,
+            extracted_data: e.extracted_data as ExtractedData | null,
+            thread_ref: e.thread_ref,
+          }));
         }
       }
-
-      // Fetch attachments
+      
+      // If no thread_ref or no results, try matching by normalized subject
+      if (threadEmailsList.length <= 1 && emailData.subject) {
+        const normalizedSubject = normalizeSubject(emailData.subject);
+        
+        // Search for emails with similar subject
+        const { data: similarEmails } = await supabase
+          .from('emails')
+          .select('*')
+          .order('sent_at', { ascending: true });
+        
+        if (similarEmails) {
+          threadEmailsList = similarEmails
+            .filter(e => {
+              const eNormalized = normalizeSubject(e.subject);
+              return eNormalized.includes(normalizedSubject) || normalizedSubject.includes(eNormalized);
+            })
+            .map(e => ({
+              id: e.id,
+              subject: e.subject,
+              from_address: e.from_address,
+              to_addresses: e.to_addresses,
+              cc_addresses: e.cc_addresses,
+              body_text: e.body_text,
+              received_at: e.received_at || e.created_at || '',
+              sent_at: e.sent_at,
+              extracted_data: e.extracted_data as ExtractedData | null,
+              thread_ref: e.thread_ref,
+            }));
+        }
+      }
+      
+      // If still nothing, just use the single email
+      if (threadEmailsList.length === 0) {
+        threadEmailsList = [{
+          id: emailData.id,
+          subject: emailData.subject,
+          from_address: emailData.from_address,
+          to_addresses: emailData.to_addresses,
+          cc_addresses: emailData.cc_addresses,
+          body_text: emailData.body_text,
+          received_at: emailData.received_at || emailData.created_at || '',
+          sent_at: emailData.sent_at,
+          extracted_data: emailData.extracted_data as ExtractedData | null,
+          thread_ref: emailData.thread_ref,
+        }];
+      }
+      
+      setThreadEmails(threadEmailsList);
+      
+      // Set selected email to the one in the URL
+      const currentEmail = threadEmailsList.find(e => e.id === emailId) || threadEmailsList[threadEmailsList.length - 1];
+      setSelectedEmail(currentEmail);
+      
+      // Consolidate data from all thread emails
+      const consolidated = consolidateThreadData(threadEmailsList);
+      
+      // Apply consolidated data to form
+      applyConsolidatedData(consolidated, threadEmailsList);
+      
+      // Analyze context and generate alerts
+      analyzeEmailContext(threadEmailsList, consolidated);
+      generateAlertsFromConsolidated(consolidated, threadEmailsList);
+      
+      // Fetch attachments for all thread emails
+      const emailIds = threadEmailsList.map(e => e.id);
       const { data: attachmentData } = await supabase
         .from('email_attachments')
-        .select('id, filename, content_type')
-        .eq('email_id', emailId);
+        .select('id, filename, content_type, email_id')
+        .in('email_id', emailIds);
       
       setAttachments(attachmentData || []);
-
-      // Generate alerts
-      generateAlerts(extractedData || {}, emailForState);
       
       // Fetch suggestions
-      await fetchSuggestions(emailForState);
+      await fetchSuggestions(currentEmail);
     } catch (error) {
-      console.error('Error fetching email:', error);
-      toast.error('Erreur de chargement de l\'email');
+      console.error('Error fetching thread:', error);
+      toast.error('Erreur de chargement du fil de discussion');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const analyzeEmailContext = (emailData: Email) => {
-    const fromEmail = emailData.from_address.toLowerCase();
-    const toAddresses = emailData.to_addresses?.map(e => e.toLowerCase()) || [];
-    const ccAddresses = emailData.cc_addresses?.map(e => e.toLowerCase()) || [];
-    const allAddresses = [...toAddresses, ...ccAddresses];
+  const applyConsolidatedData = (consolidated: ConsolidatedData, emails: ThreadEmail[]) => {
+    // Apply incoterm
+    if (consolidated.incoterm) {
+      setIncoterm(consolidated.incoterm);
+    }
     
-    // Check if SODATRA is in TO or CC
-    const sodatraInLoop = allAddresses.some(e => 
-      e.includes('sodatra') || e.includes('@sodatra.sn')
-    );
+    // Apply destination
+    if (consolidated.destination) {
+      setDestination(consolidated.destination);
+    }
+    
+    // Apply final destination (from subject parsing like "DAP SAINT LOUIS")
+    if (consolidated.finalDestination) {
+      setFinalDestination(consolidated.finalDestination);
+    }
+    
+    // Apply special requirements
+    if (consolidated.specialRequirements.length > 0) {
+      setSpecialRequirements(consolidated.specialRequirements.join('\n'));
+    }
+    
+    // Create cargo lines from detected types
+    const newCargoLines: CargoLine[] = [];
+    
+    if (consolidated.cargoTypes.includes('container') || consolidated.containerTypes.length > 0) {
+      for (const ct of consolidated.containerTypes.length > 0 ? consolidated.containerTypes : ['40HC']) {
+        newCargoLines.push({
+          id: crypto.randomUUID(),
+          description: '',
+          origin: consolidated.origins[0] || '',
+          cargo_type: 'container',
+          container_type: ct.replace('-', '').substring(0, 4),
+          container_count: 1,
+          coc_soc: consolidated.specialRequirements.some(r => r.includes('SOC')) ? 'SOC' : 'COC',
+        });
+      }
+    }
+    
+    if (consolidated.cargoTypes.includes('breakbulk')) {
+      newCargoLines.push({
+        id: crypto.randomUUID(),
+        description: 'Cargo conventionnel',
+        origin: consolidated.origins[0] || '',
+        cargo_type: 'breakbulk',
+      });
+    }
+    
+    if (newCargoLines.length > 0) {
+      setCargoLines(newCargoLines);
+    }
+  };
+
+  const analyzeEmailContext = (emails: ThreadEmail[], consolidated: ConsolidatedData) => {
+    // Find the first external email (original request)
+    const externalEmails = emails.filter(e => {
+      const from = e.from_address.toLowerCase();
+      return !from.includes('sodatra') && !from.includes('@sodatra.sn');
+    });
+    
+    const originalRequest = externalEmails[0] || emails[0];
+    const fromEmail = originalRequest.from_address.toLowerCase();
+    const toAddresses = originalRequest.to_addresses?.map(e => e.toLowerCase()) || [];
+    const ccAddresses = originalRequest.cc_addresses?.map(e => e.toLowerCase()) || [];
+    const allAddresses = [...toAddresses, ...ccAddresses];
     
     // Check if 2HL is in TO
     const twoHLInTo = toAddresses.some(e => 
@@ -275,101 +646,112 @@ export default function QuotationSheet() {
       our_role: 'direct',
     };
 
-    // Extract sender name from email address
-    const senderName = fromEmail.split('@')[0]
-      .replace(/[._-]/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase());
-    
-    const senderDomain = fromEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
-
-    if (fromTwoHL) {
-      // 2HL is forwarding a request - we support 2HL
-      context = {
-        requesting_party: senderName,
-        requesting_company: '2HL Group',
-        our_role: 'partner_support',
-        partner_email: fromEmail,
-        partner_company: '2HL Group',
-        end_client: 'À identifier dans l\'email',
-      };
-      
-      setAlerts(prev => [...prev, {
-        type: 'info',
-        message: '2HL nous a mis en copie - Nous assistons 2HL pour cette cotation',
-      }]);
-    } else if (twoHLInTo && !sodatraInLoop) {
-      // Request sent TO 2HL, SODATRA not originally in loop
-      context = {
-        requesting_party: senderName,
-        requesting_company: senderDomain,
-        our_role: 'partner_support',
-        partner_company: '2HL Group',
-        end_client: senderName,
-        end_client_company: senderDomain,
-      };
-      
-      setAlerts(prev => [...prev, {
-        type: 'info',
-        message: `Demande client de ${senderDomain} à 2HL - Nous préparons les éléments pour 2HL`,
-      }]);
+    // Use consolidated original requestor if available
+    if (consolidated.originalRequestor) {
+      context.requesting_party = consolidated.originalRequestor.name;
+      context.requesting_company = consolidated.originalRequestor.company;
     } else {
-      // Direct request to SODATRA
-      context = {
-        requesting_party: senderName,
-        requesting_company: senderDomain,
-        our_role: 'direct',
-      };
+      const senderName = fromEmail.split('@')[0]
+        .replace(/[._-]/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+      const senderDomain = fromEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
+      
+      context.requesting_party = senderName;
+      context.requesting_company = senderDomain;
     }
 
-    // Try to extract project name from subject
-    if (emailData.subject) {
-      context.project_name = emailData.subject
-        .replace(/^(RE:|FW:|TR:)\s*/gi, '')
-        .replace(/^(demande|offre|cotation|devis)[\s:]+/gi, '')
-        .substring(0, 100);
+    if (fromTwoHL) {
+      context.our_role = 'partner_support';
+      context.partner_email = fromEmail;
+      context.partner_company = '2HL Group';
+      context.end_client = 'À identifier dans le fil';
+    } else if (twoHLInTo) {
+      context.our_role = 'partner_support';
+      context.partner_company = '2HL Group';
+      context.end_client = context.requesting_party;
+      context.end_client_company = context.requesting_company;
+    }
+
+    // Apply project name and location from consolidated data
+    if (consolidated.projectName) {
+      context.project_name = consolidated.projectName;
+    }
+    if (consolidated.projectLocation || consolidated.finalDestination) {
+      context.project_location = consolidated.projectLocation || consolidated.finalDestination;
     }
 
     setProjectContext(context);
   };
 
-  const generateAlerts = (data: ExtractedData, emailData?: Email) => {
+  const generateAlertsFromConsolidated = (consolidated: ConsolidatedData, emails: ThreadEmail[]) => {
     const newAlerts: Alert[] = [];
     
-    if (!data.incoterm) {
-      newAlerts.push({ type: 'warning', message: 'Incoterm non spécifié', field: 'incoterm' });
-    }
-    if (!data.cargo) {
-      newAlerts.push({ type: 'warning', message: 'Description marchandise manquante', field: 'cargo' });
-    }
-    if (!data.origin) {
-      newAlerts.push({ type: 'warning', message: 'Origine non identifiée', field: 'origin' });
+    // Check incoterm - use consolidated data
+    if (!consolidated.incoterm) {
+      newAlerts.push({ type: 'warning', message: 'Incoterm non spécifié dans le fil', field: 'incoterm' });
+    } else {
+      newAlerts.push({ type: 'success', message: `Incoterm détecté: ${consolidated.incoterm}`, field: 'incoterm' });
     }
     
-    // Check for project cargo indicators
-    const bodyLower = emailData?.body_text?.toLowerCase() || '';
-    if (bodyLower.includes('breakbulk') || bodyLower.includes('break bulk')) {
-      newAlerts.push({ type: 'info', message: 'Cargo conventionnel (breakbulk) détecté' });
+    // Check destination
+    if (consolidated.finalDestination) {
+      newAlerts.push({ type: 'success', message: `Destination finale: ${consolidated.finalDestination}`, field: 'destination' });
     }
-    if (bodyLower.includes('project') || bodyLower.includes('projet')) {
-      newAlerts.push({ type: 'info', message: 'Projet cargo détecté - Cotation complexe probable' });
+    
+    // Check cargo types detected
+    if (consolidated.cargoTypes.length > 0) {
+      newAlerts.push({ 
+        type: 'info', 
+        message: `Types de cargo: ${consolidated.cargoTypes.join(', ')}` 
+      });
     }
-    if (bodyLower.includes('soc') || bodyLower.includes('shipper owned')) {
-      newAlerts.push({ type: 'info', message: 'Conteneurs SOC mentionnés' });
+    
+    // Check container types
+    if (consolidated.containerTypes.length > 0) {
+      newAlerts.push({ 
+        type: 'info', 
+        message: `Conteneurs: ${consolidated.containerTypes.join(', ')}` 
+      });
     }
-    if (bodyLower.includes('coc') || bodyLower.includes('carrier owned')) {
-      newAlerts.push({ type: 'info', message: 'Conteneurs COC mentionnés' });
+    
+    // Check all email bodies for special indicators
+    for (const email of emails) {
+      const bodyLower = decodeBase64Content(email.body_text).toLowerCase();
+      
+      if (bodyLower.includes('flat rack') || bodyLower.includes('40fr')) {
+        if (!newAlerts.some(a => a.message.includes('Flat Rack'))) {
+          newAlerts.push({ type: 'info', message: 'Flat Rack détecté - Vérifier disponibilité' });
+        }
+      }
+      if (bodyLower.includes('saint louis') || bodyLower.includes('saint-louis')) {
+        if (!newAlerts.some(a => a.message.includes('Saint-Louis'))) {
+          newAlerts.push({ type: 'info', message: 'Destination Saint-Louis - Prévoir on-carriage' });
+        }
+      }
+      if (bodyLower.includes('breakbulk') || bodyLower.includes('break bulk')) {
+        if (!newAlerts.some(a => a.message.includes('conventionnel'))) {
+          newAlerts.push({ type: 'info', message: 'Cargo conventionnel (breakbulk) détecté' });
+        }
+      }
+      if (bodyLower.includes('project') || bodyLower.includes('projet')) {
+        if (!newAlerts.some(a => a.message.includes('Projet cargo'))) {
+          newAlerts.push({ type: 'info', message: 'Projet cargo détecté - Cotation complexe probable' });
+        }
+      }
     }
-    if (bodyLower.includes('flat rack') || bodyLower.includes('40fr')) {
-      newAlerts.push({ type: 'info', message: 'Flat Rack détecté - Vérifier disponibilité' });
-    }
-    if (bodyLower.includes('saint louis') || bodyLower.includes('saint-louis')) {
-      newAlerts.push({ type: 'info', message: 'Destination Saint-Louis - Prévoir on-carriage' });
+    
+    // Thread info
+    if (emails.length > 1) {
+      newAlerts.push({ 
+        type: 'info', 
+        message: `Fil de ${emails.length} emails analysé` 
+      });
     }
     
     setAlerts(newAlerts);
   };
 
-  const fetchSuggestions = async (emailData: Email) => {
+  const fetchSuggestions = async (emailData: ThreadEmail) => {
     try {
       const { data: knowledge } = await supabase
         .from('learned_knowledge')
@@ -464,6 +846,12 @@ export default function QuotationSheet() {
       const { data, error } = await supabase.functions.invoke('generate-response', {
         body: { 
           emailId: isNewQuotation ? null : emailId,
+          threadEmails: threadEmails.map(e => ({
+            from: e.from_address,
+            subject: e.subject,
+            body: decodeBase64Content(e.body_text),
+            date: e.sent_at || e.received_at,
+          })),
           quotationData: {
             projectContext,
             cargoLines,
@@ -493,12 +881,19 @@ export default function QuotationSheet() {
     toast.success('Réponse copiée');
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '-';
     try {
       return format(new Date(dateStr), "dd MMM yyyy 'à' HH:mm", { locale: fr });
     } catch {
       return '-';
     }
+  };
+
+  const getEmailSenderName = (email: string): string => {
+    return email.split('@')[0]
+      .replace(/[._-]/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
   };
 
   if (isLoading) {
@@ -523,10 +918,16 @@ export default function QuotationSheet() {
             <h1 className="text-xl font-bold">
               {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
             </h1>
-            {email && (
+            {selectedEmail && (
               <p className="text-sm text-muted-foreground truncate">
-                {email.subject}
+                {selectedEmail.subject}
               </p>
+            )}
+            {threadEmails.length > 1 && (
+              <Badge variant="outline" className="mt-1">
+                <MessageSquare className="h-3 w-3 mr-1" />
+                {threadEmails.length} emails dans le fil
+              </Badge>
             )}
           </div>
           <Button 
@@ -551,7 +952,7 @@ export default function QuotationSheet() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2 text-amber-500">
                     <AlertTriangle className="h-4 w-4" />
-                    Points d'attention
+                    Points d'attention ({alerts.length})
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -568,6 +969,83 @@ export default function QuotationSheet() {
                   </ul>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Thread Timeline */}
+            {threadEmails.length > 1 && (
+              <Collapsible open={timelineExpanded} onOpenChange={setTimelineExpanded}>
+                <Card className="border-ocean/30 bg-ocean/5">
+                  <CardHeader className="pb-2">
+                    <CollapsibleTrigger asChild>
+                      <div className="flex items-center justify-between cursor-pointer">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <History className="h-4 w-4 text-ocean" />
+                          Historique du fil ({threadEmails.length} échanges)
+                        </CardTitle>
+                        {timelineExpanded ? (
+                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    </CollapsibleTrigger>
+                  </CardHeader>
+                  <CollapsibleContent>
+                    <CardContent>
+                      <div className="relative">
+                        {/* Timeline line */}
+                        <div className="absolute left-3 top-2 bottom-2 w-px bg-ocean/30" />
+                        
+                        <div className="space-y-3">
+                          {threadEmails.map((email, index) => (
+                            <div 
+                              key={email.id} 
+                              className={cn(
+                                "relative pl-8 py-2 rounded-lg transition-colors cursor-pointer",
+                                email.id === selectedEmail?.id 
+                                  ? "bg-ocean/10 border border-ocean/30" 
+                                  : "hover:bg-muted/50"
+                              )}
+                              onClick={() => setSelectedEmail(email)}
+                            >
+                              {/* Timeline dot */}
+                              <div className={cn(
+                                "absolute left-1.5 top-4 w-3 h-3 rounded-full border-2",
+                                index === 0 
+                                  ? "bg-primary border-primary"
+                                  : email.id === selectedEmail?.id
+                                    ? "bg-ocean border-ocean"
+                                    : "bg-muted border-muted-foreground/30"
+                              )} />
+                              
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm truncate">
+                                      {getEmailSenderName(email.from_address)}
+                                    </span>
+                                    {index === 0 && (
+                                      <Badge variant="outline" className="text-xs">
+                                        Original
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                    {email.subject}
+                                  </p>
+                                </div>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {formatDate(email.sent_at || email.received_at)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </CollapsibleContent>
+                </Card>
+              </Collapsible>
             )}
 
             {/* Project Context */}
@@ -981,33 +1459,33 @@ export default function QuotationSheet() {
 
           {/* Right Column: Context */}
           <div className="space-y-6">
-            {/* Original Email */}
-            {email && (
+            {/* Selected Email Preview */}
+            {selectedEmail && (
               <Card className="border-border/50 bg-gradient-card">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Mail className="h-4 w-4 text-ocean" />
-                    Email original
+                    {threadEmails.length > 1 ? 'Email sélectionné' : 'Email original'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div>
                     <p className="text-xs text-muted-foreground">De</p>
-                    <p className="text-sm font-medium truncate">{email.from_address}</p>
+                    <p className="text-sm font-medium truncate">{selectedEmail.from_address}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">À</p>
-                    <p className="text-sm truncate">{email.to_addresses?.join(', ') || '-'}</p>
+                    <p className="text-sm truncate">{selectedEmail.to_addresses?.join(', ') || '-'}</p>
                   </div>
-                  {email.cc_addresses && email.cc_addresses.length > 0 && (
+                  {selectedEmail.cc_addresses && selectedEmail.cc_addresses.length > 0 && (
                     <div>
                       <p className="text-xs text-muted-foreground">Cc</p>
-                      <p className="text-sm truncate">{email.cc_addresses.join(', ')}</p>
+                      <p className="text-sm truncate">{selectedEmail.cc_addresses.join(', ')}</p>
                     </div>
                   )}
                   <div>
                     <p className="text-xs text-muted-foreground">Date</p>
-                    <p className="text-sm">{formatDate(email.received_at)}</p>
+                    <p className="text-sm">{formatDate(selectedEmail.sent_at || selectedEmail.received_at)}</p>
                   </div>
                   {attachments.length > 0 && (
                     <div>
@@ -1025,8 +1503,11 @@ export default function QuotationSheet() {
                   <Separator />
                   <ScrollArea className="h-[250px]">
                     <p className="text-xs whitespace-pre-wrap text-muted-foreground">
-                      {email.body_text?.substring(0, 2000) || 'Aucun contenu texte'}
-                      {email.body_text && email.body_text.length > 2000 && '...'}
+                      {(() => {
+                        const decoded = decodeBase64Content(selectedEmail.body_text);
+                        return decoded.substring(0, 2000) || 'Aucun contenu texte';
+                      })()}
+                      {selectedEmail.body_text && selectedEmail.body_text.length > 2000 && '...'}
                     </p>
                   </ScrollArea>
                 </CardContent>
