@@ -524,6 +524,102 @@ serve(async (req) => {
         );
       }
 
+      case 'reclassify_threads': {
+        // Recalculate is_quotation_thread for all existing threads
+        console.log('Starting thread reclassification...');
+        
+        // Fetch all threads
+        const { data: threads, error: threadsError } = await supabase
+          .from('email_threads')
+          .select('id, subject_normalized');
+        
+        if (threadsError) throw threadsError;
+        
+        if (!threads || threads.length === 0) {
+          return new Response(
+            JSON.stringify({ success: true, updated: 0, message: "Aucun fil à reclassifier" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // List of subjects that indicate non-quotation threads
+        const EXCLUDED_THREAD_SUBJECTS = [
+          'new login from', 'nouvelle connexion',
+          'daily report', 'rapport journalier', 'reporting du',
+          'notification de credit', 'notification de débit',
+          'membership updates', 'membership renewal',
+          'merry christmas', 'happy new year', 'joyeux noël', 'bonne année',
+          'holiday operating hours', 'operating hours',
+          'spam:', '[spam]',
+          'out of office', 'absence du bureau', 'automatic reply',
+          'unsubscribe', 'se désabonner',
+          'password reset', 'réinitialisation',
+          'verify your email', 'vérifiez votre',
+          'account security', 'sécurité du compte',
+          'newsletter', 'webinar', 'conference invitation'
+        ];
+        
+        let quotationCount = 0;
+        let nonQuotationCount = 0;
+        
+        for (const thread of threads) {
+          const subjectLower = (thread.subject_normalized || '').toLowerCase();
+          
+          // Check if thread subject is blacklisted
+          const isBlacklisted = EXCLUDED_THREAD_SUBJECTS.some(
+            excl => subjectLower.includes(excl.toLowerCase())
+          );
+          
+          if (isBlacklisted) {
+            // Mark as non-quotation
+            await supabase
+              .from('email_threads')
+              .update({ is_quotation_thread: false })
+              .eq('id', thread.id);
+            nonQuotationCount++;
+            continue;
+          }
+          
+          // Check if thread has at least one quotation email
+          const { data: threadEmails } = await supabase
+            .from('emails')
+            .select('is_quotation_request')
+            .eq('thread_ref', thread.id);
+          
+          const hasQuotationEmail = threadEmails?.some(e => e.is_quotation_request) || false;
+          
+          // Also check if subject contains quotation keywords
+          const hasKeywordInSubject = QUOTATION_KEYWORDS.some(
+            kw => subjectLower.includes(kw.toLowerCase())
+          );
+          
+          const isQuotation = hasQuotationEmail || hasKeywordInSubject;
+          
+          await supabase
+            .from('email_threads')
+            .update({ is_quotation_thread: isQuotation })
+            .eq('id', thread.id);
+          
+          if (isQuotation) {
+            quotationCount++;
+          } else {
+            nonQuotationCount++;
+          }
+        }
+        
+        console.log(`Thread reclassification complete: ${quotationCount} quotation threads, ${nonQuotationCount} non-quotation threads`);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            total: threads.length,
+            quotationThreads: quotationCount,
+            nonQuotationThreads: nonQuotationCount
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       default:
         throw new Error(`Action inconnue: ${action}`);
     }

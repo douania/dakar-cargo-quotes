@@ -148,6 +148,7 @@ interface EmailRecord {
   to_addresses: string[];
   cc_addresses?: string[];
   sent_at: string;
+  subject?: string;
   body_text?: string;
 }
 
@@ -973,6 +974,64 @@ async function findExistingThread(
   }
 }
 
+// Liste noire pour les sujets de fil (threads non-quotation)
+const EXCLUDED_THREAD_SUBJECTS = [
+  'new login from', 'nouvelle connexion',
+  'daily report', 'rapport journalier', 'reporting du',
+  'notification de credit', 'notification de débit',
+  'membership updates', 'membership renewal',
+  'merry christmas', 'happy new year', 'joyeux noël', 'bonne année',
+  'holiday operating hours', 'operating hours',
+  'spam:', '[spam]',
+  'out of office', 'absence du bureau', 'automatic reply',
+  'unsubscribe', 'se désabonner',
+  'password reset', 'réinitialisation',
+  'verify your email', 'vérifiez votre',
+  'account security', 'sécurité du compte',
+  'newsletter', 'webinar', 'conference invitation'
+];
+
+// Déterminer si un fil est lié à une demande de cotation
+function isQuotationThread(
+  normalizedSubject: string,
+  threadEmails: EmailRecord[]
+): boolean {
+  const subjectLower = normalizedSubject.toLowerCase();
+  
+  // Exclure si sujet dans la liste noire des fils
+  if (EXCLUDED_THREAD_SUBJECTS.some(excl => subjectLower.includes(excl.toLowerCase()))) {
+    console.log(`Thread excluded - subject blacklisted: ${normalizedSubject}`);
+    return false;
+  }
+  
+  // Inclure si au moins un email du fil est une demande de cotation
+  // (basé sur les mots-clés - on réutilise la logique existante)
+  const hasQuotationEmail = threadEmails.some(email => {
+    const text = `${(email.subject || '').toLowerCase()} ${(email.body_text || '').toLowerCase()}`;
+    return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+  });
+  
+  if (hasQuotationEmail) {
+    console.log(`Thread included - has quotation keywords: ${normalizedSubject}`);
+    return true;
+  }
+  
+  // Exclure les fils des expéditeurs dans la liste noire
+  const hasOnlyBlacklistedSenders = threadEmails.every(email => {
+    const fromLower = email.from_address.toLowerCase();
+    return EXCLUDED_SENDERS.some(sender => fromLower.includes(sender.toLowerCase()));
+  });
+  
+  if (hasOnlyBlacklistedSenders) {
+    console.log(`Thread excluded - all senders blacklisted: ${normalizedSubject}`);
+    return false;
+  }
+  
+  // Par défaut, inclure si aucun critère d'exclusion n'est rempli
+  // (on préfère inclure les fils douteux pour ne pas rater de cotations)
+  return true;
+}
+
 // Créer ou mettre à jour un fil de discussion
 async function upsertEmailThread(
   supabase: any,
@@ -1020,6 +1079,9 @@ async function upsertEmailThread(
       company: p.company
     }));
     
+    // Déterminer si c'est un fil de cotation
+    const isQuotation = isQuotationThread(normalizedSubject, allEmails);
+    
     const threadData = {
       subject_normalized: normalizedSubject,
       first_message_at: firstEmail?.sent_at,
@@ -1031,10 +1093,11 @@ async function upsertEmailThread(
       partner_email: threadRoles.partnerEmail,
       project_name: finalProjectName || null,
       email_count: allEmails.length,
+      is_quotation_thread: isQuotation,
       updated_at: new Date().toISOString(),
     };
     
-    console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}`);
+    console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}, is_quotation=${isQuotation}`);
     
     if (existingThread) {
       // Mettre à jour le fil existant
