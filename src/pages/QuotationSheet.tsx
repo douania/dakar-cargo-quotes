@@ -53,6 +53,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
 
 interface CargoLine {
   id: string;
@@ -2080,6 +2081,21 @@ export default function QuotationSheet() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Similar Quotations Panel */}
+            <SimilarQuotationsPanel
+              destination={finalDestination || destination}
+              cargoType={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
+              clientCompany={projectContext.requesting_company}
+              requestedServices={serviceLines.map(s => s.service).filter(Boolean)}
+              onApplyTariff={(service, amount, currency) => {
+                const lineToUpdate = serviceLines.find(l => l.service === service);
+                if (lineToUpdate) {
+                  updateServiceLine(lineToUpdate.id, { rate: amount, currency });
+                  toast.success(`Tarif appliqué: ${service}`);
+                }
+              }}
+            />
 
             {/* Suggestions */}
             {suggestions.length > 0 && (
