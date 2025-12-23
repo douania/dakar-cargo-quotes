@@ -1107,6 +1107,78 @@ export type Database = {
         }
         Relationships: []
       }
+      quotation_history: {
+        Row: {
+          cargo_type: string
+          client_company: string | null
+          client_name: string | null
+          container_types: string[] | null
+          created_at: string
+          id: string
+          incoterm: string | null
+          margin_percent: number | null
+          partner_company: string | null
+          project_name: string | null
+          regulatory_info: Json | null
+          route_destination: string
+          route_hash: string | null
+          route_origin: string | null
+          route_port: string
+          source_attachment_id: string | null
+          source_email_id: string | null
+          tariff_lines: Json
+          total_amount: number | null
+          total_currency: string | null
+          updated_at: string
+        }
+        Insert: {
+          cargo_type: string
+          client_company?: string | null
+          client_name?: string | null
+          container_types?: string[] | null
+          created_at?: string
+          id?: string
+          incoterm?: string | null
+          margin_percent?: number | null
+          partner_company?: string | null
+          project_name?: string | null
+          regulatory_info?: Json | null
+          route_destination: string
+          route_hash?: string | null
+          route_origin?: string | null
+          route_port?: string
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          tariff_lines?: Json
+          total_amount?: number | null
+          total_currency?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cargo_type?: string
+          client_company?: string | null
+          client_name?: string | null
+          container_types?: string[] | null
+          created_at?: string
+          id?: string
+          incoterm?: string | null
+          margin_percent?: number | null
+          partner_company?: string | null
+          project_name?: string | null
+          regulatory_info?: Json | null
+          route_destination?: string
+          route_hash?: string | null
+          route_origin?: string | null
+          route_port?: string
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          tariff_lines?: Json
+          total_amount?: number | null
+          total_currency?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       surveillance_sources: {
         Row: {
           category: string
