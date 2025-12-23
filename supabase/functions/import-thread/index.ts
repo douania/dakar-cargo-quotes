@@ -103,12 +103,137 @@ function decodeBase64(content: string): Uint8Array {
   }
 }
 
-// Decode quoted-printable content
+// Decode quoted-printable content to Uint8Array (for attachments)
 function decodeQuotedPrintable(content: string): Uint8Array {
   const decoded = content
     .replace(/=\r\n/g, '')
     .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
   return new TextEncoder().encode(decoded);
+}
+
+// Decode quoted-printable content to string (for email body)
+function decodeQuotedPrintableText(content: string): string {
+  return content
+    .replace(/=\r?\n/g, '')  // Soft line breaks
+    .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => 
+      String.fromCharCode(parseInt(hex, 16))
+    );
+}
+
+// Escape special regex characters
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Extract text/plain and text/html from multipart MIME email
+function extractTextFromMultipart(rawBody: string): { text: string; html: string } {
+  let text = '';
+  let html = '';
+  
+  // Detect the boundary from Content-Type header in the body
+  const boundaryMatch = rawBody.match(/boundary\s*=\s*"?([^"\r\n;]+)"?/i);
+  
+  if (!boundaryMatch) {
+    // Not multipart, check if it's HTML or plain text and decode
+    const contentTypeMatch = rawBody.match(/Content-Type:\s*text\/(plain|html)/i);
+    const decoded = decodeQuotedPrintableText(rawBody);
+    
+    // Remove any MIME headers from the beginning
+    const headerEnd = decoded.indexOf('\r\n\r\n');
+    const cleanedContent = headerEnd !== -1 ? decoded.substring(headerEnd + 4) : decoded;
+    
+    if (decoded.includes('<html') || decoded.includes('<HTML') || decoded.includes('<body') || decoded.includes('<div')) {
+      return { text: stripHtmlTags(cleanedContent), html: cleanedContent };
+    }
+    return { text: cleanedContent, html: '' };
+  }
+  
+  const boundary = boundaryMatch[1].trim();
+  console.log(`Detected MIME boundary: ${boundary.substring(0, 50)}...`);
+  
+  // Split by boundary
+  const boundaryDelimiter = `--${boundary}`;
+  const parts = rawBody.split(new RegExp(escapeRegExp(boundaryDelimiter), 'g'));
+  
+  console.log(`Found ${parts.length} MIME parts`);
+  
+  for (const part of parts) {
+    if (!part.trim() || part.trim() === '--') continue;
+    
+    // Check if this part has a Content-Type header
+    const partContentTypeMatch = part.match(/Content-Type:\s*text\/(plain|html)(?:;[^\r\n]*)?/i);
+    if (!partContentTypeMatch) continue;
+    
+    const partType = partContentTypeMatch[1].toLowerCase();
+    
+    // Check for nested multipart (e.g., multipart/alternative inside multipart/mixed)
+    if (part.includes('Content-Type: multipart/')) {
+      const nestedResult = extractTextFromMultipart(part);
+      if (nestedResult.text && !text) text = nestedResult.text;
+      if (nestedResult.html && !html) html = nestedResult.html;
+      continue;
+    }
+    
+    // Find the content (after double CRLF)
+    const contentStart = part.indexOf('\r\n\r\n');
+    if (contentStart === -1) continue;
+    
+    let content = part.substring(contentStart + 4);
+    
+    // Check encoding
+    const encodingMatch = part.match(/Content-Transfer-Encoding:\s*(quoted-printable|base64|7bit|8bit)/i);
+    const encoding = encodingMatch?.[1]?.toLowerCase() || '7bit';
+    
+    // Decode based on encoding
+    if (encoding === 'quoted-printable') {
+      content = decodeQuotedPrintableText(content);
+    } else if (encoding === 'base64') {
+      try {
+        const cleaned = content.replace(/[\r\n\s]/g, '');
+        content = atob(cleaned);
+      } catch (e) {
+        console.error('Base64 decode error for text part:', e);
+      }
+    }
+    
+    // Clean up - remove trailing boundary markers
+    content = content.split(/\r?\n--/)[0].trim();
+    
+    if (partType === 'plain' && !text) {
+      text = content;
+      console.log(`Extracted text/plain: ${content.substring(0, 100)}...`);
+    } else if (partType === 'html' && !html) {
+      html = content;
+      console.log(`Extracted text/html: ${content.substring(0, 100)}...`);
+    }
+  }
+  
+  // If we got HTML but no plain text, convert HTML to text
+  if (html && !text) {
+    text = stripHtmlTags(html);
+  }
+  
+  return { text, html };
+}
+
+// Strip HTML tags and clean up whitespace
+function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .trim();
 }
 
 interface AttachmentInfo {
@@ -519,27 +644,33 @@ class IMAPClient {
       references = refm?.[1]?.trim() || irm?.[1]?.trim() || '';
     }
 
-    // Fetch body text
+    // Fetch body text with improved MIME parsing
     const bodyResp = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
     let bodyText = '';
     let bodyHtml = '';
     
     const bodyMatch = bodyResp.match(/BODY\[TEXT\] \{\d+\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/);
     if (bodyMatch) {
-      const raw = bodyMatch[1]
-        .replace(/=\r\n/g, '')
-        .replace(/=([0-9A-F]{2})/gi, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+      const raw = bodyMatch[1];
       
-      if (raw.includes('<html') || raw.includes('<HTML')) {
-        bodyHtml = raw;
-        bodyText = raw
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+      // Check if this is a multipart email (contains MIME boundaries)
+      if (raw.includes('Content-Type:') && raw.includes('boundary')) {
+        console.log('Detected multipart MIME email, parsing structure...');
+        const extracted = extractTextFromMultipart(raw);
+        bodyText = extracted.text;
+        bodyHtml = extracted.html;
+        console.log(`Multipart extraction result - text: ${bodyText.length} chars, html: ${bodyHtml.length} chars`);
       } else {
-        bodyText = raw;
+        // Simple email - just decode quoted-printable
+        const decoded = decodeQuotedPrintableText(raw);
+        
+        // Check if it's HTML or plain text
+        if (decoded.includes('<html') || decoded.includes('<HTML') || decoded.includes('<body')) {
+          bodyHtml = decoded;
+          bodyText = stripHtmlTags(decoded);
+        } else {
+          bodyText = decoded;
+        }
       }
     }
 
