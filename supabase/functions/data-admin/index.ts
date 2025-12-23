@@ -181,6 +181,24 @@ serve(async (req) => {
         );
       }
 
+      case 'create_knowledge': {
+        const entries = Array.isArray(data) ? data : [data];
+        
+        console.log(`Creating ${entries.length} knowledge entries`);
+
+        const { data: inserted, error } = await supabase
+          .from('learned_knowledge')
+          .insert(entries)
+          .select();
+
+        if (error) throw error;
+
+        return new Response(
+          JSON.stringify({ success: true, count: inserted?.length || 0 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       default:
         throw new Error(`Action inconnue: ${action}`);
     }
