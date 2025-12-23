@@ -12,7 +12,8 @@ import {
   Brain,
   BarChart3,
   ChevronDown,
-  Anchor
+  Anchor,
+  Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -33,6 +34,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { KnowledgeSearch } from '@/components/KnowledgeSearch';
 
 const mainNavItems = [
   { 
@@ -90,6 +92,34 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Global Search */}
+        {!isCollapsed && (
+          <SidebarGroup>
+            <SidebarGroupContent className="px-2">
+              <KnowledgeSearch />
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        
+        {isCollapsed && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <KnowledgeSearch 
+                    triggerButton={
+                      <SidebarMenuButton tooltip="Rechercher (⌘K)">
+                        <Search className="h-4 w-4" />
+                        <span>Rechercher</span>
+                      </SidebarMenuButton>
+                    }
+                  />
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {/* Main Navigation */}
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>

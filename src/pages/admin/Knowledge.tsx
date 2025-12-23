@@ -14,7 +14,8 @@ import {
   Brain, DollarSign, FileText, Users, Settings, 
   Trash2, CheckCircle, Clock, TrendingUp, Search,
   RefreshCw, Eye, MessageSquare, Handshake, GraduationCap,
-  Mail, UserCheck, List, LayoutGrid, XCircle, ArrowUpDown
+  Mail, UserCheck, List, LayoutGrid, XCircle, ArrowUpDown,
+  FileSpreadsheet, Database, Loader2
 } from 'lucide-react';
 
 interface Knowledge {
@@ -82,6 +83,8 @@ export default function Knowledge() {
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [isAnalyzingExcel, setIsAnalyzingExcel] = useState(false);
+  const [isPopulatingHistory, setIsPopulatingHistory] = useState(false);
   const [stats, setStats] = useState({ 
     total: 0, 
     validated: 0, 
@@ -150,6 +153,45 @@ export default function Knowledge() {
       loadKnowledge();
     } catch (error) {
       toast.error('Erreur de suppression');
+    }
+  };
+
+  const handleAnalyzeAllExcel = async () => {
+    setIsAnalyzingExcel(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { action: 'analyze_all_excel' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(data.message || `${data.successful}/${data.processed} fichiers analysés`);
+      loadKnowledge();
+    } catch (error) {
+      console.error('Error analyzing Excel:', error);
+      toast.error('Erreur lors de l\'analyse');
+    } finally {
+      setIsAnalyzingExcel(false);
+    }
+  };
+
+  const handlePopulateHistory = async () => {
+    setIsPopulatingHistory(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { action: 'populate_quotation_history' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(data.message || `${data.inserted} cotations ajoutées`);
+    } catch (error) {
+      console.error('Error populating history:', error);
+      toast.error('Erreur lors du peuplement');
+    } finally {
+      setIsPopulatingHistory(false);
     }
   };
 
@@ -264,6 +306,32 @@ export default function Knowledge() {
             <Button variant="outline" onClick={loadKnowledge} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Actualiser
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleAnalyzeAllExcel} 
+              disabled={isAnalyzingExcel}
+              className="bg-green-50 hover:bg-green-100 border-green-200 text-green-700"
+            >
+              {isAnalyzingExcel ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+              )}
+              Analyser Excel
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handlePopulateHistory} 
+              disabled={isPopulatingHistory}
+              className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
+            >
+              {isPopulatingHistory ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4 mr-2" />
+              )}
+              Peupler historique
             </Button>
           </div>
         </div>
