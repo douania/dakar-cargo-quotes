@@ -31,7 +31,13 @@ import {
   Clock,
   MessageSquare,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  GraduationCap,
+  FileSpreadsheet,
+  BookOpen,
+  Info,
+  ExternalLink,
+  ShieldCheck
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -139,6 +145,28 @@ interface Alert {
   field?: string;
 }
 
+// Interface for detected quotation offers
+interface QuotationOffer {
+  type: 'container' | 'breakbulk' | 'combined';
+  email: ThreadEmail;
+  sentAt: string;
+  senderName: string;
+  senderEmail: string;
+  attachments: Array<{ id: string; filename: string; content_type: string }>;
+  detectedContent: string[];
+}
+
+// Interface for extracted regulatory info
+interface RegulatoryInfo {
+  projectTaxation?: { sea?: string; air?: string };
+  dpiRequired?: boolean;
+  dpiThreshold?: string;
+  dpiDeadline?: string;
+  apeAvailable?: boolean;
+  customsNotes: string[];
+  otherNotes: string[];
+}
+
 const containerTypes = [
   { value: '20DV', label: "20' Dry" },
   { value: '40DV', label: "40' Dry" },
@@ -161,6 +189,29 @@ const serviceTemplates = [
   { service: 'CUSTOMS', description: 'Dédouanement', unit: 'déclaration' },
 ];
 
+// Our internal domains
+const INTERNAL_DOMAINS = ['sodatra.sn', '2hlgroup.com', '2hl.sn'];
+
+// Keywords that indicate a quotation offer
+const OFFER_KEYWORDS = [
+  'please find our rates',
+  'please find attached our rates',
+  'attached our rates',
+  'voici notre offre',
+  'ci-joint notre cotation',
+  'veuillez trouver notre offre',
+  'please find attached our offer',
+  'please find our offer',
+  'attached our offer',
+  'please find the rates',
+  'please find rates',
+  'attached our quotation',
+  'please find our quotation',
+  'please see attached',
+  'kindly find attached',
+  'please find enclosed',
+];
+
 // Helper function to decode base64 content
 const decodeBase64Content = (content: string | null): string => {
   if (!content) return '';
@@ -177,6 +228,120 @@ const decodeBase64Content = (content: string | null): string => {
     }
   }
   return content;
+};
+
+// Check if email is from internal domain
+const isInternalEmail = (email: string): boolean => {
+  const emailLower = email.toLowerCase();
+  return INTERNAL_DOMAINS.some(domain => emailLower.includes(`@${domain}`));
+};
+
+// Check if email body contains offer keywords
+const containsOfferKeywords = (body: string): boolean => {
+  const bodyLower = body.toLowerCase();
+  return OFFER_KEYWORDS.some(keyword => bodyLower.includes(keyword));
+};
+
+// Detect offer type from email content
+const detectOfferType = (email: ThreadEmail): 'container' | 'breakbulk' | 'combined' | null => {
+  const bodyLower = decodeBase64Content(email.body_text).toLowerCase();
+  const subjectLower = (email.subject || '').toLowerCase();
+  const combinedText = bodyLower + ' ' + subjectLower;
+  
+  const hasContainer = combinedText.includes('container') || 
+                       combinedText.includes('conteneur') ||
+                       combinedText.includes('40hc') ||
+                       combinedText.includes('40fr') ||
+                       combinedText.includes('20dv') ||
+                       combinedText.includes('dthc') ||
+                       combinedText.includes('soc') ||
+                       combinedText.includes('coc');
+  
+  const hasBreakbulk = combinedText.includes('breakbulk') ||
+                       combinedText.includes('break bulk') ||
+                       combinedText.includes('conventionnel') ||
+                       combinedText.includes('ex-hook') ||
+                       combinedText.includes('fot') ||
+                       combinedText.includes('stevedoring');
+  
+  if (hasContainer && hasBreakbulk) return 'combined';
+  if (hasContainer) return 'container';
+  if (hasBreakbulk) return 'breakbulk';
+  return null;
+};
+
+// Extract regulatory information from email body
+const extractRegulatoryInfo = (body: string): RegulatoryInfo => {
+  const info: RegulatoryInfo = {
+    customsNotes: [],
+    otherNotes: [],
+  };
+  
+  const bodyLower = body.toLowerCase();
+  
+  // Extract project taxation rates
+  const seaTaxMatch = body.match(/(\d+(?:\.\d+)?)\s*%?\s*(?:of\s+)?CIF\s*(?:value)?\s*\(?(?:sea|maritime|mer)\)?/i);
+  const airTaxMatch = body.match(/(\d+(?:\.\d+)?)\s*%?\s*(?:of\s+)?CIF\s*(?:value)?\s*\(?(?:air|avion)\)?/i);
+  const generalCifMatch = body.match(/(\d+(?:\.\d+)?)\s*%\s*(?:of\s+)?CIF/i);
+  
+  if (seaTaxMatch || airTaxMatch || generalCifMatch) {
+    info.projectTaxation = {};
+    if (seaTaxMatch) info.projectTaxation.sea = seaTaxMatch[1] + '%';
+    if (airTaxMatch) info.projectTaxation.air = airTaxMatch[1] + '%';
+    if (!seaTaxMatch && !airTaxMatch && generalCifMatch) {
+      info.projectTaxation.sea = generalCifMatch[1] + '%';
+    }
+  }
+  
+  // DPI detection
+  if (bodyLower.includes('dpi')) {
+    info.dpiRequired = true;
+    
+    // Extract threshold
+    const thresholdMatch = body.match(/(?:cif|value)\s*(?:>|above|supérieur|greater)\s*(?:€|eur|euro)?\s*(\d+(?:[\s,]\d+)*)/i);
+    if (thresholdMatch) {
+      info.dpiThreshold = '€' + thresholdMatch[1].replace(/\s/g, '');
+    }
+    
+    // Extract deadline
+    const deadlineMatch = body.match(/(\d+)\s*(?:hours?|heures?|h)\s*(?:per|par|for|pour)/i);
+    if (deadlineMatch) {
+      info.dpiDeadline = deadlineMatch[1] + 'h par facture';
+    }
+    
+    // Check for 15 days before departure
+    if (bodyLower.includes('15') && (bodyLower.includes('day') || bodyLower.includes('jour'))) {
+      info.customsNotes.push('Deadline DPI: 15 jours avant départ');
+    }
+  }
+  
+  // APE detection
+  if (bodyLower.includes('ape') || bodyLower.includes('autorisation préalable')) {
+    info.apeAvailable = true;
+    info.customsNotes.push('APE possible si exemption manquante');
+  }
+  
+  // NINEA detection
+  if (bodyLower.includes('ninea')) {
+    info.customsNotes.push('NINEA requis');
+  }
+  
+  // PPM detection
+  if (bodyLower.includes('ppm')) {
+    info.customsNotes.push('Code PPM requis');
+  }
+  
+  // Check for exemption mentions
+  if (bodyLower.includes('exempt') || bodyLower.includes('exonér')) {
+    info.otherNotes.push('Régime exonéré mentionné');
+  }
+  
+  // Check for project cargo
+  if (bodyLower.includes('project') && bodyLower.includes('cargo')) {
+    info.otherNotes.push('Projet cargo identifié');
+  }
+  
+  return info;
 };
 
 // Parse email subject to extract incoterm, destination, cargo type
@@ -201,7 +366,6 @@ const parseSubject = (subject: string | null): Partial<ConsolidatedData> => {
   }
   
   // Extract destination from subject
-  // Common patterns: "DAP SAINT LOUIS", "FOB DAKAR", etc.
   const destinationPatterns = [
     /(?:DAP|DDP|CIF|CFR|FOB|FCA)\s+([A-Z][A-Z\s-]+)/i,
     /(?:to|vers|pour)\s+([A-Z][A-Z\s-]+)/i,
@@ -413,13 +577,20 @@ export default function QuotationSheet() {
   
   const [isLoading, setIsLoading] = useState(!isNewQuotation);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLearning, setIsLearning] = useState(false);
   const [threadEmails, setThreadEmails] = useState<ThreadEmail[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<ThreadEmail | null>(null);
-  const [attachments, setAttachments] = useState<Array<{ id: string; filename: string; content_type: string }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ id: string; filename: string; content_type: string; email_id?: string }>>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [generatedResponse, setGeneratedResponse] = useState('');
   const [timelineExpanded, setTimelineExpanded] = useState(true);
+  
+  // Quotation status
+  const [quotationCompleted, setQuotationCompleted] = useState(false);
+  const [quotationOffers, setQuotationOffers] = useState<QuotationOffer[]>([]);
+  const [regulatoryInfo, setRegulatoryInfo] = useState<RegulatoryInfo | null>(null);
+  const [offersExpanded, setOffersExpanded] = useState(true);
   
   // Project context
   const [projectContext, setProjectContext] = useState<ProjectContext>({
@@ -537,16 +708,6 @@ export default function QuotationSheet() {
       const currentEmail = threadEmailsList.find(e => e.id === emailId) || threadEmailsList[threadEmailsList.length - 1];
       setSelectedEmail(currentEmail);
       
-      // Consolidate data from all thread emails
-      const consolidated = consolidateThreadData(threadEmailsList);
-      
-      // Apply consolidated data to form
-      applyConsolidatedData(consolidated, threadEmailsList);
-      
-      // Analyze context and generate alerts
-      analyzeEmailContext(threadEmailsList, consolidated);
-      generateAlertsFromConsolidated(consolidated, threadEmailsList);
-      
       // Fetch attachments for all thread emails
       const emailIds = threadEmailsList.map(e => e.id);
       const { data: attachmentData } = await supabase
@@ -556,6 +717,25 @@ export default function QuotationSheet() {
       
       setAttachments(attachmentData || []);
       
+      // Detect completed quotation offers
+      const offers = detectQuotationOffers(threadEmailsList, attachmentData || []);
+      setQuotationOffers(offers);
+      setQuotationCompleted(offers.length > 0);
+      
+      // Extract regulatory information from all emails
+      const allRegulatoryInfo = extractAllRegulatoryInfo(threadEmailsList);
+      setRegulatoryInfo(allRegulatoryInfo);
+      
+      // Consolidate data from all thread emails
+      const consolidated = consolidateThreadData(threadEmailsList);
+      
+      // Apply consolidated data to form
+      applyConsolidatedData(consolidated, threadEmailsList);
+      
+      // Analyze context and generate alerts
+      analyzeEmailContext(threadEmailsList, consolidated);
+      generateAlertsFromConsolidated(consolidated, threadEmailsList, offers);
+      
       // Fetch suggestions
       await fetchSuggestions(currentEmail);
     } catch (error) {
@@ -564,6 +744,99 @@ export default function QuotationSheet() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const detectQuotationOffers = (
+    emails: ThreadEmail[], 
+    allAttachments: Array<{ id: string; filename: string; content_type: string; email_id?: string }>
+  ): QuotationOffer[] => {
+    const offers: QuotationOffer[] = [];
+    
+    for (const email of emails) {
+      // Check if from internal domain
+      if (!isInternalEmail(email.from_address)) continue;
+      
+      const body = decodeBase64Content(email.body_text);
+      
+      // Check for offer keywords
+      if (!containsOfferKeywords(body)) continue;
+      
+      // Determine offer type
+      const offerType = detectOfferType(email);
+      if (!offerType) continue;
+      
+      // Get attachments for this email
+      const emailAttachments = allAttachments.filter(a => a.email_id === email.id);
+      
+      // Detect content from body
+      const detectedContent: string[] = [];
+      const bodyLower = body.toLowerCase();
+      
+      if (bodyLower.includes('dry container') || bodyLower.includes('dry')) {
+        detectedContent.push('Dry containers');
+      }
+      if (bodyLower.includes('dg container') || bodyLower.includes('dangerous')) {
+        detectedContent.push('DG containers');
+      }
+      if (bodyLower.includes('special ig') || bodyLower.includes('in-gauge')) {
+        detectedContent.push('Special IG');
+      }
+      if (bodyLower.includes('special oog') || bodyLower.includes('out-of-gauge')) {
+        detectedContent.push('Special OOG');
+      }
+      if (bodyLower.includes('flat rack') || bodyLower.includes('40fr')) {
+        detectedContent.push('Flat Rack');
+      }
+      if (bodyLower.includes('open top') || bodyLower.includes('ot')) {
+        detectedContent.push('Open Top');
+      }
+      if (bodyLower.includes('ex-hook') || bodyLower.includes('fot')) {
+        detectedContent.push('Ex-hook / FOT');
+      }
+      if (bodyLower.includes('dap') && bodyLower.includes('site')) {
+        detectedContent.push('DAP to site');
+      }
+      
+      offers.push({
+        type: offerType,
+        email,
+        sentAt: email.sent_at || email.received_at,
+        senderName: getEmailSenderName(email.from_address),
+        senderEmail: email.from_address,
+        attachments: emailAttachments,
+        detectedContent,
+      });
+    }
+    
+    return offers;
+  };
+
+  const extractAllRegulatoryInfo = (emails: ThreadEmail[]): RegulatoryInfo => {
+    const combined: RegulatoryInfo = {
+      customsNotes: [],
+      otherNotes: [],
+    };
+    
+    for (const email of emails) {
+      const body = decodeBase64Content(email.body_text);
+      const info = extractRegulatoryInfo(body);
+      
+      if (info.projectTaxation) {
+        combined.projectTaxation = {
+          ...combined.projectTaxation,
+          ...info.projectTaxation,
+        };
+      }
+      if (info.dpiRequired) combined.dpiRequired = true;
+      if (info.dpiThreshold) combined.dpiThreshold = info.dpiThreshold;
+      if (info.dpiDeadline) combined.dpiDeadline = info.dpiDeadline;
+      if (info.apeAvailable) combined.apeAvailable = true;
+      
+      combined.customsNotes = [...new Set([...combined.customsNotes, ...info.customsNotes])];
+      combined.otherNotes = [...new Set([...combined.otherNotes, ...info.otherNotes])];
+    }
+    
+    return combined;
   };
 
   const applyConsolidatedData = (consolidated: ConsolidatedData, emails: ThreadEmail[]) => {
@@ -629,7 +902,6 @@ export default function QuotationSheet() {
     const fromEmail = originalRequest.from_address.toLowerCase();
     const toAddresses = originalRequest.to_addresses?.map(e => e.toLowerCase()) || [];
     const ccAddresses = originalRequest.cc_addresses?.map(e => e.toLowerCase()) || [];
-    const allAddresses = [...toAddresses, ...ccAddresses];
     
     // Check if 2HL is in TO
     const twoHLInTo = toAddresses.some(e => 
@@ -683,8 +955,20 @@ export default function QuotationSheet() {
     setProjectContext(context);
   };
 
-  const generateAlertsFromConsolidated = (consolidated: ConsolidatedData, emails: ThreadEmail[]) => {
+  const generateAlertsFromConsolidated = (
+    consolidated: ConsolidatedData, 
+    emails: ThreadEmail[],
+    offers: QuotationOffer[]
+  ) => {
     const newAlerts: Alert[] = [];
+    
+    // Quotation completed alert
+    if (offers.length > 0) {
+      newAlerts.push({ 
+        type: 'success', 
+        message: `Cotation réalisée - ${offers.length} offre(s) envoyée(s)` 
+      });
+    }
     
     // Check incoterm - use consolidated data
     if (!consolidated.incoterm) {
@@ -795,6 +1079,66 @@ export default function QuotationSheet() {
     }
   };
 
+  const handleLearnFromQuotation = async () => {
+    if (quotationOffers.length === 0) return;
+    
+    setIsLearning(true);
+    try {
+      // Create learned knowledge entries for each offer
+      const knowledgeEntries = [];
+      
+      for (const offer of quotationOffers) {
+        const body = decodeBase64Content(offer.email.body_text);
+        
+        // Create knowledge entry
+        const entry = {
+          name: `Cotation ${offer.type} - ${finalDestination || destination}`,
+          category: 'quotation_template',
+          description: `Cotation ${offer.type} pour ${projectContext.requesting_company} vers ${finalDestination || destination}`,
+          data: {
+            type: offer.type,
+            route: {
+              port: destination,
+              finalDestination: finalDestination,
+            },
+            incoterm: incoterm,
+            client: {
+              name: projectContext.requesting_party,
+              company: projectContext.requesting_company,
+            },
+            partner: projectContext.partner_company,
+            projectName: projectContext.project_name,
+            cargoTypes: offer.detectedContent,
+            regulatoryInfo: regulatoryInfo,
+            attachmentNames: offer.attachments.map(a => a.filename),
+            sentAt: offer.sentAt,
+            sender: offer.senderEmail,
+          },
+          source_type: 'email',
+          source_id: offer.email.id,
+          confidence: 0.9,
+          is_validated: true,
+        };
+        
+        knowledgeEntries.push(entry);
+      }
+      
+      // Insert all entries
+      const { error } = await supabase
+        .from('learned_knowledge')
+        .insert(knowledgeEntries);
+      
+      if (error) throw error;
+      
+      toast.success(`${knowledgeEntries.length} connaissance(s) enregistrée(s)`);
+    } catch (error) {
+      console.error('Error learning from quotation:', error);
+      toast.error('Erreur lors de l\'apprentissage');
+    } finally {
+      setIsLearning(false);
+    }
+  };
+
   const addCargoLine = (type: 'container' | 'breakbulk') => {
     const newLine: CargoLine = {
       id: crypto.randomUUID(),
@@ -896,6 +1240,22 @@ export default function QuotationSheet() {
       .replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  const getOfferTypeLabel = (type: 'container' | 'breakbulk' | 'combined'): string => {
+    switch (type) {
+      case 'container': return 'Conteneurs';
+      case 'breakbulk': return 'Breakbulk';
+      case 'combined': return 'Conteneurs & Breakbulk';
+    }
+  };
+
+  const getOfferTypeIcon = (type: 'container' | 'breakbulk' | 'combined') => {
+    switch (type) {
+      case 'container': return <Container className="h-4 w-4" />;
+      case 'breakbulk': return <Boxes className="h-4 w-4" />;
+      case 'combined': return <Package className="h-4 w-4" />;
+    }
+  };
+
   if (isLoading) {
     return (
       <MainLayout>
@@ -915,9 +1275,17 @@ export default function QuotationSheet() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold">
-              {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold">
+                {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
+              </h1>
+              {quotationCompleted && (
+                <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Cotation réalisée
+                </Badge>
+              )}
+            </div>
             {selectedEmail && (
               <p className="text-sm text-muted-foreground truncate">
                 {selectedEmail.subject}
@@ -930,22 +1298,196 @@ export default function QuotationSheet() {
               </Badge>
             )}
           </div>
-          <Button 
-            onClick={handleGenerateResponse}
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4 mr-2" />
-            )}
-            Générer la réponse
-          </Button>
+          {!quotationCompleted && (
+            <Button 
+              onClick={handleGenerateResponse}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Générer la réponse
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Main Form */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Quotation Completed Banner */}
+            {quotationCompleted && quotationOffers.length > 0 && (
+              <Card className="border-green-500/30 bg-green-500/5">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2 text-green-600">
+                      <CheckCircle className="h-5 w-5" />
+                      COTATION RÉALISÉE
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLearnFromQuotation}
+                      disabled={isLearning}
+                      className="border-green-500/30 text-green-600 hover:bg-green-500/10"
+                    >
+                      {isLearning ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <GraduationCap className="h-4 w-4 mr-2" />
+                      )}
+                      Apprendre de cette cotation
+                    </Button>
+                  </div>
+                  <CardDescription>
+                    {quotationOffers.length} offre(s) envoyée(s) dans ce fil de discussion
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {quotationOffers.map((offer, index) => (
+                    <div 
+                      key={offer.email.id}
+                      className="p-4 rounded-lg border border-green-500/20 bg-background"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="gap-1">
+                            {getOfferTypeIcon(offer.type)}
+                            {getOfferTypeLabel(offer.type)}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            Email {index + 1}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(offer.sentAt)}
+                        </span>
+                      </div>
+                      
+                      <div className="mb-3">
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Par: </span>
+                          <span className="font-medium">{offer.senderName}</span>
+                          <span className="text-muted-foreground"> ({offer.senderEmail})</span>
+                        </p>
+                      </div>
+                      
+                      {offer.detectedContent.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs text-muted-foreground mb-1">Contenu détecté:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {offer.detectedContent.map((content, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">
+                                {content}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {offer.attachments.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Pièces jointes:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {offer.attachments.map(att => (
+                              <Badge 
+                                key={att.id} 
+                                variant="outline" 
+                                className={cn(
+                                  "text-xs gap-1",
+                                  att.filename.endsWith('.xlsx') || att.filename.endsWith('.xls') 
+                                    ? "border-green-500/30 text-green-600"
+                                    : att.filename.endsWith('.pdf')
+                                    ? "border-red-500/30 text-red-600"
+                                    : ""
+                                )}
+                              >
+                                {att.filename.endsWith('.xlsx') || att.filename.endsWith('.xls') ? (
+                                  <FileSpreadsheet className="h-3 w-3" />
+                                ) : (
+                                  <Paperclip className="h-3 w-3" />
+                                )}
+                                {att.filename.length > 30 ? att.filename.substring(0, 30) + '...' : att.filename}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Regulatory Information */}
+            {regulatoryInfo && (regulatoryInfo.projectTaxation || regulatoryInfo.dpiRequired || regulatoryInfo.customsNotes.length > 0) && (
+              <Card className="border-blue-500/30 bg-blue-500/5">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2 text-blue-600">
+                    <ShieldCheck className="h-4 w-4" />
+                    Informations réglementaires extraites
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {regulatoryInfo.projectTaxation && (
+                    <div className="p-3 rounded-lg bg-background border">
+                      <p className="text-sm font-medium mb-1">Taxation projet exempté:</p>
+                      <div className="flex gap-4 text-sm">
+                        {regulatoryInfo.projectTaxation.sea && (
+                          <span>
+                            <Ship className="h-3 w-3 inline mr-1" />
+                            Maritime: <strong>{regulatoryInfo.projectTaxation.sea}</strong> CIF
+                          </span>
+                        )}
+                        {regulatoryInfo.projectTaxation.air && (
+                          <span>
+                            ✈️ Aérien: <strong>{regulatoryInfo.projectTaxation.air}</strong> CIF
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {regulatoryInfo.dpiRequired && (
+                    <div className="p-3 rounded-lg bg-background border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Info className="h-4 w-4 text-amber-500" />
+                        <p className="text-sm font-medium">DPI Obligatoire</p>
+                      </div>
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        {regulatoryInfo.dpiThreshold && (
+                          <p>Seuil: CIF &gt; {regulatoryInfo.dpiThreshold}</p>
+                        )}
+                        {regulatoryInfo.dpiDeadline && (
+                          <p>Délai: {regulatoryInfo.dpiDeadline}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {regulatoryInfo.apeAvailable && (
+                    <div className="p-3 rounded-lg bg-background border">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        <p className="text-sm">APE possible si exemption manquante (renouv. 10j)</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {regulatoryInfo.customsNotes.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {regulatoryInfo.customsNotes.map((note, i) => (
+                        <Badge key={i} variant="outline" className="text-xs">
+                          {note}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Alerts */}
             {alerts.length > 0 && (
               <Card className="border-amber-500/30 bg-amber-500/5">
@@ -991,55 +1533,75 @@ export default function QuotationSheet() {
                     </CollapsibleTrigger>
                   </CardHeader>
                   <CollapsibleContent>
-                    <CardContent>
+                    <CardContent className="pt-0">
                       <div className="relative">
                         {/* Timeline line */}
-                        <div className="absolute left-3 top-2 bottom-2 w-px bg-ocean/30" />
+                        <div className="absolute left-3 top-0 bottom-0 w-px bg-border" />
                         
-                        <div className="space-y-3">
-                          {threadEmails.map((email, index) => (
-                            <div 
-                              key={email.id} 
-                              className={cn(
-                                "relative pl-8 py-2 rounded-lg transition-colors cursor-pointer",
-                                email.id === selectedEmail?.id 
-                                  ? "bg-ocean/10 border border-ocean/30" 
-                                  : "hover:bg-muted/50"
-                              )}
-                              onClick={() => setSelectedEmail(email)}
-                            >
-                              {/* Timeline dot */}
-                              <div className={cn(
-                                "absolute left-1.5 top-4 w-3 h-3 rounded-full border-2",
-                                index === 0 
-                                  ? "bg-primary border-primary"
-                                  : email.id === selectedEmail?.id
+                        <div className="space-y-2">
+                          {threadEmails.map((email, index) => {
+                            const isInternal = isInternalEmail(email.from_address);
+                            const isOffer = quotationOffers.some(o => o.email.id === email.id);
+                            
+                            return (
+                              <div 
+                                key={email.id} 
+                                className={cn(
+                                  "relative pl-8 py-2 rounded-lg transition-colors cursor-pointer",
+                                  email.id === selectedEmail?.id 
+                                    ? "bg-ocean/10 border border-ocean/30" 
+                                    : "hover:bg-muted/50",
+                                  isOffer && "border-l-2 border-l-green-500"
+                                )}
+                                onClick={() => setSelectedEmail(email)}
+                              >
+                                {/* Timeline dot */}
+                                <div className={cn(
+                                  "absolute left-1.5 top-4 w-3 h-3 rounded-full border-2",
+                                  index === 0 
+                                    ? "bg-primary border-primary"
+                                    : isOffer
+                                    ? "bg-green-500 border-green-500"
+                                    : isInternal
+                                    ? "bg-ocean border-ocean"
+                                    : email.id === selectedEmail?.id
                                     ? "bg-ocean border-ocean"
                                     : "bg-muted border-muted-foreground/30"
-                              )} />
-                              
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium text-sm truncate">
-                                      {getEmailSenderName(email.from_address)}
-                                    </span>
-                                    {index === 0 && (
-                                      <Badge variant="outline" className="text-xs">
-                                        Original
-                                      </Badge>
-                                    )}
+                                )} />
+                                
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium text-sm truncate">
+                                        {getEmailSenderName(email.from_address)}
+                                      </span>
+                                      {index === 0 && (
+                                        <Badge variant="outline" className="text-xs">
+                                          Original
+                                        </Badge>
+                                      )}
+                                      {isOffer && (
+                                        <Badge className="text-xs bg-green-500/20 text-green-600 border-green-500/30">
+                                          Offre
+                                        </Badge>
+                                      )}
+                                      {isInternal && !isOffer && (
+                                        <Badge variant="outline" className="text-xs text-ocean">
+                                          Interne
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                      {email.subject}
+                                    </p>
                                   </div>
-                                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                    {email.subject}
-                                  </p>
+                                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                    {formatDate(email.sent_at || email.received_at)}
+                                  </span>
                                 </div>
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                  {formatDate(email.sent_at || email.received_at)}
-                                </span>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </CardContent>
@@ -1048,387 +1610,392 @@ export default function QuotationSheet() {
               </Collapsible>
             )}
 
-            {/* Project Context */}
-            <Card className="border-ocean/30 bg-ocean/5">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-4 w-4 text-ocean" />
-                  Contexte du projet
-                </CardTitle>
-                <CardDescription>
-                  {projectContext.our_role === 'partner_support' 
-                    ? "Nous assistons notre partenaire pour cette cotation"
-                    : "Cotation directe client"
-                  }
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Demandeur</Label>
-                    <Input
-                      value={projectContext.requesting_party}
-                      onChange={(e) => setProjectContext({...projectContext, requesting_party: e.target.value})}
-                      placeholder="Nom du contact"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Société</Label>
-                    <Input
-                      value={projectContext.requesting_company}
-                      onChange={(e) => setProjectContext({...projectContext, requesting_company: e.target.value})}
-                      placeholder="Entreprise"
-                    />
-                  </div>
-                </div>
-                
-                {projectContext.our_role === 'partner_support' && (
-                  <div className="p-3 rounded-lg bg-ocean/10 border border-ocean/20">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Building2 className="h-4 w-4 text-ocean" />
-                      <span className="text-sm font-medium">Partenaire: {projectContext.partner_company}</span>
+            {/* Only show form sections if quotation is not completed */}
+            {!quotationCompleted && (
+              <>
+                {/* Project Context */}
+                <Card className="border-ocean/30 bg-ocean/5">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="h-4 w-4 text-ocean" />
+                      Contexte du projet
+                    </CardTitle>
+                    <CardDescription>
+                      {projectContext.our_role === 'partner_support' 
+                        ? "Nous assistons notre partenaire pour cette cotation"
+                        : "Cotation directe client"
+                      }
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Demandeur</Label>
+                        <Input
+                          value={projectContext.requesting_party}
+                          onChange={(e) => setProjectContext({...projectContext, requesting_party: e.target.value})}
+                          placeholder="Nom du contact"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Société</Label>
+                        <Input
+                          value={projectContext.requesting_company}
+                          onChange={(e) => setProjectContext({...projectContext, requesting_company: e.target.value})}
+                          placeholder="Entreprise"
+                        />
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Nous préparons les éléments de cotation pour {projectContext.partner_company}
-                    </p>
-                  </div>
-                )}
+                    
+                    {projectContext.our_role === 'partner_support' && (
+                      <div className="p-3 rounded-lg bg-ocean/10 border border-ocean/20">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Building2 className="h-4 w-4 text-ocean" />
+                          <span className="text-sm font-medium">Partenaire: {projectContext.partner_company}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Nous préparons les éléments de cotation pour {projectContext.partner_company}
+                        </p>
+                      </div>
+                    )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Nom du projet</Label>
-                    <Input
-                      value={projectContext.project_name || ''}
-                      onChange={(e) => setProjectContext({...projectContext, project_name: e.target.value})}
-                      placeholder="Ex: Youth Olympic Games 2026"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Lieu du projet</Label>
-                    <Input
-                      value={projectContext.project_location || ''}
-                      onChange={(e) => setProjectContext({...projectContext, project_location: e.target.value})}
-                      placeholder="Ex: Saint-Louis"
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Nom du projet</Label>
+                        <Input
+                          value={projectContext.project_name || ''}
+                          onChange={(e) => setProjectContext({...projectContext, project_name: e.target.value})}
+                          placeholder="Ex: Youth Olympic Games 2026"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Lieu du projet</Label>
+                        <Input
+                          value={projectContext.project_location || ''}
+                          onChange={(e) => setProjectContext({...projectContext, project_location: e.target.value})}
+                          placeholder="Ex: Saint-Louis"
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* Cargo Lines */}
-            <Card className="border-border/50 bg-gradient-card">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Package className="h-4 w-4 text-primary" />
-                    Marchandises ({cargoLines.length})
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => addCargoLine('container')}>
-                      <Container className="h-4 w-4 mr-1" />
-                      Conteneur
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => addCargoLine('breakbulk')}>
-                      <Boxes className="h-4 w-4 mr-1" />
-                      Breakbulk
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {cargoLines.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Ajoutez des lignes de marchandise</p>
-                  </div>
-                ) : (
-                  cargoLines.map((line, index) => (
-                    <div key={line.id} className="p-4 rounded-lg border bg-muted/30 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Badge variant={line.cargo_type === 'container' ? 'default' : 'secondary'}>
-                          {line.cargo_type === 'container' ? (
-                            <><Container className="h-3 w-3 mr-1" /> Conteneur</>
-                          ) : (
-                            <><Boxes className="h-3 w-3 mr-1" /> Breakbulk</>
-                          )}
-                        </Badge>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeCargoLine(line.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
+                {/* Cargo Lines */}
+                <Card className="border-border/50 bg-gradient-card">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Package className="h-4 w-4 text-primary" />
+                        Marchandises ({cargoLines.length})
+                      </CardTitle>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => addCargoLine('container')}>
+                          <Container className="h-4 w-4 mr-1" />
+                          Conteneur
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => addCargoLine('breakbulk')}>
+                          <Boxes className="h-4 w-4 mr-1" />
+                          Breakbulk
                         </Button>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="col-span-2 space-y-1">
-                          <Label className="text-xs">Description</Label>
-                          <Input
-                            value={line.description}
-                            onChange={(e) => updateCargoLine(line.id, { description: e.target.value })}
-                            placeholder="Description marchandise"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Origine</Label>
-                          <Input
-                            value={line.origin}
-                            onChange={(e) => updateCargoLine(line.id, { origin: e.target.value })}
-                            placeholder="Pays/Port"
-                          />
-                        </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {cargoLines.length === 0 ? (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ajoutez des lignes de marchandise</p>
                       </div>
-
-                      {line.cargo_type === 'container' ? (
-                        <div className="grid grid-cols-4 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Type</Label>
-                            <Select 
-                              value={line.container_type || '40HC'} 
-                              onValueChange={(v) => updateCargoLine(line.id, { container_type: v })}
+                    ) : (
+                      cargoLines.map((line, index) => (
+                        <div key={line.id} className="p-4 rounded-lg border bg-muted/30 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Badge variant={line.cargo_type === 'container' ? 'default' : 'secondary'}>
+                              {line.cargo_type === 'container' ? (
+                                <><Container className="h-3 w-3 mr-1" /> Conteneur</>
+                              ) : (
+                                <><Boxes className="h-3 w-3 mr-1" /> Breakbulk</>
+                              )}
+                            </Badge>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeCargoLine(line.id)}
                             >
-                              <SelectTrigger className="h-9">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {containerTypes.map((type) => (
-                                  <SelectItem key={type.value} value={type.value}>
-                                    {type.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Nombre</Label>
-                            <Input
-                              type="number"
-                              min="1"
-                              value={line.container_count || 1}
-                              onChange={(e) => updateCargoLine(line.id, { container_count: parseInt(e.target.value) })}
-                            />
+
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="col-span-2 space-y-1">
+                              <Label className="text-xs">Description</Label>
+                              <Input
+                                value={line.description}
+                                onChange={(e) => updateCargoLine(line.id, { description: e.target.value })}
+                                placeholder="Description marchandise"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Origine</Label>
+                              <Input
+                                value={line.origin}
+                                onChange={(e) => updateCargoLine(line.id, { origin: e.target.value })}
+                                placeholder="Pays/Port"
+                              />
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">COC/SOC</Label>
-                            <Select 
-                              value={line.coc_soc || 'COC'} 
-                              onValueChange={(v) => updateCargoLine(line.id, { coc_soc: v as 'COC' | 'SOC' })}
+
+                          {line.cargo_type === 'container' ? (
+                            <div className="grid grid-cols-4 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Type</Label>
+                                <Select 
+                                  value={line.container_type || '40HC'} 
+                                  onValueChange={(v) => updateCargoLine(line.id, { container_type: v })}
+                                >
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {containerTypes.map((type) => (
+                                      <SelectItem key={type.value} value={type.value}>
+                                        {type.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Nombre</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={line.container_count || 1}
+                                  onChange={(e) => updateCargoLine(line.id, { container_count: parseInt(e.target.value) })}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">COC/SOC</Label>
+                                <Select 
+                                  value={line.coc_soc || 'COC'} 
+                                  onValueChange={(v) => updateCargoLine(line.id, { coc_soc: v as 'COC' | 'SOC' })}
+                                >
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="COC">COC (Armateur)</SelectItem>
+                                    <SelectItem value="SOC">SOC (Chargeur)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Poids (kg)</Label>
+                                <Input
+                                  type="number"
+                                  value={line.weight_kg || ''}
+                                  onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
+                                  placeholder="18000"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-4 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Poids (kg)</Label>
+                                <Input
+                                  type="number"
+                                  value={line.weight_kg || ''}
+                                  onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Volume (m³)</Label>
+                                <Input
+                                  type="number"
+                                  value={line.volume_cbm || ''}
+                                  onChange={(e) => updateCargoLine(line.id, { volume_cbm: parseFloat(e.target.value) })}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Dimensions</Label>
+                                <Input
+                                  value={line.dimensions || ''}
+                                  onChange={(e) => updateCargoLine(line.id, { dimensions: e.target.value })}
+                                  placeholder="L x l x H"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Pièces</Label>
+                                <Input
+                                  type="number"
+                                  value={line.pieces || ''}
+                                  onChange={(e) => updateCargoLine(line.id, { pieces: parseInt(e.target.value) })}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Route & Incoterm */}
+                <Card className="border-border/50 bg-gradient-card">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Ship className="h-4 w-4 text-primary" />
+                      Itinéraire & Conditions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Port de destination</Label>
+                        <Input
+                          value={destination}
+                          onChange={(e) => setDestination(e.target.value)}
+                          placeholder="Dakar"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Destination finale (si on-carriage)</Label>
+                        <Input
+                          value={finalDestination}
+                          onChange={(e) => setFinalDestination(e.target.value)}
+                          placeholder="Ex: Saint-Louis"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Incoterm demandé</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {incoterms.map((inc) => (
+                          <Badge
+                            key={inc}
+                            variant={incoterm === inc ? 'default' : 'outline'}
+                            className={cn(
+                              'cursor-pointer transition-colors',
+                              incoterm === inc 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'hover:bg-primary/10'
+                            )}
+                            onClick={() => setIncoterm(inc)}
+                          >
+                            {inc}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Exigences particulières</Label>
+                      <Textarea
+                        value={specialRequirements}
+                        onChange={(e) => setSpecialRequirements(e.target.value)}
+                        placeholder="Déchargement sur site non inclus, conteneurs SOC à retourner vides..."
+                        rows={2}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Services to Quote */}
+                <Card className="border-border/50 bg-gradient-card">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        Services à coter ({serviceLines.length})
+                      </CardTitle>
+                      <Select onValueChange={(v) => {
+                        const template = serviceTemplates.find(t => t.service === v);
+                        if (template) addServiceLine(template);
+                      }}>
+                        <SelectTrigger className="w-[200px] h-8">
+                          <Plus className="h-4 w-4 mr-1" />
+                          <span className="text-sm">Ajouter service</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {serviceTemplates.map((t) => (
+                            <SelectItem key={t.service} value={t.service}>
+                              {t.description}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {serviceLines.length === 0 ? (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ajoutez les services demandés</p>
+                        <div className="flex flex-wrap justify-center gap-2 mt-3">
+                          {serviceTemplates.slice(0, 4).map((t) => (
+                            <Badge 
+                              key={t.service} 
+                              variant="outline" 
+                              className="cursor-pointer hover:bg-primary/10"
+                              onClick={() => addServiceLine(t)}
                             >
-                              <SelectTrigger className="h-9">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="COC">COC (Armateur)</SelectItem>
-                                <SelectItem value="SOC">SOC (Chargeur)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Poids (kg)</Label>
-                            <Input
-                              type="number"
-                              value={line.weight_kg || ''}
-                              onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
-                              placeholder="18000"
-                            />
-                          </div>
+                              <Plus className="h-3 w-3 mr-1" />
+                              {t.description}
+                            </Badge>
+                          ))}
                         </div>
-                      ) : (
-                        <div className="grid grid-cols-4 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Poids (kg)</Label>
+                      </div>
+                    ) : (
+                      serviceLines.map((line) => (
+                        <div key={line.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                          <div className="flex-1">
+                            <Input
+                              value={line.description}
+                              onChange={(e) => updateServiceLine(line.id, { description: e.target.value })}
+                              className="font-medium"
+                            />
+                          </div>
+                          <div className="w-20">
                             <Input
                               type="number"
-                              value={line.weight_kg || ''}
-                              onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
+                              value={line.quantity}
+                              onChange={(e) => updateServiceLine(line.id, { quantity: parseInt(e.target.value) })}
+                              className="text-center"
                             />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Volume (m³)</Label>
+                          <div className="w-24">
+                            <Input
+                              value={line.unit}
+                              onChange={(e) => updateServiceLine(line.id, { unit: e.target.value })}
+                              placeholder="unité"
+                            />
+                          </div>
+                          <div className="w-28">
                             <Input
                               type="number"
-                              value={line.volume_cbm || ''}
-                              onChange={(e) => updateCargoLine(line.id, { volume_cbm: parseFloat(e.target.value) })}
+                              value={line.rate || ''}
+                              onChange={(e) => updateServiceLine(line.id, { rate: parseFloat(e.target.value) })}
+                              placeholder="Tarif"
                             />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Dimensions</Label>
-                            <Input
-                              value={line.dimensions || ''}
-                              onChange={(e) => updateCargoLine(line.id, { dimensions: e.target.value })}
-                              placeholder="L x l x H"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Pièces</Label>
-                            <Input
-                              type="number"
-                              value={line.pieces || ''}
-                              onChange={(e) => updateCargoLine(line.id, { pieces: parseInt(e.target.value) })}
-                            />
-                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeServiceLine(line.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Route & Incoterm */}
-            <Card className="border-border/50 bg-gradient-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Ship className="h-4 w-4 text-primary" />
-                  Itinéraire & Conditions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Port de destination</Label>
-                    <Input
-                      value={destination}
-                      onChange={(e) => setDestination(e.target.value)}
-                      placeholder="Dakar"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Destination finale (si on-carriage)</Label>
-                    <Input
-                      value={finalDestination}
-                      onChange={(e) => setFinalDestination(e.target.value)}
-                      placeholder="Ex: Saint-Louis"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Incoterm demandé</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {incoterms.map((inc) => (
-                      <Badge
-                        key={inc}
-                        variant={incoterm === inc ? 'default' : 'outline'}
-                        className={cn(
-                          'cursor-pointer transition-colors',
-                          incoterm === inc 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'hover:bg-primary/10'
-                        )}
-                        onClick={() => setIncoterm(inc)}
-                      >
-                        {inc}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Exigences particulières</Label>
-                  <Textarea
-                    value={specialRequirements}
-                    onChange={(e) => setSpecialRequirements(e.target.value)}
-                    placeholder="Déchargement sur site non inclus, conteneurs SOC à retourner vides..."
-                    rows={2}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Services to Quote */}
-            <Card className="border-border/50 bg-gradient-card">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    Services à coter ({serviceLines.length})
-                  </CardTitle>
-                  <Select onValueChange={(v) => {
-                    const template = serviceTemplates.find(t => t.service === v);
-                    if (template) addServiceLine(template);
-                  }}>
-                    <SelectTrigger className="w-[200px] h-8">
-                      <Plus className="h-4 w-4 mr-1" />
-                      <span className="text-sm">Ajouter service</span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {serviceTemplates.map((t) => (
-                        <SelectItem key={t.service} value={t.service}>
-                          {t.description}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {serviceLines.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Ajoutez les services demandés</p>
-                    <div className="flex flex-wrap justify-center gap-2 mt-3">
-                      {serviceTemplates.slice(0, 4).map((t) => (
-                        <Badge 
-                          key={t.service} 
-                          variant="outline" 
-                          className="cursor-pointer hover:bg-primary/10"
-                          onClick={() => addServiceLine(t)}
-                        >
-                          <Plus className="h-3 w-3 mr-1" />
-                          {t.description}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  serviceLines.map((line) => (
-                    <div key={line.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                      <div className="flex-1">
-                        <Input
-                          value={line.description}
-                          onChange={(e) => updateServiceLine(line.id, { description: e.target.value })}
-                          className="font-medium"
-                        />
-                      </div>
-                      <div className="w-20">
-                        <Input
-                          type="number"
-                          value={line.quantity}
-                          onChange={(e) => updateServiceLine(line.id, { quantity: parseInt(e.target.value) })}
-                          className="text-center"
-                        />
-                      </div>
-                      <div className="w-24">
-                        <Input
-                          value={line.unit}
-                          onChange={(e) => updateServiceLine(line.id, { unit: e.target.value })}
-                          placeholder="unité"
-                        />
-                      </div>
-                      <div className="w-28">
-                        <Input
-                          type="number"
-                          value={line.rate || ''}
-                          onChange={(e) => updateServiceLine(line.id, { rate: parseFloat(e.target.value) })}
-                          placeholder="Tarif"
-                        />
-                      </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeServiceLine(line.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
 
             {/* Generated Response */}
             {generatedResponse && (
