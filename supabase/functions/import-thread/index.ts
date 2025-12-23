@@ -502,8 +502,25 @@ class IMAPClient {
     let result = "";
     while (true) {
       const line = await this.readLine();
-      result += line + '\r\n';
-      if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) break;
+      result += line + "\r\n";
+
+      // IMAP literals: a line ending with {N} means the server will send exactly N raw bytes next.
+      const literalMatch = line.match(/\{(\d+)\}\s*$/);
+      if (literalMatch) {
+        const literalSize = parseInt(literalMatch[1], 10);
+        console.log(`[IMAP] literal detected: {${literalSize}}`);
+        const literalBytes = await this.readBytes(literalSize);
+        console.log(`[IMAP] literal read: ${literalBytes.length}/${literalSize} bytes`);
+        result += new TextDecoder().decode(literalBytes);
+      }
+
+      if (
+        line.startsWith(`${tag} OK`) ||
+        line.startsWith(`${tag} NO`) ||
+        line.startsWith(`${tag} BAD`)
+      ) {
+        break;
+      }
     }
     return result;
   }
@@ -684,9 +701,14 @@ class IMAPClient {
     let messageId = `<${uid}@imported>`;
     let references = '';
 
-    const headerMatch = headerResp.match(/BODY\[HEADER\.FIELDS.*?\] \{\d+\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/i);
-    if (headerMatch) {
-      const h = headerMatch[1];
+    const headerMarker = headerResp.match(/BODY\[HEADER\.FIELDS[^\]]*\] \{(\d+)\}\r\n/i);
+    if (headerMarker) {
+      const headerSize = parseInt(headerMarker[1], 10);
+      const headerStart = headerResp.indexOf(headerMarker[0]) + headerMarker[0].length;
+      const h = headerResp.substring(headerStart, headerStart + headerSize);
+
+      console.log(`[IMAP] header literal size=${headerSize}, extracted=${h.length}`);
+
       const sm = h.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
       if (sm) subject = decodeHeader(sm[1].trim());
       const fm = h.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
@@ -716,10 +738,14 @@ class IMAPClient {
     let bodyText = '';
     let bodyHtml = '';
     
-    const bodyMatch = bodyResp.match(/BODY\[TEXT\] \{\d+\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/);
-    if (bodyMatch) {
-      const raw = bodyMatch[1];
-      
+    const bodyMarker = bodyResp.match(/BODY\[TEXT\] \{(\d+)\}\r\n/);
+    if (bodyMarker) {
+      const bodySize = parseInt(bodyMarker[1], 10);
+      const bodyStart = bodyResp.indexOf(bodyMarker[0]) + bodyMarker[0].length;
+      const raw = bodyResp.substring(bodyStart, bodyStart + bodySize);
+
+      console.log(`[IMAP] BODY[TEXT] literal size=${bodySize}, extracted=${raw.length}`);
+
       // Check if this is a multipart email (contains MIME boundaries)
       if (raw.includes('Content-Type:') && raw.includes('boundary')) {
         console.log('Detected multipart MIME email, parsing structure...');
@@ -730,7 +756,7 @@ class IMAPClient {
       } else {
         // Simple email - just decode quoted-printable
         const decoded = decodeQuotedPrintableText(raw);
-        
+
         // Check if it's HTML or plain text
         if (decoded.includes('<html') || decoded.includes('<HTML') || decoded.includes('<body')) {
           bodyHtml = decoded;

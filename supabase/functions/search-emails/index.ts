@@ -77,11 +77,51 @@ class IMAPSearchClient {
     return result;
   }
 
+  private async readBytes(count: number): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    let totalRead = 0;
+
+    // Use any buffered data first
+    if (this.buffer.length > 0) {
+      const bufferedBytes = new TextEncoder().encode(this.buffer);
+      const toUse = Math.min(bufferedBytes.length, count);
+      chunks.push(bufferedBytes.subarray(0, toUse));
+      totalRead += toUse;
+      this.buffer = this.buffer.substring(toUse);
+    }
+
+    while (totalRead < count) {
+      const buf = new Uint8Array(Math.min(8192, count - totalRead));
+      const n = await this.conn!.read(buf);
+      if (n === null) break;
+      chunks.push(buf.subarray(0, n));
+      totalRead += n;
+    }
+
+    const result = new Uint8Array(totalRead);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
+  }
+
   private async readUntilTag(tag: string): Promise<string> {
     let result = "";
     while (true) {
       const line = await this.readLine();
-      result += line + '\r\n';
+      result += line + "\r\n";
+
+      const literalMatch = line.match(/\{(\d+)\}\s*$/);
+      if (literalMatch) {
+        const literalSize = parseInt(literalMatch[1], 10);
+        console.log(`[IMAP] literal detected: {${literalSize}}`);
+        const literalBytes = await this.readBytes(literalSize);
+        console.log(`[IMAP] literal read: ${literalBytes.length}/${literalSize} bytes`);
+        result += new TextDecoder().decode(literalBytes);
+      }
+
       if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) break;
     }
     return result;
@@ -232,12 +272,17 @@ class IMAPSearchClient {
     let text = '';
     let html = '';
     
-    const bodyMatch = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n([\s\S]*?)(?=\)\r\n|\r\nA\d+)/);
-    if (bodyMatch) {
-      const rawBody = bodyMatch[2]
+    const bodyMarker = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n/);
+    if (bodyMarker) {
+      const bodySize = parseInt(bodyMarker[1], 10);
+      const bodyStart = response.indexOf(bodyMarker[0]) + bodyMarker[0].length;
+      const rawBody = response
+        .substring(bodyStart, bodyStart + bodySize)
         .replace(/=\r\n/g, '')
         .replace(/=([0-9A-F]{2})/gi, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
-      
+
+      console.log(`[IMAP] BODY[TEXT] literal size=${bodySize}, extracted=${rawBody.length}`);
+
       if (rawBody.includes('<html') || rawBody.includes('<HTML')) {
         html = rawBody;
         text = rawBody
@@ -250,7 +295,7 @@ class IMAPSearchClient {
         text = rawBody;
       }
     }
-    
+
     return { text, html };
   }
 
