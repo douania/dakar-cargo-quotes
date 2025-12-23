@@ -126,7 +126,7 @@ function escapeRegExp(str: string): string {
 }
 
 // Extract text/plain and text/html from multipart MIME email
-function extractTextFromMultipart(rawBody: string): { text: string; html: string } {
+function extractTextFromMultipart(rawBody: string, outerBoundary?: string): { text: string; html: string } {
   let text = '';
   let html = '';
   
@@ -135,7 +135,6 @@ function extractTextFromMultipart(rawBody: string): { text: string; html: string
   
   if (!boundaryMatch) {
     // Not multipart, check if it's HTML or plain text and decode
-    const contentTypeMatch = rawBody.match(/Content-Type:\s*text\/(plain|html)/i);
     const decoded = decodeQuotedPrintableText(rawBody);
     
     // Remove any MIME headers from the beginning
@@ -151,30 +150,31 @@ function extractTextFromMultipart(rawBody: string): { text: string; html: string
   const boundary = boundaryMatch[1].trim();
   console.log(`Detected MIME boundary: ${boundary.substring(0, 50)}...`);
   
-  // Split by boundary
+  // Split by boundary - use exact boundary delimiter
   const boundaryDelimiter = `--${boundary}`;
-  const parts = rawBody.split(new RegExp(escapeRegExp(boundaryDelimiter), 'g'));
+  const parts = rawBody.split(boundaryDelimiter);
   
   console.log(`Found ${parts.length} MIME parts`);
   
-  for (const part of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
     if (!part.trim() || part.trim() === '--') continue;
     
-    // Check if this part has a Content-Type header
+    // Check if this part has a Content-Type header for text
     const partContentTypeMatch = part.match(/Content-Type:\s*text\/(plain|html)(?:;[^\r\n]*)?/i);
-    if (!partContentTypeMatch) continue;
-    
-    const partType = partContentTypeMatch[1].toLowerCase();
-    
-    // Check for nested multipart (e.g., multipart/alternative inside multipart/mixed)
-    if (part.includes('Content-Type: multipart/')) {
-      const nestedResult = extractTextFromMultipart(part);
-      if (nestedResult.text && !text) text = nestedResult.text;
-      if (nestedResult.html && !html) html = nestedResult.html;
+    if (!partContentTypeMatch) {
+      // Check for nested multipart
+      if (part.match(/Content-Type:\s*multipart\//i)) {
+        const nestedResult = extractTextFromMultipart(part, boundary);
+        if (nestedResult.text && !text) text = nestedResult.text;
+        if (nestedResult.html && !html) html = nestedResult.html;
+      }
       continue;
     }
     
-    // Find the content (after double CRLF)
+    const partType = partContentTypeMatch[1].toLowerCase();
+    
+    // Find the content (after double CRLF - header/body separator)
     const contentStart = part.indexOf('\r\n\r\n');
     if (contentStart === -1) continue;
     
@@ -184,7 +184,12 @@ function extractTextFromMultipart(rawBody: string): { text: string; html: string
     const encodingMatch = part.match(/Content-Transfer-Encoding:\s*(quoted-printable|base64|7bit|8bit)/i);
     const encoding = encodingMatch?.[1]?.toLowerCase() || '7bit';
     
-    // Decode based on encoding
+    // First, clean up trailing content that might be after the actual content
+    // This includes the closing -- or next boundary marker in the next part
+    // Look for the end marker which is either "--" alone (end of this part's content) or end of string
+    content = content.replace(/\r?\n--\s*$/, '').trim();
+    
+    // Decode based on encoding AFTER trimming
     if (encoding === 'quoted-printable') {
       content = decodeQuotedPrintableText(content);
     } else if (encoding === 'base64') {
@@ -196,15 +201,15 @@ function extractTextFromMultipart(rawBody: string): { text: string; html: string
       }
     }
     
-    // Clean up - remove trailing boundary markers
-    content = content.split(/\r?\n--/)[0].trim();
+    // Final cleanup - trim and ensure no leftover boundary markers
+    content = content.trim();
     
     if (partType === 'plain' && !text) {
       text = content;
-      console.log(`Extracted text/plain: ${content.substring(0, 100)}...`);
+      console.log(`Extracted text/plain (${content.length} chars): ${content.substring(0, 100)}...`);
     } else if (partType === 'html' && !html) {
       html = content;
-      console.log(`Extracted text/html: ${content.substring(0, 100)}...`);
+      console.log(`Extracted text/html (${content.length} chars): ${content.substring(0, 100)}...`);
     }
   }
   
@@ -1034,6 +1039,23 @@ serve(async (req) => {
         emailId = existingByMsgId.id;
         console.log(`Email ${msg.messageId} already exists (id: ${emailId})`);
         
+        // ALWAYS update body_text with the newly parsed content (fixes corrupted/truncated body_text)
+        if (msg.bodyText && msg.bodyText.length > 0) {
+          const { error: updateError } = await supabase
+            .from('emails')
+            .update({
+              body_text: msg.bodyText,
+              body_html: msg.bodyHtml || null
+            })
+            .eq('id', emailId);
+          
+          if (updateError) {
+            console.error(`Failed to update body_text for ${emailId}:`, updateError);
+          } else {
+            console.log(`Updated body_text for existing email ${emailId} (${msg.bodyText.length} chars)`);
+          }
+        }
+        
         // Check if attachments need to be processed for this existing email
         if (msg.attachments.length > 0) {
           const { data: existingAttachments } = await supabase
@@ -1063,7 +1085,7 @@ serve(async (req) => {
           }
         }
         
-        importedEmails.push({ id: emailId, ...msg, alreadyExists: true });
+        importedEmails.push({ id: emailId, ...msg, alreadyExists: true, bodyUpdated: true });
         continue;
       }
 
