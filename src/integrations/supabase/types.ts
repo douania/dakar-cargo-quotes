@@ -521,6 +521,7 @@ export type Database = {
           email_count: number | null
           first_message_at: string | null
           id: string
+          is_quotation_thread: boolean | null
           last_message_at: string | null
           our_role: string | null
           participants: Json | null
@@ -537,6 +538,7 @@ export type Database = {
           email_count?: number | null
           first_message_at?: string | null
           id?: string
+          is_quotation_thread?: boolean | null
           last_message_at?: string | null
           our_role?: string | null
           participants?: Json | null
@@ -553,6 +555,7 @@ export type Database = {
           email_count?: number | null
           first_message_at?: string | null
           id?: string
+          is_quotation_thread?: boolean | null
           last_message_at?: string | null
           our_role?: string | null
           participants?: Json | null

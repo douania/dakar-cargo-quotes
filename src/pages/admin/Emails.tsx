@@ -65,6 +65,7 @@ interface EmailThread {
   project_name: string | null;
   status: string;
   email_count: number;
+  is_quotation_thread?: boolean;
 }
 
 function getInvokeErrorMessage(err: unknown): string {
@@ -103,7 +104,9 @@ export default function Emails() {
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReclassifying, setIsReclassifying] = useState(false);
+  const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other'>('all');
+  const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
   
   const [newConfig, setNewConfig] = useState({
     name: '',
@@ -358,6 +361,27 @@ export default function Emails() {
     setIsReclassifying(false);
   };
 
+  const reclassifyThreads = async () => {
+    if (!confirm('Recalculer la classification de tous les fils de discussion ?\n\nCela mettra à jour le statut "fil de cotation" de tous les fils.')) return;
+    
+    setIsReclassifyingThreads(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'reclassify_threads' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.total} fils reclassifiés: ${data.quotationThreads} cotations, ${data.nonQuotationThreads} autres`);
+      loadData();
+    } catch (error) {
+      console.error('Reclassify threads error:', error);
+      toast.error('Erreur de reclassification des fils');
+    }
+    setIsReclassifyingThreads(false);
+  };
+
   const toggleEmailSelection = (emailId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newSelection = new Set(selectedEmailIds);
@@ -384,8 +408,16 @@ export default function Emails() {
     return true;
   });
 
+  // Filtered threads based on threadFilter
+  const filteredThreads = threads.filter(thread => {
+    if (threadFilter === 'quotation') return thread.is_quotation_thread !== false;
+    return true;
+  });
+
   const quotationCount = emails.filter(e => e.is_quotation_request).length;
   const otherCount = emails.filter(e => !e.is_quotation_request).length;
+  const quotationThreadCount = threads.filter(t => t.is_quotation_thread !== false).length;
+  const otherThreadCount = threads.filter(t => t.is_quotation_thread === false).length;
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -414,7 +446,7 @@ export default function Emails() {
             </TabsTrigger>
             <TabsTrigger value="threads">
               <GitBranch className="h-4 w-4 mr-2" />
-              Fils ({threads.length})
+              Fils ({threadFilter === 'quotation' ? quotationThreadCount : threads.length})
             </TabsTrigger>
             <TabsTrigger value="knowledge">
               <Brain className="h-4 w-4 mr-2" />
@@ -471,7 +503,49 @@ export default function Emails() {
 
           {/* Threads Tab */}
           <TabsContent value="threads" className="space-y-4">
-            {threads.length === 0 ? (
+            {/* Toolbar */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Filter */}
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <Select value={threadFilter} onValueChange={(v: 'quotation' | 'all') => setThreadFilter(v)}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="quotation">
+                          Cotations ({quotationThreadCount})
+                        </SelectItem>
+                        <SelectItem value="all">
+                          Tous les fils ({threads.length})
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Reclassify threads */}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={reclassifyThreads}
+                    disabled={isReclassifyingThreads}
+                  >
+                    <RotateCcw className={`h-4 w-4 mr-2 ${isReclassifyingThreads ? 'animate-spin' : ''}`} />
+                    Reclassifier fils
+                  </Button>
+
+                  {otherThreadCount > 0 && threadFilter === 'all' && (
+                    <Badge variant="secondary" className="text-xs">
+                      {otherThreadCount} fil(s) non-cotation
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {filteredThreads.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
                   <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -483,7 +557,7 @@ export default function Emails() {
               </Card>
             ) : (
               <div className="space-y-3">
-                {threads.map((thread) => (
+                {filteredThreads.map((thread) => (
                   <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : 'border-l-4 border-l-primary'}`}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
@@ -508,6 +582,11 @@ export default function Emails() {
                             <Badge variant="outline">
                               {thread.email_count} message(s)
                             </Badge>
+                            {thread.is_quotation_thread === false && (
+                              <Badge variant="outline" className="text-muted-foreground">
+                                Non-cotation
+                              </Badge>
+                            )}
                           </div>
                           
                           <p className="font-semibold">{thread.subject_normalized}</p>
