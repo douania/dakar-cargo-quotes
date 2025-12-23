@@ -8,12 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { 
   Brain, DollarSign, FileText, Users, Settings, 
   Trash2, CheckCircle, Clock, TrendingUp, Search,
   RefreshCw, Eye, MessageSquare, Handshake, GraduationCap,
-  Mail, UserCheck
+  Mail, UserCheck, List, LayoutGrid, XCircle, ArrowUpDown
 } from 'lucide-react';
 
 interface Knowledge {
@@ -52,6 +53,7 @@ const categoryLabels: Record<string, string> = {
   processus: 'Processus',
   condition: 'Conditions',
   quotation_style: 'Style de cotation',
+  quotation_template: 'Template cotation',
   negotiation: 'Négociation',
   technical_expertise: 'Expertise technique',
   business_process: 'Processus métier',
@@ -68,12 +70,18 @@ const sourceTypeLabels: Record<string, string> = {
   manual: '✏️ Manuel'
 };
 
+type SortField = 'name' | 'category' | 'confidence' | 'created_at' | 'is_validated';
+type SortOrder = 'asc' | 'desc';
+
 export default function Knowledge() {
   const [knowledge, setKnowledge] = useState<Knowledge[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState<Knowledge | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [stats, setStats] = useState({ 
     total: 0, 
     validated: 0, 
@@ -151,15 +159,50 @@ export default function Knowledge() {
   // Get unique source types from actual data
   const availableSourceTypes = [...new Set(knowledge.map(k => k.source_type))];
 
-  const getFilteredKnowledge = (category: string) => {
+  const getFilteredKnowledge = (category?: string) => {
     return knowledge.filter(k => {
-      const matchesCategory = k.category === category;
+      const matchesCategory = !category || k.category === category;
       const matchesSearch = searchTerm === '' || 
         k.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         k.description?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesSource = sourceFilter === 'all' || k.source_type === sourceFilter;
       return matchesCategory && matchesSearch && matchesSource;
     });
+  };
+
+  const getAllFilteredAndSorted = () => {
+    const filtered = getFilteredKnowledge();
+    return filtered.sort((a, b) => {
+      let comparison = 0;
+      switch (sortField) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'category':
+          comparison = a.category.localeCompare(b.category);
+          break;
+        case 'confidence':
+          comparison = a.confidence - b.confidence;
+          break;
+        case 'is_validated':
+          comparison = (a.is_validated ? 1 : 0) - (b.is_validated ? 1 : 0);
+          break;
+        case 'created_at':
+        default:
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          break;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+  };
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
   };
 
   const getSourceIcon = (sourceType: string) => {
@@ -170,6 +213,20 @@ export default function Knowledge() {
       case 'document': return '📄';
       default: return '📝';
     }
+  };
+
+  const getConfidenceBadgeClass = (confidence: number) => {
+    if (confidence >= 0.8) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+    if (confidence >= 0.5) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+    return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   return (
@@ -185,10 +242,30 @@ export default function Knowledge() {
               Connaissances apprises automatiquement par l'IA
             </p>
           </div>
-          <Button variant="outline" onClick={loadKnowledge} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Actualiser
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center border rounded-lg p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('table')}
+                className="h-8 px-3"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === 'cards' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('cards')}
+                className="h-8 px-3"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </div>
+            <Button variant="outline" onClick={loadKnowledge} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Actualiser
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -265,8 +342,8 @@ export default function Knowledge() {
           </Select>
         </div>
 
-        {/* Categories Tabs */}
-        {availableCategories.length === 0 ? (
+        {/* Content */}
+        {knowledge.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Brain className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -278,7 +355,152 @@ export default function Knowledge() {
               </p>
             </CardContent>
           </Card>
+        ) : viewMode === 'table' ? (
+          /* TABLE VIEW */
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleSort('name')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Nom
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleSort('category')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Catégorie
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleSort('confidence')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Confiance
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleSort('is_validated')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Statut
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleSort('created_at')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Date
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {getAllFilteredAndSorted().map((item) => {
+                    const Icon = categoryIcons[item.category] || FileText;
+                    return (
+                      <TableRow 
+                        key={item.id} 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => setSelectedItem(item)}
+                      >
+                        <TableCell className="font-medium max-w-[250px]">
+                          <div className="flex items-center gap-2">
+                            <Icon className="h-4 w-4 text-primary shrink-0" />
+                            <span className="truncate">{item.name.replace(/_/g, ' ')}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="whitespace-nowrap">
+                            {categoryLabels[item.category] || item.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`text-sm ${item.source_type === 'expert_learning' ? 'text-primary font-medium' : ''}`}>
+                            {getSourceIcon(item.source_type)} {sourceTypeLabels[item.source_type]?.replace(/^[^\s]+\s/, '') || item.source_type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getConfidenceBadgeClass(item.confidence)}>
+                            {Math.round(item.confidence * 100)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.is_validated ? (
+                            <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Validé
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              <Clock className="h-3 w-3 mr-1" />
+                              En attente
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {formatDate(item.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedItem(item)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {!item.is_validated && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => validateKnowledge(item.id)}
+                                className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteKnowledge(item.id)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {getAllFilteredAndSorted().length === 0 && (
+                <div className="py-12 text-center">
+                  <p className="text-muted-foreground">Aucun résultat pour ce filtre</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         ) : (
+          /* CARDS VIEW */
           <Tabs defaultValue={availableCategories[0]} className="space-y-4">
             <TabsList className="flex-wrap h-auto gap-1 p-1">
               {availableCategories.map((cat) => {
