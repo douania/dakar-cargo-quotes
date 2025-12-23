@@ -15,6 +15,9 @@ import {
   CheckCircle2,
   ShieldCheck,
   FileWarning,
+  Download,
+  FileSpreadsheet,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Dialog,
@@ -88,6 +91,7 @@ export function QuotationProcessor({
   const regulatoryAnalysis = result?.analysis?.regulatoryAnalysis;
   const attachmentsAnalysis = result?.analysis?.attachmentsAnalysis;
   const feasibility = result?.analysis?.feasibility;
+  const generatedAttachment = result?.analysis?.generatedAttachment;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -193,6 +197,47 @@ export function QuotationProcessor({
                             Infos non trouvées: {attachmentsAnalysis.missing_info.join(', ')}
                           </p>
                         )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Generated Attachment Section (NEW) */}
+              {generatedAttachment && (
+                <Card className="border-green-500 bg-green-50">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <FileSpreadsheet className="h-5 w-5 text-green-600 flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <p className="font-semibold text-green-800">
+                          📎 Pièce jointe générée
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {generatedAttachment.filename}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(generatedAttachment.public_url, '_blank')}
+                            className="gap-1"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Voir (HTML)
+                          </Button>
+                          {generatedAttachment.csv_url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(generatedAttachment.csv_url, '_blank')}
+                              className="gap-1"
+                            >
+                              <Download className="h-3 w-3" />
+                              Télécharger (CSV/Excel)
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>

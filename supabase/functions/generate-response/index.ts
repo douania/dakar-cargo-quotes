@@ -1437,6 +1437,44 @@ RAPPELS CRITIQUES:
 
     console.log(`Generated ${detectedLanguage} draft (type: ${requestAnalysis.type}, canQuote: ${requestAnalysis.canQuote}):`, draft.id);
 
+    // ============ GENERATE ATTACHMENT IF NEEDED ============
+    let attachmentResult: any = null;
+    if (parsedResponse.attachment_needed && parsedResponse.attachment_data?.posts?.length > 0) {
+      console.log("Generating quotation attachment...");
+      try {
+        // Enrich attachment data with extracted info
+        const enrichedAttachmentData = {
+          ...parsedResponse.attachment_data,
+          client_name: email.from_address.split('@')[0].replace(/[._]/g, ' '),
+          destination: extractedData.destination,
+          incoterm: extractedData.incoterm,
+        };
+
+        const attachmentResponse = await fetch(`${supabaseUrl}/functions/v1/generate-quotation-attachment`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            attachment_data: enrichedAttachmentData,
+            email_id: emailId,
+            draft_id: draft.id,
+          }),
+        });
+
+        if (attachmentResponse.ok) {
+          attachmentResult = await attachmentResponse.json();
+          console.log("Attachment generated:", attachmentResult?.attachment?.public_url);
+        } else {
+          const errorText = await attachmentResponse.text();
+          console.error("Attachment generation failed:", errorText);
+        }
+      } catch (attachmentError) {
+        console.error("Attachment generation error (non-blocking):", attachmentError);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -1473,6 +1511,8 @@ RAPPELS CRITIQUES:
         },
         attachment_needed: parsedResponse.attachment_needed,
         attachment_data: parsedResponse.attachment_data,
+        // Generated attachment info (NEW)
+        generated_attachment: attachmentResult?.attachment || null,
         quotation_summary: parsedResponse.quotation_summary,
         regulatory_analysis: parsedResponse.regulatory_analysis,
         carrier_detected: extractedData.carrier || parsedResponse.carrier_detected,
