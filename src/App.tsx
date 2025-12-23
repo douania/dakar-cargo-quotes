@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
-import QuotationForm from "./pages/QuotationForm";
+import QuotationSheet from "./pages/QuotationSheet";
 import HsCodesAdmin from "./pages/admin/HsCodes";
 import TaxRatesAdmin from "./pages/admin/TaxRates";
 import DocumentsAdmin from "./pages/admin/Documents";
@@ -28,7 +28,8 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/chat" element={<Index />} />
-          <Route path="/quotation/new" element={<QuotationForm />} />
+          <Route path="/quotation/new" element={<QuotationSheet />} />
+          <Route path="/quotation/:emailId" element={<QuotationSheet />} />
           <Route path="/admin/hs-codes" element={<HsCodesAdmin />} />
           <Route path="/admin/tax-rates" element={<TaxRatesAdmin />} />
           <Route path="/admin/customs-regimes" element={<CustomsRegimesAdmin />} />
