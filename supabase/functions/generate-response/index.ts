@@ -49,12 +49,12 @@ const RESPONSE_TEMPLATES = {
   regime_question: {
     EN: {
       greeting: "Dear {contact_name},",
-      body: "Kindly note:\n\n{response}\n\n@Cherif pls confirm if needed.",
+      body: "Kindly note:\n\n{response}\n\n@Équipe Douane pls confirm if needed.",
       closing: "Best Regards"
     },
     FR: {
       greeting: "Bonjour {contact_name},",
-      body: "Pour info:\n\n{response}\n\n@Cherif pls confirmer si besoin.",
+      body: "Pour info:\n\n{response}\n\n@Équipe Douane pls confirmer si besoin.",
       closing: "Meilleures Salutations"
     }
   },
@@ -134,10 +134,17 @@ function analyzeRequestType(email: any, attachments: any[]): RequestAnalysis {
   
   // Detect what information is present
   const hasIncoterm = /\b(FOB|CIF|DAP|DDP|EXW|CFR|CIP|CPT|FCA|FAS)\b/i.test(fullContent);
-  const hasDestination = /\b(Dakar|Bamako|Mali|Burkina|Ouaga|Niger|Guinée|destination|livraison)\b/i.test(fullContent);
-  const hasOrigin = /\b(from|de|origine|origin|port of loading|POL|departure|chargement|Shanghai|Ningbo|Rotterdam|Hamburg|Marseille|Anvers|Antwerp)\b/i.test(fullContent);
-  const hasContainerType = /\b(20['']?|40['']?|container|conteneur|ctnr|TEU|EVP|HC|high cube)\b/i.test(fullContent);
-  const hasGoodsDescription = /\b(marchandise|goods|cargo|merchandise|produit|équipement|machine|vehicle|véhicule)\b/i.test(fullContent);
+  
+  // Enhanced destination detection - West African cities, airport codes, maritime ports
+  const hasDestination = /\b(Dakar|Bamako|Mali|Burkina|Ouaga|Ouagadougou|Niger|Niamey|Guinée|Conakry|Abidjan|Côte d'Ivoire|Ivory Coast|Lomé|Togo|Cotonou|Benin|Bénin|Accra|Ghana|Lagos|Nigeria|Nouakchott|Mauritanie|Banjul|Gambie|Gambia|Bissau|Freetown|Sierra Leone|Monrovia|Liberia|destination|livraison|AOD|POD|port of discharge|aéroport de destination)\b/i.test(fullContent);
+  
+  // Enhanced origin detection - includes AOL (Airport of Loading), EXW locations, pickup addresses
+  const hasOrigin = /\b(from|de|origine|origin|port of loading|POL|departure|chargement|Shanghai|Ningbo|Shenzhen|Guangzhou|Rotterdam|Hamburg|Marseille|Anvers|Antwerp|Le Havre|Fos|AOL|airport of loading|enlèvement|pickup|adresse d'enlèvement|EXW\s+\w+|point de départ)\b/i.test(fullContent);
+  
+  // Enhanced transport mode detection - maritime + air freight
+  const hasContainerType = /\b(20['']?|40['']?|container|conteneur|ctnr|TEU|EVP|HC|high cube|fret\s*aérien|air\s*freight|cargo\s*aérien|avion|airway|AWB|LTA|air\s*cargo|kg|dimensions?\s*:?\s*\d+\s*(mm|cm|m)|poids\s*:?\s*\d+\s*kg)\b/i.test(fullContent);
+  
+  const hasGoodsDescription = /\b(marchandise|goods|cargo|merchandise|produit|équipement|machine|vehicle|véhicule|dispositif|device|matériel|equipment)\b/i.test(fullContent);
   const hasHsCode = /\b\d{4}[.\s]?\d{2}[.\s]?\d{2,4}\b/.test(fullContent) || /\bHS\s*:?\s*\d{4}/i.test(fullContent);
   const hasValue = /\b(USD|EUR|FCFA|XOF|\$|€)\s*[\d,.]+|\d+[.,]\d{2,}\s*(USD|EUR|FCFA)/i.test(fullContent);
   const hasQuestion = /\?|kindly|please confirm|pouvez-vous|could you|what is|quel est/i.test(bodyText);
@@ -383,9 +390,9 @@ AVANT de donner des prix, vérifie si tu as TOUTES ces informations:
 - thks = thanks
 
 👥 DÉLÉGATION D'ÉQUIPE (utiliser quand approprié):
-- Pour questions douane/HS codes: "@Cherif pls confirm..."
-- Pour suivi opérationnel: "@Eric to follow up..."
-- Pour booking/shipping: "@Samba pls check..."
+- Pour questions douane/HS codes: "@Équipe Douane pls confirm..."
+- Pour suivi opérationnel: "@Équipe Opérations to follow up..."
+- Pour booking/shipping: "@Équipe Shipping pls check..."
 
 📝 FORMULE DE CLÔTURE:
 - EN: "With we remain," ou "With we remain,\\nBest Regards"
