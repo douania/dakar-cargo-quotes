@@ -51,9 +51,12 @@ const mainNavItems = [
   },
 ];
 
+import { TrendingUp } from 'lucide-react';
+
 const adminItems = [
   { title: 'Emails', url: '/admin/emails', icon: Mail },
   { title: 'Connaissances', url: '/admin/knowledge', icon: Brain },
+  { title: 'Rapports tarifs', url: '/admin/tariff-reports', icon: TrendingUp },
   { title: 'Codes SH', url: '/admin/hs-codes', icon: Package },
   { title: 'Taux & Taxes', url: '/admin/tax-rates', icon: DollarSign },
   { title: 'Régimes douaniers', url: '/admin/customs-regimes', icon: FileText },
