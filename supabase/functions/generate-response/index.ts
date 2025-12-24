@@ -126,6 +126,9 @@ interface AIExtractedData {
   client_company: string | null;
   client_email: string | null;
   
+  // Services requested (NEW)
+  services_requested: string[];
+  
   // Missing info
   missing_info: string[];
   questions_to_ask: string[];
@@ -177,6 +180,37 @@ Analyse cette demande de cotation et extrais TOUTES les informations disponibles
 - "de Shanghai" / "from Shanghai" → origin
 - "à destination de Bamako" → destination
 - Incoterm EXW + ville → origin (ex: "EXW Paris" → origin = "Paris")
+
+=== RÈGLES POUR LES SERVICES ET INCOTERMS ===
+
+📦 INTERPRÉTER LES SERVICES DEMANDÉS:
+- "local delivery (DDU/DDP)" → incoterm = "DDP" ou "DAP" (DDU est obsolète depuis Incoterms 2020, utiliser DAP ou DDP)
+- "Import customs clearance" → service dédouanement import = DDP probable
+- "door to door" / "porte à porte" → incoterm = DDP ou DAP
+- "Duty Tax checking" → calcul droits/taxes demandé, implique DDP
+- "CIF + delivery" → incoterm = DDP (puisque livraison incluse)
+- "customs clearance + local delivery" → incoterm = DDP (service complet)
+
+📋 MAPPING SERVICES → INCOTERMS:
+- "Import clearance only" → client gère le transport → FOB ou CFR probable côté fournisseur
+- "Full service / clé en main / all inclusive" → DDP
+- "DAP" ou "DDU" demandé explicitement → utiliser "DAP" (DDU obsolète depuis 2020)
+- "Port to door" → CIF ou CFR + livraison locale = DAP ou DDP
+- "DDP" mentionné → incoterm = "DDP"
+
+📋 SERVICES À EXTRAIRE (services_requested):
+- "customs_clearance" : dédouanement import/export
+- "local_delivery" : livraison locale finale
+- "duty_tax_calculation" : calcul des droits et taxes
+- "pickup" : enlèvement à l'origine
+- "warehousing" : stockage/entreposage
+- "insurance" : assurance marchandise
+
+⚠️ NE PAS POSER DE QUESTION SUR L'INCOTERM SI:
+- Le client a clairement indiqué un service type "local delivery (DDU/DDP)"
+- Le contexte implique DDP (dédouanement + livraison demandés ensemble)
+- Le client demande "all inclusive", "tout compris", "clé en main"
+- Les services demandés incluent customs clearance + local delivery
 
 === EXTRACTION À FAIRE ===
 Extrais ces informations de l'email et des pièces jointes fournies.
@@ -275,7 +309,15 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                 incoterm: {
                   type: "string",
                   enum: ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"],
-                  description: "Incoterm demandé (null si non spécifié)"
+                  description: "Incoterm demandé ou DÉDUIT des services. DDU obsolète depuis 2020 → utiliser DAP ou DDP. Si 'local delivery (DDU/DDP)' ou 'customs clearance + delivery' → DDP"
+                },
+                services_requested: {
+                  type: "array",
+                  items: { 
+                    type: "string",
+                    enum: ["customs_clearance", "local_delivery", "duty_tax_calculation", "pickup", "warehousing", "insurance"]
+                  },
+                  description: "Services explicitement demandés: customs_clearance, local_delivery, duty_tax_calculation, pickup, warehousing, insurance"
                 },
                 value: {
                   type: "number",
@@ -309,12 +351,12 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                 missing_info: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Liste des informations manquantes pour coter"
+                  description: "Liste des informations VRAIMENT manquantes pour coter. NE PAS inclure 'incoterm' si les services demandés impliquent déjà DDP/DAP"
                 },
                 questions_to_ask: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Questions à poser au client pour obtenir les infos manquantes"
+                  description: "Questions à poser. NE PAS demander l'incoterm si 'local delivery (DDU/DDP)' ou 'customs clearance + delivery' est mentionné"
                 },
                 has_pi: {
                   type: "boolean",
@@ -324,7 +366,7 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
               required: [
                 "detected_language", "request_type", "can_quote_now",
                 "transport_mode", "transport_mode_evidence",
-                "missing_info", "questions_to_ask", "has_pi"
+                "missing_info", "questions_to_ask", "has_pi", "services_requested"
               ]
             }
           }
@@ -380,6 +422,7 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
     client_name: extracted.client_name || null,
     client_company: extracted.client_company || null,
     client_email: extracted.client_email || null,
+    services_requested: extracted.services_requested || [],
     missing_info: extracted.missing_info || [],
     questions_to_ask: extracted.questions_to_ask || [],
     detected_elements: {
