@@ -406,11 +406,32 @@ export function QuotationPuzzle({
                             <p className="text-xs text-muted-foreground">
                               {item.suggestedActions[0] || 'Rechercher...'}
                             </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 shrink-0"
+                          onClick={() => onSearchTariff(item)}
+                          disabled={item.status === 'searching'}
+                        >
+                          {item.status === 'searching' ? (
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Search className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
           )}
 
           {/* HS CODE SUGGESTIONS (Proactive AI) */}
           {puzzle.hsSuggestions && puzzle.hsSuggestions.length > 0 && (
-            <Card className="border-emerald-500/30 bg-gradient-to-br from-emerald/5 to-transparent">
+            <Card className="border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 to-transparent">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Package className="h-5 w-5 text-emerald-500" />
@@ -449,26 +470,6 @@ export function QuotationPuzzle({
                 )}
               </CardContent>
             </Card>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 shrink-0"
-                          onClick={() => onSearchTariff(item)}
-                          disabled={item.status === 'searching'}
-                        >
-                          {item.status === 'searching' ? (
-                            <RefreshCw className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Search className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </div>
-                    ))}
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
           )}
 
           {/* SUGGESTIONS */}
