@@ -84,34 +84,54 @@ const RESPONSE_TEMPLATES = {
   }
 };
 
-// ============ LANGUAGE DETECTION ============
-function detectEmailLanguage(body: string, subject: string): 'FR' | 'EN' {
-  const content = ((body || '') + ' ' + (subject || '')).toLowerCase();
-  
-  // French markers
-  const frenchWords = ['bonjour', 'cher', 'madame', 'monsieur', 'veuillez', 'merci', 
-    'cordialement', 'pièce jointe', 'en attaché', 'prière de', 's\'il vous plaît',
-    'ci-joint', 'nous vous prions', 'salutations', 'meilleures', 'sincères',
-    'objet', 'demande', 'concernant', 'suite à', 'selon', 'notre offre'];
-  // English markers  
-  const englishWords = ['dear', 'please', 'kindly', 'attached', 'regards', 'thank you',
-    'find below', 'best regards', 'looking forward', 'further to', 'as per',
-    'herewith', 'enclosed', 'subject', 'request', 'concerning', 'following'];
-  
-  const frScore = frenchWords.filter(w => content.includes(w)).length;
-  const enScore = englishWords.filter(w => content.includes(w)).length;
-  
-  console.log(`Language detection: FR=${frScore}, EN=${enScore}`);
-  return frScore > enScore ? 'FR' : 'EN';
-}
+// ============ AI-POWERED DATA EXTRACTION ============
+// Replaces ALL regex-based extraction with intelligent AI analysis
 
-// ============ REQUEST TYPE ANALYSIS ============
-interface RequestAnalysis {
-  type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP';
-  missingContext: string[];
-  suggestedQuestions: string[];
-  canQuote: boolean;
-  detectedElements: {
+interface AIExtractedData {
+  // Language
+  detected_language: 'FR' | 'EN';
+  
+  // Request type
+  request_type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP';
+  can_quote_now: boolean;
+  
+  // Transport mode (KEY FIX: AI decides this intelligently)
+  transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transport_mode_evidence: string;
+  
+  // Locations
+  origin: string | null;
+  destination: string | null;
+  
+  // Cargo details
+  weight_kg: number | null;
+  volume_cbm: number | null;
+  dimensions: string | null;
+  cargo_description: string | null;
+  
+  // Container (maritime only)
+  container_type: string | null;
+  
+  // Commercial
+  incoterm: string | null;
+  value: number | null;
+  currency: string | null;
+  hs_codes: string[];
+  
+  // Carrier
+  carrier: string | null;
+  
+  // Parties
+  client_name: string | null;
+  client_company: string | null;
+  client_email: string | null;
+  
+  // Missing info
+  missing_info: string[];
+  questions_to_ask: string[];
+  
+  // Detected elements (for backwards compatibility)
+  detected_elements: {
     hasPI: boolean;
     hasIncoterm: boolean;
     hasDestination: boolean;
@@ -123,580 +143,371 @@ interface RequestAnalysis {
   };
 }
 
-function analyzeRequestType(email: any, attachments: any[]): RequestAnalysis {
-  const hasPI = attachments?.some(a => 
-    /proforma|PI|invoice|facture/i.test(a.filename || '')
-  ) || false;
+const AI_EXTRACTION_PROMPT = `Tu es un expert en logistique maritime et aérienne au Sénégal (SODATRA).
+Analyse cette demande de cotation et extrais TOUTES les informations disponibles.
+
+=== RÈGLES CRITIQUES POUR LE MODE DE TRANSPORT ===
+
+🛫 TRANSPORT AÉRIEN si tu détectes UN de ces éléments:
+- "fret aérien", "air freight", "cargo aérien", "avion"
+- AWB, LTA, "Lettre de Transport Aérien"
+- "AOL" (Airport of Loading), "AOD" (Airport of Departure/Destination)
+- Poids très léger (< 100kg) SANS mention de conteneur
+- "enlèvement aérien", "envoi par avion"
+- Urgence extrême ("urgent", "express", "24h", "48h")
+
+🚢 TRANSPORT MARITIME si tu détectes UN de ces éléments:
+- Conteneur explicite: "20DV", "40HC", "conteneur", "container", "20'", "40'"
+- FCL, LCL, "groupage maritime"
+- B/L, "Bill of Lading", "Connaissement"
+- Noms de navires, ETAs
+- Ports maritimes explicites ("Port de Dakar", "Le Havre")
+- Volumes importants (> 10 m³) ou poids lourds (> 1000kg) avec conteneur
+
+⚠️ ATTENTION AUX FAUX POSITIFS:
+- "shipping" dans une signature email = PAS un indicateur maritime
+- "ship" peut signifier "expédier" en anglais = vérifier le contexte
+- "Exploitation-Shipping" = département, pas mode de transport
+- Un poids de "40kg" n'est PAS un conteneur "40'"
+- Dimensions en mm (ex: "40mm x 30mm") ≠ conteneur
+
+=== RÈGLES POUR ORIGINE/DESTINATION ===
+- "AOL: Dakar" → origin = "Dakar" (aérien)
+- "AOD: Abidjan" → destination = "Abidjan" (aérien)
+- "de Shanghai" / "from Shanghai" → origin
+- "à destination de Bamako" → destination
+- Incoterm EXW + ville → origin (ex: "EXW Paris" → origin = "Paris")
+
+=== EXTRACTION À FAIRE ===
+Extrais ces informations de l'email et des pièces jointes fournies.
+Si une information n'est pas disponible, utilise null.`;
+
+async function extractWithAI(
+  emailContent: string, 
+  emailSubject: string,
+  attachmentsText: string,
+  LOVABLE_API_KEY: string
+): Promise<AIExtractedData> {
+  const fullContent = `
+EMAIL SUBJECT: ${emailSubject}
+
+EMAIL BODY:
+${emailContent}
+
+ATTACHMENTS CONTENT:
+${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
+`;
+
+  console.log("Calling AI for extraction...");
   
-  const bodyText = ((email.body_text || '') + ' ' + (email.subject || '')).toLowerCase();
-  const attachmentData = attachments?.map(a => JSON.stringify(a.extracted_data || {})).join(' ').toLowerCase() || '';
-  const fullContent = bodyText + ' ' + attachmentData;
-  
-  // Detect what information is present
-  const hasIncoterm = /\b(FOB|CIF|DAP|DDP|EXW|CFR|CIP|CPT|FCA|FAS)\b/i.test(fullContent);
-  
-  // Enhanced destination detection - West African cities, airport codes, maritime ports
-  const hasDestination = /\b(Dakar|Bamako|Mali|Burkina|Ouaga|Ouagadougou|Niger|Niamey|Guinée|Conakry|Abidjan|Côte d'Ivoire|Ivory Coast|Lomé|Togo|Cotonou|Benin|Bénin|Accra|Ghana|Lagos|Nigeria|Nouakchott|Mauritanie|Banjul|Gambie|Gambia|Bissau|Freetown|Sierra Leone|Monrovia|Liberia|destination|livraison|AOD|POD|port of discharge|aéroport de destination)\b/i.test(fullContent);
-  
-  // Enhanced origin detection - includes AOL (Airport of Loading), EXW locations, pickup addresses
-  const hasOrigin = /\b(from|de|origine|origin|port of loading|POL|departure|chargement|Shanghai|Ningbo|Shenzhen|Guangzhou|Rotterdam|Hamburg|Marseille|Anvers|Antwerp|Le Havre|Fos|AOL|airport of loading|enlèvement|pickup|adresse d'enlèvement|EXW\s+\w+|point de départ)\b/i.test(fullContent);
-  
-  // Enhanced transport mode detection - maritime + air freight
-  const hasContainerType = /\b(20['']?|40['']?|container|conteneur|ctnr|TEU|EVP|HC|high cube|fret\s*aérien|air\s*freight|cargo\s*aérien|avion|airway|AWB|LTA|air\s*cargo|kg|dimensions?\s*:?\s*\d+\s*(mm|cm|m)|poids\s*:?\s*\d+\s*kg)\b/i.test(fullContent);
-  
-  const hasGoodsDescription = /\b(marchandise|goods|cargo|merchandise|produit|équipement|machine|vehicle|véhicule|dispositif|device|matériel|equipment)\b/i.test(fullContent);
-  const hasHsCode = /\b\d{4}[.\s]?\d{2}[.\s]?\d{2,4}\b/.test(fullContent) || /\bHS\s*:?\s*\d{4}/i.test(fullContent);
-  const hasValue = /\b(USD|EUR|FCFA|XOF|\$|€)\s*[\d,.]+|\d+[.,]\d{2,}\s*(USD|EUR|FCFA)/i.test(fullContent);
-  const hasQuestion = /\?|kindly|please confirm|pouvez-vous|could you|what is|quel est/i.test(bodyText);
-  
-  const detectedElements = {
-    hasPI,
-    hasIncoterm,
-    hasDestination,
-    hasOrigin,
-    hasContainerType,
-    hasGoodsDescription,
-    hasHsCode,
-    hasValue
-  };
-  
-  const missingContext: string[] = [];
-  const suggestedQuestions: string[] = [];
-  const language = detectEmailLanguage(email.body_text, email.subject);
-  
-  if (!hasIncoterm) {
-    missingContext.push(language === 'FR' ? 'Incoterm souhaité' : 'Required Incoterm');
-    suggestedQuestions.push(language === 'FR' 
-      ? '• Incoterm souhaité (FOB, CIF, DAP, DDP...) ?' 
-      : '• Required Incoterm (FOB, CIF, DAP, DDP...) ?');
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: AI_EXTRACTION_PROMPT },
+        { role: "user", content: fullContent }
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "extract_quotation_data",
+            description: "Extraire les données de cotation d'un email et ses pièces jointes",
+            parameters: {
+              type: "object",
+              properties: {
+                detected_language: {
+                  type: "string",
+                  enum: ["FR", "EN"],
+                  description: "Langue principale de l'email (FR=Français, EN=Anglais)"
+                },
+                request_type: {
+                  type: "string",
+                  enum: ["PI_ONLY", "QUOTATION_REQUEST", "QUESTION", "ACKNOWLEDGMENT", "FOLLOW_UP"],
+                  description: "Type de la demande"
+                },
+                can_quote_now: {
+                  type: "boolean",
+                  description: "Est-ce qu'on a assez d'infos pour faire une cotation?"
+                },
+                transport_mode: {
+                  type: "string",
+                  enum: ["air", "maritime", "road", "multimodal", "unknown"],
+                  description: "Mode de transport demandé. CRITIQUE: 'fret aérien'='air', 'conteneur'='maritime'"
+                },
+                transport_mode_evidence: {
+                  type: "string",
+                  description: "Explication courte de pourquoi ce mode a été choisi (ex: 'fret aérien mentionné explicitement')"
+                },
+                origin: {
+                  type: "string",
+                  description: "Ville/port/aéroport de départ (null si non spécifié)"
+                },
+                destination: {
+                  type: "string",
+                  description: "Ville/port/aéroport de destination (null si non spécifié)"
+                },
+                weight_kg: {
+                  type: "number",
+                  description: "Poids total en kg (null si non spécifié)"
+                },
+                volume_cbm: {
+                  type: "number",
+                  description: "Volume en m³ (null si non spécifié)"
+                },
+                dimensions: {
+                  type: "string",
+                  description: "Dimensions L x l x H en cm ou mm (null si non spécifié)"
+                },
+                cargo_description: {
+                  type: "string",
+                  description: "Description des marchandises"
+                },
+                container_type: {
+                  type: "string",
+                  description: "Type de conteneur: 20DV, 40HC, etc. (null si fret aérien ou non spécifié)"
+                },
+                incoterm: {
+                  type: "string",
+                  enum: ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"],
+                  description: "Incoterm demandé (null si non spécifié)"
+                },
+                value: {
+                  type: "number",
+                  description: "Valeur des marchandises (null si non spécifié)"
+                },
+                currency: {
+                  type: "string",
+                  description: "Devise (USD, EUR, FCFA, XOF)"
+                },
+                hs_codes: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Codes HS détectés"
+                },
+                carrier: {
+                  type: "string",
+                  description: "Compagnie de transport détectée (MSC, MAERSK, AIR-FRANCE-CARGO, etc.)"
+                },
+                client_name: {
+                  type: "string",
+                  description: "Nom du contact client"
+                },
+                client_company: {
+                  type: "string",
+                  description: "Nom de l'entreprise cliente"
+                },
+                client_email: {
+                  type: "string",
+                  description: "Email du client"
+                },
+                missing_info: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Liste des informations manquantes pour coter"
+                },
+                questions_to_ask: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Questions à poser au client pour obtenir les infos manquantes"
+                },
+                has_pi: {
+                  type: "boolean",
+                  description: "Une facture proforma (PI) est-elle jointe?"
+                }
+              },
+              required: [
+                "detected_language", "request_type", "can_quote_now",
+                "transport_mode", "transport_mode_evidence",
+                "missing_info", "questions_to_ask", "has_pi"
+              ]
+            }
+          }
+        }
+      ],
+      tool_choice: { type: "function", function: { name: "extract_quotation_data" } }
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("AI extraction error:", response.status, errorText);
+    throw new Error(`AI extraction failed: ${response.status}`);
   }
-  if (!hasDestination) {
-    missingContext.push(language === 'FR' ? 'Destination finale' : 'Final destination');
-    suggestedQuestions.push(language === 'FR' 
-      ? '• Destination finale ?' 
-      : '• Final destination ?');
+
+  const result = await response.json();
+  const toolCall = result.choices?.[0]?.message?.tool_calls?.[0];
+  
+  if (!toolCall || toolCall.function.name !== 'extract_quotation_data') {
+    console.error("Unexpected AI response format:", JSON.stringify(result).substring(0, 500));
+    throw new Error("AI did not return expected tool call");
   }
-  if (!hasOrigin && !hasPI) {
-    missingContext.push(language === 'FR' ? 'Port/Pays d\'origine' : 'Origin port/country');
-    suggestedQuestions.push(language === 'FR' 
-      ? '• Port/pays d\'origine ?' 
-      : '• Port/country of origin ?');
+
+  let extracted: any;
+  try {
+    extracted = JSON.parse(toolCall.function.arguments);
+  } catch (e) {
+    console.error("Failed to parse tool arguments:", toolCall.function.arguments);
+    throw new Error("Failed to parse AI extraction result");
   }
-  if (!hasContainerType && !hasPI) {
-    missingContext.push(language === 'FR' ? 'Type de conteneur/transport' : 'Container/transport type');
-    suggestedQuestions.push(language === 'FR' 
-      ? '• Type de conteneur ou mode de transport ?' 
-      : '• Container type or transport mode ?');
-  }
-  
-  // Determine type
-  let type: RequestAnalysis['type'] = 'QUOTATION_REQUEST';
-  
-  if (hasPI && missingContext.length >= 2) {
-    type = 'PI_ONLY';  // PI without enough context
-  } else if (hasQuestion && !hasPI && missingContext.length >= 2) {
-    type = 'QUESTION';
-  } else if (/well noted|bien noté|noted with thanks|accusé de réception/i.test(bodyText)) {
-    type = 'ACKNOWLEDGMENT';
-  } else if (/further to|suite à|following our|comme convenu|as discussed/i.test(bodyText)) {
-    type = 'FOLLOW_UP';
-  }
-  
-  const canQuote = missingContext.length <= 1; // Allow quoting with at most 1 missing element
-  
-  console.log(`Request analysis: type=${type}, canQuote=${canQuote}, missing=${missingContext.length}`);
-  
+
+  console.log("AI Extraction result:", JSON.stringify(extracted, null, 2));
+
+  // Build the result with backwards-compatible structure
   return {
-    type,
-    missingContext,
-    suggestedQuestions,
-    canQuote,
-    detectedElements
+    detected_language: extracted.detected_language || 'FR',
+    request_type: extracted.request_type || 'QUOTATION_REQUEST',
+    can_quote_now: extracted.can_quote_now ?? false,
+    transport_mode: extracted.transport_mode || 'unknown',
+    transport_mode_evidence: extracted.transport_mode_evidence || '',
+    origin: extracted.origin || null,
+    destination: extracted.destination || null,
+    weight_kg: extracted.weight_kg || null,
+    volume_cbm: extracted.volume_cbm || null,
+    dimensions: extracted.dimensions || null,
+    cargo_description: extracted.cargo_description || null,
+    container_type: extracted.container_type || null,
+    incoterm: extracted.incoterm || null,
+    value: extracted.value || null,
+    currency: extracted.currency || null,
+    hs_codes: extracted.hs_codes || [],
+    carrier: extracted.carrier || null,
+    client_name: extracted.client_name || null,
+    client_company: extracted.client_company || null,
+    client_email: extracted.client_email || null,
+    missing_info: extracted.missing_info || [],
+    questions_to_ask: extracted.questions_to_ask || [],
+    detected_elements: {
+      hasPI: extracted.has_pi ?? false,
+      hasIncoterm: !!extracted.incoterm,
+      hasDestination: !!extracted.destination,
+      hasOrigin: !!extracted.origin,
+      hasContainerType: !!extracted.container_type,
+      hasGoodsDescription: !!extracted.cargo_description,
+      hasHsCode: (extracted.hs_codes?.length || 0) > 0,
+      hasValue: !!extracted.value
+    }
   };
 }
 
-// ============ SHIPMENT DATA EXTRACTION ============
-interface ExtractedShipmentData {
-  weight_kg: number | null;
-  volume_cbm: number | null;
-  container_type: string | null;
-  incoterm: string | null;
-  carrier: string | null;
-  origin: string | null;
-  destination: string | null;
-  cargo_description: string | null;
-  value: number | null;
-  currency: string | null;
-  eta_date: string | null;
-  // NEW: Transport mode detection
-  transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
-  transport_mode_evidence: string[];
+// ============ HELPER: DETECT LANGUAGE (fallback) ============
+function detectEmailLanguage(body: string, subject: string): 'FR' | 'EN' {
+  const content = ((body || '') + ' ' + (subject || '')).toLowerCase();
+  
+  const frenchWords = ['bonjour', 'cher', 'madame', 'monsieur', 'veuillez', 'merci', 
+    'cordialement', 'pièce jointe', 'en attaché', 'prière de', 's\'il vous plaît',
+    'ci-joint', 'nous vous prions', 'salutations', 'meilleures', 'sincères',
+    'objet', 'demande', 'concernant', 'suite à', 'selon', 'notre offre'];
+  const englishWords = ['dear', 'please', 'kindly', 'attached', 'regards', 'thank you',
+    'find below', 'best regards', 'looking forward', 'further to', 'as per',
+    'herewith', 'enclosed', 'subject', 'request', 'concerning', 'following'];
+  
+  const frScore = frenchWords.filter(w => content.includes(w)).length;
+  const enScore = englishWords.filter(w => content.includes(w)).length;
+  
+  return frScore > enScore ? 'FR' : 'EN';
 }
 
-// IATA airport codes for West Africa and common origins
-const IATA_CODES: Record<string, string> = {
-  'DKR': 'Dakar', 'DSS': 'Dakar AIBD', 'ABJ': 'Abidjan', 'BKO': 'Bamako',
-  'OUA': 'Ouagadougou', 'NIM': 'Niamey', 'CKY': 'Conakry', 'LFW': 'Lomé',
-  'COO': 'Cotonou', 'ACC': 'Accra', 'LOS': 'Lagos', 'NKC': 'Nouakchott',
-  'BJL': 'Banjul', 'FNA': 'Freetown', 'ROB': 'Monrovia',
-  'CDG': 'Paris', 'ORY': 'Paris Orly', 'FRA': 'Frankfurt', 'AMS': 'Amsterdam',
-  'BRU': 'Bruxelles', 'DXB': 'Dubai', 'DOH': 'Doha', 'JFK': 'New York',
-  'PVG': 'Shanghai', 'CAN': 'Guangzhou', 'SZX': 'Shenzhen', 'HKG': 'Hong Kong'
-};
-
-function extractShipmentData(content: string, attachments: any[]): ExtractedShipmentData {
-  const fullContent = content + ' ' + attachments.map(a => 
-    (a.extracted_text || '') + ' ' + JSON.stringify(a.extracted_data || {})
-  ).join(' ');
+// Helper function to select the best expert based on email content
+function selectExpertForResponse(emailContent: string, subject: string): 'taleb' | 'cherif' {
+  const douaneKeywords = ['douane', 'hs code', 'customs', 'dédouanement', 'tarif douanier', 'nomenclature', 'duty', 'tax', 'droits de douane', 'clearance', 'declaration'];
+  const transportKeywords = ['transport', 'fret', 'shipping', 'thc', 'dam', 'transit', 'incoterm', 'booking', 'bl', 'conteneur', 'container', 'vessel', 'freight', 'port', 'logistique'];
   
-  const contentLower = fullContent.toLowerCase();
-  const transportEvidence: string[] = [];
+  const content = (emailContent + ' ' + subject).toLowerCase();
   
-  const result: ExtractedShipmentData = {
-    weight_kg: null,
-    volume_cbm: null,
-    container_type: null,
-    incoterm: null,
-    carrier: null,
-    origin: null,
-    destination: null,
-    cargo_description: null,
-    value: null,
-    currency: null,
-    eta_date: null,
-    transport_mode: 'unknown',
-    transport_mode_evidence: [],
-  };
-
-  // Extract weight (kg)
-  const weightMatch = fullContent.match(/(\d+[\s,.]?\d*)\s*(kg|kgs|kilos?|kilogrammes?)/i);
-  if (weightMatch) {
-    result.weight_kg = parseFloat(weightMatch[1].replace(/[\s,]/g, '').replace(',', '.'));
-  }
-
-  // Extract volume (cbm/m³)
-  const volumeMatch = fullContent.match(/(\d+[\s,.]?\d*)\s*(cbm|m³|m3|cubic\s*met)/i);
-  if (volumeMatch) {
-    result.volume_cbm = parseFloat(volumeMatch[1].replace(/[\s,]/g, '').replace(',', '.'));
-  }
-
-  // ============ STRICT CONTAINER TYPE EXTRACTION ============
-  // Only detect containers with EXPLICIT indicators - avoid matching random numbers
-  const containerPatterns = [
-    // Pattern 1: Size + explicit suffix (20DV, 40HC, 40'HC, etc.)
-    /\b(20|40)['']?\s*(DV|GP|HC|HQ|RF|OT|FR|TK|PL)\b/i,
-    // Pattern 2: Size + explicit "ft" or "feet" or "pieds"
-    /\b(20|40)['']?\s*(ft|feet|pieds)\b/i,
-    // Pattern 3: Size + "container/conteneur/ctnr"
-    /\b(20|40)['']?\s*(container|conteneur|ctnr)\b/i,
-    // Pattern 4: Explicit container keywords with size
-    /\b(container|conteneur|ctnr)\s*(20|40)['']?\b/i,
-    // Pattern 5: TEU/EVP with context
-    /\b(1|2)\s*(TEU|EVP)\b/i,
-  ];
+  const douaneScore = douaneKeywords.filter(k => content.includes(k)).length;
+  const transportScore = transportKeywords.filter(k => content.includes(k)).length;
   
-  for (const pattern of containerPatterns) {
-    const match = fullContent.match(pattern);
-    if (match) {
-      // Normalize the container type
-      let size = match[1] || match[2];
-      if (size === '1' || size === '2') {
-        // TEU case: 1 TEU = 20', 2 TEU = 40'
-        size = size === '1' ? '20' : '40';
-      }
-      let suffix = (match[2] || match[1] || '').toUpperCase();
-      
-      // Normalize suffixes
-      if (['FT', 'FEET', 'PIEDS', 'CONTAINER', 'CONTENEUR', 'CTNR', 'TEU', 'EVP'].includes(suffix)) {
-        suffix = 'DV'; // Default to Dry Van
-      }
-      if (suffix === 'HQ') suffix = 'HC';
-      if (suffix === 'GP') suffix = 'DV';
-      
-      result.container_type = `${size}${suffix || 'DV'}`;
-      transportEvidence.push(`container_${result.container_type}`);
-      break;
-    }
-  }
-
-  // Extract Incoterm
-  const incotermMatch = fullContent.match(/\b(EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DPU|DDP)\b/i);
-  if (incotermMatch) {
-    result.incoterm = incotermMatch[1].toUpperCase();
-  }
-
-  // ============ STRICT CARRIER EXTRACTION ============
-  // More specific patterns to avoid false positives (e.g., "ONE" in text)
-  const carrierPatterns: Array<{ pattern: RegExp; name: string }> = [
-    { pattern: /\b(CMA\s*CGM|CMA-CGM)\b/i, name: 'CMA-CGM' },
-    { pattern: /\bMSC\b(?!\s*cruises)/i, name: 'MSC' },
-    { pattern: /\b(MAERSK|MÆRSK)\b/i, name: 'MAERSK' },
-    { pattern: /\b(HAPAG[-\s]?LLOYD)\b/i, name: 'HAPAG-LLOYD' },
-    { pattern: /\b(ONE\s+LINE|OCEAN\s+NETWORK\s+EXPRESS)\b/i, name: 'ONE' },
-    { pattern: /\bEVERGREEN\b/i, name: 'EVERGREEN' },
-    { pattern: /\bGRIMALDI\b/i, name: 'GRIMALDI' },
-    { pattern: /\bCOSCO\b/i, name: 'COSCO' },
-    { pattern: /\bPIL\b(?=\s+shipping|\s+line|\s+container)/i, name: 'PIL' },
-    { pattern: /\bYANG\s*MING\b/i, name: 'YANG-MING' },
-    { pattern: /\bZIM\b(?=\s+shipping|\s+line|\s+container)/i, name: 'ZIM' },
-    // Airlines
-    { pattern: /\b(AIR\s+FRANCE|AF)\s+cargo\b/i, name: 'AIR-FRANCE-CARGO' },
-    { pattern: /\b(EMIRATES|EK)\s+(sky)?cargo\b/i, name: 'EMIRATES-CARGO' },
-    { pattern: /\bQATAR\s+CARGO\b/i, name: 'QATAR-CARGO' },
-    { pattern: /\bTURKISH\s+(CARGO|AIRLINES)\b/i, name: 'TURKISH-CARGO' },
-    { pattern: /\bETHIOPIAN\s+CARGO\b/i, name: 'ETHIOPIAN-CARGO' },
-    { pattern: /\bAIR\s+SENEGAL\b/i, name: 'AIR-SENEGAL' },
-    { pattern: /\bROYAL\s+AIR\s+MAROC\b/i, name: 'RAM-CARGO' },
-    { pattern: /\bASKY\b/i, name: 'ASKY' },
-    { pattern: /\bAIR\s+COTE\s+D['']?IVOIRE\b/i, name: 'AIR-COTE-IVOIRE' },
-  ];
-  
-  for (const { pattern, name } of carrierPatterns) {
-    if (pattern.test(fullContent)) {
-      result.carrier = name;
-      if (name.includes('CARGO') || name.includes('AIR')) {
-        transportEvidence.push(`air_carrier_${name}`);
-      } else {
-        transportEvidence.push(`maritime_carrier_${name}`);
-      }
-      break;
-    }
-  }
-
-  // ============ INTELLIGENT ORIGIN/DESTINATION EXTRACTION ============
-  // Use contextual patterns: "de/from" → origin, "à/to/vers/destination" → destination
-  
-  // West African cities/countries
-  const westAfricaLocations = [
-    'Dakar', 'Sénégal', 'Senegal', 'Bamako', 'Mali', 'Ouagadougou', 'Burkina', 'Burkina Faso',
-    'Niamey', 'Niger', 'Conakry', 'Guinée', 'Guinea', 'Abidjan', 'Côte d\'Ivoire', 'Ivory Coast',
-    'Lomé', 'Togo', 'Cotonou', 'Benin', 'Bénin', 'Accra', 'Ghana', 'Lagos', 'Nigeria',
-    'Nouakchott', 'Mauritanie', 'Mauritania', 'Banjul', 'Gambie', 'Gambia', 'Bissau',
-    'Freetown', 'Sierra Leone', 'Monrovia', 'Liberia'
-  ];
-  
-  // Common origin locations (ports, countries)
-  const originLocations = [
-    'Shanghai', 'Ningbo', 'Shenzhen', 'Guangzhou', 'Qingdao', 'Tianjin', 'Xiamen',
-    'Rotterdam', 'Hamburg', 'Anvers', 'Antwerp', 'Marseille', 'Le Havre', 'Fos',
-    'Chine', 'China', 'France', 'Turquie', 'Turkey', 'Inde', 'India', 'Italie', 'Italy',
-    'Espagne', 'Spain', 'Dubai', 'UAE', 'Allemagne', 'Germany', 'Belgique', 'Belgium',
-    'Pays-Bas', 'Netherlands', 'UK', 'Royaume-Uni', 'USA', 'États-Unis'
-  ];
-  
-  // Check IATA codes first
-  for (const [code, city] of Object.entries(IATA_CODES)) {
-    const iataPattern = new RegExp(`\\b${code}\\b`, 'i');
-    if (iataPattern.test(fullContent)) {
-      transportEvidence.push(`iata_code_${code}`);
-      // Determine if origin or destination
-      const originPattern = new RegExp(`(from|de|départ|origine|EXW|FCA|FAS|FOB)\\s*:?\\s*${code}`, 'i');
-      const destPattern = new RegExp(`(to|à|vers|destination|livraison|DAP|DDP|CIF)\\s*:?\\s*${code}`, 'i');
-      
-      if (originPattern.test(fullContent)) {
-        result.origin = city;
-      } else if (destPattern.test(fullContent)) {
-        result.destination = city;
-      } else if (westAfricaLocations.some(loc => city.toLowerCase().includes(loc.toLowerCase()))) {
-        result.destination = city;
-      } else {
-        result.origin = city;
-      }
-    }
-  }
-  
-  // ============ PRIORITY: AOL/AOD EXTRACTION (Air-specific) ============
-  const aolMatch = fullContent.match(/AOL\s*:?\s*([A-ZÀ-Ÿa-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿa-zà-ÿ]+)*)/i);
-  const aodMatch = fullContent.match(/AOD\s*:?\s*([A-ZÀ-Ÿa-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿa-zà-ÿ]+)*)/i);
-  
-  if (aolMatch && aolMatch[1]) {
-    result.origin = aolMatch[1].trim();
-    transportEvidence.push(`aol_detected_${result.origin}`);
-  }
-  if (aodMatch && aodMatch[1]) {
-    result.destination = aodMatch[1].trim();
-    transportEvidence.push(`aod_detected_${result.destination}`);
-  }
-  
-  // Pattern-based origin detection (if AOL not found)
-  const originPatterns = [
-    /(?:from|de|départ|origine|EXW|enlèvement\s+(?:à|chez|:))\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-    /(?:port\s+(?:of\s+)?loading|POL)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-    /adresse\s+d['']enlèvement[^:]*:\s*[^,\n]*,?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-  ];
-  
-  const destPatterns = [
-    /(?:to|à|vers|destination|livraison|DAP|DDP|CIF)\s+:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-    /(?:port\s+(?:of\s+)?discharge|POD)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-  ];
-  
-  // All valid locations (merged list - no import-only restriction for origin)
-  const allValidLocations = [...new Set([...originLocations, ...westAfricaLocations])];
-  
-  // Try to extract origin (if not already set by AOL)
-  if (!result.origin) {
-    for (const pattern of originPatterns) {
-      const match = fullContent.match(pattern);
-      if (match && match[1]) {
-        const extracted = match[1].trim();
-        // Accept any valid location as origin (removed import-only restriction)
-        if (allValidLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
-          result.origin = extracted;
-          break;
-        }
-      }
-    }
-  }
-  
-  // Try to extract destination (if not already set by AOD)
-  if (!result.destination) {
-    for (const pattern of destPatterns) {
-      const match = fullContent.match(pattern);
-      if (match && match[1]) {
-        const extracted = match[1].trim();
-        if (westAfricaLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
-          result.destination = extracted;
-          break;
-        }
-      }
-    }
-  }
-  
-  // Fallback: scan for known locations
-  if (!result.origin) {
-    for (const origin of originLocations) {
-      if (new RegExp(`\\b${origin}\\b`, 'i').test(fullContent)) {
-        result.origin = origin;
-        break;
-      }
-    }
-  }
-  
-  if (!result.destination) {
-    for (const dest of westAfricaLocations) {
-      if (new RegExp(`\\b${dest}\\b`, 'i').test(fullContent)) {
-        result.destination = dest;
-        break;
-      }
-    }
-  }
-
-  // Extract value and currency
-  const valueMatch = fullContent.match(/(USD|EUR|FCFA|XOF|\$|€)\s*([\d\s,.]+)|([\d\s,.]+)\s*(USD|EUR|FCFA|XOF)/i);
-  if (valueMatch) {
-    const curr = (valueMatch[1] || valueMatch[4] || 'USD').toUpperCase();
-    const val = (valueMatch[2] || valueMatch[3]).replace(/[\s,]/g, '').replace(',', '.');
-    result.value = parseFloat(val);
-    result.currency = curr === '$' ? 'USD' : curr === '€' ? 'EUR' : curr;
-  }
-
-  // Extract ETA date
-  const etaMatch = fullContent.match(/(?:ETA|arrivée|arrival)[:\s]*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/i);
-  if (etaMatch) {
-    const day = etaMatch[1].padStart(2, '0');
-    const month = etaMatch[2].padStart(2, '0');
-    let year = etaMatch[3];
-    if (year.length === 2) year = '20' + year;
-    result.eta_date = `${year}-${month}-${day}`;
-  }
-
-  // Extract cargo description from attachments
-  for (const att of attachments) {
-    if (att.extracted_data?.descriptions?.length > 0) {
-      result.cargo_description = att.extracted_data.descriptions.slice(0, 3).join(', ');
-      break;
-    }
-  }
-  
-  // ============ INTELLIGENT TRANSPORT MODE DETECTION ============
-  
-  // STEP 1: Strip signature/footer from content for mode detection
-  const signatureMarkers = [
-    /(?:^|\n)\s*(?:best regards|cordialement|sincères salutations|bien à vous|cdlt|regards|thanks|merci)/i,
-    /(?:^|\n)\s*--\s*$/m,
-    /(?:^|\n)\s*_{3,}/m,
-    /<html/i,
-  ];
-  
-  let contentForModeDetection = contentLower;
-  for (const marker of signatureMarkers) {
-    const match = contentForModeDetection.match(marker);
-    if (match && match.index !== undefined) {
-      contentForModeDetection = contentForModeDetection.substring(0, match.index);
-      transportEvidence.push('signature_stripped');
-      break;
-    }
-  }
-  
-  // STEP 2: Define keywords with word boundaries (stricter matching)
-  const airKeywordsStrong = [
-    'fret aérien', 'fret aerien', 'air freight', 'air cargo', 'cargo aérien', 'par avion', 'by air',
-    'expédition aérienne', 'envoi aérien', 'livraison aérienne', 'vol cargo',
-    'awb', 'airway bill', 'lta', 'lettre de transport aérien',
-    'aéroport', 'airport', 'aibd'
-  ];
-  
-  // Standalone "aérien/aerien" only with word boundary (not in "fret aérien" which is already counted)
-  const airKeywordsWeak = ['aérien', 'aerien'];
-  
-  // Maritime keywords - REMOVED "ship" (too ambiguous: shipping, shipment)
-  // "bl" is now strict: only "B/L" or standalone "BL" with word boundaries
-  const maritimeKeywordsStrong = [
-    'fret maritime', 'sea freight', 'ocean freight', 'maritime', 'par mer', 'by sea',
-    'fcl', 'lcl', 'conteneur', 'container', 'navire', 'vessel', 'bateau',
-    'bill of lading', 'connaissement', 'port de chargement', 'port of loading',
-    'embarquement maritime', 'chargement maritime'
-  ];
-  
-  const roadKeywords = [
-    'transport routier', 'road transport', 'camion', 'truck', 'remorque', 'trailer',
-    'livraison terrestre', 'transit routier'
-  ];
-  
-  let airScore = 0;
-  let maritimeScore = 0;
-  let roadScore = 0;
-  
-  // Check STRONG air keywords
-  for (const kw of airKeywordsStrong) {
-    if (contentForModeDetection.includes(kw)) {
-      airScore += 15;
-      transportEvidence.push(`air_strong_${kw.replace(/\s+/g, '_')}`);
-    }
-  }
-  
-  // Check weak air keywords with word boundary
-  for (const kw of airKeywordsWeak) {
-    const regex = new RegExp(`\\b${kw}\\b`, 'i');
-    if (regex.test(contentForModeDetection) && !contentForModeDetection.includes('fret ' + kw)) {
-      airScore += 8;
-      transportEvidence.push(`air_weak_${kw}`);
-    }
-  }
-  
-  // Check STRONG maritime keywords
-  for (const kw of maritimeKeywordsStrong) {
-    if (contentForModeDetection.includes(kw)) {
-      maritimeScore += 15;
-      transportEvidence.push(`maritime_strong_${kw.replace(/\s+/g, '_')}`);
-    }
-  }
-  
-  // Check B/L specifically (strict pattern)
-  if (/\bB\/L\b/i.test(contentForModeDetection) || /\bBL\s*n[°o]?\s*\d/i.test(contentForModeDetection)) {
-    maritimeScore += 15;
-    transportEvidence.push('maritime_bl_strict');
-  }
-  
-  // Check road keywords
-  for (const kw of roadKeywords) {
-    if (contentForModeDetection.includes(kw)) {
-      roadScore += 10;
-      transportEvidence.push(`road_keyword_${kw.replace(/\s+/g, '_')}`);
-    }
-  }
-  
-  // AOL/AOD presence strongly indicates AIR
-  if (aolMatch || aodMatch) {
-    airScore += 20;
-    transportEvidence.push('aol_aod_indicates_air');
-  }
-  
-  // Container detection strongly indicates maritime
-  if (result.container_type) {
-    maritimeScore += 30;
-    transportEvidence.push(`container_detected_${result.container_type}`);
-  }
-  
-  // Weight-based heuristics (ONLY if no strong keywords and as tie-breaker)
-  if (result.weight_kg && result.weight_kg <= 300 && !result.container_type) {
-    if (airScore > 0 && maritimeScore === 0) {
-      // Strong air with light weight - reinforce
-      airScore += 10;
-      transportEvidence.push(`weight_reinforces_air_${result.weight_kg}kg`);
-    } else if (airScore === 0 && maritimeScore === 0 && roadScore === 0) {
-      // No keywords, light weight - default to air
-      airScore += 10;
-      transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_air`);
-    }
-  }
-  
-  // Carrier type boost
-  if (result.carrier) {
-    const airCarriers = ['AIR-FRANCE-CARGO', 'EMIRATES-CARGO', 'QATAR-CARGO', 'TURKISH-CARGO', 
-                         'ETHIOPIAN-CARGO', 'AIR-SENEGAL', 'RAM-CARGO', 'ASKY', 'AIR-COTE-IVOIRE'];
-    if (airCarriers.includes(result.carrier)) {
-      airScore += 20;
-      transportEvidence.push(`carrier_air_${result.carrier}`);
-    } else {
-      maritimeScore += 15;
-      transportEvidence.push(`carrier_maritime_${result.carrier}`);
-    }
-  }
-  
-  // IATA codes presence
-  if (transportEvidence.some(e => e.startsWith('iata_code_'))) {
-    airScore += 5;
-  }
-  
-  // ============ INTELLIGENT TIE-BREAKER ============
-  // If strong air markers AND light weight AND no container => force AIR
-  const hasStrongAirMarkers = airScore >= 15;
-  const isLightWeight = !result.weight_kg || result.weight_kg <= 500;
-  const noContainer = !result.container_type;
-  const noStrongMaritimeMarkers = maritimeScore < 15;
-  
-  if (hasStrongAirMarkers && isLightWeight && noContainer && noStrongMaritimeMarkers) {
-    result.transport_mode = 'air';
-    transportEvidence.push('tiebreaker_forced_air');
-  } else {
-    // Standard logic
-    const maxScore = Math.max(airScore, maritimeScore, roadScore);
-    
-    if (maxScore === 0) {
-      result.transport_mode = 'unknown';
-      transportEvidence.push('no_transport_indicators');
-    } else if (airScore === maxScore && maritimeScore === maxScore) {
-      // True tie - prefer air if light weight
-      result.transport_mode = isLightWeight ? 'air' : 'maritime';
-      transportEvidence.push(`tie_resolved_${result.transport_mode}`);
-    } else if (airScore === maxScore) {
-      result.transport_mode = 'air';
-    } else if (maritimeScore === maxScore) {
-      result.transport_mode = 'maritime';
-    } else if (roadScore === maxScore) {
-      result.transport_mode = 'road';
-    } else {
-      result.transport_mode = 'unknown';
-    }
-  }
-  
-  result.transport_mode_evidence = transportEvidence;
-  
-  console.log(`Transport mode detection: ${result.transport_mode} (air=${airScore}, maritime=${maritimeScore}, road=${roadScore})`);
-  console.log(`Evidence: ${transportEvidence.join(', ')}`);
-
-  return result;
+  return douaneScore > transportScore ? 'cherif' : 'taleb';
 }
 
-const EXPERT_SYSTEM_PROMPT = `Tu es l'ASSISTANT VIRTUEL de SODATRA, transitaire et commissionnaire en douane sénégalais.
+// Build the style injection prompt from expert profile
+function buildStyleInjection(expert: any): string {
+  if (!expert || !expert.communication_style) {
+    return '';
+  }
+  
+  const style = expert.communication_style;
+  const patterns = expert.response_patterns || [];
+  
+  let injection = `
 
-=== CONTEXTE ENTREPRISE (CRITIQUE) ===
-- **SODATRA** est notre entreprise - nous faisons les cotations et le dédouanement
-- **2HL Group** (propriété de Taleb HOBALLAH) est notre PARTENAIRE commercial
-  - 2HL sous-traite des opérations de dédouanement à SODATRA
-  - Emails de @2hl, @2hlgroup, Taleb = communications avec notre partenaire
-- CLIENTS = ceux qui nous demandent des cotations/services
-- Quand tu rédiges une réponse, tu parles AU NOM DE SODATRA
+=== STYLE OBLIGATOIRE: ${expert.name.toUpperCase()} ===
 
-=== RÈGLE DE LANGUE ABSOLUE ===
-🌍 TU RÉPONDS DANS LA MÊME LANGUE QUE L'EMAIL ORIGINAL.
-- detected_language = "FR" → Réponse 100% en français (sauf abréviations pro)
-- detected_language = "EN" → Réponse 100% en anglais
-⛔ INTERDIT: Mélanger les langues. Si l'email est en anglais, la réponse est ENTIÈREMENT en anglais.
+📏 RAPPEL CRITIQUE: 15-20 LIGNES MAXIMUM. Style télégraphique.
 
-=== RÈGLE DE CONTEXTUALISATION (CRITIQUE) ===
-AVANT de donner des prix, vérifie si tu as TOUTES ces informations:
+📝 TON: ${style.tone || 'professionnel, direct'}
+🌍 LANGUE: ${style.language || 'bilingue FR/EN'}
+
+`;
+
+  if (style.formulas) {
+    if (style.formulas.opening && style.formulas.opening.length > 0) {
+      injection += `📨 OUVERTURE (choisir UNE):\n`;
+      style.formulas.opening.slice(0, 3).forEach((f: string) => {
+        injection += `   • "${f}"\n`;
+      });
+    }
+    if (style.formulas.closing && style.formulas.closing.length > 0) {
+      injection += `📨 CLÔTURE (choisir UNE):\n`;
+      style.formulas.closing.slice(0, 3).forEach((f: string) => {
+        injection += `   • "${f}"\n`;
+      });
+    }
+    if (style.formulas.signature) {
+      injection += `✍️ SIGNATURE:\n${style.formulas.signature}\n\n`;
+    }
+  }
+
+  if (style.distinctive_traits && style.distinctive_traits.length > 0) {
+    injection += `🎯 TRAITS À REPRODUIRE: ${style.distinctive_traits.slice(0, 5).join(' | ')}\n`;
+  }
+
+  if (patterns.length > 0) {
+    injection += `\n📋 EXEMPLES RÉELS (imiter ce style):\n`;
+    patterns.slice(0, 2).forEach((p: any) => {
+      if (p.trigger && p.examples && p.examples.length > 0) {
+        const example = p.examples[0].substring(0, 80).replace(/\n/g, ' ');
+        injection += `   "${p.trigger}" → "${example}..."\n`;
+      }
+    });
+  }
+
+  injection += `
+⛔ INTERDIT: phrases longues, ton robotique, "Je reste à votre disposition...", tableaux dans le mail
+✅ OBLIGATOIRE: abréviations (pls, vsl, ctnr), "With we remain,", tarifs en pièce jointe
+`;
+
+  return injection;
+}
+
+// ============ EXPERT SYSTEM PROMPT ============
+const EXPERT_SYSTEM_PROMPT = `Tu es l'assistant IA de SODATRA, un des plus grands transitaires du Sénégal.
+Tu génères des réponses professionnelles aux demandes de cotation et questions logistiques.
+
+=== CONTEXTE OPÉRATIONNEL ===
+
+Tu as accès à:
+- PORT_TARIFFS: Tarifs officiels du Port de Dakar (DPW, Bolloré, etc.)
+- CARRIER_BILLING: Templates de facturation par compagnie maritime/aérienne
+- TAX_RATES: Taux douaniers officiels (DD, TVA, COSEC, etc.)
+- HS_CODES: Base TEC UEMOA avec taux applicables
+
+=== TYPES DE DEMANDES ===
+
+1. QUOTATION_REQUEST - Demande de cotation complète
+2. PI_ONLY - Seulement une PI jointe, contexte insuffisant
+3. QUESTION - Question technique ou de suivi
+4. ACKNOWLEDGMENT - Accusé de réception
+5. FOLLOW_UP - Suite à conversation précédente
+
+=== INFORMATIONS REQUISES POUR COTER ===
+
 1. Origine (port/pays de départ)
 2. Destination finale
 3. Incoterm souhaité (FOB, CIF, DAP, DDP...)
@@ -808,80 +619,6 @@ TU N'INVENTES JAMAIS DE TARIF.
   }
 }`;
 
-// Helper function to select the best expert based on email content
-function selectExpertForResponse(emailContent: string, subject: string): 'taleb' | 'cherif' {
-  const douaneKeywords = ['douane', 'hs code', 'customs', 'dédouanement', 'tarif douanier', 'nomenclature', 'duty', 'tax', 'droits de douane', 'clearance', 'declaration'];
-  const transportKeywords = ['transport', 'fret', 'shipping', 'thc', 'dam', 'transit', 'incoterm', 'booking', 'bl', 'conteneur', 'container', 'vessel', 'freight', 'port', 'logistique'];
-  
-  const content = (emailContent + ' ' + subject).toLowerCase();
-  
-  const douaneScore = douaneKeywords.filter(k => content.includes(k)).length;
-  const transportScore = transportKeywords.filter(k => content.includes(k)).length;
-  
-  // Cherif for customs-focused, Taleb for transport/global quotations
-  return douaneScore > transportScore ? 'cherif' : 'taleb';
-}
-
-// Build the style injection prompt from expert profile - REINFORCES CONCISE STYLE
-function buildStyleInjection(expert: any): string {
-  if (!expert || !expert.communication_style) {
-    return '';
-  }
-  
-  const style = expert.communication_style;
-  const patterns = expert.response_patterns || [];
-  
-  let injection = `
-
-=== STYLE OBLIGATOIRE: ${expert.name.toUpperCase()} ===
-
-📏 RAPPEL CRITIQUE: 15-20 LIGNES MAXIMUM. Style télégraphique.
-
-📝 TON: ${style.tone || 'professionnel, direct'}
-🌍 LANGUE: ${style.language || 'bilingue FR/EN'}
-
-`;
-
-  if (style.formulas) {
-    if (style.formulas.opening && style.formulas.opening.length > 0) {
-      injection += `📨 OUVERTURE (choisir UNE):\n`;
-      style.formulas.opening.slice(0, 3).forEach((f: string) => {
-        injection += `   • "${f}"\n`;
-      });
-    }
-    if (style.formulas.closing && style.formulas.closing.length > 0) {
-      injection += `📨 CLÔTURE (choisir UNE):\n`;
-      style.formulas.closing.slice(0, 3).forEach((f: string) => {
-        injection += `   • "${f}"\n`;
-      });
-    }
-    if (style.formulas.signature) {
-      injection += `✍️ SIGNATURE:\n${style.formulas.signature}\n\n`;
-    }
-  }
-
-  if (style.distinctive_traits && style.distinctive_traits.length > 0) {
-    injection += `🎯 TRAITS À REPRODUIRE: ${style.distinctive_traits.slice(0, 5).join(' | ')}\n`;
-  }
-
-  if (patterns.length > 0) {
-    injection += `\n📋 EXEMPLES RÉELS (imiter ce style):\n`;
-    patterns.slice(0, 2).forEach((p: any) => {
-      if (p.trigger && p.examples && p.examples.length > 0) {
-        const example = p.examples[0].substring(0, 80).replace(/\n/g, ' ');
-        injection += `   "${p.trigger}" → "${example}..."\n`;
-      }
-    });
-  }
-
-  injection += `
-⛔ INTERDIT: phrases longues, ton robotique, "Je reste à votre disposition...", tableaux dans le mail
-✅ OBLIGATOIRE: abréviations (pls, vsl, ctnr), "With we remain,", tarifs en pièce jointe
-`;
-
-  return injection;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -925,7 +662,6 @@ serve(async (req) => {
     portTariffsContext += '⚠️ UTILISER CES MONTANTS EXACTS - NE PAS ESTIMER\n\n';
     
     if (portTariffs && portTariffs.length > 0) {
-      // Group by provider
       const byProvider = portTariffs.reduce((acc: Record<string, typeof portTariffs>, t) => {
         if (!acc[t.provider]) acc[t.provider] = [];
         acc[t.provider].push(t);
@@ -959,7 +695,6 @@ serve(async (req) => {
     carrierBillingContext += '⚠️ UTILISER CETTE STRUCTURE POUR IDENTIFIER LES FRAIS SELON LE TRANSPORTEUR\n\n';
     
     if (carrierTemplates && carrierTemplates.length > 0) {
-      // Group by carrier
       const byCarrier = carrierTemplates.reduce((acc: Record<string, typeof carrierTemplates>, t) => {
         if (!acc[t.carrier]) acc[t.carrier] = [];
         acc[t.carrier].push(t);
@@ -967,7 +702,6 @@ serve(async (req) => {
       }, {});
 
       for (const [carrier, templates] of Object.entries(byCarrier)) {
-        // Check if multi-invoice structure
         const invoiceTypes = [...new Set(templates.map(t => t.invoice_type))];
         const isMultiInvoice = invoiceTypes.length > 1 || templates.some(t => t.invoice_sequence > 1);
         
@@ -979,7 +713,6 @@ serve(async (req) => {
         }
         carrierBillingContext += '\n';
 
-        // Group by invoice_type for multi-invoice carriers
         const byInvoiceType = templates.reduce((acc: Record<string, typeof templates>, t) => {
           const key = `${t.invoice_type}_${t.invoice_sequence}`;
           if (!acc[key]) acc[key] = [];
@@ -1037,7 +770,6 @@ serve(async (req) => {
         try {
           console.log(`Analyzing attachment ${attId}...`);
           
-          // Get the attachment details
           const attachment = attachments.find(a => a.id === attId);
           if (!attachment) continue;
           
@@ -1045,7 +777,6 @@ serve(async (req) => {
           const isPdf = attachment.content_type === 'application/pdf';
           
           if (!isImage && !isPdf) {
-            // Mark non-visual files as analyzed
             await supabase
               .from('email_attachments')
               .update({ 
@@ -1056,7 +787,6 @@ serve(async (req) => {
             continue;
           }
           
-          // Skip files larger than 4MB (API limit)
           const MAX_FILE_SIZE = 4 * 1024 * 1024;
           if (attachment.size && attachment.size > MAX_FILE_SIZE) {
             console.log(`Skipping ${attachment.filename} - file too large (${attachment.size} bytes)`);
@@ -1071,7 +801,6 @@ serve(async (req) => {
             continue;
           }
           
-          // Download the file
           const { data: fileData, error: downloadError } = await supabase
             .storage
             .from('documents')
@@ -1089,7 +818,6 @@ serve(async (req) => {
             continue;
           }
           
-          // Convert to base64
           const arrayBuffer = await fileData.arrayBuffer();
           const uint8Array = new Uint8Array(arrayBuffer);
           const CHUNK_SIZE = 8192;
@@ -1105,7 +833,6 @@ serve(async (req) => {
           
           console.log(`Sending ${attachment.filename} to AI (${Math.round(arrayBuffer.byteLength / 1024)}KB)...`);
           
-          // Analyze with AI
           const aiAnalysisResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -1121,39 +848,64 @@ serve(async (req) => {
 Analyse l'image fournie et extrais TOUTES les informations pertinentes pour une cotation:
 - Valeur CAF/FOB des marchandises
 - Description des produits
-- Codes SH si visibles
-- Nom du fournisseur/client
-- Coordonnées bancaires
-- Quantités et poids
-- Conditions de paiement
-Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_caf": number|null, "devise": "USD|EUR|FCFA", "descriptions": [], "codes_hs": [], "fournisseur": "", "quantites": "", "poids": "", "text_content": "texte visible", "confidence": 0.0-1.0 }`
+- Quantités et unités
+- Poids et volumes
+- Codes HS si mentionnés
+- Pays d'origine/destination
+- Incoterm
+- Fournisseur
+
+Réponds en JSON:
+{
+  "type": "proforma_invoice|packing_list|bill_of_lading|quotation|other",
+  "valeur_caf": number | null,
+  "devise": "USD|EUR|FCFA",
+  "descriptions": ["description1", "description2"],
+  "quantites": [{"item": "...", "qty": ..., "unit": "..."}],
+  "poids_net_kg": number | null,
+  "poids_brut_kg": number | null,
+  "volume_cbm": number | null,
+  "codes_hs": ["8471.30.00", ...],
+  "origine": "China",
+  "destination": "Senegal",
+  "incoterm": "FOB|CIF|...",
+  "fournisseur": "Company Name",
+  "summary_text": "Résumé en 2-3 lignes du document"
+}`
                 },
                 {
                   role: 'user',
                   content: [
-                    { type: 'text', text: `Analyse cette pièce jointe (${attachment.filename}) pour en extraire les données commerciales.` },
-                    { type: 'image_url', image_url: { url: dataUrl } }
+                    {
+                      type: 'text',
+                      text: `Analyse ce document: ${attachment.filename}`
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: { url: dataUrl }
+                    }
                   ]
                 }
-              ]
+              ],
+              max_tokens: 2000
             }),
           });
-          
+
           if (aiAnalysisResponse.ok) {
-            const aiData = await aiAnalysisResponse.json();
-            const content = aiData.choices?.[0]?.message?.content || '';
+            const aiResult = await aiAnalysisResponse.json();
+            const analysisContent = aiResult.choices?.[0]?.message?.content || '';
             
-            let extractedData: any = { raw_response: content };
-            let extractedText = '';
+            let extractedData = {};
+            let extractedText = analysisContent;
             
             try {
-              const jsonMatch = content.match(/\{[\s\S]*\}/);
+              const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
               if (jsonMatch) {
                 extractedData = JSON.parse(jsonMatch[0]);
-                extractedText = extractedData.text_content || extractedData.descriptions?.join('\n') || '';
+                extractedText = (extractedData as any).summary_text || analysisContent;
               }
-            } catch {
-              extractedText = content;
+            } catch (e) {
+              console.log("Could not parse JSON from analysis, using raw text");
             }
             
             await supabase
@@ -1165,37 +917,37 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
               })
               .eq('id', attId);
               
-            console.log(`Successfully analyzed: ${attachment.filename}`);
+            console.log(`Successfully analyzed ${attachment.filename}`);
           } else {
             const errorText = await aiAnalysisResponse.text();
-            console.error(`AI analysis failed for ${attachment.filename}:`, aiAnalysisResponse.status, errorText);
+            console.error(`AI analysis failed for ${attachment.filename}:`, errorText);
             
-            // Mark as analyzed with error info
             await supabase
               .from('email_attachments')
-              .update({ 
+              .update({
                 is_analyzed: true,
-                extracted_text: `Analyse AI échouée (${aiAnalysisResponse.status})`,
-                extracted_data: { type: 'ai_error', status: aiAnalysisResponse.status, error: errorText.substring(0, 500) }
+                extracted_data: { type: 'analysis_failed', error: 'AI analysis failed' }
               })
               .eq('id', attId);
           }
-        } catch (error) {
-          console.error(`Error analyzing attachment ${attId}:`, error);
+        } catch (analysisError) {
+          console.error(`Error analyzing attachment ${attId}:`, analysisError);
         }
       }
       
-      // Re-fetch attachments after analysis
-      const { data: updatedAttachments } = await supabase
+      // Refresh attachments after analysis
+      const { data: refreshedAttachments } = await supabase
         .from('email_attachments')
         .select('*')
         .eq('email_id', emailId);
       
-      if (updatedAttachments) {
-        attachments = updatedAttachments;
+      if (refreshedAttachments) {
+        attachments = refreshedAttachments;
       }
     }
 
+    // Build attachments text for AI extraction
+    let attachmentsText = '';
     let attachmentsContext = '';
     if (attachments && attachments.length > 0) {
       attachmentsContext = '\n\n=== PIÈCES JOINTES ANALYSÉES ===\n';
@@ -1203,6 +955,7 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
         attachmentsContext += `📎 ${att.filename} (${att.content_type})\n`;
         if (att.extracted_text) {
           attachmentsContext += `Contenu extrait:\n${att.extracted_text.substring(0, 3000)}\n`;
+          attachmentsText += `\n--- ${att.filename} ---\n${att.extracted_text}\n`;
         }
         if (att.extracted_data) {
           const data = att.extracted_data as any;
@@ -1219,12 +972,29 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
             attachmentsContext += `🏢 Fournisseur: ${data.fournisseur}\n`;
           }
           attachmentsContext += `Données complètes: ${JSON.stringify(data)}\n`;
+          attachmentsText += `Extracted data: ${JSON.stringify(data)}\n`;
         }
         if (!att.is_analyzed) {
           attachmentsContext += `⚠️ Analyse impossible - format non supporté\n`;
         }
       }
     }
+
+    // ============ AI-POWERED EXTRACTION (REPLACES ALL REGEX) ============
+    console.log("=== STARTING AI EXTRACTION ===");
+    const aiExtracted = await extractWithAI(
+      email.body_text || '',
+      email.subject || '',
+      attachmentsText,
+      LOVABLE_API_KEY
+    );
+    console.log("AI Extraction complete:", JSON.stringify({
+      transport_mode: aiExtracted.transport_mode,
+      transport_mode_evidence: aiExtracted.transport_mode_evidence,
+      origin: aiExtracted.origin,
+      destination: aiExtracted.destination,
+      can_quote_now: aiExtracted.can_quote_now
+    }));
 
     // ============ FETCH CUSTOMS REGIMES ============
     const { data: regimes } = await supabase
@@ -1272,7 +1042,6 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       .from('expert_profiles')
       .select('*');
 
-    // Find Taleb and Cherif profiles
     const talebProfile = allExperts?.find(e => 
       e.email?.toLowerCase().includes('taleb') || 
       e.name?.toLowerCase().includes('taleb') ||
@@ -1283,15 +1052,13 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       e.name?.toLowerCase().includes('cherif')
     );
 
-    // Determine which expert style to use
-    let selectedExpert = talebProfile; // Default to Taleb
+    let selectedExpert = talebProfile;
     let expertName = 'taleb';
     
     if (expertStyle === 'cherif' && cherifProfile) {
       selectedExpert = cherifProfile;
       expertName = 'cherif';
     } else if (expertStyle === 'auto' || !expertStyle) {
-      // Auto-detect based on email content
       const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
       expertName = selectExpertForResponse(emailContent, email.subject || '');
       selectedExpert = expertName === 'cherif' ? cherifProfile : talebProfile;
@@ -1302,7 +1069,6 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
 
     console.log(`Selected expert style: ${expertName} (${selectedExpert?.name || 'default'})`);
 
-    // Build the style injection for the selected expert
     const styleInjection = buildStyleInjection(selectedExpert);
     
     let expertContext = '';
@@ -1317,7 +1083,6 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
     let threadContext = '';
     let threadRoleContext = '';
     
-    // Récupérer les infos du fil de discussion
     if (email.thread_ref) {
       const { data: threadInfo } = await supabase
         .from('email_threads')
@@ -1355,7 +1120,6 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       }
     }
     
-    // Récupérer les infos du contact expéditeur
     const { data: senderContact } = await supabase
       .from('contacts')
       .select('*')
@@ -1373,7 +1137,31 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       }
     }
     
-    // Historique du fil
+    // Helper function to identify sender role
+    async function identifySenderRole(supabase: any, emailAddr: string): Promise<string> {
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('role')
+        .eq('email', emailAddr.toLowerCase())
+        .maybeSingle();
+      
+      if (contact?.role) {
+        const roleMap: Record<string, string> = {
+          'client': 'CLIENT',
+          'partner': 'PARTENAIRE',
+          'supplier': 'FOURNISSEUR',
+          'internal': 'SODATRA',
+          'agent': 'AGENT',
+          'prospect': 'PROSPECT',
+        };
+        return roleMap[contact.role] || contact.role.toUpperCase();
+      }
+      
+      if (emailAddr.toLowerCase().includes('@sodatra')) return 'SODATRA';
+      if (emailAddr.toLowerCase().includes('2hl')) return 'PARTENAIRE';
+      return 'EXTERNE';
+    }
+
     if (email.thread_id) {
       const { data: threadEmails } = await supabase
         .from('emails')
@@ -1391,36 +1179,10 @@ Réponds en JSON: { "type": "facture|proforma|bl|signature|logo|autre", "valeur_
       }
     }
 
-// Helper function pour identifier le rôle d'un expéditeur
-async function identifySenderRole(supabase: any, email: string): Promise<string> {
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('role')
-    .eq('email', email.toLowerCase())
-    .maybeSingle();
-  
-  if (contact?.role) {
-    const roleMap: Record<string, string> = {
-      'client': 'CLIENT',
-      'partner': 'PARTENAIRE',
-      'supplier': 'FOURNISSEUR',
-      'internal': 'SODATRA',
-      'agent': 'AGENT',
-      'prospect': 'PROSPECT',
-    };
-    return roleMap[contact.role] || contact.role.toUpperCase();
-  }
-  
-  if (email.toLowerCase().includes('@sodatra')) return 'SODATRA';
-  if (email.toLowerCase().includes('2hl')) return 'PARTENAIRE';
-  return 'EXTERNE';
-}
-
     // ============ DETECT REGIME AND ADD LEGAL CONTEXT ============
     const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
     const detectedRegimes: string[] = [];
     
-    // Detect mentioned regimes
     if (/\bATE\b|admission\s+temporaire/i.test(emailContent)) {
       detectedRegimes.push('ATE');
     }
@@ -1431,10 +1193,9 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
       detectedRegimes.push('C10');
     }
     if (/\bMali\b|Burkina|Niger|Guinée/i.test(emailContent)) {
-      detectedRegimes.push('TRIE'); // Transit likely needed for these destinations
+      detectedRegimes.push('TRIE');
     }
     
-    // Generate legal context based on detected regimes
     let legalContext = '';
     if (detectedRegimes.length > 0) {
       legalContext = '\n\n=== RÉFÉRENCE LÉGALE - CODE DES DOUANES (Loi 2014-10) ===\n';
@@ -1444,7 +1205,6 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
         legalContext += getLegalContextForRegime(regime);
       }
       
-      // Add regime appropriateness analysis for detected destinations
       const maliMatch = emailContent.match(/\b(Mali|Bamako)\b/i);
       const burkinaMatch = emailContent.match(/\b(Burkina|Ouagadougou)\b/i);
       const destination = maliMatch?.[1] || burkinaMatch?.[1] || '';
@@ -1459,7 +1219,6 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
         }
       }
     } else {
-      // Add general legal context
       legalContext = '\n\n=== RÉFÉRENCE LÉGALE DISPONIBLE ===\n';
       legalContext += 'Code des Douanes du Sénégal (Loi 2014-10 du 28 février 2014)\n';
       legalContext += '- Admission Temporaire (ATE): Articles 217-218\n';
@@ -1484,18 +1243,7 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
       }
     }
 
-    // ============ LANGUAGE & REQUEST ANALYSIS ============
-    const detectedLanguage = detectEmailLanguage(email.body_text, email.subject);
-    const requestAnalysis = analyzeRequestType(email, attachments || []);
-    
-    console.log(`Language: ${detectedLanguage}, Request type: ${requestAnalysis.type}, Can quote: ${requestAnalysis.canQuote}`);
-
-    // ============ V5 WORKFLOW: EXTRACT DATA FOR ANALYSIS ============
-    // Extract weight, volume, container, carrier, incoterm from email and attachments
-    const extractedData = extractShipmentData(fullEmailContent, attachments || []);
-    console.log("Extracted shipment data:", JSON.stringify(extractedData));
-
-    // ============ V5 WORKFLOW: CALL NEW ANALYSIS FUNCTIONS ============
+    // ============ V5 WORKFLOW: CALL ANALYSIS FUNCTIONS ============
     let coherenceResult: any = null;
     let incotermResult: any = null;
     let riskResult: any = null;
@@ -1503,7 +1251,7 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
 
     try {
       // 1. Audit Coherence (poids/volume validation)
-      if (extractedData.weight_kg || extractedData.volume_cbm || extractedData.container_type) {
+      if (aiExtracted.weight_kg || aiExtracted.volume_cbm || aiExtracted.container_type) {
         console.log("Calling audit-coherence...");
         const coherenceResponse = await fetch(`${supabaseUrl}/functions/v1/audit-coherence`, {
           method: 'POST',
@@ -1512,10 +1260,10 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            weight_kg: extractedData.weight_kg,
-            volume_cbm: extractedData.volume_cbm,
-            container_type: extractedData.container_type,
-            cargo_description: extractedData.cargo_description,
+            weight_kg: aiExtracted.weight_kg,
+            volume_cbm: aiExtracted.volume_cbm,
+            container_type: aiExtracted.container_type,
+            cargo_description: aiExtracted.cargo_description,
           }),
         });
         if (coherenceResponse.ok) {
@@ -1525,7 +1273,7 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
       }
 
       // 2. Arbitrage Incoterm
-      if (extractedData.incoterm) {
+      if (aiExtracted.incoterm) {
         console.log("Calling arbitrage-incoterm...");
         const incotermResponse = await fetch(`${supabaseUrl}/functions/v1/arbitrage-incoterm`, {
           method: 'POST',
@@ -1534,11 +1282,11 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            incoterm: extractedData.incoterm,
-            origin_country: extractedData.origin,
-            destination_country: extractedData.destination,
-            fob_value: extractedData.value,
-            currency: extractedData.currency,
+            incoterm: aiExtracted.incoterm,
+            origin_country: aiExtracted.origin,
+            destination_country: aiExtracted.destination,
+            fob_value: aiExtracted.value,
+            currency: aiExtracted.currency,
           }),
         });
         if (incotermResponse.ok) {
@@ -1547,7 +1295,7 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
         }
       }
 
-      // 3. Analyze Risks (temps, nature, provisions)
+      // 3. Analyze Risks
       console.log("Calling analyze-risks...");
       const riskResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-risks`, {
         method: 'POST',
@@ -1556,13 +1304,12 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          eta_date: extractedData.eta_date,
-          cargo_nature: extractedData.cargo_description,
-          destination: extractedData.destination,
-          container_type: extractedData.container_type,
-          carrier: extractedData.carrier,
-          is_transit: /mali|bamako|burkina|ouaga|niger|guinée/i.test(extractedData.destination || ''),
-          transit_destination: extractedData.destination,
+          cargo_nature: aiExtracted.cargo_description,
+          destination: aiExtracted.destination,
+          container_type: aiExtracted.container_type,
+          carrier: aiExtracted.carrier,
+          is_transit: /mali|bamako|burkina|ouaga|niger|guinée/i.test(aiExtracted.destination || ''),
+          transit_destination: aiExtracted.destination,
         }),
       });
       if (riskResponse.ok) {
@@ -1578,7 +1325,6 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
     if (coherenceResult || incotermResult || riskResult) {
       v5AnalysisContext = '\n\n=== ANALYSE V5 WORKFLOW ===\n';
 
-      // Coherence analysis
       if (coherenceResult) {
         v5AnalysisContext += '\n📦 AUDIT COHÉRENCE POIDS/VOLUME:\n';
         v5AnalysisContext += `   Cohérent: ${coherenceResult.is_coherent ? '✅ OUI' : '❌ NON'}\n`;
@@ -1591,12 +1337,8 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
             v5AnalysisContext += `      • ${alert.message_fr}\n`;
           }
         }
-        if (coherenceResult.ctu_code_check_needed) {
-          v5AnalysisContext += `   📋 Vérification CTU Code recommandée\n`;
-        }
       }
 
-      // Incoterm analysis
       if (incotermResult?.incoterm) {
         v5AnalysisContext += `\n📋 ARBITRAGE INCOTERM ${incotermResult.incoterm.code} (Groupe ${incotermResult.incoterm.groupe}):\n`;
         v5AnalysisContext += `   ${incotermResult.incoterm.description_fr}\n`;
@@ -1607,76 +1349,59 @@ async function identifySenderRole(supabase: any, email: string): Promise<string>
             v5AnalysisContext += `      ${cost}\n`;
           }
         }
-        if (incotermResult.quotation_guidance?.vigilance_points_fr?.length > 0) {
-          v5AnalysisContext += `   ⚠️ POINTS DE VIGILANCE:\n`;
-          for (const point of incotermResult.quotation_guidance.vigilance_points_fr) {
-            v5AnalysisContext += `      ${point}\n`;
-          }
-        }
       }
 
-      // Risk analysis
       if (riskResult) {
         v5AnalysisContext += '\n🎯 ANALYSE DES RISQUES:\n';
-        v5AnalysisContext += `   Risque temps: ${riskResult.time_risk?.level?.toUpperCase() || 'N/A'} - ${riskResult.time_risk?.risk_explanation_fr || ''}\n`;
-        v5AnalysisContext += `   Risque nature: ${riskResult.nature_risk?.level?.toUpperCase() || 'N/A'} - ${riskResult.nature_risk?.risk_explanation_fr || ''}\n`;
+        v5AnalysisContext += `   Risque temps: ${riskResult.time_risk?.level?.toUpperCase() || 'N/A'}\n`;
+        v5AnalysisContext += `   Risque nature: ${riskResult.nature_risk?.level?.toUpperCase() || 'N/A'}\n`;
         
         if (riskResult.provisions?.total_provisions_fcfa > 0) {
           v5AnalysisContext += `   💰 PROVISIONS RECOMMANDÉES: ${riskResult.provisions.total_provisions_fcfa.toLocaleString('fr-FR')} FCFA\n`;
-          for (const line of riskResult.provisions.breakdown || []) {
-            v5AnalysisContext += `      • ${line.item}: ${line.amount.toLocaleString('fr-FR')} ${line.currency} (${line.reason})\n`;
-          }
-        }
-
-        if (riskResult.vigilance_points?.length > 0) {
-          v5AnalysisContext += `   📌 POINTS DE VIGILANCE À MENTIONNER:\n`;
-          for (const vp of riskResult.vigilance_points) {
-            v5AnalysisContext += `      [${vp.severity.toUpperCase()}] ${vp.message_fr}\n`;
-          }
-        }
-
-        if (riskResult.demurrage_info) {
-          v5AnalysisContext += `   🚢 SURESTARIES ${riskResult.demurrage_info.carrier}: ${riskResult.demurrage_info.free_days}j franchise, puis ${riskResult.demurrage_info.rate_after_free_days_usd} USD/jour\n`;
         }
       }
     }
 
-    // Build analysis context for AI
-    let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE ===
-📌 LANGUE DÉTECTÉE: ${detectedLanguage}
-   → Tu DOIS répondre 100% en ${detectedLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
+    // Build analysis context for AI (using AI-extracted data)
+    let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE (AI-POWERED) ===
+📌 LANGUE DÉTECTÉE: ${aiExtracted.detected_language}
+   → Tu DOIS répondre 100% en ${aiExtracted.detected_language === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
    
-📌 TYPE DE DEMANDE: ${requestAnalysis.type}
-📌 PEUT COTER MAINTENANT: ${requestAnalysis.canQuote ? 'OUI' : 'NON - CONTEXTE INSUFFISANT'}
+📌 TYPE DE DEMANDE: ${aiExtracted.request_type}
+📌 PEUT COTER MAINTENANT: ${aiExtracted.can_quote_now ? 'OUI' : 'NON - CONTEXTE INSUFFISANT'}
 
-${!requestAnalysis.canQuote ? `
+📌 MODE DE TRANSPORT: ${aiExtracted.transport_mode.toUpperCase()}
+   Evidence: ${aiExtracted.transport_mode_evidence}
+
+${!aiExtracted.can_quote_now ? `
 ⚠️ INFORMATIONS MANQUANTES - NE PAS DONNER DE PRIX:
-${requestAnalysis.missingContext.map(m => `   • ${m}`).join('\n')}
+${aiExtracted.missing_info.map(m => `   • ${m}`).join('\n')}
 
 📋 QUESTIONS À POSER AU CLIENT:
-${requestAnalysis.suggestedQuestions.join('\n')}
+${aiExtracted.questions_to_ask.map(q => `   • ${q}`).join('\n')}
 ` : ''}
 
 📊 ÉLÉMENTS DÉTECTÉS:
-   • PI jointe: ${requestAnalysis.detectedElements.hasPI ? 'OUI' : 'NON'}
-   • Incoterm: ${extractedData.incoterm || (requestAnalysis.detectedElements.hasIncoterm ? 'OUI (non identifié)' : 'NON')}
-   • Destination: ${extractedData.destination || (requestAnalysis.detectedElements.hasDestination ? 'OUI' : 'NON')}
-   • Origine: ${extractedData.origin || (requestAnalysis.detectedElements.hasOrigin ? 'OUI' : 'NON')}
-   • Type conteneur: ${extractedData.container_type || (requestAnalysis.detectedElements.hasContainerType ? 'OUI' : 'NON')}
-   • Poids: ${extractedData.weight_kg ? extractedData.weight_kg + ' kg' : 'NON'}
-   • Volume: ${extractedData.volume_cbm ? extractedData.volume_cbm + ' m³' : 'NON'}
-   • Transporteur: ${extractedData.carrier || 'NON DÉTECTÉ'}
-   • Code HS: ${requestAnalysis.detectedElements.hasHsCode ? 'OUI' : 'NON'}
-   • Valeur: ${extractedData.value ? extractedData.value + ' ' + (extractedData.currency || '') : (requestAnalysis.detectedElements.hasValue ? 'OUI' : 'NON')}
+   • PI jointe: ${aiExtracted.detected_elements.hasPI ? 'OUI' : 'NON'}
+   • Incoterm: ${aiExtracted.incoterm || 'NON'}
+   • Destination: ${aiExtracted.destination || 'NON'}
+   • Origine: ${aiExtracted.origin || 'NON'}
+   • Type conteneur: ${aiExtracted.container_type || 'N/A (fret aérien?)'}
+   • Poids: ${aiExtracted.weight_kg ? aiExtracted.weight_kg + ' kg' : 'NON'}
+   • Volume: ${aiExtracted.volume_cbm ? aiExtracted.volume_cbm + ' m³' : 'NON'}
+   • Transporteur: ${aiExtracted.carrier || 'NON DÉTECTÉ'}
+   • Code HS: ${aiExtracted.hs_codes.length > 0 ? aiExtracted.hs_codes.join(', ') : 'NON'}
+   • Valeur: ${aiExtracted.value ? aiExtracted.value + ' ' + (aiExtracted.currency || '') : 'NON'}
 ${v5AnalysisContext}`;
 
     // ============ BUILD PROMPT ============
     const userPrompt = `
 === PARAMÈTRES CRITIQUES ===
-detected_language: "${detectedLanguage}"
-request_type: "${requestAnalysis.type}"
-can_quote_now: ${requestAnalysis.canQuote}
-clarification_questions_suggested: ${JSON.stringify(requestAnalysis.suggestedQuestions)}
+detected_language: "${aiExtracted.detected_language}"
+request_type: "${aiExtracted.request_type}"
+can_quote_now: ${aiExtracted.can_quote_now}
+transport_mode: "${aiExtracted.transport_mode}"
+clarification_questions_suggested: ${JSON.stringify(aiExtracted.questions_to_ask)}
 
 DEMANDE CLIENT À ANALYSER:
 De: ${email.from_address}
@@ -1701,14 +1426,14 @@ ${expertContext}
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
 RAPPELS CRITIQUES:
-1. 🌍 LANGUE: Réponds 100% en ${detectedLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'} - NE MÉLANGE PAS LES LANGUES
+1. 🌍 LANGUE: Réponds 100% en ${aiExtracted.detected_language === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'} - NE MÉLANGE PAS LES LANGUES
 2. 📋 SI can_quote_now = false: 
    - N'invente PAS de prix
    - Accuse réception (PI, demande)
    - Pose les questions de clarification
    - C'est ILLOGIQUE de donner des prix sans contexte
 3. Si can_quote_now = true:
-   - IDENTIFIER LE TRANSPORTEUR (MSC, Hapag-Lloyd, Maersk, CMA CGM, Grimaldi)
+   - IDENTIFIER LE TRANSPORTEUR
    - Pour les THC DP World: utilise EXACTEMENT les montants de PORT_TARIFFS
    - Pour les frais compagnie: utilise les templates de CARRIER_BILLING
    - Pour tout tarif non disponible → "À CONFIRMER" ou "TBC"
@@ -1753,10 +1478,10 @@ RAPPELS CRITIQUES:
     }
 
     // Build the complete email body from structured response
-    const greeting = parsedResponse.greeting || (detectedLanguage === 'FR' ? 'Bonjour,' : 'Dear Sir/Madam,');
+    const greeting = parsedResponse.greeting || (aiExtracted.detected_language === 'FR' ? 'Bonjour,' : 'Dear Sir/Madam,');
     const bodyShort = parsedResponse.body_short || parsedResponse.body || '';
     const delegation = parsedResponse.delegation ? `\n\n${parsedResponse.delegation}` : '';
-    const closing = parsedResponse.closing || (detectedLanguage === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
+    const closing = parsedResponse.closing || (aiExtracted.detected_language === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
     const signature = parsedResponse.signature || 'Taleb HOBALLAH\n2HL Group';
     
     const fullBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
@@ -1780,19 +1505,18 @@ RAPPELS CRITIQUES:
       throw new Error("Erreur de création du brouillon");
     }
 
-    console.log(`Generated ${detectedLanguage} draft (type: ${requestAnalysis.type}, canQuote: ${requestAnalysis.canQuote}):`, draft.id);
+    console.log(`Generated ${aiExtracted.detected_language} draft (type: ${aiExtracted.request_type}, canQuote: ${aiExtracted.can_quote_now}, transport: ${aiExtracted.transport_mode}):`, draft.id);
 
     // ============ GENERATE ATTACHMENT IF NEEDED ============
     let attachmentResult: any = null;
     if (parsedResponse.attachment_needed && parsedResponse.attachment_data?.posts?.length > 0) {
       console.log("Generating quotation attachment...");
       try {
-        // Enrich attachment data with extracted info
         const enrichedAttachmentData = {
           ...parsedResponse.attachment_data,
           client_name: email.from_address.split('@')[0].replace(/[._]/g, ' '),
-          destination: extractedData.destination,
-          incoterm: extractedData.incoterm,
+          destination: aiExtracted.destination,
+          incoterm: aiExtracted.incoterm,
         };
 
         const attachmentResponse = await fetch(`${supabaseUrl}/functions/v1/generate-quotation-attachment`, {
@@ -1820,36 +1544,52 @@ RAPPELS CRITIQUES:
       }
     }
 
+    // Build backwards-compatible extracted_data object
+    const extractedData = {
+      weight_kg: aiExtracted.weight_kg,
+      volume_cbm: aiExtracted.volume_cbm,
+      container_type: aiExtracted.container_type,
+      incoterm: aiExtracted.incoterm,
+      carrier: aiExtracted.carrier,
+      origin: aiExtracted.origin,
+      destination: aiExtracted.destination,
+      cargo_description: aiExtracted.cargo_description,
+      value: aiExtracted.value,
+      currency: aiExtracted.currency,
+      eta_date: null,
+      transport_mode: aiExtracted.transport_mode,
+      transport_mode_evidence: [aiExtracted.transport_mode_evidence],
+    };
+
     return new Response(
       JSON.stringify({
         success: true,
         draft: draft,
-        // New analysis fields
-        detected_language: detectedLanguage,
-        request_type: requestAnalysis.type,
-        can_quote_now: requestAnalysis.canQuote,
-        clarification_questions: parsedResponse.clarification_questions || requestAnalysis.suggestedQuestions,
-        detected_elements: requestAnalysis.detectedElements,
-        // V5 Workflow: Extracted shipment data
+        // Analysis fields
+        detected_language: aiExtracted.detected_language,
+        request_type: aiExtracted.request_type,
+        can_quote_now: aiExtracted.can_quote_now,
+        clarification_questions: parsedResponse.clarification_questions || aiExtracted.questions_to_ask,
+        detected_elements: aiExtracted.detected_elements,
+        // Extracted shipment data (AI-powered)
         extracted_data: extractedData,
-        // NEW: Transport mode from intelligent detection
-        transport_mode: extractedData.transport_mode,
-        transport_mode_evidence: extractedData.transport_mode_evidence,
+        // Transport mode (KEY: AI-determined)
+        transport_mode: aiExtracted.transport_mode,
+        transport_mode_evidence: [aiExtracted.transport_mode_evidence],
         // V5 Workflow: Analysis results
         v5_analysis: {
           coherence_audit: coherenceResult,
           incoterm_analysis: incotermResult,
           risk_analysis: riskResult,
         },
-        // V5 Workflow: Vigilance points (combined from all analyses)
+        // Vigilance points
         vigilance_points: [
           ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
           ...(incotermResult?.quotation_guidance?.vigilance_points_fr?.map((p: string) => ({ type: 'incoterm', message_fr: p })) || []),
           ...(riskResult?.vigilance_points || []),
         ],
-        // V5 Workflow: Provisions summary
         provisions: riskResult?.provisions || null,
-        // Existing fields
+        // Response structure
         structured_response: {
           greeting: parsedResponse.greeting,
           body_short: parsedResponse.body_short,
@@ -1859,15 +1599,14 @@ RAPPELS CRITIQUES:
         },
         attachment_needed: parsedResponse.attachment_needed,
         attachment_data: parsedResponse.attachment_data,
-        // Generated attachment info (NEW)
         generated_attachment: attachmentResult?.attachment || null,
         quotation_summary: parsedResponse.quotation_summary,
         regulatory_analysis: parsedResponse.regulatory_analysis,
-        carrier_detected: extractedData.carrier || parsedResponse.carrier_detected,
+        carrier_detected: aiExtracted.carrier || parsedResponse.carrier_detected,
         response_template_used: parsedResponse.response_template_used,
         two_step_response: parsedResponse.two_step_response,
         confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
-        missing_info: parsedResponse.missing_info || requestAnalysis.missingContext
+        missing_info: parsedResponse.missing_info || aiExtracted.missing_info
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
