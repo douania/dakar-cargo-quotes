@@ -13,6 +13,9 @@ interface ExtractedData {
   value?: number | null;
   currency?: string | null;
   eta_date?: string | null;
+  // NEW: Transport mode from backend intelligent detection
+  transport_mode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transport_mode_evidence?: string[];
 }
 
 interface DetectedElements {
@@ -34,6 +37,9 @@ interface AnalysisResponse {
   clarification_questions?: string[];
   missing_info?: string[];
   carrier_detected?: string;
+  // NEW: Transport mode from backend
+  transport_mode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transport_mode_evidence?: string[];
   v5_analysis?: {
     coherence_audit?: any;
     incoterm_analysis?: any;
@@ -204,7 +210,18 @@ export function usePuzzleAnalysis(analysisResponse: AnalysisResponse | null): Pu
       hasValue: false,
     };
     
-    const transportMode = detectTransportMode(extractedData, detectedElements, analysisResponse.request_type);
+    // USE BACKEND TRANSPORT MODE - it's smarter now!
+    // Fallback to extracted_data.transport_mode or 'unknown'
+    const transportMode: 'maritime' | 'air' | 'road' | 'multimodal' | 'unknown' = 
+      analysisResponse.transport_mode || 
+      extractedData.transport_mode || 
+      'unknown';
+    
+    const transportModeEvidence = analysisResponse.transport_mode_evidence || 
+      extractedData.transport_mode_evidence || 
+      [];
+    
+    console.log(`Puzzle using transport mode: ${transportMode}, evidence: ${transportModeEvidence.join(', ')}`);
     
     // Build provided pieces
     const provided: PuzzlePiece[] = [];
