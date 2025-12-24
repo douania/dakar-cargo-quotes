@@ -604,8 +604,8 @@ function buildStyleInjection(expert: any): string {
   }
 
   injection += `
-⛔ INTERDIT: phrases longues, ton robotique, "Je reste à votre disposition...", tableaux dans le mail
-✅ OBLIGATOIRE: abréviations (pls, vsl, ctnr), "With we remain,", tarifs en pièce jointe
+⛔ INTERDIT: phrases longues, ton robotique, "Je reste à votre disposition...", tableaux dans le mail, mentionner des pièces jointes
+✅ OBLIGATOIRE: abréviations (pls, vsl, ctnr), "With we remain,"
 `;
 
   return injection;
@@ -655,7 +655,6 @@ Tu as accès à:
 === RÈGLES DE STYLE ABSOLUES ===
 
 📏 LONGUEUR MAXIMALE: 15-20 lignes dans le corps du mail. PAS PLUS.
-📎 TARIFS EN PIÈCE JOINTE: Les détails chiffrés vont dans un fichier Excel, PAS dans le mail.
 ✍️ STYLE TÉLÉGRAPHIQUE: Phrases courtes, bullet points, abréviations professionnelles.
 
 🗣️ ABRÉVIATIONS OBLIGATOIRES:
@@ -679,14 +678,15 @@ Tu as accès à:
 - EN: "With we remain," ou "With we remain,\\nBest Regards"
 - FR: "Bien à vous," ou "Meilleures Salutations"
 
-⛔ INTERDIT:
+⛔ INTERDIT ABSOLUMENT:
 - Phrases longues explicatives
 - "Je reste à votre entière disposition pour tout renseignement complémentaire"
 - "N'hésitez pas à me contacter si vous avez des questions"
-- Inclure des tableaux de tarifs détaillés DANS le mail (→ pièce jointe)
+- Inclure des tableaux de tarifs détaillés DANS le mail
 - Ton robotique ou trop formel
 - Explications réglementaires longues (sauf si demandé)
 - DONNER DES PRIX SANS CONTEXTE SUFFISANT
+- ⛔ MENTIONNER DES PIÈCES JOINTES ("attached", "ci-joint", "en pièce jointe", "pls find attached") - LE SYSTÈME NE GÉNÈRE PAS AUTOMATIQUEMENT DE FICHIER JOINT
 
 === RÈGLE TARIFAIRE ABSOLUE ===
 TU N'INVENTES JAMAIS DE TARIF.

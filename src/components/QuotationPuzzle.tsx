@@ -577,6 +577,11 @@ export function QuotationPuzzle({
           </Button>
         </div>
       </div>
+      
+      {/* Note about attachments */}
+      <p className="text-xs text-muted-foreground text-center mt-2">
+        💡 Après génération, vous pouvez créer une pièce jointe PDF/Excel via le bouton dans le brouillon
+      </p>
     </div>
   );
 }
