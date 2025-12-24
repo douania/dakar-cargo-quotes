@@ -94,6 +94,7 @@ interface AIExtractedData {
   // Request type
   request_type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP';
   can_quote_now: boolean;
+  offer_type: 'full_quotation' | 'indicative_dap' | 'rate_only' | 'info_response';
   
   // Transport mode (KEY FIX: AI decides this intelligently)
   transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
@@ -126,7 +127,7 @@ interface AIExtractedData {
   client_company: string | null;
   client_email: string | null;
   
-  // Services requested (NEW)
+  // Services requested
   services_requested: string[];
   
   // Missing info
@@ -148,6 +149,37 @@ interface AIExtractedData {
 
 const AI_EXTRACTION_PROMPT = `Tu es un expert en logistique maritime et aérienne au Sénégal (SODATRA).
 Analyse cette demande de cotation et extrais TOUTES les informations disponibles.
+
+=== HYPOTHÈSES PAR DÉFAUT (NE PAS DEMANDER) ===
+
+📍 ORIGINE:
+- Si l'origine n'est pas mentionnée, NE PAS LA DEMANDER
+- Assumer par défaut: marchandise hors zone UEMOA/CEDEAO (droits de douane standard)
+- Si le client fournit l'origine plus tard, l'application s'adaptera
+- NE JAMAIS inclure "origin" dans missing_info ou questions_to_ask
+
+📅 DATE DE LIVRAISON:
+- NE PAS demander la date de livraison souhaitée
+- C'est une demande de cotation, pas encore un booking
+- Les délais standards seront indiqués dans l'offre
+- NE JAMAIS inclure "delivery_date" ou "date souhaitée" dans questions_to_ask
+
+⚠️ INFORMATIONS VRAIMENT NÉCESSAIRES pour coter:
+- cargo_description ✓ (pour codes HS et tarifs)
+- destination ✓ (pour frais locaux)
+- service_type ✓ (DDP/DAP, customs clearance, etc.)
+
+📋 INFORMATIONS À DEMANDER UNIQUEMENT SI VRAIMENT BLOQUANTES:
+- Valeur CAF → seulement pour calcul EXACT des DD/TVA (mais on peut coter avec taux indicatifs)
+- Factures commerciales → pour vérification HS codes précis
+
+🎯 COMPORTEMENT ATTENDU:
+Pour "Import customs clearance + local delivery" sans valeur CAF:
+→ can_quote_now = true (offre indicative possible)
+→ Proposer offre DAP/DDP avec frais fixes (handling, THC, transit, livraison)
+→ Donner taux indicatifs DD/TVA par catégorie de marchandise
+→ Indiquer documents requis pour calcul final
+→ PAS DE QUESTION sur origine ou date
 
 === RÈGLES CRITIQUES POUR LE MODE DE TRANSPORT ===
 
@@ -180,6 +212,7 @@ Analyse cette demande de cotation et extrais TOUTES les informations disponibles
 - "de Shanghai" / "from Shanghai" → origin
 - "à destination de Bamako" → destination
 - Incoterm EXW + ville → origin (ex: "EXW Paris" → origin = "Paris")
+- Si origin non mentionnée → NE PAS DEMANDER, laisser null
 
 === RÈGLES POUR LES SERVICES ET INCOTERMS ===
 
@@ -214,7 +247,8 @@ Analyse cette demande de cotation et extrais TOUTES les informations disponibles
 
 === EXTRACTION À FAIRE ===
 Extrais ces informations de l'email et des pièces jointes fournies.
-Si une information n'est pas disponible, utilise null.`;
+Si une information n'est pas disponible, utilise null.
+RAPPEL: NE JAMAIS demander l'origine ou la date de livraison.`;
 
 async function extractWithAI(
   emailContent: string, 
@@ -267,7 +301,18 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                 },
                 can_quote_now: {
                   type: "boolean",
-                  description: "Est-ce qu'on a assez d'infos pour faire une cotation?"
+                  description: `VRAI si on peut produire une offre (même indicative).
+                    VRAI si on a: cargo_description + destination + type de service
+                    VRAI MÊME SI on n'a pas: origine (assumée hors UEMOA), valeur CAF (taux indicatifs), date souhaitée (délais standards)`
+                },
+                offer_type: {
+                  type: "string",
+                  enum: ["full_quotation", "indicative_dap", "rate_only", "info_response"],
+                  description: `Type d'offre à générer:
+                    - full_quotation: toutes infos disponibles (CAF, HS codes confirmés)
+                    - indicative_dap: pas de valeur CAF, offre DAP/DDP avec frais fixes + taux indicatifs DD/TVA
+                    - rate_only: simple demande de tarif
+                    - info_response: réponse informative (question régime, documents, etc.)`
                 },
                 transport_mode: {
                   type: "string",
@@ -351,12 +396,26 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                 missing_info: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Liste des informations VRAIMENT manquantes pour coter. NE PAS inclure 'incoterm' si les services demandés impliquent déjà DDP/DAP"
+                  description: `Informations VRAIMENT manquantes pour coter.
+                    NE PAS INCLURE:
+                    - 'origin' / 'origine' (on assume hors UEMOA/CEDEAO par défaut)
+                    - 'delivery_date' / 'date de livraison' (c'est juste une cotation)
+                    - 'incoterm' si les services demandés impliquent déjà DDP/DAP
+                    INCLURE SEULEMENT SI BLOQUANT:
+                    - 'caf_value' si calcul droits PRÉCIS requis (mais offre indicative possible sans)
+                    - 'commercial_invoice' pour vérifier HS codes exacts`
                 },
                 questions_to_ask: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Questions à poser. NE PAS demander l'incoterm si 'local delivery (DDU/DDP)' ou 'customs clearance + delivery' est mentionné"
+                  description: `Questions essentielles UNIQUEMENT.
+                    NE JAMAIS DEMANDER:
+                    - L'origine (assumée hors UEMOA/CEDEAO)
+                    - La date de livraison souhaitée
+                    - L'incoterm si services clairs (customs + delivery = DDP)
+                    DEMANDER SEULEMENT:
+                    - Confirmation marchandise si description ambiguë
+                    - Factures commerciales pour calcul droits précis`
                 },
                 has_pi: {
                   type: "boolean",
@@ -401,10 +460,33 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
   console.log("AI Extraction result:", JSON.stringify(extracted, null, 2));
 
   // Build the result with backwards-compatible structure
+  // Also filter out any questions about origin or delivery date that might slip through
+  const filteredQuestions = (extracted.questions_to_ask || []).filter((q: string) => {
+    const lower = q.toLowerCase();
+    return !lower.includes('origin') && 
+           !lower.includes('origine') && 
+           !lower.includes('provenance') &&
+           !lower.includes('date de livraison') &&
+           !lower.includes('delivery date') &&
+           !lower.includes('date souhaitée') &&
+           !lower.includes('desired date');
+  });
+  
+  const filteredMissing = (extracted.missing_info || []).filter((m: string) => {
+    const lower = m.toLowerCase();
+    return !lower.includes('origin') && 
+           !lower.includes('origine') && 
+           !lower.includes('provenance') &&
+           !lower.includes('date de livraison') &&
+           !lower.includes('delivery_date') &&
+           !lower.includes('date souhaitée');
+  });
+
   return {
     detected_language: extracted.detected_language || 'FR',
     request_type: extracted.request_type || 'QUOTATION_REQUEST',
     can_quote_now: extracted.can_quote_now ?? false,
+    offer_type: extracted.offer_type || 'indicative_dap',
     transport_mode: extracted.transport_mode || 'unknown',
     transport_mode_evidence: extracted.transport_mode_evidence || '',
     origin: extracted.origin || null,
@@ -423,8 +505,8 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
     client_company: extracted.client_company || null,
     client_email: extracted.client_email || null,
     services_requested: extracted.services_requested || [],
-    missing_info: extracted.missing_info || [],
-    questions_to_ask: extracted.questions_to_ask || [],
+    missing_info: filteredMissing,
+    questions_to_ask: filteredQuestions,
     detected_elements: {
       hasPI: extracted.has_pi ?? false,
       hasIncoterm: !!extracted.incoterm,
