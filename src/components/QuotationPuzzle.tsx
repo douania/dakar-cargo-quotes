@@ -75,6 +75,21 @@ export interface PuzzleAnalysis {
   needsFromClient: MissingInfo[];
   needsResearch: ResearchItem[];
   suggestions: Suggestion[];
+  hsSuggestions?: {
+    item: string;
+    hs_code: string;
+    description: string | null;
+    dd: number;
+    tva: number;
+    confidence: 'high' | 'medium' | 'low';
+  }[];
+  workScope?: {
+    starts_at: string;
+    includes_freight: boolean;
+    services: string[];
+    notes: string[];
+  };
+  requiredDocuments?: string[];
   completeness: number;
   canGenerateQuote: boolean;
   transportMode: 'maritime' | 'air' | 'road' | 'multimodal' | 'unknown';
@@ -391,7 +406,49 @@ export function QuotationPuzzle({
                             <p className="text-xs text-muted-foreground">
                               {item.suggestedActions[0] || 'Rechercher...'}
                             </p>
-                          )}
+          )}
+
+          {/* HS CODE SUGGESTIONS (Proactive AI) */}
+          {puzzle.hsSuggestions && puzzle.hsSuggestions.length > 0 && (
+            <Card className="border-emerald-500/30 bg-gradient-to-br from-emerald/5 to-transparent">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Package className="h-5 w-5 text-emerald-500" />
+                  Codes HS suggérés ({puzzle.hsSuggestions.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                {puzzle.hsSuggestions.map((hs, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{hs.item}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{hs.hs_code}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs">DD {hs.dd}%</Badge>
+                      <Badge variant="outline" className="text-xs">TVA {hs.tva}%</Badge>
+                      <Badge 
+                        variant={hs.confidence === 'high' ? 'default' : 'secondary'}
+                        className="text-xs"
+                      >
+                        {hs.confidence === 'high' ? '✓' : hs.confidence === 'medium' ? '~' : '?'}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+                {puzzle.workScope && (
+                  <div className="mt-3 p-2 rounded bg-muted/50 text-xs">
+                    <p className="font-medium">📍 {puzzle.workScope.starts_at}</p>
+                    <p className="text-muted-foreground">
+                      {puzzle.workScope.includes_freight ? 'Fret à organiser' : 'Travail commence au port'}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
                         </div>
                         <Button
                           size="sm"

@@ -83,3 +83,6 @@ verify_jwt = false
 
 [functions.generate-quotation-attachment]
 verify_jwt = false
+
+[functions.suggest-hs-codes]
+verify_jwt = false

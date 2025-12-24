@@ -1286,6 +1286,122 @@ Réponds en JSON:
       }
     }
 
+    // ============ HS CODE SUGGESTIONS (Proactive AI) ============
+    let hsSuggestionsResult: any = null;
+    let hsSuggestionsContext = '';
+
+    // Call suggest-hs-codes if we have cargo description
+    if (aiExtracted.cargo_description && aiExtracted.cargo_description.length > 3) {
+      console.log("Calling suggest-hs-codes for proactive HS code suggestions...");
+      try {
+        const hsSuggestResponse = await fetch(`${supabaseUrl}/functions/v1/suggest-hs-codes`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            cargo_description: aiExtracted.cargo_description,
+            destination: aiExtracted.destination,
+            context: (aiExtracted.services_requested || []).join(', ')
+          }),
+        });
+        
+        if (hsSuggestResponse.ok) {
+          hsSuggestionsResult = await hsSuggestResponse.json();
+          console.log("HS suggestions result:", JSON.stringify({
+            count: hsSuggestionsResult?.suggestions?.length || 0,
+            work_scope: hsSuggestionsResult?.work_scope
+          }));
+          
+          // Build context for AI prompt
+          if (hsSuggestionsResult?.success && hsSuggestionsResult?.suggestions?.length > 0) {
+            hsSuggestionsContext = '\n\n=== SUGGESTIONS CODES HS AUTOMATIQUES ===\n';
+            hsSuggestionsContext += '⚠️ Ces codes sont des SUGGESTIONS à valider par le client. Inclure dans la réponse.\n\n';
+            hsSuggestionsContext += '| Article | Code HS | Description | DD | TVA | Confiance |\n';
+            hsSuggestionsContext += '|---------|---------|-------------|-----|-----|------------|\n';
+            for (const s of hsSuggestionsResult.suggestions) {
+              hsSuggestionsContext += `| ${s.item} | ${s.hs_code} | ${(s.description || '').substring(0, 30)} | ${s.dd}% | ${s.tva}% | ${s.confidence} |\n`;
+            }
+            
+            // Work scope
+            if (hsSuggestionsResult.work_scope) {
+              hsSuggestionsContext += `\n📋 SCOPE DU TRAVAIL:\n`;
+              hsSuggestionsContext += `   Notre travail commence: ${hsSuggestionsResult.work_scope.starts_at}\n`;
+              hsSuggestionsContext += `   Fret à organiser: ${hsSuggestionsResult.work_scope.includes_freight ? 'OUI' : 'NON (client gère le transport)'}\n`;
+              hsSuggestionsContext += `   Services: ${hsSuggestionsResult.work_scope.services.join(', ')}\n`;
+              if (hsSuggestionsResult.work_scope.notes?.length > 0) {
+                hsSuggestionsContext += `   Notes: ${hsSuggestionsResult.work_scope.notes.join(' | ')}\n`;
+              }
+            }
+            
+            // Required documents
+            if (hsSuggestionsResult.required_documents?.length > 0) {
+              hsSuggestionsContext += `\n📄 DOCUMENTS REQUIS:\n`;
+              for (const doc of hsSuggestionsResult.required_documents) {
+                hsSuggestionsContext += `   • ${doc}\n`;
+              }
+            }
+            
+            // Regulatory notes
+            if (hsSuggestionsResult.regulatory_notes?.length > 0) {
+              hsSuggestionsContext += `\n📜 NOTES RÉGLEMENTAIRES:\n`;
+              for (const note of hsSuggestionsResult.regulatory_notes) {
+                hsSuggestionsContext += `   ${note}\n`;
+              }
+            }
+            
+            // DAP offer guidance
+            if (hsSuggestionsResult.can_provide_dap_offer) {
+              hsSuggestionsContext += `\n💡 OFFRE DAP POSSIBLE:\n`;
+              hsSuggestionsContext += `   - Même sans valeur CAF, on peut proposer une offre avec taux DD/TVA indicatifs\n`;
+              hsSuggestionsContext += `   - Demander les factures commerciales pour estimation précise des D&T\n`;
+              hsSuggestionsContext += `   - Proposer les frais fixes: manutention, magasinage, transit, livraison\n`;
+            }
+          }
+        } else {
+          console.error("suggest-hs-codes failed:", await hsSuggestResponse.text());
+        }
+      } catch (hsError) {
+        console.error("suggest-hs-codes error (non-blocking):", hsError);
+      }
+    }
+
+    // ============ WORK SCOPE ANALYSIS (Based on services_requested) ============
+    let workScopeContext = '';
+    const servicesRequested = aiExtracted.services_requested || [];
+    
+    if (servicesRequested.length > 0) {
+      workScopeContext = '\n\n=== ANALYSE DU SCOPE DE TRAVAIL ===\n';
+      
+      // Check if freight is needed
+      const needsFreight = !servicesRequested.includes('customs_clearance') || 
+                           servicesRequested.includes('pickup') ||
+                           (aiExtracted.incoterm && ['EXW', 'FCA', 'FOB'].includes(aiExtracted.incoterm));
+      
+      // If only customs_clearance + local_delivery, work starts at port
+      if (servicesRequested.includes('customs_clearance') && servicesRequested.includes('local_delivery') && !servicesRequested.includes('pickup')) {
+        workScopeContext += '📍 NOTRE TRAVAIL COMMENCE: Arrivée au Port de Dakar\n';
+        workScopeContext += '🚢 FRET MARITIME/AÉRIEN: NON NÉCESSAIRE - Le client organise le transport\n';
+        workScopeContext += '   → Ne pas contacter les compagnies maritimes/aériennes pour cette opération\n';
+        workScopeContext += '   → Estimer: débarquement, magasinage, dédouanement, livraison locale\n';
+      } else if (needsFreight) {
+        workScopeContext += '📍 NOTRE TRAVAIL COMMENCE: Origine\n';
+        workScopeContext += '🚢 FRET: À ORGANISER\n';
+      }
+      
+      workScopeContext += `\n📋 SERVICES DEMANDÉS: ${servicesRequested.join(', ')}\n`;
+      
+      // Add guidance based on services
+      if (servicesRequested.includes('duty_tax_calculation')) {
+        workScopeContext += '\n💰 CALCUL D&T DEMANDÉ:\n';
+        if (!aiExtracted.value) {
+          workScopeContext += '   ⚠️ Valeur CAF non fournie - Donner les TAUX INDICATIFS\n';
+          workScopeContext += '   → "Pour estimation précise, merci de fournir les factures commerciales"\n';
+        }
+      }
+    }
+
     // ============ V5 WORKFLOW: CALL ANALYSIS FUNCTIONS ============
     let coherenceResult: any = null;
     let incotermResult: any = null;
@@ -1460,6 +1576,8 @@ ${taxRatesContext}
 ${regimesContext}
 ${legalContext}
 ${ctuContext}
+${hsSuggestionsContext}
+${workScopeContext}
 ${attachmentsContext}
 ${tariffKnowledgeContext}
 ${threadRoleContext}
@@ -1625,6 +1743,12 @@ RAPPELS CRITIQUES:
           incoterm_analysis: incotermResult,
           risk_analysis: riskResult,
         },
+        // HS Code Suggestions (Proactive AI)
+        hs_suggestions: hsSuggestionsResult?.suggestions || [],
+        work_scope: hsSuggestionsResult?.work_scope || null,
+        required_documents: hsSuggestionsResult?.required_documents || [],
+        regulatory_notes: hsSuggestionsResult?.regulatory_notes || [],
+        services_requested: aiExtracted.services_requested || [],
         // Vigilance points
         vigilance_points: [
           ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
