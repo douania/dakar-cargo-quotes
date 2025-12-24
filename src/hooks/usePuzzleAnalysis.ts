@@ -29,6 +29,21 @@ interface DetectedElements {
   hasValue: boolean;
 }
 
+interface HsSuggestion {
+  item: string;
+  hs: string;
+  dd?: number;
+  tva?: number;
+  description?: string;
+}
+
+interface WorkScope {
+  starts_at?: string;
+  includes_freight?: boolean;
+  no_freight_needed?: boolean;
+  services?: string[];
+}
+
 interface AnalysisResponse {
   extracted_data?: ExtractedData;
   detected_elements?: DetectedElements;
@@ -36,10 +51,18 @@ interface AnalysisResponse {
   request_type?: string;
   clarification_questions?: string[];
   missing_info?: string[];
+  questions_to_ask?: string[];
   carrier_detected?: string;
   // NEW: Transport mode from backend
   transport_mode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
   transport_mode_evidence?: string[];
+  // NEW: AI-provided data
+  hs_suggestions?: HsSuggestion[];
+  work_scope?: WorkScope;
+  required_documents?: string[];
+  regulatory_notes?: string;
+  offer_type?: 'full_quotation' | 'indicative_dap' | 'rate_only' | 'info_response';
+  services_requested?: string[];
   v5_analysis?: {
     coherence_audit?: any;
     incoterm_analysis?: any;
@@ -326,19 +349,50 @@ export function usePuzzleAnalysis(analysisResponse: AnalysisResponse | null): Pu
       });
     }
     
-    // Build missing info from client
+    // Build missing info from client - USE AI DATA if available
     const needsFromClient: MissingInfo[] = [];
     
-    if (!detectedElements.hasIncoterm && !extractedData.incoterm) {
-      needsFromClient.push({
-        key: 'incoterm',
-        label: 'Incoterm souhaité',
-        question: 'Quel Incoterm souhaitez-vous (FOB, CIF, DAP, DDP...) ?',
-        priority: 'high',
-      });
-    }
+    // Use questions_to_ask from AI (already filtered for origin/date)
+    const aiQuestions = analysisResponse.questions_to_ask || [];
+    const aiMissingInfo = analysisResponse.missing_info || [];
     
-    if (!detectedElements.hasDestination && !extractedData.destination) {
+    // Only add questions the AI specifically says to ask
+    aiQuestions.forEach((question, index) => {
+      // Skip any origin or date questions that might slip through
+      const qLower = question.toLowerCase();
+      if (qLower.includes('origine') || qLower.includes('origin') || 
+          qLower.includes('date') || qLower.includes('livraison')) {
+        return;
+      }
+      needsFromClient.push({
+        key: `ai_question_${index}`,
+        label: question.substring(0, 50),
+        question: question,
+        priority: 'medium',
+      });
+    });
+    
+    // Add essential missing info from AI (filtered)
+    aiMissingInfo.forEach((info, index) => {
+      const infoLower = info.toLowerCase();
+      // Skip origin and date - we don't ask for these
+      if (infoLower.includes('origine') || infoLower.includes('origin') || 
+          infoLower.includes('date') || infoLower.includes('livraison')) {
+        return;
+      }
+      // Only add if not already covered by AI questions
+      if (!needsFromClient.some(n => n.question?.toLowerCase().includes(infoLower))) {
+        needsFromClient.push({
+          key: `missing_${index}`,
+          label: info,
+          question: `Pouvez-vous fournir : ${info} ?`,
+          priority: infoLower.includes('facture') || infoLower.includes('caf') ? 'medium' : 'low',
+        });
+      }
+    });
+    
+    // Fallback: only ask for destination if truly missing and AI didn't handle it
+    if (!extractedData.destination && !detectedElements.hasDestination && needsFromClient.length === 0) {
       needsFromClient.push({
         key: 'destination',
         label: 'Destination finale',
@@ -347,48 +401,38 @@ export function usePuzzleAnalysis(analysisResponse: AnalysisResponse | null): Pu
       });
     }
     
-    if (!detectedElements.hasOrigin && !extractedData.origin && !detectedElements.hasPI) {
-      needsFromClient.push({
-        key: 'origin',
-        label: 'Origine',
-        question: 'Quel est le port/pays d\'origine ?',
-        priority: 'medium',
-      });
-    }
-    
-    if (!extractedData.eta_date) {
-      needsFromClient.push({
-        key: 'eta',
-        label: 'Date souhaitée',
-        question: 'Quelle est la date de livraison souhaitée ?',
-        priority: 'low',
-      });
-    }
-    
-    // Build research items
+    // Build research items - USE AI DATA to avoid unnecessary research
     const needsResearch: ResearchItem[] = [];
     
-    // Tariff research based on transport mode
-    if (transportMode === 'air') {
-      needsResearch.push({
-        key: 'air_freight',
-        label: `Tarif fret aérien ${extractedData.origin || 'Origine'} → ${extractedData.destination || 'Destination'}`,
-        searchType: 'tariff',
-        suggestedActions: ['Contacter compagnies aériennes', 'Vérifier tarifs historiques'],
-        status: 'pending',
-      });
-    } else if (transportMode === 'maritime' || transportMode === 'multimodal') {
-      needsResearch.push({
-        key: 'sea_freight',
-        label: `Tarif fret maritime ${extractedData.origin || 'Origine'} → Dakar`,
-        searchType: 'tariff',
-        suggestedActions: ['Consulter tarifs compagnie', 'Vérifier surcharges actuelles'],
-        status: 'pending',
-      });
+    // Check if AI already provided HS suggestions with duty rates
+    const hasHsSuggestions = (analysisResponse.hs_suggestions?.length || 0) > 0;
+    const hasWorkScope = !!analysisResponse.work_scope;
+    const workScopeIncludesFreight = analysisResponse.work_scope?.includes_freight ?? true;
+    const noFreightNeeded = analysisResponse.work_scope?.no_freight_needed ?? false;
+    
+    // Only add freight research if work scope includes freight
+    if (!noFreightNeeded && workScopeIncludesFreight) {
+      if (transportMode === 'air') {
+        needsResearch.push({
+          key: 'air_freight',
+          label: `Tarif fret aérien ${extractedData.origin || 'Origine'} → ${extractedData.destination || 'Destination'}`,
+          searchType: 'tariff',
+          suggestedActions: ['Contacter compagnies aériennes', 'Vérifier tarifs historiques'],
+          status: 'pending',
+        });
+      } else if (transportMode === 'maritime' || transportMode === 'multimodal') {
+        needsResearch.push({
+          key: 'sea_freight',
+          label: `Tarif fret maritime ${extractedData.origin || 'Origine'} → Dakar`,
+          searchType: 'tariff',
+          suggestedActions: ['Consulter tarifs compagnie', 'Vérifier surcharges actuelles'],
+          status: 'pending',
+        });
+      }
     }
     
-    // HS code research if goods described but no HS code
-    if (extractedData.cargo_description && !detectedElements.hasHsCode) {
+    // HS code research ONLY if AI didn't provide suggestions
+    if (extractedData.cargo_description && !detectedElements.hasHsCode && !hasHsSuggestions) {
       needsResearch.push({
         key: 'hs_code',
         label: `Code HS pour "${extractedData.cargo_description.substring(0, 30)}..."`,
@@ -398,8 +442,8 @@ export function usePuzzleAnalysis(analysisResponse: AnalysisResponse | null): Pu
       });
     }
     
-    // Customs duty calculation if we have HS code potential
-    if (extractedData.destination) {
+    // Customs duty ONLY if AI didn't provide HS suggestions with rates
+    if (extractedData.destination && !hasHsSuggestions) {
       const destLower = extractedData.destination.toLowerCase();
       if (destLower.includes('mali') || destLower.includes('burkina') || destLower.includes('niger')) {
         needsResearch.push({
