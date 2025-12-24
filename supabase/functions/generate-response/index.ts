@@ -405,24 +405,42 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
     }
   }
   
-  // Pattern-based origin detection
+  // ============ PRIORITY: AOL/AOD EXTRACTION (Air-specific) ============
+  const aolMatch = fullContent.match(/AOL\s*:?\s*([A-ZÀ-Ÿa-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿa-zà-ÿ]+)*)/i);
+  const aodMatch = fullContent.match(/AOD\s*:?\s*([A-ZÀ-Ÿa-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿa-zà-ÿ]+)*)/i);
+  
+  if (aolMatch && aolMatch[1]) {
+    result.origin = aolMatch[1].trim();
+    transportEvidence.push(`aol_detected_${result.origin}`);
+  }
+  if (aodMatch && aodMatch[1]) {
+    result.destination = aodMatch[1].trim();
+    transportEvidence.push(`aod_detected_${result.destination}`);
+  }
+  
+  // Pattern-based origin detection (if AOL not found)
   const originPatterns = [
-    /(?:from|de|départ|origine|EXW|enlèvement\s+(?:à|chez))\s+:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-    /(?:port\s+(?:of\s+)?loading|POL|AOL)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /(?:from|de|départ|origine|EXW|enlèvement\s+(?:à|chez|:))\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /(?:port\s+(?:of\s+)?loading|POL)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /adresse\s+d['']enlèvement[^:]*:\s*[^,\n]*,?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
   ];
   
   const destPatterns = [
     /(?:to|à|vers|destination|livraison|DAP|DDP|CIF)\s+:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
-    /(?:port\s+(?:of\s+)?discharge|POD|AOD)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /(?:port\s+(?:of\s+)?discharge|POD)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
   ];
   
-  // Try to extract origin
+  // All valid locations (merged list - no import-only restriction for origin)
+  const allValidLocations = [...new Set([...originLocations, ...westAfricaLocations])];
+  
+  // Try to extract origin (if not already set by AOL)
   if (!result.origin) {
     for (const pattern of originPatterns) {
       const match = fullContent.match(pattern);
       if (match && match[1]) {
         const extracted = match[1].trim();
-        if (originLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
+        // Accept any valid location as origin (removed import-only restriction)
+        if (allValidLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
           result.origin = extracted;
           break;
         }
@@ -430,7 +448,7 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
     }
   }
   
-  // Try to extract destination
+  // Try to extract destination (if not already set by AOD)
   if (!result.destination) {
     for (const pattern of destPatterns) {
       const match = fullContent.match(pattern);
@@ -491,19 +509,43 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
   }
   
   // ============ INTELLIGENT TRANSPORT MODE DETECTION ============
-  // Priority 1: Explicit keywords
-  const airKeywords = [
-    'fret aérien', 'air freight', 'air cargo', 'cargo aérien', 'par avion', 'by air',
-    'expédition aérienne', 'envoi aérien', 'livraison aérienne', 'vol cargo',
-    'awb', 'airway bill', 'lta', 'lettre de transport aérien',
-    'aéroport', 'airport', 'aibd', 'aérien', 'aerien'
+  
+  // STEP 1: Strip signature/footer from content for mode detection
+  const signatureMarkers = [
+    /(?:^|\n)\s*(?:best regards|cordialement|sincères salutations|bien à vous|cdlt|regards|thanks|merci)/i,
+    /(?:^|\n)\s*--\s*$/m,
+    /(?:^|\n)\s*_{3,}/m,
+    /<html/i,
   ];
   
-  const maritimeKeywords = [
+  let contentForModeDetection = contentLower;
+  for (const marker of signatureMarkers) {
+    const match = contentForModeDetection.match(marker);
+    if (match && match.index !== undefined) {
+      contentForModeDetection = contentForModeDetection.substring(0, match.index);
+      transportEvidence.push('signature_stripped');
+      break;
+    }
+  }
+  
+  // STEP 2: Define keywords with word boundaries (stricter matching)
+  const airKeywordsStrong = [
+    'fret aérien', 'fret aerien', 'air freight', 'air cargo', 'cargo aérien', 'par avion', 'by air',
+    'expédition aérienne', 'envoi aérien', 'livraison aérienne', 'vol cargo',
+    'awb', 'airway bill', 'lta', 'lettre de transport aérien',
+    'aéroport', 'airport', 'aibd'
+  ];
+  
+  // Standalone "aérien/aerien" only with word boundary (not in "fret aérien" which is already counted)
+  const airKeywordsWeak = ['aérien', 'aerien'];
+  
+  // Maritime keywords - REMOVED "ship" (too ambiguous: shipping, shipment)
+  // "bl" is now strict: only "B/L" or standalone "BL" with word boundaries
+  const maritimeKeywordsStrong = [
     'fret maritime', 'sea freight', 'ocean freight', 'maritime', 'par mer', 'by sea',
-    'fcl', 'lcl', 'conteneur', 'container', 'navire', 'vessel', 'bateau', 'ship',
-    'bl', 'bill of lading', 'connaissement', 'port de', 'port of',
-    'embarquement', 'chargement maritime'
+    'fcl', 'lcl', 'conteneur', 'container', 'navire', 'vessel', 'bateau',
+    'bill of lading', 'connaissement', 'port de chargement', 'port of loading',
+    'embarquement maritime', 'chargement maritime'
   ];
   
   const roadKeywords = [
@@ -515,89 +557,118 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
   let maritimeScore = 0;
   let roadScore = 0;
   
-  // Check explicit keywords
-  for (const kw of airKeywords) {
-    if (contentLower.includes(kw)) {
-      airScore += 10;
-      transportEvidence.push(`air_keyword_${kw.replace(/\s+/g, '_')}`);
+  // Check STRONG air keywords
+  for (const kw of airKeywordsStrong) {
+    if (contentForModeDetection.includes(kw)) {
+      airScore += 15;
+      transportEvidence.push(`air_strong_${kw.replace(/\s+/g, '_')}`);
     }
   }
   
-  for (const kw of maritimeKeywords) {
-    if (contentLower.includes(kw)) {
-      maritimeScore += 10;
-      transportEvidence.push(`maritime_keyword_${kw.replace(/\s+/g, '_')}`);
+  // Check weak air keywords with word boundary
+  for (const kw of airKeywordsWeak) {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    if (regex.test(contentForModeDetection) && !contentForModeDetection.includes('fret ' + kw)) {
+      airScore += 8;
+      transportEvidence.push(`air_weak_${kw}`);
     }
   }
   
+  // Check STRONG maritime keywords
+  for (const kw of maritimeKeywordsStrong) {
+    if (contentForModeDetection.includes(kw)) {
+      maritimeScore += 15;
+      transportEvidence.push(`maritime_strong_${kw.replace(/\s+/g, '_')}`);
+    }
+  }
+  
+  // Check B/L specifically (strict pattern)
+  if (/\bB\/L\b/i.test(contentForModeDetection) || /\bBL\s*n[°o]?\s*\d/i.test(contentForModeDetection)) {
+    maritimeScore += 15;
+    transportEvidence.push('maritime_bl_strict');
+  }
+  
+  // Check road keywords
   for (const kw of roadKeywords) {
-    if (contentLower.includes(kw)) {
+    if (contentForModeDetection.includes(kw)) {
       roadScore += 10;
       transportEvidence.push(`road_keyword_${kw.replace(/\s+/g, '_')}`);
     }
   }
   
-  // Priority 2: Container detection strongly indicates maritime
+  // AOL/AOD presence strongly indicates AIR
+  if (aolMatch || aodMatch) {
+    airScore += 20;
+    transportEvidence.push('aol_aod_indicates_air');
+  }
+  
+  // Container detection strongly indicates maritime
   if (result.container_type) {
     maritimeScore += 30;
     transportEvidence.push(`container_detected_${result.container_type}`);
   }
   
-  // Priority 3: Weight-based heuristics (ONLY if no strong keywords)
-  if (airScore === 0 && maritimeScore === 0 && roadScore === 0) {
-    if (result.weight_kg) {
-      if (result.weight_kg < 100) {
-        // Very small shipment - likely air or courier
-        airScore += 15;
-        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_air`);
-      } else if (result.weight_kg < 500 && !result.container_type) {
-        // Small shipment without container - could be air
-        airScore += 8;
-        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_possibly_air`);
-      } else if (result.weight_kg > 5000) {
-        // Heavy shipment - likely maritime
-        maritimeScore += 10;
-        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_maritime`);
-      }
+  // Weight-based heuristics (ONLY if no strong keywords and as tie-breaker)
+  if (result.weight_kg && result.weight_kg <= 300 && !result.container_type) {
+    if (airScore > 0 && maritimeScore === 0) {
+      // Strong air with light weight - reinforce
+      airScore += 10;
+      transportEvidence.push(`weight_reinforces_air_${result.weight_kg}kg`);
+    } else if (airScore === 0 && maritimeScore === 0 && roadScore === 0) {
+      // No keywords, light weight - default to air
+      airScore += 10;
+      transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_air`);
     }
   }
   
-  // Priority 4: Carrier type
+  // Carrier type boost
   if (result.carrier) {
     const airCarriers = ['AIR-FRANCE-CARGO', 'EMIRATES-CARGO', 'QATAR-CARGO', 'TURKISH-CARGO', 
                          'ETHIOPIAN-CARGO', 'AIR-SENEGAL', 'RAM-CARGO', 'ASKY', 'AIR-COTE-IVOIRE'];
     if (airCarriers.includes(result.carrier)) {
       airScore += 20;
+      transportEvidence.push(`carrier_air_${result.carrier}`);
     } else {
-      maritimeScore += 20;
+      maritimeScore += 15;
+      transportEvidence.push(`carrier_maritime_${result.carrier}`);
     }
   }
   
-  // Priority 5: IATA codes presence
+  // IATA codes presence
   if (transportEvidence.some(e => e.startsWith('iata_code_'))) {
     airScore += 5;
   }
   
-  // Determine final transport mode
-  const maxScore = Math.max(airScore, maritimeScore, roadScore);
+  // ============ INTELLIGENT TIE-BREAKER ============
+  // If strong air markers AND light weight AND no container => force AIR
+  const hasStrongAirMarkers = airScore >= 15;
+  const isLightWeight = !result.weight_kg || result.weight_kg <= 500;
+  const noContainer = !result.container_type;
+  const noStrongMaritimeMarkers = maritimeScore < 15;
   
-  if (maxScore === 0) {
-    result.transport_mode = 'unknown';
-    transportEvidence.push('no_transport_indicators');
-  } else if (airScore > 0 && maritimeScore > 0 && roadScore > 0) {
-    result.transport_mode = 'multimodal';
-  } else if (airScore === maxScore && airScore > maritimeScore + 5) {
+  if (hasStrongAirMarkers && isLightWeight && noContainer && noStrongMaritimeMarkers) {
     result.transport_mode = 'air';
-  } else if (maritimeScore === maxScore && maritimeScore > airScore + 5) {
-    result.transport_mode = 'maritime';
-  } else if (roadScore === maxScore) {
-    result.transport_mode = 'road';
-  } else if (airScore > 0 && maritimeScore > 0) {
-    // Mixed signals - could be multimodal or need clarification
-    result.transport_mode = airScore > maritimeScore ? 'air' : 'maritime';
-    transportEvidence.push(`ambiguous_air${airScore}_maritime${maritimeScore}`);
+    transportEvidence.push('tiebreaker_forced_air');
   } else {
-    result.transport_mode = 'unknown';
+    // Standard logic
+    const maxScore = Math.max(airScore, maritimeScore, roadScore);
+    
+    if (maxScore === 0) {
+      result.transport_mode = 'unknown';
+      transportEvidence.push('no_transport_indicators');
+    } else if (airScore === maxScore && maritimeScore === maxScore) {
+      // True tie - prefer air if light weight
+      result.transport_mode = isLightWeight ? 'air' : 'maritime';
+      transportEvidence.push(`tie_resolved_${result.transport_mode}`);
+    } else if (airScore === maxScore) {
+      result.transport_mode = 'air';
+    } else if (maritimeScore === maxScore) {
+      result.transport_mode = 'maritime';
+    } else if (roadScore === maxScore) {
+      result.transport_mode = 'road';
+    } else {
+      result.transport_mode = 'unknown';
+    }
   }
   
   result.transport_mode_evidence = transportEvidence;
