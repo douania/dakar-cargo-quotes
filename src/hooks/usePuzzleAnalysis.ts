@@ -75,17 +75,55 @@ const CARRIER_SUGGESTIONS: Record<string, { name: string; detail: string }[]> = 
   ],
 };
 
-function detectTransportMode(data: ExtractedData, elements: DetectedElements): 'maritime' | 'air' | 'road' | 'multimodal' | 'unknown' {
-  // Check for air freight indicators
-  if (data.container_type?.toLowerCase().includes('air') || 
-      data.cargo_description?.toLowerCase().includes('aérien') ||
-      data.cargo_description?.toLowerCase().includes('avion') ||
-      (data.weight_kg && data.weight_kg < 1000 && !data.container_type)) {
+function detectTransportMode(
+  data: ExtractedData, 
+  elements: DetectedElements,
+  requestType?: string
+): 'maritime' | 'air' | 'road' | 'multimodal' | 'unknown' {
+  // First, check if backend already detected the transport mode
+  const requestTypeLower = (requestType || '').toLowerCase();
+  
+  // Air freight detection from request_type
+  if (requestTypeLower.includes('air') || 
+      requestTypeLower.includes('aérien') || 
+      requestTypeLower.includes('aerien') ||
+      requestTypeLower.includes('fret aérien') ||
+      requestTypeLower.includes('air freight')) {
     return 'air';
   }
   
-  // Check for container types
-  if (data.container_type?.match(/^(20|40)/)) {
+  // Maritime detection from request_type
+  if (requestTypeLower.includes('maritime') || 
+      requestTypeLower.includes('fcl') || 
+      requestTypeLower.includes('lcl') ||
+      requestTypeLower.includes('sea') ||
+      requestTypeLower.includes('conteneur') ||
+      requestTypeLower.includes('container')) {
+    return 'maritime';
+  }
+  
+  // Check cargo description and container type for air freight indicators
+  const cargoLower = (data.cargo_description || '').toLowerCase();
+  const containerLower = (data.container_type || '').toLowerCase();
+  
+  const airKeywords = [
+    'aérien', 'aerien', 'aero', 'avion', 'air freight', 'air cargo',
+    'express', 'urgent', 'par air', 'by air', 'vol', 'flight',
+    'awb', 'airway', 'air way'
+  ];
+  
+  if (airKeywords.some(kw => cargoLower.includes(kw) || containerLower.includes(kw))) {
+    return 'air';
+  }
+  
+  // Check for container types (maritime indicators)
+  if (containerLower.match(/^(20|40)/) || containerLower.includes("'") || containerLower.includes('hc')) {
+    return 'maritime';
+  }
+  
+  // Maritime keywords
+  const maritimeKeywords = ['conteneur', 'container', 'fcl', 'lcl', 'navire', 'bateau', 'vessel', 'port'];
+  if (maritimeKeywords.some(kw => cargoLower.includes(kw) || containerLower.includes(kw))) {
     return 'maritime';
   }
   
@@ -93,6 +131,16 @@ function detectTransportMode(data: ExtractedData, elements: DetectedElements): '
   const landDestinations = ['mali', 'bamako', 'burkina', 'ouagadougou', 'niger', 'niamey'];
   if (data.destination && landDestinations.some(d => data.destination?.toLowerCase().includes(d))) {
     return 'multimodal'; // Maritime + road transit
+  }
+  
+  // Heuristic: small weight without container type is likely air
+  if (data.weight_kg && data.weight_kg < 500 && !data.container_type) {
+    return 'air';
+  }
+  
+  // Large weight without other indicators suggests maritime
+  if (data.weight_kg && data.weight_kg > 2000) {
+    return 'maritime';
   }
   
   return 'unknown';
@@ -156,7 +204,7 @@ export function usePuzzleAnalysis(analysisResponse: AnalysisResponse | null): Pu
       hasValue: false,
     };
     
-    const transportMode = detectTransportMode(extractedData, detectedElements);
+    const transportMode = detectTransportMode(extractedData, detectedElements, analysisResponse.request_type);
     
     // Build provided pieces
     const provided: PuzzlePiece[] = [];
