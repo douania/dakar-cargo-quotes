@@ -228,12 +228,29 @@ interface ExtractedShipmentData {
   value: number | null;
   currency: string | null;
   eta_date: string | null;
+  // NEW: Transport mode detection
+  transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transport_mode_evidence: string[];
 }
+
+// IATA airport codes for West Africa and common origins
+const IATA_CODES: Record<string, string> = {
+  'DKR': 'Dakar', 'DSS': 'Dakar AIBD', 'ABJ': 'Abidjan', 'BKO': 'Bamako',
+  'OUA': 'Ouagadougou', 'NIM': 'Niamey', 'CKY': 'Conakry', 'LFW': 'Lomé',
+  'COO': 'Cotonou', 'ACC': 'Accra', 'LOS': 'Lagos', 'NKC': 'Nouakchott',
+  'BJL': 'Banjul', 'FNA': 'Freetown', 'ROB': 'Monrovia',
+  'CDG': 'Paris', 'ORY': 'Paris Orly', 'FRA': 'Frankfurt', 'AMS': 'Amsterdam',
+  'BRU': 'Bruxelles', 'DXB': 'Dubai', 'DOH': 'Doha', 'JFK': 'New York',
+  'PVG': 'Shanghai', 'CAN': 'Guangzhou', 'SZX': 'Shenzhen', 'HKG': 'Hong Kong'
+};
 
 function extractShipmentData(content: string, attachments: any[]): ExtractedShipmentData {
   const fullContent = content + ' ' + attachments.map(a => 
     (a.extracted_text || '') + ' ' + JSON.stringify(a.extracted_data || {})
   ).join(' ');
+  
+  const contentLower = fullContent.toLowerCase();
+  const transportEvidence: string[] = [];
   
   const result: ExtractedShipmentData = {
     weight_kg: null,
@@ -247,6 +264,8 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
     value: null,
     currency: null,
     eta_date: null,
+    transport_mode: 'unknown',
+    transport_mode_evidence: [],
   };
 
   // Extract weight (kg)
@@ -261,14 +280,43 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
     result.volume_cbm = parseFloat(volumeMatch[1].replace(/[\s,]/g, '').replace(',', '.'));
   }
 
-  // Extract container type
-  const containerMatch = fullContent.match(/\b(20['']?\s*(?:ft|pieds|GP|DV|HC|RF|OT)?|40['']?\s*(?:ft|pieds|GP|DV|HC|HQ|RF|OT)?)\b/i);
-  if (containerMatch) {
-    let type = containerMatch[1].replace(/['\s]/g, '').toUpperCase();
-    if (type === '20' || type === '20FT' || type === '20GP') type = '20DV';
-    if (type === '40' || type === '40FT' || type === '40GP') type = '40DV';
-    if (type === '40HQ') type = '40HC';
-    result.container_type = type;
+  // ============ STRICT CONTAINER TYPE EXTRACTION ============
+  // Only detect containers with EXPLICIT indicators - avoid matching random numbers
+  const containerPatterns = [
+    // Pattern 1: Size + explicit suffix (20DV, 40HC, 40'HC, etc.)
+    /\b(20|40)['']?\s*(DV|GP|HC|HQ|RF|OT|FR|TK|PL)\b/i,
+    // Pattern 2: Size + explicit "ft" or "feet" or "pieds"
+    /\b(20|40)['']?\s*(ft|feet|pieds)\b/i,
+    // Pattern 3: Size + "container/conteneur/ctnr"
+    /\b(20|40)['']?\s*(container|conteneur|ctnr)\b/i,
+    // Pattern 4: Explicit container keywords with size
+    /\b(container|conteneur|ctnr)\s*(20|40)['']?\b/i,
+    // Pattern 5: TEU/EVP with context
+    /\b(1|2)\s*(TEU|EVP)\b/i,
+  ];
+  
+  for (const pattern of containerPatterns) {
+    const match = fullContent.match(pattern);
+    if (match) {
+      // Normalize the container type
+      let size = match[1] || match[2];
+      if (size === '1' || size === '2') {
+        // TEU case: 1 TEU = 20', 2 TEU = 40'
+        size = size === '1' ? '20' : '40';
+      }
+      let suffix = (match[2] || match[1] || '').toUpperCase();
+      
+      // Normalize suffixes
+      if (['FT', 'FEET', 'PIEDS', 'CONTAINER', 'CONTENEUR', 'CTNR', 'TEU', 'EVP'].includes(suffix)) {
+        suffix = 'DV'; // Default to Dry Van
+      }
+      if (suffix === 'HQ') suffix = 'HC';
+      if (suffix === 'GP') suffix = 'DV';
+      
+      result.container_type = `${size}${suffix || 'DV'}`;
+      transportEvidence.push(`container_${result.container_type}`);
+      break;
+    }
   }
 
   // Extract Incoterm
@@ -277,30 +325,141 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
     result.incoterm = incotermMatch[1].toUpperCase();
   }
 
-  // Extract carrier
-  const carriers = ['CMA CGM', 'MSC', 'MAERSK', 'HAPAG-LLOYD', 'HAPAG LLOYD', 'ONE', 'EVERGREEN', 'GRIMALDI', 'COSCO', 'PIL'];
-  for (const carrier of carriers) {
-    if (fullContent.toUpperCase().includes(carrier)) {
-      result.carrier = carrier.replace(' ', '-');
+  // ============ STRICT CARRIER EXTRACTION ============
+  // More specific patterns to avoid false positives (e.g., "ONE" in text)
+  const carrierPatterns: Array<{ pattern: RegExp; name: string }> = [
+    { pattern: /\b(CMA\s*CGM|CMA-CGM)\b/i, name: 'CMA-CGM' },
+    { pattern: /\bMSC\b(?!\s*cruises)/i, name: 'MSC' },
+    { pattern: /\b(MAERSK|MÆRSK)\b/i, name: 'MAERSK' },
+    { pattern: /\b(HAPAG[-\s]?LLOYD)\b/i, name: 'HAPAG-LLOYD' },
+    { pattern: /\b(ONE\s+LINE|OCEAN\s+NETWORK\s+EXPRESS)\b/i, name: 'ONE' },
+    { pattern: /\bEVERGREEN\b/i, name: 'EVERGREEN' },
+    { pattern: /\bGRIMALDI\b/i, name: 'GRIMALDI' },
+    { pattern: /\bCOSCO\b/i, name: 'COSCO' },
+    { pattern: /\bPIL\b(?=\s+shipping|\s+line|\s+container)/i, name: 'PIL' },
+    { pattern: /\bYANG\s*MING\b/i, name: 'YANG-MING' },
+    { pattern: /\bZIM\b(?=\s+shipping|\s+line|\s+container)/i, name: 'ZIM' },
+    // Airlines
+    { pattern: /\b(AIR\s+FRANCE|AF)\s+cargo\b/i, name: 'AIR-FRANCE-CARGO' },
+    { pattern: /\b(EMIRATES|EK)\s+(sky)?cargo\b/i, name: 'EMIRATES-CARGO' },
+    { pattern: /\bQATAR\s+CARGO\b/i, name: 'QATAR-CARGO' },
+    { pattern: /\bTURKISH\s+(CARGO|AIRLINES)\b/i, name: 'TURKISH-CARGO' },
+    { pattern: /\bETHIOPIAN\s+CARGO\b/i, name: 'ETHIOPIAN-CARGO' },
+    { pattern: /\bAIR\s+SENEGAL\b/i, name: 'AIR-SENEGAL' },
+    { pattern: /\bROYAL\s+AIR\s+MAROC\b/i, name: 'RAM-CARGO' },
+    { pattern: /\bASKY\b/i, name: 'ASKY' },
+    { pattern: /\bAIR\s+COTE\s+D['']?IVOIRE\b/i, name: 'AIR-COTE-IVOIRE' },
+  ];
+  
+  for (const { pattern, name } of carrierPatterns) {
+    if (pattern.test(fullContent)) {
+      result.carrier = name;
+      if (name.includes('CARGO') || name.includes('AIR')) {
+        transportEvidence.push(`air_carrier_${name}`);
+      } else {
+        transportEvidence.push(`maritime_carrier_${name}`);
+      }
       break;
     }
   }
 
-  // Extract origin
-  const origins = ['Shanghai', 'Ningbo', 'Shenzhen', 'Guangzhou', 'Qingdao', 'Rotterdam', 'Hamburg', 'Anvers', 'Antwerp', 'Marseille', 'Le Havre', 'Fos', 'Chine', 'China', 'France', 'Turquie', 'Turkey', 'Inde', 'India', 'Italie', 'Italy', 'Espagne', 'Spain', 'Dubai', 'UAE'];
-  for (const origin of origins) {
-    if (new RegExp(`\\b${origin}\\b`, 'i').test(fullContent)) {
-      result.origin = origin;
-      break;
+  // ============ INTELLIGENT ORIGIN/DESTINATION EXTRACTION ============
+  // Use contextual patterns: "de/from" → origin, "à/to/vers/destination" → destination
+  
+  // West African cities/countries
+  const westAfricaLocations = [
+    'Dakar', 'Sénégal', 'Senegal', 'Bamako', 'Mali', 'Ouagadougou', 'Burkina', 'Burkina Faso',
+    'Niamey', 'Niger', 'Conakry', 'Guinée', 'Guinea', 'Abidjan', 'Côte d\'Ivoire', 'Ivory Coast',
+    'Lomé', 'Togo', 'Cotonou', 'Benin', 'Bénin', 'Accra', 'Ghana', 'Lagos', 'Nigeria',
+    'Nouakchott', 'Mauritanie', 'Mauritania', 'Banjul', 'Gambie', 'Gambia', 'Bissau',
+    'Freetown', 'Sierra Leone', 'Monrovia', 'Liberia'
+  ];
+  
+  // Common origin locations (ports, countries)
+  const originLocations = [
+    'Shanghai', 'Ningbo', 'Shenzhen', 'Guangzhou', 'Qingdao', 'Tianjin', 'Xiamen',
+    'Rotterdam', 'Hamburg', 'Anvers', 'Antwerp', 'Marseille', 'Le Havre', 'Fos',
+    'Chine', 'China', 'France', 'Turquie', 'Turkey', 'Inde', 'India', 'Italie', 'Italy',
+    'Espagne', 'Spain', 'Dubai', 'UAE', 'Allemagne', 'Germany', 'Belgique', 'Belgium',
+    'Pays-Bas', 'Netherlands', 'UK', 'Royaume-Uni', 'USA', 'États-Unis'
+  ];
+  
+  // Check IATA codes first
+  for (const [code, city] of Object.entries(IATA_CODES)) {
+    const iataPattern = new RegExp(`\\b${code}\\b`, 'i');
+    if (iataPattern.test(fullContent)) {
+      transportEvidence.push(`iata_code_${code}`);
+      // Determine if origin or destination
+      const originPattern = new RegExp(`(from|de|départ|origine|EXW|FCA|FAS|FOB)\\s*:?\\s*${code}`, 'i');
+      const destPattern = new RegExp(`(to|à|vers|destination|livraison|DAP|DDP|CIF)\\s*:?\\s*${code}`, 'i');
+      
+      if (originPattern.test(fullContent)) {
+        result.origin = city;
+      } else if (destPattern.test(fullContent)) {
+        result.destination = city;
+      } else if (westAfricaLocations.some(loc => city.toLowerCase().includes(loc.toLowerCase()))) {
+        result.destination = city;
+      } else {
+        result.origin = city;
+      }
     }
   }
-
-  // Extract destination
-  const destinations = ['Dakar', 'Bamako', 'Mali', 'Ouagadougou', 'Burkina', 'Niamey', 'Niger', 'Conakry', 'Guinée', 'Banjul', 'Gambie', 'Abidjan', 'Sénégal', 'Senegal'];
-  for (const dest of destinations) {
-    if (new RegExp(`\\b${dest}\\b`, 'i').test(fullContent)) {
-      result.destination = dest;
-      break;
+  
+  // Pattern-based origin detection
+  const originPatterns = [
+    /(?:from|de|départ|origine|EXW|enlèvement\s+(?:à|chez))\s+:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /(?:port\s+(?:of\s+)?loading|POL|AOL)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+  ];
+  
+  const destPatterns = [
+    /(?:to|à|vers|destination|livraison|DAP|DDP|CIF)\s+:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+    /(?:port\s+(?:of\s+)?discharge|POD|AOD)\s*:?\s*([A-ZÀ-Ÿ][a-zà-ÿ]+(?:[\s-][A-ZÀ-Ÿ][a-zà-ÿ]+)*)/i,
+  ];
+  
+  // Try to extract origin
+  if (!result.origin) {
+    for (const pattern of originPatterns) {
+      const match = fullContent.match(pattern);
+      if (match && match[1]) {
+        const extracted = match[1].trim();
+        if (originLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
+          result.origin = extracted;
+          break;
+        }
+      }
+    }
+  }
+  
+  // Try to extract destination
+  if (!result.destination) {
+    for (const pattern of destPatterns) {
+      const match = fullContent.match(pattern);
+      if (match && match[1]) {
+        const extracted = match[1].trim();
+        if (westAfricaLocations.some(loc => extracted.toLowerCase().includes(loc.toLowerCase()))) {
+          result.destination = extracted;
+          break;
+        }
+      }
+    }
+  }
+  
+  // Fallback: scan for known locations
+  if (!result.origin) {
+    for (const origin of originLocations) {
+      if (new RegExp(`\\b${origin}\\b`, 'i').test(fullContent)) {
+        result.origin = origin;
+        break;
+      }
+    }
+  }
+  
+  if (!result.destination) {
+    for (const dest of westAfricaLocations) {
+      if (new RegExp(`\\b${dest}\\b`, 'i').test(fullContent)) {
+        result.destination = dest;
+        break;
+      }
     }
   }
 
@@ -330,6 +489,121 @@ function extractShipmentData(content: string, attachments: any[]): ExtractedShip
       break;
     }
   }
+  
+  // ============ INTELLIGENT TRANSPORT MODE DETECTION ============
+  // Priority 1: Explicit keywords
+  const airKeywords = [
+    'fret aérien', 'air freight', 'air cargo', 'cargo aérien', 'par avion', 'by air',
+    'expédition aérienne', 'envoi aérien', 'livraison aérienne', 'vol cargo',
+    'awb', 'airway bill', 'lta', 'lettre de transport aérien',
+    'aéroport', 'airport', 'aibd', 'aérien', 'aerien'
+  ];
+  
+  const maritimeKeywords = [
+    'fret maritime', 'sea freight', 'ocean freight', 'maritime', 'par mer', 'by sea',
+    'fcl', 'lcl', 'conteneur', 'container', 'navire', 'vessel', 'bateau', 'ship',
+    'bl', 'bill of lading', 'connaissement', 'port de', 'port of',
+    'embarquement', 'chargement maritime'
+  ];
+  
+  const roadKeywords = [
+    'transport routier', 'road transport', 'camion', 'truck', 'remorque', 'trailer',
+    'livraison terrestre', 'transit routier'
+  ];
+  
+  let airScore = 0;
+  let maritimeScore = 0;
+  let roadScore = 0;
+  
+  // Check explicit keywords
+  for (const kw of airKeywords) {
+    if (contentLower.includes(kw)) {
+      airScore += 10;
+      transportEvidence.push(`air_keyword_${kw.replace(/\s+/g, '_')}`);
+    }
+  }
+  
+  for (const kw of maritimeKeywords) {
+    if (contentLower.includes(kw)) {
+      maritimeScore += 10;
+      transportEvidence.push(`maritime_keyword_${kw.replace(/\s+/g, '_')}`);
+    }
+  }
+  
+  for (const kw of roadKeywords) {
+    if (contentLower.includes(kw)) {
+      roadScore += 10;
+      transportEvidence.push(`road_keyword_${kw.replace(/\s+/g, '_')}`);
+    }
+  }
+  
+  // Priority 2: Container detection strongly indicates maritime
+  if (result.container_type) {
+    maritimeScore += 30;
+    transportEvidence.push(`container_detected_${result.container_type}`);
+  }
+  
+  // Priority 3: Weight-based heuristics (ONLY if no strong keywords)
+  if (airScore === 0 && maritimeScore === 0 && roadScore === 0) {
+    if (result.weight_kg) {
+      if (result.weight_kg < 100) {
+        // Very small shipment - likely air or courier
+        airScore += 15;
+        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_air`);
+      } else if (result.weight_kg < 500 && !result.container_type) {
+        // Small shipment without container - could be air
+        airScore += 8;
+        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_possibly_air`);
+      } else if (result.weight_kg > 5000) {
+        // Heavy shipment - likely maritime
+        maritimeScore += 10;
+        transportEvidence.push(`weight_heuristic_${result.weight_kg}kg_likely_maritime`);
+      }
+    }
+  }
+  
+  // Priority 4: Carrier type
+  if (result.carrier) {
+    const airCarriers = ['AIR-FRANCE-CARGO', 'EMIRATES-CARGO', 'QATAR-CARGO', 'TURKISH-CARGO', 
+                         'ETHIOPIAN-CARGO', 'AIR-SENEGAL', 'RAM-CARGO', 'ASKY', 'AIR-COTE-IVOIRE'];
+    if (airCarriers.includes(result.carrier)) {
+      airScore += 20;
+    } else {
+      maritimeScore += 20;
+    }
+  }
+  
+  // Priority 5: IATA codes presence
+  if (transportEvidence.some(e => e.startsWith('iata_code_'))) {
+    airScore += 5;
+  }
+  
+  // Determine final transport mode
+  const maxScore = Math.max(airScore, maritimeScore, roadScore);
+  
+  if (maxScore === 0) {
+    result.transport_mode = 'unknown';
+    transportEvidence.push('no_transport_indicators');
+  } else if (airScore > 0 && maritimeScore > 0 && roadScore > 0) {
+    result.transport_mode = 'multimodal';
+  } else if (airScore === maxScore && airScore > maritimeScore + 5) {
+    result.transport_mode = 'air';
+  } else if (maritimeScore === maxScore && maritimeScore > airScore + 5) {
+    result.transport_mode = 'maritime';
+  } else if (roadScore === maxScore) {
+    result.transport_mode = 'road';
+  } else if (airScore > 0 && maritimeScore > 0) {
+    // Mixed signals - could be multimodal or need clarification
+    result.transport_mode = airScore > maritimeScore ? 'air' : 'maritime';
+    transportEvidence.push(`ambiguous_air${airScore}_maritime${maritimeScore}`);
+  } else {
+    result.transport_mode = 'unknown';
+  }
+  
+  result.transport_mode_evidence = transportEvidence;
+  
+  console.log(`Transport mode detection: ${result.transport_mode} (air=${airScore}, maritime=${maritimeScore}, road=${roadScore})`);
+  console.log(`Evidence: ${transportEvidence.join(', ')}`);
 
   return result;
 }
@@ -1487,6 +1761,9 @@ RAPPELS CRITIQUES:
         detected_elements: requestAnalysis.detectedElements,
         // V5 Workflow: Extracted shipment data
         extracted_data: extractedData,
+        // NEW: Transport mode from intelligent detection
+        transport_mode: extractedData.transport_mode,
+        transport_mode_evidence: extractedData.transport_mode_evidence,
         // V5 Workflow: Analysis results
         v5_analysis: {
           coherence_audit: coherenceResult,

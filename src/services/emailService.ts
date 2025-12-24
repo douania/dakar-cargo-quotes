@@ -271,6 +271,9 @@ export interface ExtractedData {
   value?: number | null;
   currency?: string | null;
   eta_date?: string | null;
+  // NEW: Transport mode from backend
+  transport_mode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transport_mode_evidence?: string[];
 }
 
 export interface DetectedElements {
@@ -322,6 +325,9 @@ export interface QuotationProcessResult {
   canQuoteNow?: boolean;
   requestType?: string;
   clarificationQuestions?: string[];
+  // NEW: Transport mode from backend intelligent detection
+  transportMode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  transportModeEvidence?: string[];
 }
 
 export async function processQuotationRequest(
@@ -389,5 +395,8 @@ export async function processQuotationRequest(
     canQuoteNow: responseData.can_quote_now,
     requestType: responseData.request_type,
     clarificationQuestions: responseData.clarification_questions,
+    // NEW: Transport mode from backend intelligent detection
+    transportMode: responseData.transport_mode,
+    transportModeEvidence: responseData.transport_mode_evidence,
   };
 }
