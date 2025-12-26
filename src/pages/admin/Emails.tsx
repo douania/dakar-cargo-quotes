@@ -108,6 +108,10 @@ export default function Emails() {
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other'>('all');
   const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
   
+  // Search states
+  const [emailSearchQuery, setEmailSearchQuery] = useState('');
+  const [threadSearchQuery, setThreadSearchQuery] = useState('');
+  
   const [newConfig, setNewConfig] = useState({
     name: '',
     host: '',
@@ -401,15 +405,38 @@ export default function Emails() {
     }
   };
 
-  // Filter emails
+  // Filter emails with search
   const filteredEmails = emails.filter(email => {
+    // Text search filter
+    if (emailSearchQuery.trim()) {
+      const query = emailSearchQuery.toLowerCase();
+      const matchesSearch = 
+        email.subject?.toLowerCase().includes(query) ||
+        email.from_address?.toLowerCase().includes(query) ||
+        email.body_text?.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+    }
+    
+    // Category filter
     if (filter === 'quotation') return email.is_quotation_request;
     if (filter === 'other') return !email.is_quotation_request;
     return true;
   });
 
-  // Filtered threads based on threadFilter
+  // Filtered threads with search
   const filteredThreads = threads.filter(thread => {
+    // Text search filter
+    if (threadSearchQuery.trim()) {
+      const query = threadSearchQuery.toLowerCase();
+      const matchesSearch = 
+        thread.subject_normalized?.toLowerCase().includes(query) ||
+        thread.client_email?.toLowerCase().includes(query) ||
+        thread.client_company?.toLowerCase().includes(query) ||
+        thread.project_name?.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+    }
+    
+    // Category filter
     if (threadFilter === 'quotation') return thread.is_quotation_thread !== false;
     return true;
   });
@@ -507,6 +534,27 @@ export default function Emails() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center gap-4">
+                  {/* Search */}
+                  <div className="flex items-center gap-2 flex-1 max-w-md">
+                    <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <Input
+                      placeholder="Rechercher par sujet, client, projet..."
+                      value={threadSearchQuery}
+                      onChange={(e) => setThreadSearchQuery(e.target.value)}
+                      className="h-9"
+                    />
+                    {threadSearchQuery && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setThreadSearchQuery('')}
+                        className="h-9 px-2"
+                      >
+                        ✕
+                      </Button>
+                    )}
+                  </div>
+
                   {/* Filter */}
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
@@ -539,6 +587,13 @@ export default function Emails() {
                   {otherThreadCount > 0 && threadFilter === 'all' && (
                     <Badge variant="secondary" className="text-xs">
                       {otherThreadCount} fil(s) non-cotation
+                    </Badge>
+                  )}
+
+                  {/* Search results count */}
+                  {threadSearchQuery && (
+                    <Badge variant="outline" className="text-xs">
+                      {filteredThreads.length} résultat(s)
                     </Badge>
                   )}
                 </div>
@@ -619,6 +674,27 @@ export default function Emails() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center gap-4">
+                  {/* Search */}
+                  <div className="flex items-center gap-2 flex-1 max-w-md">
+                    <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <Input
+                      placeholder="Rechercher par sujet, expéditeur ou contenu..."
+                      value={emailSearchQuery}
+                      onChange={(e) => setEmailSearchQuery(e.target.value)}
+                      className="h-9"
+                    />
+                    {emailSearchQuery && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setEmailSearchQuery('')}
+                        className="h-9 px-2"
+                      >
+                        ✕
+                      </Button>
+                    )}
+                  </div>
+
                   {/* Filter */}
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
@@ -683,6 +759,13 @@ export default function Emails() {
                       <AlertTriangle className="h-4 w-4 mr-1" />
                       Purger non-cotations ({otherCount})
                     </Button>
+                  )}
+
+                  {/* Search results count */}
+                  {emailSearchQuery && (
+                    <Badge variant="outline" className="text-xs">
+                      {filteredEmails.length} résultat(s)
+                    </Badge>
                   )}
                 </div>
               </CardContent>
