@@ -449,6 +449,20 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
+    // Temporary file patterns to skip
+    const isTemporaryFile = (filename: string): boolean => {
+      const patterns = [
+        /^~\$/,           // Word temp files
+        /^~WRD/i,         // Word recovery
+        /^~WRL/i,         // Word lock
+        /\.tmp$/i,        // Temp files
+        /^Thumbs\.db$/i,  // Windows thumbnails
+        /^\.DS_Store$/,   // Mac files
+        /^~\$[^.]+\.docx?$/i,  // Word lock files
+      ];
+      return patterns.some(pattern => pattern.test(filename));
+    };
+    
     // Fetch attachment(s) to analyze
     let query = supabase
       .from('email_attachments')
@@ -460,15 +474,47 @@ serve(async (req) => {
       query = query.eq('is_analyzed', false).limit(10);
     }
     
-    const { data: attachments, error: fetchError } = await query;
+    const { data: rawAttachments, error: fetchError } = await query;
     
     if (fetchError) {
       throw new Error(`Failed to fetch attachments: ${fetchError.message}`);
     }
     
+    // Filter out temporary files and mark them as skipped
+    const attachments = [];
+    const skippedFiles = [];
+    
+    for (const att of (rawAttachments || [])) {
+      if (isTemporaryFile(att.filename)) {
+        skippedFiles.push(att);
+        // Mark as analyzed with skip reason
+        await supabase.from('email_attachments').update({
+          is_analyzed: true,
+          extracted_data: { 
+            type: 'skipped', 
+            reason: 'Fichier temporaire', 
+            message: 'Fichier Word/Outlook temporaire ignoré automatiquement' 
+          }
+        }).eq('id', att.id);
+      } else {
+        attachments.push(att);
+      }
+    }
+    
+    if (skippedFiles.length > 0) {
+      console.log(`Skipped ${skippedFiles.length} temporary file(s): ${skippedFiles.map(f => f.filename).join(', ')}`);
+    }
+    
     if (!attachments || attachments.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, message: 'No attachments to analyze', analyzed: 0 }),
+        JSON.stringify({ 
+          success: true, 
+          message: skippedFiles.length > 0 
+            ? `${skippedFiles.length} fichier(s) temporaire(s) ignoré(s), aucun à analyser` 
+            : 'No attachments to analyze', 
+          analyzed: 0,
+          skipped: skippedFiles.length 
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

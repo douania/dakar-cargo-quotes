@@ -93,8 +93,10 @@ export default function Emails() {
   const [threads, setThreads] = useState<EmailThread[]>([]);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [attachmentDetails, setAttachmentDetails] = useState<Record<string, { types: string[], filenames: string[] }>>({});
+  const [unanalyzedAttachments, setUnanalyzedAttachments] = useState<{ id: string; filename: string; content_type: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [analyzingBulk, setAnalyzingBulk] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [selectedDraft, setSelectedDraft] = useState<EmailDraft | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
@@ -174,6 +176,26 @@ export default function Emails() {
         
         setAttachmentCounts(counts);
         setAttachmentDetails(details);
+        
+        // Filter unanalyzed attachments (exclude temporary files)
+        const TEMP_FILE_PATTERNS = [
+          /^~\$/,           // Word temp files
+          /^~WRD/,          // Word recovery
+          /^~WRL/,          // Word lock
+          /\.tmp$/i,        // Temp files
+          /^Thumbs\.db$/i,  // Windows thumbnails
+          /^\.DS_Store$/,   // Mac files
+        ];
+        
+        const isTemporaryFile = (filename: string) => 
+          TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
+        
+        const unanalyzed = (data.attachments || []).filter((att: any) => 
+          !att.is_analyzed && 
+          !isTemporaryFile(att.filename) &&
+          att.storage_path // Has valid storage path
+        );
+        setUnanalyzedAttachments(unanalyzed);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -412,6 +434,61 @@ export default function Emails() {
       toast.error('Erreur de reclassification des fils');
     }
     setIsReclassifyingThreads(false);
+  };
+
+  const analyzeAllUnhandledAttachments = async () => {
+    if (unanalyzedAttachments.length === 0) {
+      toast.info('Aucune pièce jointe à analyser');
+      return;
+    }
+    
+    const relevantAttachments = unanalyzedAttachments.filter(att => {
+      const ext = att.filename.split('.').pop()?.toLowerCase() || '';
+      return ['pdf', 'xlsx', 'xls', 'jpg', 'jpeg', 'png'].includes(ext);
+    });
+    
+    if (relevantAttachments.length === 0) {
+      toast.info('Aucune pièce jointe pertinente à analyser (PDF, Excel, images uniquement)');
+      return;
+    }
+    
+    setAnalyzingBulk(true);
+    toast.info(`Analyse de ${relevantAttachments.length} pièce(s) jointe(s) en cours...`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // Process in batches of 3 to avoid overloading
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < relevantAttachments.length; i += BATCH_SIZE) {
+      const batch = relevantAttachments.slice(i, i + BATCH_SIZE);
+      
+      await Promise.all(batch.map(async (att) => {
+        try {
+          const { data, error } = await supabase.functions.invoke('analyze-attachments', {
+            body: { attachmentId: att.id, background: true }
+          });
+          
+          if (error) throw error;
+          successCount++;
+        } catch (error) {
+          console.error(`Error analyzing ${att.filename}:`, error);
+          errorCount++;
+        }
+      }));
+    }
+    
+    setAnalyzingBulk(false);
+    
+    if (successCount > 0) {
+      toast.success(`${successCount} pièce(s) jointe(s) lancée(s) en analyse`);
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} erreur(s) d'analyse`);
+    }
+    
+    // Refresh after a short delay to allow background processing
+    setTimeout(() => loadData(), 2000);
   };
 
   const toggleEmailSelection = (emailId: string, e: React.MouseEvent) => {
@@ -787,6 +864,20 @@ export default function Emails() {
                     <RotateCcw className={`h-4 w-4 mr-1 ${isReclassifying ? 'animate-spin' : ''}`} />
                     {isReclassifying ? 'Reclassification...' : 'Reclassifier'}
                   </Button>
+
+                  {/* Bulk analyze button */}
+                  {unanalyzedAttachments.length > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={analyzeAllUnhandledAttachments}
+                      disabled={analyzingBulk}
+                      className="text-blue-600 border-blue-500 hover:bg-blue-500/10"
+                    >
+                      <Paperclip className={`h-4 w-4 mr-1 ${analyzingBulk ? 'animate-pulse' : ''}`} />
+                      {analyzingBulk ? 'Analyse...' : `Analyser PJ (${unanalyzedAttachments.length})`}
+                    </Button>
+                  )}
 
                   {/* Purge button */}
                   {otherCount > 0 && (
