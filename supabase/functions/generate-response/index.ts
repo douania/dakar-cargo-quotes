@@ -8,6 +8,268 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ============ SODATRA FEES CALCULATION ============
+// Dynamic fee suggestion based on complexity factors
+
+interface SodatraFeeParams {
+  transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
+  cargo_value_caf?: number;
+  weight_kg?: number;
+  volume_cbm?: number;
+  container_types?: string[];
+  container_count?: number;
+  is_exempt_project?: boolean;
+  is_dangerous?: boolean;
+  is_oog?: boolean;
+  is_reefer?: boolean;
+  destination_zone?: 'dakar' | 'banlieue' | 'region' | 'mali' | 'transit';
+  services_requested?: string[];
+  incoterm?: string;
+}
+
+interface SuggestedFee {
+  key: string;
+  label: string;
+  suggested_amount: number;
+  min_amount: number;
+  max_amount: number;
+  unit: string;
+  formula: string;
+  is_percentage?: boolean;
+  percentage_base?: string;
+  is_editable: boolean;
+  factors_applied: string[];
+}
+
+interface SodatraFeeSuggestion {
+  fees: SuggestedFee[];
+  total_suggested: number;
+  complexity_factor: number;
+  complexity_reasons: string[];
+  transport_mode: string;
+  can_calculate_commission: boolean;
+  commission_note?: string;
+}
+
+const BASE_FEES = {
+  dedouanement: {
+    air: { base: 100000, min: 75000, max: 350000 },
+    maritime_conteneur: { base: 150000, min: 120000, max: 400000 },
+    maritime_vehicule: { base: 120000, min: 100000, max: 250000 },
+    road: { base: 80000, min: 60000, max: 200000 },
+    transit: { base: 180000, min: 150000, max: 500000 },
+  },
+  suivi_operationnel: { base: 35000, per_container: 25000, min: 35000, max: 150000 },
+  ouverture_dossier: { base: 25000, min: 20000, max: 35000 },
+  frais_documentaires: { per_document: 15000, min: 15000, max: 60000 },
+  commission_debours: { percentage: 5, min: 25000 },
+};
+
+const COMPLEXITY_FACTORS: Record<string, { factor: number; label: string }> = {
+  exempt_project: { factor: 0.30, label: 'Projet exonéré (+30%)' },
+  dangerous_goods: { factor: 0.50, label: 'Marchandises dangereuses (+50%)' },
+  oog_cargo: { factor: 0.40, label: 'Hors gabarit/OOG (+40%)' },
+  reefer: { factor: 0.25, label: 'Conteneur frigorifique (+25%)' },
+  transit_mali: { factor: 0.35, label: 'Transit Mali (+35%)' },
+  transit_other: { factor: 0.25, label: 'Transit autres pays (+25%)' },
+  high_value: { factor: 0.20, label: 'Valeur élevée > 100M FCFA (+20%)' },
+  heavy_cargo: { factor: 0.15, label: 'Cargo lourd > 20T (+15%)' },
+  multiple_containers: { factor: 0.10, label: 'Multi-conteneurs (+10%)' },
+};
+
+const ZONE_MULTIPLIERS: Record<string, number> = {
+  dakar: 1.0, banlieue: 1.1, region: 1.25, mali: 1.5, transit: 1.4,
+};
+
+function getDestinationZone(destination?: string | null): 'dakar' | 'banlieue' | 'region' | 'mali' | 'transit' {
+  if (!destination) return 'dakar';
+  const destLower = destination.toLowerCase();
+  if (destLower.includes('mali') || destLower.includes('bamako')) return 'mali';
+  if (destLower.includes('burkina') || destLower.includes('niger') || destLower.includes('guinée')) return 'transit';
+  if (destLower.includes('thies') || destLower.includes('kaolack') || destLower.includes('saint-louis') || 
+      destLower.includes('ziguinchor')) return 'region';
+  if (destLower.includes('pikine') || destLower.includes('guediawaye') || destLower.includes('rufisque')) return 'banlieue';
+  return 'dakar';
+}
+
+function roundToNearest5000(amount: number): number {
+  return Math.round(amount / 5000) * 5000;
+}
+
+function calculateComplexityFactor(params: SodatraFeeParams): { factor: number; reasons: string[] } {
+  let factor = 1.0;
+  const reasons: string[] = [];
+
+  if (params.is_exempt_project) {
+    factor += COMPLEXITY_FACTORS.exempt_project.factor;
+    reasons.push(COMPLEXITY_FACTORS.exempt_project.label);
+  }
+  if (params.is_dangerous) {
+    factor += COMPLEXITY_FACTORS.dangerous_goods.factor;
+    reasons.push(COMPLEXITY_FACTORS.dangerous_goods.label);
+  }
+  if (params.is_oog) {
+    factor += COMPLEXITY_FACTORS.oog_cargo.factor;
+    reasons.push(COMPLEXITY_FACTORS.oog_cargo.label);
+  }
+  if (params.is_reefer) {
+    factor += COMPLEXITY_FACTORS.reefer.factor;
+    reasons.push(COMPLEXITY_FACTORS.reefer.label);
+  }
+  if (params.destination_zone === 'mali') {
+    factor += COMPLEXITY_FACTORS.transit_mali.factor;
+    reasons.push(COMPLEXITY_FACTORS.transit_mali.label);
+  } else if (params.destination_zone === 'transit') {
+    factor += COMPLEXITY_FACTORS.transit_other.factor;
+    reasons.push(COMPLEXITY_FACTORS.transit_other.label);
+  }
+  if (params.cargo_value_caf && params.cargo_value_caf > 100000000) {
+    factor += COMPLEXITY_FACTORS.high_value.factor;
+    reasons.push(COMPLEXITY_FACTORS.high_value.label);
+  }
+  if (params.weight_kg && params.weight_kg > 20000) {
+    factor += COMPLEXITY_FACTORS.heavy_cargo.factor;
+    reasons.push(COMPLEXITY_FACTORS.heavy_cargo.label);
+  }
+  if (params.container_count && params.container_count > 2) {
+    factor += COMPLEXITY_FACTORS.multiple_containers.factor;
+    reasons.push(COMPLEXITY_FACTORS.multiple_containers.label);
+  }
+
+  return { factor, reasons };
+}
+
+function calculateSodatraFees(params: SodatraFeeParams): SodatraFeeSuggestion {
+  const fees: SuggestedFee[] = [];
+  const { factor: complexityFactor, reasons: complexityReasons } = calculateComplexityFactor(params);
+  
+  const zone = params.destination_zone || getDestinationZone(undefined);
+  const zoneMultiplier = ZONE_MULTIPLIERS[zone] || 1.0;
+  const containerCount = params.container_count || params.container_types?.length || 1;
+  
+  // 1. Dédouanement
+  let dedouanementBase: { base: number; min: number; max: number };
+  let dedouanementLabel = 'Honoraires dédouanement';
+  
+  if (zone === 'mali' || zone === 'transit') {
+    dedouanementBase = BASE_FEES.dedouanement.transit;
+    dedouanementLabel = 'Honoraires dédouanement transit';
+  } else if (params.transport_mode === 'air') {
+    dedouanementBase = BASE_FEES.dedouanement.air;
+    dedouanementLabel = 'Honoraires dédouanement aérien';
+  } else {
+    dedouanementBase = BASE_FEES.dedouanement.maritime_conteneur;
+    dedouanementLabel = 'Honoraires dédouanement maritime';
+  }
+  
+  let volumeFactor = 1.0;
+  if (params.volume_cbm && params.volume_cbm > 30) {
+    volumeFactor = Math.min(1 + (params.volume_cbm - 30) * 0.01, 1.5);
+  }
+  
+  const dedouanementAmount = roundToNearest5000(
+    dedouanementBase.base * complexityFactor * zoneMultiplier * volumeFactor
+  );
+  
+  fees.push({
+    key: 'dedouanement',
+    label: dedouanementLabel,
+    suggested_amount: Math.min(Math.max(dedouanementAmount, dedouanementBase.min), dedouanementBase.max),
+    min_amount: dedouanementBase.min,
+    max_amount: dedouanementBase.max,
+    unit: 'dossier',
+    formula: `Base ${dedouanementBase.base.toLocaleString('fr-FR')} × ${complexityFactor.toFixed(2)} × ${zoneMultiplier.toFixed(2)}`,
+    is_editable: true,
+    factors_applied: complexityReasons.length > 0 ? complexityReasons : ['Standard'],
+  });
+  
+  // 2. Suivi opérationnel
+  const suiviBase = params.transport_mode === 'maritime' && containerCount > 1
+    ? BASE_FEES.suivi_operationnel.base + ((containerCount - 1) * BASE_FEES.suivi_operationnel.per_container)
+    : BASE_FEES.suivi_operationnel.base;
+  
+  fees.push({
+    key: 'suivi_operationnel',
+    label: 'Suivi opérationnel',
+    suggested_amount: Math.min(Math.max(roundToNearest5000(suiviBase * zoneMultiplier), BASE_FEES.suivi_operationnel.min), BASE_FEES.suivi_operationnel.max),
+    min_amount: BASE_FEES.suivi_operationnel.min,
+    max_amount: BASE_FEES.suivi_operationnel.max,
+    unit: containerCount > 1 ? `${containerCount} conteneurs` : 'dossier',
+    formula: `Forfait ${BASE_FEES.suivi_operationnel.base.toLocaleString('fr-FR')}`,
+    is_editable: true,
+    factors_applied: ['Standard'],
+  });
+  
+  // 3. Ouverture dossier
+  fees.push({
+    key: 'ouverture_dossier',
+    label: 'Ouverture dossier',
+    suggested_amount: BASE_FEES.ouverture_dossier.base,
+    min_amount: BASE_FEES.ouverture_dossier.min,
+    max_amount: BASE_FEES.ouverture_dossier.max,
+    unit: 'dossier',
+    formula: `Forfait ${BASE_FEES.ouverture_dossier.base.toLocaleString('fr-FR')}`,
+    is_editable: true,
+    factors_applied: ['Standard'],
+  });
+  
+  // 4. Frais documentaires
+  let docCount = params.transport_mode === 'air' ? 2 : 2;
+  if (params.is_exempt_project) docCount += 1;
+  
+  fees.push({
+    key: 'frais_documentaires',
+    label: 'Frais documentaires',
+    suggested_amount: Math.min(Math.max(roundToNearest5000(BASE_FEES.frais_documentaires.per_document * docCount), BASE_FEES.frais_documentaires.min), BASE_FEES.frais_documentaires.max),
+    min_amount: BASE_FEES.frais_documentaires.min,
+    max_amount: BASE_FEES.frais_documentaires.max,
+    unit: `${docCount} documents`,
+    formula: `${docCount} × ${BASE_FEES.frais_documentaires.per_document.toLocaleString('fr-FR')}`,
+    is_editable: true,
+    factors_applied: [`${docCount} docs`],
+  });
+  
+  // 5. Commission débours (if CAF value available)
+  const canCalculateCommission = Boolean(params.cargo_value_caf);
+  let commissionNote: string | undefined;
+  
+  if (canCalculateCommission && params.cargo_value_caf) {
+    const estimatedDandT = params.cargo_value_caf * 0.25;
+    const commissionAmount = Math.max(
+      estimatedDandT * (BASE_FEES.commission_debours.percentage / 100),
+      BASE_FEES.commission_debours.min
+    );
+    
+    fees.push({
+      key: 'commission_debours',
+      label: `Commission débours (${BASE_FEES.commission_debours.percentage}%)`,
+      suggested_amount: roundToNearest5000(commissionAmount),
+      min_amount: BASE_FEES.commission_debours.min,
+      max_amount: 9999999999,
+      unit: 'sur D&T',
+      formula: `${BASE_FEES.commission_debours.percentage}% des D&T`,
+      is_percentage: true,
+      percentage_base: 'debours_douaniers',
+      is_editable: true,
+      factors_applied: [`CAF: ${params.cargo_value_caf.toLocaleString('fr-FR')}`],
+    });
+  } else {
+    commissionNote = 'Commission débours: 5% des D&T (à calculer sur factures)';
+  }
+  
+  const totalSuggested = fees.reduce((sum, fee) => sum + fee.suggested_amount, 0);
+  
+  return {
+    fees,
+    total_suggested: totalSuggested,
+    complexity_factor: complexityFactor,
+    complexity_reasons: complexityReasons,
+    transport_mode: params.transport_mode,
+    can_calculate_commission: canCalculateCommission,
+    commission_note: commissionNote,
+  };
+}
+
 // Response templates for different request types - BILINGUAL
 const RESPONSE_TEMPLATES = {
   quotation_standard: {
@@ -1804,6 +2066,27 @@ RAPPELS CRITIQUES:
       transport_mode_evidence: [aiExtracted.transport_mode_evidence],
     };
 
+    // ============ CALCULATE SODATRA FEES SUGGESTION ============
+    const sodatraFeesSuggestion = calculateSodatraFees({
+      transport_mode: aiExtracted.transport_mode,
+      cargo_value_caf: aiExtracted.value || undefined,
+      weight_kg: aiExtracted.weight_kg || undefined,
+      volume_cbm: aiExtracted.volume_cbm || undefined,
+      container_types: aiExtracted.container_type ? [aiExtracted.container_type] : undefined,
+      container_count: aiExtracted.container_type ? 1 : undefined,
+      is_exempt_project: hsSuggestionsResult?.work_scope?.notes?.some((n: string) => 
+        n.toLowerCase().includes('exonér') || n.toLowerCase().includes('exempt')
+      ) || false,
+      is_dangerous: riskResult?.nature_risk?.is_imo || false,
+      is_oog: riskResult?.nature_risk?.is_oog || false,
+      is_reefer: riskResult?.nature_risk?.is_reefer || false,
+      destination_zone: getDestinationZone(aiExtracted.destination),
+      services_requested: aiExtracted.services_requested,
+      incoterm: aiExtracted.incoterm || undefined,
+    });
+
+    console.log("SODATRA fees suggestion:", JSON.stringify(sodatraFeesSuggestion));
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -1831,6 +2114,8 @@ RAPPELS CRITIQUES:
         required_documents: hsSuggestionsResult?.required_documents || [],
         regulatory_notes: hsSuggestionsResult?.regulatory_notes || [],
         services_requested: aiExtracted.services_requested || [],
+        // SODATRA fees suggestion (NEW)
+        sodatra_fees: sodatraFeesSuggestion,
         // Vigilance points
         vigilance_points: [
           ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
