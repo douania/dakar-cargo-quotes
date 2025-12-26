@@ -246,6 +246,64 @@ async function analyzeAttachmentInBackground(
       
       console.log(`[BG] Sending ${excelText.length} chars to AI...`);
       
+      // Detect if this contains trucking/transport tabs with destination columns
+      const hasTruckingTab = sheets.some(s => 
+        s.name.toLowerCase().includes('trucking') || 
+        s.name.toLowerCase().includes('transport') ||
+        s.name.toLowerCase().includes('other city')
+      );
+      
+      const systemPrompt = `Tu es un expert en extraction de tarifs logistiques depuis Excel. 
+RÈGLES IMPORTANTES:
+1. Réponds UNIQUEMENT en JSON valide, sans markdown
+2. Pour les onglets "Trucking" ou "Transport": les COLONNES représentent des VILLES/DESTINATIONS
+3. Format typique trucking: 1ère colonne = type conteneur, colonnes suivantes = villes avec tarifs
+4. Extrais CHAQUE cellule comme un tarif distinct avec sa destination`;
+
+      const userPrompt = hasTruckingTab 
+        ? `Analyse ce fichier Excel de tarifs transport.
+
+STRUCTURE JSON ATTENDUE:
+{
+  "document_type": "transport_tariffs",
+  "transport_rates": [
+    {
+      "destination": "NOM_VILLE",
+      "container_type": "20' Dry" ou "40' Dry" ou "40' HC",
+      "amount": MONTANT_NUMERIQUE,
+      "currency": "XOF",
+      "cargo_category": "Dry" ou "DG" ou "OOG",
+      "sheet_name": "NOM_ONGLET"
+    }
+  ],
+  "tariff_lines": [...autres tarifs fixes...],
+  "summary": { "total_destinations": N, "total_rates": N }
+}
+
+INSTRUCTIONS CRITIQUES pour les onglets Trucking/Transport:
+- La PREMIÈRE ligne contient souvent les NOMS DE VILLES en colonnes (Saint Louis, Tambacounda, Kaolack, etc.)
+- La PREMIÈRE colonne contient les TYPES DE CONTENEURS (20', 40', 40'HC, etc.)
+- CHAQUE CELLULE avec un montant = un tarif de transport vers cette destination
+- Ignore les cellules vides ou non-numériques
+- Les montants sont généralement en FCFA/XOF (6 chiffres: 850000, 1200000, etc.)
+
+Contenu du fichier:
+${excelText}`
+        : `Analyse ce fichier Excel et extrais les tarifs.
+
+STRUCTURE JSON ATTENDUE:
+{
+  "document_type": "quotation_excel",
+  "tariff_lines": [
+    {"service": "nom", "amount": montant, "currency": "XOF", "unit": "unité", "container_type": "type"}
+  ],
+  "transport_rates": [...si présent...],
+  "summary": { "total_lines": N }
+}
+
+Contenu:
+${excelText}`;
+
       const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -253,10 +311,10 @@ async function analyzeAttachmentInBackground(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash-lite', // Faster model for background processing
+          model: 'google/gemini-2.5-flash',
           messages: [
-            { role: 'system', content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel. Réponds uniquement en JSON valide.' },
-            { role: 'user', content: `Analyse ce fichier Excel et extrais les tarifs. Structure JSON avec: sheetNames, tariff_lines (service, amount, currency, unit, container_type), transport_destinations (name, rates). Contenu:\n\n${excelText}` }
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
           ]
         }),
       });
