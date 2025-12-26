@@ -12,7 +12,8 @@ import { toast } from 'sonner';
 import { 
   Mail, Plus, RefreshCw, Star, Clock, Send, 
   MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip,
-  AlertTriangle, Filter, CheckSquare, RotateCcw, GitBranch, Users, Building
+  AlertTriangle, Filter, CheckSquare, RotateCcw, GitBranch, Users, Building,
+  FileText, FileSpreadsheet, Image as ImageIcon, FileArchive, File
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
@@ -91,6 +92,7 @@ export default function Emails() {
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [threads, setThreads] = useState<EmailThread[]>([]);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
+  const [attachmentDetails, setAttachmentDetails] = useState<Record<string, { types: string[], filenames: string[] }>>({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -140,12 +142,38 @@ export default function Emails() {
         setThreads(data.threads || []);
         
         const counts: Record<string, number> = {};
+        const details: Record<string, { types: string[], filenames: string[] }> = {};
+        
         (data.attachments || []).forEach((att: any) => {
           if (att.email_id) {
             counts[att.email_id] = (counts[att.email_id] || 0) + 1;
+            
+            if (!details[att.email_id]) {
+              details[att.email_id] = { types: [], filenames: [] };
+            }
+            
+            // Determine file type from filename or content_type
+            const filename = att.filename || '';
+            const ext = filename.split('.').pop()?.toLowerCase() || '';
+            let fileType = 'DOC';
+            
+            if (['pdf'].includes(ext)) fileType = 'PDF';
+            else if (['xlsx', 'xls'].includes(ext)) fileType = 'Excel';
+            else if (['docx', 'doc'].includes(ext)) fileType = 'Word';
+            else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'Image';
+            else if (['csv'].includes(ext)) fileType = 'CSV';
+            else if (['txt'].includes(ext)) fileType = 'TXT';
+            else if (['zip', 'rar', '7z'].includes(ext)) fileType = 'Archive';
+            
+            if (!details[att.email_id].types.includes(fileType)) {
+              details[att.email_id].types.push(fileType);
+            }
+            details[att.email_id].filenames.push(filename);
           }
         });
+        
         setAttachmentCounts(counts);
+        setAttachmentDetails(details);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -819,10 +847,41 @@ export default function Emails() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{email.from_address}</span>
                             {attachmentCounts[email.id] > 0 ? (
-                              <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30">
-                                <Paperclip className="h-3 w-3 mr-1" />
-                                {attachmentCounts[email.id]} fichier{attachmentCounts[email.id] > 1 ? 's' : ''}
-                              </Badge>
+                              <div className="flex items-center gap-1">
+                                {attachmentDetails[email.id]?.types.map((type, idx) => {
+                                  const getTypeIcon = () => {
+                                    switch(type) {
+                                      case 'PDF': return <FileText className="h-3 w-3" />;
+                                      case 'Excel': case 'CSV': return <FileSpreadsheet className="h-3 w-3" />;
+                                      case 'Word': return <FileText className="h-3 w-3" />;
+                                      case 'Image': return <ImageIcon className="h-3 w-3" />;
+                                      case 'Archive': return <FileArchive className="h-3 w-3" />;
+                                      default: return <File className="h-3 w-3" />;
+                                    }
+                                  };
+                                  const getTypeColor = () => {
+                                    switch(type) {
+                                      case 'PDF': return 'bg-red-500/20 text-red-600 border-red-500/30';
+                                      case 'Excel': case 'CSV': return 'bg-green-500/20 text-green-600 border-green-500/30';
+                                      case 'Word': return 'bg-blue-500/20 text-blue-600 border-blue-500/30';
+                                      case 'Image': return 'bg-purple-500/20 text-purple-600 border-purple-500/30';
+                                      case 'Archive': return 'bg-amber-500/20 text-amber-600 border-amber-500/30';
+                                      default: return 'bg-gray-500/20 text-gray-600 border-gray-500/30';
+                                    }
+                                  };
+                                  return (
+                                    <Badge key={idx} className={`${getTypeColor()} text-xs px-1.5`}>
+                                      {getTypeIcon()}
+                                      <span className="ml-1">{type}</span>
+                                    </Badge>
+                                  );
+                                })}
+                                {attachmentCounts[email.id] > 1 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    ({attachmentCounts[email.id]})
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <Badge variant="outline" className="text-muted-foreground/50 border-dashed">
                                 <Mail className="h-3 w-3 mr-1" />
