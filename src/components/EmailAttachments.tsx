@@ -9,6 +9,7 @@ import {
   CheckCircle, Loader2, Image as ImageIcon, Sparkles, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AnalysisResultsDisplay } from '@/components/AnalysisResultsDisplay';
 import {
   Tooltip,
   TooltipContent,
@@ -505,12 +506,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
 
                 {/* Extracted data */}
                 {previewAttachment.extracted_data && (
-                  <div className="space-y-2">
-                    <h5 className="text-sm font-medium">Données extraites</h5>
-                    <pre className="whitespace-pre-wrap bg-muted p-4 rounded-lg text-sm max-h-[300px] overflow-y-auto">
-                      {JSON.stringify(previewAttachment.extracted_data, null, 2)}
-                    </pre>
-                  </div>
+                  <AnalysisResultsDisplay 
+                    extractedData={previewAttachment.extracted_data}
+                    attachmentId={previewAttachment.id}
+                  />
                 )}
 
                 {/* Download button */}
