@@ -1,10 +1,41 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Parse Excel file using SheetJS and return structured text
+function parseExcelToText(arrayBuffer: ArrayBuffer): { text: string; sheets: Array<{ name: string; content: string }> } {
+  try {
+    const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+    const sheets: Array<{ name: string; content: string }> = [];
+    let fullText = '';
+    
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      // Convert to CSV format for text analysis
+      const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+      // Also get JSON for structure
+      const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      
+      let sheetContent = `=== ONGLET: ${sheetName} ===\n`;
+      sheetContent += csv;
+      sheetContent += '\n\n';
+      
+      sheets.push({ name: sheetName, content: csv });
+      fullText += sheetContent;
+    }
+    
+    console.log(`Parsed Excel: ${workbook.SheetNames.length} sheets, ${fullText.length} chars`);
+    return { text: fullText, sheets };
+  } catch (e) {
+    console.error('Excel parse error:', e);
+    return { text: '', sheets: [] };
+  }
+}
 
 interface TariffLine {
   service: string;
@@ -245,7 +276,7 @@ INSTRUCTIONS IMPORTANTES:
 3. Identifie le type de cargo par onglet (dry containers, DG, OOG, transport, services)
 4. Extrais les tarifs pour chaque type de conteneur (20', 40', etc.)
 5. Préserve les catégories de poids (ex: <15t, <19t, <22t, <28t)
-6. Extrais les tarifs de transport par destination si présents
+6. ⚠️ IMPORTANT: Extrais TOUS les tarifs de TRANSPORT LOCAL par destination si présents (onglet Transport, Trucking, etc.)
 7. Calcule les totaux par onglet si présents
 
 Réponds UNIQUEMENT en JSON valide avec cette structure:
@@ -273,13 +304,41 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
     { "service": "nom complet du service", "amount": 123456, "currency": "FCFA", "unit": "EVP", "container_type": "20'", "sheet_name": "Dry Containers" }
   ],
   "transport_destinations": [
-    { "name": "Saint-Louis", "distance_km": 268, "rates": { "20_dry": 383500, "40_dry": 713900 } }
+    { 
+      "name": "Saint-Louis", 
+      "distance_km": 268,
+      "rates": { 
+        "20_dry": 383500, 
+        "40_dry": 713900,
+        "20_dg": 450000,
+        "40_dg": 850000
+      },
+      "cargo_category": "Dry"
+    }
   ]
 }`;
 
-          console.log(`Sending Excel ${attachment.filename} to AI for analysis...`);
+          console.log(`Parsing Excel ${attachment.filename} with SheetJS...`);
           
-          // Send Excel file as base64 data URL
+          // Parse Excel using SheetJS first
+          const { text: excelText, sheets: excelSheets } = parseExcelToText(arrayBuffer);
+          
+          if (!excelText || excelText.length < 50) {
+            console.error(`Failed to parse Excel or empty file: ${attachment.filename}`);
+            await supabase
+              .from('email_attachments')
+              .update({ 
+                is_analyzed: true,
+                extracted_text: 'Fichier Excel vide ou non lisible',
+                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' }
+              })
+              .eq('id', attachment.id);
+            continue;
+          }
+          
+          console.log(`Excel parsed: ${excelSheets.length} sheets, ${excelText.length} chars. Sending to AI...`);
+          
+          // Send parsed text to AI (not the binary file)
           const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -287,24 +346,15 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-pro',  // Use Pro for complex Excel analysis
+              model: 'google/gemini-2.5-flash',  // Flash is enough for parsed text
               messages: [
                 { 
                   role: 'system', 
-                  content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel multi-onglets. Réponds uniquement en JSON valide.' 
+                  content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel. Réponds uniquement en JSON valide.' 
                 },
                 { 
                   role: 'user', 
-                  content: [
-                    { type: 'text', text: excelPrompt },
-                    { 
-                      type: 'file', 
-                      file: {
-                        filename: attachment.filename,
-                        file_data: `data:${mimeType};base64,${base64}`
-                      }
-                    }
-                  ]
+                  content: `${excelPrompt}\n\nVoici le contenu du fichier Excel parsé (onglets séparés):\n\n${excelText.substring(0, 50000)}` 
                 }
               ]
             }),
@@ -509,9 +559,63 @@ Réponds en JSON avec cette structure:
                 console.error('Error storing quotation history:', historyError);
               } else {
                 console.log(`Quotation history stored: ${cargoType} - ${relevantLines.length} lines`);
+            }
+          }
+          
+          // Extract and store local transport rates
+          if (extractedData.transport_destinations && Array.isArray(extractedData.transport_destinations)) {
+            console.log(`Found ${extractedData.transport_destinations.length} transport destinations to store`);
+            
+            for (const dest of extractedData.transport_destinations) {
+              if (!dest.name || !dest.rates) continue;
+              
+              // Insert transport rates for each container type
+              for (const [rateKey, rateAmount] of Object.entries(dest.rates)) {
+                if (typeof rateAmount !== 'number' || rateAmount <= 0) continue;
+                
+                // Parse rate key like "20_dry", "40_dg", etc.
+                const containerMatch = rateKey.match(/^(\d+)(?:')?(?:_)?(.*)$/);
+                let containerType = '20DV';
+                let cargoCategory = 'Dry';
+                
+                if (containerMatch) {
+                  const size = containerMatch[1];
+                  const suffix = containerMatch[2]?.toLowerCase() || 'dry';
+                  
+                  containerType = size === '40' ? '40DV' : '20DV';
+                  if (suffix.includes('hc') || suffix.includes('high')) containerType = '40HC';
+                  if (suffix.includes('fr') || suffix.includes('flat')) containerType = '40FR';
+                  if (suffix.includes('ot') || suffix.includes('open')) containerType = size + 'OT';
+                  
+                  if (suffix.includes('dg')) cargoCategory = 'DG';
+                  else if (suffix.includes('oog') || suffix.includes('special')) cargoCategory = 'Special';
+                  else if (suffix.includes('reefer') || suffix.includes('rf')) cargoCategory = 'Reefer';
+                  else cargoCategory = 'Dry';
+                }
+                
+                const { error: transportError } = await supabase
+                  .from('local_transport_rates')
+                  .insert({
+                    origin: 'Dakar Port',
+                    destination: dest.name,
+                    container_type: containerType,
+                    cargo_category: cargoCategory,
+                    rate_amount: rateAmount,
+                    rate_currency: 'XOF',
+                    source_document: `Excel: ${attachment.filename}`,
+                    provider: extractedData.metadata?.partner || 'Unknown',
+                    notes: dest.distance_km ? `Distance: ${dest.distance_km} km` : null,
+                  });
+                
+                if (transportError) {
+                  console.error(`Error storing transport rate for ${dest.name}:`, transportError);
+                } else {
+                  console.log(`Transport rate stored: ${dest.name} ${containerType} ${cargoCategory} = ${rateAmount} FCFA`);
+                }
               }
             }
           }
+        }
         }
         
         // Update the attachment record

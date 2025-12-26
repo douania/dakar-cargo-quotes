@@ -396,6 +396,126 @@ serve(async (req) => {
         );
       }
 
+      // NEW: Get local transport rates
+      case 'get_transport_rates': {
+        const { destination, containerType, cargoCategory } = data || {};
+        
+        console.log('Fetching transport rates:', { destination, containerType, cargoCategory });
+        
+        let query = supabase
+          .from('local_transport_rates')
+          .select('*')
+          .eq('is_active', true)
+          .order('destination')
+          .order('container_type');
+        
+        if (destination) {
+          query = query.ilike('destination', `%${destination}%`);
+        }
+        if (containerType) {
+          query = query.eq('container_type', containerType);
+        }
+        if (cargoCategory) {
+          query = query.eq('cargo_category', cargoCategory);
+        }
+        
+        const { data: rates, error } = await query;
+        
+        if (error) throw error;
+        
+        return new Response(
+          JSON.stringify({ success: true, rates: rates || [] }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // NEW: Search transport rates for quotation
+      case 'search_transport_rate': {
+        const { destination, containerType, cargoCategory } = data;
+        
+        console.log('Searching transport rate:', { destination, containerType, cargoCategory });
+        
+        if (!destination) {
+          return new Response(
+            JSON.stringify({ success: true, rate: null, message: 'Destination requise' }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Try exact match first
+        let { data: rate, error } = await supabase
+          .from('local_transport_rates')
+          .select('*')
+          .eq('is_active', true)
+          .ilike('destination', destination)
+          .eq('container_type', containerType || '40DV')
+          .eq('cargo_category', cargoCategory || 'Dry')
+          .order('validity_start', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (error) throw error;
+        
+        // If no exact match, try partial match
+        if (!rate) {
+          const { data: partialRate, error: partialError } = await supabase
+            .from('local_transport_rates')
+            .select('*')
+            .eq('is_active', true)
+            .ilike('destination', `%${destination}%`)
+            .eq('container_type', containerType || '40DV')
+            .order('validity_start', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (partialError) throw partialError;
+          rate = partialRate;
+        }
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            rate: rate,
+            found: !!rate,
+            message: rate 
+              ? `Tarif trouvé: ${rate.destination} ${rate.container_type} = ${rate.rate_amount} ${rate.rate_currency}` 
+              : `Pas de tarif pour ${destination}`
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // NEW: Add transport rate manually
+      case 'add_transport_rate': {
+        const { destination, containerType, cargoCategory, rateAmount, provider, notes } = data;
+        
+        if (!destination || !containerType || !rateAmount) {
+          throw new Error('destination, containerType et rateAmount requis');
+        }
+        
+        const { data: inserted, error } = await supabase
+          .from('local_transport_rates')
+          .insert({
+            destination,
+            container_type: containerType,
+            cargo_category: cargoCategory || 'Dry',
+            rate_amount: rateAmount,
+            rate_currency: 'XOF',
+            provider: provider || 'Manual Entry',
+            notes,
+            source_document: 'Saisie manuelle'
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        return new Response(
+          JSON.stringify({ success: true, rate: inserted }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       // NEW: Analyze all unprocessed Excel attachments
       case 'analyze_all_excel': {
         console.log('Fetching unanalyzed Excel attachments...');

@@ -110,3 +110,64 @@ export function useAnalyzeAllExcel() {
     return data;
   };
 }
+
+// Search for local transport rates
+export function useTransportRates(destination?: string, containerType?: string, cargoCategory?: string) {
+  return useQuery({
+    queryKey: ['transport-rates', destination, containerType, cargoCategory],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { 
+          action: 'get_transport_rates', 
+          data: { destination, containerType, cargoCategory } 
+        }
+      });
+
+      if (error) {
+        console.error('Error fetching transport rates:', error);
+        return [];
+      }
+
+      return data?.rates || [];
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+// Search for a specific transport rate for quotation
+export function useSearchTransportRate(destination?: string, containerType?: string, cargoCategory?: string) {
+  return useQuery({
+    queryKey: ['transport-rate-search', destination, containerType, cargoCategory],
+    queryFn: async () => {
+      if (!destination) return null;
+      
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { 
+          action: 'search_transport_rate', 
+          data: { destination, containerType, cargoCategory } 
+        }
+      });
+
+      if (error) {
+        console.error('Error searching transport rate:', error);
+        return null;
+      }
+
+      return data?.rate || null;
+    },
+    enabled: !!destination,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Force re-analyze a specific attachment
+export function useReanalyzeAttachment() {
+  return async (attachmentId: string) => {
+    const { data, error } = await supabase.functions.invoke('analyze-attachments', {
+      body: { attachmentId }
+    });
+
+    if (error) throw error;
+    return data;
+  };
+}
