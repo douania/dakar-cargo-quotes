@@ -72,11 +72,31 @@ interface TariffLine {
   notes?: string;
   container_type?: string;
   sheet_name?: string;
+  destination?: string;
+  cargo_category?: string;
 }
 
 // Extract tariff lines from AI response
 function extractTariffLines(aiResponse: any): TariffLine[] {
   const lines: TariffLine[] = [];
+  
+  // Extract transport_rates first (destination-based tariffs)
+  if (aiResponse.transport_rates && Array.isArray(aiResponse.transport_rates)) {
+    for (const rate of aiResponse.transport_rates) {
+      if (rate.destination && (typeof rate.amount === 'number' || rate.amount > 0)) {
+        lines.push({
+          service: `Transport ${rate.destination}`,
+          description: rate.notes || `Transport vers ${rate.destination}`,
+          amount: rate.amount || 0,
+          currency: normalizeCurrency(rate.currency || 'XOF'),
+          container_type: rate.container_type,
+          sheet_name: rate.sheet_name || 'Transport',
+          destination: rate.destination,
+          cargo_category: rate.cargo_category || 'Dry',
+        });
+      }
+    }
+  }
   
   if (aiResponse.tariff_lines && Array.isArray(aiResponse.tariff_lines)) {
     for (const line of aiResponse.tariff_lines) {
@@ -85,10 +105,12 @@ function extractTariffLines(aiResponse: any): TariffLine[] {
           service: line.service,
           description: line.description,
           amount: line.amount || line.amount_xof || 0,
-          currency: normalizeCurrency(line.currency || 'FCFA'),
+          currency: normalizeCurrency(line.currency || 'XOF'),
           unit: line.unit,
           container_type: line.container_type || line.container,
           sheet_name: line.sheet_name,
+          destination: line.destination,
+          cargo_category: line.cargo_category,
         });
       }
     }
@@ -106,10 +128,12 @@ function extractTariffLines(aiResponse: any): TariffLine[] {
                 service: tariff.service,
                 description: tariff.category || sheet.name,
                 amount: rate.amount_xof || rate.amount || 0,
-                currency: 'FCFA',
+                currency: 'XOF',
                 unit: rate.container || tariff.unit,
                 container_type: rate.container,
                 sheet_name: sheet.name,
+                destination: tariff.destination,
+                cargo_category: sheet.cargo_type,
               });
             }
           } else {
@@ -118,10 +142,12 @@ function extractTariffLines(aiResponse: any): TariffLine[] {
               service: tariff.service,
               description: tariff.description || sheet.name,
               amount: tariff.amount || tariff.amount_xof || 0,
-              currency: normalizeCurrency(tariff.currency || 'FCFA'),
+              currency: normalizeCurrency(tariff.currency || 'XOF'),
               unit: tariff.unit,
               container_type: tariff.container_type,
               sheet_name: sheet.name,
+              destination: tariff.destination,
+              cargo_category: sheet.cargo_type,
             });
           }
         }
@@ -506,54 +532,62 @@ serve(async (req) => {
           
           const excelPrompt = `Tu es un expert en analyse de fichiers Excel de cotation logistique et maritime.
 
-Analyse ce fichier Excel de cotation et extrais TOUTES les données tarifaires.
+Analyse ce fichier Excel et extrais TOUTES les données tarifaires.
 
-INSTRUCTIONS IMPORTANTES:
-1. Liste TOUS les onglets du fichier avec leur nom
-2. Pour CHAQUE onglet, extrais TOUTES les lignes tarifaires avec montants
-3. Identifie le type de cargo par onglet (dry containers, DG, OOG, transport, services)
-4. Extrais les tarifs pour chaque type de conteneur (20', 40', etc.)
-5. Préserve les catégories de poids (ex: <15t, <19t, <22t, <28t)
-6. ⚠️ IMPORTANT: Extrais TOUS les tarifs de TRANSPORT LOCAL par destination si présents (onglet Transport, Trucking, etc.)
-7. Calcule les totaux par onglet si présents
+INSTRUCTIONS CRITIQUES - TARIFS DE TRANSPORT PAR DESTINATION:
+1. ⚠️ PRIORITÉ ABSOLUE: Détecte les tarifs de transport terrestre par DESTINATION (ville de livraison)
+2. Les onglets "Transport", "Trucking", "On-carriage", "Camionnage" contiennent ces tarifs
+3. Les colonnes peuvent être des VILLES (Bamako, Tambacounda, Saint-Louis, Kaolack, etc.)
+4. Chaque ligne = type conteneur (20', 40', etc.) ou catégorie poids
+5. Chaque cellule = prix de transport vers cette destination
+
+STRUCTURE ATTENDUE POUR LES TARIFS DE TRANSPORT:
+- Pour chaque destination trouvée, extrais le tarif pour chaque type de conteneur
+- Les tarifs varient selon: destination, type conteneur (20'/40'), catégorie cargo (Dry/DG/OOG)
+
+AUTRES EXTRACTIONS:
+- Services portuaires (THC, Documentation, etc.)
+- Tarifs par onglet (Dry, DG Cargo, Special, Services)
+- Métadonnées (client, route, date, incoterm)
 
 Réponds UNIQUEMENT en JSON valide avec cette structure:
 {
-  "type": "quotation_excel",
-  "sheetNames": ["Dry Containers", "DG Cargo", "Special IG", "Special OOG", "Services on Site", "Transport Tariffs"],
-  "sheets": [
+  "type": "transport_tariffs",
+  "sheetNames": ["Dry Containers", "DG Cargo", "Transport Tariffs"],
+  "transport_rates": [
     {
-      "name": "nom de l'onglet",
-      "cargo_type": "container_dry|container_dg|container_oog|transport|services",
-      "tariffs": [
-        { "service": "DTHC", "amount": 182900, "currency": "FCFA", "unit": "20'", "container_type": "20' <15t", "notes": "TTC" }
-      ],
-      "totals": { "20_15t": 1168170, "40_22t": 1849584 }
+      "destination": "Bamako",
+      "distance_km": 1200,
+      "container_type": "20' Dry",
+      "cargo_category": "Dry",
+      "amount": 2500000,
+      "currency": "XOF",
+      "sheet_name": "Transport"
+    },
+    {
+      "destination": "Bamako",
+      "container_type": "40' Dry",
+      "cargo_category": "Dry", 
+      "amount": 4200000,
+      "currency": "XOF"
+    },
+    {
+      "destination": "Tambacounda",
+      "container_type": "20' Dry",
+      "cargo_category": "Dry",
+      "amount": 650000,
+      "currency": "XOF"
     }
+  ],
+  "tariff_lines": [
+    { "service": "DTHC", "amount": 182900, "currency": "XOF", "container_type": "20'", "sheet_name": "Dry" }
   ],
   "metadata": {
     "client": "nom si visible",
-    "partner": "nom du partenaire/transitaire",
-    "route": "origine -> destination", 
-    "date": "date si visible",
-    "incoterm": "DAP/FOB/etc si visible"
-  },
-  "tariff_lines": [
-    { "service": "nom complet du service", "amount": 123456, "currency": "FCFA", "unit": "EVP", "container_type": "20'", "sheet_name": "Dry Containers" }
-  ],
-  "transport_destinations": [
-    { 
-      "name": "Saint-Louis", 
-      "distance_km": 268,
-      "rates": { 
-        "20_dry": 383500, 
-        "40_dry": 713900,
-        "20_dg": 450000,
-        "40_dg": 850000
-      },
-      "cargo_category": "Dry"
-    }
-  ]
+    "partner": "transitaire",
+    "route": "Dakar -> destinations multiples",
+    "date": "date si visible"
+  }
 }`;
 
           console.log(`Parsing Excel ${attachment.filename} with SheetJS...`);
