@@ -105,7 +105,7 @@ export default function Emails() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'quotation' | 'other'>('all');
+  const [filter, setFilter] = useState<'all' | 'quotation' | 'other' | 'with_attachments' | 'without_attachments'>('all');
   const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
   
   // Search states
@@ -420,8 +420,14 @@ export default function Emails() {
     // Category filter
     if (filter === 'quotation') return email.is_quotation_request;
     if (filter === 'other') return !email.is_quotation_request;
+    if (filter === 'with_attachments') return (attachmentCounts[email.id] || 0) > 0;
+    if (filter === 'without_attachments') return (attachmentCounts[email.id] || 0) === 0;
     return true;
   });
+
+  // Count emails with/without attachments
+  const withAttachmentsCount = emails.filter(e => (attachmentCounts[e.id] || 0) > 0).length;
+  const withoutAttachmentsCount = emails.filter(e => (attachmentCounts[e.id] || 0) === 0).length;
 
   // Filtered threads with search
   const filteredThreads = threads.filter(thread => {
@@ -698,14 +704,21 @@ export default function Emails() {
                   {/* Filter */}
                   <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
-                    <Select value={filter} onValueChange={(v: 'all' | 'quotation' | 'other') => setFilter(v)}>
-                      <SelectTrigger className="w-[180px]">
+                    <Select value={filter} onValueChange={(v: 'all' | 'quotation' | 'other' | 'with_attachments' | 'without_attachments') => setFilter(v)}>
+                      <SelectTrigger className="w-[220px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">Tous ({emails.length})</SelectItem>
                         <SelectItem value="quotation">Cotations ({quotationCount})</SelectItem>
                         <SelectItem value="other">Autres ({otherCount})</SelectItem>
+                        <SelectItem value="with_attachments">
+                          <span className="flex items-center gap-2">
+                            <Paperclip className="h-3 w-3" />
+                            Avec pièces jointes ({withAttachmentsCount})
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="without_attachments">Sans pièces jointes ({withoutAttachmentsCount})</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -805,10 +818,15 @@ export default function Emails() {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{email.from_address}</span>
-                            {attachmentCounts[email.id] > 0 && (
-                              <Badge variant="outline" className="text-muted-foreground">
+                            {attachmentCounts[email.id] > 0 ? (
+                              <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 hover:bg-blue-500/30">
                                 <Paperclip className="h-3 w-3 mr-1" />
-                                {attachmentCounts[email.id]}
+                                {attachmentCounts[email.id]} fichier{attachmentCounts[email.id] > 1 ? 's' : ''}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground/50 border-dashed">
+                                <Mail className="h-3 w-3 mr-1" />
+                                Sans pièce jointe
                               </Badge>
                             )}
                             {email.is_quotation_request && (
