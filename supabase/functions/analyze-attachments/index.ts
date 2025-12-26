@@ -354,7 +354,7 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
                 },
                 { 
                   role: 'user', 
-                  content: `${excelPrompt}\n\nVoici le contenu du fichier Excel parsé:\n\n${excelText.substring(0, 20000)}` 
+                  content: `${excelPrompt}\n\nVoici le contenu COMPLET du fichier Excel parsé (tous les onglets):\n\n${excelText.substring(0, 50000)}` 
                 }
               ]
             }),
