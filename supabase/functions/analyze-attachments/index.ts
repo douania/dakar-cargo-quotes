@@ -7,29 +7,55 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Parse Excel file using SheetJS and return structured text
-function parseExcelToText(arrayBuffer: ArrayBuffer): { text: string; sheets: Array<{ name: string; content: string }> } {
+// Priority keywords for relevant sheets (trucking, transport, pricing)
+const PRIORITY_SHEET_KEYWORDS = ['transport', 'trucking', 'tarif', 'rate', 'price', 'dry', 'dg', 'oog', 'container', 'service'];
+const MAX_TEXT_LENGTH = 15000; // Reduced to avoid timeout
+
+// Parse Excel file using SheetJS and return optimized structured text
+function parseExcelToText(arrayBuffer: ArrayBuffer): { text: string; sheets: Array<{ name: string; content: string; priority: boolean }> } {
   try {
     const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-    const sheets: Array<{ name: string; content: string }> = [];
-    let fullText = '';
+    const sheets: Array<{ name: string; content: string; priority: boolean }> = [];
     
     for (const sheetName of workbook.SheetNames) {
       const sheet = workbook.Sheets[sheetName];
-      // Convert to CSV format for text analysis
+      // Convert to CSV format for text analysis, skip blank rows
       const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
-      // Also get JSON for structure
-      const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       
-      let sheetContent = `=== ONGLET: ${sheetName} ===\n`;
-      sheetContent += csv;
-      sheetContent += '\n\n';
+      // Skip nearly empty sheets
+      const nonEmptyLines = csv.split('\n').filter(line => line.replace(/,/g, '').trim().length > 0);
+      if (nonEmptyLines.length < 2) {
+        console.log(`Skipping empty sheet: ${sheetName}`);
+        continue;
+      }
       
-      sheets.push({ name: sheetName, content: csv });
+      // Check if this is a priority sheet
+      const lowerName = sheetName.toLowerCase();
+      const isPriority = PRIORITY_SHEET_KEYWORDS.some(kw => lowerName.includes(kw));
+      
+      sheets.push({ name: sheetName, content: nonEmptyLines.join('\n'), priority: isPriority });
+    }
+    
+    // Sort by priority (priority sheets first)
+    sheets.sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
+    
+    // Build text with length limit, prioritizing important sheets
+    let fullText = '';
+    for (const sheet of sheets) {
+      const sheetContent = `=== ONGLET: ${sheet.name} ${sheet.priority ? '(PRIORITAIRE)' : ''} ===\n${sheet.content}\n\n`;
+      
+      if (fullText.length + sheetContent.length > MAX_TEXT_LENGTH) {
+        // Add truncated version if we have room for at least the header
+        const remainingSpace = MAX_TEXT_LENGTH - fullText.length;
+        if (remainingSpace > 200) {
+          fullText += sheetContent.substring(0, remainingSpace) + '\n... (tronqué)\n';
+        }
+        break;
+      }
       fullText += sheetContent;
     }
     
-    console.log(`Parsed Excel: ${workbook.SheetNames.length} sheets, ${fullText.length} chars`);
+    console.log(`Parsed Excel: ${sheets.length} sheets (${sheets.filter(s => s.priority).length} priority), ${fullText.length} chars`);
     return { text: fullText, sheets };
   } catch (e) {
     console.error('Excel parse error:', e);
@@ -138,13 +164,196 @@ function detectCargoTypeFromSheet(sheetName: string): string {
   return 'container';
 }
 
+// Background analysis function
+async function analyzeAttachmentInBackground(
+  supabase: any, 
+  attachment: any, 
+  lovableApiKey: string
+): Promise<{ success: boolean; filename: string; error?: string }> {
+  try {
+    console.log(`[BG] Starting analysis: ${attachment.filename}`);
+    
+    const isExcel = attachment.content_type?.includes('spreadsheet') || 
+                    attachment.content_type?.includes('excel') ||
+                    attachment.content_type?.includes('openxmlformats-officedocument') ||
+                    attachment.filename?.toLowerCase().endsWith('.xlsx') ||
+                    attachment.filename?.toLowerCase().endsWith('.xls');
+    
+    const isImage = attachment.content_type?.startsWith('image/');
+    const isPdf = attachment.content_type === 'application/pdf';
+    
+    if (!isImage && !isPdf && !isExcel) {
+      await supabase.from('email_attachments').update({ 
+        is_analyzed: true,
+        extracted_data: { type: 'unsupported', content_type: attachment.content_type }
+      }).eq('id', attachment.id);
+      return { success: true, filename: attachment.filename };
+    }
+    
+    // Download the file
+    const { data: fileData, error: downloadError } = await supabase
+      .storage.from('documents').download(attachment.storage_path);
+    
+    if (downloadError || !fileData) {
+      console.error(`[BG] Download failed: ${attachment.filename}`, downloadError);
+      await supabase.from('email_attachments').update({ 
+        is_analyzed: true,
+        extracted_data: { type: 'error', message: 'Download failed' }
+      }).eq('id', attachment.id);
+      return { success: false, filename: attachment.filename, error: 'Download failed' };
+    }
+    
+    const arrayBuffer = await fileData.arrayBuffer();
+    let extractedData: any = null;
+    let extractedText = '';
+    
+    if (isExcel) {
+      const { text: excelText, sheets } = parseExcelToText(arrayBuffer);
+      
+      if (!excelText || excelText.length < 50) {
+        await supabase.from('email_attachments').update({ 
+          is_analyzed: true,
+          extracted_data: { type: 'error', message: 'Empty Excel file' }
+        }).eq('id', attachment.id);
+        return { success: false, filename: attachment.filename, error: 'Empty file' };
+      }
+      
+      console.log(`[BG] Sending ${excelText.length} chars to AI...`);
+      
+      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${lovableApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-lite', // Faster model for background processing
+          messages: [
+            { role: 'system', content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel. Réponds uniquement en JSON valide.' },
+            { role: 'user', content: `Analyse ce fichier Excel et extrais les tarifs. Structure JSON avec: sheetNames, tariff_lines (service, amount, currency, unit, container_type), transport_destinations (name, rates). Contenu:\n\n${excelText}` }
+          ]
+        }),
+      });
+      
+      if (!aiResponse.ok) {
+        console.error(`[BG] AI error: ${aiResponse.status}`);
+        await supabase.from('email_attachments').update({ 
+          is_analyzed: true,
+          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` }
+        }).eq('id', attachment.id);
+        return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
+      }
+      
+      const aiData = await aiResponse.json();
+      const content = aiData.choices?.[0]?.message?.content || '';
+      
+      console.log(`[BG] AI response received (${content.length} chars)`);
+      
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          extractedData = JSON.parse(jsonMatch[0]);
+          extractedText = `Excel analysé: ${sheets.length} onglets`;
+        } else {
+          extractedData = { type: 'quotation_excel', raw_response: content };
+          extractedText = content.substring(0, 500);
+        }
+      } catch (e) {
+        extractedData = { type: 'quotation_excel', raw_response: content };
+        extractedText = content.substring(0, 500);
+      }
+    } else {
+      // Handle images/PDFs with existing logic
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const CHUNK_SIZE = 8192;
+      let base64 = '';
+      for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+        const chunk = uint8Array.slice(i, i + CHUNK_SIZE);
+        base64 += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      base64 = btoa(base64);
+      
+      const mimeType = attachment.content_type || 'image/jpeg';
+      
+      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${lovableApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-lite',
+          messages: [
+            { role: 'system', content: 'Analyse ce document et extrais les tarifs en JSON: {type, tariff_lines: [{service, amount, currency}]}' },
+            { role: 'user', content: [
+              { type: 'text', text: `Analyse: ${attachment.filename}` },
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+            ]}
+          ]
+        }),
+      });
+      
+      if (aiResponse.ok) {
+        const aiData = await aiResponse.json();
+        const content = aiData.choices?.[0]?.message?.content || '';
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) extractedData = JSON.parse(jsonMatch[0]);
+          else extractedData = { raw_response: content };
+        } catch { extractedData = { raw_response: content }; }
+        extractedText = extractedData.text_content || '';
+      }
+    }
+    
+    // Store tariff lines if found
+    const tariffLines = extractTariffLines(extractedData);
+    if (tariffLines.length > 0 && attachment.email_id) {
+      const { data: emailData } = await supabase
+        .from('emails')
+        .select('subject')
+        .eq('id', attachment.email_id)
+        .single();
+      
+      const subject = emailData?.subject || '';
+      const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
+      const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
+      
+      await supabase.from('quotation_history').insert({
+        route_port: 'Dakar',
+        route_destination: destination,
+        cargo_type: detectCargoType(subject),
+        tariff_lines: tariffLines,
+        total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
+        total_currency: 'FCFA',
+        source_email_id: attachment.email_id,
+        source_attachment_id: attachment.id,
+      });
+      console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+    }
+    
+    // Update attachment
+    await supabase.from('email_attachments').update({
+      is_analyzed: true,
+      extracted_text: extractedText?.substring(0, 5000) || '',
+      extracted_data: extractedData
+    }).eq('id', attachment.id);
+    
+    console.log(`[BG] ✓ Analysis complete: ${attachment.filename}`);
+    return { success: true, filename: attachment.filename };
+    
+  } catch (error) {
+    console.error(`[BG] Error: ${attachment.filename}`, error);
+    return { success: false, filename: attachment.filename, error: String(error) };
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { attachmentId } = await req.json();
+    const { attachmentId, background = true } = await req.json();
     
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -164,7 +373,6 @@ serve(async (req) => {
     if (attachmentId) {
       query = query.eq('id', attachmentId);
     } else {
-      // Get all unanalyzed attachments
       query = query.eq('is_analyzed', false).limit(10);
     }
     
@@ -181,8 +389,38 @@ serve(async (req) => {
       );
     }
     
-    console.log(`Analyzing ${attachments.length} attachment(s)...`);
+    console.log(`Analyzing ${attachments.length} attachment(s) (background: ${background})...`);
     
+    // Use background processing for Excel files to avoid timeout
+    if (background) {
+      const excelAttachments = attachments.filter(a => 
+        a.content_type?.includes('spreadsheet') || 
+        a.content_type?.includes('excel') ||
+        a.filename?.toLowerCase().endsWith('.xlsx')
+      );
+      
+      if (excelAttachments.length > 0) {
+        // Start background analysis and return immediately
+        const backgroundPromise = Promise.all(
+          excelAttachments.map(att => analyzeAttachmentInBackground(supabase, att, lovableApiKey))
+        );
+        
+        // Use EdgeRuntime.waitUntil to continue processing after response
+        (globalThis as any).EdgeRuntime?.waitUntil?.(backgroundPromise);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            status: 'processing',
+            message: `${excelAttachments.length} fichier(s) Excel en cours d'analyse en arrière-plan. Rafraîchissez dans quelques secondes.`,
+            attachments: excelAttachments.map(a => ({ id: a.id, filename: a.filename }))
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    
+    // For non-Excel or non-background: process synchronously
     const results = [];
     
     for (const attachment of attachments) {
