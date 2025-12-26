@@ -1005,6 +1005,63 @@ export type Database = {
         }
         Relationships: []
       }
+      local_transport_rates: {
+        Row: {
+          cargo_category: string | null
+          container_type: string
+          created_at: string | null
+          destination: string
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          origin: string
+          provider: string | null
+          rate_amount: number
+          rate_currency: string | null
+          rate_includes: string[] | null
+          source_document: string | null
+          updated_at: string | null
+          validity_end: string | null
+          validity_start: string | null
+        }
+        Insert: {
+          cargo_category?: string | null
+          container_type: string
+          created_at?: string | null
+          destination: string
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          origin?: string
+          provider?: string | null
+          rate_amount: number
+          rate_currency?: string | null
+          rate_includes?: string[] | null
+          source_document?: string | null
+          updated_at?: string | null
+          validity_end?: string | null
+          validity_start?: string | null
+        }
+        Update: {
+          cargo_category?: string | null
+          container_type?: string
+          created_at?: string | null
+          destination?: string
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          origin?: string
+          provider?: string | null
+          rate_amount?: number
+          rate_currency?: string | null
+          rate_includes?: string[] | null
+          source_document?: string | null
+          updated_at?: string | null
+          validity_end?: string | null
+          validity_start?: string | null
+        }
+        Relationships: []
+      }
       market_intelligence: {
         Row: {
           category: string
