@@ -20,6 +20,7 @@ import {
   ExternalLink,
   ArrowLeft,
   Puzzle,
+  Calculator,
 } from 'lucide-react';
 import {
   Dialog,
@@ -39,6 +40,8 @@ import { toast } from 'sonner';
 import { V5AnalysisDisplay } from '@/components/V5AnalysisDisplay';
 import { QuotationPuzzle, type PuzzleAnalysis } from '@/components/QuotationPuzzle';
 import { usePuzzleAnalysis } from '@/hooks/usePuzzleAnalysis';
+import { QuotationCostBreakdown, type CostStructure } from '@/components/QuotationCostBreakdown';
+import { useSodatraFees, type FeeCalculationParams, type SodatraFeeSuggestion } from '@/hooks/useSodatraFees';
 import type { QuotationProcessResult } from '@/services/emailService';
 
 interface Props {
@@ -58,7 +61,8 @@ export function QuotationProcessorWithPuzzle({
 }: Props) {
   const [editedBody, setEditedBody] = useState('');
   const [copied, setCopied] = useState(false);
-  const [activeView, setActiveView] = useState<'puzzle' | 'response'>('puzzle');
+  const [activeView, setActiveView] = useState<'puzzle' | 'costs' | 'response'>('puzzle');
+  const [confirmedFees, setConfirmedFees] = useState<{ key: string; amount: number }[] | null>(null);
 
   // Build analysis response for puzzle hook
   const analysisResponse = useMemo(() => {
@@ -76,6 +80,87 @@ export function QuotationProcessorWithPuzzle({
 
   const puzzle = usePuzzleAnalysis(analysisResponse);
 
+  // Calculate SODATRA fees from extracted data
+  const sodatraFeeParams = useMemo<FeeCalculationParams | null>(() => {
+    if (!result?.extractedData) return null;
+    const extracted = result.extractedData;
+    const transportMode = puzzle?.transportMode || result.transportMode || 'unknown';
+    return {
+      transport_mode: transportMode,
+      cargo_value_caf: extracted.value || undefined,
+      weight_kg: extracted.weight_kg || undefined,
+      volume_cbm: extracted.volume_cbm || undefined,
+      container_types: extracted.container_type ? [extracted.container_type] : undefined,
+      container_count: extracted.container_type ? 1 : 0,
+      is_exempt_project: result.analysis.regulatoryAnalysis?.regime_code?.startsWith('49') || false,
+      destination_zone: 'dakar',
+    };
+  }, [result, puzzle]);
+
+  const sodatraFees = useSodatraFees(sodatraFeeParams);
+
+  // Build cost structure from available data
+  const costStructure = useMemo<CostStructure>(() => {
+    // Use quotationDetails if available for operational costs
+    const quotationDetails = result?.analysis?.quotationDetails || {};
+    const posts = (quotationDetails as any)?.posts || [];
+    
+    const operationnelItems = posts
+      .filter((p: any) => p.bloc === 'operationnel')
+      .map((p: any) => ({
+        description: p.description,
+        montant: p.montant,
+        devise: p.devise || 'FCFA',
+        source: p.source || 'PORT_TARIFFS',
+        bloc: 'operationnel' as const,
+        note: p.note,
+      }));
+    
+    const deboursItems = posts
+      .filter((p: any) => p.bloc === 'debours')
+      .map((p: any) => ({
+        description: p.description,
+        montant: p.montant,
+        devise: p.devise || 'FCFA',
+        source: p.source || 'ESTIMATE',
+        bloc: 'debours' as const,
+        note: p.note,
+      }));
+
+    const operationnelTotal = operationnelItems.reduce((sum: number, item: any) => sum + (item.montant || 0), 0);
+    const deboursTotal = deboursItems.some((item: any) => item.montant === null) 
+      ? null 
+      : deboursItems.reduce((sum: number, item: any) => sum + (item.montant || 0), 0);
+
+    return {
+      bloc_operationnel: { 
+        total: operationnelTotal, 
+        items: operationnelItems 
+      },
+      bloc_honoraires: { 
+        total: sodatraFees?.total_suggested || 0, 
+        items: [],
+        complexity_factor: sodatraFees?.complexity_factor 
+      },
+      bloc_debours: { 
+        total: deboursTotal, 
+        items: deboursItems,
+        note: deboursTotal === null ? 'À calculer sur factures commerciales' : undefined
+      },
+    };
+  }, [result, sodatraFees]);
+
+  const totalDap = useMemo(() => {
+    if (!costStructure) return 0;
+    return (costStructure.bloc_operationnel.total || 0) + 
+           (costStructure.bloc_honoraires.total || sodatraFees?.total_suggested || 0);
+  }, [costStructure, sodatraFees]);
+
+  const totalDdp = useMemo(() => {
+    if (!costStructure?.bloc_debours.total) return 'TBC' as const;
+    return totalDap + (costStructure.bloc_debours.total || 0);
+  }, [costStructure, totalDap]);
+
   // Initialize edited body when result changes
   useEffect(() => {
     if (result?.draft.body) {
@@ -83,12 +168,17 @@ export function QuotationProcessorWithPuzzle({
     }
   }, [result?.draft.body]);
 
-  // Auto-switch to response view if quote is ready
+  // Auto-switch to costs view if quote is ready
   useEffect(() => {
     if (puzzle?.canGenerateQuote && puzzle.completeness >= 80) {
-      setActiveView('response');
+      setActiveView('costs');
     }
   }, [puzzle]);
+
+  const handleFeesConfirmed = (fees: { key: string; amount: number }[]) => {
+    setConfirmedFees(fees);
+    toast.success('Honoraires confirmés');
+  };
 
   const handleCopy = async () => {
     const textToCopy = editedBody || result?.draft.body || '';
@@ -174,11 +264,15 @@ SODATRA`;
             </p>
           </div>
         ) : result ? (
-          <Tabs value={activeView} onValueChange={(v) => setActiveView(v as 'puzzle' | 'response')} className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={activeView} onValueChange={(v) => setActiveView(v as 'puzzle' | 'costs' | 'response')} className="flex-1 flex flex-col">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="puzzle" className="gap-2">
                 <Puzzle className="h-4 w-4" />
                 Puzzle ({puzzle?.completeness || 0}%)
+              </TabsTrigger>
+              <TabsTrigger value="costs" className="gap-2">
+                <Calculator className="h-4 w-4" />
+                Coûts
               </TabsTrigger>
               <TabsTrigger value="response" className="gap-2">
                 <FileText className="h-4 w-4" />
@@ -201,6 +295,19 @@ SODATRA`;
                   onSearchTariff={handleSearchTariff}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="costs" className="flex-1 mt-4">
+              <ScrollArea className="h-[calc(100vh-300px)] pr-4">
+                <QuotationCostBreakdown
+                  costStructure={costStructure}
+                  totalDap={totalDap}
+                  totalDdp={totalDdp}
+                  offerType="indicative_dap"
+                  sodatraFees={sodatraFees}
+                  onFeesConfirmed={handleFeesConfirmed}
+                />
+              </ScrollArea>
             </TabsContent>
 
             <TabsContent value="response" className="flex-1 mt-4">
