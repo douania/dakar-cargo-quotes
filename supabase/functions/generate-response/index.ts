@@ -1922,6 +1922,61 @@ Réponds en JSON:
       }
     }
 
+    // ============ CALCULATE SODATRA FEES EARLY (Before AI call) ============
+    const sodatraFeesSuggestion = calculateSodatraFees({
+      transport_mode: aiExtracted.transport_mode,
+      cargo_value_caf: aiExtracted.value || undefined,
+      weight_kg: aiExtracted.weight_kg || undefined,
+      volume_cbm: aiExtracted.volume_cbm || undefined,
+      container_types: aiExtracted.container_type ? [aiExtracted.container_type] : undefined,
+      container_count: aiExtracted.container_type ? 1 : undefined,
+      is_exempt_project: hsSuggestionsResult?.work_scope?.notes?.some((n: string) => 
+        n.toLowerCase().includes('exonér') || n.toLowerCase().includes('exempt')
+      ) || false,
+      is_dangerous: riskResult?.nature_risk?.is_imo || false,
+      is_oog: riskResult?.nature_risk?.is_oog || false,
+      is_reefer: riskResult?.nature_risk?.is_reefer || false,
+      destination_zone: getDestinationZone(aiExtracted.destination),
+      services_requested: aiExtracted.services_requested,
+      incoterm: aiExtracted.incoterm || undefined,
+    });
+
+    console.log("SODATRA fees calculated (pre-AI):", JSON.stringify(sodatraFeesSuggestion));
+
+    // ============ BUILD SODATRA FEES CONTEXT FOR AI ============
+    let sodatraFeesContext = '\n\n=== ⚠️ HONORAIRES SODATRA - À INCLURE DANS LA COTATION ===\n';
+    sodatraFeesContext += '🔴 RÈGLE ABSOLUE: Tu DOIS inclure ces montants dans le body_short avec le format ci-dessous\n\n';
+    
+    sodatraFeesContext += '| Service | Montant (FCFA) | Formule |\n';
+    sodatraFeesContext += '|---------|----------------|----------|\n';
+    for (const fee of sodatraFeesSuggestion.fees) {
+      sodatraFeesContext += `| ${fee.label} | ${fee.suggested_amount.toLocaleString('fr-FR')} | ${fee.formula} |\n`;
+    }
+    sodatraFeesContext += `| **TOTAL HONORAIRES** | **${sodatraFeesSuggestion.total_suggested.toLocaleString('fr-FR')}** | |\n`;
+    
+    if (sodatraFeesSuggestion.complexity_reasons.length > 0) {
+      sodatraFeesContext += `\n⚙️ Facteurs de complexité appliqués:\n`;
+      for (const reason of sodatraFeesSuggestion.complexity_reasons) {
+        sodatraFeesContext += `   • ${reason}\n`;
+      }
+    }
+    
+    if (sodatraFeesSuggestion.commission_note) {
+      sodatraFeesContext += `\n💰 ${sodatraFeesSuggestion.commission_note}\n`;
+    }
+    
+    sodatraFeesContext += `\n📋 FORMAT OBLIGATOIRE DANS LE BODY:\n`;
+    sodatraFeesContext += `=== SODATRA FEES ===\n`;
+    for (const fee of sodatraFeesSuggestion.fees) {
+      const labelEN = fee.key === 'dedouanement' ? 'Customs clearance' :
+                      fee.key === 'suivi_operationnel' ? 'Operational follow-up' :
+                      fee.key === 'ouverture_dossier' ? 'File opening' :
+                      fee.key === 'frais_documentaires' ? 'Documentation fees' :
+                      fee.key === 'commission_debours' ? 'Disbursement commission (5%)' : fee.label;
+      sodatraFeesContext += `• ${labelEN}: ${fee.suggested_amount.toLocaleString('fr-FR')} FCFA\n`;
+    }
+    sodatraFeesContext += `\nTOTAL SODATRA FEES: ${sodatraFeesSuggestion.total_suggested.toLocaleString('fr-FR')} FCFA\n`;
+
     // Build analysis context for AI (using AI-extracted data)
     let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE (AI-POWERED) ===
 📌 LANGUE DÉTECTÉE: ${aiExtracted.detected_language}
@@ -1984,6 +2039,7 @@ ${tariffKnowledgeContext}
 ${threadRoleContext}
 ${threadContext}
 ${expertContext}
+${sodatraFeesContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
@@ -1999,6 +2055,11 @@ RAPPELS CRITIQUES:
    - Pour les THC DP World: utilise EXACTEMENT les montants de PORT_TARIFFS
    - Pour les frais compagnie: utilise les templates de CARRIER_BILLING
    - Pour tout tarif non disponible → "À CONFIRMER" ou "TBC"
+4. 🔴 HONORAIRES SODATRA OBLIGATOIRES:
+   - Inclure TOUS les honoraires listés dans SODATRA FEES CONTEXT
+   - Utiliser les montants EXACTS fournis (pas d'estimation)
+   - Format structuré: "=== SODATRA FEES ===" suivi de la liste
+   - TOUJOURS inclure le TOTAL SODATRA FEES
 `;
 
     console.log("Calling AI with language and context analysis...");
@@ -2123,26 +2184,7 @@ RAPPELS CRITIQUES:
       transport_mode_evidence: [aiExtracted.transport_mode_evidence],
     };
 
-    // ============ CALCULATE SODATRA FEES SUGGESTION ============
-    const sodatraFeesSuggestion = calculateSodatraFees({
-      transport_mode: aiExtracted.transport_mode,
-      cargo_value_caf: aiExtracted.value || undefined,
-      weight_kg: aiExtracted.weight_kg || undefined,
-      volume_cbm: aiExtracted.volume_cbm || undefined,
-      container_types: aiExtracted.container_type ? [aiExtracted.container_type] : undefined,
-      container_count: aiExtracted.container_type ? 1 : undefined,
-      is_exempt_project: hsSuggestionsResult?.work_scope?.notes?.some((n: string) => 
-        n.toLowerCase().includes('exonér') || n.toLowerCase().includes('exempt')
-      ) || false,
-      is_dangerous: riskResult?.nature_risk?.is_imo || false,
-      is_oog: riskResult?.nature_risk?.is_oog || false,
-      is_reefer: riskResult?.nature_risk?.is_reefer || false,
-      destination_zone: getDestinationZone(aiExtracted.destination),
-      services_requested: aiExtracted.services_requested,
-      incoterm: aiExtracted.incoterm || undefined,
-    });
-
-    console.log("SODATRA fees suggestion:", JSON.stringify(sodatraFeesSuggestion));
+    // SODATRA fees already calculated before AI call (see line ~1926)
 
     return new Response(
       JSON.stringify({
