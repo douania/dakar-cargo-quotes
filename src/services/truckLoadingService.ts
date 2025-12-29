@@ -6,7 +6,7 @@ export async function uploadPackingList(file: File): Promise<PackingItem[]> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/upload`, {
+  const response = await fetch(`${API_URL}/api/optimization/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -21,7 +21,7 @@ export async function uploadPackingList(file: File): Promise<PackingItem[]> {
 }
 
 export async function getTruckSpecs(): Promise<TruckSpec[]> {
-  const response = await fetch(`${API_URL}/trucks`, {
+  const response = await fetch(`${API_URL}/api/optimization/truck-specs`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -44,7 +44,7 @@ export async function runOptimization(
   const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
 
   try {
-    const response = await fetch(`${API_URL}/optimize`, {
+    const response = await fetch(`${API_URL}/api/optimization/optimize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -78,7 +78,7 @@ export async function getVisualization(
   placements: OptimizationResult['placements'],
   truckSpec: TruckSpec
 ): Promise<string> {
-  const response = await fetch(`${API_URL}/visualize`, {
+  const response = await fetch(`${API_URL}/api/optimization/visualize`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
