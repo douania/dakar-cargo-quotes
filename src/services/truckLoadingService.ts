@@ -45,6 +45,33 @@ export async function getTruckSpecs(): Promise<TruckSpec[]> {
   return data;
 }
 
+// Normalise la réponse API vers notre format TypeScript
+function normalizeOptimizationResult(apiResponse: any): OptimizationResult {
+  const results = apiResponse.results || {};
+  const placements = (apiResponse.placements || []).map((p: any, index: number) => ({
+    item_id: p.item_id || `item_${index}`,
+    truck_index: p.truck_index ?? 0,
+    position: {
+      x: p.x ?? p.position?.x ?? 0,
+      y: p.y ?? p.position?.y ?? 0,
+      z: p.z ?? p.position?.z ?? 0,
+    },
+    rotated: p.rotation !== 0 || p.rotated || false,
+  }));
+
+  return {
+    placements,
+    metrics: {
+      trucks_used: results.trucks_used ?? 1,
+      fill_rate: results.volume_efficiency ?? results.fill_rate ?? 0,
+      weight_utilization: results.weight_efficiency ?? results.weight_utilization ?? 0,
+      items_placed: results.items_placed ?? placements.length,
+      items_total: results.items_total ?? placements.length,
+    },
+    visualization_base64: apiResponse.visualization_base64 || apiResponse.image_base64,
+  };
+}
+
 export async function runOptimization(
   items: PackingItem[],
   truckSpec: TruckSpec,
@@ -74,7 +101,8 @@ export async function runOptimization(
       throw new Error(error || 'Erreur lors de l\'optimisation');
     }
 
-    return response.json();
+    const apiResponse = await response.json();
+    return normalizeOptimizationResult(apiResponse);
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
