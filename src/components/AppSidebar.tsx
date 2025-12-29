@@ -13,7 +13,8 @@ import {
   BarChart3,
   ChevronDown,
   Anchor,
-  Search
+  Search,
+  Truck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -48,6 +49,12 @@ const mainNavItems = [
     url: '/chat', 
     icon: MessageSquare,
     description: 'Questions & recherches'
+  },
+  { 
+    title: 'Optimisation Chargement', 
+    url: '/truck-loading', 
+    icon: Truck,
+    description: 'Planification chargement camions'
   },
 ];
 
