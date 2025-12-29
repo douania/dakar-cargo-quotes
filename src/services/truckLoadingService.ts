@@ -32,7 +32,17 @@ export async function getTruckSpecs(): Promise<TruckSpec[]> {
     throw new Error('Erreur lors de la récupération des spécifications camions');
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // Parser le format { presets: { truck_name: specs } }
+  if (data.presets) {
+    return Object.entries(data.presets).map(([name, spec]) => ({
+      name,
+      ...(spec as Omit<TruckSpec, 'name'>)
+    }));
+  }
+
+  return data;
 }
 
 export async function runOptimization(
@@ -51,7 +61,7 @@ export async function runOptimization(
       },
       body: JSON.stringify({
         items,
-        truck: truckSpec,
+        truck: (({ name, ...rest }) => rest)(truckSpec),
         algorithm,
       }),
       signal: controller.signal,
@@ -85,7 +95,7 @@ export async function getVisualization(
     },
     body: JSON.stringify({
       placements,
-      truck: truckSpec,
+      truck: (({ name, ...rest }) => rest)(truckSpec),
     }),
   });
 
