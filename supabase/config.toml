@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.suggest-hs-codes]
 verify_jwt = false
+
+[functions.parse-packing-list]
+verify_jwt = false
