@@ -1,23 +1,56 @@
 import { PackingItem, TruckSpec, OptimizationResult, Algorithm } from '@/types/truckLoading';
+import { supabase } from '@/integrations/supabase/client';
 
 const API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
-export async function uploadPackingList(file: File): Promise<PackingItem[]> {
+export interface AIExtractionResult {
+  items: PackingItem[];
+  document_type: 'packing_list' | 'invoice' | 'mixed' | 'unknown';
+  sheets_analyzed: string[];
+  warnings: string[];
+  total_items: number;
+}
+
+// Parse packing list with AI (via edge function)
+export async function parsePackingListWithAI(file: File): Promise<AIExtractionResult> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/api/optimization/upload`, {
-    method: 'POST',
-    body: formData,
-  });
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-packing-list`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: formData,
+    }
+  );
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || 'Erreur lors de l\'upload du fichier');
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erreur lors de l\'analyse IA du fichier');
   }
 
   const data = await response.json();
-  return data.items || data;
+  
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  return {
+    items: data.items || [],
+    document_type: data.document_type || 'unknown',
+    sheets_analyzed: data.sheets_analyzed || [],
+    warnings: data.warnings || [],
+    total_items: data.total_items || data.items?.length || 0
+  };
+}
+
+// Legacy function - now redirects to AI parsing
+export async function uploadPackingList(file: File): Promise<PackingItem[]> {
+  const result = await parsePackingListWithAI(file);
+  return result.items;
 }
 
 export async function getTruckSpecs(): Promise<TruckSpec[]> {
