@@ -1,25 +1,21 @@
 import { useState } from 'react';
-import { Upload, ClipboardCheck, Settings, BarChart3, Check } from 'lucide-react';
+import { Upload, ClipboardCheck, BarChart3, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { PackingListUploader } from './PackingListUploader';
 import { DataValidationTable } from './DataValidationTable';
-import { OptimizationConfig } from './OptimizationConfig';
-import { LoadingPlanViewer } from './LoadingPlanViewer';
-import { PackingItem, TruckSpec, OptimizationResult, WorkflowStep } from '@/types/truckLoading';
+import { FleetSuggestionResults } from './FleetSuggestionResults';
+import { PackingItem, WorkflowStep } from '@/types/truckLoading';
 
 const steps = [
   { number: 1, title: 'Import', description: 'Charger la liste', icon: Upload },
   { number: 2, title: 'Validation', description: 'Vérifier les données', icon: ClipboardCheck },
-  { number: 3, title: 'Configuration', description: 'Paramétrer', icon: Settings },
-  { number: 4, title: 'Résultats', description: 'Plan de chargement', icon: BarChart3 },
+  { number: 3, title: 'Résultats', description: 'Scénarios optimaux', icon: BarChart3 },
 ];
 
 export function TruckLoadingOptimizer() {
   const [currentStep, setCurrentStep] = useState<WorkflowStep>(1);
   const [packingItems, setPackingItems] = useState<PackingItem[]>([]);
-  const [selectedTruck, setSelectedTruck] = useState<TruckSpec | null>(null);
-  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
 
   const handleUploadComplete = (items: PackingItem[]) => {
     setPackingItems(items);
@@ -30,16 +26,8 @@ export function TruckLoadingOptimizer() {
     setCurrentStep(3);
   };
 
-  const handleOptimizationComplete = (result: OptimizationResult, truck: TruckSpec) => {
-    setOptimizationResult(result);
-    setSelectedTruck(truck);
-    setCurrentStep(4);
-  };
-
   const handleReset = () => {
     setPackingItems([]);
-    setSelectedTruck(null);
-    setOptimizationResult(null);
     setCurrentStep(1);
   };
 
@@ -48,7 +36,7 @@ export function TruckLoadingOptimizer() {
       {/* Stepper */}
       <div className="relative">
         <div className="flex justify-between items-center">
-          {steps.map((step, index) => {
+          {steps.map((step) => {
             const StepIcon = step.icon;
             const isActive = currentStep === step.number;
             const isCompleted = currentStep > step.number;
@@ -120,16 +108,8 @@ export function TruckLoadingOptimizer() {
               )}
               
               {currentStep === 3 && (
-                <OptimizationConfig
+                <FleetSuggestionResults
                   items={packingItems}
-                  onOptimizationComplete={handleOptimizationComplete}
-                />
-              )}
-              
-              {currentStep === 4 && optimizationResult && selectedTruck && (
-                <LoadingPlanViewer
-                  result={optimizationResult}
-                  truckSpec={selectedTruck}
                   onReset={handleReset}
                 />
               )}

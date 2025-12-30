@@ -39,4 +39,30 @@ export interface OptimizationResult {
 }
 
 export type Algorithm = 'simple' | 'genetic';
-export type WorkflowStep = 1 | 2 | 3 | 4;
+export type WorkflowStep = 1 | 2 | 3;
+
+// Fleet suggestion types
+export interface TruckAllocation {
+  truck_type: string;
+  count: number;
+  fill_rate: number;
+  weight_utilization: number;
+  items_assigned: number;
+}
+
+export interface FleetScenario {
+  name: string;
+  description: string;
+  trucks: TruckAllocation[];
+  total_cost: number;
+  total_trucks: number;
+  is_recommended: boolean;
+}
+
+export interface FleetSuggestionResult {
+  scenarios: FleetScenario[];
+  recommended_scenario: string;
+  total_weight: number;
+  total_volume: number;
+  items_count: number;
+}
