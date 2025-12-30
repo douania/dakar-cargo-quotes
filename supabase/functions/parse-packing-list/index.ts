@@ -1,53 +1,42 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const EXTRACTION_PROMPT = `Tu es un expert en logistique qui analyse des fichiers Excel de packing list.
+const EXTRACTION_PROMPT = `Tu es un expert en logistique qui analyse des packing lists.
 
-MISSION : Extraire UNIQUEMENT les lignes de colisage/colis d'un fichier Excel.
+MISSION : Extraire UNIQUEMENT les lignes de colisage/colis.
 
 RÈGLES D'EXTRACTION :
 1. Ignore les factures, proformas, devis
 2. Ignore les lignes de TOTAL, SUBTOTAL, SET GW, GRAND TOTAL
 3. Ignore les headers et lignes vides
-4. Ignore les lignes en double (même colis répété)
+4. Ignore les lignes en double (même colis répété dans différents sets/onglets)
 5. Nettoie les symboles (~, ±, ≈) des valeurs numériques
-6. Convertis les unités si nécessaire :
-   - cm → mm (x10)
-   - m → mm (x1000)
-   - tonnes → kg (x1000)
 
-DETECTION DES COLONNES :
-- Cherche les colonnes avec : N°, No, Numéro, Case, Colis, Package, Collo, Mark
-- Dimensions : L, W, H, Length, Width, Height, Longueur, Largeur, Hauteur, Dim
-- Poids : Weight, Gross, Net, GW, NW, Poids, Brut, KG, Kg
-- Description : Description, Désignation, Contents, Contenu, Marchandise
-
-FORMAT DE SORTIE :
-Pour chaque colis, retourne un objet avec EXACTEMENT ces champs :
-- id: string (numéro du colis, ex: "1", "51575-1", "CASE 1")
-- description: string (description du contenu)
-- length: number (longueur en mm)
-- width: number (largeur en mm)
-- height: number (hauteur en mm)
-- weight: number (poids BRUT en kg - IMPORTANT: garde les valeurs en kg, ne divise pas)
-- quantity: number (1 par défaut, sauf si explicitement indiqué)
-- stackable: boolean (true sauf si fragile/top only/non-stackable)
-
-ATTENTION POIDS :
-- Si le poids est 61000, c'est 61000 kg (61 tonnes), PAS 61 kg
-- Les transformateurs, machines lourdes peuvent peser 50-100 tonnes
+IMPORTANT - POIDS :
+- Les poids sont en kg
+- "~61000" signifie 61000 kg (61 tonnes) - c'est un transformateur de puissance
 - Ne divise JAMAIS le poids par 1000
 
-ATTENTION DIMENSIONS :
-- Identifie l'unité dans les headers (mm, cm, m)
-- Convertis TOUJOURS en mm
-- 5200 cm = 52000 mm
-- 2.5 m = 2500 mm`;
+IMPORTANT - DIMENSIONS :
+- Les dimensions L, W, H sont généralement en mm
+- Vérifie les headers pour confirmer l'unité
+
+FORMAT DE SORTIE :
+Pour chaque colis UNIQUE (pas de doublons), retourne :
+- id: string (numéro du colis, ex: "1", "2")
+- description: string (description du contenu)
+- length: number (longueur en mm)
+- width: number (largeur en mm)  
+- height: number (hauteur en mm)
+- weight: number (poids brut en kg)
+- quantity: number (1 par défaut)
+- stackable: boolean (false pour MAIN BODY/colis lourds, true sinon)`;
 
 interface PackingItem {
   id: string;
@@ -67,17 +56,57 @@ interface ExtractionResult {
   warnings: string[];
 }
 
-// Convert Excel file to base64 text for AI analysis
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+function parseExcelToText(buffer: ArrayBuffer): { text: string; sheetNames: string[] } {
+  try {
+    const uint8Array = new Uint8Array(buffer);
+    const workbook = XLSX.read(uint8Array, { type: 'array' });
+    const sheetNames = workbook.SheetNames;
+    
+    // Priority sheets for packing lists
+    const priorityKeywords = ['packing', 'list', 'colisage', 'colis', 'package', 'cargo'];
+    
+    // Sort sheets by priority (packing list related first)
+    const sortedSheets = [...sheetNames].sort((a: string, b: string) => {
+      const aLower = a.toLowerCase();
+      const bLower = b.toLowerCase();
+      const aPriority = priorityKeywords.some(k => aLower.includes(k)) ? 0 : 1;
+      const bPriority = priorityKeywords.some(k => bLower.includes(k)) ? 0 : 1;
+      return aPriority - bPriority;
+    });
+
+    let allText = "";
+    const analyzedSheets: string[] = [];
+    
+    for (const sheetName of sortedSheets) {
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) continue;
+      
+      // Convert to CSV format for AI parsing
+      const csvData = XLSX.utils.sheet_to_csv(sheet, { FS: ' | ', RS: '\n' });
+      
+      // Skip empty sheets
+      const lines = csvData.split('\n').filter((l: string) => l.trim().length > 0);
+      if (lines.length < 2) continue;
+      
+      analyzedSheets.push(sheetName);
+      allText += `\n=== ONGLET: ${sheetName} ===\n`;
+      allText += csvData;
+      
+      // Limit total text to prevent timeout
+      if (allText.length > 25000) {
+        allText += "\n[...truncated for length...]\n";
+        break;
+      }
+    }
+
+    return { text: allText, sheetNames: analyzedSheets };
+  } catch (error) {
+    console.error("Excel parsing error:", error);
+    throw new Error(`Failed to parse Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
-  return btoa(binary);
 }
 
-async function extractWithAI(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   
   if (!LOVABLE_API_KEY) {
@@ -85,9 +114,8 @@ async function extractWithAI(fileBase64: string, fileName: string): Promise<Extr
   }
 
   console.log("Calling Lovable AI for packing list extraction...");
-  console.log("File name:", fileName);
+  console.log("Content length:", fileContent.length);
 
-  // Use Gemini's vision capability to analyze the Excel file
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -100,18 +128,7 @@ async function extractWithAI(fileBase64: string, fileName: string): Promise<Extr
         { role: "system", content: EXTRACTION_PROMPT },
         { 
           role: "user", 
-          content: [
-            {
-              type: "text",
-              text: `Analyse ce fichier Excel "${fileName}" et extrait les articles de la packing list. Le fichier est encodé en base64.`
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${fileBase64}`
-              }
-            }
-          ]
+          content: `Analyse ce contenu de packing list et extrait les articles UNIQUES:\n\n${fileContent}`
         }
       ],
       tools: [{
@@ -152,7 +169,7 @@ async function extractWithAI(fileBase64: string, fileName: string): Promise<Extr
               warnings: { 
                 type: "array", 
                 items: { type: "string" },
-                description: "Avertissements (lignes ignorées, conversions, etc.)"
+                description: "Avertissements (lignes ignorées, doublons détectés, etc.)"
               }
             },
             required: ["items", "document_type", "sheets_analyzed", "warnings"]
@@ -174,25 +191,26 @@ async function extractWithAI(fileBase64: string, fileName: string): Promise<Extr
 
   const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
   if (!toolCall || toolCall.function.name !== "extract_packing_items") {
-    // Try to parse from content if tool call failed
     const content = data.choices?.[0]?.message?.content;
-    if (content) {
-      console.log("Trying to parse from content:", content.substring(0, 500));
-    }
-    throw new Error("Invalid AI response format");
+    console.error("Unexpected AI response format. Content:", content?.substring(0, 500));
+    throw new Error("Invalid AI response format - no tool call returned");
   }
 
   const result = JSON.parse(toolCall.function.arguments);
   
   // Validate and clean items
   const validItems = result.items
-    .filter((item: any) => {
-      // Filter out invalid items
-      if (!item.id || !item.weight || item.weight <= 0) return false;
-      if (!item.length || !item.width || !item.height) return false;
+    .filter((item: Record<string, unknown>) => {
+      if (!item.id) return false;
+      const weight = Number(item.weight);
+      if (!weight || weight <= 0) return false;
+      const length = Number(item.length);
+      const width = Number(item.width);
+      const height = Number(item.height);
+      if (!length || !width || !height) return false;
       return true;
     })
-    .map((item: any): PackingItem => ({
+    .map((item: Record<string, unknown>): PackingItem => ({
       id: String(item.id).trim(),
       description: String(item.description || "").trim(),
       length: Math.round(Number(item.length) || 0),
@@ -205,7 +223,7 @@ async function extractWithAI(fileBase64: string, fileName: string): Promise<Extr
 
   return {
     items: validItems,
-    document_type: result.document_type || "unknown",
+    document_type: result.document_type || "packing_list",
     sheets_analyzed: result.sheets_analyzed || [],
     warnings: result.warnings || []
   };
@@ -237,8 +255,10 @@ serve(async (req) => {
       fileName = file.name;
       fileBuffer = await file.arrayBuffer();
     } else {
-      // Raw binary upload
-      fileBuffer = await req.arrayBuffer();
+      return new Response(
+        JSON.stringify({ error: 'Please upload a file using multipart/form-data' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     console.log(`Processing file: ${fileName}, size: ${fileBuffer.byteLength} bytes`);
@@ -255,22 +275,44 @@ serve(async (req) => {
       );
     }
 
-    // Convert to base64 for AI
-    const fileBase64 = arrayBufferToBase64(fileBuffer);
-    console.log(`Base64 length: ${fileBase64.length}`);
+    // Parse Excel to text
+    const { text: excelText, sheetNames } = parseExcelToText(fileBuffer);
+    console.log(`Parsed ${sheetNames.length} sheets, text length: ${excelText.length}`);
+
+    if (!excelText.trim()) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'No data found in Excel file',
+          items: [],
+          warnings: ['Le fichier semble vide ou ne contient pas de données exploitables']
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Extract with AI
-    const result = await extractWithAI(fileBase64, fileName);
+    const result = await extractWithAI(excelText);
     
     console.log(`Extracted ${result.items.length} items`);
     console.log(`Document type: ${result.document_type}`);
-    console.log(`Warnings: ${result.warnings.join(', ')}`);
+    if (result.warnings.length > 0) {
+      console.log(`Warnings: ${result.warnings.join(', ')}`);
+    }
+
+    // Log sample items for verification
+    if (result.items.length > 0) {
+      console.log(`First item: ${JSON.stringify(result.items[0])}`);
+      const heavyItems = result.items.filter(i => i.weight > 10000);
+      if (heavyItems.length > 0) {
+        console.log(`Heavy items (>10t): ${heavyItems.map(i => `${i.id}: ${i.weight}kg`).join(', ')}`);
+      }
+    }
 
     return new Response(
       JSON.stringify({
         items: result.items,
         document_type: result.document_type,
-        sheets_analyzed: result.sheets_analyzed,
+        sheets_analyzed: sheetNames,
         warnings: result.warnings,
         total_items: result.items.length
       }),
