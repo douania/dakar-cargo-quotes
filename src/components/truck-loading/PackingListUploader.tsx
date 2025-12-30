@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileSpreadsheet, X, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
+import { Upload, FileSpreadsheet, X, AlertCircle, CheckCircle2, Brain, FlaskConical } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -133,6 +133,64 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
     setAiResult(null);
   };
 
+  const loadDemoFile = async () => {
+    setError(null);
+    setAiResult(null);
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      // Fetch the demo file from public folder
+      const response = await fetch('/data/test-packing-list-61t-trafo.xlsx');
+      if (!response.ok) {
+        throw new Error('Impossible de charger le fichier de démo');
+      }
+      
+      const blob = await response.blob();
+      const demoFile = new File([blob], 'test-packing-list-61t-trafo.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      
+      setSelectedFile(demoFile);
+      
+      // Progress simulation for AI processing
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 5, 85));
+      }, 500);
+
+      const result = await parsePackingListWithAI(demoFile);
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      setAiResult(result);
+      
+      if (result.items.length === 0) {
+        setError('Aucun article valide trouvé dans le fichier');
+        setIsUploading(false);
+        return;
+      }
+      
+      const totalWeight = result.items.reduce((sum, item) => sum + item.weight, 0);
+      const heavyItems = result.items.filter(item => item.weight > 10000);
+      
+      toast.success(
+        `Fichier démo: ${result.items.length} articles extraits`,
+        { 
+          description: `Poids total: ${(totalWeight / 1000).toFixed(1)} tonnes${heavyItems.length > 0 ? ` (${heavyItems.length} colis lourds)` : ''}`
+        }
+      );
+      
+      setTimeout(() => {
+        onUploadComplete(result.items);
+      }, 1000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur lors du chargement du fichier démo';
+      setError(message);
+      toast.error(message);
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card
@@ -157,20 +215,30 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
               <p className="text-muted-foreground text-sm mb-4">
                 ou cliquez pour sélectionner un fichier
               </p>
-              <label>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={handleInputChange}
-                  className="hidden"
-                />
-                <Button variant="outline" asChild>
-                  <span className="cursor-pointer">
-                    <FileSpreadsheet className="h-4 w-4 mr-2" />
-                    Parcourir
-                  </span>
+              <div className="flex gap-3">
+                <label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleInputChange}
+                    className="hidden"
+                  />
+                  <Button variant="outline" asChild>
+                    <span className="cursor-pointer">
+                      <FileSpreadsheet className="h-4 w-4 mr-2" />
+                      Parcourir
+                    </span>
+                  </Button>
+                </label>
+                <Button 
+                  variant="secondary" 
+                  onClick={loadDemoFile}
+                  disabled={isUploading}
+                >
+                  <FlaskConical className="h-4 w-4 mr-2" />
+                  Charger fichier de démo
                 </Button>
-              </label>
+              </div>
               <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground">
                 <Brain className="h-4 w-4" />
                 <span>Extraction intelligente par IA - Supporte tous les formats de packing list</span>
