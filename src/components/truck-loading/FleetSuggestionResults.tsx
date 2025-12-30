@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { FleetSuggestionResult, FleetScenario, PackingItem } from '@/types/truckLoading';
 import { suggestFleet } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
+import { LoadingPlan3D } from './LoadingPlan3D';
 
 interface FleetSuggestionResultsProps {
   items: PackingItem[];
@@ -30,7 +31,16 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
   const [isLoading, setIsLoading] = useState(true);
   const [result, setResult] = useState<FleetSuggestionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
+  const [selectedScenario, setSelectedScenario] = useState<FleetScenario | null>(null);
+  const [showLoadingPlan, setShowLoadingPlan] = useState(false);
+
+  // Ensure weights are in KG before sending
+  const normalizedItems = items.map(item => ({
+    ...item,
+    // Weight should be in KG - the parser should already provide KG
+    // but if weight looks suspiciously low (< 100), it might be in tonnes
+    weight: item.weight < 100 && item.weight > 0 ? item.weight * 1000 : item.weight,
+  }));
 
   // Auto-load fleet suggestion on mount
   useEffect(() => {
@@ -42,14 +52,8 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
     setError(null);
     
     try {
-      const suggestion = await suggestFleet(items, 100, ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']);
+      const suggestion = await suggestFleet(normalizedItems, 100, ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']);
       setResult(suggestion);
-      
-      // Auto-select recommended scenario
-      const recommended = suggestion.scenarios.find(s => s.is_recommended);
-      if (recommended) {
-        setSelectedScenario(recommended.name);
-      }
       
       toast.success('Scénarios de flotte calculés', {
         description: `${suggestion.scenarios.length} options disponibles`
@@ -72,9 +76,25 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
   };
 
   const handleSelectScenario = (scenario: FleetScenario) => {
-    setSelectedScenario(scenario.name);
-    toast.success(`Scénario "${scenario.name}" sélectionné`);
+    setSelectedScenario(scenario);
+    setShowLoadingPlan(true);
+    toast.success(`Scénario "${scenario.name}" sélectionné - Calcul du plan de chargement...`);
   };
+
+  const handleBackToScenarios = () => {
+    setShowLoadingPlan(false);
+  };
+
+  // Show 3D loading plan if a scenario is selected
+  if (showLoadingPlan && selectedScenario) {
+    return (
+      <LoadingPlan3D 
+        scenario={selectedScenario} 
+        items={normalizedItems} 
+        onBack={handleBackToScenarios} 
+      />
+    );
+  }
 
   if (isLoading) {
     return (
@@ -167,7 +187,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {result.scenarios.map((scenario) => {
           const Icon = SCENARIO_ICONS[scenario.name] || Truck;
-          const isSelected = selectedScenario === scenario.name;
+          const isSelected = selectedScenario?.name === scenario.name;
           
           return (
             <Card 
@@ -250,17 +270,11 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
       </div>
 
       {/* Actions */}
-      <div className="flex justify-between pt-4">
+      <div className="flex justify-center pt-4">
         <Button variant="outline" onClick={onReset}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Nouvelle analyse
         </Button>
-        {selectedScenario && (
-          <Button onClick={() => toast.success('Scénario confirmé - Prêt pour l\'exécution')}>
-            <Check className="h-4 w-4 mr-2" />
-            Confirmer le scénario
-          </Button>
-        )}
       </div>
     </div>
   );
