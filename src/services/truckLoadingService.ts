@@ -1,5 +1,4 @@
-import { PackingItem, TruckSpec, OptimizationResult, Algorithm } from '@/types/truckLoading';
-import { supabase } from '@/integrations/supabase/client';
+import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult } from '@/types/truckLoading';
 
 const API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
@@ -166,4 +165,54 @@ export async function getVisualization(
 
   const data = await response.json();
   return data.image_base64 || data.visualization_base64;
+}
+
+// Suggest optimal fleet configuration
+export async function suggestFleet(
+  items: PackingItem[],
+  distanceKm: number = 100,
+  availableTrucks: string[] = ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']
+): Promise<FleetSuggestionResult> {
+  const response = await fetch(`${API_URL}/api/optimization/suggest-fleet`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      items,
+      distance_km: distanceKm,
+      available_trucks: availableTrucks,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Erreur lors de la suggestion de flotte');
+  }
+
+  const data = await response.json();
+  
+  // Normalize API response to our types
+  const scenarios = (data.scenarios || []).map((s: any) => ({
+    name: s.name || 'Scénario',
+    description: s.description || '',
+    trucks: (s.trucks || []).map((t: any) => ({
+      truck_type: t.truck_type || t.type || 'unknown',
+      count: t.count || 1,
+      fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
+      weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
+      items_assigned: t.items_assigned ?? t.items_count ?? 0,
+    })),
+    total_cost: s.total_cost ?? 0,
+    total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
+    is_recommended: s.is_recommended ?? s.recommended ?? false,
+  }));
+
+  return {
+    scenarios,
+    recommended_scenario: data.recommended_scenario || data.recommended || '',
+    total_weight: data.total_weight ?? 0,
+    total_volume: data.total_volume ?? 0,
+    items_count: data.items_count ?? items.length,
+  };
 }
