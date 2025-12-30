@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, DollarSign, BarChart3, Check, Star, Loader2, RefreshCw } from 'lucide-react';
+import { Truck, DollarSign, BarChart3, Check, Star, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,12 @@ const TRUCK_LABELS: Record<string, string> = {
   truck_19t: 'Camion 19T',
   truck_26t: 'Camion 26T',
   truck_40t: 'Semi-remorque 40T',
+  convoy_modular: 'Convoi Exceptionnel (Remorque Modulaire)',
+  exceptional_convoy: 'Convoi Exceptionnel',
+  modular_trailer: 'Remorque Modulaire',
 };
+
+const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer'];
 
 const SCENARIO_ICONS: Record<string, typeof DollarSign> = {
   'Coût Optimal': DollarSign,
@@ -231,21 +236,32 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                 {/* Trucks breakdown */}
                 <div className="space-y-3">
                   <p className="text-sm font-medium">Répartition des camions :</p>
-                  {scenario.trucks.map((truck, idx) => (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>{TRUCK_LABELS[truck.truck_type] || truck.truck_type}</span>
-                        <span className="font-medium">×{truck.count}</span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Remplissage</span>
-                          <span>{(truck.fill_rate * 100).toFixed(0)}%</span>
+                {scenario.trucks.map((truck, idx) => {
+                    const isSpecialTransport = SPECIAL_TRANSPORT_TYPES.includes(truck.truck_type);
+                    return (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex justify-between items-center text-sm">
+                          <div className="flex items-center gap-2">
+                            <span>{TRUCK_LABELS[truck.truck_type] || truck.truck_type}</span>
+                            {isSpecialTransport && (
+                              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                TRANSPORT SPÉCIAL
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="font-medium">×{truck.count}</span>
                         </div>
-                        <Progress value={truck.fill_rate * 100} className="h-1.5" />
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Remplissage</span>
+                            <span>{(truck.fill_rate * 100).toFixed(0)}%</span>
+                          </div>
+                          <Progress value={truck.fill_rate * 100} className="h-1.5" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 
                 {/* Select Button */}
