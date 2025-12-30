@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileSpreadsheet, X, AlertCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, X, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { uploadPackingList } from '@/services/truckLoadingService';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { parsePackingListWithAI, AIExtractionResult } from '@/services/truckLoadingService';
 import { PackingItem } from '@/types/truckLoading';
 import { toast } from 'sonner';
 
@@ -18,6 +18,7 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AIExtractionResult | null>(null);
 
   const validateFile = (file: File): boolean => {
     const validTypes = [
@@ -46,6 +47,7 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
 
   const handleFile = async (file: File) => {
     setError(null);
+    setAiResult(null);
     
     if (!validateFile(file)) {
       return;
@@ -55,24 +57,40 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
     setIsUploading(true);
     setUploadProgress(0);
 
-    // Simulate progress
+    // Progress simulation for AI processing (takes longer)
     const progressInterval = setInterval(() => {
-      setUploadProgress(prev => Math.min(prev + 10, 90));
-    }, 200);
+      setUploadProgress(prev => Math.min(prev + 5, 85));
+    }, 500);
 
     try {
-      const items = await uploadPackingList(file);
+      const result = await parsePackingListWithAI(file);
       clearInterval(progressInterval);
       setUploadProgress(100);
+      setAiResult(result);
       
-      toast.success(`${items.length} articles importés avec succès`);
+      if (result.items.length === 0) {
+        setError('Aucun article valide trouvé dans le fichier');
+        setIsUploading(false);
+        return;
+      }
+      
+      // Calculate total weight for verification
+      const totalWeight = result.items.reduce((sum, item) => sum + item.weight, 0);
+      const heavyItems = result.items.filter(item => item.weight > 10000);
+      
+      toast.success(
+        `${result.items.length} articles extraits par IA`,
+        { 
+          description: `Poids total: ${(totalWeight / 1000).toFixed(1)} tonnes${heavyItems.length > 0 ? ` (${heavyItems.length} colis lourds)` : ''}`
+        }
+      );
       
       setTimeout(() => {
-        onUploadComplete(items);
-      }, 500);
+        onUploadComplete(result.items);
+      }, 1000);
     } catch (err) {
       clearInterval(progressInterval);
-      const message = err instanceof Error ? err.message : 'Erreur lors de l\'upload';
+      const message = err instanceof Error ? err.message : 'Erreur lors de l\'analyse IA';
       setError(message);
       toast.error(message);
       setIsUploading(false);
@@ -112,6 +130,7 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
     setIsUploading(false);
     setUploadProgress(0);
     setError(null);
+    setAiResult(null);
   };
 
   return (
@@ -152,9 +171,10 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
                   </span>
                 </Button>
               </label>
-              <p className="text-xs text-muted-foreground mt-4">
-                Formats acceptés : .xlsx, .xls (max 10 MB)
-              </p>
+              <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground">
+                <Brain className="h-4 w-4" />
+                <span>Extraction intelligente par IA - Supporte tous les formats de packing list</span>
+              </div>
             </>
           ) : (
             <div className="w-full max-w-md space-y-4">
@@ -176,15 +196,47 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
               {isUploading && (
                 <div className="space-y-2">
                   <Progress value={uploadProgress} className="h-2" />
-                  <p className="text-sm text-center text-muted-foreground">
-                    {uploadProgress < 100 ? 'Analyse en cours...' : 'Terminé !'}
-                  </p>
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Brain className="h-4 w-4 animate-pulse" />
+                    <span>
+                      {uploadProgress < 100 ? 'Analyse IA en cours...' : 'Terminé !'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* AI Warnings Display */}
+      {aiResult && aiResult.warnings.length > 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Avertissements de l'IA</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc list-inside mt-2 space-y-1">
+              {aiResult.warnings.map((warning, index) => (
+                <li key={index} className="text-sm">{warning}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* AI Success Info */}
+      {aiResult && aiResult.items.length > 0 && !error && (
+        <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+          <AlertTitle className="text-green-700 dark:text-green-400">
+            Extraction réussie
+          </AlertTitle>
+          <AlertDescription className="text-green-600 dark:text-green-300">
+            {aiResult.total_items} articles extraits depuis {aiResult.sheets_analyzed.length} onglet(s).
+            Type détecté: {aiResult.document_type === 'packing_list' ? 'Packing List' : aiResult.document_type}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive">
