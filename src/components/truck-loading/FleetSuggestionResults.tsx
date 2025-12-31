@@ -132,6 +132,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
   };
 
   // Run optimization when user clicks "Valider ce scénario"
+  // Uses trucks_details from suggest-fleet API which contains pre-assigned items per truck
   const handleSelectScenario = async (scenario: FleetScenario) => {
     setSelectedScenario(scenario);
     setIsOptimizing(true);
@@ -141,90 +142,136 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
     toast.info(`Calcul du plan de chargement pour "${scenario.name}"...`);
 
     try {
-      // 1. Get truck specifications
+      // 1. Get truck specifications for dimensions
       const specs = await getTruckSpecs();
       console.log('[FleetSuggestion] Truck specs loaded:', specs.map(s => s.name));
 
-      // 2. Calculate total trucks in scenario for fallback distribution
-      const totalTrucksInScenario = scenario.trucks.reduce((sum, a) => sum + a.count, 0);
-      
-      // 3. For each truck type in scenario, call optimize
       const results: TruckLoadingResult[] = [];
       const errors: string[] = [];
-      let itemOffset = 0;
-      let remainingItems = normalizedItems.length;
 
+      // 2. Iterate through each allocation in the scenario
       for (const allocation of scenario.trucks) {
-        // Find truck spec with fallback for partial matches
-        let truckSpec = specs.find(s => s.name === allocation.truck_type);
-        
-        if (!truckSpec) {
-          // Fallback: search by partial match
-          truckSpec = specs.find(s => 
-            s.name.includes(allocation.truck_type) || 
-            allocation.truck_type.includes(s.name)
-          );
-        }
-        
-        // Special transport fallback
-        if (!truckSpec && isSpecialTransportType(allocation.truck_type)) {
-          console.log(`[FleetSuggestion] Using special transport spec for "${allocation.truck_type}"`);
-          truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: allocation.truck_type };
-        }
-        
-        if (!truckSpec) {
-          console.warn(`[FleetSuggestion] Truck spec not found for "${allocation.truck_type}"`);
-          errors.push(`Spécifications non trouvées pour: ${allocation.truck_type}`);
-          continue;
-        }
-        
-        console.log(`[FleetSuggestion] Using spec for "${allocation.truck_type}":`, truckSpec.name);
-
-        // Robust item distribution:
-        // - Use items_assigned if available and > 0
-        // - Otherwise, distribute remaining items evenly across remaining trucks
-        let itemsForThisType = allocation.items_assigned || 0;
-        
-        if (itemsForThisType === 0 && remainingItems > 0) {
-          // Fallback: distribute remaining items across remaining trucks
-          const remainingTrucks = totalTrucksInScenario - results.length;
-          itemsForThisType = Math.ceil(remainingItems / Math.max(1, remainingTrucks)) * allocation.count;
-          console.log(`[FleetSuggestion] Fallback distribution: ${itemsForThisType} items for ${allocation.count} trucks`);
-        }
-
-        const itemsPerTruck = Math.ceil(itemsForThisType / allocation.count);
-
-        for (let i = 0; i < allocation.count; i++) {
-          const startIdx = itemOffset;
-          const endIdx = Math.min(startIdx + itemsPerTruck, normalizedItems.length);
-          const truckItems = normalizedItems.slice(startIdx, endIdx);
+        // Check if trucks_details is available (pre-assigned items from backend)
+        if (allocation.trucks_details && allocation.trucks_details.length > 0) {
+          console.log(`[FleetSuggestion] Using trucks_details for ${allocation.truck_type}: ${allocation.trucks_details.length} truck(s)`);
           
-          if (truckItems.length === 0) {
-            console.log(`[FleetSuggestion] No items for truck ${i + 1} of type ${allocation.truck_type}`);
+          // Process each truck with its pre-assigned items
+          for (let i = 0; i < allocation.trucks_details.length; i++) {
+            const truckDetail = allocation.trucks_details[i];
+            
+            if (!truckDetail.items || truckDetail.items.length === 0) {
+              console.log(`[FleetSuggestion] No items for truck ${i + 1} of type ${truckDetail.type}`);
+              continue;
+            }
+
+            // Convert truckDetail items to PackingItem format
+            const truckItems: PackingItem[] = truckDetail.items.map(item => ({
+              id: item.id,
+              description: item.name,
+              length: item.length,
+              width: item.width,
+              height: item.height,
+              weight: normalizeWeight(item.weight),
+              quantity: item.quantity || 1,
+              stackable: true,
+            }));
+
+            // Build truck spec from trucks_details or fallback to API specs
+            let truckSpec: TruckSpec | undefined = specs.find(s => s.name === truckDetail.type);
+            
+            if (!truckSpec) {
+              truckSpec = specs.find(s => 
+                s.name.includes(truckDetail.type) || 
+                truckDetail.type.includes(s.name)
+              );
+            }
+
+            // Use volume_capacity and weight_capacity from trucks_details if spec not found
+            if (!truckSpec) {
+              if (isSpecialTransportType(truckDetail.type)) {
+                truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: truckDetail.type };
+              } else {
+                // Create spec from trucks_details capacities
+                console.log(`[FleetSuggestion] Creating spec from trucks_details for ${truckDetail.type}`);
+                truckSpec = {
+                  name: truckDetail.type,
+                  length: 13600, // Default semi-trailer length
+                  width: 2480,
+                  height: 2700,
+                  max_weight: truckDetail.weight_capacity || 25000,
+                };
+              }
+            }
+
+            try {
+              console.log(`[FleetSuggestion] Optimizing truck ${i + 1} (${truckDetail.type}) with ${truckItems.length} items from trucks_details`);
+              
+              const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
+              
+              results.push({
+                truckType: truckDetail.type,
+                truckIndex: results.length,
+                result: optimResult,
+                truckSpec,
+                isSpecialTransport: isSpecialTransportType(truckDetail.type),
+              });
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : 'Erreur inconnue';
+              console.error(`[FleetSuggestion] Error optimizing truck ${i + 1} of type ${truckDetail.type}:`, errMsg);
+              errors.push(`Camion ${truckDetail.type} #${i + 1}: ${errMsg}`);
+            }
+          }
+        } else {
+          // FALLBACK: No trucks_details, use legacy distribution method
+          console.warn(`[FleetSuggestion] No trucks_details for ${allocation.truck_type}, using fallback distribution`);
+          
+          let truckSpec = specs.find(s => s.name === allocation.truck_type);
+          
+          if (!truckSpec) {
+            truckSpec = specs.find(s => 
+              s.name.includes(allocation.truck_type) || 
+              allocation.truck_type.includes(s.name)
+            );
+          }
+          
+          if (!truckSpec && isSpecialTransportType(allocation.truck_type)) {
+            truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: allocation.truck_type };
+          }
+          
+          if (!truckSpec) {
+            console.warn(`[FleetSuggestion] Truck spec not found for "${allocation.truck_type}"`);
+            errors.push(`Spécifications non trouvées pour: ${allocation.truck_type}`);
             continue;
           }
 
-          try {
-            console.log(`[FleetSuggestion] Optimizing truck ${i + 1} of ${allocation.count} (${allocation.truck_type}) with ${truckItems.length} items`);
+          // Fallback: distribute items evenly across trucks of this type
+          const itemsPerTruck = Math.ceil(normalizedItems.length / scenario.total_trucks);
+          const startIdx = results.length * itemsPerTruck;
+          
+          for (let i = 0; i < allocation.count; i++) {
+            const truckStartIdx = startIdx + (i * itemsPerTruck);
+            const truckEndIdx = Math.min(truckStartIdx + itemsPerTruck, normalizedItems.length);
+            const truckItems = normalizedItems.slice(truckStartIdx, truckEndIdx);
             
-            const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
-            
-            results.push({
-              truckType: allocation.truck_type,
-              truckIndex: results.length,
-              result: optimResult,
-              truckSpec,
-              isSpecialTransport: isSpecialTransportType(allocation.truck_type),
-            });
+            if (truckItems.length === 0) continue;
 
-            // Only advance offset on success
-            itemOffset = endIdx;
-            remainingItems = normalizedItems.length - itemOffset;
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : 'Erreur inconnue';
-            console.error(`[FleetSuggestion] Error optimizing truck ${i + 1} of type ${allocation.truck_type}:`, errMsg);
-            errors.push(`Camion ${allocation.truck_type} #${i + 1}: ${errMsg}`);
-            // Don't advance itemOffset on failure - items can be retried
+            try {
+              console.log(`[FleetSuggestion] Fallback: Optimizing truck ${i + 1} (${allocation.truck_type}) with ${truckItems.length} items`);
+              
+              const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
+              
+              results.push({
+                truckType: allocation.truck_type,
+                truckIndex: results.length,
+                result: optimResult,
+                truckSpec,
+                isSpecialTransport: isSpecialTransportType(allocation.truck_type),
+              });
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : 'Erreur inconnue';
+              console.error(`[FleetSuggestion] Error optimizing truck ${i + 1} of type ${allocation.truck_type}:`, errMsg);
+              errors.push(`Camion ${allocation.truck_type} #${i + 1}: ${errMsg}`);
+            }
           }
         }
       }
