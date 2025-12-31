@@ -173,46 +173,90 @@ export async function suggestFleet(
   distanceKm: number = 100,
   availableTrucks: string[] = ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']
 ): Promise<FleetSuggestionResult> {
-  const response = await fetch(`${API_URL}/api/optimization/suggest-fleet`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      items,
-      distance_km: distanceKm,
-      available_trucks: availableTrucks,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Erreur lors de la suggestion de flotte');
-  }
-
-  const data = await response.json();
+  const url = `${API_URL}/api/optimization/suggest-fleet`;
   
-  // Normalize API response to our types
-  const scenarios = (data.scenarios || []).map((s: any) => ({
-    name: s.name || 'Scénario',
-    description: s.description || '',
-    trucks: (s.trucks || []).map((t: any) => ({
-      truck_type: t.truck_type || t.type || 'unknown',
-      count: t.count || 1,
-      fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
-      weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
-      items_assigned: t.items_assigned ?? t.items_count ?? 0,
-    })),
-    total_cost: s.total_cost ?? 0,
-    total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
-    is_recommended: s.is_recommended ?? s.recommended ?? false,
+  // Format items for backend: map description to name
+  const formattedItems = items.map((item, index) => ({
+    id: item.id || `item_${index}`,
+    name: item.description || `Article ${index + 1}`,
+    length: item.length,
+    width: item.width,
+    height: item.height,
+    weight: item.weight,
+    quantity: item.quantity,
   }));
 
-  return {
-    scenarios,
-    recommended_scenario: data.recommended_scenario || data.recommended || '',
-    total_weight: data.total_weight ?? 0,
-    total_volume: data.total_volume ?? 0,
-    items_count: data.items_count ?? items.length,
+  const requestBody = {
+    items: formattedItems,
+    distance_km: distanceKm,
+    available_trucks: availableTrucks,
   };
+
+  // Debug logs
+  console.log('[suggestFleet] URL:', url);
+  console.log('[suggestFleet] Request body:', JSON.stringify(requestBody, null, 2));
+  console.log('[suggestFleet] Items count:', formattedItems.length);
+  console.log('[suggestFleet] Total weight:', formattedItems.reduce((sum, i) => sum + (i.weight * i.quantity), 0), 'kg');
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log('[suggestFleet] Response status:', response.status);
+    console.log('[suggestFleet] Response ok:', response.ok);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[suggestFleet] Error response:', errorText);
+      let errorMessage = 'Erreur lors de la suggestion de flotte';
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log('[suggestFleet] Response data:', JSON.stringify(data, null, 2));
+    
+    // Normalize API response to our types
+    const scenarios = (data.scenarios || []).map((s: any) => ({
+      name: s.name || 'Scénario',
+      description: s.description || '',
+      trucks: (s.trucks || []).map((t: any) => ({
+        truck_type: t.truck_type || t.type || 'unknown',
+        count: t.count || 1,
+        fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
+        weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
+        items_assigned: t.items_assigned ?? t.items_count ?? 0,
+      })),
+      total_cost: s.total_cost ?? 0,
+      total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
+      is_recommended: s.is_recommended ?? s.recommended ?? false,
+    }));
+
+    console.log('[suggestFleet] Parsed scenarios:', scenarios.length);
+
+    return {
+      scenarios,
+      recommended_scenario: data.recommended_scenario || data.recommended || '',
+      total_weight: data.total_weight ?? 0,
+      total_volume: data.total_volume ?? 0,
+      items_count: data.items_count ?? items.length,
+    };
+  } catch (error) {
+    console.error('[suggestFleet] Fetch error:', error);
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      throw new Error('Impossible de contacter le serveur d\'optimisation. Vérifiez votre connexion ou réessayez plus tard.');
+    }
+    throw error;
+  }
 }
