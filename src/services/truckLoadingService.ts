@@ -127,8 +127,8 @@ export async function runOptimization(
   // Remove 'name' from truckSpec for backend compatibility
   const { name, ...truckWithoutName } = truckSpec;
 
-  // Map 'simple' to 'best_fit' for backend
-  const backendAlgorithm = algorithm === 'simple' ? 'best_fit' : algorithm;
+  // Backend only accepts 'genetic' or 'simple' - use 'genetic' for better results
+  const backendAlgorithm = algorithm === 'simple' ? 'simple' : 'genetic';
 
   const requestBody = {
     items: formattedItems,
