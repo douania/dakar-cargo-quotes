@@ -4,14 +4,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { FleetSuggestionResult, FleetScenario, PackingItem } from '@/types/truckLoading';
-import { suggestFleet } from '@/services/truckLoadingService';
+import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, TruckSpec } from '@/types/truckLoading';
+import { suggestFleet, runOptimization, getTruckSpecs } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
 import { LoadingPlan3D } from './LoadingPlan3D';
 
 interface FleetSuggestionResultsProps {
   items: PackingItem[];
   onReset: () => void;
+}
+
+// Result for a single truck optimization
+interface TruckLoadingResult {
+  truckType: string;
+  truckIndex: number;
+  result: OptimizationResult;
+  truckSpec: TruckSpec;
+  isSpecialTransport: boolean;
 }
 
 const TRUCK_LABELS: Record<string, string> = {
@@ -24,7 +33,25 @@ const TRUCK_LABELS: Record<string, string> = {
   modular_trailer: 'Remorque Modulaire',
 };
 
-const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer'];
+const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular'];
+
+// Default spec for exceptional convoy / modular trailers (not in truck-specs API)
+const SPECIAL_TRANSPORT_SPEC: TruckSpec = {
+  name: 'convoy_modular',
+  length: 15000, // 15m modular trailer
+  width: 3000,   // 3m wide
+  height: 3500,  // 3.5m height
+  max_weight: 100000, // 100 tonnes
+};
+
+const isSpecialTransportType = (truckType: string): boolean => {
+  const lowerType = truckType.toLowerCase();
+  return SPECIAL_TRANSPORT_TYPES.some(st => lowerType.includes(st)) ||
+    lowerType.includes('convoi') ||
+    lowerType.includes('exceptionnel') ||
+    lowerType.includes('modulaire') ||
+    lowerType.includes('remorque');
+};
 
 const SCENARIO_ICONS: Record<string, typeof DollarSign> = {
   'Coût Optimal': DollarSign,
@@ -32,20 +59,40 @@ const SCENARIO_ICONS: Record<string, typeof DollarSign> = {
   'Équilibré': BarChart3,
 };
 
+/**
+ * Safe weight normalization:
+ * - Weights should already be in KG from the parser
+ * - Only convert if clearly in tonnes (0 < weight < 1)
+ * - Do NOT multiply by 1000 for weights < 100 (that's incorrect)
+ */
+const normalizeWeight = (weight: number): number => {
+  if (weight > 0 && weight < 1) {
+    // Clearly in tonnes, convert to kg
+    return weight * 1000;
+  }
+  // Already in kg (or 0)
+  return weight;
+};
+
 export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResultsProps) {
   const [isLoading, setIsLoading] = useState(true);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [result, setResult] = useState<FleetSuggestionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<FleetScenario | null>(null);
   const [showLoadingPlan, setShowLoadingPlan] = useState(false);
+  const [loadingResults, setLoadingResults] = useState<TruckLoadingResult[]>([]);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
 
-  // Ensure weights are in KG before sending
+  // Normalize weights safely
   const normalizedItems = items.map(item => ({
     ...item,
-    // Weight should be in KG - the parser should already provide KG
-    // but if weight looks suspiciously low (< 100), it might be in tonnes
-    weight: item.weight < 100 && item.weight > 0 ? item.weight * 1000 : item.weight,
+    weight: normalizeWeight(item.weight),
   }));
+
+  // Sanity check for total weight
+  const totalWeight = normalizedItems.reduce((sum, item) => sum + item.weight * item.quantity, 0);
+  const isSuspiciousWeight = totalWeight > 500000; // > 500 tonnes seems suspicious
 
   // Auto-load fleet suggestion on mount
   useEffect(() => {
@@ -55,6 +102,10 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
   const loadFleetSuggestion = async () => {
     setIsLoading(true);
     setError(null);
+    
+    if (isSuspiciousWeight) {
+      console.warn(`[FleetSuggestion] Suspicious total weight: ${totalWeight} kg. Verify units.`);
+    }
     
     try {
       const suggestion = await suggestFleet(normalizedItems, 100, ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']);
@@ -80,24 +131,174 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
     }).format(cost) + ' FCFA';
   };
 
-  const handleSelectScenario = (scenario: FleetScenario) => {
+  // Run optimization when user clicks "Valider ce scénario"
+  const handleSelectScenario = async (scenario: FleetScenario) => {
     setSelectedScenario(scenario);
-    setShowLoadingPlan(true);
-    toast.success(`Scénario "${scenario.name}" sélectionné - Calcul du plan de chargement...`);
+    setIsOptimizing(true);
+    setOptimizationError(null);
+    setLoadingResults([]);
+
+    toast.info(`Calcul du plan de chargement pour "${scenario.name}"...`);
+
+    try {
+      // 1. Get truck specifications
+      const specs = await getTruckSpecs();
+      console.log('[FleetSuggestion] Truck specs loaded:', specs.map(s => s.name));
+
+      // 2. Calculate total trucks in scenario for fallback distribution
+      const totalTrucksInScenario = scenario.trucks.reduce((sum, a) => sum + a.count, 0);
+      
+      // 3. For each truck type in scenario, call optimize
+      const results: TruckLoadingResult[] = [];
+      const errors: string[] = [];
+      let itemOffset = 0;
+      let remainingItems = normalizedItems.length;
+
+      for (const allocation of scenario.trucks) {
+        // Find truck spec with fallback for partial matches
+        let truckSpec = specs.find(s => s.name === allocation.truck_type);
+        
+        if (!truckSpec) {
+          // Fallback: search by partial match
+          truckSpec = specs.find(s => 
+            s.name.includes(allocation.truck_type) || 
+            allocation.truck_type.includes(s.name)
+          );
+        }
+        
+        // Special transport fallback
+        if (!truckSpec && isSpecialTransportType(allocation.truck_type)) {
+          console.log(`[FleetSuggestion] Using special transport spec for "${allocation.truck_type}"`);
+          truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: allocation.truck_type };
+        }
+        
+        if (!truckSpec) {
+          console.warn(`[FleetSuggestion] Truck spec not found for "${allocation.truck_type}"`);
+          errors.push(`Spécifications non trouvées pour: ${allocation.truck_type}`);
+          continue;
+        }
+        
+        console.log(`[FleetSuggestion] Using spec for "${allocation.truck_type}":`, truckSpec.name);
+
+        // Robust item distribution:
+        // - Use items_assigned if available and > 0
+        // - Otherwise, distribute remaining items evenly across remaining trucks
+        let itemsForThisType = allocation.items_assigned || 0;
+        
+        if (itemsForThisType === 0 && remainingItems > 0) {
+          // Fallback: distribute remaining items across remaining trucks
+          const remainingTrucks = totalTrucksInScenario - results.length;
+          itemsForThisType = Math.ceil(remainingItems / Math.max(1, remainingTrucks)) * allocation.count;
+          console.log(`[FleetSuggestion] Fallback distribution: ${itemsForThisType} items for ${allocation.count} trucks`);
+        }
+
+        const itemsPerTruck = Math.ceil(itemsForThisType / allocation.count);
+
+        for (let i = 0; i < allocation.count; i++) {
+          const startIdx = itemOffset;
+          const endIdx = Math.min(startIdx + itemsPerTruck, normalizedItems.length);
+          const truckItems = normalizedItems.slice(startIdx, endIdx);
+          
+          if (truckItems.length === 0) {
+            console.log(`[FleetSuggestion] No items for truck ${i + 1} of type ${allocation.truck_type}`);
+            continue;
+          }
+
+          try {
+            console.log(`[FleetSuggestion] Optimizing truck ${i + 1} of ${allocation.count} (${allocation.truck_type}) with ${truckItems.length} items`);
+            
+            const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
+            
+            results.push({
+              truckType: allocation.truck_type,
+              truckIndex: results.length,
+              result: optimResult,
+              truckSpec,
+              isSpecialTransport: isSpecialTransportType(allocation.truck_type),
+            });
+
+            // Only advance offset on success
+            itemOffset = endIdx;
+            remainingItems = normalizedItems.length - itemOffset;
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : 'Erreur inconnue';
+            console.error(`[FleetSuggestion] Error optimizing truck ${i + 1} of type ${allocation.truck_type}:`, errMsg);
+            errors.push(`Camion ${allocation.truck_type} #${i + 1}: ${errMsg}`);
+            // Don't advance itemOffset on failure - items can be retried
+          }
+        }
+      }
+
+      setLoadingResults(results);
+
+      if (results.length > 0) {
+        toast.success('Plans de chargement calculés', {
+          description: `${results.length} camion(s) optimisé(s)`
+        });
+        setShowLoadingPlan(true);
+      } else if (errors.length > 0) {
+        const errorMsg = `Tous les calculs ont échoué:\n${errors.slice(0, 3).join('\n')}`;
+        setOptimizationError(errorMsg);
+        toast.error('Échec du calcul des plans', {
+          description: errors[0]
+        });
+      } else {
+        setOptimizationError('Aucun article à placer ou configuration invalide');
+        toast.error('Aucun plan généré');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur lors du calcul des plans';
+      setOptimizationError(message);
+      toast.error(message);
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   const handleBackToScenarios = () => {
     setShowLoadingPlan(false);
+    setLoadingResults([]);
+    setOptimizationError(null);
   };
 
-  // Show 3D loading plan if a scenario is selected
-  if (showLoadingPlan && selectedScenario) {
+  // Show 3D loading plan if a scenario is selected and results are ready
+  if (showLoadingPlan && selectedScenario && loadingResults.length > 0) {
     return (
       <LoadingPlan3D 
         scenario={selectedScenario} 
         items={normalizedItems} 
-        onBack={handleBackToScenarios} 
+        onBack={handleBackToScenarios}
+        precomputedResults={loadingResults}
       />
+    );
+  }
+
+  // Show optimization error if all calls failed
+  if (optimizationError && selectedScenario) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 space-y-4">
+        <div className="rounded-full bg-destructive/10 p-4">
+          <AlertTriangle className="h-8 w-8 text-destructive" />
+        </div>
+        <div className="text-center max-w-md">
+          <p className="text-lg font-medium text-destructive">Échec du calcul des plans de chargement</p>
+          <p className="text-sm text-muted-foreground mt-2 whitespace-pre-line">
+            {optimizationError}
+          </p>
+          <p className="text-xs text-muted-foreground mt-4">
+            Causes possibles: poids excessif, dimensions incohérentes, erreur backend
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={handleBackToScenarios}>
+            Retour aux scénarios
+          </Button>
+          <Button onClick={() => handleSelectScenario(selectedScenario)}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Réessayer
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -109,6 +310,20 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
           <p className="text-lg font-medium">Calcul des scénarios optimaux...</p>
           <p className="text-sm text-muted-foreground">
             Analyse de {items.length} articles pour déterminer la meilleure configuration
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isOptimizing) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 space-y-4">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <div className="text-center">
+          <p className="text-lg font-medium">Calcul des plans de chargement...</p>
+          <p className="text-sm text-muted-foreground">
+            Optimisation du placement pour "{selectedScenario?.name}"
           </p>
         </div>
       </div>
@@ -151,6 +366,21 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
 
   return (
     <div className="space-y-6">
+      {/* Sanity warning for suspicious weight */}
+      {isSuspiciousWeight && (
+        <Card className="border-amber-500 bg-amber-500/10">
+          <CardContent className="flex items-center gap-4 py-4">
+            <AlertTriangle className="h-6 w-6 text-amber-600" />
+            <div>
+              <p className="font-medium text-amber-700">Poids total élevé détecté</p>
+              <p className="text-sm text-muted-foreground">
+                Poids total: {(totalWeight / 1000).toFixed(1)} tonnes. Vérifiez que les unités sont correctes (kg attendus).
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -237,7 +467,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                 <div className="space-y-3">
                   <p className="text-sm font-medium">Répartition des camions :</p>
                 {scenario.trucks.map((truck, idx) => {
-                    const isSpecialTransport = SPECIAL_TRANSPORT_TYPES.includes(truck.truck_type);
+                    const isSpecialTransport = isSpecialTransportType(truck.truck_type);
                     return (
                       <div key={idx} className="space-y-1">
                         <div className="flex justify-between items-center text-sm">
@@ -269,14 +499,15 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                   className="w-full" 
                   variant={isSelected ? "default" : "outline"}
                   onClick={() => handleSelectScenario(scenario)}
+                  disabled={isOptimizing}
                 >
-                  {isSelected ? (
+                  {isOptimizing && isSelected ? (
                     <>
-                      <Check className="h-4 w-4 mr-2" />
-                      Sélectionné
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Calcul en cours...
                     </>
                   ) : (
-                    'Sélectionner ce scénario'
+                    'Valider ce scénario'
                   )}
                 </Button>
               </CardContent>
