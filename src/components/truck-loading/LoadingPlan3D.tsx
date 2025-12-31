@@ -33,7 +33,25 @@ const TRUCK_LABELS: Record<string, string> = {
   modular_trailer: 'Remorque Modulaire',
 };
 
-const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer'];
+const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular'];
+
+// Default spec for exceptional convoy / modular trailers (not in truck-specs API)
+const SPECIAL_TRANSPORT_SPEC: TruckSpec = {
+  name: 'convoy_modular',
+  length: 15000, // 15m modular trailer
+  width: 3000,   // 3m wide
+  height: 3500,  // 3.5m height
+  max_weight: 100000, // 100 tonnes
+};
+
+const isSpecialTransportType = (truckType: string): boolean => {
+  const lowerType = truckType.toLowerCase();
+  return SPECIAL_TRANSPORT_TYPES.some(st => lowerType.includes(st)) ||
+    lowerType.includes('convoi') ||
+    lowerType.includes('exceptionnel') ||
+    lowerType.includes('modulaire') ||
+    lowerType.includes('remorque');
+};
 
 export function LoadingPlan3D({ scenario, items, onBack }: LoadingPlan3DProps) {
   const [isLoading, setIsLoading] = useState(true);
@@ -69,6 +87,12 @@ export function LoadingPlan3D({ scenario, items, onBack }: LoadingPlan3DProps) {
             s.name.includes(allocation.truck_type) || 
             allocation.truck_type.includes(s.name)
           );
+        }
+        
+        // Special transport fallback: use default spec for exceptional convoys
+        if (!truckSpec && isSpecialTransportType(allocation.truck_type)) {
+          console.log(`[LoadingPlan3D] Using special transport spec for "${allocation.truck_type}"`);
+          truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: allocation.truck_type };
         }
         
         if (!truckSpec) {
