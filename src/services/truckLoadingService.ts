@@ -107,38 +107,81 @@ function normalizeOptimizationResult(apiResponse: any): OptimizationResult {
 export async function runOptimization(
   items: PackingItem[],
   truckSpec: TruckSpec,
-  algorithm: Algorithm
+  algorithm: Algorithm = 'simple'
 ): Promise<OptimizationResult> {
+  const url = `${API_URL}/api/optimization/optimize`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
 
+  // Format items for backend: map description to name
+  const formattedItems = items.map((item, index) => ({
+    id: item.id || `item_${index}`,
+    name: item.description || `Article ${index + 1}`,
+    length: item.length,
+    width: item.width,
+    height: item.height,
+    weight: item.weight,
+    quantity: item.quantity,
+  }));
+
+  // Remove 'name' from truckSpec for backend compatibility
+  const { name, ...truckWithoutName } = truckSpec;
+
+  // Map 'simple' to 'best_fit' for backend
+  const backendAlgorithm = algorithm === 'simple' ? 'best_fit' : algorithm;
+
+  const requestBody = {
+    items: formattedItems,
+    truck: truckWithoutName,
+    algorithm: backendAlgorithm,
+  };
+
+  // Debug logs
+  console.log('[runOptimization] URL:', url);
+  console.log('[runOptimization] Truck spec:', JSON.stringify(truckWithoutName, null, 2));
+  console.log('[runOptimization] Items count:', formattedItems.length);
+  console.log('[runOptimization] Algorithm:', backendAlgorithm);
+  console.log('[runOptimization] Request body:', JSON.stringify(requestBody, null, 2));
+
   try {
-    const response = await fetch(`${API_URL}/api/optimization/optimize`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
-      body: JSON.stringify({
-        items,
-        truck: (({ name, ...rest }) => rest)(truckSpec),
-        algorithm,
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
+    console.log('[runOptimization] Response status:', response.status);
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(error || 'Erreur lors de l\'optimisation');
+      const errorText = await response.text();
+      console.error('[runOptimization] Error response:', errorText);
+      let errorMessage = 'Erreur lors de l\'optimisation';
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
     }
 
     const apiResponse = await response.json();
+    console.log('[runOptimization] Response data:', JSON.stringify(apiResponse, null, 2));
+    
     return normalizeOptimizationResult(apiResponse);
   } catch (error) {
     clearTimeout(timeoutId);
+    console.error('[runOptimization] Fetch error:', error);
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('L\'optimisation a pris trop de temps. Essayez l\'algorithme rapide.');
+    }
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      throw new Error('Impossible de contacter le serveur d\'optimisation. Vérifiez votre connexion.');
     }
     throw error;
   }

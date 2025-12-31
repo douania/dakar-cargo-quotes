@@ -60,11 +60,24 @@ export function LoadingPlan3D({ scenario, items, onBack }: LoadingPlan3DProps) {
       let itemOffset = 0;
 
       for (const allocation of scenario.trucks) {
-        const truckSpec = specs.find(s => s.name === allocation.truck_type);
+        // Find truck spec with fallback for partial matches
+        let truckSpec = specs.find(s => s.name === allocation.truck_type);
+        
         if (!truckSpec) {
-          console.warn(`Truck spec not found for ${allocation.truck_type}`);
+          // Fallback: search by partial match
+          truckSpec = specs.find(s => 
+            s.name.includes(allocation.truck_type) || 
+            allocation.truck_type.includes(s.name)
+          );
+        }
+        
+        if (!truckSpec) {
+          console.warn(`[LoadingPlan3D] Truck spec not found for "${allocation.truck_type}"`);
+          console.log('[LoadingPlan3D] Available specs:', specs.map(s => s.name));
           continue;
         }
+        
+        console.log(`[LoadingPlan3D] Using spec for "${allocation.truck_type}":`, truckSpec.name);
 
         // Distribute items across trucks of this type
         const itemsPerTruck = Math.ceil(allocation.items_assigned / allocation.count);
