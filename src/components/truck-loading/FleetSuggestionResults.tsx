@@ -139,6 +139,9 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
     setOptimizationError(null);
     setLoadingResults([]);
 
+    console.log('[handleSelectScenario] Scenario:', scenario.name);
+    console.log('[handleSelectScenario] Original items from props:', normalizedItems.length, normalizedItems);
+
     toast.info(`Calcul du plan de chargement pour "${scenario.name}"...`);
 
     try {
@@ -148,9 +151,14 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
 
       const results: TruckLoadingResult[] = [];
       const errors: string[] = [];
+      
+      // Track if we successfully found items in trucks_details
+      let foundItemsInTrucksDetails = false;
 
       // 2. Iterate through each allocation in the scenario
       for (const allocation of scenario.trucks) {
+        console.log(`[FleetSuggestion] Processing allocation:`, allocation.truck_type, 'count:', allocation.count, 'trucks_details:', allocation.trucks_details?.length || 0);
+        
         // Check if trucks_details is available (pre-assigned items from backend)
         if (allocation.trucks_details && allocation.trucks_details.length > 0) {
           console.log(`[FleetSuggestion] Using trucks_details for ${allocation.truck_type}: ${allocation.trucks_details.length} truck(s)`);
@@ -159,10 +167,14 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
           for (let i = 0; i < allocation.trucks_details.length; i++) {
             const truckDetail = allocation.trucks_details[i];
             
+            console.log(`[FleetSuggestion] Truck detail ${i + 1}:`, JSON.stringify(truckDetail, null, 2));
+            
             if (!truckDetail.items || truckDetail.items.length === 0) {
-              console.log(`[FleetSuggestion] No items for truck ${i + 1} of type ${truckDetail.type}`);
+              console.warn(`[FleetSuggestion] No items in trucks_details for truck ${i + 1} of type ${truckDetail.type}`);
               continue;
             }
+            
+            foundItemsInTrucksDetails = true;
 
             // Convert truckDetail items to PackingItem format
             const truckItems: PackingItem[] = truckDetail.items.map(item => ({
@@ -175,6 +187,8 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               quantity: item.quantity || 1,
               stackable: true,
             }));
+            
+            console.log('[optimize] Items envoyés:', truckItems.length, truckItems);
 
             // Build truck spec from trucks_details or fallback to API specs
             let truckSpec: TruckSpec | undefined = specs.find(s => s.name === truckDetail.type);
@@ -222,8 +236,8 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             }
           }
         } else {
-          // FALLBACK: No trucks_details, use legacy distribution method
-          console.warn(`[FleetSuggestion] No trucks_details for ${allocation.truck_type}, using fallback distribution`);
+          // FALLBACK: No trucks_details, use legacy distribution method with original items
+          console.warn(`[FleetSuggestion] No trucks_details for ${allocation.truck_type}, using fallback with original items`);
           
           let truckSpec = specs.find(s => s.name === allocation.truck_type);
           
@@ -244,7 +258,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             continue;
           }
 
-          // Fallback: distribute items evenly across trucks of this type
+          // Fallback: distribute original items evenly across trucks of this type
           const itemsPerTruck = Math.ceil(normalizedItems.length / scenario.total_trucks);
           const startIdx = results.length * itemsPerTruck;
           
@@ -253,7 +267,12 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             const truckEndIdx = Math.min(truckStartIdx + itemsPerTruck, normalizedItems.length);
             const truckItems = normalizedItems.slice(truckStartIdx, truckEndIdx);
             
-            if (truckItems.length === 0) continue;
+            if (truckItems.length === 0) {
+              console.warn(`[FleetSuggestion] Fallback: No items for truck ${i + 1}, skipping`);
+              continue;
+            }
+
+            console.log('[optimize] Items envoyés (fallback):', truckItems.length, truckItems);
 
             try {
               console.log(`[FleetSuggestion] Fallback: Optimizing truck ${i + 1} (${allocation.truck_type}) with ${truckItems.length} items`);
@@ -276,6 +295,31 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
         }
       }
 
+      // FINAL FALLBACK: If no items were found in trucks_details AND results are empty, 
+      // use all original items with a single truck
+      if (results.length === 0 && !foundItemsInTrucksDetails && normalizedItems.length > 0) {
+        console.warn('[FleetSuggestion] FINAL FALLBACK: No items found in trucks_details, using all original items');
+        console.log('[optimize] Items envoyés (final fallback):', normalizedItems.length, normalizedItems);
+        
+        const firstAllocation = scenario.trucks[0];
+        let truckSpec = specs.find(s => s.name === firstAllocation?.truck_type) || specs[0] || SPECIAL_TRANSPORT_SPEC;
+        
+        try {
+          const optimResult = await runOptimization(normalizedItems, truckSpec, 'simple');
+          results.push({
+            truckType: truckSpec.name,
+            truckIndex: 0,
+            result: optimResult,
+            truckSpec,
+            isSpecialTransport: isSpecialTransportType(truckSpec.name),
+          });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : 'Erreur inconnue';
+          console.error(`[FleetSuggestion] Final fallback optimization failed:`, errMsg);
+          errors.push(`Fallback: ${errMsg}`);
+        }
+      }
+
       setLoadingResults(results);
 
       if (results.length > 0) {
@@ -290,8 +334,8 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
           description: errors[0]
         });
       } else {
-        setOptimizationError('Aucun article à placer ou configuration invalide');
-        toast.error('Aucun plan généré');
+        setOptimizationError('Aucun article à placer. Vérifiez que la packing list contient des articles.');
+        toast.error('Aucun plan généré - liste vide');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erreur lors du calcul des plans';
