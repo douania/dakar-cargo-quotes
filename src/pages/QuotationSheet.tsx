@@ -613,8 +613,14 @@ export default function QuotationSheet() {
   const [specialRequirements, setSpecialRequirements] = useState('');
 
   useEffect(() => {
-    if (!isNewQuotation && emailId) {
+    // Validate emailId is a valid UUID before fetching
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!isNewQuotation && emailId && uuidRegex.test(emailId)) {
       fetchThreadData();
+    } else if (!isNewQuotation && emailId && !uuidRegex.test(emailId)) {
+      // Invalid emailId - redirect to dashboard
+      toast.error('ID email invalide');
+      navigate('/');
     }
   }, [emailId]);
 
