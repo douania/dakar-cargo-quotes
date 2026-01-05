@@ -24,6 +24,7 @@ interface TruckLoadingResult {
 }
 
 const TRUCK_LABELS: Record<string, string> = {
+  van_3t: 'Fourgon 3T',
   van_3t5: 'Fourgon 3.5T',
   truck_19t: 'Camion 19T',
   truck_26t: 'Camion 26T',
