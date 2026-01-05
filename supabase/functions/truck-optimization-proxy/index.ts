@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-action',
 };
 
 const RAILWAY_API_URL = 'https://web-production-8afea.up.railway.app';
@@ -17,14 +17,42 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const action = url.searchParams.get('action');
-    
+
+    // Read incoming body once (needed because calls via invoke() are POST even for GET-like actions)
+    let rawBody = '';
+    let bodyJson: any = null;
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      rawBody = await req.text();
+      console.log(`[truck-optimization-proxy] Raw body length: ${rawBody.length}`);
+
+      if (rawBody.length > 0) {
+        try {
+          bodyJson = JSON.parse(rawBody);
+          console.log(`[truck-optimization-proxy] Body keys: ${Object.keys(bodyJson).join(', ')}`);
+        } catch (parseError) {
+          console.error(`[truck-optimization-proxy] Invalid JSON body:`, rawBody.substring(0, 200));
+          return new Response(
+            JSON.stringify({ error: 'Invalid JSON body' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+      }
+    }
+
+    const action =
+      url.searchParams.get('action') ||
+      (bodyJson && typeof bodyJson === 'object' ? bodyJson.action : null) ||
+      req.headers.get('x-action');
+
     console.log(`[truck-optimization-proxy] Action: ${action}, Method: ${req.method}`);
-    
+
     if (!action) {
       return new Response(
-        JSON.stringify({ error: 'Missing action parameter. Use: suggest-fleet, optimize, truck-specs, visualize' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          error: 'Missing action parameter. Use: suggest-fleet, optimize, truck-specs, visualize',
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -39,8 +67,10 @@ serve(async (req) => {
     const endpoint = endpointMap[action];
     if (!endpoint) {
       return new Response(
-        JSON.stringify({ error: `Unknown action: ${action}. Valid actions: ${Object.keys(endpointMap).join(', ')}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          error: `Unknown action: ${action}. Valid actions: ${Object.keys(endpointMap).join(', ')}`,
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -56,23 +86,19 @@ serve(async (req) => {
       },
     };
 
-    // Add body for POST requests - read as text first to avoid double parsing issues
+    // Add body for POST requests
     if (endpoint.method === 'POST') {
-      const rawBody = await req.text();
-      console.log(`[truck-optimization-proxy] Raw body length: ${rawBody.length}`);
-      
-      // Validate it's valid JSON
-      try {
-        const parsed = JSON.parse(rawBody);
-        console.log(`[truck-optimization-proxy] Body keys: ${Object.keys(parsed).join(', ')}`);
-        // Send the raw body as-is (already a JSON string)
+      // If action is provided via JSON body, strip it before forwarding
+      if (bodyJson && typeof bodyJson === 'object' && 'action' in bodyJson) {
+        delete bodyJson.action;
+      }
+
+      if (bodyJson && typeof bodyJson === 'object') {
+        fetchOptions.body = JSON.stringify(bodyJson);
+      } else if (rawBody.length > 0) {
         fetchOptions.body = rawBody;
-      } catch (parseError) {
-        console.error(`[truck-optimization-proxy] Invalid JSON body:`, rawBody.substring(0, 200));
-        return new Response(
-          JSON.stringify({ error: 'Invalid JSON body' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      } else {
+        fetchOptions.body = '{}';
       }
     }
 
