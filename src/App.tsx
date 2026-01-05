@@ -17,6 +17,8 @@ import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
 import PricingIntelligence from "./pages/admin/PricingIntelligence";
 import PortTariffsAdmin from "./pages/admin/PortTariffs";
 import TruckLoading from "./pages/TruckLoading";
+import Intake from "./pages/Intake";
+import CaseView from "./pages/CaseView";
 import TariffReports from "./pages/admin/TariffReports";
 
 const queryClient = new QueryClient();
@@ -43,6 +45,8 @@ const App = () => (
           <Route path="/admin/tarifs-portuaires" element={<PortTariffsAdmin />} />
           <Route path="/admin/tariff-reports" element={<TariffReports />} />
           <Route path="/truck-loading" element={<TruckLoading />} />
+          <Route path="/intake" element={<Intake />} />
+          <Route path="/case/:caseId" element={<CaseView />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
