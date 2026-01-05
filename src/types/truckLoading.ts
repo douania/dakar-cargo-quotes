@@ -21,6 +21,7 @@ export interface Placement {
   item_id: string;
   truck_index: number;
   position: { x: number; y: number; z: number };
+  dimensions?: { length: number; width: number; height: number };
   rotated: boolean;
 }
 
@@ -43,7 +44,7 @@ export type WorkflowStep = 1 | 2 | 3;
 
 // Fleet suggestion types
 
-// Detailed truck info with pre-assigned items from suggest-fleet API
+// Detailed truck info with pre-assigned items and placements from suggest-fleet API
 export interface TruckDetails {
   type: string;
   items: {
@@ -57,6 +58,7 @@ export interface TruckDetails {
   }[];
   volume_capacity: number;
   weight_capacity: number;
+  placements?: Placement[];  // AJOUTÉ: Placements 3D pour ce camion
 }
 
 export interface TruckAllocation {
@@ -65,7 +67,7 @@ export interface TruckAllocation {
   fill_rate: number;
   weight_utilization: number;
   items_assigned: number;
-  trucks_details?: TruckDetails[]; // Pre-assigned items per truck from backend
+  trucks_details?: TruckDetails[]; // Pre-assigned items and placements per truck from backend
 }
 
 export interface FleetScenario {

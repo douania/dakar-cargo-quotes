@@ -66,11 +66,22 @@ export async function getTruckSpecs(): Promise<TruckSpec[]> {
 
   const data = await response.json();
 
-  // Parser le format { presets: { truck_name: specs } }
+  // Parser le format { presets: { truck_name: specs } } ou { trucks: [...] }
   if (data.presets) {
     return Object.entries(data.presets).map(([name, spec]) => ({
       name,
       ...(spec as Omit<TruckSpec, 'name'>)
+    }));
+  }
+
+  // Nouveau format avec trucks array
+  if (data.trucks) {
+    return data.trucks.map((t: any) => ({
+      name: t.name || t.id,
+      length: t.length,
+      width: t.width,
+      height: t.height,
+      max_weight: t.max_weight,
     }));
   }
 
@@ -122,6 +133,7 @@ export async function runOptimization(
     height: item.height,
     weight: item.weight,
     quantity: item.quantity,
+    stackable: item.stackable ?? true,
   }));
 
   // Remove 'name' from truckSpec for backend compatibility
@@ -210,11 +222,11 @@ export async function getVisualization(
   return data.image_base64 || data.visualization_base64;
 }
 
-// Suggest optimal fleet configuration
+// Suggest optimal fleet configuration with 3D placements
 export async function suggestFleet(
   items: PackingItem[],
   distanceKm: number = 100,
-  availableTrucks: string[] = ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']
+  availableTrucks: string[] = ['van_3t', 'truck_19t', 'truck_26t', 'truck_40t']
 ): Promise<FleetSuggestionResult> {
   const url = `${API_URL}/api/optimization/suggest-fleet`;
   
@@ -227,12 +239,16 @@ export async function suggestFleet(
     height: item.height,
     weight: item.weight,
     quantity: item.quantity,
+    stackable: item.stackable ?? true,
   }));
 
+  // CORRECTION: Ajouter run_3d et algorithm
   const requestBody = {
     items: formattedItems,
     distance_km: distanceKm,
     available_trucks: availableTrucks,
+    run_3d: true,  // Active le calcul des placements 3D
+    algorithm: 'simple',
   };
 
   // Debug logs
@@ -270,7 +286,7 @@ export async function suggestFleet(
     const data = await response.json();
     console.log('[suggestFleet] Response data:', JSON.stringify(data, null, 2));
     
-    // Normalize API response to our types
+    // CORRECTION: Normalize API response avec placements
     const scenarios = (data.scenarios || []).map((s: any) => ({
       name: s.name || 'Scénario',
       description: s.description || '',
@@ -280,6 +296,28 @@ export async function suggestFleet(
         fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
         weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
         items_assigned: t.items_assigned ?? t.items_count ?? 0,
+        // CORRECTION: Récupérer les trucks_details avec placements
+        trucks_details: t.trucks_details || (t.placements ? [{
+          type: t.truck_type || t.type || 'unknown',
+          items: t.items || [],
+          volume_capacity: t.volume_capacity || 0,
+          weight_capacity: t.weight_capacity || 0,
+          placements: (t.placements || []).map((p: any, idx: number) => ({
+            item_id: p.item_id || `item_${idx}`,
+            truck_index: p.truck_index ?? 0,
+            position: {
+              x: p.x ?? p.position?.x ?? 0,
+              y: p.y ?? p.position?.y ?? 0,
+              z: p.z ?? p.position?.z ?? 0,
+            },
+            dimensions: {
+              length: p.length ?? p.dimensions?.length ?? 0,
+              width: p.width ?? p.dimensions?.width ?? 0,
+              height: p.height ?? p.dimensions?.height ?? 0,
+            },
+            rotated: p.rotation !== 0 || p.rotated || false,
+          })),
+        }] : undefined),
       })),
       total_cost: s.total_cost ?? 0,
       total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
