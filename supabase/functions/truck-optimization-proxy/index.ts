@@ -56,11 +56,24 @@ serve(async (req) => {
       },
     };
 
-    // Add body for POST requests
+    // Add body for POST requests - read as text first to avoid double parsing issues
     if (endpoint.method === 'POST') {
-      const body = await req.json();
-      fetchOptions.body = JSON.stringify(body);
-      console.log(`[truck-optimization-proxy] Request body:`, JSON.stringify(body, null, 2));
+      const rawBody = await req.text();
+      console.log(`[truck-optimization-proxy] Raw body length: ${rawBody.length}`);
+      
+      // Validate it's valid JSON
+      try {
+        const parsed = JSON.parse(rawBody);
+        console.log(`[truck-optimization-proxy] Body keys: ${Object.keys(parsed).join(', ')}`);
+        // Send the raw body as-is (already a JSON string)
+        fetchOptions.body = rawBody;
+      } catch (parseError) {
+        console.error(`[truck-optimization-proxy] Invalid JSON body:`, rawBody.substring(0, 200));
+        return new Response(
+          JSON.stringify({ error: 'Invalid JSON body' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Create abort controller for timeout
@@ -76,26 +89,48 @@ serve(async (req) => {
 
     console.log(`[truck-optimization-proxy] Railway response: ${response.status} (${elapsed}ms)`);
 
+    // Check content type to determine how to read response
+    const contentType = response.headers.get('content-type') || '';
+    
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[truck-optimization-proxy] Railway error:`, errorText);
+      console.error(`[truck-optimization-proxy] Railway error (first 500 chars):`, errorText.substring(0, 500));
+      
+      // Try to extract error message from HTML if present
+      let errorMessage = 'Erreur du serveur d\'optimisation';
+      if (errorText.includes('AttributeError')) {
+        errorMessage = 'Erreur backend: format de données incorrect';
+      } else if (errorText.includes('KeyError')) {
+        errorMessage = 'Erreur backend: champ manquant dans les données';
+      }
+      
       return new Response(
         JSON.stringify({ 
-          error: 'Erreur du serveur d\'optimisation', 
-          details: errorText,
-          status: response.status 
+          error: errorMessage, 
+          status: response.status,
+          details: errorText.substring(0, 1000)
         }),
         { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const data = await response.json();
-    console.log(`[truck-optimization-proxy] Success, data keys:`, Object.keys(data));
-
-    return new Response(
-      JSON.stringify(data),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Success - return the response as JSON
+    if (contentType.includes('application/json')) {
+      const data = await response.json();
+      console.log(`[truck-optimization-proxy] Success, data keys:`, Object.keys(data));
+      return new Response(
+        JSON.stringify(data),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } else {
+      // Non-JSON response
+      const text = await response.text();
+      console.log(`[truck-optimization-proxy] Non-JSON response (${contentType}):`, text.substring(0, 200));
+      return new Response(
+        JSON.stringify({ error: 'Unexpected response format from optimization server', raw: text.substring(0, 500) }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
   } catch (error) {
     console.error('[truck-optimization-proxy] Error:', error);
