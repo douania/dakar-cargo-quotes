@@ -89,3 +89,6 @@ verify_jwt = false
 
 [functions.parse-packing-list]
 verify_jwt = false
+
+[functions.truck-optimization-proxy]
+verify_jwt = false

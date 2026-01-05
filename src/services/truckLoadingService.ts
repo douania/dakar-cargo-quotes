@@ -1,6 +1,7 @@
 import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult } from '@/types/truckLoading';
+import { supabase } from '@/integrations/supabase/client';
 
-const API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
+const RAILWAY_API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
 export interface AIExtractionResult {
   items: PackingItem[];
@@ -8,6 +9,38 @@ export interface AIExtractionResult {
   sheets_analyzed: string[];
   warnings: string[];
   total_items: number;
+}
+
+// Helper to call the proxy Edge Function
+async function callOptimizationProxy(action: string, body?: any): Promise<any> {
+  console.log(`[callOptimizationProxy] Action: ${action}`);
+  
+  const { data, error } = await supabase.functions.invoke('truck-optimization-proxy', {
+    body: body || {},
+    headers: {
+      'x-action': action,
+    },
+  });
+
+  // The Edge Function uses query params, so we need to call it differently
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/truck-optimization-proxy?action=${action}`,
+    {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Erreur proxy (${response.status})`);
+  }
+
+  return response.json();
 }
 
 // Parse packing list with AI (via edge function)
@@ -53,39 +86,40 @@ export async function uploadPackingList(file: File): Promise<PackingItem[]> {
 }
 
 export async function getTruckSpecs(): Promise<TruckSpec[]> {
-  const response = await fetch(`${API_URL}/api/optimization/truck-specs`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  console.log('[getTruckSpecs] Fetching via proxy...');
+  
+  try {
+    const data = await callOptimizationProxy('truck-specs');
 
-  if (!response.ok) {
-    throw new Error('Erreur lors de la récupération des spécifications camions');
+    // Parser le format { presets: { truck_name: specs } } ou { trucks: [...] }
+    if (data.presets) {
+      return Object.entries(data.presets).map(([name, spec]) => ({
+        name,
+        ...(spec as Omit<TruckSpec, 'name'>)
+      }));
+    }
+
+    // Nouveau format avec trucks array
+    if (data.trucks) {
+      return data.trucks.map((t: any) => ({
+        name: t.name || t.id,
+        length: t.length,
+        width: t.width,
+        height: t.height,
+        max_weight: t.max_weight,
+      }));
+    }
+
+    return data;
+  } catch (error) {
+    console.error('[getTruckSpecs] Proxy failed, trying direct:', error);
+    // Fallback to direct API call
+    const response = await fetch(`${RAILWAY_API_URL}/api/optimization/truck-specs`);
+    if (!response.ok) {
+      throw new Error('Erreur lors de la récupération des spécifications camions');
+    }
+    return response.json();
   }
-
-  const data = await response.json();
-
-  // Parser le format { presets: { truck_name: specs } } ou { trucks: [...] }
-  if (data.presets) {
-    return Object.entries(data.presets).map(([name, spec]) => ({
-      name,
-      ...(spec as Omit<TruckSpec, 'name'>)
-    }));
-  }
-
-  // Nouveau format avec trucks array
-  if (data.trucks) {
-    return data.trucks.map((t: any) => ({
-      name: t.name || t.id,
-      length: t.length,
-      width: t.width,
-      height: t.height,
-      max_weight: t.max_weight,
-    }));
-  }
-
-  return data;
 }
 
 // Normalise la réponse API vers notre format TypeScript
@@ -120,10 +154,6 @@ export async function runOptimization(
   truckSpec: TruckSpec,
   algorithm: Algorithm = 'simple'
 ): Promise<OptimizationResult> {
-  const url = `${API_URL}/api/optimization/optimize`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes timeout
-
   // Format items for backend: map description to name
   const formattedItems = items.map((item, index) => ({
     id: item.id || `item_${index}`,
@@ -149,53 +179,48 @@ export async function runOptimization(
   };
 
   // Debug logs
-  console.log('[runOptimization] URL:', url);
   console.log('[runOptimization] Truck spec:', JSON.stringify(truckWithoutName, null, 2));
   console.log('[runOptimization] Items count:', formattedItems.length);
   console.log('[runOptimization] Algorithm:', backendAlgorithm);
-  console.log('[runOptimization] Request body:', JSON.stringify(requestBody, null, 2));
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    console.log('[runOptimization] Response status:', response.status);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[runOptimization] Error response:', errorText);
-      let errorMessage = 'Erreur lors de l\'optimisation';
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.error || errorData.message || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-
-    const apiResponse = await response.json();
-    console.log('[runOptimization] Response data:', JSON.stringify(apiResponse, null, 2));
-    
+    const apiResponse = await callOptimizationProxy('optimize', requestBody);
+    console.log('[runOptimization] Response received');
     return normalizeOptimizationResult(apiResponse);
   } catch (error) {
-    clearTimeout(timeoutId);
-    console.error('[runOptimization] Fetch error:', error);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('L\'optimisation a pris trop de temps. Essayez l\'algorithme rapide.');
+    console.error('[runOptimization] Proxy failed, trying direct:', error);
+    
+    // Fallback to direct API call
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    
+    try {
+      const response = await fetch(`${RAILWAY_API_URL}/api/optimization/optimize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Erreur lors de l\'optimisation');
+      }
+
+      const apiResponse = await response.json();
+      return normalizeOptimizationResult(apiResponse);
+    } catch (fallbackError) {
+      clearTimeout(timeoutId);
+      if (fallbackError instanceof Error && fallbackError.name === 'AbortError') {
+        throw new Error('L\'optimisation a pris trop de temps. Essayez l\'algorithme rapide.');
+      }
+      throw error; // Throw original proxy error
     }
-    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-      throw new Error('Impossible de contacter le serveur d\'optimisation. Vérifiez votre connexion.');
-    }
-    throw error;
   }
 }
 
@@ -203,23 +228,30 @@ export async function getVisualization(
   placements: OptimizationResult['placements'],
   truckSpec: TruckSpec
 ): Promise<string> {
-  const response = await fetch(`${API_URL}/api/optimization/visualize`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      placements,
-      truck: (({ name, ...rest }) => rest)(truckSpec),
-    }),
-  });
+  const requestBody = {
+    placements,
+    truck: (({ name, ...rest }) => rest)(truckSpec),
+  };
 
-  if (!response.ok) {
-    throw new Error('Erreur lors de la génération de la visualisation');
+  try {
+    const data = await callOptimizationProxy('visualize', requestBody);
+    return data.image_base64 || data.visualization_base64;
+  } catch (error) {
+    console.error('[getVisualization] Proxy failed, trying direct:', error);
+    
+    const response = await fetch(`${RAILWAY_API_URL}/api/optimization/visualize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error('Erreur lors de la génération de la visualisation');
+    }
+
+    const data = await response.json();
+    return data.image_base64 || data.visualization_base64;
   }
-
-  const data = await response.json();
-  return data.image_base64 || data.visualization_base64;
 }
 
 // Suggest optimal fleet configuration with 3D placements
@@ -228,8 +260,6 @@ export async function suggestFleet(
   distanceKm: number = 100,
   availableTrucks: string[] = ['van_3t', 'truck_19t', 'truck_26t', 'truck_40t']
 ): Promise<FleetSuggestionResult> {
-  const url = `${API_URL}/api/optimization/suggest-fleet`;
-  
   // Format items for backend: map description to name
   const formattedItems = items.map((item, index) => ({
     id: item.id || `item_${index}`,
@@ -242,23 +272,28 @@ export async function suggestFleet(
     stackable: item.stackable ?? true,
   }));
 
-  // CORRECTION: Ajouter run_3d et algorithm
   const requestBody = {
     items: formattedItems,
     distance_km: distanceKm,
     available_trucks: availableTrucks,
-    run_3d: true,  // Active le calcul des placements 3D
+    run_3d: true,
     algorithm: 'simple',
   };
 
   // Debug logs
-  console.log('[suggestFleet] URL:', url);
-  console.log('[suggestFleet] Request body:', JSON.stringify(requestBody, null, 2));
   console.log('[suggestFleet] Items count:', formattedItems.length);
   console.log('[suggestFleet] Total weight:', formattedItems.reduce((sum, i) => sum + (i.weight * i.quantity), 0), 'kg');
 
   try {
-    const response = await fetch(url, {
+    const data = await callOptimizationProxy('suggest-fleet', requestBody);
+    console.log('[suggestFleet] Response received, scenarios:', data.scenarios?.length || 0);
+    
+    return parseFleetResponse(data, items.length);
+  } catch (error) {
+    console.error('[suggestFleet] Proxy failed, trying direct:', error);
+    
+    // Fallback to direct API call
+    const response = await fetch(`${RAILWAY_API_URL}/api/optimization/suggest-fleet`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -267,77 +302,59 @@ export async function suggestFleet(
       body: JSON.stringify(requestBody),
     });
 
-    console.log('[suggestFleet] Response status:', response.status);
-    console.log('[suggestFleet] Response ok:', response.ok);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[suggestFleet] Error response:', errorText);
-      let errorMessage = 'Erreur lors de la suggestion de flotte';
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.error || errorData.message || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
+      throw new Error(errorText || 'Erreur lors de la suggestion de flotte');
     }
 
     const data = await response.json();
-    console.log('[suggestFleet] Response data:', JSON.stringify(data, null, 2));
-    
-    // CORRECTION: Normalize API response avec placements
-    const scenarios = (data.scenarios || []).map((s: any) => ({
-      name: s.name || 'Scénario',
-      description: s.description || '',
-      trucks: (s.trucks || []).map((t: any) => ({
-        truck_type: t.truck_type || t.type || 'unknown',
-        count: t.count || 1,
-        fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
-        weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
-        items_assigned: t.items_assigned ?? t.items_count ?? 0,
-        // CORRECTION: Récupérer les trucks_details avec placements
-        trucks_details: t.trucks_details || (t.placements ? [{
-          type: t.truck_type || t.type || 'unknown',
-          items: t.items || [],
-          volume_capacity: t.volume_capacity || 0,
-          weight_capacity: t.weight_capacity || 0,
-          placements: (t.placements || []).map((p: any, idx: number) => ({
-            item_id: p.item_id || `item_${idx}`,
-            truck_index: p.truck_index ?? 0,
-            position: {
-              x: p.x ?? p.position?.x ?? 0,
-              y: p.y ?? p.position?.y ?? 0,
-              z: p.z ?? p.position?.z ?? 0,
-            },
-            dimensions: {
-              length: p.length ?? p.dimensions?.length ?? 0,
-              width: p.width ?? p.dimensions?.width ?? 0,
-              height: p.height ?? p.dimensions?.height ?? 0,
-            },
-            rotated: p.rotation !== 0 || p.rotated || false,
-          })),
-        }] : undefined),
-      })),
-      total_cost: s.total_cost ?? 0,
-      total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
-      is_recommended: s.is_recommended ?? s.recommended ?? false,
-    }));
-
-    console.log('[suggestFleet] Parsed scenarios:', scenarios.length);
-
-    return {
-      scenarios,
-      recommended_scenario: data.recommended_scenario || data.recommended || '',
-      total_weight: data.total_weight ?? 0,
-      total_volume: data.total_volume ?? 0,
-      items_count: data.items_count ?? items.length,
-    };
-  } catch (error) {
-    console.error('[suggestFleet] Fetch error:', error);
-    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-      throw new Error('Impossible de contacter le serveur d\'optimisation. Vérifiez votre connexion ou réessayez plus tard.');
-    }
-    throw error;
+    return parseFleetResponse(data, items.length);
   }
+}
+
+// Helper to parse fleet response
+function parseFleetResponse(data: any, itemsCount: number): FleetSuggestionResult {
+  const scenarios = (data.scenarios || []).map((s: any) => ({
+    name: s.name || 'Scénario',
+    description: s.description || '',
+    trucks: (s.trucks || []).map((t: any) => ({
+      truck_type: t.truck_type || t.type || 'unknown',
+      count: t.count || 1,
+      fill_rate: t.fill_rate ?? t.volume_efficiency ?? 0,
+      weight_utilization: t.weight_utilization ?? t.weight_efficiency ?? 0,
+      items_assigned: t.items_assigned ?? t.items_count ?? 0,
+      trucks_details: t.trucks_details || (t.placements ? [{
+        type: t.truck_type || t.type || 'unknown',
+        items: t.items || [],
+        volume_capacity: t.volume_capacity || 0,
+        weight_capacity: t.weight_capacity || 0,
+        placements: (t.placements || []).map((p: any, idx: number) => ({
+          item_id: p.item_id || `item_${idx}`,
+          truck_index: p.truck_index ?? 0,
+          position: {
+            x: p.x ?? p.position?.x ?? 0,
+            y: p.y ?? p.position?.y ?? 0,
+            z: p.z ?? p.position?.z ?? 0,
+          },
+          dimensions: {
+            length: p.length ?? p.dimensions?.length ?? 0,
+            width: p.width ?? p.dimensions?.width ?? 0,
+            height: p.height ?? p.dimensions?.height ?? 0,
+          },
+          rotated: p.rotation !== 0 || p.rotated || false,
+        })),
+      }] : undefined),
+    })),
+    total_cost: s.total_cost ?? 0,
+    total_trucks: s.total_trucks ?? s.trucks?.length ?? 0,
+    is_recommended: s.is_recommended ?? s.recommended ?? false,
+  }));
+
+  return {
+    scenarios,
+    recommended_scenario: data.recommended_scenario || data.recommended || '',
+    total_weight: data.total_weight ?? 0,
+    total_volume: data.total_volume ?? 0,
+    items_count: data.items_count ?? itemsCount,
+  };
 }
