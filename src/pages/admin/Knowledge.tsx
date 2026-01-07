@@ -15,8 +15,11 @@ import {
   Trash2, CheckCircle, Clock, TrendingUp, Search,
   RefreshCw, Eye, MessageSquare, Handshake, GraduationCap,
   Mail, UserCheck, List, LayoutGrid, XCircle, ArrowUpDown,
-  FileSpreadsheet, Database, Loader2
+  FileSpreadsheet, Database, Loader2, Plus, BookOpen
 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
 
 interface Knowledge {
   id: string;
@@ -44,7 +47,8 @@ const categoryIcons: Record<string, any> = {
   business_process: Settings,
   email_template: Mail,
   client_relations: Users,
-  quotation_exchange: MessageSquare
+  quotation_exchange: MessageSquare,
+  reference: BookOpen
 };
 
 const categoryLabels: Record<string, string> = {
@@ -60,7 +64,8 @@ const categoryLabels: Record<string, string> = {
   business_process: 'Processus métier',
   email_template: 'Templates email',
   client_relations: 'Relations clients',
-  quotation_exchange: 'Échanges cotation'
+  quotation_exchange: 'Échanges cotation',
+  reference: 'Référence'
 };
 
 const sourceTypeLabels: Record<string, string> = {
@@ -85,6 +90,15 @@ export default function Knowledge() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [isAnalyzingExcel, setIsAnalyzingExcel] = useState(false);
   const [isPopulatingHistory, setIsPopulatingHistory] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newKnowledge, setNewKnowledge] = useState({
+    category: 'reference',
+    name: '',
+    description: '',
+    data: '{}',
+    confidence: 0.9
+  });
   const [stats, setStats] = useState({ 
     total: 0, 
     validated: 0, 
@@ -192,6 +206,53 @@ export default function Knowledge() {
       toast.error('Erreur lors du peuplement');
     } finally {
       setIsPopulatingHistory(false);
+    }
+  };
+
+  const createKnowledge = async () => {
+    if (!newKnowledge.name.trim() || !newKnowledge.description.trim()) {
+      toast.error('Le titre et la description sont obligatoires');
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      let parsedData = {};
+      try {
+        parsedData = JSON.parse(newKnowledge.data);
+      } catch {
+        toast.error('Format JSON invalide pour les données structurées');
+        setIsCreating(false);
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { 
+          action: 'create_knowledge', 
+          data: {
+            category: newKnowledge.category,
+            name: newKnowledge.name,
+            description: newKnowledge.description,
+            data: parsedData,
+            confidence: newKnowledge.confidence,
+            source_type: 'manual',
+            is_validated: true
+          }
+        }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success('Connaissance créée avec succès');
+      setShowCreateDialog(false);
+      setNewKnowledge({ category: 'reference', name: '', description: '', data: '{}', confidence: 0.9 });
+      loadKnowledge();
+    } catch (error) {
+      console.error('Error creating knowledge:', error);
+      toast.error('Erreur lors de la création');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -332,6 +393,13 @@ export default function Knowledge() {
                 <Database className="h-4 w-4 mr-2" />
               )}
               Peupler historique
+            </Button>
+            <Button 
+              onClick={() => setShowCreateDialog(true)}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nouvelle connaissance
             </Button>
           </div>
         </div>
@@ -749,6 +817,101 @@ export default function Knowledge() {
                 </div>
               </>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Knowledge Dialog */}
+        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus className="h-5 w-5" />
+                Nouvelle connaissance
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Titre *</Label>
+                <Input
+                  id="name"
+                  placeholder="Ex: Référentiel SODATRA – Règles de cotation logistique Sénégal"
+                  value={newKnowledge.name}
+                  onChange={(e) => setNewKnowledge({...newKnowledge, name: e.target.value})}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Catégorie *</Label>
+                <Select 
+                  value={newKnowledge.category} 
+                  onValueChange={(v) => setNewKnowledge({...newKnowledge, category: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="reference">📚 Référence</SelectItem>
+                    <SelectItem value="tarif">💰 Tarif</SelectItem>
+                    <SelectItem value="processus">⚙️ Processus</SelectItem>
+                    <SelectItem value="template">📄 Template</SelectItem>
+                    <SelectItem value="condition">📋 Condition</SelectItem>
+                    <SelectItem value="technical_expertise">🎓 Expertise technique</SelectItem>
+                    <SelectItem value="business_process">🏢 Processus métier</SelectItem>
+                    <SelectItem value="negotiation">🤝 Négociation</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Contenu / Description *</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Décrivez la connaissance en détail..."
+                  value={newKnowledge.description}
+                  onChange={(e) => setNewKnowledge({...newKnowledge, description: e.target.value})}
+                  className="min-h-[200px]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="data">Données structurées (JSON optionnel)</Label>
+                <Textarea
+                  id="data"
+                  placeholder='{"cle": "valeur"}'
+                  value={newKnowledge.data}
+                  onChange={(e) => setNewKnowledge({...newKnowledge, data: e.target.value})}
+                  className="font-mono text-sm min-h-[100px]"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Format JSON pour les données exploitables par l'IA
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Score de confiance: {Math.round(newKnowledge.confidence * 100)}%</Label>
+                <Slider
+                  value={[newKnowledge.confidence]}
+                  onValueChange={([v]) => setNewKnowledge({...newKnowledge, confidence: v})}
+                  min={0.5}
+                  max={1}
+                  step={0.05}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                Annuler
+              </Button>
+              <Button 
+                onClick={createKnowledge} 
+                disabled={!newKnowledge.name.trim() || !newKnowledge.description.trim() || isCreating}
+              >
+                {isCreating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                Créer
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>
