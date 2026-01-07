@@ -48,7 +48,8 @@ const categoryIcons: Record<string, any> = {
   email_template: Mail,
   client_relations: Users,
   quotation_exchange: MessageSquare,
-  reference: BookOpen
+  reference: BookOpen,
+  intelligence: Brain
 };
 
 const categoryLabels: Record<string, string> = {
@@ -65,7 +66,8 @@ const categoryLabels: Record<string, string> = {
   email_template: 'Templates email',
   client_relations: 'Relations clients',
   quotation_exchange: 'Échanges cotation',
-  reference: 'Référence'
+  reference: 'Référence',
+  intelligence: 'Intelligence'
 };
 
 const sourceTypeLabels: Record<string, string> = {
@@ -859,6 +861,7 @@ export default function Knowledge() {
                     <SelectItem value="technical_expertise">🎓 Expertise technique</SelectItem>
                     <SelectItem value="business_process">🏢 Processus métier</SelectItem>
                     <SelectItem value="negotiation">🤝 Négociation</SelectItem>
+                    <SelectItem value="intelligence">🧠 Intelligence</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
