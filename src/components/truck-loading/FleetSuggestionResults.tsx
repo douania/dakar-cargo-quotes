@@ -26,15 +26,24 @@ interface TruckLoadingResult {
 const TRUCK_LABELS: Record<string, string> = {
   van_3t: 'Fourgon 3T',
   van_3t5: 'Fourgon 3.5T',
-  truck_19t: 'Camion 19T',
-  truck_26t: 'Camion 26T',
+  truck_19t: 'Porteur 19T',
+  porteur_19t: 'Porteur 19T',
+  truck_26t: 'Porteur 26T',
+  porteur_26t: 'Porteur 26T',
   truck_40t: 'Semi-remorque 40T',
+  semi_plateau_32t: 'Semi-remorque plateau 32T',
+  lowbed_50t: 'Lowbed 2 essieux 50T',
+  lowbed_2ess_50t: 'Lowbed 2 essieux 50T',
+  lowbed_60t: 'Lowbed 3 essieux 60T',
+  lowbed_3ess_60t: 'Lowbed 3 essieux 60T',
+  lowbed_80t: 'Lowbed 4 essieux 80T',
+  lowbed_4ess_80t: 'Lowbed 4 essieux 80T',
   convoy_modular: 'Convoi Exceptionnel (Remorque Modulaire)',
   exceptional_convoy: 'Convoi Exceptionnel',
   modular_trailer: 'Remorque Modulaire',
 };
 
-const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular'];
+const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular', 'lowbed', 'lowbed_50t', 'lowbed_60t', 'lowbed_80t'];
 
 // Default spec for exceptional convoy / modular trailers (not in truck-specs API)
 const SPECIAL_TRANSPORT_SPEC: TruckSpec = {
@@ -109,7 +118,26 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
     }
     
     try {
-      const suggestion = await suggestFleet(normalizedItems, 100, ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t']);
+      // Déterminer si transport exceptionnel nécessaire
+      const needsExceptionalTransport = normalizedItems.some(item => 
+        item.weight > 32000 ||   // Plus de 32T par article
+        item.length > 1360 ||    // Plus de 13.6m (en cm)
+        item.width > 280 ||      // Plus de 2.8m
+        item.height > 300        // Plus de 3m
+      );
+
+      // Construire la liste des camions disponibles
+      const availableTrucks = ['van_3t5', 'truck_19t', 'truck_26t', 'truck_40t'];
+      if (needsExceptionalTransport) {
+        availableTrucks.push('lowbed_50t', 'lowbed_60t', 'lowbed_80t');
+        console.log('[FleetSuggestion] Transport exceptionnel détecté - lowbeds ajoutés');
+      }
+
+      console.log('[FleetSuggestion] Available trucks:', availableTrucks);
+      console.log('[FleetSuggestion] Total weight:', totalWeight, 'kg');
+      console.log('[FleetSuggestion] Items count:', normalizedItems.length);
+
+      const suggestion = await suggestFleet(normalizedItems, 100, availableTrucks);
       setResult(suggestion);
       
       toast.success('Scénarios de flotte calculés', {

@@ -12,8 +12,15 @@ export interface AIExtractionResult {
   detected_dimension_unit: string;
 }
 
+// Mapping des IDs frontend vers les IDs backend
 const TRUCK_ID_ALIASES: Record<string, string> = {
   van_3t5: 'van_3t',
+  truck_19t: 'porteur_19t',
+  truck_26t: 'porteur_26t',
+  truck_40t: 'semi_plateau_32t',
+  lowbed_50t: 'lowbed_2ess_50t',
+  lowbed_60t: 'lowbed_3ess_60t',
+  lowbed_80t: 'lowbed_4ess_80t',
 };
 
 const percentToRatio = (value: unknown): number => {
@@ -154,16 +161,19 @@ export async function runOptimization(
   algorithm: Algorithm = 'simple',
 ): Promise<OptimizationResult> {
   // Format items for backend: map description to name
+  // IMPORTANT: Convert dimensions from cm to mm for backend compatibility
   const formattedItems = items.map((item, index) => ({
     id: item.id || `item_${index}`,
     name: item.description || `Article ${index + 1}`,
-    length: item.length,
-    width: item.width,
-    height: item.height,
+    length: Math.round(item.length * 10), // cm → mm
+    width: Math.round(item.width * 10),   // cm → mm
+    height: Math.round(item.height * 10), // cm → mm
     weight: item.weight,
     quantity: item.quantity,
     stackable: item.stackable ?? true,
   }));
+  
+  console.log('[runOptimization] First item dimensions (mm):', formattedItems[0]);
 
   // Remove 'name' from truckSpec for backend compatibility
   const { name, ...truckWithoutName } = truckSpec;
@@ -260,16 +270,19 @@ export async function suggestFleet(
   availableTrucks: string[] = ['van_3t', 'truck_19t', 'truck_26t', 'truck_40t'],
 ): Promise<FleetSuggestionResult> {
   // Format items for backend: map description to name
+  // IMPORTANT: Convert dimensions from cm to mm for backend compatibility
   const formattedItems = items.map((item, index) => ({
     id: item.id || `item_${index}`,
     name: item.description || `Article ${index + 1}`,
-    length: item.length,
-    width: item.width,
-    height: item.height,
+    length: Math.round(item.length * 10), // cm → mm
+    width: Math.round(item.width * 10),   // cm → mm
+    height: Math.round(item.height * 10), // cm → mm
     weight: item.weight,
     quantity: item.quantity,
     stackable: item.stackable ?? true,
   }));
+
+  console.log('[suggestFleet] First item dimensions (mm):', formattedItems[0]);
 
   // IMPORTANT: backend expects available_trucks as OBJECTS (not strings)
   const specs = await getTruckSpecs();
