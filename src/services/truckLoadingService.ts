@@ -263,6 +263,15 @@ export async function getVisualization(
   }
 }
 
+// Virtual truck spec for exceptional convoy (not in Railway API)
+const CONVOI_MODULAR_SPEC = {
+  id: 'convoi_modular',
+  length: 15000,    // 15m
+  width: 3000,      // 3m
+  height: 4000,     // 4m
+  max_weight: 100000, // 100 tonnes
+};
+
 // Suggest optimal fleet configuration with 3D placements
 export async function suggestFleet(
   items: PackingItem[],
@@ -284,6 +293,18 @@ export async function suggestFleet(
 
   console.log('[suggestFleet] First item dimensions (mm):', formattedItems[0]);
 
+  // Detect if exceptional transport is needed (item > 50T or height > 350cm)
+  const needsConvoiModular = items.some(item => 
+    item.weight > 50000 ||      // > 50 tonnes
+    item.height > 350 ||        // > 3.5m (dimensions in cm)
+    item.length > 1500 ||       // > 15m
+    item.width > 300            // > 3m
+  );
+
+  if (needsConvoiModular) {
+    console.log('[suggestFleet] Convoi modulaire requis - article hors gabarit détecté');
+  }
+
   // IMPORTANT: backend expects available_trucks as OBJECTS (not strings)
   const specs = await getTruckSpecs();
   const availableTruckObjects = availableTrucks
@@ -300,6 +321,15 @@ export async function suggestFleet(
       };
     })
     .filter(Boolean);
+
+  // Inject virtual convoi_modular if exceptional transport needed
+  if (needsConvoiModular) {
+    const hasConvoi = availableTruckObjects.some((t: any) => t.id === 'convoi_modular');
+    if (!hasConvoi) {
+      availableTruckObjects.push(CONVOI_MODULAR_SPEC);
+      console.log('[suggestFleet] Convoi modulaire injecté (100T, 15m x 3m x 4m)');
+    }
+  }
 
   if (availableTruckObjects.length === 0) {
     throw new Error('Aucun camion disponible (types inconnus).');
