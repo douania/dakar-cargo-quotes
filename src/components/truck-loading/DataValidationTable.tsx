@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
-import { Check, AlertTriangle, Package, Scale, Box } from 'lucide-react';
+import { Check, AlertTriangle, Package, Scale, Box, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Table,
   TableBody,
@@ -12,12 +13,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { PackingItem } from '@/types/truckLoading';
+import { PackingItem, DimensionUnit } from '@/types/truckLoading';
 
 interface DataValidationTableProps {
   items: PackingItem[];
   onItemsChange: (items: PackingItem[]) => void;
   onValidate: () => void;
+  detectedUnit?: DimensionUnit;
+  warnings?: string[];
 }
 
 interface ValidationError {
@@ -26,10 +29,21 @@ interface ValidationError {
   message: string;
 }
 
+const unitLabels: Record<DimensionUnit, string> = {
+  mm: 'millimètres',
+  cm: 'centimètres',
+  m: 'mètres',
+  inch: 'pouces',
+  ft: 'pieds',
+  unknown: 'inconnue',
+};
+
 export function DataValidationTable({
   items,
   onItemsChange,
   onValidate,
+  detectedUnit,
+  warnings = [],
 }: DataValidationTableProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
 
@@ -137,6 +151,31 @@ export function DataValidationTable({
 
   return (
     <div className="space-y-4">
+      {/* Unit Detection Info */}
+      {detectedUnit && (
+        <Alert variant={detectedUnit === 'unknown' ? 'default' : 'default'} className="bg-muted/50">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <span className="font-medium">Unité détectée dans le fichier :</span>{' '}
+            <span className="font-semibold">{unitLabels[detectedUnit]}</span>
+            {detectedUnit !== 'cm' && detectedUnit !== 'unknown' && (
+              <span className="text-muted-foreground"> → Dimensions converties en cm</span>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Warnings from AI extraction */}
+      {warnings.length > 0 && (
+        <Alert variant="default" className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            {warnings.map((warning, idx) => (
+              <div key={idx}>{warning}</div>
+            ))}
+          </AlertDescription>
+        </Alert>
+      )}
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>

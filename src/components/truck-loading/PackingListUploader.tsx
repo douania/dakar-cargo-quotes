@@ -5,11 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { parsePackingListWithAI, AIExtractionResult } from '@/services/truckLoadingService';
-import { PackingItem } from '@/types/truckLoading';
+import { PackingItem, DimensionUnit } from '@/types/truckLoading';
 import { toast } from 'sonner';
 
 interface PackingListUploaderProps {
-  onUploadComplete: (items: PackingItem[]) => void;
+  onUploadComplete: (
+    items: PackingItem[], 
+    detectedUnit?: DimensionUnit, 
+    warnings?: string[]
+  ) => void;
 }
 
 export function PackingListUploader({ onUploadComplete }: PackingListUploaderProps) {
@@ -86,7 +90,11 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
       );
       
       setTimeout(() => {
-        onUploadComplete(result.items);
+        onUploadComplete(
+          result.items, 
+          result.detected_dimension_unit as DimensionUnit,
+          result.warnings
+        );
       }, 1000);
     } catch (err) {
       clearInterval(progressInterval);
@@ -180,7 +188,11 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
       );
       
       setTimeout(() => {
-        onUploadComplete(result.items);
+        onUploadComplete(
+          result.items,
+          result.detected_dimension_unit as DimensionUnit,
+          result.warnings
+        );
       }, 1000);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erreur lors du chargement du fichier démo';

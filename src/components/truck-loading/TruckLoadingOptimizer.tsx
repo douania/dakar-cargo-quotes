@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PackingListUploader } from './PackingListUploader';
 import { DataValidationTable } from './DataValidationTable';
 import { FleetSuggestionResults } from './FleetSuggestionResults';
-import { PackingItem, WorkflowStep } from '@/types/truckLoading';
+import { PackingItem, WorkflowStep, DimensionUnit } from '@/types/truckLoading';
 
 const steps = [
   { number: 1, title: 'Import', description: 'Charger la liste', icon: Upload },
@@ -16,9 +16,17 @@ const steps = [
 export function TruckLoadingOptimizer() {
   const [currentStep, setCurrentStep] = useState<WorkflowStep>(1);
   const [packingItems, setPackingItems] = useState<PackingItem[]>([]);
+  const [detectedUnit, setDetectedUnit] = useState<DimensionUnit | undefined>();
+  const [parseWarnings, setParseWarnings] = useState<string[]>([]);
 
-  const handleUploadComplete = (items: PackingItem[]) => {
+  const handleUploadComplete = (
+    items: PackingItem[], 
+    unit?: DimensionUnit, 
+    warnings?: string[]
+  ) => {
     setPackingItems(items);
+    setDetectedUnit(unit);
+    setParseWarnings(warnings || []);
     setCurrentStep(2);
   };
 
@@ -28,6 +36,8 @@ export function TruckLoadingOptimizer() {
 
   const handleReset = () => {
     setPackingItems([]);
+    setDetectedUnit(undefined);
+    setParseWarnings([]);
     setCurrentStep(1);
   };
 
@@ -104,6 +114,8 @@ export function TruckLoadingOptimizer() {
                   items={packingItems}
                   onItemsChange={setPackingItems}
                   onValidate={handleValidation}
+                  detectedUnit={detectedUnit}
+                  warnings={parseWarnings}
                 />
               )}
               

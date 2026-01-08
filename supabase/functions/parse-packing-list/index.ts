@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const EXTRACTION_PROMPT = `Tu es un expert en logistique qui analyse des packing lists.
 
-MISSION : Extraire UNIQUEMENT les lignes de colisage/colis et CONVERTIR toutes les dimensions en CENTIMÈTRES (cm).
+MISSION : Extraire UNIQUEMENT les lignes de colisage/colis avec leurs dimensions EXACTES telles qu'elles apparaissent dans le fichier.
 
 RÈGLES D'EXTRACTION :
 1. Ignore les factures, proformas, devis
@@ -18,24 +18,23 @@ RÈGLES D'EXTRACTION :
 4. Ignore les lignes en double (même colis répété dans différents sets/onglets)
 5. Nettoie les symboles (~, ±, ≈) des valeurs numériques
 
-IMPORTANT - DÉTECTION DES UNITÉS DE DIMENSIONS :
+DÉTECTION DES UNITÉS DE DIMENSIONS :
 1. Cherche dans les en-têtes de colonnes l'unité mentionnée (mm, cm, m, inch, ft)
-2. Si l'en-tête indique "L(mm)" ou "Length (mm)" → les valeurs sont en millimètres
-3. Si l'en-tête indique "L(cm)" ou "Length (cm)" → les valeurs sont en centimètres
-4. Si l'en-tête indique "L(m)" ou "Length (m)" → les valeurs sont en mètres
-5. Si aucune unité n'est indiquée, analyse les valeurs :
-   - Valeurs > 1000 pour la longueur (ex: 5420) → probablement en mm
-   - Valeurs entre 10-500 pour la longueur → probablement en cm
-   - Valeurs < 10 pour la longueur → probablement en mètres
+2. Si l'en-tête indique "L(mm)" ou "Length (mm)" → source_unit = "mm"
+3. Si l'en-tête indique "L(cm)" ou "Length (cm)" → source_unit = "cm"
+4. Si l'en-tête indique "L(m)" ou "Length (m)" → source_unit = "m"
+5. Si aucune unité n'est indiquée, analyse les valeurs typiques :
+   - Valeurs > 1000 pour la longueur (ex: 5420) → probablement "mm"
+   - Valeurs entre 10-500 pour la longueur → probablement "cm"
+   - Valeurs < 10 pour la longueur → probablement "m"
 
-CONVERSION OBLIGATOIRE VERS CENTIMÈTRES :
-- Si mm détecté : divise par 10 (ex: 5420 mm → 542 cm)
-- Si m détecté : multiplie par 100 (ex: 5.42 m → 542 cm)
-- Si cm détecté : garde tel quel
-- Si inch détecté : multiplie par 2.54
-- Si ft détecté : multiplie par 30.48
+EXTRACTION FIDÈLE DES DIMENSIONS :
+- Extrait les valeurs EXACTES du fichier dans source_length, source_width, source_height
+- Indique l'unité détectée dans source_unit
+- NE MODIFIE JAMAIS les valeurs - même si elles te semblent "suspectes" ou très grandes
+- Des équipements industriels (transformateurs, turbines) peuvent légitimement mesurer > 10 mètres
 
-IMPORTANT - POIDS :
+POIDS :
 - Les poids sont généralement en kg
 - "~61000" signifie 61000 kg (61 tonnes) - c'est un transformateur de puissance
 - Ne divise JAMAIS le poids par 1000
@@ -45,21 +44,36 @@ FORMAT DE SORTIE :
 Pour chaque colis UNIQUE (pas de doublons), retourne :
 - id: string (numéro du colis, ex: "1", "2")
 - description: string (description du contenu)
-- length: number (longueur CONVERTIE EN CM)
-- width: number (largeur CONVERTIE EN CM)
-- height: number (hauteur CONVERTIE EN CM)
+- source_length: number (longueur EXACTE telle qu'elle apparaît dans le fichier)
+- source_width: number (largeur EXACTE telle qu'elle apparaît dans le fichier)
+- source_height: number (hauteur EXACTE telle qu'elle apparaît dans le fichier)
+- source_unit: "mm" | "cm" | "m" | "inch" | "ft" | "unknown"
 - weight: number (poids brut en kg)
 - quantity: number (1 par défaut)
-- stackable: boolean (false pour MAIN BODY/colis lourds >5T, true sinon)
+- stackable: boolean (false pour MAIN BODY/colis lourds >5T, true sinon)`;
 
-IMPORTANT : Tu DOIS indiquer dans detected_dimension_unit l'unité que tu as détectée dans le fichier source.`;
+interface SourcePackingItem {
+  id: string;
+  description: string;
+  source_length: number;
+  source_width: number;
+  source_height: number;
+  source_unit: 'mm' | 'cm' | 'm' | 'inch' | 'ft' | 'unknown';
+  weight: number;
+  quantity: number;
+  stackable: boolean;
+}
 
 interface PackingItem {
   id: string;
   description: string;
-  length: number;  // en cm
-  width: number;   // en cm
-  height: number;  // en cm
+  length: number;  // en cm (calculé)
+  width: number;   // en cm (calculé)
+  height: number;  // en cm (calculé)
+  source_length: number;  // valeur originale du fichier
+  source_width: number;   // valeur originale du fichier
+  source_height: number;  // valeur originale du fichier
+  source_unit: string;    // unité originale détectée
   weight: number;  // en kg
   quantity: number;
   stackable: boolean;
@@ -123,6 +137,25 @@ function parseExcelToText(buffer: ArrayBuffer): { text: string; sheetNames: stri
   }
 }
 
+// Conversion déterministe des dimensions vers cm
+function convertToCm(value: number, unit: string): number {
+  switch (unit) {
+    case 'mm':
+      return Math.round(value / 10);
+    case 'cm':
+      return Math.round(value);
+    case 'm':
+      return Math.round(value * 100);
+    case 'inch':
+      return Math.round(value * 2.54);
+    case 'ft':
+      return Math.round(value * 30.48);
+    default:
+      // Unknown unit - return as-is (assume cm)
+      return Math.round(value);
+  }
+}
+
 async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   
@@ -145,14 +178,14 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
         { role: "system", content: EXTRACTION_PROMPT },
         { 
           role: "user", 
-          content: `Analyse ce contenu de packing list, DÉTECTE L'UNITÉ DES DIMENSIONS, et extrait les articles UNIQUES avec les dimensions CONVERTIES EN CENTIMÈTRES:\n\n${fileContent}`
+          content: `Analyse ce contenu de packing list et extrait les articles UNIQUES avec leurs dimensions EXACTES telles qu'elles apparaissent dans le fichier:\n\n${fileContent}`
         }
       ],
       tools: [{
         type: "function",
         function: {
           name: "extract_packing_items",
-          description: "Extrait les articles de la packing list avec dimensions converties en cm",
+          description: "Extrait les articles de la packing list avec dimensions source exactes",
           parameters: {
             type: "object",
             properties: {
@@ -163,20 +196,25 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
                   properties: {
                     id: { type: "string", description: "Identifiant du colis" },
                     description: { type: "string", description: "Description du contenu" },
-                    length: { type: "number", description: "Longueur CONVERTIE EN CENTIMÈTRES (cm)" },
-                    width: { type: "number", description: "Largeur CONVERTIE EN CENTIMÈTRES (cm)" },
-                    height: { type: "number", description: "Hauteur CONVERTIE EN CENTIMÈTRES (cm)" },
+                    source_length: { type: "number", description: "Longueur EXACTE telle qu'elle apparaît dans le fichier" },
+                    source_width: { type: "number", description: "Largeur EXACTE telle qu'elle apparaît dans le fichier" },
+                    source_height: { type: "number", description: "Hauteur EXACTE telle qu'elle apparaît dans le fichier" },
+                    source_unit: { 
+                      type: "string", 
+                      enum: ["mm", "cm", "m", "inch", "ft", "unknown"],
+                      description: "Unité des dimensions détectée dans le fichier" 
+                    },
                     weight: { type: "number", description: "Poids brut en kg" },
                     quantity: { type: "number", description: "Quantité" },
                     stackable: { type: "boolean", description: "Empilable ou non (false si poids > 5000kg)" }
                   },
-                  required: ["id", "description", "length", "width", "height", "weight", "quantity", "stackable"]
+                  required: ["id", "description", "source_length", "source_width", "source_height", "source_unit", "weight", "quantity", "stackable"]
                 }
               },
               detected_dimension_unit: {
                 type: "string",
-                enum: ["mm", "cm", "m", "inch", "unknown"],
-                description: "Unité des dimensions détectée dans le fichier source AVANT conversion"
+                enum: ["mm", "cm", "m", "inch", "ft", "unknown"],
+                description: "Unité globale des dimensions détectée dans le fichier (basée sur les en-têtes de colonnes)"
               },
               document_type: { 
                 type: "string", 
@@ -219,37 +257,37 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
   }
 
   const result = JSON.parse(toolCall.function.arguments);
+  const globalUnit = result.detected_dimension_unit || 'unknown';
   
   // Log detected unit for debugging
-  console.log(`Detected dimension unit: ${result.detected_dimension_unit}`);
+  console.log(`Detected dimension unit: ${globalUnit}`);
   
-  // Validate and clean items
+  // Validate and convert items
   const validItems = result.items
     .filter((item: Record<string, unknown>) => {
       if (!item.id) return false;
       const weight = Number(item.weight);
       if (!weight || weight <= 0) return false;
-      const length = Number(item.length);
-      const width = Number(item.width);
-      const height = Number(item.height);
-      if (!length || !width || !height) return false;
+      const sourceLength = Number(item.source_length);
+      const sourceWidth = Number(item.source_width);
+      const sourceHeight = Number(item.source_height);
+      if (!sourceLength || !sourceWidth || !sourceHeight) return false;
       return true;
     })
     .map((item: Record<string, unknown>): PackingItem => {
-      // Les dimensions sont déjà en cm grâce à la conversion IA
-      let length = Math.round(Number(item.length) || 0);
-      let width = Math.round(Number(item.width) || 0);
-      let height = Math.round(Number(item.height) || 0);
+      // Valeurs source exactes du fichier
+      const sourceLength = Number(item.source_length) || 0;
+      const sourceWidth = Number(item.source_width) || 0;
+      const sourceHeight = Number(item.source_height) || 0;
+      const itemUnit = String(item.source_unit || globalUnit || 'unknown');
       
-      // Validation de sécurité : si les dimensions semblent encore en mm (> 1400 cm = 14m)
-      // c'est que l'IA n'a pas fait la conversion, on la fait ici
-      const maxDim = Math.max(length, width, height);
-      if (maxDim > 1400) {
-        console.log(`Safety conversion for item ${item.id}: dimensions seem to be in mm`);
-        length = Math.round(length / 10);
-        width = Math.round(width / 10);
-        height = Math.round(height / 10);
-      }
+      // Conversion déterministe vers cm basée sur l'unité détectée
+      const length = convertToCm(sourceLength, itemUnit);
+      const width = convertToCm(sourceWidth, itemUnit);
+      const height = convertToCm(sourceHeight, itemUnit);
+      
+      // Log pour debug
+      console.log(`Item ${item.id}: source=${sourceLength}x${sourceWidth}x${sourceHeight} ${itemUnit} → ${length}x${width}x${height} cm`);
       
       return {
         id: String(item.id).trim(),
@@ -257,16 +295,29 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
         length,
         width,
         height,
+        source_length: sourceLength,
+        source_width: sourceWidth,
+        source_height: sourceHeight,
+        source_unit: itemUnit,
         weight: Number(item.weight) || 0,
         quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
         stackable: Boolean(item.stackable)
       };
     });
 
-  // Add warning about unit conversion if detected
+  // Build warnings
   const warnings = result.warnings || [];
-  if (result.detected_dimension_unit && result.detected_dimension_unit !== 'cm') {
-    warnings.push(`Unité détectée: ${result.detected_dimension_unit} - Dimensions converties en cm`);
+  if (globalUnit && globalUnit !== 'cm' && globalUnit !== 'unknown') {
+    warnings.push(`Unité source détectée: ${globalUnit} → Dimensions converties en cm`);
+  }
+  if (globalUnit === 'unknown') {
+    warnings.push(`Unité non détectée dans le fichier - dimensions assumées en cm`);
+  }
+  
+  // Log summary
+  if (validItems.length > 0) {
+    const maxDimCm = Math.max(...validItems.map((i: PackingItem) => Math.max(i.length, i.width, i.height)));
+    console.log(`Extraction complete: ${validItems.length} items, max dimension: ${maxDimCm} cm (${(maxDimCm/100).toFixed(2)} m)`);
   }
 
   return {
@@ -274,7 +325,7 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
     document_type: result.document_type || "packing_list",
     sheets_analyzed: result.sheets_analyzed || [],
     warnings,
-    detected_dimension_unit: result.detected_dimension_unit || "unknown"
+    detected_dimension_unit: globalUnit
   };
 }
 
