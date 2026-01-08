@@ -9,6 +9,7 @@ export interface AIExtractionResult {
   sheets_analyzed: string[];
   warnings: string[];
   total_items: number;
+  detected_dimension_unit: string;
 }
 
 const TRUCK_ID_ALIASES: Record<string, string> = {
@@ -72,6 +73,7 @@ export async function parsePackingListWithAI(file: File): Promise<AIExtractionRe
     sheets_analyzed: data.sheets_analyzed || [],
     warnings: data.warnings || [],
     total_items: data.total_items || data.items?.length || 0,
+    detected_dimension_unit: data.detected_dimension_unit || 'unknown',
   };
 }
 

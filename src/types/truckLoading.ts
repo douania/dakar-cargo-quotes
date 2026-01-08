@@ -1,12 +1,19 @@
+export type DimensionUnit = 'mm' | 'cm' | 'm' | 'inch' | 'ft' | 'unknown';
+
 export interface PackingItem {
   id: string;
   description: string;
-  length: number;
-  width: number;
-  height: number;
-  weight: number;
+  length: number;   // en cm (calculé depuis source)
+  width: number;    // en cm (calculé depuis source)
+  height: number;   // en cm (calculé depuis source)
+  weight: number;   // en kg
   quantity: number;
   stackable?: boolean;
+  // Valeurs originales du fichier (optionnel, pour affichage/debug)
+  source_length?: number;
+  source_width?: number;
+  source_height?: number;
+  source_unit?: DimensionUnit;
 }
 
 export interface TruckSpec {
