@@ -642,6 +642,57 @@ export type Database = {
           },
         ]
       }
+      exceptional_transport_categories: {
+        Row: {
+          authorization_required: boolean | null
+          category_id: string
+          category_name: string
+          created_at: string | null
+          escort_type: string
+          estimated_escort_cost_fcfa: number | null
+          id: string
+          length_max_m: number | null
+          length_min_m: number | null
+          notes: string | null
+          weight_max_t: number | null
+          weight_min_t: number | null
+          width_max_m: number | null
+          width_min_m: number | null
+        }
+        Insert: {
+          authorization_required?: boolean | null
+          category_id: string
+          category_name: string
+          created_at?: string | null
+          escort_type: string
+          estimated_escort_cost_fcfa?: number | null
+          id?: string
+          length_max_m?: number | null
+          length_min_m?: number | null
+          notes?: string | null
+          weight_max_t?: number | null
+          weight_min_t?: number | null
+          width_max_m?: number | null
+          width_min_m?: number | null
+        }
+        Update: {
+          authorization_required?: boolean | null
+          category_id?: string
+          category_name?: string
+          created_at?: string | null
+          escort_type?: string
+          estimated_escort_cost_fcfa?: number | null
+          id?: string
+          length_max_m?: number | null
+          length_min_m?: number | null
+          notes?: string | null
+          weight_max_t?: number | null
+          weight_min_t?: number | null
+          width_max_m?: number | null
+          width_min_m?: number | null
+        }
+        Relationships: []
+      }
       expert_profiles: {
         Row: {
           communication_style: Json | null
@@ -1005,6 +1056,72 @@ export type Database = {
         }
         Relationships: []
       }
+      lifting_equipment: {
+        Row: {
+          axle_count: number | null
+          boom_length_m: number | null
+          brand: string
+          capacity_at_radius_t: Json | null
+          capacity_t: number
+          category: string
+          created_at: string | null
+          equipment_id: string
+          id: string
+          is_available_port_dakar: boolean | null
+          is_available_west_africa: boolean | null
+          max_height_m: number | null
+          min_radius_m: number | null
+          model: string
+          notes: string | null
+          origin_country: string | null
+          price_category: string | null
+          reach_rows: number | null
+          stacking_height: number | null
+        }
+        Insert: {
+          axle_count?: number | null
+          boom_length_m?: number | null
+          brand: string
+          capacity_at_radius_t?: Json | null
+          capacity_t: number
+          category: string
+          created_at?: string | null
+          equipment_id: string
+          id?: string
+          is_available_port_dakar?: boolean | null
+          is_available_west_africa?: boolean | null
+          max_height_m?: number | null
+          min_radius_m?: number | null
+          model: string
+          notes?: string | null
+          origin_country?: string | null
+          price_category?: string | null
+          reach_rows?: number | null
+          stacking_height?: number | null
+        }
+        Update: {
+          axle_count?: number | null
+          boom_length_m?: number | null
+          brand?: string
+          capacity_at_radius_t?: Json | null
+          capacity_t?: number
+          category?: string
+          created_at?: string | null
+          equipment_id?: string
+          id?: string
+          is_available_port_dakar?: boolean | null
+          is_available_west_africa?: boolean | null
+          max_height_m?: number | null
+          min_radius_m?: number | null
+          model?: string
+          notes?: string | null
+          origin_country?: string | null
+          price_category?: string | null
+          reach_rows?: number | null
+          stacking_height?: number | null
+        }
+        Relationships: []
+      }
       local_transport_rates: {
         Row: {
           cargo_category: string | null
@@ -1104,6 +1221,60 @@ export type Database = {
           summary?: string | null
           title?: string
           url?: string | null
+        }
+        Relationships: []
+      }
+      operational_costs_senegal: {
+        Row: {
+          amount: number | null
+          calculation_base: string | null
+          condition_text: string | null
+          cost_id: string
+          cost_type: string
+          created_at: string | null
+          effective_date: string | null
+          id: string
+          is_active: boolean | null
+          max_amount: number | null
+          min_amount: number | null
+          name_fr: string
+          notes: string | null
+          source: string | null
+          unit: string
+        }
+        Insert: {
+          amount?: number | null
+          calculation_base?: string | null
+          condition_text?: string | null
+          cost_id: string
+          cost_type: string
+          created_at?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_amount?: number | null
+          min_amount?: number | null
+          name_fr: string
+          notes?: string | null
+          source?: string | null
+          unit: string
+        }
+        Update: {
+          amount?: number | null
+          calculation_base?: string | null
+          condition_text?: string | null
+          cost_id?: string
+          cost_type?: string
+          created_at?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_amount?: number | null
+          min_amount?: number | null
+          name_fr?: string
+          notes?: string | null
+          source?: string | null
+          unit?: string
         }
         Relationships: []
       }
@@ -1311,6 +1482,243 @@ export type Database = {
           name?: string
           rate?: number
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      trailer_types: {
+        Row: {
+          axle_count_max: number | null
+          axle_count_min: number | null
+          category: string
+          container_compatible: string[] | null
+          created_at: string | null
+          deck_height_m: number | null
+          gooseneck_type: string | null
+          id: string
+          internal_height_m: number | null
+          is_available_senegal: boolean | null
+          length_extended_m: number | null
+          length_m: number | null
+          payload_max_t: number | null
+          payload_min_t: number | null
+          requires_escort_if_width_gt_m: number | null
+          requires_permit_if_weight_gt_t: number | null
+          subtype: string | null
+          trailer_id: string
+          type_name: string
+          usage_description: string | null
+          volume_m3: number | null
+          width_m: number | null
+        }
+        Insert: {
+          axle_count_max?: number | null
+          axle_count_min?: number | null
+          category: string
+          container_compatible?: string[] | null
+          created_at?: string | null
+          deck_height_m?: number | null
+          gooseneck_type?: string | null
+          id?: string
+          internal_height_m?: number | null
+          is_available_senegal?: boolean | null
+          length_extended_m?: number | null
+          length_m?: number | null
+          payload_max_t?: number | null
+          payload_min_t?: number | null
+          requires_escort_if_width_gt_m?: number | null
+          requires_permit_if_weight_gt_t?: number | null
+          subtype?: string | null
+          trailer_id: string
+          type_name: string
+          usage_description?: string | null
+          volume_m3?: number | null
+          width_m?: number | null
+        }
+        Update: {
+          axle_count_max?: number | null
+          axle_count_min?: number | null
+          category?: string
+          container_compatible?: string[] | null
+          created_at?: string | null
+          deck_height_m?: number | null
+          gooseneck_type?: string | null
+          id?: string
+          internal_height_m?: number | null
+          is_available_senegal?: boolean | null
+          length_extended_m?: number | null
+          length_m?: number | null
+          payload_max_t?: number | null
+          payload_min_t?: number | null
+          requires_escort_if_width_gt_m?: number | null
+          requires_permit_if_weight_gt_t?: number | null
+          subtype?: string | null
+          trailer_id?: string
+          type_name?: string
+          usage_description?: string | null
+          volume_m3?: number | null
+          width_m?: number | null
+        }
+        Relationships: []
+      }
+      transport_regulations: {
+        Row: {
+          action_if_exceeded: string | null
+          category: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          max_value: number
+          min_value: number | null
+          notes: string | null
+          oog_trigger: number | null
+          parameter: string
+          regulation_id: string
+          source_reference: string | null
+          unit: string
+          vehicle_type: string | null
+          zone: string
+        }
+        Insert: {
+          action_if_exceeded?: string | null
+          category: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_value: number
+          min_value?: number | null
+          notes?: string | null
+          oog_trigger?: number | null
+          parameter: string
+          regulation_id: string
+          source_reference?: string | null
+          unit: string
+          vehicle_type?: string | null
+          zone?: string
+        }
+        Update: {
+          action_if_exceeded?: string | null
+          category?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_value?: number
+          min_value?: number | null
+          notes?: string | null
+          oog_trigger?: number | null
+          parameter?: string
+          regulation_id?: string
+          source_reference?: string | null
+          unit?: string
+          vehicle_type?: string | null
+          zone?: string
+        }
+        Relationships: []
+      }
+      vehicle_brands: {
+        Row: {
+          brand_name: string
+          countries_present: string[] | null
+          created_at: string | null
+          id: string
+          notes: string | null
+          origin_country: string | null
+          parts_availability: string | null
+          popular_models: string[] | null
+          price_category: string | null
+          sav_availability: string | null
+        }
+        Insert: {
+          brand_name: string
+          countries_present?: string[] | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          origin_country?: string | null
+          parts_availability?: string | null
+          popular_models?: string[] | null
+          price_category?: string | null
+          sav_availability?: string | null
+        }
+        Update: {
+          brand_name?: string
+          countries_present?: string[] | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          origin_country?: string | null
+          parts_availability?: string | null
+          popular_models?: string[] | null
+          price_category?: string | null
+          sav_availability?: string | null
+        }
+        Relationships: []
+      }
+      vehicle_types: {
+        Row: {
+          axle_count: number
+          category: string
+          config: string
+          created_at: string | null
+          driven_wheels: number | null
+          id: string
+          is_available_senegal: boolean | null
+          notes: string | null
+          payload_t: number | null
+          power_hp_max: number | null
+          power_hp_min: number | null
+          ptac_max_t: number | null
+          ptac_min_t: number | null
+          ptra_max_t: number | null
+          ptra_min_t: number | null
+          saddle_load_t: number | null
+          terrain_type: string | null
+          usage_primary: string | null
+          vehicle_id: string
+          wheel_count: number | null
+        }
+        Insert: {
+          axle_count: number
+          category: string
+          config: string
+          created_at?: string | null
+          driven_wheels?: number | null
+          id?: string
+          is_available_senegal?: boolean | null
+          notes?: string | null
+          payload_t?: number | null
+          power_hp_max?: number | null
+          power_hp_min?: number | null
+          ptac_max_t?: number | null
+          ptac_min_t?: number | null
+          ptra_max_t?: number | null
+          ptra_min_t?: number | null
+          saddle_load_t?: number | null
+          terrain_type?: string | null
+          usage_primary?: string | null
+          vehicle_id: string
+          wheel_count?: number | null
+        }
+        Update: {
+          axle_count?: number
+          category?: string
+          config?: string
+          created_at?: string | null
+          driven_wheels?: number | null
+          id?: string
+          is_available_senegal?: boolean | null
+          notes?: string | null
+          payload_t?: number | null
+          power_hp_max?: number | null
+          power_hp_min?: number | null
+          ptac_max_t?: number | null
+          ptac_min_t?: number | null
+          ptra_max_t?: number | null
+          ptra_min_t?: number | null
+          saddle_load_t?: number | null
+          terrain_type?: string | null
+          usage_primary?: string | null
+          vehicle_id?: string
+          wheel_count?: number | null
         }
         Relationships: []
       }
