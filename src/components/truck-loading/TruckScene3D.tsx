@@ -138,43 +138,41 @@ function Scene({
           }
         }
         
-        // Dimensions en mètres - tenir compte de la rotation
-        // Si rotated = true, l'API a déjà échangé length/width dans les positions
-        let dimWidth = dims.width / 1000;
-        let dimLength = dims.length / 1000;
+        // Dimensions API en mètres
+        const apiLength = dims.length / 1000;  // dimension "length" de l'API
+        const apiWidth = dims.width / 1000;    // dimension "width" de l'API
         const dimHeight = dims.height / 1000;
-        
-        // Si l'item est tourné, les dimensions width et length sont inversées dans l'espace physique
+
+        // Quand l'API dit "rotated", l'article a été tourné de 90° autour de l'axe vertical
+        // Cela signifie que sa "length" originale est maintenant alignée avec l'axe Z (largeur camion)
+        // et sa "width" originale est maintenant alignée avec l'axe X (longueur camion)
+        let dimOnAxisX: number;  // dimension réelle le long de l'axe X (longueur camion)
+        let dimOnAxisZ: number;  // dimension réelle le long de l'axe Z (largeur camion)
+
         if (placement.rotated) {
-          [dimWidth, dimLength] = [dimLength, dimWidth];
+          // Après rotation 90° : width -> axe X, length -> axe Z
+          dimOnAxisX = apiWidth;
+          dimOnAxisZ = apiLength;
+        } else {
+          // Sans rotation : length -> axe X, width -> axe Z
+          dimOnAxisX = apiLength;
+          dimOnAxisZ = apiWidth;
         }
+
+        // Position du centre en Three.js
+        // L'API donne le coin inférieur-arrière-gauche, Three.js positionne au centre
+        // Mapping: API X -> Three.js X (longueur), API Y -> Three.js Z (largeur), API Z -> Three.js Y (hauteur)
+        const posX = placement.position.x / 1000 + dimOnAxisX / 2;  // axe X = longueur camion
+        const posY = placement.position.z / 1000 + dimHeight / 2;    // axe Y = hauteur
+        const posZ = placement.position.y / 1000 + dimOnAxisZ / 2;   // axe Z = largeur camion
         
-        // Mapping des axes API vers Three.js:
-        // Convention API Railway: X=longueur camion, Y=largeur, Z=hauteur (en mm)
-        // Convention Three.js   : X=longueur, Y=hauteur, Z=largeur
-        // 
-        // Le centre du mesh Three.js doit être calculé à partir du coin API
-        const posX = placement.position.x / 1000 + dimLength / 2;  // API X (longueur) -> Three.js X
-        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z (hauteur)  -> Three.js Y
-        const posZ = placement.position.y / 1000 + dimWidth / 2;   // API Y (largeur)  -> Three.js Z
-        
-        // Debug log pour les premiers éléments
-        if (idx < 3) {
-          console.log(`[3D] Item ${placement.item_id}:`, {
-            apiPos: placement.position,
-            apiDims: dims,
-            rotated: placement.rotated,
-            threePos: { x: posX, y: posY, z: posZ },
-            threeDims: { w: dimWidth, l: dimLength, h: dimHeight }
-          });
-        }
-        
+        // CargoItem3D attend: width = axe X, length = axe Z
         return (
           <CargoItem3D
             key={`${placement.item_id}-${idx}`}
             itemId={placement.item_id}
             position={{ x: posX, y: posY, z: posZ }}
-            dimensions={{ width: dimWidth, length: dimLength, height: dimHeight }}
+            dimensions={{ width: dimOnAxisX, length: dimOnAxisZ, height: dimHeight }}
             color={color}
             isSelected={selectedItemId === `${placement.item_id}-${idx}`}
             isVisible={idx < visibleCount}
