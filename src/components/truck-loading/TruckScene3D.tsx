@@ -132,38 +132,46 @@ function Scene({
           }
         }
         
-        // Dimensions en mètres
-        const dimWidth = dims.width / 1000;
-        const dimLength = dims.length / 1000;
+        // Dimensions en mètres - tenir compte de la rotation
+        // Si rotated = true, l'API a déjà échangé length/width dans les positions
+        let dimWidth = dims.width / 1000;
+        let dimLength = dims.length / 1000;
         const dimHeight = dims.height / 1000;
         
+        // Si l'item est tourné, les dimensions width et length sont inversées dans l'espace physique
+        if (placement.rotated) {
+          [dimWidth, dimLength] = [dimLength, dimWidth];
+        }
+        
         // Mapping des axes API vers Three.js:
-        // - API X (longueur du camion, 0→14000mm) → Three.js Z (profondeur)
-        // - API Y (largeur du camion, 0→2500mm)  → Three.js X (largeur)
-        // - API Z (hauteur, 0→2700mm)            → Three.js Y (hauteur)
-        // Three.js positionne au centre du mesh, donc on ajoute la moitié de la dimension
-        const posX = placement.position.y / 1000 + dimWidth / 2;   // API Y -> Three.js X (largeur)
-        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z -> Three.js Y (hauteur)
-        const posZ = placement.position.x / 1000 + dimLength / 2;  // API X -> Three.js Z (longueur)
+        // Convention API: X=longueur camion (profondeur), Y=largeur, Z=hauteur
+        // Convention Three.js: X=largeur, Y=hauteur, Z=profondeur
+        // 
+        // Le centre du mesh Three.js doit être calculé à partir du coin API
+        const posX = placement.position.y / 1000 + dimWidth / 2;   // API Y (largeur) -> Three.js X
+        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z (hauteur) -> Three.js Y
+        const posZ = placement.position.x / 1000 + dimLength / 2;  // API X (profondeur) -> Three.js Z
+        
+        // Debug log pour les premiers éléments
+        if (idx < 3) {
+          console.log(`[3D] Item ${placement.item_id}:`, {
+            apiPos: placement.position,
+            apiDims: dims,
+            rotated: placement.rotated,
+            threePos: { x: posX, y: posY, z: posZ },
+            threeDims: { w: dimWidth, l: dimLength, h: dimHeight }
+          });
+        }
         
         return (
           <CargoItem3D
             key={`${placement.item_id}-${idx}`}
             itemId={placement.item_id}
-            position={{
-              x: posX,
-              y: posY,
-              z: posZ,
-            }}
-            dimensions={{
-              width: dimWidth,
-              length: dimLength,
-              height: dimHeight,
-            }}
+            position={{ x: posX, y: posY, z: posZ }}
+            dimensions={{ width: dimWidth, length: dimLength, height: dimHeight }}
             color={color}
             isSelected={selectedItemId === `${placement.item_id}-${idx}`}
             isVisible={idx < visibleCount}
-            rotated={placement.rotated}
             onClick={() => onSelectItem(`${placement.item_id}-${idx}`)}
           />
         );

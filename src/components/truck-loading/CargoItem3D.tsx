@@ -5,12 +5,11 @@ import * as THREE from 'three';
 
 interface CargoItem3DProps {
   itemId: string;
-  position: { x: number; y: number; z: number }; // in meters
-  dimensions: { width: number; height: number; length: number }; // in meters
+  position: { x: number; y: number; z: number }; // Position du CENTRE en mètres (déjà calculée)
+  dimensions: { width: number; height: number; length: number }; // Dimensions en mètres (rotation déjà appliquée)
   color: string;
   isSelected: boolean;
   isVisible: boolean;
-  rotated: boolean;
   onClick: () => void;
 }
 
@@ -21,7 +20,6 @@ export function CargoItem3D({
   color,
   isSelected,
   isVisible,
-  rotated,
   onClick,
 }: CargoItem3DProps) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -40,21 +38,17 @@ export function CargoItem3D({
 
   if (!isVisible) return null;
 
-  // Account for rotation
-  const w = rotated ? dimensions.length : dimensions.width;
-  const l = rotated ? dimensions.width : dimensions.length;
+  // Les dimensions et positions sont déjà correctement calculées par TruckScene3D
+  // width = dimension sur X (largeur), length = dimension sur Z (profondeur), height = dimension sur Y (hauteur)
+  const w = dimensions.width;
+  const l = dimensions.length;
   const h = dimensions.height;
-
-  // Position at center of the box (Three.js uses center origin)
-  const posX = position.x + w / 2;
-  const posY = position.z + h / 2; // Z in data = Y in Three.js (height)
-  const posZ = position.y + l / 2;  // Y in data = Z in Three.js (depth)
 
   return (
     <group>
       <mesh
         ref={meshRef}
-        position={[posX, posY, posZ]}
+        position={[position.x, position.y, position.z]}
         onClick={(e) => {
           e.stopPropagation();
           onClick();
@@ -84,7 +78,7 @@ export function CargoItem3D({
       {/* Label on top of the box */}
       {(hovered || isSelected) && (
         <Html
-          position={[posX, posY + h / 2 + 0.15, posZ]}
+          position={[position.x, position.y + h / 2 + 0.15, position.z]}
           center
           distanceFactor={8}
           style={{ pointerEvents: 'none' }}
