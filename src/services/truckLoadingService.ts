@@ -270,22 +270,21 @@ export async function getTruckSpecs(): Promise<TruckSpec[]> {
 function normalizeOptimizationResult(apiResponse: any): OptimizationResult {
   const results = apiResponse.results || apiResponse.result || {};
   
-  // L'API Railway retourne les positions en cm, le frontend attend des mm pour la visualisation 3D
-  const CM_TO_MM = 10;
-  
+  // L'API Railway retourne les positions ET dimensions en mm directement
+  // Ne pas appliquer de conversion - les valeurs sont déjà en mm
   const placements = (apiResponse.placements || results.placements || []).map((p: any, index: number) => ({
     item_id: p.item_id || `item_${index}`,
     truck_index: p.truck_index ?? 0,
     position: {
-      x: (p.x ?? p.position?.x ?? 0) * CM_TO_MM,  // cm -> mm
-      y: (p.y ?? p.position?.y ?? 0) * CM_TO_MM,  // cm -> mm
-      z: (p.z ?? p.position?.z ?? 0) * CM_TO_MM,  // cm -> mm
+      x: p.x ?? p.position?.x ?? 0,  // déjà en mm
+      y: p.y ?? p.position?.y ?? 0,  // déjà en mm
+      z: p.z ?? p.position?.z ?? 0,  // déjà en mm
     },
-    // Convertir aussi les dimensions si présentes dans le placement
+    // Dimensions du placement si présentes (déjà en mm)
     dimensions: (p.length && p.width && p.height) ? {
-      length: p.length * CM_TO_MM,
-      width: p.width * CM_TO_MM,
-      height: p.height * CM_TO_MM,
+      length: p.length,
+      width: p.width,
+      height: p.height,
     } : undefined,
     rotated: p.rotation !== 0 || p.rotated || false,
   }));
