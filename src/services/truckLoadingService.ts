@@ -1,4 +1,4 @@
-import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult } from '@/types/truckLoading';
+import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult, FleetScenario, TruckAvailabilityInfo, FeasibilityScore } from '@/types/truckLoading';
 import { supabase } from '@/integrations/supabase/client';
 
 const RAILWAY_API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
@@ -22,6 +22,144 @@ const TRUCK_ID_ALIASES: Record<string, string> = {
   lowbed_60t: 'lowbed_3ess_60t',
   lowbed_80t: 'lowbed_4ess_80t',
 };
+
+// ============= TRUCK AVAILABILITY (Senegal/West Africa market) =============
+// Based on operational knowledge: semi-trailers are standard and easy to find,
+// small trucks (19T) are rare in fleet quantities, exceptional transport is limited
+export const TRUCK_AVAILABILITY: Record<string, TruckAvailabilityInfo> = {
+  'van_3t': { availability: 'low', maxFleetSize: 2, label: 'Fourgon 3T' },
+  'porteur_19t': { availability: 'low', maxFleetSize: 3, label: 'Porteur 19T' },
+  'porteur_26t': { availability: 'medium', maxFleetSize: 6, label: 'Porteur 26T' },
+  'semi_plateau_32t': { availability: 'high', maxFleetSize: 15, label: 'Semi-remorque plateau 32T' },
+  'semi_plateau_38t': { availability: 'high', maxFleetSize: 10, label: 'Semi-remorque plateau 38T' },
+  'lowbed_2ess_50t': { availability: 'medium', maxFleetSize: 3, label: 'Lowbed 50T' },
+  'lowbed_3ess_60t': { availability: 'low', maxFleetSize: 2, label: 'Lowbed 60T' },
+  'lowbed_4ess_80t': { availability: 'low', maxFleetSize: 1, label: 'Lowbed 80T' },
+  'convoi_modular': { availability: 'low', maxFleetSize: 1, label: 'Convoi Exceptionnel' },
+};
+
+// ============= FEASIBILITY SCORING =============
+export function calculateFeasibilityScore(scenario: FleetScenario): FeasibilityScore {
+  let score = 100;
+  const warnings: string[] = [];
+  
+  for (const truck of scenario.trucks) {
+    const info = TRUCK_AVAILABILITY[truck.truck_type];
+    if (!info) continue;
+    
+    // Penalty if exceeding max mobilizable fleet size
+    if (truck.count > info.maxFleetSize) {
+      const excess = truck.count - info.maxFleetSize;
+      score -= excess * 15;
+      warnings.push(`${truck.count}x ${info.label} difficile à mobiliser (max recommandé: ${info.maxFleetSize})`);
+    }
+    
+    // Penalty for low-availability vehicles used in quantity
+    if (info.availability === 'low' && truck.count > 1) {
+      score -= truck.count * 10;
+      warnings.push(`${info.label} rarement disponible en flotte (${truck.count} demandés)`);
+    }
+    
+    // Penalty for low fill rate (< 70%) - underutilized trucks
+    if (truck.fill_rate < 0.7) {
+      score -= Math.round((0.7 - truck.fill_rate) * 30);
+      if (truck.fill_rate < 0.5) {
+        warnings.push(`${info.label} sous-utilisé (${Math.round(truck.fill_rate * 100)}%)`);
+      }
+    }
+    
+    // Bonus for semi-trailers (market standard, easy to find)
+    if (truck.truck_type.includes('semi_plateau')) {
+      score += 5;
+    }
+  }
+  
+  // Penalty if too many different vehicle types (coordination complexity)
+  if (scenario.trucks.length > 2) {
+    score -= (scenario.trucks.length - 2) * 8;
+    warnings.push('Coordination multi-véhicules complexe');
+  }
+  
+  score = Math.max(0, Math.min(100, score));
+  
+  return {
+    score,
+    warnings,
+    recommendation: score >= 70 ? 'feasible' : score >= 40 ? 'complex' : 'difficult'
+  };
+}
+
+// ============= OPTIMAL SCENARIO SELECTION =============
+// Recalculate recommended scenario locally (don't trust backend is_recommended flag)
+export function selectOptimalScenario(scenarios: FleetScenario[]): string {
+  const scored = scenarios.map(s => {
+    const feasibility = calculateFeasibilityScore(s);
+    const avgFillRate = s.trucks.length > 0 
+      ? s.trucks.reduce((sum, t) => sum + t.fill_rate, 0) / s.trucks.length 
+      : 0;
+    
+    return {
+      name: s.name,
+      feasibility,
+      totalTrucks: s.total_trucks,
+      avgFillRate
+    };
+  });
+
+  // Sort by: feasibility >= 70 first, then min trucks, then best fill rate
+  const sorted = scored.sort((a, b) => {
+    // 1. Feasible scenarios first
+    if (a.feasibility.score >= 70 && b.feasibility.score < 70) return -1;
+    if (b.feasibility.score >= 70 && a.feasibility.score < 70) return 1;
+    
+    // 2. Minimum trucks (fewer = better)
+    if (a.totalTrucks !== b.totalTrucks) return a.totalTrucks - b.totalTrucks;
+    
+    // 3. Best average fill rate
+    return b.avgFillRate - a.avgFillRate;
+  });
+
+  console.log('[selectOptimalScenario] Scoring:', scored.map(s => 
+    `${s.name}: score=${s.feasibility.score}, trucks=${s.totalTrucks}, fill=${Math.round(s.avgFillRate * 100)}%`
+  ));
+
+  return sorted[0]?.name || scenarios[0]?.name || '';
+}
+
+// ============= TRUCK FILTERING (exclude incompatible trucks) =============
+export function filterCompatibleTrucks(
+  items: PackingItem[], 
+  trucks: { id: string; length: number; width: number; height: number; max_weight: number }[]
+): typeof trucks {
+  // Find max item dimensions (in cm, since items are in cm)
+  const maxItemLength = Math.max(...items.map(i => i.length));
+  const maxItemWidth = Math.max(...items.map(i => i.width));
+  const maxItemHeight = Math.max(...items.map(i => i.height));
+  const totalWeight = items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+
+  console.log(`[filterCompatibleTrucks] Max item: ${maxItemLength}cm x ${maxItemWidth}cm x ${maxItemHeight}cm`);
+  console.log(`[filterCompatibleTrucks] Total weight: ${totalWeight} kg`);
+
+  return trucks.filter(truck => {
+    // Truck dimensions are in cm (from API), item dimensions are in cm
+    // The truck must be able to fit the largest item
+    const canFitLargest = truck.length >= maxItemLength 
+                       && truck.width >= maxItemWidth 
+                       && truck.height >= maxItemHeight;
+    
+    // For heavy loads (> 50T), exclude small trucks (< 20T capacity)
+    const appropriateSize = totalWeight < 50000 || truck.max_weight >= 20000;
+    
+    if (!canFitLargest) {
+      console.log(`[filterCompatibleTrucks] Excluded ${truck.id}: cannot fit largest item`);
+    }
+    if (!appropriateSize) {
+      console.log(`[filterCompatibleTrucks] Excluded ${truck.id}: too small for total weight`);
+    }
+    
+    return canFitLargest && appropriateSize;
+  });
+}
 
 const percentToRatio = (value: unknown): number => {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0;
@@ -322,6 +460,20 @@ export async function suggestFleet(
       };
     })
     .filter(Boolean) as any[];
+
+  // ============= INTELLIGENT FILTERING =============
+  // For heavy loads (> 50T), exclude small trucks that would require too many units
+  const totalWeight = items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+  if (totalWeight > 50000) {
+    const beforeCount = availableTruckObjects.length;
+    availableTruckObjects = availableTruckObjects.filter(t => 
+      !['van_3t', 'porteur_19t'].includes(t.id)
+    );
+    console.log(`[suggestFleet] Petits camions exclus (charge > 50T): ${beforeCount} → ${availableTruckObjects.length}`);
+  }
+
+  // Filter trucks that cannot physically fit the largest item
+  availableTruckObjects = filterCompatibleTrucks(items, availableTruckObjects);
 
   // Inject virtual convoi_modular + reduce the search space for exceptional transport
   if (needsConvoiModular) {
