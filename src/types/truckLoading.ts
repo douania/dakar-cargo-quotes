@@ -49,6 +49,19 @@ export interface OptimizationResult {
 export type Algorithm = 'simple' | 'genetic';
 export type WorkflowStep = 1 | 2 | 3;
 
+// Feasibility scoring for fleet scenarios (Senegal/West Africa market)
+export interface TruckAvailabilityInfo {
+  availability: 'high' | 'medium' | 'low';
+  maxFleetSize: number;  // Max trucks mobilizable for a single operation
+  label: string;
+}
+
+export interface FeasibilityScore {
+  score: number;           // 0-100 (100 = very feasible)
+  warnings: string[];      // Operational warnings
+  recommendation: 'feasible' | 'complex' | 'difficult';
+}
+
 // Fleet suggestion types
 
 // Detailed truck info with pre-assigned items and placements from suggest-fleet API

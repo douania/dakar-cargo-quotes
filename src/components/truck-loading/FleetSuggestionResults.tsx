@@ -1,14 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Truck, DollarSign, BarChart3, Check, Star, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Truck, DollarSign, BarChart3, Check, Star, Loader2, RefreshCw, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, TruckSpec } from '@/types/truckLoading';
-import { suggestFleet, runOptimization, getTruckSpecs } from '@/services/truckLoadingService';
+import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, TruckSpec, FeasibilityScore } from '@/types/truckLoading';
+import { suggestFleet, runOptimization, getTruckSpecs, calculateFeasibilityScore, selectOptimalScenario } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
 import { LoadingPlan3D } from './LoadingPlan3D';
-
 interface FleetSuggestionResultsProps {
   items: PackingItem[];
   onReset: () => void;
@@ -84,6 +83,189 @@ const normalizeWeight = (weight: number): number => {
   // Already in kg (or 0)
   return weight;
 };
+
+// ============= SCENARIOS GRID COMPONENT =============
+interface ScenariosGridProps {
+  scenarios: FleetScenario[];
+  selectedScenario: FleetScenario | null;
+  isOptimizing: boolean;
+  onSelectScenario: (scenario: FleetScenario) => void;
+  formatCost: (cost: number) => string;
+}
+
+function ScenariosGrid({ scenarios, selectedScenario, isOptimizing, onSelectScenario, formatCost }: ScenariosGridProps) {
+  // Calculate recommended scenario locally (ignore backend is_recommended)
+  const recommendedScenarioName = useMemo(() => {
+    return selectOptimalScenario(scenarios);
+  }, [scenarios]);
+
+  // Calculate feasibility for each scenario
+  const scenarioFeasibility = useMemo(() => {
+    const map = new Map<string, FeasibilityScore>();
+    scenarios.forEach(s => {
+      map.set(s.name, calculateFeasibilityScore(s));
+    });
+    return map;
+  }, [scenarios]);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {scenarios.map((scenario) => {
+        const Icon = SCENARIO_ICONS[scenario.name] || Truck;
+        const isSelected = selectedScenario?.name === scenario.name;
+        const isRecommended = scenario.name === recommendedScenarioName;
+        const feasibility = scenarioFeasibility.get(scenario.name);
+        const avgFillRate = scenario.trucks.length > 0 
+          ? scenario.trucks.reduce((sum, t) => sum + t.fill_rate, 0) / scenario.trucks.length 
+          : 0;
+        
+        return (
+          <Card 
+            key={scenario.name}
+            className={`relative transition-all ${
+              isRecommended 
+                ? 'ring-2 ring-primary shadow-lg' 
+                : isSelected 
+                ? 'ring-2 ring-primary/50' 
+                : 'hover:shadow-md'
+            }`}
+          >
+            {/* Recommended badge (recalculated locally) */}
+            {isRecommended && (
+              <Badge 
+                className="absolute -top-2 -right-2 gap-1 bg-primary text-primary-foreground"
+              >
+                <Star className="h-3 w-3" />
+                Recommandé
+              </Badge>
+            )}
+            
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className={`rounded-full p-2 ${isRecommended ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-lg">{scenario.name}</CardTitle>
+                  <CardDescription className="text-sm">{scenario.description}</CardDescription>
+                </div>
+              </div>
+              
+              {/* Feasibility badge */}
+              {feasibility && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  {feasibility.recommendation === 'feasible' && (
+                    <Badge className="bg-green-100 text-green-800 border-green-300">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Faisable
+                    </Badge>
+                  )}
+                  {feasibility.recommendation === 'complex' && (
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-300">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Mobilisation complexe
+                    </Badge>
+                  )}
+                  {feasibility.recommendation === 'difficult' && (
+                    <Badge className="bg-red-100 text-red-800 border-red-300">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Difficile à mobiliser
+                    </Badge>
+                  )}
+                  
+                  {/* Average fill rate indicator */}
+                  <Badge variant="outline" className={avgFillRate >= 0.8 ? 'text-green-600 border-green-300' : avgFillRate >= 0.6 ? 'text-amber-600 border-amber-300' : 'text-red-600 border-red-300'}>
+                    {Math.round(avgFillRate * 100)}% remplissage moy.
+                  </Badge>
+                </div>
+              )}
+            </CardHeader>
+            
+            <CardContent className="space-y-4">
+              {/* Cost */}
+              <div className="text-center py-3 bg-muted/50 rounded-lg">
+                <p className="text-2xl font-bold text-primary">{formatCost(scenario.total_cost)}</p>
+                <p className="text-xs text-muted-foreground">{scenario.total_trucks} camion(s)</p>
+              </div>
+              
+              {/* Trucks breakdown */}
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Répartition des camions :</p>
+                {scenario.trucks.map((truck, idx) => {
+                  const isSpecialTransport = isSpecialTransportType(truck.truck_type);
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <span>{TRUCK_LABELS[truck.truck_type] || truck.truck_type}</span>
+                          {isSpecialTransport && (
+                            <Badge variant="destructive" className="text-[10px] px-1.5 py-0 gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              SPÉCIAL
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="font-medium">×{truck.count}</span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Remplissage</span>
+                          <span className={truck.fill_rate >= 0.8 ? 'text-green-600 font-medium' : truck.fill_rate < 0.6 ? 'text-amber-600' : ''}>
+                            {(truck.fill_rate * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        <Progress 
+                          value={truck.fill_rate * 100} 
+                          className={`h-1.5 ${truck.fill_rate < 0.6 ? '[&>div]:bg-amber-500' : ''}`} 
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Feasibility warnings */}
+              {feasibility && feasibility.warnings.length > 0 && (
+                <div className="bg-amber-50 rounded-lg p-2 space-y-1">
+                  {feasibility.warnings.slice(0, 2).map((warning, i) => (
+                    <div key={i} className="text-xs text-amber-700 flex items-start gap-1">
+                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                  {feasibility.warnings.length > 2 && (
+                    <div className="text-xs text-amber-600">
+                      +{feasibility.warnings.length - 2} avertissement(s)
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Select Button */}
+              <Button 
+                className="w-full" 
+                variant={isSelected ? "default" : "outline"}
+                onClick={() => onSelectScenario(scenario)}
+                disabled={isOptimizing}
+              >
+                {isOptimizing && isSelected ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Calcul en cours...
+                  </>
+                ) : (
+                  'Valider ce scénario'
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============= MAIN COMPONENT =============
 
 export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResultsProps) {
   const [isLoading, setIsLoading] = useState(true);
@@ -555,102 +737,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
       </div>
 
       {/* Scenarios Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {result.scenarios.map((scenario) => {
-          const Icon = SCENARIO_ICONS[scenario.name] || Truck;
-          const isSelected = selectedScenario?.name === scenario.name;
-          
-          return (
-            <Card 
-              key={scenario.name}
-              className={`relative transition-all ${
-                scenario.is_recommended 
-                  ? 'ring-2 ring-primary shadow-lg' 
-                  : isSelected 
-                  ? 'ring-2 ring-primary/50' 
-                  : 'hover:shadow-md'
-              }`}
-            >
-              {scenario.is_recommended && (
-                <Badge 
-                  className="absolute -top-2 -right-2 gap-1 bg-primary text-primary-foreground"
-                >
-                  <Star className="h-3 w-3" />
-                  Recommandé
-                </Badge>
-              )}
-              
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`rounded-full p-2 ${scenario.is_recommended ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">{scenario.name}</CardTitle>
-                    <CardDescription className="text-sm">{scenario.description}</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="space-y-4">
-                {/* Cost */}
-                <div className="text-center py-3 bg-muted/50 rounded-lg">
-                  <p className="text-2xl font-bold text-primary">{formatCost(scenario.total_cost)}</p>
-                  <p className="text-xs text-muted-foreground">{scenario.total_trucks} camion(s)</p>
-                </div>
-                
-                {/* Trucks breakdown */}
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">Répartition des camions :</p>
-                {scenario.trucks.map((truck, idx) => {
-                    const isSpecialTransport = isSpecialTransportType(truck.truck_type);
-                    return (
-                      <div key={idx} className="space-y-1">
-                        <div className="flex justify-between items-center text-sm">
-                          <div className="flex items-center gap-2">
-                            <span>{TRUCK_LABELS[truck.truck_type] || truck.truck_type}</span>
-                            {isSpecialTransport && (
-                              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 gap-1">
-                                <AlertTriangle className="h-3 w-3" />
-                                TRANSPORT SPÉCIAL
-                              </Badge>
-                            )}
-                          </div>
-                          <span className="font-medium">×{truck.count}</span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Remplissage</span>
-                            <span>{(truck.fill_rate * 100).toFixed(0)}%</span>
-                          </div>
-                          <Progress value={truck.fill_rate * 100} className="h-1.5" />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                {/* Select Button */}
-                <Button 
-                  className="w-full" 
-                  variant={isSelected ? "default" : "outline"}
-                  onClick={() => handleSelectScenario(scenario)}
-                  disabled={isOptimizing}
-                >
-                  {isOptimizing && isSelected ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Calcul en cours...
-                    </>
-                  ) : (
-                    'Valider ce scénario'
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <ScenariosGrid 
+        scenarios={result.scenarios}
+        selectedScenario={selectedScenario}
+        isOptimizing={isOptimizing}
+        onSelectScenario={handleSelectScenario}
+        formatCost={formatCost}
+      />
 
       {/* Actions */}
       <div className="flex justify-center pt-4">
