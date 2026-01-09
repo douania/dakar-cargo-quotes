@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileSpreadsheet, X, AlertCircle, CheckCircle2, Brain, FlaskConical } from 'lucide-react';
+import { Upload, FileSpreadsheet, X, AlertCircle, CheckCircle2, Brain, FlaskConical, Beaker } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -15,6 +15,70 @@ interface PackingListUploaderProps {
     warnings?: string[]
   ) => void;
 }
+
+// Packing list simple pour test rapide (20 articles, ~52T, 2-3 camions)
+const SIMPLE_TEST_PACKING_LIST: PackingItem[] = [
+  { id: 'test_1', description: 'Palette machines', length: 120, width: 100, height: 150, weight: 2500, quantity: 3, stackable: true },
+  { id: 'test_2', description: 'Caisse électrique', length: 200, width: 150, height: 180, weight: 1800, quantity: 5, stackable: true },
+  { id: 'test_3', description: 'Bobine câbles', length: 150, width: 150, height: 120, weight: 3200, quantity: 2, stackable: true },
+  { id: 'test_4', description: 'Container pièces', length: 240, width: 120, height: 140, weight: 4500, quantity: 4, stackable: true },
+  { id: 'test_5', description: 'Armoire électrique', length: 80, width: 60, height: 200, weight: 800, quantity: 6, stackable: false },
+];
+
+// Packing list complexe pour test de charge (100 articles, ~233T, 8-10 camions)
+const COMPLEX_TEST_PACKING_LIST: PackingItem[] = [
+  // 8x Groupes électrogènes (4.5T chacun = 36T)
+  ...Array.from({ length: 8 }, (_, i) => ({
+    id: `gen_${i+1}`, description: 'Groupe électrogène industriel',
+    length: 300, width: 150, height: 200, weight: 4500, quantity: 1, stackable: false
+  })),
+  // 10x Compresseurs (3.8T chacun = 38T)
+  ...Array.from({ length: 10 }, (_, i) => ({
+    id: `comp_${i+1}`, description: 'Compresseur haute pression',
+    length: 250, width: 180, height: 180, weight: 3800, quantity: 1, stackable: false
+  })),
+  // 12x Pompes (2.2T chacune = 26.4T)
+  ...Array.from({ length: 12 }, (_, i) => ({
+    id: `pump_${i+1}`, description: 'Pompe centrifuge',
+    length: 180, width: 120, height: 140, weight: 2200, quantity: 1, stackable: true
+  })),
+  // 15x Armoires électriques (1.5T chacune = 22.5T)
+  ...Array.from({ length: 15 }, (_, i) => ({
+    id: `cabinet_${i+1}`, description: 'Armoire électrique HT',
+    length: 120, width: 80, height: 220, weight: 1500, quantity: 1, stackable: false
+  })),
+  // 8x Bobines câbles (2.8T chacune = 22.4T)
+  ...Array.from({ length: 8 }, (_, i) => ({
+    id: `cable_${i+1}`, description: 'Bobine câbles 500m',
+    length: 150, width: 150, height: 100, weight: 2800, quantity: 1, stackable: true
+  })),
+  // 10x Palettes vannes (1.8T chacune = 18T)
+  ...Array.from({ length: 10 }, (_, i) => ({
+    id: `valve_${i+1}`, description: 'Palette vannes industrielles',
+    length: 120, width: 100, height: 80, weight: 1800, quantity: 1, stackable: true
+  })),
+  // 20x Caisses instrumentation (450kg chacune = 9T)
+  ...Array.from({ length: 20 }, (_, i) => ({
+    id: `instr_${i+1}`, description: 'Caisse instrumentation',
+    length: 100, width: 80, height: 60, weight: 450, quantity: 1, stackable: true
+  })),
+  // 6x Structures métalliques (3.5T chacune = 21T)
+  ...Array.from({ length: 6 }, (_, i) => ({
+    id: `struct_${i+1}`, description: 'Structure métallique',
+    length: 600, width: 120, height: 80, weight: 3500, quantity: 1, stackable: false
+  })),
+  // 5x Échangeurs thermiques (5.5T chacun = 27.5T)
+  ...Array.from({ length: 5 }, (_, i) => ({
+    id: `exchanger_${i+1}`, description: 'Échangeur thermique',
+    length: 400, width: 200, height: 200, weight: 5500, quantity: 1, stackable: false
+  })),
+  // 6x Cuves inox (2T chacune = 12T)
+  ...Array.from({ length: 6 }, (_, i) => ({
+    id: `tank_${i+1}`, description: 'Cuve inox 5000L',
+    length: 250, width: 200, height: 250, weight: 2000, quantity: 1, stackable: false
+  })),
+];
+// Total: 100 articles, ~233 tonnes
 
 export function PackingListUploader({ onUploadComplete }: PackingListUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -203,6 +267,50 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
     }
   };
 
+  // Test simple : 20 articles, ~52T, 2-3 camions
+  const handleSimpleTest = () => {
+    const totalWeight = SIMPLE_TEST_PACKING_LIST.reduce(
+      (sum, item) => sum + item.weight * item.quantity, 0
+    );
+    const totalItems = SIMPLE_TEST_PACKING_LIST.reduce(
+      (sum, item) => sum + item.quantity, 0
+    );
+    
+    console.log('[Test Simple] Articles:', totalItems, '| Poids total:', (totalWeight / 1000).toFixed(1), 'T');
+    console.time('[Test Simple] Durée totale');
+    
+    onUploadComplete(
+      SIMPLE_TEST_PACKING_LIST, 
+      'cm', 
+      ['Données de test - 20 articles standards (~52T)']
+    );
+    
+    toast.info(`Test simple chargé`, {
+      description: `${totalItems} articles, ${(totalWeight / 1000).toFixed(1)} tonnes (2-3 camions attendus)`
+    });
+  };
+
+  // Test complexe : 100 articles, ~233T, 8-10 camions
+  const handleComplexTest = () => {
+    const totalWeight = COMPLEX_TEST_PACKING_LIST.reduce(
+      (sum, item) => sum + item.weight * item.quantity, 0
+    );
+    const totalItems = COMPLEX_TEST_PACKING_LIST.length;
+    
+    console.log('[Test Complexe] Articles:', totalItems, '| Poids total:', (totalWeight / 1000).toFixed(1), 'T');
+    console.time('[Test Complexe] Durée totale');
+    
+    onUploadComplete(
+      COMPLEX_TEST_PACKING_LIST, 
+      'cm', 
+      ['Données de test - 100 articles industriels (~233T)']
+    );
+    
+    toast.info(`Test flotte complexe chargé`, {
+      description: `${totalItems} articles, ${(totalWeight / 1000).toFixed(1)} tonnes (8-10 camions attendus)`
+    });
+  };
+
   return (
     <div className="space-y-4">
       <Card
@@ -227,7 +335,7 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
               <p className="text-muted-foreground text-sm mb-4">
                 ou cliquez pour sélectionner un fichier
               </p>
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-wrap justify-center">
                 <label>
                   <input
                     type="file"
@@ -248,9 +356,34 @@ export function PackingListUploader({ onUploadComplete }: PackingListUploaderPro
                   disabled={isUploading}
                 >
                   <FlaskConical className="h-4 w-4 mr-2" />
-                  Charger fichier de démo
+                  Démo transformateur 61T
                 </Button>
               </div>
+              
+              {/* Boutons de test développeur */}
+              {import.meta.env.DEV && (
+                <div className="flex gap-2 mt-4 pt-4 border-t border-dashed border-muted-foreground/25 w-full justify-center">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={handleSimpleTest}
+                    className="text-xs"
+                  >
+                    <Beaker className="h-3 w-3 mr-1" />
+                    Test simple (20 art.)
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={handleComplexTest}
+                    className="text-xs"
+                  >
+                    <Beaker className="h-3 w-3 mr-1" />
+                    Test flotte (100 art.)
+                  </Button>
+                </div>
+              )}
+              
               <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground">
                 <Brain className="h-4 w-4" />
                 <span>Extraction intelligente par IA - Supporte tous les formats de packing list</span>
