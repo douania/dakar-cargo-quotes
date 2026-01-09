@@ -138,13 +138,18 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
       console.log('[FleetSuggestion] Total weight:', totalWeight, 'kg');
       console.log('[FleetSuggestion] Items count:', normalizedItems.length);
 
+      // Chronométrage de l'appel suggest-fleet
+      console.time('[API] suggest-fleet');
       const suggestion = await suggestFleet(normalizedItems, 100, availableTrucks);
+      console.timeEnd('[API] suggest-fleet');
+      
       setResult(suggestion);
       
       toast.success('Scénarios de flotte calculés', {
         description: `${suggestion.scenarios.length} options disponibles`
       });
     } catch (err) {
+      console.timeEnd('[API] suggest-fleet'); // Arrêter le chrono même en cas d'erreur
       const message = err instanceof Error ? err.message : 'Erreur lors du calcul des scénarios';
       setError(message);
       toast.error(message);
@@ -250,7 +255,11 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             try {
               console.log(`[FleetSuggestion] Optimizing truck ${i + 1} (${truckDetail.type}) with ${truckItems.length} items from trucks_details`);
               
+              // Chronométrage par camion
+              const timerLabel = `[API] optimize truck ${results.length + 1} (${truckDetail.type})`;
+              console.time(timerLabel);
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
+              console.timeEnd(timerLabel);
               
               results.push({
                 truckType: truckDetail.type,
@@ -307,7 +316,11 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             try {
               console.log(`[FleetSuggestion] Fallback: Optimizing truck ${i + 1} (${allocation.truck_type}) with ${truckItems.length} items`);
               
+              // Chronométrage par camion (fallback)
+              const timerLabel = `[API] optimize truck ${results.length + 1} fallback (${allocation.truck_type})`;
+              console.time(timerLabel);
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
+              console.timeEnd(timerLabel);
               
               results.push({
                 truckType: allocation.truck_type,
