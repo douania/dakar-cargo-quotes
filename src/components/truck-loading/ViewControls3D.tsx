@@ -8,9 +8,10 @@ interface ViewControls3DProps {
 
 export function ViewControls3D({ onViewChange, containerDimensions }: ViewControls3DProps) {
   const { length, width, height } = containerDimensions;
-  const centerX = width / 2;
+  // Convention Three.js: X = longueur, Y = hauteur, Z = largeur
+  const centerX = length / 2;
   const centerY = height / 2;
-  const centerZ = length / 2;
+  const centerZ = width / 2;
   
   const distance = Math.max(length, width, height) * 1.5;
 
@@ -18,25 +19,29 @@ export function ViewControls3D({ onViewChange, containerDimensions }: ViewContro
     {
       label: 'Face',
       icon: Square,
-      position: [centerX, centerY, length + distance] as [number, number, number],
+      // Vue de face: regarder l'arrière du camion (direction -X)
+      position: [length + distance, centerY, centerZ] as [number, number, number],
       target: [centerX, centerY, centerZ] as [number, number, number],
     },
     {
       label: 'Côté',
       icon: ArrowRight,
-      position: [width + distance, centerY, centerZ] as [number, number, number],
+      // Vue de côté: regarder depuis le côté (direction -Z)
+      position: [centerX, centerY, width + distance] as [number, number, number],
       target: [centerX, centerY, centerZ] as [number, number, number],
     },
     {
       label: 'Dessus',
       icon: ArrowUp,
+      // Vue du dessus: regarder vers le bas
       position: [centerX, height + distance, centerZ] as [number, number, number],
       target: [centerX, 0, centerZ] as [number, number, number],
     },
     {
       label: 'Iso',
       icon: Box,
-      position: [width + distance * 0.7, height + distance * 0.5, length + distance * 0.7] as [number, number, number],
+      // Vue isométrique
+      position: [length + distance * 0.7, height + distance * 0.5, width + distance * 0.7] as [number, number, number],
       target: [centerX, centerY, centerZ] as [number, number, number],
     },
   ];
@@ -61,9 +66,9 @@ export function ViewControls3D({ onViewChange, containerDimensions }: ViewContro
         className="bg-white/90 backdrop-blur-sm hover:bg-white shadow-sm"
         onClick={() => {
           const defaultPos: [number, number, number] = [
-            width + distance * 0.7,
-            height + distance * 0.5,
             length + distance * 0.7,
+            height + distance * 0.5,
+            width + distance * 0.7,
           ];
           onViewChange(defaultPos, [centerX, centerY, centerZ]);
         }}
