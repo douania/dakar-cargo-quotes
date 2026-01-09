@@ -43,14 +43,15 @@ const TRUCK_LABELS: Record<string, string> = {
   modular_trailer: 'Remorque Modulaire',
 };
 
-const SPECIAL_TRANSPORT_TYPES = ['convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular', 'lowbed', 'lowbed_50t', 'lowbed_60t', 'lowbed_80t'];
+const SPECIAL_TRANSPORT_TYPES = ['convoi_modular', 'convoy_modular', 'exceptional_convoy', 'modular_trailer', 'heavy_modular', 'lowbed', 'lowbed_50t', 'lowbed_60t', 'lowbed_80t'];
 
 // Default spec for exceptional convoy / modular trailers (not in truck-specs API)
+// NOTE: keep units aligned with truck-specs API (centimeters)
 const SPECIAL_TRANSPORT_SPEC: TruckSpec = {
-  name: 'convoy_modular',
-  length: 15000, // 15m modular trailer
-  width: 3000,   // 3m wide
-  height: 3500,  // 3.5m height
+  name: 'convoi_modular',
+  length: 1500, // 15m
+  width: 300, // 3m
+  height: 400, // 4m
   max_weight: 100000, // 100 tonnes
 };
 
@@ -443,7 +444,9 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
         <div className="text-center">
           <p className="text-lg font-medium">Calcul des plans de chargement...</p>
           <p className="text-sm text-muted-foreground">
-            Optimisation du placement pour "{selectedScenario?.name}"
+            {normalizedItems.some(i => i.weight > 32000 || i.height > 300 || i.width > 280) 
+              ? 'Transport exceptionnel détecté — cela peut prendre jusqu\u2019à 5 minutes.'
+              : `Optimisation du placement pour "${selectedScenario?.name}"`}
           </p>
         </div>
       </div>

@@ -201,7 +201,7 @@ export async function runOptimization(
 
     // Fallback to direct API call
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
       const response = await fetch(`${RAILWAY_API_URL}/api/optimization/optimize`, {
@@ -264,11 +264,12 @@ export async function getVisualization(
 }
 
 // Virtual truck spec for exceptional convoy (not in Railway API)
+// NOTE: This API expresses dimensions in centimeters (e.g. semi_plateau_32t length=1360 => 13.6m).
 const CONVOI_MODULAR_SPEC = {
   id: 'convoi_modular',
-  length: 15000,    // 15m
-  width: 3000,      // 3m
-  height: 4000,     // 4m
+  length: 1500, // 15m
+  width: 300, // 3m
+  height: 400, // 4m
   max_weight: 100000, // 100 tonnes
 };
 
@@ -307,7 +308,7 @@ export async function suggestFleet(
 
   // IMPORTANT: backend expects available_trucks as OBJECTS (not strings)
   const specs = await getTruckSpecs();
-  const availableTruckObjects = availableTrucks
+  let availableTruckObjects = availableTrucks
     .map((truckId) => TRUCK_ID_ALIASES[truckId] || truckId)
     .map((truckId) => {
       const spec = specs.find((s) => s.name === truckId);
@@ -320,15 +321,27 @@ export async function suggestFleet(
         max_weight: spec.max_weight,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean) as any[];
 
-  // Inject virtual convoi_modular if exceptional transport needed
+  // Inject virtual convoi_modular + reduce the search space for exceptional transport
   if (needsConvoiModular) {
-    const hasConvoi = availableTruckObjects.some((t: any) => t.id === 'convoi_modular');
+    const hasConvoi = availableTruckObjects.some((t) => t.id === 'convoi_modular');
     if (!hasConvoi) {
       availableTruckObjects.push(CONVOI_MODULAR_SPEC);
       console.log('[suggestFleet] Convoi modulaire injecté (100T, 15m x 3m x 4m)');
     }
+
+    // Keep only relevant heavy trucks to avoid combinatorial explosion
+    const heavyTruckIds = new Set([
+      'semi_plateau_32t',
+      'lowbed_2ess_50t',
+      'lowbed_3ess_60t',
+      'lowbed_4ess_80t',
+      'convoi_modular',
+    ]);
+
+    availableTruckObjects = availableTruckObjects.filter((t) => heavyTruckIds.has(t.id));
+    console.log('[suggestFleet] Camions filtrés (transport exceptionnel):', availableTruckObjects.map((t) => t.id));
   }
 
   if (availableTruckObjects.length === 0) {
@@ -339,7 +352,7 @@ export async function suggestFleet(
     items: formattedItems,
     distance_km: distanceKm,
     available_trucks: availableTruckObjects,
-    run_3d: true,
+    run_3d: false,
     algorithm: 'simple',
   };
 

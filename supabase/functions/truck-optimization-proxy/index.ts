@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const RAILWAY_API_URL = 'https://web-production-8afea.up.railway.app';
-const TIMEOUT_MS = 120000; // 2 minutes for genetic algorithm
+const TIMEOUT_MS = 300000; // 5 minutes for genetic algorithm / heavy 3D cases
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -164,7 +164,7 @@ serve(async (req) => {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         return new Response(
-          JSON.stringify({ error: 'Timeout: le serveur d\'optimisation n\'a pas répondu dans les 2 minutes' }),
+          JSON.stringify({ error: 'Timeout: le serveur d\'optimisation n\'a pas répondu dans les 5 minutes' }),
           { status: 504, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
