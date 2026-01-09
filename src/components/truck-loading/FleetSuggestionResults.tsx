@@ -447,7 +447,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                 truckType: truckDetail.type,
                 truckIndex: results.length,
                 result: optimResult,
-                truckSpec,
+                // Convertir truckSpec de cm vers mm pour la visualisation 3D
+                truckSpec: {
+                  ...truckSpec,
+                  length: truckSpec.length * 10,
+                  width: truckSpec.width * 10,
+                  height: truckSpec.height * 10,
+                },
                 isSpecialTransport: isSpecialTransportType(truckDetail.type),
               });
             } catch (err) {
@@ -508,7 +514,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                 truckType: allocation.truck_type,
                 truckIndex: results.length,
                 result: optimResult,
-                truckSpec,
+                // Convertir truckSpec de cm vers mm pour la visualisation 3D
+                truckSpec: {
+                  ...truckSpec,
+                  length: truckSpec.length * 10,
+                  width: truckSpec.width * 10,
+                  height: truckSpec.height * 10,
+                },
                 isSpecialTransport: isSpecialTransportType(allocation.truck_type),
               });
             } catch (err) {
@@ -535,7 +547,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             truckType: truckSpec.name,
             truckIndex: 0,
             result: optimResult,
-            truckSpec,
+            // Convertir truckSpec de cm vers mm pour la visualisation 3D
+            truckSpec: {
+              ...truckSpec,
+              length: truckSpec.length * 10,
+              width: truckSpec.width * 10,
+              height: truckSpec.height * 10,
+            },
             isSpecialTransport: isSpecialTransportType(truckSpec.name),
           });
         } catch (err) {
