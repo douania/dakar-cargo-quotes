@@ -11,16 +11,49 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, ChevronRight, Layers, Package } from 'lucide-react';
 import { generateColorFromString, hslToHex } from '@/lib/colorUtils';
-import { Placement, TruckSpec } from '@/types/truckLoading';
+import { Placement, TruckSpec, PackingItem } from '@/types/truckLoading';
 
 interface TruckScene3DProps {
   truckSpec: TruckSpec;
   placements: Placement[];
+  items?: PackingItem[]; // Items originaux pour récupérer les dimensions réelles
+}
+
+// Helper pour récupérer les dimensions d'un item depuis la liste originale
+function getItemDimensions(itemId: string, items: PackingItem[]): { length: number; width: number; height: number } | null {
+  // item_id peut être "item_0", "item_1" ou le nom de l'article
+  // Essayer d'abord par index (item_0 -> index 0)
+  const indexMatch = itemId.match(/^item_(\d+)$/i);
+  if (indexMatch) {
+    const index = parseInt(indexMatch[1], 10);
+    if (index >= 0 && index < items.length) {
+      const item = items[index];
+      // items sont en cm, on retourne en mm pour cohérence avec l'API
+      return {
+        length: item.length * 10,
+        width: item.width * 10,
+        height: item.height * 10,
+      };
+    }
+  }
+  
+  // Sinon chercher par id ou description
+  const item = items.find(i => i.id === itemId || i.description === itemId);
+  if (item) {
+    return {
+      length: item.length * 10,
+      width: item.width * 10,
+      height: item.height * 10,
+    };
+  }
+  
+  return null;
 }
 
 function Scene({
   truckSpec,
   placements,
+  items,
   visibleCount,
   selectedItemId,
   onSelectItem,
@@ -28,6 +61,7 @@ function Scene({
 }: {
   truckSpec: TruckSpec;
   placements: Placement[];
+  items: PackingItem[];
   visibleCount: number;
   selectedItemId: string | null;
   onSelectItem: (id: string | null) => void;
@@ -82,21 +116,47 @@ function Scene({
       {/* Cargo items */}
       {placements.slice(0, visibleCount).map((placement, idx) => {
         const color = hslToHex(generateColorFromString(placement.item_id));
-        // Handle both object format { length, width, height } and fallback
-        const dims = placement.dimensions || { length: 500, width: 500, height: 500 };
+        
+        // Récupérer les dimensions réelles depuis:
+        // 1. placement.dimensions (si présent)
+        // 2. items originaux via item_id
+        // 3. fallback
+        let dims = placement.dimensions;
+        if (!dims || (dims.length === 0 && dims.width === 0 && dims.height === 0)) {
+          const itemDims = getItemDimensions(placement.item_id, items);
+          if (itemDims) {
+            dims = itemDims;
+          } else {
+            // Fallback raisonnable (1m x 1m x 1m en mm)
+            dims = { length: 1000, width: 1000, height: 1000 };
+          }
+        }
+        
+        // Dimensions en mètres
+        const dimWidth = dims.width / 1000;
+        const dimLength = dims.length / 1000;
+        const dimHeight = dims.height / 1000;
+        
+        // Position: l'API retourne la position du coin inférieur
+        // Three.js positionne au centre, donc on ajuste
+        // Position Y dans l'API = hauteur (Z dans Three.js car Y est up)
+        const posX = placement.position.x / 1000 + dimWidth / 2;
+        const posY = placement.position.z / 1000 + dimHeight / 2; // Z de l'API -> Y de Three.js (hauteur)
+        const posZ = placement.position.y / 1000 + dimLength / 2; // Y de l'API -> Z de Three.js (profondeur)
+        
         return (
           <CargoItem3D
             key={`${placement.item_id}-${idx}`}
             itemId={placement.item_id}
             position={{
-              x: placement.position.x / 1000,
-              y: placement.position.y / 1000,
-              z: placement.position.z / 1000,
+              x: posX,
+              y: posY,
+              z: posZ,
             }}
             dimensions={{
-              width: dims.width / 1000,
-              length: dims.length / 1000,
-              height: dims.height / 1000,
+              width: dimWidth,
+              length: dimLength,
+              height: dimHeight,
             }}
             color={color}
             isSelected={selectedItemId === `${placement.item_id}-${idx}`}
@@ -110,7 +170,7 @@ function Scene({
   );
 }
 
-export function TruckScene3D({ truckSpec, placements }: TruckScene3DProps) {
+export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3DProps) {
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
   const controlsRef = useRef<any>(null);
   const [visibleCount, setVisibleCount] = useState(placements.length);
@@ -143,9 +203,14 @@ export function TruckScene3D({ truckSpec, placements }: TruckScene3DProps) {
     setVisibleCount((prev) => Math.min(placements.length, prev + 1));
   };
 
-  // Get selected item details
+  // Get selected item details with resolved dimensions
   const selectedPlacement = selectedItemId
     ? placements.find((p, idx) => `${p.item_id}-${idx}` === selectedItemId)
+    : null;
+  
+  // Résoudre les dimensions pour l'affichage
+  const selectedDimensions = selectedPlacement
+    ? (selectedPlacement.dimensions || getItemDimensions(selectedPlacement.item_id, items) || { length: 0, width: 0, height: 0 })
     : null;
 
   // Get unique item types for legend
@@ -165,6 +230,7 @@ export function TruckScene3D({ truckSpec, placements }: TruckScene3DProps) {
             <Scene
               truckSpec={truckSpec}
               placements={placements}
+              items={items}
               visibleCount={visibleCount}
               selectedItemId={selectedItemId}
               onSelectItem={setSelectedItemId}
@@ -270,11 +336,11 @@ export function TruckScene3D({ truckSpec, placements }: TruckScene3DProps) {
                 </p>
                 <p>
                   <span className="text-muted-foreground">Dimensions:</span>{' '}
-                  {selectedPlacement.dimensions ? (
+                  {selectedDimensions && (selectedDimensions.width > 0 || selectedDimensions.length > 0) ? (
                     <>
-                      {selectedPlacement.dimensions.width.toFixed(0)} ×{' '}
-                      {selectedPlacement.dimensions.length.toFixed(0)} ×{' '}
-                      {selectedPlacement.dimensions.height.toFixed(0)} mm
+                      {selectedDimensions.width.toFixed(0)} ×{' '}
+                      {selectedDimensions.length.toFixed(0)} ×{' '}
+                      {selectedDimensions.height.toFixed(0)} mm
                     </>
                   ) : (
                     'Non disponible'

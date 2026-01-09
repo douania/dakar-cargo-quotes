@@ -148,6 +148,7 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                     <TruckScene3D
                       truckSpec={lr.truckSpec}
                       placements={lr.result.placements}
+                      items={items}
                     />
                   ) : (
                     <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
