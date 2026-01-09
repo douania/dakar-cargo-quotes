@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Box, RotateCcw, Eye, AlertTriangle } from 'lucide-react';
+import { Box, RotateCcw, Eye, AlertTriangle, Maximize2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FleetScenario, PackingItem, OptimizationResult, TruckSpec } from '@/types/truckLoading';
-
+import { TruckScene3D } from './TruckScene3D';
 interface TruckLoadingResult {
   truckType: string;
   truckIndex: number;
@@ -107,7 +107,7 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
 
         {loadingResults.map((lr, idx) => (
           <TabsContent key={`truck-${idx}`} value={`truck-${idx}`}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
               {/* Special Transport Warning */}
               {lr.isSpecialTransport && (
                 <Card className="lg:col-span-2 border-destructive bg-destructive/5">
@@ -129,26 +129,26 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                 </Card>
               )}
 
-              {/* 3D Visualization or Base64 Image */}
-              <Card>
+              {/* 3D Visualization */}
+              <Card className="lg:col-span-2">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Eye className="h-5 w-5" />
-                    Visualisation du chargement
+                    Visualisation 3D interactive
                     {lr.isSpecialTransport && (
                       <Badge variant="outline" className="ml-2">Remorque Plateau</Badge>
                     )}
+                    <span className="ml-auto text-sm font-normal text-muted-foreground">
+                      Utilisez la souris pour tourner, zoomer et cliquer sur les articles
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {lr.result.visualization_base64 ? (
-                    <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-                      <img
-                        src={`data:image/png;base64,${lr.result.visualization_base64}`}
-                        alt={`Plan de chargement ${TRUCK_LABELS[lr.truckType] || lr.truckType}`}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
+                  {lr.result.placements.length > 0 ? (
+                    <TruckScene3D
+                      truckSpec={lr.truckSpec}
+                      placements={lr.result.placements}
+                    />
                   ) : (
                     <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                       <div className="text-center text-muted-foreground">
@@ -168,8 +168,8 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                         ) : (
                           <>
                             <Box className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                            <p>Visualisation 3D non disponible</p>
-                            <p className="text-sm">Utilisez les coordonnées ci-dessous</p>
+                            <p>Aucun placement disponible</p>
+                            <p className="text-sm">L'optimisation n'a pas pu positionner les articles</p>
                           </>
                         )}
                       </div>
@@ -178,46 +178,42 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                 </CardContent>
               </Card>
 
-              {/* Metrics */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Métriques</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-muted/50 rounded-lg p-4 text-center">
-                      <p className="text-2xl font-bold text-primary">
-                        {(lr.result.metrics.fill_rate * 100).toFixed(1)}%
-                      </p>
-                      <p className="text-sm text-muted-foreground">Taux de remplissage</p>
-                    </div>
-                    <div className="bg-muted/50 rounded-lg p-4 text-center">
-                      <p className="text-2xl font-bold text-primary">
-                        {(lr.result.metrics.weight_utilization * 100).toFixed(1)}%
-                      </p>
-                      <p className="text-sm text-muted-foreground">Utilisation poids</p>
-                    </div>
-                    <div className="bg-muted/50 rounded-lg p-4 text-center">
-                      <p className="text-2xl font-bold">{lr.result.metrics.items_placed}</p>
-                      <p className="text-sm text-muted-foreground">Articles placés</p>
-                    </div>
-                    <div className="bg-muted/50 rounded-lg p-4 text-center">
-                      <p className="text-2xl font-bold">{lr.result.metrics.trucks_used}</p>
-                      <p className="text-sm text-muted-foreground">Camions utilisés</p>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <p className="text-sm font-medium mb-2">Dimensions du camion :</p>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>Longueur: {(lr.truckSpec.length / 1000).toFixed(2)} m</p>
-                      <p>Largeur: {(lr.truckSpec.width / 1000).toFixed(2)} m</p>
-                      <p>Hauteur: {(lr.truckSpec.height / 1000).toFixed(2)} m</p>
-                      <p>Charge max: {(lr.truckSpec.max_weight / 1000).toFixed(1)} T</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card className="bg-muted/50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold text-primary">
+                      {(lr.result.metrics.fill_rate * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-sm text-muted-foreground">Taux de remplissage</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold text-primary">
+                      {(lr.result.metrics.weight_utilization * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-sm text-muted-foreground">Utilisation poids</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold">{lr.result.metrics.items_placed}</p>
+                    <p className="text-sm text-muted-foreground">Articles placés</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-muted/50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-sm font-medium">Dimensions camion</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(lr.truckSpec.length / 1000).toFixed(1)}m × {(lr.truckSpec.width / 1000).toFixed(1)}m × {(lr.truckSpec.height / 1000).toFixed(1)}m
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Max: {(lr.truckSpec.max_weight / 1000).toFixed(0)}T
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
 
             {/* Placements Table */}
