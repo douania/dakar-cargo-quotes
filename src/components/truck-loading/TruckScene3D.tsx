@@ -137,12 +137,14 @@ function Scene({
         const dimLength = dims.length / 1000;
         const dimHeight = dims.height / 1000;
         
-        // Position: l'API retourne la position du coin inférieur
-        // Three.js positionne au centre, donc on ajuste
-        // Position Y dans l'API = hauteur (Z dans Three.js car Y est up)
-        const posX = placement.position.x / 1000 + dimWidth / 2;
-        const posY = placement.position.z / 1000 + dimHeight / 2; // Z de l'API -> Y de Three.js (hauteur)
-        const posZ = placement.position.y / 1000 + dimLength / 2; // Y de l'API -> Z de Three.js (profondeur)
+        // Mapping des axes API vers Three.js:
+        // - API X (longueur du camion, 0→14000mm) → Three.js Z (profondeur)
+        // - API Y (largeur du camion, 0→2500mm)  → Three.js X (largeur)
+        // - API Z (hauteur, 0→2700mm)            → Three.js Y (hauteur)
+        // Three.js positionne au centre du mesh, donc on ajoute la moitié de la dimension
+        const posX = placement.position.y / 1000 + dimWidth / 2;   // API Y -> Three.js X (largeur)
+        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z -> Three.js Y (hauteur)
+        const posZ = placement.position.x / 1000 + dimLength / 2;  // API X -> Three.js Z (longueur)
         
         return (
           <CargoItem3D
