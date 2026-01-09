@@ -12,15 +12,16 @@ export function TruckContainer3D({ length, width, height }: TruckContainer3DProp
   const meshRef = useRef<THREE.Mesh>(null);
   
   // Container positioned so bottom-left-back corner is at origin
-  const posX = width / 2;
+  // Convention Three.js: X = longueur camion, Y = hauteur, Z = largeur camion
+  const posX = length / 2;
   const posY = height / 2;
-  const posZ = length / 2;
+  const posZ = width / 2;
 
   return (
     <group>
       {/* Main container box (transparent) */}
       <mesh ref={meshRef} position={[posX, posY, posZ]}>
-        <boxGeometry args={[width, height, length]} />
+        <boxGeometry args={[length, height, width]} />
         <meshStandardMaterial 
           color="#94a3b8"
           transparent 
@@ -32,7 +33,7 @@ export function TruckContainer3D({ length, width, height }: TruckContainer3DProp
 
       {/* Floor grid */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[posX, 0.001, posZ]}>
-        <planeGeometry args={[width, length, Math.ceil(width), Math.ceil(length)]} />
+        <planeGeometry args={[length, width, Math.ceil(length), Math.ceil(width)]} />
         <meshBasicMaterial 
           color="#e2e8f0" 
           wireframe 
@@ -43,21 +44,23 @@ export function TruckContainer3D({ length, width, height }: TruckContainer3DProp
 
       {/* Floor solid */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[posX, 0, posZ]}>
-        <planeGeometry args={[width, length]} />
+        <planeGeometry args={[length, width]} />
         <meshStandardMaterial color="#f1f5f9" />
       </mesh>
 
       {/* Dimension labels */}
+      {/* Label longueur sur l'axe X (côté long) */}
       <Text
-        position={[posX, -0.3, length + 0.3]}
+        position={[posX, -0.3, width + 0.3]}
         fontSize={0.25}
         color="#64748b"
         anchorX="center"
       >
         {`${length.toFixed(1)}m`}
       </Text>
+      {/* Label largeur sur l'axe Z (côté court) */}
       <Text
-        position={[width + 0.3, -0.3, posZ]}
+        position={[length + 0.3, -0.3, posZ]}
         fontSize={0.25}
         color="#64748b"
         anchorX="center"
@@ -65,6 +68,7 @@ export function TruckContainer3D({ length, width, height }: TruckContainer3DProp
       >
         {`${width.toFixed(1)}m`}
       </Text>
+      {/* Label hauteur sur l'axe Y */}
       <Text
         position={[-0.3, posY, 0]}
         fontSize={0.25}
@@ -76,7 +80,7 @@ export function TruckContainer3D({ length, width, height }: TruckContainer3DProp
       </Text>
 
       {/* Corner markers */}
-      {[[0, 0], [width, 0], [0, length], [width, length]].map(([x, z], i) => (
+      {[[0, 0], [length, 0], [0, width], [length, width]].map(([x, z], i) => (
         <mesh key={i} position={[x, 0, z]}>
           <cylinderGeometry args={[0.05, 0.05, height, 8]} />
           <meshStandardMaterial color="#94a3b8" transparent opacity={0.5} />

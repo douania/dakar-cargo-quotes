@@ -74,20 +74,26 @@ function Scene({
 
   const distance = Math.max(containerLength, containerWidth, containerHeight) * 1.5;
 
+  // Centre du conteneur pour les contrôles de caméra
+  // Convention: X = longueur, Y = hauteur, Z = largeur
+  const centerX = containerLength / 2;
+  const centerY = containerHeight / 2;
+  const centerZ = containerWidth / 2;
+
   return (
     <>
       <PerspectiveCamera
         ref={cameraRef}
         makeDefault
         position={[
-          containerWidth + distance * 0.7,
-          containerHeight + distance * 0.5,
           containerLength + distance * 0.7,
+          containerHeight + distance * 0.5,
+          containerWidth + distance * 0.7,
         ]}
         fov={50}
       />
       <OrbitControls
-        target={[containerWidth / 2, containerHeight / 2, containerLength / 2]}
+        target={[centerX, centerY, centerZ]}
         enablePan
         enableZoom
         enableRotate
@@ -101,8 +107,8 @@ function Scene({
       <directionalLight position={[-5, 10, -5]} intensity={0.3} />
 
       {/* Ground plane */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[containerWidth / 2, -0.01, containerLength / 2]}>
-        <planeGeometry args={[containerWidth + 4, containerLength + 4]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX, -0.01, centerZ]}>
+        <planeGeometry args={[containerLength + 4, containerWidth + 4]} />
         <meshStandardMaterial color="#e5e7eb" />
       </mesh>
 
@@ -144,13 +150,13 @@ function Scene({
         }
         
         // Mapping des axes API vers Three.js:
-        // Convention API: X=longueur camion (profondeur), Y=largeur, Z=hauteur
-        // Convention Three.js: X=largeur, Y=hauteur, Z=profondeur
+        // Convention API Railway: X=longueur camion, Y=largeur, Z=hauteur (en mm)
+        // Convention Three.js   : X=longueur, Y=hauteur, Z=largeur
         // 
         // Le centre du mesh Three.js doit être calculé à partir du coin API
-        const posX = placement.position.y / 1000 + dimWidth / 2;   // API Y (largeur) -> Three.js X
-        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z (hauteur) -> Three.js Y
-        const posZ = placement.position.x / 1000 + dimLength / 2;  // API X (profondeur) -> Three.js Z
+        const posX = placement.position.x / 1000 + dimLength / 2;  // API X (longueur) -> Three.js X
+        const posY = placement.position.z / 1000 + dimHeight / 2;  // API Z (hauteur)  -> Three.js Y
+        const posZ = placement.position.y / 1000 + dimWidth / 2;   // API Y (largeur)  -> Three.js Z
         
         // Debug log pour les premiers éléments
         if (idx < 3) {
