@@ -82,6 +82,8 @@ function Scene({
       {/* Cargo items */}
       {placements.slice(0, visibleCount).map((placement, idx) => {
         const color = hslToHex(generateColorFromString(placement.item_id));
+        // Handle both object format { length, width, height } and fallback
+        const dims = placement.dimensions || { length: 500, width: 500, height: 500 };
         return (
           <CargoItem3D
             key={`${placement.item_id}-${idx}`}
@@ -92,9 +94,9 @@ function Scene({
               z: placement.position.z / 1000,
             }}
             dimensions={{
-              width: placement.dimensions[0] / 1000,
-              length: placement.dimensions[1] / 1000,
-              height: placement.dimensions[2] / 1000,
+              width: dims.width / 1000,
+              length: dims.length / 1000,
+              height: dims.height / 1000,
             }}
             color={color}
             isSelected={selectedItemId === `${placement.item_id}-${idx}`}
@@ -268,9 +270,15 @@ export function TruckScene3D({ truckSpec, placements }: TruckScene3DProps) {
                 </p>
                 <p>
                   <span className="text-muted-foreground">Dimensions:</span>{' '}
-                  {selectedPlacement.dimensions[0].toFixed(0)} ×{' '}
-                  {selectedPlacement.dimensions[1].toFixed(0)} ×{' '}
-                  {selectedPlacement.dimensions[2].toFixed(0)} mm
+                  {selectedPlacement.dimensions ? (
+                    <>
+                      {selectedPlacement.dimensions.width.toFixed(0)} ×{' '}
+                      {selectedPlacement.dimensions.length.toFixed(0)} ×{' '}
+                      {selectedPlacement.dimensions.height.toFixed(0)} mm
+                    </>
+                  ) : (
+                    'Non disponible'
+                  )}
                 </p>
                 <p>
                   <span className="text-muted-foreground">Rotation:</span>{' '}
