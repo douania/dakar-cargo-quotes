@@ -147,56 +147,65 @@ function Scene({
       {placements.slice(0, visibleCount).map((placement, idx) => {
         const color = hslToHex(generateColorFromString(placement.item_id));
         
-        // Récupérer les dimensions réelles depuis:
-        // 1. placement.dimensions (si présent, en cm)
-        // 2. items originaux via item_id (en cm)
-        // 3. fallback (100cm = 1m)
+        // PRIORITÉ: utiliser placement.dimensions (déjà orientées par le backend)
+        // Fallback: items originaux si dimensions non fournies
         let dims = placement.dimensions;
+        let usingFallback = false;
         if (!dims || (dims.length === 0 && dims.width === 0 && dims.height === 0)) {
           const itemDims = getItemDimensions(placement.item_id, items);
           if (itemDims) {
             dims = itemDims;
+            usingFallback = true;
+            if (import.meta.env.DEV) {
+              console.warn(`[3D] Item ${placement.item_id}: dimensions manquantes, fallback utilisé`);
+            }
           } else {
-            // Fallback raisonnable (100cm = 1m)
             dims = { length: 100, width: 100, height: 100 };
+            usingFallback = true;
           }
         }
         
         // Dimensions en cm → convertir en mètres pour Three.js
-        const apiLength = cmToMeters(dims.length);  // dimension "length" 
-        const apiWidth = cmToMeters(dims.width);    // dimension "width" 
+        const apiLength = cmToMeters(dims.length);
+        const apiWidth = cmToMeters(dims.width);
         const dimHeight = cmToMeters(dims.height);
 
-        // Quand l'API dit "rotated", l'article a été tourné de 90° autour de l'axe vertical
-        // Cela signifie que sa "length" originale est maintenant alignée avec l'axe Z (largeur camion)
-        // et sa "width" originale est maintenant alignée avec l'axe X (longueur camion)
-        let dimOnAxisX: number;  // dimension réelle le long de l'axe X (longueur camion)
-        let dimOnAxisZ: number;  // dimension réelle le long de l'axe Z (largeur camion)
+        // Quand placement.dimensions est fourni, il contient déjà les dimensions orientées
+        // Le flag 'rotated' indique juste l'état, pas besoin de re-swapper
+        // On ne swappe QUE si on utilise le fallback ET que rotated est true
+        let dimOnAxisX: number;
+        let dimOnAxisZ: number;
 
-        if (placement.rotated) {
-          // Après rotation 90° : width -> axe X, length -> axe Z
+        if (usingFallback && placement.rotated) {
+          // Fallback + rotation: width -> axe X, length -> axe Z
           dimOnAxisX = apiWidth;
           dimOnAxisZ = apiLength;
         } else {
-          // Sans rotation : length -> axe X, width -> axe Z
+          // Dimensions API (déjà orientées) ou fallback sans rotation
           dimOnAxisX = apiLength;
           dimOnAxisZ = apiWidth;
         }
 
-        // Position du centre en Three.js
-        // Placements sont en cm, convertir en mètres
-        // L'API donne le coin inférieur-arrière-gauche, Three.js positionne au centre
-        // Mapping: API X -> Three.js X (longueur), API Y -> Three.js Z (largeur), API Z -> Three.js Y (hauteur)
-        const posX = cmToMeters(placement.position.x) + dimOnAxisX / 2;  // axe X = longueur camion
-        const posY = cmToMeters(placement.position.z) + dimHeight / 2;    // axe Y = hauteur
-        const posZ = cmToMeters(placement.position.y) + dimOnAxisZ / 2;   // axe Z = largeur camion
+        // Position du centre en Three.js (cm → m)
+        // Mapping: API X -> Three.js X, API Y -> Three.js Z, API Z -> Three.js Y
+        let posX = cmToMeters(placement.position.x) + dimOnAxisX / 2;
+        let posY = cmToMeters(placement.position.z) + dimHeight / 2;
+        let posZ = cmToMeters(placement.position.y) + dimOnAxisZ / 2;
         
-        // CargoItem3D attend: width = axe X, length = axe Z
+        // CLAMPING de sécurité: empêcher les débordements visuels
+        const clampedPosX = Math.max(dimOnAxisX / 2, Math.min(posX, containerLength - dimOnAxisX / 2));
+        const clampedPosZ = Math.max(dimOnAxisZ / 2, Math.min(posZ, containerWidth - dimOnAxisZ / 2));
+        const clampedPosY = Math.max(dimHeight / 2, Math.min(posY, containerHeight - dimHeight / 2));
+        
+        if (import.meta.env.DEV && (clampedPosX !== posX || clampedPosZ !== posZ || clampedPosY !== posY)) {
+          console.warn(`[3D] Item ${placement.item_id} clampé: position ajustée pour rester dans les limites`);
+        }
+        
         return (
           <CargoItem3D
             key={`${placement.item_id}-${idx}`}
             itemId={placement.item_id}
-            position={{ x: posX, y: posY, z: posZ }}
+            position={{ x: clampedPosX, y: clampedPosY, z: clampedPosZ }}
             dimensions={{ width: dimOnAxisX, length: dimOnAxisZ, height: dimHeight }}
             color={color}
             isSelected={selectedItemId === `${placement.item_id}-${idx}`}
@@ -371,15 +380,15 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
                   <span className="text-muted-foreground">Position:</span>{' '}
                   X={selectedPlacement.position.x.toFixed(0)}, Y=
                   {selectedPlacement.position.y.toFixed(0)}, Z=
-                  {selectedPlacement.position.z.toFixed(0)} mm
+                  {selectedPlacement.position.z.toFixed(0)} cm
                 </p>
                 <p>
                   <span className="text-muted-foreground">Dimensions:</span>{' '}
                   {selectedDimensions && (selectedDimensions.width > 0 || selectedDimensions.length > 0) ? (
                     <>
-                      {selectedDimensions.width.toFixed(0)} ×{' '}
                       {selectedDimensions.length.toFixed(0)} ×{' '}
-                      {selectedDimensions.height.toFixed(0)} mm
+                      {selectedDimensions.width.toFixed(0)} ×{' '}
+                      {selectedDimensions.height.toFixed(0)} cm
                     </>
                   ) : (
                     'Non disponible'

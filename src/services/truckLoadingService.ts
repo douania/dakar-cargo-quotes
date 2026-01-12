@@ -16,9 +16,96 @@
  * ==============================================================================
  */
 
-import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult, FleetScenario, TruckAvailabilityInfo, FeasibilityScore } from '@/types/truckLoading';
+import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult, FleetScenario, TruckAvailabilityInfo, FeasibilityScore, Placement } from '@/types/truckLoading';
 import { supabase } from '@/integrations/supabase/client';
 import { prepareItemsForRailwayAPI, normalizeRailwayPlacement } from '@/lib/unitConverter';
+
+// ============= PLACEMENT VALIDATION (Anti-débordement) =============
+export interface PlacementOverflow {
+  placement: Placement;
+  axis: 'X' | 'Y' | 'Z';
+  overflow: number; // en cm
+  itemId: string;
+}
+
+export interface PlacementValidationResult {
+  valid: Placement[];
+  overflows: PlacementOverflow[];
+  hasOverflows: boolean;
+}
+
+/**
+ * Valide que tous les placements sont dans les limites du camion
+ * @param placements Placements à valider (en cm)
+ * @param truckSpec Spécifications du camion (en cm)
+ * @returns Placements valides et liste des débordements
+ */
+export function validatePlacements(
+  placements: Placement[],
+  truckSpec: TruckSpec
+): PlacementValidationResult {
+  const valid: Placement[] = [];
+  const overflows: PlacementOverflow[] = [];
+  const TOLERANCE = 0.5; // Tolérance de 0.5 cm
+  
+  for (const p of placements) {
+    const dims = p.dimensions || { length: 0, width: 0, height: 0 };
+    let hasOverflow = false;
+    
+    // Vérification X (longueur camion) - API X = longueur
+    const maxX = p.position.x + dims.length;
+    if (maxX > truckSpec.length + TOLERANCE) {
+      overflows.push({ 
+        placement: p, 
+        axis: 'X', 
+        overflow: maxX - truckSpec.length,
+        itemId: p.item_id
+      });
+      hasOverflow = true;
+    }
+    
+    // Vérification Y (largeur camion) - API Y = largeur
+    const maxY = p.position.y + dims.width;
+    if (maxY > truckSpec.width + TOLERANCE) {
+      overflows.push({ 
+        placement: p, 
+        axis: 'Y', 
+        overflow: maxY - truckSpec.width,
+        itemId: p.item_id
+      });
+      hasOverflow = true;
+    }
+    
+    // Vérification Z (hauteur) - API Z = hauteur
+    const maxZ = p.position.z + dims.height;
+    if (maxZ > truckSpec.height + TOLERANCE) {
+      overflows.push({ 
+        placement: p, 
+        axis: 'Z', 
+        overflow: maxZ - truckSpec.height,
+        itemId: p.item_id
+      });
+      hasOverflow = true;
+    }
+    
+    if (!hasOverflow) {
+      valid.push(p);
+    }
+  }
+  
+  if (overflows.length > 0 && import.meta.env.DEV) {
+    console.warn(`[validatePlacements] ${overflows.length} débordements détectés!`);
+    overflows.slice(0, 5).forEach(o => {
+      console.warn(`  - ${o.itemId}: axe ${o.axis} dépasse de ${o.overflow.toFixed(1)} cm`);
+    });
+  }
+  
+  return { 
+    valid, 
+    overflows, 
+    hasOverflows: overflows.length > 0 
+  };
+}
 
 const RAILWAY_API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
