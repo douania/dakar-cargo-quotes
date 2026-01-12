@@ -1,22 +1,24 @@
 /**
  * ================== SERVICE D'OPTIMISATION CHARGEMENT CAMION ==================
  * 
- * CONVENTION DES UNITÉS :
+ * CONVENTION DES UNITÉS (confirmé via code source Railway) :
  * - Unité INTERNE (frontend, PackingItem) : CENTIMÈTRES (cm)
- * - API Railway : MILLIMÈTRES (mm)
+ * - API Railway : CENTIMÈTRES (cm) - PAS de conversion nécessaire
  * - Visualisation Three.js : MÈTRES (m)
  * 
  * CONVERSIONS (centralisées dans unitConverter.ts) :
- * - Frontend → Railway : cm × 10 = mm (prepareItemsForRailwayAPI)
- * - Railway → Frontend : mm ÷ 10 = cm (normalizeRailwayPlacement)
+ * - Frontend ↔ Railway : aucune (cm = cm)
  * - Frontend → Three.js : cm ÷ 100 = mètres (cmToMeters)
+ * 
+ * Référence: github.com/douania/sodatra-backend-optimization/truck_catalog.py
+ * "Dimensions en centimètres (cm), poids en kilogrammes (kg)."
  * 
  * ==============================================================================
  */
 
 import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult, FleetScenario, TruckAvailabilityInfo, FeasibilityScore } from '@/types/truckLoading';
 import { supabase } from '@/integrations/supabase/client';
-import { cmToMm, mmToCm, prepareItemsForRailwayAPI, normalizeRailwayPlacement } from '@/lib/unitConverter';
+import { prepareItemsForRailwayAPI, normalizeRailwayPlacement } from '@/lib/unitConverter';
 
 const RAILWAY_API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
