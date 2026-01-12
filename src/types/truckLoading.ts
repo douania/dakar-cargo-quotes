@@ -14,6 +14,8 @@ export interface PackingItem {
   source_width?: number;
   source_height?: number;
   source_unit?: DimensionUnit;
+  // Multi-sets identifier (optionnel)
+  set_identifier?: string;  // "A", "B", "C" si multi-sets détectés
 }
 
 export interface TruckSpec {
