@@ -11,6 +11,11 @@ export interface ComplexityAssessment {
   reasons: string[];
   warnings: string[];
   suggestedActions: string[];
+  // NEW: Context information for workflow routing
+  isPartnerEmail: boolean;
+  isTender: boolean;
+  blockClassicQuote: boolean;
+  redirectMessage?: string;
 }
 
 interface EmailData {
@@ -28,6 +33,14 @@ interface ExtractedData {
   container_type?: string;
   value?: number;
   cargo_description?: string;
+  // Email context from AI extraction
+  email_context?: {
+    sender_role?: 'client' | 'partner' | 'supplier' | 'internal';
+    action_required?: 'quote_client' | 'integrate_rates' | 'acknowledge' | 'prepare_tender' | 'forward_to_tender';
+    is_tender?: boolean;
+    tender_indicators?: string[];
+    partner_indicators?: string[];
+  };
 }
 
 // Keywords indicating tender/RFP
@@ -66,6 +79,11 @@ const INSTITUTIONAL_DOMAINS = [
   'worldbank.org', 'afdb.org', 'afd.fr',
   'gouv.', 'gov.', 'government',
   'minusca', 'unmiss', 'monusco',
+];
+
+// Partner domains for SODATRA
+const PARTNER_DOMAINS = [
+  '2hl', '2hlgroup', 'taleb',
 ];
 
 function containsAny(text: string, keywords: string[]): string[] {
@@ -160,6 +178,26 @@ export function assessComplexity(
     suggestedActions.push('Vérifier format de réponse requis');
   }
   
+  // Check for partner email (2HL, Taleb)
+  const isPartnerEmail = PARTNER_DOMAINS.some(d => 
+    fromAddress.toLowerCase().includes(d.toLowerCase()) ||
+    fullText.toLowerCase().includes(`@${d}`) ||
+    fullText.toLowerCase().includes(`de ${d}`) ||
+    fullText.toLowerCase().includes(`from ${d}`)
+  ) || extractedData?.email_context?.sender_role === 'partner';
+  
+  if (isPartnerEmail) {
+    reasons.push('Email partenaire (2HL/Taleb) détecté');
+    warnings.push('Répondre avec accusé réception, pas une cotation complète');
+  }
+  
+  // Check if tender from AI extraction
+  const isTenderFromAI = extractedData?.email_context?.is_tender ?? false;
+  if (isTenderFromAI && score < 50) {
+    score = 50; // Force tender level if AI detected it
+    reasons.push('Tender détecté par analyse IA');
+  }
+  
   // Check for high value cargo
   if (extractedData?.value && extractedData.value > 100000000) { // > 100M FCFA
     score += 10;
@@ -215,6 +253,17 @@ export function assessComplexity(
     color = 'green';
   }
   
+  // Determine if we should block classic quotation generation
+  const isTender = score >= 50 || isTenderFromAI;
+  const blockClassicQuote = isPartnerEmail || isTender;
+  
+  let redirectMessage: string | undefined;
+  if (isTender) {
+    redirectMessage = 'Demande analysée. Cette demande est un tender multi-segments. Veuillez utiliser le module Tender pour préparer une offre consolidée.';
+  } else if (isPartnerEmail) {
+    redirectMessage = 'Email partenaire détecté (2HL/Taleb). Générer uniquement un accusé réception, pas une cotation complète.';
+  }
+  
   // Default reasons if none detected
   if (reasons.length === 0) {
     reasons.push('Demande standard détectée');
@@ -228,6 +277,10 @@ export function assessComplexity(
     reasons,
     warnings,
     suggestedActions,
+    isPartnerEmail,
+    isTender,
+    blockClassicQuote,
+    redirectMessage,
   };
 }
 
