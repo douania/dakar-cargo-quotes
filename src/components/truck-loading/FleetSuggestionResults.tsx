@@ -429,13 +429,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               if (isSpecialTransportType(truckDetail.type)) {
                 truckSpec = { ...SPECIAL_TRANSPORT_SPEC, name: truckDetail.type };
               } else {
-                // Create spec from trucks_details capacities
+              // Create spec from trucks_details capacities (dimensions en CM - standard Railway API)
                 console.log(`[FleetSuggestion] Creating spec from trucks_details for ${truckDetail.type}`);
                 truckSpec = {
                   name: truckDetail.type,
-                  length: 13600, // Default semi-trailer length
-                  width: 2480,
-                  height: 2700,
+                  length: 1360,  // Semi-remorque standard: 13.6m en cm
+                  width: 248,    // 2.48m en cm
+                  height: 270,   // 2.7m en cm
                   max_weight: truckDetail.weight_capacity || 25000,
                 };
               }
