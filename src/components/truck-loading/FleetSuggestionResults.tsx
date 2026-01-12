@@ -8,6 +8,7 @@ import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, 
 import { suggestFleet, runOptimization, getTruckSpecs, calculateFeasibilityScore, selectOptimalScenario } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
 import { LoadingPlan3D } from './LoadingPlan3D';
+import { mmToCm } from '@/lib/unitConverter';
 interface FleetSuggestionResultsProps {
   items: PackingItem[];
   onReset: () => void;
@@ -393,19 +394,28 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             
             foundItemsInTrucksDetails = true;
 
-            // Convert truckDetail items to PackingItem format
-            const truckItems: PackingItem[] = truckDetail.items.map(item => ({
-              id: item.id,
-              description: item.name,
-              length: item.length,
-              width: item.width,
-              height: item.height,
-              weight: normalizeWeight(item.weight),
-              quantity: item.quantity || 1,
-              stackable: true,
-            }));
+            // Convert truckDetail items from MM (Railway API format) to CM (internal standard)
+            // IMPORTANT: Railway API returns dimensions in MM, our internal standard is CM
+            const truckItems: PackingItem[] = truckDetail.items.map(item => {
+              const lengthCm = mmToCm(item.length);
+              const widthCm = mmToCm(item.width);
+              const heightCm = mmToCm(item.height);
+              
+              console.log(`[UNITS] trucks_details item ${item.id}: ${item.length}mm → ${lengthCm}cm`);
+              
+              return {
+                id: item.id,
+                description: item.name,
+                length: lengthCm,
+                width: widthCm,
+                height: heightCm,
+                weight: normalizeWeight(item.weight),
+                quantity: item.quantity || 1,
+                stackable: true,
+              };
+            });
             
-            console.log('[optimize] Items envoyés:', truckItems.length, truckItems);
+            console.log('[optimize] Items convertis MM→CM:', truckItems.length, truckItems);
 
             // Build truck spec from trucks_details or fallback to API specs
             let truckSpec: TruckSpec | undefined = specs.find(s => s.name === truckDetail.type);
@@ -443,17 +453,15 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
               console.timeEnd(timerLabel);
               
+              // truckSpec reste en CM (standard interne)
+              // TruckScene3D convertira CM → mètres pour Three.js
+              console.log(`[UNITS] truckSpec for ${truckDetail.type}: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
+              
               results.push({
                 truckType: truckDetail.type,
                 truckIndex: results.length,
                 result: optimResult,
-                // Convertir truckSpec de cm vers mm pour la visualisation 3D
-                truckSpec: {
-                  ...truckSpec,
-                  length: truckSpec.length * 10,
-                  width: truckSpec.width * 10,
-                  height: truckSpec.height * 10,
-                },
+                truckSpec: truckSpec, // Garder en CM
                 isSpecialTransport: isSpecialTransportType(truckDetail.type),
               });
             } catch (err) {
@@ -510,17 +518,14 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
               console.timeEnd(timerLabel);
               
+              // truckSpec reste en CM (standard interne)
+              console.log(`[UNITS] truckSpec fallback for ${allocation.truck_type}: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
+              
               results.push({
                 truckType: allocation.truck_type,
                 truckIndex: results.length,
                 result: optimResult,
-                // Convertir truckSpec de cm vers mm pour la visualisation 3D
-                truckSpec: {
-                  ...truckSpec,
-                  length: truckSpec.length * 10,
-                  width: truckSpec.width * 10,
-                  height: truckSpec.height * 10,
-                },
+                truckSpec: truckSpec, // Garder en CM
                 isSpecialTransport: isSpecialTransportType(allocation.truck_type),
               });
             } catch (err) {
@@ -543,17 +548,14 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
         
         try {
           const optimResult = await runOptimization(normalizedItems, truckSpec, 'simple');
+          // truckSpec reste en CM (standard interne)
+          console.log(`[UNITS] truckSpec final fallback: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
+          
           results.push({
             truckType: truckSpec.name,
             truckIndex: 0,
             result: optimResult,
-            // Convertir truckSpec de cm vers mm pour la visualisation 3D
-            truckSpec: {
-              ...truckSpec,
-              length: truckSpec.length * 10,
-              width: truckSpec.width * 10,
-              height: truckSpec.height * 10,
-            },
+            truckSpec: truckSpec, // Garder en CM
             isSpecialTransport: isSpecialTransportType(truckSpec.name),
           });
         } catch (err) {
