@@ -42,6 +42,8 @@ import { QuotationPuzzle, type PuzzleAnalysis } from '@/components/QuotationPuzz
 import { usePuzzleAnalysis } from '@/hooks/usePuzzleAnalysis';
 import { QuotationCostBreakdown, type CostStructure } from '@/components/QuotationCostBreakdown';
 import { useSodatraFees, type FeeCalculationParams, type SodatraFeeSuggestion } from '@/hooks/useSodatraFees';
+import { ComplexityBadge } from '@/components/ComplexityBadge';
+import { useComplexityAssessment } from '@/hooks/useComplexityAssessment';
 import type { QuotationProcessResult } from '@/services/emailService';
 
 interface Props {
@@ -79,6 +81,16 @@ export function QuotationProcessorWithPuzzle({
   }, [result]);
 
   const puzzle = usePuzzleAnalysis(analysisResponse);
+
+  // Complexity assessment for the request
+  const complexity = useComplexityAssessment(
+    {
+      subject: result?.originalEmail?.subject,
+      body: result?.originalEmail?.body,
+      from_address: result?.originalEmail?.from,
+    },
+    result?.extractedData
+  );
 
   // Calculate SODATRA fees from extracted data
   const sodatraFeeParams = useMemo<FeeCalculationParams | null>(() => {
@@ -247,12 +259,21 @@ SODATRA`;
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Assistant de cotation intelligent
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Assistant de cotation intelligent
+            </DialogTitle>
+            {/* Complexity badge */}
+            <ComplexityBadge assessment={complexity} size="lg" />
+          </div>
           <DialogDescription>
             Analysez, complétez et générez votre cotation
+            {complexity.level >= 3 && (
+              <span className="ml-2 text-orange-600 font-medium">
+                • Demande complexe détectée
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
