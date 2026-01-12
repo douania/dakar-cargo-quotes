@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
@@ -21,6 +22,8 @@ import {
   ArrowLeft,
   Puzzle,
   Calculator,
+  Briefcase,
+  ArrowRight,
 } from 'lucide-react';
 import {
   Dialog,
@@ -44,6 +47,7 @@ import { QuotationCostBreakdown, type CostStructure } from '@/components/Quotati
 import { useSodatraFees, type FeeCalculationParams, type SodatraFeeSuggestion } from '@/hooks/useSodatraFees';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
 import { useComplexityAssessment } from '@/hooks/useComplexityAssessment';
+import { supabase } from '@/integrations/supabase/client';
 import type { QuotationProcessResult } from '@/services/emailService';
 
 interface Props {
@@ -61,10 +65,12 @@ export function QuotationProcessorWithPuzzle({
   isLoading,
   onComplete 
 }: Props) {
+  const navigate = useNavigate();
   const [editedBody, setEditedBody] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeView, setActiveView] = useState<'puzzle' | 'costs' | 'response'>('puzzle');
   const [confirmedFees, setConfirmedFees] = useState<{ key: string; amount: number }[] | null>(null);
+  const [isConvertingToTender, setIsConvertingToTender] = useState(false);
 
   // Build analysis response for puzzle hook
   const analysisResponse = useMemo(() => {
@@ -250,6 +256,49 @@ SODATRA`;
     // In a real implementation, this would trigger a tariff search
   };
 
+  // Convert current quotation to Tender for complex requests
+  const handleConvertToTender = async () => {
+    if (!result) return;
+    
+    setIsConvertingToTender(true);
+    try {
+      // Build document text from email content
+      const documentText = `
+Subject: ${result.originalEmail.subject}
+From: ${result.originalEmail.from}
+Date: ${result.originalEmail.date}
+
+${result.originalEmail.body || ''}
+
+--- Extracted Data ---
+${JSON.stringify(result.extractedData, null, 2)}
+      `.trim();
+      
+      const { data, error } = await supabase.functions.invoke('analyze-tender', {
+        body: { 
+          documentText,
+          emailId: result.importedEmailId,
+          createProject: true,
+        }
+      });
+
+      if (error) throw error;
+      
+      if (data?.success && data?.projectId) {
+        toast.success('Demande convertie en projet Tender');
+        onOpenChange(false);
+        navigate(`/admin/tenders?selected=${data.projectId}`);
+      } else {
+        throw new Error(data?.error || 'Échec de la conversion');
+      }
+    } catch (error) {
+      console.error('Convert to tender error:', error);
+      toast.error('Erreur lors de la conversion en Tender');
+    } finally {
+      setIsConvertingToTender(false);
+    }
+  };
+
   const regulatoryAnalysis = result?.analysis?.regulatoryAnalysis;
   const attachmentsAnalysis = result?.analysis?.attachmentsAnalysis;
   const feasibility = result?.analysis?.feasibility;
@@ -264,14 +313,34 @@ SODATRA`;
               <Sparkles className="h-5 w-5 text-primary" />
               Assistant de cotation intelligent
             </DialogTitle>
-            {/* Complexity badge */}
-            <ComplexityBadge assessment={complexity} size="lg" />
+            <div className="flex items-center gap-2">
+              {/* Convert to Tender button for complex requests */}
+              {complexity.level >= 3 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleConvertToTender}
+                  disabled={isConvertingToTender}
+                  className="text-purple-600 border-purple-500 hover:bg-purple-50"
+                >
+                  {isConvertingToTender ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Briefcase className="h-4 w-4 mr-1" />
+                  )}
+                  Convertir en Tender
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              )}
+              {/* Complexity badge */}
+              <ComplexityBadge assessment={complexity} size="lg" />
+            </div>
           </div>
           <DialogDescription>
             Analysez, complétez et générez votre cotation
             {complexity.level >= 3 && (
               <span className="ml-2 text-orange-600 font-medium">
-                • Demande complexe détectée
+                • Demande complexe détectée - conversion en Tender recommandée
               </span>
             )}
           </DialogDescription>
