@@ -58,10 +58,11 @@ const mainNavItems = [
   },
 ];
 
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Briefcase } from 'lucide-react';
 
 const adminItems = [
   { title: 'Emails', url: '/admin/emails', icon: Mail },
+  { title: 'Tenders', url: '/admin/tenders', icon: Briefcase },
   { title: 'Connaissances', url: '/admin/knowledge', icon: Brain },
   { title: 'Rapports tarifs', url: '/admin/tariff-reports', icon: TrendingUp },
   { title: 'Codes SH', url: '/admin/hs-codes', icon: Package },
