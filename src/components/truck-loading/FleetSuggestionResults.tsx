@@ -8,7 +8,7 @@ import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, 
 import { suggestFleet, runOptimization, getTruckSpecs, calculateFeasibilityScore, selectOptimalScenario } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
 import { LoadingPlan3D } from './LoadingPlan3D';
-import { mmToCm } from '@/lib/unitConverter';
+
 interface FleetSuggestionResultsProps {
   items: PackingItem[];
   onReset: () => void;
@@ -394,28 +394,25 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             
             foundItemsInTrucksDetails = true;
 
-            // Convert truckDetail items from MM (Railway API format) to CM (internal standard)
-            // IMPORTANT: Railway API returns dimensions in MM, our internal standard is CM
+            // L'API Railway retourne les dimensions en CM (centimètres)
+            // Notre standard interne est aussi le CM, donc PAS de conversion nécessaire
             const truckItems: PackingItem[] = truckDetail.items.map(item => {
-              const lengthCm = mmToCm(item.length);
-              const widthCm = mmToCm(item.width);
-              const heightCm = mmToCm(item.height);
-              
-              console.log(`[UNITS] trucks_details item ${item.id}: ${item.length}mm → ${lengthCm}cm`);
+              console.log(`[UNITS] trucks_details item ${item.id}: ${item.length}cm (déjà en cm)`);
               
               return {
                 id: item.id,
                 description: item.name,
-                length: lengthCm,
-                width: widthCm,
-                height: heightCm,
+                // PAS DE CONVERSION - Railway API retourne des CM
+                length: item.length,
+                width: item.width,
+                height: item.height,
                 weight: normalizeWeight(item.weight),
                 quantity: item.quantity || 1,
                 stackable: true,
               };
             });
             
-            console.log('[optimize] Items convertis MM→CM:', truckItems.length, truckItems);
+            console.log('[optimize] Items en CM (format Railway):', truckItems.length, truckItems);
 
             // Build truck spec from trucks_details or fallback to API specs
             let truckSpec: TruckSpec | undefined = specs.find(s => s.name === truckDetail.type);
