@@ -1485,6 +1485,243 @@ export type Database = {
         }
         Relationships: []
       }
+      tender_contingents: {
+        Row: {
+          cargo_cbm: number | null
+          cargo_readiness: string | null
+          cargo_teus: number | null
+          cargo_tonnes: number | null
+          cargo_vehicles: number | null
+          contingent_name: string
+          created_at: string | null
+          deadline_ddd: string | null
+          destination_port: string | null
+          destination_site: string | null
+          id: string
+          loading_date_pol: string | null
+          margin_percent: number | null
+          notes: string | null
+          origin_location: string | null
+          rfps_number: string | null
+          segment_costs: Json | null
+          selling_price: number | null
+          status: string | null
+          tender_id: string | null
+          total_cost_estimate: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          cargo_cbm?: number | null
+          cargo_readiness?: string | null
+          cargo_teus?: number | null
+          cargo_tonnes?: number | null
+          cargo_vehicles?: number | null
+          contingent_name: string
+          created_at?: string | null
+          deadline_ddd?: string | null
+          destination_port?: string | null
+          destination_site?: string | null
+          id?: string
+          loading_date_pol?: string | null
+          margin_percent?: number | null
+          notes?: string | null
+          origin_location?: string | null
+          rfps_number?: string | null
+          segment_costs?: Json | null
+          selling_price?: number | null
+          status?: string | null
+          tender_id?: string | null
+          total_cost_estimate?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          cargo_cbm?: number | null
+          cargo_readiness?: string | null
+          cargo_teus?: number | null
+          cargo_tonnes?: number | null
+          cargo_vehicles?: number | null
+          contingent_name?: string
+          created_at?: string | null
+          deadline_ddd?: string | null
+          destination_port?: string | null
+          destination_site?: string | null
+          id?: string
+          loading_date_pol?: string | null
+          margin_percent?: number | null
+          notes?: string | null
+          origin_location?: string | null
+          rfps_number?: string | null
+          segment_costs?: Json | null
+          selling_price?: number | null
+          status?: string | null
+          tender_id?: string | null
+          total_cost_estimate?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tender_contingents_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tender_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tender_projects: {
+        Row: {
+          cargo_summary: Json | null
+          client: string | null
+          created_at: string | null
+          deadline: string | null
+          id: string
+          notes: string | null
+          origin_country: string | null
+          reference: string
+          source_attachment_id: string | null
+          source_email_id: string | null
+          status: string | null
+          tender_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cargo_summary?: Json | null
+          client?: string | null
+          created_at?: string | null
+          deadline?: string | null
+          id?: string
+          notes?: string | null
+          origin_country?: string | null
+          reference: string
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          status?: string | null
+          tender_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cargo_summary?: Json | null
+          client?: string | null
+          created_at?: string | null
+          deadline?: string | null
+          id?: string
+          notes?: string | null
+          origin_country?: string | null
+          reference?: string
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          status?: string | null
+          tender_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tender_projects_source_attachment_id_fkey"
+            columns: ["source_attachment_id"]
+            isOneToOne: false
+            referencedRelation: "email_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tender_projects_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tender_segments: {
+        Row: {
+          additional_charges: Json | null
+          created_at: string | null
+          currency: string | null
+          destination_location: string
+          exclusions: string[] | null
+          id: string
+          inclusions: string[] | null
+          notes: string | null
+          origin_location: string
+          partner_company: string | null
+          partner_email: string | null
+          rate_per_unit: number | null
+          rate_unit: string | null
+          segment_order: number
+          segment_type: string
+          source_email_id: string | null
+          source_learned_knowledge_id: string | null
+          status: string | null
+          tender_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          additional_charges?: Json | null
+          created_at?: string | null
+          currency?: string | null
+          destination_location: string
+          exclusions?: string[] | null
+          id?: string
+          inclusions?: string[] | null
+          notes?: string | null
+          origin_location: string
+          partner_company?: string | null
+          partner_email?: string | null
+          rate_per_unit?: number | null
+          rate_unit?: string | null
+          segment_order?: number
+          segment_type: string
+          source_email_id?: string | null
+          source_learned_knowledge_id?: string | null
+          status?: string | null
+          tender_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          additional_charges?: Json | null
+          created_at?: string | null
+          currency?: string | null
+          destination_location?: string
+          exclusions?: string[] | null
+          id?: string
+          inclusions?: string[] | null
+          notes?: string | null
+          origin_location?: string
+          partner_company?: string | null
+          partner_email?: string | null
+          rate_per_unit?: number | null
+          rate_unit?: string | null
+          segment_order?: number
+          segment_type?: string
+          source_email_id?: string | null
+          source_learned_knowledge_id?: string | null
+          status?: string | null
+          tender_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tender_segments_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tender_segments_source_learned_knowledge_id_fkey"
+            columns: ["source_learned_knowledge_id"]
+            isOneToOne: false
+            referencedRelation: "learned_knowledge"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tender_segments_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tender_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_types: {
         Row: {
           axle_count_max: number | null
