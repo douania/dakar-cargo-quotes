@@ -14,7 +14,7 @@
  * ==============================================================================
  */
 
-import { useRef, useState, useCallback, Suspense } from 'react';
+import { useRef, useState, useCallback, Suspense, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
@@ -25,10 +25,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Layers, Package } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Layers, Package, AlertTriangle, Bug } from 'lucide-react';
 import { generateColorFromString, hslToHex } from '@/lib/colorUtils';
 import { cmToMeters } from '@/lib/unitConverter';
 import { Placement, TruckSpec, PackingItem } from '@/types/truckLoading';
+import { validatePlacements, PlacementOverflow } from '@/services/truckLoadingService';
 
 interface TruckScene3DProps {
   truckSpec: TruckSpec;
@@ -223,6 +224,29 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
   const controlsRef = useRef<any>(null);
   const [visibleCount, setVisibleCount] = useState(placements.length);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+
+  // Valider les placements et détecter les débordements
+  const validation = useMemo(() => {
+    return validatePlacements(placements, truckSpec);
+  }, [placements, truckSpec]);
+
+  // Calculer les max X/Y/Z depuis les placements
+  const maxBounds = useMemo(() => {
+    let maxX = 0, maxY = 0, maxZ = 0;
+    for (const p of placements) {
+      const dims = p.dimensions || { length: 100, width: 100, height: 100 };
+      maxX = Math.max(maxX, p.position.x + dims.length);
+      maxY = Math.max(maxY, p.position.y + dims.width);
+      maxZ = Math.max(maxZ, p.position.z + dims.height);
+    }
+    return { maxX, maxY, maxZ };
+  }, [placements]);
+
+  // IDs des items en débordement
+  const overflowItemIds = useMemo(() => {
+    return new Set(validation.overflows.map(o => o.itemId));
+  }, [validation.overflows]);
 
   // Container dimensions en mètres pour les contrôles de vue
   const containerDimensions = {
@@ -331,6 +355,82 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
         </div>
       </div>
 
+      {/* Debug Panel Toggle + Overflow Alert */}
+      {validation.hasOverflows && (
+        <div className="mt-4 p-3 rounded-lg border border-destructive bg-destructive/10 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-destructive">
+              {validation.overflows.length} article(s) dépassent les limites du camion
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Les articles en rouge dans la vue 3D sont en débordement
+            </p>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowDebug(!showDebug)}
+            className="gap-1"
+          >
+            <Bug className="h-4 w-4" />
+            {showDebug ? 'Masquer' : 'Debug gabarit'}
+          </Button>
+        </div>
+      )}
+
+      {/* Debug Panel */}
+      {showDebug && (
+        <Card className="mt-4 border-amber-500">
+          <CardHeader className="py-3 bg-amber-50">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Bug className="h-4 w-4 text-amber-600" />
+              Debug Gabarit (unités: cm)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="py-3 space-y-3">
+            {/* Truck vs Max bounds */}
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="font-medium text-muted-foreground">Gabarit camion:</p>
+                <p>Longueur (X): {truckSpec.length.toFixed(0)} cm</p>
+                <p>Largeur (Y): {truckSpec.width.toFixed(0)} cm</p>
+                <p>Hauteur (Z): {truckSpec.height.toFixed(0)} cm</p>
+              </div>
+              <div>
+                <p className="font-medium text-muted-foreground">Max atteint (placements):</p>
+                <p className={maxBounds.maxX > truckSpec.length ? 'text-destructive font-bold' : ''}>
+                  Max X: {maxBounds.maxX.toFixed(0)} cm {maxBounds.maxX > truckSpec.length && `(+${(maxBounds.maxX - truckSpec.length).toFixed(0)} cm)`}
+                </p>
+                <p className={maxBounds.maxY > truckSpec.width ? 'text-destructive font-bold' : ''}>
+                  Max Y: {maxBounds.maxY.toFixed(0)} cm {maxBounds.maxY > truckSpec.width && `(+${(maxBounds.maxY - truckSpec.width).toFixed(0)} cm)`}
+                </p>
+                <p className={maxBounds.maxZ > truckSpec.height ? 'text-destructive font-bold' : ''}>
+                  Max Z: {maxBounds.maxZ.toFixed(0)} cm {maxBounds.maxZ > truckSpec.height && `(+${(maxBounds.maxZ - truckSpec.height).toFixed(0)} cm)`}
+                </p>
+              </div>
+            </div>
+            
+            {/* Top 10 overflows */}
+            {validation.overflows.length > 0 && (
+              <div className="border-t pt-3">
+                <p className="font-medium text-sm text-destructive mb-2">
+                  Top {Math.min(10, validation.overflows.length)} débordements:
+                </p>
+                <div className="space-y-1 text-xs font-mono">
+                  {validation.overflows.slice(0, 10).map((o, idx) => (
+                    <div key={idx} className="flex justify-between bg-destructive/5 px-2 py-1 rounded">
+                      <span>{o.itemId}</span>
+                      <span className="text-destructive">Axe {o.axis}: +{o.overflow.toFixed(1)} cm</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Legend and selected item details */}
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Color legend */}
@@ -343,23 +443,27 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
           </CardHeader>
           <CardContent className="py-2">
             <div className="flex flex-wrap gap-2">
-              {uniqueItems.map((itemId) => (
-                <Badge
-                  key={itemId}
-                  variant="outline"
-                  className="gap-1"
-                  style={{
-                    borderColor: hslToHex(generateColorFromString(itemId)),
-                    backgroundColor: `${hslToHex(generateColorFromString(itemId))}20`,
-                  }}
-                >
-                  <span
-                    className="w-3 h-3 rounded-sm"
-                    style={{ backgroundColor: hslToHex(generateColorFromString(itemId)) }}
-                  />
-                  {itemId}
-                </Badge>
-              ))}
+              {uniqueItems.map((itemId) => {
+                const isOverflow = overflowItemIds.has(itemId);
+                return (
+                  <Badge
+                    key={itemId}
+                    variant={isOverflow ? "destructive" : "outline"}
+                    className="gap-1"
+                    style={!isOverflow ? {
+                      borderColor: hslToHex(generateColorFromString(itemId)),
+                      backgroundColor: `${hslToHex(generateColorFromString(itemId))}20`,
+                    } : undefined}
+                  >
+                    <span
+                      className="w-3 h-3 rounded-sm"
+                      style={{ backgroundColor: isOverflow ? undefined : hslToHex(generateColorFromString(itemId)) }}
+                    />
+                    {itemId}
+                    {isOverflow && <AlertTriangle className="h-3 w-3" />}
+                  </Badge>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -375,6 +479,9 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
                 <p>
                   <span className="text-muted-foreground">Article:</span>{' '}
                   <span className="font-medium">{selectedPlacement.item_id}</span>
+                  {overflowItemIds.has(selectedPlacement.item_id) && (
+                    <Badge variant="destructive" className="ml-2 text-xs">DÉBORDEMENT</Badge>
+                  )}
                 </p>
                 <p>
                   <span className="text-muted-foreground">Position:</span>{' '}

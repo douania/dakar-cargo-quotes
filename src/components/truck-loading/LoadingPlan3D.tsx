@@ -207,11 +207,12 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                   <CardContent className="p-4 text-center">
                     <p className="text-sm font-medium">Dimensions camion</p>
                     <p className="text-xs text-muted-foreground">
-                      {(lr.truckSpec.length / 1000).toFixed(1)}m × {(lr.truckSpec.width / 1000).toFixed(1)}m × {(lr.truckSpec.height / 1000).toFixed(1)}m
+                      {(lr.truckSpec.length / 100).toFixed(2)}m × {(lr.truckSpec.width / 100).toFixed(2)}m × {(lr.truckSpec.height / 100).toFixed(2)}m
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Max: {(lr.truckSpec.max_weight / 1000).toFixed(0)}T
                     </p>
+                    <Badge variant="outline" className="mt-1 text-xs">Unités: cm</Badge>
                   </CardContent>
                 </Card>
               </div>
@@ -220,7 +221,7 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
             {/* Placements Table */}
             <Card className="mt-6">
               <CardHeader>
-                <CardTitle>Détails des placements (coordonnées X, Y, Z en mm)</CardTitle>
+                <CardTitle>Détails des placements (coordonnées X, Y, Z en cm)</CardTitle>
               </CardHeader>
               <CardContent>
                 {lr.result.placements.length === 0 ? (
@@ -234,9 +235,9 @@ export function LoadingPlan3D({ scenario, items, onBack, precomputedResults }: L
                     <TableHeader>
                       <TableRow>
                         <TableHead>Article</TableHead>
-                        <TableHead className="text-center">Position X (mm)</TableHead>
-                        <TableHead className="text-center">Position Y (mm)</TableHead>
-                        <TableHead className="text-center">Position Z (mm)</TableHead>
+                        <TableHead className="text-center">Position X (cm)</TableHead>
+                        <TableHead className="text-center">Position Y (cm)</TableHead>
+                        <TableHead className="text-center">Position Z (cm)</TableHead>
                         <TableHead className="text-center">Rotation</TableHead>
                       </TableRow>
                     </TableHeader>
