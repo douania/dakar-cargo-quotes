@@ -20,7 +20,9 @@ import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
 import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
-import { CreateTenderFromEmailButton, detectTenderType } from '@/components/tenders/CreateTenderFromEmailButton';
+import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFromEmailButton';
+import { ComplexityBadge } from '@/components/ComplexityBadge';
+import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
   id: string;
@@ -725,20 +727,21 @@ export default function Emails() {
             ) : (
               <div className="space-y-3">
                 {filteredThreads.map((thread) => {
-                  const tenderType = detectTenderType(thread.subject_normalized);
+                  // Assess complexity for this thread
+                  const complexity = assessComplexity({
+                    subject: thread.subject_normalized,
+                    from_address: thread.client_email || undefined,
+                  });
                   
                   return (
-                    <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : tenderType ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
+                    <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : complexity.level >= 3 ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap mb-2">
-                              {tenderType && (
-                                <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">
-                                  <Briefcase className="h-3 w-3 mr-1" />
-                                  {tenderType === 'minusca' ? 'MINUSCA' : tenderType === 'un' ? 'Nations Unies' : 'Tender'}
-                                </Badge>
-                              )}
+                              {/* Complexity Badge - replaces tenderType detection */}
+                              <ComplexityBadge assessment={complexity} size="sm" />
+                              
                               {thread.project_name && (
                                 <Badge variant="secondary" className="text-xs">
                                   📋 {thread.project_name}
@@ -779,10 +782,12 @@ export default function Emails() {
                             </div>
                           </div>
                           
-                          {/* Create Tender Button */}
-                          <div className="ml-4">
-                            <CreateTenderFromEmailButton thread={thread} />
-                          </div>
+                          {/* Create Tender Button - only show for complex requests (level >= 3) */}
+                          {complexity.level >= 3 && (
+                            <div className="ml-4">
+                              <CreateTenderFromEmailButton thread={thread} />
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
