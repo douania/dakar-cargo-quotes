@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { FleetSuggestionResult, FleetScenario, PackingItem, OptimizationResult, TruckSpec, FeasibilityScore } from '@/types/truckLoading';
-import { suggestFleet, runOptimization, getTruckSpecs, calculateFeasibilityScore, selectOptimalScenario } from '@/services/truckLoadingService';
+import { suggestFleet, runOptimization, getTruckSpecs, calculateFeasibilityScore, selectOptimalScenario, validatePlacements } from '@/services/truckLoadingService';
 import { toast } from 'sonner';
 import { LoadingPlan3D } from './LoadingPlan3D';
 
@@ -450,15 +450,21 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
               console.timeEnd(timerLabel);
               
+              // Valider les placements pour détecter les débordements
+              const validation = validatePlacements(optimResult.placements, truckSpec);
+              if (validation.hasOverflows) {
+                console.warn(`[FleetSuggestion] ${validation.overflows.length} débordements détectés pour ${truckDetail.type}`);
+                toast.warning(`${validation.overflows.length} article(s) dépassent les limites du camion ${TRUCK_LABELS[truckDetail.type] || truckDetail.type}`);
+              }
+              
               // truckSpec reste en CM (standard interne)
-              // TruckScene3D convertira CM → mètres pour Three.js
               console.log(`[UNITS] truckSpec for ${truckDetail.type}: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
               
               results.push({
                 truckType: truckDetail.type,
                 truckIndex: results.length,
                 result: optimResult,
-                truckSpec: truckSpec, // Garder en CM
+                truckSpec: truckSpec,
                 isSpecialTransport: isSpecialTransportType(truckDetail.type),
               });
             } catch (err) {
@@ -515,6 +521,13 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
               const optimResult = await runOptimization(truckItems, truckSpec, 'simple');
               console.timeEnd(timerLabel);
               
+              // Valider les placements pour détecter les débordements (fallback)
+              const validation = validatePlacements(optimResult.placements, truckSpec);
+              if (validation.hasOverflows) {
+                console.warn(`[FleetSuggestion] Fallback: ${validation.overflows.length} débordements détectés pour ${allocation.truck_type}`);
+                toast.warning(`${validation.overflows.length} article(s) dépassent les limites du camion ${TRUCK_LABELS[allocation.truck_type] || allocation.truck_type}`);
+              }
+              
               // truckSpec reste en CM (standard interne)
               console.log(`[UNITS] truckSpec fallback for ${allocation.truck_type}: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
               
@@ -522,7 +535,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
                 truckType: allocation.truck_type,
                 truckIndex: results.length,
                 result: optimResult,
-                truckSpec: truckSpec, // Garder en CM
+                truckSpec: truckSpec,
                 isSpecialTransport: isSpecialTransportType(allocation.truck_type),
               });
             } catch (err) {
@@ -545,6 +558,14 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
         
         try {
           const optimResult = await runOptimization(normalizedItems, truckSpec, 'simple');
+          
+          // Valider les placements pour détecter les débordements (final fallback)
+          const validation = validatePlacements(optimResult.placements, truckSpec);
+          if (validation.hasOverflows) {
+            console.warn(`[FleetSuggestion] Final fallback: ${validation.overflows.length} débordements détectés`);
+            toast.warning(`${validation.overflows.length} article(s) dépassent les limites du camion`);
+          }
+          
           // truckSpec reste en CM (standard interne)
           console.log(`[UNITS] truckSpec final fallback: ${truckSpec.length}×${truckSpec.width}×${truckSpec.height} cm`);
           
@@ -552,7 +573,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
             truckType: truckSpec.name,
             truckIndex: 0,
             result: optimResult,
-            truckSpec: truckSpec, // Garder en CM
+            truckSpec: truckSpec,
             isSpecialTransport: isSpecialTransportType(truckSpec.name),
           });
         } catch (err) {
