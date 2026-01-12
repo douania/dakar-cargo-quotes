@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,13 +15,16 @@ import {
   AlertCircle,
   HelpCircle,
   ExternalLink,
-  Calendar
+  Calendar,
+  Loader2
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { toast } from 'sonner';
 import { TenderSegmentCard } from './TenderSegmentCard';
 import { TenderContingentTable } from './TenderContingentTable';
+import { MatchKnowledgeToSegmentDialog } from './MatchKnowledgeToSegmentDialog';
 
 interface TenderDetailViewProps {
   tenderId: string;
@@ -62,6 +66,10 @@ interface TenderContingent {
 }
 
 export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
+  const queryClient = useQueryClient();
+  const [matchDialogOpen, setMatchDialogOpen] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState<TenderSegment | null>(null);
+
   const { data: tender, isLoading: tenderLoading } = useQuery({
     queryKey: ['tender-project', tenderId],
     queryFn: async () => {
@@ -103,6 +111,47 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
       return data as TenderContingent[];
     }
   });
+
+  // Mutation to update segment with matched knowledge
+  const updateSegmentMutation = useMutation({
+    mutationFn: async ({ segmentId, knowledgeId, rate, currency }: { 
+      segmentId: string; 
+      knowledgeId: string; 
+      rate: number; 
+      currency: string;
+    }) => {
+      const { error } = await supabase
+        .from('tender_segments')
+        .update({
+          rate_per_unit: rate,
+          currency: currency,
+          source_learned_knowledge_id: knowledgeId,
+          status: 'confirmed'
+        })
+        .eq('id', segmentId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tender-segments', tenderId] });
+      toast.success('Segment mis à jour avec le tarif');
+    },
+    onError: (error) => {
+      console.error('Error updating segment:', error);
+      toast.error('Erreur lors de la mise à jour');
+    }
+  });
+
+  const handleOpenMatchDialog = (segment: TenderSegment) => {
+    setSelectedSegment(segment);
+    setMatchDialogOpen(true);
+  };
+
+  const handleMatchKnowledge = (segmentId: string, knowledgeId: string, rate: number, currency: string) => {
+    updateSegmentMutation.mutate({ segmentId, knowledgeId, rate, currency });
+    setMatchDialogOpen(false);
+    setSelectedSegment(null);
+  };
 
   const getSegmentStatusInfo = () => {
     if (!segments || segments.length === 0) return { confirmed: 0, pending: 0, total: 0 };
@@ -249,7 +298,11 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
               {/* Detailed Segment Cards */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {segments.map((segment) => (
-                  <TenderSegmentCard key={segment.id} segment={segment} />
+                  <TenderSegmentCard 
+                    key={segment.id} 
+                    segment={segment} 
+                    onMatchKnowledge={handleOpenMatchDialog}
+                  />
                 ))}
               </div>
             </div>
@@ -279,6 +332,14 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Match Knowledge Dialog */}
+      <MatchKnowledgeToSegmentDialog
+        open={matchDialogOpen}
+        onOpenChange={setMatchDialogOpen}
+        segment={selectedSegment}
+        onMatch={handleMatchKnowledge}
+      />
     </div>
   );
 }

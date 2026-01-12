@@ -13,13 +13,14 @@ import {
   Mail, Plus, RefreshCw, Star, Clock, Send, 
   MessageSquare, Brain, Trash2, Eye, Edit, Search, Paperclip,
   AlertTriangle, Filter, CheckSquare, RotateCcw, GitBranch, Users, Building,
-  FileText, FileSpreadsheet, Image as ImageIcon, FileArchive, File
+  FileText, FileSpreadsheet, Image as ImageIcon, FileArchive, File, Briefcase
 } from 'lucide-react';
 import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
 import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
+import { CreateTenderFromEmailButton, detectTenderType } from '@/components/tenders/CreateTenderFromEmailButton';
 
 interface EmailConfig {
   id: string;
@@ -723,55 +724,70 @@ export default function Emails() {
               </Card>
             ) : (
               <div className="space-y-3">
-                {filteredThreads.map((thread) => (
-                  <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : 'border-l-4 border-l-primary'}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap mb-2">
-                            {thread.project_name && (
-                              <Badge variant="secondary" className="text-xs">
-                                📋 {thread.project_name}
+                {filteredThreads.map((thread) => {
+                  const tenderType = detectTenderType(thread.subject_normalized);
+                  
+                  return (
+                    <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : tenderType ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              {tenderType && (
+                                <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">
+                                  <Briefcase className="h-3 w-3 mr-1" />
+                                  {tenderType === 'minusca' ? 'MINUSCA' : tenderType === 'un' ? 'Nations Unies' : 'Tender'}
+                                </Badge>
+                              )}
+                              {thread.project_name && (
+                                <Badge variant="secondary" className="text-xs">
+                                  📋 {thread.project_name}
+                                </Badge>
+                              )}
+                              {thread.our_role === 'assist_partner' ? (
+                                <Badge variant="outline" className="text-amber-600 border-amber-500">
+                                  <Users className="h-3 w-3 mr-1" />
+                                  Assister Partenaire
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-primary">
+                                  <Star className="h-3 w-3 mr-1" />
+                                  Cotation Directe
+                                </Badge>
+                              )}
+                              <Badge variant="outline">
+                                {thread.email_count} message(s)
                               </Badge>
-                            )}
-                            {thread.our_role === 'assist_partner' ? (
-                              <Badge variant="outline" className="text-amber-600 border-amber-500">
-                                <Users className="h-3 w-3 mr-1" />
-                                Assister Partenaire
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-primary">
-                                <Star className="h-3 w-3 mr-1" />
-                                Cotation Directe
-                              </Badge>
-                            )}
-                            <Badge variant="outline">
-                              {thread.email_count} message(s)
-                            </Badge>
-                            {thread.is_quotation_thread === false && (
-                              <Badge variant="outline" className="text-muted-foreground">
-                                Non-cotation
-                              </Badge>
-                            )}
+                              {thread.is_quotation_thread === false && (
+                                <Badge variant="outline" className="text-muted-foreground">
+                                  Non-cotation
+                                </Badge>
+                              )}
+                            </div>
+                            
+                            <p className="font-semibold">{thread.subject_normalized}</p>
+                            
+                            <div className="mt-2">
+                              <ThreadParticipantsSummary participants={thread.participants} />
+                            </div>
+                            
+                            <div className="text-xs text-muted-foreground mt-2">
+                              <Clock className="h-3 w-3 inline mr-1" />
+                              {thread.first_message_at && new Date(thread.first_message_at).toLocaleDateString('fr-FR')} 
+                              {' → '}
+                              {thread.last_message_at && new Date(thread.last_message_at).toLocaleDateString('fr-FR')}
+                            </div>
                           </div>
                           
-                          <p className="font-semibold">{thread.subject_normalized}</p>
-                          
-                          <div className="mt-2">
-                            <ThreadParticipantsSummary participants={thread.participants} />
-                          </div>
-                          
-                          <div className="text-xs text-muted-foreground mt-2">
-                            <Clock className="h-3 w-3 inline mr-1" />
-                            {thread.first_message_at && new Date(thread.first_message_at).toLocaleDateString('fr-FR')} 
-                            {' → '}
-                            {thread.last_message_at && new Date(thread.last_message_at).toLocaleDateString('fr-FR')}
+                          {/* Create Tender Button */}
+                          <div className="ml-4">
+                            <CreateTenderFromEmailButton thread={thread} />
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </TabsContent>
