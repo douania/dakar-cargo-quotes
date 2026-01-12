@@ -1,3 +1,19 @@
+/**
+ * ================== VISUALISATION 3D CHARGEMENT CAMION ==================
+ * 
+ * CONVENTION DES UNITÉS :
+ * - Données internes (placements, items) : CENTIMÈTRES (cm)
+ * - Rendu Three.js : MÈTRES (m)
+ * - Conversion : cm ÷ 100 = mètres (cmToMeters)
+ * 
+ * SYSTÈME DE COORDONNÉES :
+ * - API X (longueur camion) → Three.js X
+ * - API Y (largeur camion) → Three.js Z
+ * - API Z (hauteur) → Three.js Y
+ * 
+ * ==============================================================================
+ */
+
 import { useRef, useState, useCallback, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
@@ -11,6 +27,7 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, ChevronRight, Layers, Package } from 'lucide-react';
 import { generateColorFromString, hslToHex } from '@/lib/colorUtils';
+import { cmToMeters } from '@/lib/unitConverter';
 import { Placement, TruckSpec, PackingItem } from '@/types/truckLoading';
 
 interface TruckScene3DProps {
@@ -19,7 +36,10 @@ interface TruckScene3DProps {
   items?: PackingItem[]; // Items originaux pour récupérer les dimensions réelles
 }
 
-// Helper pour récupérer les dimensions d'un item depuis la liste originale
+/**
+ * Helper pour récupérer les dimensions d'un item depuis la liste originale
+ * RETOURNE : dimensions en cm (unité interne)
+ */
 function getItemDimensions(itemId: string, items: PackingItem[]): { length: number; width: number; height: number } | null {
   // item_id peut être "item_0", "item_1" ou le nom de l'article
   // Essayer d'abord par index (item_0 -> index 0)
@@ -28,11 +48,11 @@ function getItemDimensions(itemId: string, items: PackingItem[]): { length: numb
     const index = parseInt(indexMatch[1], 10);
     if (index >= 0 && index < items.length) {
       const item = items[index];
-      // items sont en cm, on retourne en mm pour cohérence avec l'API
+      // Items sont en cm (unité interne), on retourne directement en cm
       return {
-        length: item.length * 10,
-        width: item.width * 10,
-        height: item.height * 10,
+        length: item.length,
+        width: item.width,
+        height: item.height,
       };
     }
   }
@@ -41,9 +61,9 @@ function getItemDimensions(itemId: string, items: PackingItem[]): { length: numb
   const item = items.find(i => i.id === itemId || i.description === itemId);
   if (item) {
     return {
-      length: item.length * 10,
-      width: item.width * 10,
-      height: item.height * 10,
+      length: item.length,
+      width: item.width,
+      height: item.height,
     };
   }
   
@@ -67,10 +87,14 @@ function Scene({
   onSelectItem: (id: string | null) => void;
   cameraRef: React.RefObject<THREE.PerspectiveCamera>;
 }) {
-  // Convert mm to meters for display
-  const containerLength = truckSpec.length / 1000;
-  const containerWidth = truckSpec.width / 1000;
-  const containerHeight = truckSpec.height / 1000;
+  // TruckSpec est en cm, convertir en mètres pour Three.js
+  const containerLength = cmToMeters(truckSpec.length);
+  const containerWidth = cmToMeters(truckSpec.width);
+  const containerHeight = cmToMeters(truckSpec.height);
+
+  if (import.meta.env.DEV) {
+    console.log(`[TruckScene3D] Container: ${truckSpec.length}cm → ${containerLength}m`);
+  }
 
   const distance = Math.max(containerLength, containerWidth, containerHeight) * 1.5;
 
@@ -124,24 +148,24 @@ function Scene({
         const color = hslToHex(generateColorFromString(placement.item_id));
         
         // Récupérer les dimensions réelles depuis:
-        // 1. placement.dimensions (si présent)
-        // 2. items originaux via item_id
-        // 3. fallback
+        // 1. placement.dimensions (si présent, en cm)
+        // 2. items originaux via item_id (en cm)
+        // 3. fallback (100cm = 1m)
         let dims = placement.dimensions;
         if (!dims || (dims.length === 0 && dims.width === 0 && dims.height === 0)) {
           const itemDims = getItemDimensions(placement.item_id, items);
           if (itemDims) {
             dims = itemDims;
           } else {
-            // Fallback raisonnable (1m x 1m x 1m en mm)
-            dims = { length: 1000, width: 1000, height: 1000 };
+            // Fallback raisonnable (100cm = 1m)
+            dims = { length: 100, width: 100, height: 100 };
           }
         }
         
-        // Dimensions API en mètres
-        const apiLength = dims.length / 1000;  // dimension "length" de l'API
-        const apiWidth = dims.width / 1000;    // dimension "width" de l'API
-        const dimHeight = dims.height / 1000;
+        // Dimensions en cm → convertir en mètres pour Three.js
+        const apiLength = cmToMeters(dims.length);  // dimension "length" 
+        const apiWidth = cmToMeters(dims.width);    // dimension "width" 
+        const dimHeight = cmToMeters(dims.height);
 
         // Quand l'API dit "rotated", l'article a été tourné de 90° autour de l'axe vertical
         // Cela signifie que sa "length" originale est maintenant alignée avec l'axe Z (largeur camion)
@@ -160,11 +184,12 @@ function Scene({
         }
 
         // Position du centre en Three.js
+        // Placements sont en cm, convertir en mètres
         // L'API donne le coin inférieur-arrière-gauche, Three.js positionne au centre
         // Mapping: API X -> Three.js X (longueur), API Y -> Three.js Z (largeur), API Z -> Three.js Y (hauteur)
-        const posX = placement.position.x / 1000 + dimOnAxisX / 2;  // axe X = longueur camion
-        const posY = placement.position.z / 1000 + dimHeight / 2;    // axe Y = hauteur
-        const posZ = placement.position.y / 1000 + dimOnAxisZ / 2;   // axe Z = largeur camion
+        const posX = cmToMeters(placement.position.x) + dimOnAxisX / 2;  // axe X = longueur camion
+        const posY = cmToMeters(placement.position.z) + dimHeight / 2;    // axe Y = hauteur
+        const posZ = cmToMeters(placement.position.y) + dimOnAxisZ / 2;   // axe Z = largeur camion
         
         // CargoItem3D attend: width = axe X, length = axe Z
         return (
@@ -190,11 +215,11 @@ export function TruckScene3D({ truckSpec, placements, items = [] }: TruckScene3D
   const [visibleCount, setVisibleCount] = useState(placements.length);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  // Container dimensions in meters for view controls
+  // Container dimensions en mètres pour les contrôles de vue
   const containerDimensions = {
-    length: truckSpec.length / 1000,
-    width: truckSpec.width / 1000,
-    height: truckSpec.height / 1000,
+    length: cmToMeters(truckSpec.length),
+    width: cmToMeters(truckSpec.width),
+    height: cmToMeters(truckSpec.height),
   };
 
   const handleViewChange = useCallback(
