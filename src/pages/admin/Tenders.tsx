@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -52,9 +53,30 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 };
 
 export default function TendersAdmin() {
-  const [selectedTenderId, setSelectedTenderId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedTenderId, setSelectedTenderId] = useState<string | null>(
+    searchParams.get('selected')
+  );
   const [activeTab, setActiveTab] = useState('all');
   const queryClient = useQueryClient();
+
+  // Handle URL parameter for selected tender
+  useEffect(() => {
+    const selected = searchParams.get('selected');
+    if (selected && selected !== selectedTenderId) {
+      setSelectedTenderId(selected);
+    }
+  }, [searchParams]);
+
+  // Update URL when selection changes
+  const handleSelectTender = (tenderId: string | null) => {
+    setSelectedTenderId(tenderId);
+    if (tenderId) {
+      setSearchParams({ selected: tenderId });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const { data: tenders, isLoading } = useQuery({
     queryKey: ['tender-projects'],
@@ -90,7 +112,7 @@ export default function TendersAdmin() {
       <MainLayout>
         <TenderDetailView 
           tenderId={selectedTenderId} 
-          onBack={() => setSelectedTenderId(null)} 
+          onBack={() => handleSelectTender(null)} 
         />
       </MainLayout>
     );
@@ -148,7 +170,7 @@ export default function TendersAdmin() {
                   <Card 
                     key={tender.id} 
                     className="cursor-pointer hover:border-primary/50 transition-colors"
-                    onClick={() => setSelectedTenderId(tender.id)}
+                    onClick={() => handleSelectTender(tender.id)}
                   >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">

@@ -36,6 +36,7 @@ interface TenderSegment {
 interface TenderSegmentCardProps {
   segment: TenderSegment;
   compact?: boolean;
+  onMatchKnowledge?: (segment: TenderSegment) => void;
 }
 
 const segmentTypeConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -46,7 +47,7 @@ const segmentTypeConfig: Record<string, { label: string; icon: React.ElementType
   unknown: { label: 'Transport', icon: Truck, color: 'text-muted-foreground' },
 };
 
-export function TenderSegmentCard({ segment, compact = false }: TenderSegmentCardProps) {
+export function TenderSegmentCard({ segment, compact = false, onMatchKnowledge }: TenderSegmentCardProps) {
   const config = segmentTypeConfig[segment.segment_type] || segmentTypeConfig.unknown;
   const Icon = config.icon;
   
@@ -161,10 +162,23 @@ export function TenderSegmentCard({ segment, compact = false }: TenderSegmentCar
               <AlertCircle className="h-4 w-4" />
               <span>Tarif non disponible</span>
             </div>
-            <Button variant="outline" size="sm" className="w-full gap-2">
-              <Mail className="h-4 w-4" />
-              Demander cotation
-            </Button>
+            <div className="flex gap-2">
+              {onMatchKnowledge && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="flex-1 gap-2"
+                  onClick={() => onMatchKnowledge(segment)}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Rechercher tarif
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="flex-1 gap-2">
+                <Mail className="h-4 w-4" />
+                Demander
+              </Button>
+            </div>
           </div>
         )}
 
