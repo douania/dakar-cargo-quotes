@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { PackingItem, DimensionUnit } from '@/types/truckLoading';
+import { UNIT_LABELS, validateDimensionsWithWeight } from '@/lib/unitConverter';
 
 interface DataValidationTableProps {
   items: PackingItem[];
@@ -29,14 +30,8 @@ interface ValidationError {
   message: string;
 }
 
-const unitLabels: Record<DimensionUnit, string> = {
-  mm: 'millimètres',
-  cm: 'centimètres',
-  m: 'mètres',
-  inch: 'pouces',
-  ft: 'pieds',
-  unknown: 'inconnue',
-};
+// Utiliser les labels du module centralisé
+const unitLabels = UNIT_LABELS;
 
 export function DataValidationTable({
   items,
@@ -68,6 +63,14 @@ export function DataValidationTable({
     if (item.quantity <= 0) {
       errors.push({ itemId: item.id, field: 'quantity', message: 'Quantité invalide' });
     }
+    
+    // Utiliser la validation centralisée pour la cohérence dimensions/poids
+    const dimensionWarnings = validateDimensionsWithWeight(
+      item.length, item.width, item.height, item.weight
+    );
+    dimensionWarnings.forEach(warning => {
+      errors.push({ itemId: item.id, field: 'dimensions', message: warning });
+    });
     
     return errors;
   };

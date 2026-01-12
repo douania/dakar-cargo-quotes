@@ -1,5 +1,22 @@
+/**
+ * ================== SERVICE D'OPTIMISATION CHARGEMENT CAMION ==================
+ * 
+ * CONVENTION DES UNITÉS :
+ * - Unité INTERNE (frontend, PackingItem) : CENTIMÈTRES (cm)
+ * - API Railway : MILLIMÈTRES (mm)
+ * - Visualisation Three.js : MÈTRES (m)
+ * 
+ * CONVERSIONS (centralisées dans unitConverter.ts) :
+ * - Frontend → Railway : cm × 10 = mm (prepareItemsForRailwayAPI)
+ * - Railway → Frontend : mm ÷ 10 = cm (normalizeRailwayPlacement)
+ * - Frontend → Three.js : cm ÷ 100 = mètres (cmToMeters)
+ * 
+ * ==============================================================================
+ */
+
 import { PackingItem, TruckSpec, OptimizationResult, Algorithm, FleetSuggestionResult, FleetScenario, TruckAvailabilityInfo, FeasibilityScore } from '@/types/truckLoading';
 import { supabase } from '@/integrations/supabase/client';
+import { cmToMm, mmToCm, prepareItemsForRailwayAPI, normalizeRailwayPlacement } from '@/lib/unitConverter';
 
 const RAILWAY_API_URL = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
@@ -266,28 +283,24 @@ export async function getTruckSpecs(): Promise<TruckSpec[]> {
   }
 }
 
-// Normalise la réponse API vers notre format TypeScript
+/**
+ * Normalise la réponse de l'API Railway vers le format interne
+ * CONVERSION : mm (Railway) → cm (frontend)
+ */
 function normalizeOptimizationResult(apiResponse: any): OptimizationResult {
   const results = apiResponse.results || apiResponse.result || {};
   
-  // L'API Railway retourne les positions ET dimensions en mm directement
-  // Ne pas appliquer de conversion - les valeurs sont déjà en mm
-  const placements = (apiResponse.placements || results.placements || []).map((p: any, index: number) => ({
-    item_id: p.item_id || `item_${index}`,
-    truck_index: p.truck_index ?? 0,
-    position: {
-      x: p.x ?? p.position?.x ?? 0,  // déjà en mm
-      y: p.y ?? p.position?.y ?? 0,  // déjà en mm
-      z: p.z ?? p.position?.z ?? 0,  // déjà en mm
-    },
-    // Dimensions du placement si présentes (déjà en mm)
-    dimensions: (p.length && p.width && p.height) ? {
-      length: p.length,
-      width: p.width,
-      height: p.height,
-    } : undefined,
-    rotated: p.rotation !== 0 || p.rotated || false,
-  }));
+  // Utiliser la fonction centralisée pour normaliser chaque placement
+  // L'API Railway retourne TOUT en mm, on convertit en cm
+  const rawPlacements = apiResponse.placements || results.placements || [];
+  const placements = rawPlacements.map((p: any, index: number) => 
+    normalizeRailwayPlacement(p, index)
+  );
+
+  if (import.meta.env.DEV && placements.length > 0) {
+    console.log(`[normalizeOptimizationResult] Converted ${placements.length} placements from mm to cm`);
+    console.log(`[normalizeOptimizationResult] Sample position: ${JSON.stringify(placements[0].position)} cm`);
+  }
 
   return {
     placements,
@@ -307,20 +320,10 @@ export async function runOptimization(
   truckSpec: TruckSpec,
   algorithm: Algorithm = 'simple',
 ): Promise<OptimizationResult> {
-  // Format items for backend: map description to name
-  // IMPORTANT: Convert dimensions from cm to mm for backend compatibility
-  const formattedItems = items.map((item, index) => ({
-    id: item.id || `item_${index}`,
-    name: item.description || `Article ${index + 1}`,
-    length: Math.round(item.length * 10), // cm → mm
-    width: Math.round(item.width * 10),   // cm → mm
-    height: Math.round(item.height * 10), // cm → mm
-    weight: item.weight,
-    quantity: item.quantity,
-    stackable: item.stackable ?? true,
-  }));
+  // Utiliser la fonction centralisée pour la conversion cm → mm
+  const formattedItems = prepareItemsForRailwayAPI(items);
   
-  console.log('[runOptimization] First item dimensions (mm):', formattedItems[0]);
+  console.log('[runOptimization] Items prepared for Railway API (mm):', formattedItems[0]);
 
   // Remove 'name' from truckSpec for backend compatibility
   const { name, ...truckWithoutName } = truckSpec;
@@ -420,26 +423,19 @@ const CONVOI_MODULAR_SPEC = {
   max_weight: 100000, // 100 tonnes
 };
 
-// Suggest optimal fleet configuration with 3D placements
+/**
+ * Suggère une configuration de flotte optimale avec placements 3D
+ * CONVERSION : cm (frontend) → mm (Railway API)
+ */
 export async function suggestFleet(
   items: PackingItem[],
   distanceKm: number = 100,
   availableTrucks: string[] = ['van_3t', 'truck_19t', 'truck_26t', 'truck_40t'],
 ): Promise<FleetSuggestionResult> {
-  // Format items for backend: map description to name
-  // IMPORTANT: Convert dimensions from cm to mm for backend compatibility
-  const formattedItems = items.map((item, index) => ({
-    id: item.id || `item_${index}`,
-    name: item.description || `Article ${index + 1}`,
-    length: Math.round(item.length * 10), // cm → mm
-    width: Math.round(item.width * 10),   // cm → mm
-    height: Math.round(item.height * 10), // cm → mm
-    weight: item.weight,
-    quantity: item.quantity,
-    stackable: item.stackable ?? true,
-  }));
+  // Utiliser la fonction centralisée pour la conversion cm → mm
+  const formattedItems = prepareItemsForRailwayAPI(items);
 
-  console.log('[suggestFleet] First item dimensions (mm):', formattedItems[0]);
+  console.log('[suggestFleet] Items prepared for Railway API (mm):', formattedItems[0]);
 
   // Detect if exceptional transport is needed (item > 50T or height > 350cm)
   const needsConvoiModular = items.some(item => 
