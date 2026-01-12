@@ -403,8 +403,65 @@ ${JSON.stringify(result.extractedData, null, 2)}
             <TabsContent value="response" className="flex-1 mt-4">
               <ScrollArea className="h-[calc(100vh-300px)] pr-4">
                 <div className="space-y-4">
+                  {/* CRITICAL: Tender detected - block classic quotation */}
+                  {complexity.isTender && (
+                    <Card className="border-red-500 bg-red-50">
+                      <CardContent className="pt-4">
+                        <div className="flex items-start gap-3">
+                          <Briefcase className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                          <div className="space-y-2 flex-1">
+                            <p className="font-semibold text-red-800">
+                              🏢 Tender / Appel d'offres détecté
+                            </p>
+                            <p className="text-sm text-red-700">
+                              {complexity.redirectMessage || 'Cette demande est un tender multi-segments. Le workflow de cotation email classique n\'est pas adapté.'}
+                            </p>
+                            <div className="flex gap-2 mt-3">
+                              <Button 
+                                onClick={handleConvertToTender}
+                                disabled={isConvertingToTender}
+                                className="bg-red-600 hover:bg-red-700"
+                              >
+                                {isConvertingToTender ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Briefcase className="h-4 w-4 mr-1" />
+                                )}
+                                Préparer offre Tender
+                                <ArrowRight className="h-4 w-4 ml-1" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Partner email detected - suggest acknowledgment only */}
+                  {complexity.isPartnerEmail && !complexity.isTender && (
+                    <Card className="border-blue-500 bg-blue-50">
+                      <CardContent className="pt-4">
+                        <div className="flex items-start gap-3">
+                          <User className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <div className="space-y-2 flex-1">
+                            <p className="font-semibold text-blue-800">
+                              🤝 Email partenaire (2HL/Taleb) détecté
+                            </p>
+                            <p className="text-sm text-blue-700">
+                              Ce n'est pas un client final. Si des tarifs sont fournis, générer uniquement un accusé réception.
+                              Ne pas inclure les honoraires SODATRA standard.
+                            </p>
+                            <p className="text-xs text-blue-600 italic">
+                              Réponse suggérée: "Thks [nom], bien reçu les tarifs. On intègre dans notre offre client."
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Back to puzzle button */}
-                  {puzzle && !puzzle.canGenerateQuote && (
+                  {puzzle && !puzzle.canGenerateQuote && !complexity.blockClassicQuote && (
                     <Card className="border-amber-500 bg-amber-50">
                       <CardContent className="pt-4">
                         <div className="flex items-center justify-between">

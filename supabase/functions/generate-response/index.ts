@@ -353,10 +353,19 @@ interface AIExtractedData {
   // Language
   detected_language: 'FR' | 'EN';
   
-  // Request type
-  request_type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP';
+  // Request type - ENRICHED with tender/partner types
+  request_type: 'PI_ONLY' | 'QUOTATION_REQUEST' | 'QUESTION' | 'ACKNOWLEDGMENT' | 'FOLLOW_UP' | 'TENDER_REQUEST' | 'PARTNER_RATE_SUBMISSION' | 'RATE_CONFIRMATION';
   can_quote_now: boolean;
-  offer_type: 'full_quotation' | 'indicative_dap' | 'rate_only' | 'info_response';
+  offer_type: 'full_quotation' | 'indicative_dap' | 'rate_only' | 'info_response' | 'tender_preparation' | 'partner_acknowledgment';
+  
+  // NEW: Email context for smart workflow routing
+  email_context: {
+    sender_role: 'client' | 'partner' | 'supplier' | 'internal';
+    action_required: 'quote_client' | 'integrate_rates' | 'acknowledge' | 'prepare_tender' | 'forward_to_tender';
+    is_tender: boolean;
+    tender_indicators: string[];
+    partner_indicators: string[];
+  };
   
   // Transport mode (KEY FIX: AI decides this intelligently)
   transport_mode: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
@@ -411,6 +420,35 @@ interface AIExtractedData {
 
 const AI_EXTRACTION_PROMPT = `Tu es un expert en logistique maritime et aérienne au Sénégal (SODATRA).
 Analyse cette demande de cotation et extrais TOUTES les informations disponibles.
+
+=== CONTEXTE ENTREPRISE SODATRA ===
+
+📧 IDENTIFICATION DES INTERLOCUTEURS:
+- **2HL Group / 2HL / @2hl / @2hlgroup / Taleb / Taleb Hoballah** = PARTENAIRE de SODATRA (pas un client!)
+- Les partenaires ENVOIENT des tarifs/cotations pour que SODATRA les intègre
+- Les CLIENTS demandent des cotations à SODATRA
+- Les FOURNISSEURS (compagnies maritimes, manutentionnaires) envoient des offres
+
+📋 RÈGLES D'IDENTIFICATION SENDER_ROLE:
+- sender_role = 'partner' si email de @2hl, @2hlgroup, ou nom "Taleb"
+- sender_role = 'supplier' si compagnie maritime (MSC, MAERSK, HAPAG...)
+- sender_role = 'client' si demande de cotation à SODATRA
+- sender_role = 'internal' si @sodatra
+
+🎯 DÉTECTION TENDER / APPEL D'OFFRES:
+Indicateurs clés (is_tender = true si 2+ présents):
+- RFPS, RFQ, Appel d'offres, Tender, Consultation
+- MINUSCA, UNMISS, MONUSCO, MINUSMA, UN Peacekeeping
+- Multi-contingents, multi-destinations (Bangui, Ndele, Bambari...)
+- PAM, WFP, UNHCR, UNICEF, UNDP
+- Demobilization, Repatriation, Rotation, Battalion
+- Deadline formelle, cahier des charges
+
+📋 ACTION_REQUIRED selon contexte:
+- Si partenaire envoie tarifs → action_required = 'integrate_rates'
+- Si tender détecté → action_required = 'forward_to_tender' ou 'prepare_tender'
+- Si client demande cotation classique → action_required = 'quote_client'
+- Si simple confirmation → action_required = 'acknowledge'
 
 === HYPOTHÈSES PAR DÉFAUT (NE PAS DEMANDER) ===
 
@@ -510,7 +548,28 @@ Pour "Import customs clearance + local delivery" sans valeur CAF:
 === EXTRACTION À FAIRE ===
 Extrais ces informations de l'email et des pièces jointes fournies.
 Si une information n'est pas disponible, utilise null.
-RAPPEL: NE JAMAIS demander l'origine ou la date de livraison.`;
+RAPPEL: NE JAMAIS demander l'origine ou la date de livraison.
+
+=== RÈGLES CRITIQUES POUR CONTEXTE EMAIL ===
+
+🔴 SI EMAIL D'UN PARTENAIRE (2HL, Taleb):
+- request_type = 'PARTNER_RATE_SUBMISSION' si tarifs/cotations fournis
+- action_required = 'integrate_rates'
+- NE PAS inclure les honoraires SODATRA dans la réponse
+- Réponse = courte acknowledgment au partenaire
+
+🔴 SI TENDER DÉTECTÉ (MINUSCA, UN, multi-contingents):
+- request_type = 'TENDER_REQUEST'
+- action_required = 'forward_to_tender'
+- is_tender = true
+- NE PAS générer de cotation email classique
+- Indiquer "Utiliser le module Tender"
+
+🟢 SI COTATION CLASSIQUE (client demande):
+- request_type = 'QUOTATION_REQUEST' 
+- action_required = 'quote_client'
+- is_tender = false
+- Appliquer le workflow standard avec honoraires SODATRA`;
 
 async function extractWithAI(
   emailContent: string, 
@@ -558,23 +617,57 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                 },
                 request_type: {
                   type: "string",
-                  enum: ["PI_ONLY", "QUOTATION_REQUEST", "QUESTION", "ACKNOWLEDGMENT", "FOLLOW_UP"],
-                  description: "Type de la demande"
+                  enum: ["PI_ONLY", "QUOTATION_REQUEST", "QUESTION", "ACKNOWLEDGMENT", "FOLLOW_UP", "TENDER_REQUEST", "PARTNER_RATE_SUBMISSION", "RATE_CONFIRMATION"],
+                  description: "Type de la demande. TENDER_REQUEST si appel d'offres UN/MINUSCA. PARTNER_RATE_SUBMISSION si partenaire (2HL/Taleb) envoie des tarifs."
                 },
                 can_quote_now: {
                   type: "boolean",
                   description: `VRAI si on peut produire une offre (même indicative).
                     VRAI si on a: cargo_description + destination + type de service
-                    VRAI MÊME SI on n'a pas: origine (assumée hors UEMOA), valeur CAF (taux indicatifs), date souhaitée (délais standards)`
+                    VRAI MÊME SI on n'a pas: origine (assumée hors UEMOA), valeur CAF (taux indicatifs), date souhaitée (délais standards)
+                    FAUX si TENDER détecté (utiliser module Tender à la place)`
                 },
                 offer_type: {
                   type: "string",
-                  enum: ["full_quotation", "indicative_dap", "rate_only", "info_response"],
+                  enum: ["full_quotation", "indicative_dap", "rate_only", "info_response", "tender_preparation", "partner_acknowledgment"],
                   description: `Type d'offre à générer:
                     - full_quotation: toutes infos disponibles (CAF, HS codes confirmés)
                     - indicative_dap: pas de valeur CAF, offre DAP/DDP avec frais fixes + taux indicatifs DD/TVA
                     - rate_only: simple demande de tarif
-                    - info_response: réponse informative (question régime, documents, etc.)`
+                    - info_response: réponse informative (question régime, documents, etc.)
+                    - tender_preparation: tender détecté, rediriger vers module Tender
+                    - partner_acknowledgment: partenaire envoie tarifs, courte acknowledgment`
+                },
+                // NEW: Email context for smart routing
+                email_context: {
+                  type: "object",
+                  properties: {
+                    sender_role: {
+                      type: "string",
+                      enum: ["client", "partner", "supplier", "internal"],
+                      description: "Role de l'expéditeur. partner si @2hl, @2hlgroup ou Taleb"
+                    },
+                    action_required: {
+                      type: "string",
+                      enum: ["quote_client", "integrate_rates", "acknowledge", "prepare_tender", "forward_to_tender"],
+                      description: "Action requise. integrate_rates si partenaire envoie tarifs. forward_to_tender si tender détecté."
+                    },
+                    is_tender: {
+                      type: "boolean",
+                      description: "TRUE si appel d'offres UN, MINUSCA, multi-contingents, multi-destinations"
+                    },
+                    tender_indicators: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Mots-clés tender détectés (RFPS, MINUSCA, contingent, etc.)"
+                    },
+                    partner_indicators: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Indicateurs partenaire (2HL, Taleb, etc.)"
+                    }
+                  },
+                  required: ["sender_role", "action_required", "is_tender"]
                 },
                 transport_mode: {
                   type: "string",
@@ -687,7 +780,8 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
               required: [
                 "detected_language", "request_type", "can_quote_now",
                 "transport_mode", "transport_mode_evidence",
-                "missing_info", "questions_to_ask", "has_pi", "services_requested"
+                "missing_info", "questions_to_ask", "has_pi", "services_requested",
+                "email_context"
               ]
             }
           }
@@ -744,11 +838,27 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
            !lower.includes('date souhaitée');
   });
 
+  // Build email_context with defaults if not provided by AI
+  const emailContext = extracted.email_context || {
+    sender_role: 'client',
+    action_required: 'quote_client',
+    is_tender: false,
+    tender_indicators: [],
+    partner_indicators: []
+  };
+
   return {
     detected_language: extracted.detected_language || 'FR',
     request_type: extracted.request_type || 'QUOTATION_REQUEST',
     can_quote_now: extracted.can_quote_now ?? false,
     offer_type: extracted.offer_type || 'indicative_dap',
+    email_context: {
+      sender_role: emailContext.sender_role || 'client',
+      action_required: emailContext.action_required || 'quote_client',
+      is_tender: emailContext.is_tender ?? false,
+      tender_indicators: emailContext.tender_indicators || [],
+      partner_indicators: emailContext.partner_indicators || []
+    },
     transport_mode: extracted.transport_mode || 'unknown',
     transport_mode_evidence: extracted.transport_mode_evidence || '',
     origin: extracted.origin || null,
@@ -892,6 +1002,29 @@ Tu as accès à:
 3. QUESTION - Question technique ou de suivi
 4. ACKNOWLEDGMENT - Accusé de réception
 5. FOLLOW_UP - Suite à conversation précédente
+6. TENDER_REQUEST - Appel d'offres formel (UN, MINUSCA, ONG)
+7. PARTNER_RATE_SUBMISSION - Partenaire (2HL/Taleb) fournit des tarifs
+8. RATE_CONFIRMATION - Confirmation de tarifs à intégrer
+
+=== RÈGLES CONTEXTUELLES CRITIQUES ===
+
+📧 SI L'EMAIL VIENT D'UN PARTENAIRE (2HL, Taleb, @2hl, @2hlgroup):
+- Ce n'est PAS un client final - c'est notre partenaire commercial
+- S'il fournit des tarifs → courte réponse d'accusé réception UNIQUEMENT
+- NE PAS inclure les honoraires SODATRA dans la réponse
+- Style: "Thks Taleb, bien reçu. On intègre dans notre offre."
+- NE PAS coter au partenaire comme si c'était un client
+
+🏢 SI C'EST UN TENDER (MINUSCA, UN, multi-destinations, multi-contingents):
+- NE PAS répondre avec une cotation email classique
+- Indiquer UNIQUEMENT: "Demande analysée. Veuillez utiliser le module Tender pour préparer une offre consolidée multi-segments."
+- Ne PAS appliquer les honoraires dédouanement sénégalais standard (contexte transit international multi-pays)
+- NE PAS générer de tableau de tarifs dans l'email
+
+💼 SI C'EST UNE COTATION CLASSIQUE (client demande directement):
+- Appliquer le workflow standard
+- Inclure les honoraires SODATRA (bloc 2)
+- Structure 3 blocs (Opérationnel, Honoraires, D&T)
 
 === INFORMATIONS REQUISES POUR COTER ===
 
