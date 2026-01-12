@@ -9,9 +9,8 @@
  * 
  * FRONTIÈRES :
  * 1. Import packing list → cm (edge function parse-packing-list)
- * 2. Frontend → Railway API : cm → mm (prepareItemsForAPI)
- * 3. Railway API → Frontend : mm → cm (normalizeFromAPI)
- * 4. Frontend → Three.js : cm → mètres (cmToMeters)
+ * 2. Frontend ↔ Railway API : cm (PAS de conversion, Railway utilise cm)
+ * 3. Frontend → Three.js : cm → mètres (cmToMeters)
  * 
  * ==================================================================
  */
@@ -167,8 +166,9 @@ export function validateDimensionsWithWeight(
 }
 
 /**
- * Prépare un tableau d'items (en cm) pour l'envoi à l'API Railway (en mm)
- * Fonction de commodité pour la conversion groupée
+ * Prépare un tableau d'items (en cm) pour l'envoi à l'API Railway
+ * IMPORTANT: Railway API utilise les CENTIMÈTRES, pas les millimètres !
+ * Donc on ne fait PAS de conversion ici.
  */
 export function prepareItemsForRailwayAPI(items: Array<{
   id: string;
@@ -193,17 +193,17 @@ export function prepareItemsForRailwayAPI(items: Array<{
     const result = {
       id: item.id || `item_${index}`,
       name: item.description || `Article ${index + 1}`,
-      // CONVERSION EXPLICITE : cm → mm pour Railway
-      length: cmToMm(item.length),
-      width: cmToMm(item.width),
-      height: cmToMm(item.height),
+      // PAS DE CONVERSION - Railway API attend des CM
+      length: item.length,
+      width: item.width,
+      height: item.height,
       weight: item.weight,
       quantity: item.quantity,
       stackable: item.stackable ?? true,
     };
     
     if (import.meta.env.DEV && index === 0) {
-      console.log(`[UNITS] prepareItemsForRailwayAPI: Item 0 - ${item.length}cm → ${result.length}mm`);
+      console.log(`[UNITS] prepareItemsForRailwayAPI: Item 0 - ${item.length}cm (envoyé en cm)`);
     }
     
     return result;
@@ -211,7 +211,9 @@ export function prepareItemsForRailwayAPI(items: Array<{
 }
 
 /**
- * Normalise un placement reçu de l'API Railway (mm) vers le format interne (cm)
+ * Normalise un placement reçu de l'API Railway vers le format interne
+ * IMPORTANT: Railway API retourne des CENTIMÈTRES, pas des millimètres !
+ * Donc on ne fait PAS de conversion ici.
  */
 export function normalizeRailwayPlacement(placement: {
   item_id?: string;
@@ -232,8 +234,7 @@ export function normalizeRailwayPlacement(placement: {
   dimensions?: { length: number; width: number; height: number };
   rotated: boolean;
 } {
-  // L'API Railway retourne TOUT en mm
-  // CONVERSION EXPLICITE : mm → cm pour le frontend
+  // PAS DE CONVERSION - les valeurs sont déjà en CM
   const posX = placement.x ?? placement.position?.x ?? 0;
   const posY = placement.y ?? placement.position?.y ?? 0;
   const posZ = placement.z ?? placement.position?.z ?? 0;
@@ -242,20 +243,20 @@ export function normalizeRailwayPlacement(placement: {
     item_id: placement.item_id || `item_${index}`,
     truck_index: placement.truck_index ?? 0,
     position: {
-      x: mmToCm(posX),
-      y: mmToCm(posY),
-      z: mmToCm(posZ),
+      x: posX,
+      y: posY,
+      z: posZ,
     },
     dimensions: (placement.length && placement.width && placement.height) ? {
-      length: mmToCm(placement.length),
-      width: mmToCm(placement.width),
-      height: mmToCm(placement.height),
+      length: placement.length,
+      width: placement.width,
+      height: placement.height,
     } : undefined,
     rotated: placement.rotation !== 0 || placement.rotated || false,
   };
   
   if (import.meta.env.DEV && index === 0) {
-    console.log(`[UNITS] normalizeRailwayPlacement: Item 0 - pos ${posX}mm → ${result.position.x}cm`);
+    console.log(`[UNITS] normalizeRailwayPlacement: Item 0 - pos ${posX}cm (déjà en cm)`);
   }
   
   return result;
