@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import { TenderSegmentCard } from './TenderSegmentCard';
 import { TenderContingentTable } from './TenderContingentTable';
 import { MatchKnowledgeToSegmentDialog } from './MatchKnowledgeToSegmentDialog';
+import { TenderOfferGenerator } from './TenderOfferGenerator';
 
 interface TenderDetailViewProps {
   tenderId: string;
@@ -69,6 +70,7 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
   const queryClient = useQueryClient();
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState<TenderSegment | null>(null);
+  const [offerDialogOpen, setOfferDialogOpen] = useState(false);
 
   const { data: tender, isLoading: tenderLoading } = useQuery({
     queryKey: ['tender-project', tenderId],
@@ -190,7 +192,7 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setOfferDialogOpen(true)}>
             <FileText className="h-4 w-4" />
             Générer offre
           </Button>
@@ -339,6 +341,15 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
         onOpenChange={setMatchDialogOpen}
         segment={selectedSegment}
         onMatch={handleMatchKnowledge}
+      />
+
+      {/* Offer Generator Dialog */}
+      <TenderOfferGenerator
+        open={offerDialogOpen}
+        onOpenChange={setOfferDialogOpen}
+        tender={tender}
+        segments={segments || []}
+        contingents={contingents || []}
       />
     </div>
   );

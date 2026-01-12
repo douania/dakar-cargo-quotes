@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { TenderDetailView } from '@/components/tenders/TenderDetailView';
+import { CreateTenderDialog } from '@/components/tenders/CreateTenderDialog';
 
 interface TenderProject {
   id: string;
@@ -58,7 +59,12 @@ export default function TendersAdmin() {
     searchParams.get('selected')
   );
   const [activeTab, setActiveTab] = useState('all');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleTenderCreated = (tenderId: string) => {
+    handleSelectTender(tenderId);
+  };
 
   // Handle URL parameter for selected tender
   useEffect(() => {
@@ -128,11 +134,17 @@ export default function TendersAdmin() {
               Projets multi-segments avec consolidation des tarifs partenaires
             </p>
           </div>
-          <Button className="gap-2">
+          <Button className="gap-2" onClick={() => setShowCreateDialog(true)}>
             <Plus className="h-4 w-4" />
             Nouveau Tender
           </Button>
         </div>
+
+        <CreateTenderDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          onTenderCreated={handleTenderCreated}
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
@@ -159,7 +171,7 @@ export default function TendersAdmin() {
                 <p className="text-muted-foreground mb-4">
                   Importez un tender depuis un email ou créez-en un nouveau
                 </p>
-                <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2" onClick={() => setShowCreateDialog(true)}>
                   <Plus className="h-4 w-4" />
                   Créer un tender
                 </Button>
