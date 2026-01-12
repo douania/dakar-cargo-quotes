@@ -9,13 +9,18 @@ const corsHeaders = {
 
 const EXTRACTION_PROMPT = `Tu es un expert en logistique qui analyse des packing lists.
 
-MISSION : Extraire UNIQUEMENT les lignes de colisage/colis avec leurs dimensions EXACTES telles qu'elles apparaissent dans le fichier.
+MISSION : Extraire TOUTES les lignes de colisage/colis avec leurs dimensions EXACTES telles qu'elles apparaissent dans le fichier.
 
 RÈGLES D'EXTRACTION :
 1. Ignore les factures, proformas, devis
 2. Ignore les lignes de TOTAL, SUBTOTAL, SET GW, GRAND TOTAL
 3. Ignore les headers et lignes vides
-4. Ignore les lignes en double (même colis répété dans différents sets/onglets)
+4. GESTION DES SETS MULTIPLES (CRITIQUE):
+   - Si le même numéro de colis apparaît plusieurs fois (ex: "1" trois fois), ce sont des SETS DISTINCTS
+   - Cherche des indicateurs de sets: "SET 1/2/3", numéros de série dans le nom du fichier, ou répétition complète de la liste
+   - Génère des IDs UNIQUES: préfixe chaque colis par un identifiant de set (ex: "A-1", "B-1", "C-1" ou "S1-1", "S2-1")
+   - NE JAMAIS fusionner des colis physiquement distincts même s'ils ont les mêmes caractéristiques
+   - Compte le nombre de sets détectés dans set_count
 5. Nettoie les symboles (~, ±, ≈) des valeurs numériques
 
 DÉTECTION DES UNITÉS DE DIMENSIONS :
@@ -41,9 +46,9 @@ POIDS :
 - Si le poids semble être en grammes (valeurs très petites < 1), convertis en kg
 
 FORMAT DE SORTIE :
-Pour chaque colis UNIQUE (pas de doublons), retourne :
-- id: string (numéro du colis, ex: "1", "2")
-- description: string (description du contenu)
+Pour chaque colis, retourne :
+- id: string UNIQUE (ex: "S1-1", "S2-1" si multi-sets détectés, sinon "1", "2")
+- description: string (description du contenu, préfixée par [SET X] si multi-sets)
 - source_length: number (longueur EXACTE telle qu'elle apparaît dans le fichier)
 - source_width: number (largeur EXACTE telle qu'elle apparaît dans le fichier)
 - source_height: number (hauteur EXACTE telle qu'elle apparaît dans le fichier)
@@ -135,6 +140,47 @@ function parseExcelToText(buffer: ArrayBuffer): { text: string; sheetNames: stri
     console.error("Excel parsing error:", error);
     throw new Error(`Failed to parse Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+// Post-traitement: garantir des IDs uniques même si l'AI n'a pas bien distingué les sets
+function ensureUniqueIds(items: PackingItem[]): PackingItem[] {
+  // Count occurrences of each ID
+  const idOccurrences: Record<string, number> = {};
+  items.forEach(item => {
+    idOccurrences[item.id] = (idOccurrences[item.id] || 0) + 1;
+  });
+  
+  // Find IDs with duplicates
+  const duplicateIds = Object.entries(idOccurrences).filter(([_, count]) => count > 1);
+  
+  if (duplicateIds.length === 0) {
+    return items; // No duplicates, return as-is
+  }
+  
+  console.log(`Detected ${duplicateIds.length} IDs with duplicates, renaming...`);
+  
+  // Rename items with duplicate IDs
+  const setCounters: Record<string, number> = {};
+  
+  return items.map(item => {
+    if (idOccurrences[item.id] > 1) {
+      setCounters[item.id] = (setCounters[item.id] || 0) + 1;
+      const setLetter = String.fromCharCode(64 + setCounters[item.id]); // A, B, C...
+      const newId = `${item.id}-${setLetter}`;
+      const newDescription = item.description.startsWith('[SET') 
+        ? item.description 
+        : `[SET ${setLetter}] ${item.description}`;
+      
+      console.log(`Renamed: ${item.id} → ${newId}`);
+      
+      return {
+        ...item,
+        id: newId,
+        description: newDescription
+      };
+    }
+    return item;
+  });
 }
 
 // Conversion déterministe des dimensions vers cm
@@ -230,9 +276,13 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
                 type: "array", 
                 items: { type: "string" },
                 description: "Avertissements (lignes ignorées, doublons détectés, unité ambiguë, etc.)"
+              },
+              set_count: {
+                type: "number",
+                description: "Nombre de sets/lots distincts détectés dans le fichier (1 si pas de répétition, 2+ si multi-sets)"
               }
             },
-            required: ["items", "detected_dimension_unit", "document_type", "sheets_analyzed", "warnings"]
+            required: ["items", "detected_dimension_unit", "document_type", "sheets_analyzed", "warnings", "set_count"]
           }
         }
       }],
@@ -258,12 +308,13 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
 
   const result = JSON.parse(toolCall.function.arguments);
   const globalUnit = result.detected_dimension_unit || 'unknown';
+  const setCount = result.set_count || 1;
   
-  // Log detected unit for debugging
-  console.log(`Detected dimension unit: ${globalUnit}`);
+  // Log detected unit and sets for debugging
+  console.log(`Detected dimension unit: ${globalUnit}, set_count: ${setCount}`);
   
   // Validate and convert items
-  const validItems = result.items
+  let validItems = result.items
     .filter((item: Record<string, unknown>) => {
       if (!item.id) return false;
       const weight = Number(item.weight);
@@ -305,6 +356,9 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
       };
     });
 
+  // Post-processing: ensure unique IDs (fallback if AI didn't properly distinguish sets)
+  validItems = ensureUniqueIds(validItems);
+
   // Build warnings
   const warnings = result.warnings || [];
   if (globalUnit && globalUnit !== 'cm' && globalUnit !== 'unknown') {
@@ -312,6 +366,9 @@ async function extractWithAI(fileContent: string): Promise<ExtractionResult> {
   }
   if (globalUnit === 'unknown') {
     warnings.push(`Unité non détectée dans le fichier - dimensions assumées en cm`);
+  }
+  if (setCount > 1) {
+    warnings.push(`${setCount} sets/lots distincts détectés dans le fichier`);
   }
   
   // Log summary
