@@ -34,16 +34,76 @@ interface ThreadGroup {
 
 const SPAM_INDICATORS = [
   'spam:', '[spam]', 'spam*',
-  'notification de credit', 'notification de débit',
-  'new login from', 'nouvelle connexion',
+  'notification de credit', 'notification de débit', 'notification de crédit',
+  'new login from', 'nouvelle connexion', 'connexion depuis',
   'holiday operating hours', 'membership updates',
-  'your daily boat', 'linkedin',
-  'unsubscribe', 'se désabonner'
+  'your daily boat', 'linkedin', 'newsletter',
+  'unsubscribe', 'se désabonner', 'désinscrire',
+  'daily report', 'rapport journalier', 'weekly digest',
+  'password reset', 'reset password', 'mot de passe',
+  'verify your email', 'vérifier votre email',
+  'out of office', 'absence du bureau', 'automatic reply',
+  'delivery status notification', 'undeliverable',
+  'meeting reminder', 'calendar invitation',
+  'bank transfer', 'virement bancaire', 'relevé de compte'
 ];
 
-function isSpam(subject: string): boolean {
+// Additional sender domains to exclude
+const EXCLUDED_DOMAINS = [
+  'linkedin.com', 'facebook.com', 'twitter.com', 'newsletter',
+  'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
+  'support@', 'info@', 'notification@', 'alert@'
+];
+
+function isSpam(subject: string, fromAddress?: string): boolean {
   const subjectLower = (subject || '').toLowerCase();
-  return SPAM_INDICATORS.some(spam => subjectLower.includes(spam));
+  const fromLower = (fromAddress || '').toLowerCase();
+  
+  // Check subject indicators
+  if (SPAM_INDICATORS.some(spam => subjectLower.includes(spam))) {
+    return true;
+  }
+  
+  // Check sender domain
+  if (EXCLUDED_DOMAINS.some(domain => fromLower.includes(domain))) {
+    return true;
+  }
+  
+  return false;
+}
+
+// ============ QUOTATION DETECTION ============
+
+const QUOTATION_KEYWORDS = [
+  // French
+  'cotation', 'devis', 'offre de prix', 'proposition commerciale',
+  'demande de prix', 'tarif', 'tarification', 'estimation',
+  // English
+  'quotation', 'quote', 'rate request', 'rfq', 'freight inquiry',
+  'pricing request', 'cost estimate', 'rate inquiry', 'tender',
+  // Logistics specific
+  'fret', 'freight', 'shipping', 'transport', 'logistics',
+  'container', 'conteneur', 'breakbulk', 'roro', 'fcl', 'lcl',
+  'port of loading', 'port of discharge', 'pol', 'pod',
+  'incoterm', 'fob', 'cif', 'cfr', 'exw', 'dap', 'ddp',
+  // Project/Mission keywords
+  'minusca', 'minusma', 'unmiss', 'monusco', 'un mission',
+  'peacekeeping', 'humanitarian', 'project cargo'
+];
+
+function isQuotationRelated(email: Email): boolean {
+  const subjectLower = (email.subject || '').toLowerCase();
+  const bodyLower = (email.body_text || '').substring(0, 3000).toLowerCase();
+  const combined = `${subjectLower} ${bodyLower}`;
+  
+  // Already marked as quotation request
+  if (email.is_quotation_request) return true;
+  
+  // Check for quotation keywords
+  const keywordMatches = QUOTATION_KEYWORDS.filter(kw => combined.includes(kw));
+  
+  // Need at least 2 keyword matches for confidence
+  return keywordMatches.length >= 2;
 }
 
 // ============ SUBJECT NORMALIZATION ============
@@ -353,14 +413,30 @@ serve(async (req) => {
     
     console.log(`Found ${emails.length} emails to process`);
     
-    // 2. Clean spam emails
-    const spamEmails = emails.filter(e => isSpam(e.subject || ''));
-    const validEmails = emails.filter(e => !isSpam(e.subject || ''));
+    // 2. Clean spam emails (using improved detection)
+    const spamEmails = emails.filter(e => isSpam(e.subject || '', e.from_address));
+    const validEmails = emails.filter(e => !isSpam(e.subject || '', e.from_address));
     
     console.log(`Spam emails: ${spamEmails.length}, Valid: ${validEmails.length}`);
     
+    // 3. Update quotation status for valid emails using improved detection
+    let quotationUpdates = 0;
+    if (!dryRun) {
+      for (const email of validEmails) {
+        const shouldBeQuotation = isQuotationRelated(email);
+        if (shouldBeQuotation !== email.is_quotation_request) {
+          await supabase
+            .from('emails')
+            .update({ is_quotation_request: shouldBeQuotation })
+            .eq('id', email.id);
+          quotationUpdates++;
+        }
+      }
+      console.log(`Updated quotation status for ${quotationUpdates} emails`);
+    }
+    
     if (!dryRun && spamEmails.length > 0) {
-      // Mark spam emails
+      // Mark spam emails as non-quotation
       const spamIds = spamEmails.map(e => e.id);
       await supabase
         .from('emails')
@@ -370,24 +446,31 @@ serve(async (req) => {
       console.log(`Marked ${spamIds.length} spam emails as non-quotation`);
     }
     
-    // 3. Group emails by thread
+    // 4. Group emails by thread
     const threadGroups = groupEmailsByThread(validEmails);
     console.log(`Created ${threadGroups.size} thread groups`);
     
-    // 4. Create/Update email_threads and link emails
+    // 5. Delete old threads to rebuild fresh
+    if (!dryRun) {
+      await supabase.from('email_threads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      console.log('Cleared old threads');
+    }
+    
+    // 6. Create/Update email_threads and link emails
     const stats = {
       threadsCreated: 0,
       threadsUpdated: 0,
       emailsLinked: 0,
-      spamMarked: spamEmails.length
+      spamMarked: spamEmails.length,
+      quotationUpdates
     };
     
     for (const [_key, group] of threadGroups) {
       // Analyze thread roles
       const roles = await analyzeThreadRoles(supabase, group.emails);
       
-      // Check if this is a quotation thread
-      const isQuotationThread = group.emails.some(e => e.is_quotation_request);
+      // Check if this is a quotation thread (use improved detection)
+      const isQuotationThread = group.emails.some(e => isQuotationRelated(e));
       
       // Create thread data
       const threadData = {

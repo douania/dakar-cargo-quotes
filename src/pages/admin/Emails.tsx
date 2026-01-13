@@ -22,6 +22,7 @@ import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseG
 import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
 import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFromEmailButton';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
+import { LearningStats } from '@/components/LearningStats';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
@@ -644,6 +645,9 @@ export default function Emails() {
 
           {/* Threads Tab */}
           <TabsContent value="threads" className="space-y-4">
+            {/* Learning Stats */}
+            <LearningStats />
+            
             {/* Toolbar */}
             <Card>
               <CardContent className="p-4">
