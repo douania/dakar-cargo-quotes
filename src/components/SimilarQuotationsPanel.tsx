@@ -76,10 +76,19 @@ export function SimilarQuotationsPanel({
   const suggestedTariffs = hasQuotations ? getSuggestedTariffs(similarQuotations, requestedServices) : new Map();
   
   const formatCurrency = (amount: number, currency: string) => {
-    if (currency === 'FCFA' || currency === 'XOF') {
+    // Clean currency code - extract only the currency part
+    const cleanCurrency = currency?.split(/[\s(]/)[0]?.toUpperCase() || 'FCFA';
+    
+    if (cleanCurrency === 'FCFA' || cleanCurrency === 'XOF') {
       return new Intl.NumberFormat('fr-FR').format(amount) + ' FCFA';
     }
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency }).format(amount);
+    
+    try {
+      return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cleanCurrency }).format(amount);
+    } catch {
+      // Fallback if currency code is still invalid
+      return new Intl.NumberFormat('fr-FR').format(amount) + ` ${cleanCurrency}`;
+    }
   };
   
   const formatDate = (dateStr: string) => {
