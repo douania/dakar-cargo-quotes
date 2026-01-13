@@ -222,81 +222,67 @@ export function SimilarQuotationsPanel({
             <Separator />
             
             {/* Similar quotations list */}
-            <ScrollArea className="max-h-[400px]">
-              <div className="space-y-3">
-                {similarQuotations.map((sq) => (
-                  <div 
-                    key={sq.quotation.id}
-                    className="p-3 rounded-lg border bg-background"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {sq.quotation.route_destination}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs gap-1">
-                          <Package className="h-3 w-3" />
-                          {sq.quotation.cargo_type}
-                        </Badge>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(sq.quotation.created_at)}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 mb-2 text-sm">
-                      {sq.quotation.client_company && (
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          <Building2 className="h-3 w-3" />
-                          {sq.quotation.client_company}
+            {hasQuotations && (
+              <ScrollArea className="max-h-[400px]">
+                <div className="space-y-3">
+                  {similarQuotations.map((sq) => (
+                    <div 
+                      key={sq.quotation.id}
+                      className="p-3 rounded-lg border bg-background"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {sq.quotation.route_destination}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Package className="h-3 w-3" />
+                            {sq.quotation.cargo_type}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(sq.quotation.created_at)}
                         </span>
-                      )}
-                      {sq.quotation.incoterm && (
-                        <Badge variant="outline" className="text-xs">
-                          {sq.quotation.incoterm}
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    {/* Match reasons */}
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {sq.matchReasons.map((reason, i) => (
-                        <Badge 
-                          key={i} 
-                          variant="outline" 
-                          className="text-xs bg-amber-500/10 border-amber-500/30"
+                      </div>
+                      
+                      <div className="flex items-center gap-2 mb-2 text-sm">
+                        {sq.quotation.client_company && (
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <Building2 className="h-3 w-3" />
+                            {sq.quotation.client_company}
+                          </span>
+                        )}
+                        {sq.quotation.incoterm && (
+                          <Badge variant="outline" className="text-xs">
+                            {sq.quotation.incoterm}
+                          </Badge>
+                        )}
+                      </div>
+                      
+                      {/* Match reasons */}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {sq.matchReasons.map((reason, i) => (
+                          <Badge 
+                            key={i} 
+                            variant="outline" 
+                            className="text-xs bg-amber-500/10 border-amber-500/30"
+                          >
+                            {reason}
+                          </Badge>
+                        ))}
+                      </div>
+                      
+                      {/* Tariff lines preview */}
+                      {sq.quotation.tariff_lines && sq.quotation.tariff_lines.length > 0 && (
+                        <Collapsible 
+                          open={showAllLines === sq.quotation.id}
+                          onOpenChange={(open) => setShowAllLines(open ? sq.quotation.id : null)}
                         >
-                          {reason}
-                        </Badge>
-                      ))}
-                    </div>
-                    
-                    {/* Tariff lines preview */}
-                    {sq.quotation.tariff_lines.length > 0 && (
-                      <Collapsible 
-                        open={showAllLines === sq.quotation.id}
-                        onOpenChange={(open) => setShowAllLines(open ? sq.quotation.id : null)}
-                      >
-                        <div className="space-y-1 mt-2">
-                          {sq.quotation.tariff_lines.slice(0, 3).map((line, i) => (
-                            <div 
-                              key={i}
-                              className="flex items-center justify-between text-xs"
-                            >
-                              <span className="text-muted-foreground truncate flex-1">
-                                {line.service}
-                              </span>
-                              <span className="font-mono ml-2">
-                                {formatCurrency(line.amount, line.currency)}
-                              </span>
-                            </div>
-                          ))}
-                          
-                          <CollapsibleContent>
-                            {sq.quotation.tariff_lines.slice(3).map((line, i) => (
+                          <div className="space-y-1 mt-2">
+                            {sq.quotation.tariff_lines.slice(0, 3).map((line, i) => (
                               <div 
-                                key={i + 3}
+                                key={i}
                                 className="flex items-center justify-between text-xs"
                               >
                                 <span className="text-muted-foreground truncate flex-1">
@@ -307,40 +293,56 @@ export function SimilarQuotationsPanel({
                                 </span>
                               </div>
                             ))}
-                          </CollapsibleContent>
-                          
-                          {sq.quotation.tariff_lines.length > 3 && (
-                            <CollapsibleTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-full text-xs text-muted-foreground"
-                              >
-                                {showAllLines === sq.quotation.id ? (
-                                  <>Réduire <ChevronUp className="h-3 w-3 ml-1" /></>
-                                ) : (
-                                  <>+{sq.quotation.tariff_lines.length - 3} lignes <ChevronDown className="h-3 w-3 ml-1" /></>
-                                )}
-                              </Button>
-                            </CollapsibleTrigger>
-                          )}
+                            
+                            <CollapsibleContent>
+                              {sq.quotation.tariff_lines.slice(3).map((line, i) => (
+                                <div 
+                                  key={i + 3}
+                                  className="flex items-center justify-between text-xs"
+                                >
+                                  <span className="text-muted-foreground truncate flex-1">
+                                    {line.service}
+                                  </span>
+                                  <span className="font-mono ml-2">
+                                    {formatCurrency(line.amount, line.currency)}
+                                  </span>
+                                </div>
+                              ))}
+                            </CollapsibleContent>
+                            
+                            {sq.quotation.tariff_lines.length > 3 && (
+                              <CollapsibleTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-6 w-full text-xs text-muted-foreground"
+                                >
+                                  {showAllLines === sq.quotation.id ? (
+                                    <>Réduire <ChevronUp className="h-3 w-3 ml-1" /></>
+                                  ) : (
+                                    <>+{sq.quotation.tariff_lines.length - 3} lignes <ChevronDown className="h-3 w-3 ml-1" /></>
+                                  )}
+                                </Button>
+                              </CollapsibleTrigger>
+                            )}
+                          </div>
+                        </Collapsible>
+                      )}
+                      
+                      {/* Total */}
+                      {sq.quotation.total_amount && (
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t text-sm">
+                          <span className="font-medium">Total</span>
+                          <span className="font-mono font-bold">
+                            {formatCurrency(sq.quotation.total_amount, sq.quotation.total_currency || 'FCFA')}
+                          </span>
                         </div>
-                      </Collapsible>
-                    )}
-                    
-                    {/* Total */}
-                    {sq.quotation.total_amount && (
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t text-sm">
-                        <span className="font-medium">Total</span>
-                        <span className="font-mono font-bold">
-                          {formatCurrency(sq.quotation.total_amount, sq.quotation.total_currency || 'FCFA')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
