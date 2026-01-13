@@ -1017,12 +1017,15 @@ export type Database = {
           description: string | null
           id: string
           is_validated: boolean | null
+          knowledge_type: string | null
           last_used_at: string | null
+          matching_criteria: Json | null
           name: string
           source_id: string | null
           source_type: string | null
           updated_at: string | null
           usage_count: number | null
+          valid_until: string | null
         }
         Insert: {
           category: string
@@ -1032,12 +1035,15 @@ export type Database = {
           description?: string | null
           id?: string
           is_validated?: boolean | null
+          knowledge_type?: string | null
           last_used_at?: string | null
+          matching_criteria?: Json | null
           name: string
           source_id?: string | null
           source_type?: string | null
           updated_at?: string | null
           usage_count?: number | null
+          valid_until?: string | null
         }
         Update: {
           category?: string
@@ -1047,12 +1053,15 @@ export type Database = {
           description?: string | null
           id?: string
           is_validated?: boolean | null
+          knowledge_type?: string | null
           last_used_at?: string | null
+          matching_criteria?: Json | null
           name?: string
           source_id?: string | null
           source_type?: string | null
           updated_at?: string | null
           usage_count?: number | null
+          valid_until?: string | null
         }
         Relationships: []
       }
@@ -1347,17 +1356,20 @@ export type Database = {
           margin_percent: number | null
           partner_company: string | null
           project_name: string | null
+          quotation_lines: Json | null
           regulatory_info: Json | null
           route_destination: string
           route_hash: string | null
           route_origin: string | null
           route_port: string
           source_attachment_id: string | null
+          source_breakdown: Json | null
           source_email_id: string | null
           tariff_lines: Json
           total_amount: number | null
           total_currency: string | null
           updated_at: string
+          was_accepted: boolean | null
         }
         Insert: {
           cargo_type: string
@@ -1370,17 +1382,20 @@ export type Database = {
           margin_percent?: number | null
           partner_company?: string | null
           project_name?: string | null
+          quotation_lines?: Json | null
           regulatory_info?: Json | null
           route_destination: string
           route_hash?: string | null
           route_origin?: string | null
           route_port?: string
           source_attachment_id?: string | null
+          source_breakdown?: Json | null
           source_email_id?: string | null
           tariff_lines?: Json
           total_amount?: number | null
           total_currency?: string | null
           updated_at?: string
+          was_accepted?: boolean | null
         }
         Update: {
           cargo_type?: string
@@ -1393,17 +1408,20 @@ export type Database = {
           margin_percent?: number | null
           partner_company?: string | null
           project_name?: string | null
+          quotation_lines?: Json | null
           regulatory_info?: Json | null
           route_destination?: string
           route_hash?: string | null
           route_origin?: string | null
           route_port?: string
           source_attachment_id?: string | null
+          source_breakdown?: Json | null
           source_email_id?: string | null
           tariff_lines?: Json
           total_amount?: number | null
           total_currency?: string | null
           updated_at?: string
+          was_accepted?: boolean | null
         }
         Relationships: []
       }
