@@ -381,7 +381,14 @@ interface AIExtractedData {
   dimensions: string | null;
   cargo_description: string | null;
   
-  // Container (maritime only)
+  // Containers (maritime only) - NOW SUPPORTS MULTIPLE with quantities
+  containers: Array<{
+    type: string;
+    quantity: number;
+    coc_soc?: 'COC' | 'SOC' | 'unknown';
+    notes?: string;
+  }>;
+  // Legacy field for backwards compatibility
   container_type: string | null;
   
   // Commercial
@@ -545,6 +552,14 @@ Pour "Import customs clearance + local delivery" sans valeur CAF:
 - Le client demande "all inclusive", "tout compris", "clé en main"
 - Les services demandés incluent customs clearance + local delivery
 
+=== EXTRACTION MULTI-CONTENEURS ===
+CRITIQUE: Extrais TOUS les conteneurs avec leurs quantités dans un tableau "containers".
+Exemples:
+- "09 X 40' HC + 1 X 40' open top" → containers: [{type: "40HC", quantity: 9}, {type: "40OT", quantity: 1, notes: "OOG"}]
+- "2 x 20DV + 1 x 40FR" → containers: [{type: "20DV", quantity: 2}, {type: "40FR", quantity: 1}]
+- "40 HC" sans quantité → containers: [{type: "40HC", quantity: 1}]
+- Cherche les patterns: "X x", "X ×", "X pcs", "X conteneurs", "X units"
+
 === EXTRACTION À FAIRE ===
 Extrais ces informations de l'email et des pièces jointes fournies.
 Si une information n'est pas disponible, utilise null.
@@ -702,9 +717,36 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
                   type: "string",
                   description: "Description des marchandises"
                 },
+                containers: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      type: { 
+                        type: "string", 
+                        description: "Type: 20DV, 40HC, 40OT (open top), 40FR (flat rack), etc." 
+                      },
+                      quantity: { 
+                        type: "number", 
+                        description: "Nombre de conteneurs de ce type" 
+                      },
+                      coc_soc: { 
+                        type: "string", 
+                        enum: ["COC", "SOC", "unknown"],
+                        description: "Carrier Owned ou Shipper Owned Container"
+                      },
+                      notes: { 
+                        type: "string", 
+                        description: "Notes: OOG, dimensions spéciales, reefer, etc." 
+                      }
+                    },
+                    required: ["type", "quantity"]
+                  },
+                  description: "Liste des conteneurs avec quantités. Ex: [{type: '40HC', quantity: 9}, {type: '40OT', quantity: 1}]"
+                },
                 container_type: {
                   type: "string",
-                  description: "Type de conteneur: 20DV, 40HC, etc. (null si fret aérien ou non spécifié)"
+                  description: "DEPRECATED: Utiliser 'containers' à la place. Type de conteneur principal si un seul type."
                 },
                 incoterm: {
                   type: "string",
@@ -867,7 +909,8 @@ ${attachmentsText || 'Aucune pièce jointe ou contenu non extrait'}
     volume_cbm: extracted.volume_cbm || null,
     dimensions: extracted.dimensions || null,
     cargo_description: extracted.cargo_description || null,
-    container_type: extracted.container_type || null,
+    containers: extracted.containers || [],
+    container_type: extracted.container_type || (extracted.containers?.[0]?.type || null),
     incoterm: extracted.incoterm || null,
     value: extracted.value || null,
     currency: extracted.currency || null,
