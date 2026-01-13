@@ -55,6 +55,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
 import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
+import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
 
 interface CargoLine {
   id: string;
@@ -2197,6 +2198,16 @@ export default function QuotationSheet() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Historical Rate Reminders - Informative references */}
+            <HistoricalRateReminders
+              origin={cargoLines.length > 0 ? cargoLines[0].origin : undefined}
+              destination={finalDestination || destination}
+              containerTypes={cargoLines
+                .filter(l => l.cargo_type === 'container' && l.container_type)
+                .map(l => l.container_type!)}
+              cargoType={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
+            />
 
             {/* Similar Quotations Panel */}
             <SimilarQuotationsPanel
