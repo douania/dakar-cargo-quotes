@@ -516,6 +516,183 @@ serve(async (req) => {
         );
       }
 
+      // NEW: Find historical references for a route/cargo combination
+      case 'find_historical_references': {
+        const { origin, destination, containerTypes, cargoType } = data || {};
+        
+        console.log('Finding historical references:', { origin, destination, containerTypes, cargoType });
+        
+        if (!destination && !origin) {
+          return new Response(
+            JSON.stringify({ success: true, references: [], evolutions: [] }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Build search conditions
+        const searchTerms: string[] = [];
+        if (destination) searchTerms.push(destination.toLowerCase());
+        if (origin) searchTerms.push(origin.toLowerCase());
+        
+        // Get all tariff/quotation knowledge with matching_criteria
+        const { data: knowledge, error: fetchError } = await supabase
+          .from('learned_knowledge')
+          .select('*')
+          .in('category', ['tarif', 'quotation_history', 'quotation_template', 'quotation_exchange', 'tarification', 'pricing_pattern'])
+          .order('created_at', { ascending: false });
+
+        if (fetchError) throw fetchError;
+
+        // Filter and group by quotation/context
+        const relevantKnowledge = (knowledge || []).filter(k => {
+          const kData = k.data as Record<string, unknown>;
+          const criteria = k.matching_criteria as Record<string, string> | null;
+          
+          // Check matching_criteria first
+          if (criteria) {
+            const criteriaDestMatch = criteria.destination && 
+              searchTerms.some(term => criteria.destination.toLowerCase().includes(term));
+            const criteriaOriginMatch = criteria.origin && 
+              searchTerms.some(term => criteria.origin.toLowerCase().includes(term));
+            if (criteriaDestMatch || criteriaOriginMatch) return true;
+          }
+          
+          // Fallback to data fields
+          const kDest = (kData.destination as string)?.toLowerCase() || '';
+          const kOrigin = (kData.origine as string)?.toLowerCase() || (kData.origin as string)?.toLowerCase() || '';
+          
+          return searchTerms.some(term => 
+            kDest.includes(term) || kOrigin.includes(term)
+          );
+        });
+
+        // Group by source/date to create coherent references
+        const groupedBySource = new Map<string, typeof relevantKnowledge>();
+        
+        for (const k of relevantKnowledge) {
+          // Group by year-month and destination
+          const kData = k.data as Record<string, unknown>;
+          const dateStr = k.created_at.substring(0, 7); // YYYY-MM
+          const dest = (kData.destination as string) || 'unknown';
+          const key = `${dateStr}|${dest}`;
+          
+          if (!groupedBySource.has(key)) {
+            groupedBySource.set(key, []);
+          }
+          groupedBySource.get(key)!.push(k);
+        }
+
+        // Transform to grouped data
+        const references: Array<{
+          year: string;
+          origin?: string;
+          destination?: string;
+          containerTypes: string[];
+          cargoType?: string;
+          client?: string;
+          project?: string;
+          rates: Array<{ service: string; amount: number; currency: string; unit?: string }>;
+          sourceEmailId?: string;
+          createdAt: string;
+        }> = [];
+
+        for (const [key, items] of groupedBySource.entries()) {
+          const [dateStr] = key.split('|');
+          const year = dateStr.substring(0, 4);
+          
+          // Extract first item's context
+          const firstItem = items[0];
+          const firstData = firstItem.data as Record<string, unknown>;
+          const criteria = firstItem.matching_criteria as Record<string, string> | null;
+          
+          // Collect all rates from this group
+          const rates = items
+            .filter(k => {
+              const kData = k.data as Record<string, unknown>;
+              return kData.montant && kData.devise;
+            })
+            .map(k => {
+              const kData = k.data as Record<string, unknown>;
+              return {
+                service: k.name.replace(/_/g, ' '),
+                amount: Number(kData.montant),
+                currency: kData.devise as string,
+                unit: (kData.unit as string) || undefined
+              };
+            });
+
+          // Collect container types
+          const containerTypesSet = new Set<string>();
+          for (const item of items) {
+            const kData = item.data as Record<string, unknown>;
+            const ct = (kData.type_conteneur as string) || (kData.container_type as string);
+            if (ct) containerTypesSet.add(ct);
+          }
+
+          if (rates.length > 0) {
+            references.push({
+              year,
+              origin: criteria?.origin || (firstData.origine as string) || (firstData.origin as string),
+              destination: criteria?.destination || (firstData.destination as string),
+              containerTypes: Array.from(containerTypesSet),
+              cargoType: criteria?.cargo_type || (firstData.type_marchandise as string),
+              client: firstData.client as string,
+              project: firstData.project as string,
+              rates,
+              sourceEmailId: firstItem.source_id || undefined,
+              createdAt: firstItem.created_at
+            });
+          }
+        }
+
+        // Sort by date descending
+        references.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        // Calculate rate evolution if we have multiple time periods
+        const evolutions: Array<{
+          service: string;
+          oldAmount: number;
+          newAmount: number;
+          percentChange: number;
+          period: string;
+        }> = [];
+
+        if (references.length >= 2) {
+          // Get most recent and oldest for comparison
+          const newest = references[0];
+          const oldest = references[references.length - 1];
+          
+          for (const newRate of newest.rates) {
+            const oldRate = oldest.rates.find(r => 
+              r.service.toLowerCase() === newRate.service.toLowerCase() ||
+              r.service.toLowerCase().includes(newRate.service.toLowerCase().split(' ')[0])
+            );
+            
+            if (oldRate && oldRate.amount > 0) {
+              const percentChange = ((newRate.amount - oldRate.amount) / oldRate.amount) * 100;
+              evolutions.push({
+                service: newRate.service,
+                oldAmount: oldRate.amount,
+                newAmount: newRate.amount,
+                percentChange,
+                period: `${oldest.year} → ${newest.year}`
+              });
+            }
+          }
+        }
+
+        console.log(`Found ${references.length} historical references, ${evolutions.length} evolutions`);
+
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            references: references.slice(0, 10), // Limit to 10
+            evolutions 
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       // NEW: Analyze all unprocessed Excel attachments
       case 'analyze_all_excel': {
         console.log('Fetching unanalyzed Excel attachments...');
