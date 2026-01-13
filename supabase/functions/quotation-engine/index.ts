@@ -221,7 +221,8 @@ async function fetchQuotationHistory(
   });
 }
 
-function matchHistoricalTariff(
+async function matchHistoricalTariff(
+  supabase: any,
   historicalTariffs: any[],
   criteria: {
     destination: string;
@@ -229,7 +230,7 @@ function matchHistoricalTariff(
     transportMode: string;
     serviceName: string;
   }
-): { tariff: any; score: number; warnings: string[] } | null {
+): Promise<{ tariff: any; score: number; warnings: string[] } | null> {
   let bestMatch: { tariff: any; score: number; warnings: string[] } | null = null;
   
   for (const tariff of historicalTariffs) {
@@ -264,6 +265,23 @@ function matchHistoricalTariff(
         score: matchResult.totalScore,
         warnings: matchResult.warnings
       };
+    }
+  }
+  
+  // Incrémenter usage_count si un match est trouvé
+  if (bestMatch) {
+    try {
+      await supabase
+        .from('learned_knowledge')
+        .update({ 
+          usage_count: (bestMatch.tariff.usage_count || 0) + 1,
+          last_used_at: new Date().toISOString()
+        })
+        .eq('id', bestMatch.tariff.id);
+      
+      console.log(`Incremented usage_count for learned_knowledge ${bestMatch.tariff.id}`);
+    } catch (updateError) {
+      console.error('Failed to increment usage_count:', updateError);
     }
   }
   
@@ -385,7 +403,7 @@ async function generateQuotationLines(
     const zone = identifyZone(request.finalDestination);
     
     // Chercher dans l'historique
-    const transportMatch = matchHistoricalTariff(historicalTariffs, {
+    const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
       destination: request.finalDestination,
       cargoType: request.cargoType,
       transportMode: 'routier',
