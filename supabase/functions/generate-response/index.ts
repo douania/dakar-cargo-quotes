@@ -2187,26 +2187,162 @@ Réponds en JSON:
       }
     }
 
-    // ============ CALCULATE SODATRA FEES EARLY (Before AI call) ============
-    const sodatraFeesSuggestion = calculateSodatraFees({
-      transport_mode: aiExtracted.transport_mode,
-      cargo_value_caf: aiExtracted.value || undefined,
-      weight_kg: aiExtracted.weight_kg || undefined,
-      volume_cbm: aiExtracted.volume_cbm || undefined,
-      container_types: aiExtracted.container_type ? [aiExtracted.container_type] : undefined,
-      container_count: aiExtracted.container_type ? 1 : undefined,
-      is_exempt_project: hsSuggestionsResult?.work_scope?.notes?.some((n: string) => 
-        n.toLowerCase().includes('exonér') || n.toLowerCase().includes('exempt')
-      ) || false,
-      is_dangerous: riskResult?.nature_risk?.is_imo || false,
-      is_oog: riskResult?.nature_risk?.is_oog || false,
-      is_reefer: riskResult?.nature_risk?.is_reefer || false,
-      destination_zone: getDestinationZone(aiExtracted.destination),
-      services_requested: aiExtracted.services_requested,
-      incoterm: aiExtracted.incoterm || undefined,
-    });
+    // ============ CALL QUOTATION-ENGINE FOR STRUCTURED TARIFFS ============
+    let quotationEngineResult: any = null;
+    
+    if (aiExtracted.can_quote_now && aiExtracted.destination) {
+      console.log("Calling quotation-engine for structured tariffs...");
+      try {
+        const qeResponse = await fetch(`${supabaseUrl}/functions/v1/quotation-engine`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'generate',
+            params: {
+              finalDestination: aiExtracted.destination,
+              originPort: aiExtracted.origin,
+              transportMode: aiExtracted.transport_mode === 'maritime' ? 'maritime' : 
+                             aiExtracted.transport_mode === 'air' ? 'aerien' : 'routier',
+              incoterm: aiExtracted.incoterm || 'CIF',
+              cargoType: aiExtracted.cargo_description || 'general',
+              cargoValue: aiExtracted.value || 10000000,
+              cargoCurrency: aiExtracted.currency || 'FCFA',
+              containerType: aiExtracted.container_type,
+              containerCount: aiExtracted.containers?.length || 1,
+              weightTonnes: aiExtracted.weight_kg ? aiExtracted.weight_kg / 1000 : undefined,
+              volumeM3: aiExtracted.volume_cbm,
+              hsCode: aiExtracted.hs_codes?.[0],
+              includeCustomsClearance: true,
+              includeLocalTransport: true,
+              clientCompany: aiExtracted.client_company,
+            }
+          }),
+        });
 
-    console.log("SODATRA fees calculated (pre-AI):", JSON.stringify(sodatraFeesSuggestion));
+        if (qeResponse.ok) {
+          quotationEngineResult = await qeResponse.json();
+          console.log("Quotation engine result:", JSON.stringify({
+            success: quotationEngineResult?.success,
+            linesCount: quotationEngineResult?.lines?.length,
+            totals: quotationEngineResult?.totals
+          }));
+        } else {
+          console.error("Quotation engine call failed:", await qeResponse.text());
+        }
+      } catch (qeError) {
+        console.error("quotation-engine call failed (non-blocking):", qeError);
+      }
+    }
+
+    // ============ BUILD STRUCTURED QUOTATION CONTEXT ============
+    let quotationContext = '';
+    
+    if (quotationEngineResult?.success && quotationEngineResult?.lines?.length > 0) {
+      quotationContext = '\n\n=== 💰 COTATION STRUCTURÉE (quotation-engine) ===\n';
+      quotationContext += '🔴 UTILISE CES MONTANTS EXACTS DANS TA RÉPONSE\n\n';
+      
+      // Bloc Opérationnel
+      const opLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'operationnel');
+      if (opLines.length > 0) {
+        quotationContext += '📦 BLOC 1 - COÛTS OPÉRATIONNELS:\n';
+        quotationContext += '| Service | Montant | Source | Confiance |\n';
+        quotationContext += '|---------|---------|--------|------------|\n';
+        for (const line of opLines) {
+          const source = line.source.type === 'OFFICIAL' ? '✅ OFFICIEL' :
+                         line.source.type === 'HISTORICAL' ? '📊 HISTORIQUE' :
+                         line.source.type === 'CALCULATED' ? '📐 CALCULÉ' : '⚠️ À CONFIRMER';
+          quotationContext += `| ${line.description} | ${line.amount ? line.amount.toLocaleString('fr-FR') + ' FCFA' : 'TBC'} | ${source} | ${Math.round(line.source.confidence * 100)}% |\n`;
+        }
+        quotationContext += `\n→ TOTAL OPÉRATIONNEL: ${quotationEngineResult.totals.operationnel.toLocaleString('fr-FR')} FCFA\n\n`;
+      }
+      
+      // Bloc Honoraires
+      const honorairesLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'honoraires');
+      if (honorairesLines.length > 0) {
+        quotationContext += '🏢 BLOC 2 - HONORAIRES SODATRA:\n';
+        for (const line of honorairesLines) {
+          quotationContext += `• ${line.description}: ${line.amount?.toLocaleString('fr-FR')} FCFA\n`;
+        }
+        quotationContext += `→ TOTAL HONORAIRES: ${quotationEngineResult.totals.honoraires.toLocaleString('fr-FR')} FCFA\n\n`;
+      }
+      
+      // Bloc Débours
+      const deboursLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'debours');
+      if (deboursLines.length > 0) {
+        quotationContext += '🏛️ BLOC 3 - DÉBOURS (DROITS & TAXES):\n';
+        for (const line of deboursLines) {
+          quotationContext += `• ${line.description}: ${line.amount ? line.amount.toLocaleString('fr-FR') + ' FCFA' : 'À CALCULER'}\n`;
+          if (line.notes) quotationContext += `  ↳ Note: ${line.notes}\n`;
+        }
+        quotationContext += `→ TOTAL DÉBOURS: ${quotationEngineResult.totals.debours.toLocaleString('fr-FR')} FCFA\n\n`;
+      }
+      
+      // Totaux
+      quotationContext += '═══════════════════════════════════════\n';
+      quotationContext += `📍 TOTAL DAP (sans D&T): ${quotationEngineResult.totals.dap.toLocaleString('fr-FR')} FCFA\n`;
+      quotationContext += `📍 TOTAL DDP (avec D&T): ${quotationEngineResult.totals.ddp.toLocaleString('fr-FR')} FCFA\n`;
+      
+      // Warnings
+      if (quotationEngineResult.warnings?.length > 0) {
+        quotationContext += '\n⚠️ POINTS D\'ATTENTION:\n';
+        for (const w of quotationEngineResult.warnings) {
+          quotationContext += `   • ${w}\n`;
+        }
+      }
+    }
+
+    // ============ CALCULATE SODATRA FEES (from quotation-engine or fallback) ============
+    let sodatraFeesSuggestion: SodatraFeeSuggestion;
+    
+    if (quotationEngineResult?.success) {
+      // Build sodatraFeesSuggestion from quotation-engine output
+      const honorairesLines = quotationEngineResult.lines?.filter((l: any) => l.bloc === 'honoraires') || [];
+      sodatraFeesSuggestion = {
+        fees: honorairesLines.map((l: any) => ({
+          key: l.id,
+          label: l.description,
+          suggested_amount: l.amount || 0,
+          min_amount: 0,
+          max_amount: 999999999,
+          unit: 'dossier',
+          formula: `Source: ${l.source?.reference || 'quotation-engine'}`,
+          is_editable: l.isEditable ?? true,
+          factors_applied: l.notes ? [l.notes] : ['Standard'],
+        })),
+        total_suggested: quotationEngineResult.totals?.honoraires || 0,
+        complexity_factor: quotationEngineResult.metadata?.zone?.multiplier || 1.0,
+        complexity_reasons: quotationEngineResult.warnings || [],
+        transport_mode: aiExtracted.transport_mode,
+        can_calculate_commission: true,
+        commission_note: undefined,
+      };
+      console.log("Using SODATRA fees from quotation-engine");
+    } else {
+      // Fallback to inline calculation
+      sodatraFeesSuggestion = calculateSodatraFees({
+        transport_mode: aiExtracted.transport_mode as any,
+        cargo_value_caf: aiExtracted.value || undefined,
+        weight_kg: aiExtracted.weight_kg || undefined,
+        volume_cbm: aiExtracted.volume_cbm || undefined,
+        container_types: aiExtracted.container_type ? [aiExtracted.container_type] : [],
+        container_count: aiExtracted.containers?.length || 1,
+        is_exempt_project: hsSuggestionsResult?.work_scope?.notes?.some((n: string) => 
+          n.toLowerCase().includes('exonér') || n.toLowerCase().includes('exempt')
+        ) || false,
+        is_dangerous: riskResult?.nature_risk?.is_imo || false,
+        is_oog: riskResult?.nature_risk?.is_oog || false,
+        is_reefer: riskResult?.nature_risk?.is_reefer || false,
+        destination_zone: getDestinationZone(aiExtracted.destination),
+        services_requested: aiExtracted.services_requested,
+        incoterm: aiExtracted.incoterm || undefined,
+      });
+      console.log("Using FALLBACK SODATRA fees calculation");
+    }
+
+    console.log("SODATRA fees (final):", JSON.stringify({ total: sodatraFeesSuggestion.total_suggested }));
 
     // ============ BUILD SODATRA FEES CONTEXT FOR AI ============
     let sodatraFeesContext = '\n\n=== ⚠️ HONORAIRES SODATRA - À INCLURE DANS LA COTATION ===\n';
@@ -2304,6 +2440,7 @@ ${tariffKnowledgeContext}
 ${threadRoleContext}
 ${threadContext}
 ${expertContext}
+${quotationContext}
 ${sodatraFeesContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
@@ -2478,8 +2615,13 @@ RAPPELS CRITIQUES:
         required_documents: hsSuggestionsResult?.required_documents || [],
         regulatory_notes: hsSuggestionsResult?.regulatory_notes || [],
         services_requested: aiExtracted.services_requested || [],
-        // SODATRA fees suggestion (NEW)
+        // SODATRA fees suggestion
         sodatra_fees: sodatraFeesSuggestion,
+        // Quotation engine structured output (NEW)
+        quotation_lines: quotationEngineResult?.lines || [],
+        quotation_totals: quotationEngineResult?.totals || null,
+        quotation_metadata: quotationEngineResult?.metadata || null,
+        quotation_warnings: quotationEngineResult?.warnings || [],
         // Vigilance points
         vigilance_points: [
           ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
