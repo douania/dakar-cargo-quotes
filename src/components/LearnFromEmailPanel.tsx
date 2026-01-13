@@ -90,7 +90,10 @@ export function LearnFromEmailPanel({
         const email = threadEmails[i];
         
         const { data, error } = await supabase.functions.invoke('learn-from-content', {
-          body: { emailId: email.id }
+          body: { 
+            contentType: 'email',
+            contentId: email.id 
+          }
         });
 
         if (!error && data?.extractions) {
