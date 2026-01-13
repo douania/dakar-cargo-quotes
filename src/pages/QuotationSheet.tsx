@@ -54,6 +54,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
+import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 
 interface CargoLine {
   id: string;
@@ -126,6 +127,13 @@ interface ConsolidatedData {
   finalDestination?: string;
   cargoTypes: string[];
   containerTypes: string[];
+  // NEW: Multi-container support with quantities
+  containers: Array<{
+    type: string;
+    quantity: number;
+    coc_soc?: 'COC' | 'SOC' | 'unknown';
+    notes?: string;
+  }>;
   origins: string[];
   specialRequirements: string[];
   projectName?: string;
@@ -406,7 +414,7 @@ const parseSubject = (subject: string | null): Partial<ConsolidatedData> => {
   return result;
 };
 
-// Parse email body for additional data
+// Parse email body for additional data including multi-container extraction
 const parseEmailBody = (body: string | null): Partial<ConsolidatedData> => {
   if (!body) return {};
   
@@ -414,16 +422,72 @@ const parseEmailBody = (body: string | null): Partial<ConsolidatedData> => {
     cargoTypes: [],
     specialRequirements: [],
     origins: [],
+    containers: [],
   };
   
   const bodyLower = body.toLowerCase();
   
-  // Check for SOC/COC mentions
-  if (bodyLower.includes('soc') || bodyLower.includes('shipper owned')) {
-    result.specialRequirements?.push('SOC (Shipper Owned Containers)');
+  // === NEW: Multi-container extraction with quantities ===
+  // Pattern: "09 X 40' HC", "2 x 20DV", "1 X 40' open top", etc.
+  const containerPatterns = [
+    // "09 X 40' HC" or "9 x 40HC"
+    /(\d+)\s*[xX×]\s*(\d{2})'?\s*(HC|DV|OT|FR|RF|GP|DC)/gi,
+    // "09 X 40' HC + 1 X 40' open top"
+    /(\d+)\s*[xX×]\s*(\d{2})['']?\s*(open\s*top|flat\s*rack|high\s*cube|reefer|dry)/gi,
+    // "2 x 20' containers"
+    /(\d+)\s*[xX×]\s*(\d{2})['']?\s*(?:containers?|conteneurs?)/gi,
+  ];
+  
+  const containerTypeMap: Record<string, string> = {
+    'hc': '40HC',
+    'high cube': '40HC',
+    'dv': '20DV',
+    'gp': '20DV',
+    'dc': '20DV',
+    'dry': '20DV',
+    'ot': '40OT',
+    'open top': '40OT',
+    'fr': '40FR',
+    'flat rack': '40FR',
+    'rf': '40RF',
+    'reefer': '40RF',
+  };
+  
+  for (const pattern of containerPatterns) {
+    let match;
+    while ((match = pattern.exec(body)) !== null) {
+      const quantity = parseInt(match[1], 10);
+      const size = match[2]; // 20 or 40
+      const typeRaw = match[3].toLowerCase().replace(/\s+/g, ' ').trim();
+      
+      // Normalize container type
+      let containerType = containerTypeMap[typeRaw] || `${size}${typeRaw.toUpperCase().substring(0, 2)}`;
+      
+      // Check for OOG notes
+      const hasOog = bodyLower.includes('oog') || bodyLower.includes('out of gauge') || 
+                     bodyLower.includes('hors gabarit') || bodyLower.includes('oversized');
+      
+      if (quantity > 0 && !isNaN(quantity)) {
+        result.containers?.push({
+          type: containerType,
+          quantity,
+          notes: hasOog ? 'OOG' : undefined
+        });
+      }
+    }
   }
-  if (bodyLower.includes('coc') || bodyLower.includes('carrier owned')) {
+  
+  // Check for SOC/COC mentions and apply to containers
+  const isSoc = bodyLower.includes('soc') || bodyLower.includes('shipper owned');
+  const isCoc = bodyLower.includes('coc') || bodyLower.includes('carrier owned');
+  
+  if (isSoc) {
+    result.specialRequirements?.push('SOC (Shipper Owned Containers)');
+    result.containers?.forEach(c => c.coc_soc = 'SOC');
+  }
+  if (isCoc) {
     result.specialRequirements?.push('COC (Carrier Owned Containers)');
+    result.containers?.forEach(c => c.coc_soc = 'COC');
   }
   
   // Check for specific services mentioned
@@ -475,6 +539,7 @@ const consolidateThreadData = (emails: ThreadEmail[]): ConsolidatedData => {
   const consolidated: ConsolidatedData = {
     cargoTypes: [],
     containerTypes: [],
+    containers: [],
     origins: [],
     specialRequirements: [],
   };
@@ -533,6 +598,22 @@ const consolidateThreadData = (emails: ThreadEmail[]): ConsolidatedData => {
     }
     if (bodyData.specialRequirements) {
       consolidated.specialRequirements = [...new Set([...consolidated.specialRequirements, ...bodyData.specialRequirements])];
+    }
+    
+    // Aggregate containers with quantities from body parsing
+    if (bodyData.containers && bodyData.containers.length > 0) {
+      for (const container of bodyData.containers) {
+        // Check if we already have this container type
+        const existing = consolidated.containers.find(c => c.type === container.type);
+        if (existing) {
+          // Keep the higher quantity (don't add, as it might be duplicated)
+          existing.quantity = Math.max(existing.quantity, container.quantity);
+          if (container.notes) existing.notes = container.notes;
+          if (container.coc_soc) existing.coc_soc = container.coc_soc;
+        } else {
+          consolidated.containers.push({ ...container });
+        }
+      }
     }
     
     // Also check extracted_data if available
@@ -867,10 +948,25 @@ export default function QuotationSheet() {
       setSpecialRequirements(consolidated.specialRequirements.join('\n'));
     }
     
-    // Create cargo lines from detected types
+    // Create cargo lines from detected containers WITH QUANTITIES
     const newCargoLines: CargoLine[] = [];
     
-    if (consolidated.cargoTypes.includes('container') || consolidated.containerTypes.length > 0) {
+    // NEW: Use containers array with quantities if available
+    if (consolidated.containers && consolidated.containers.length > 0) {
+      for (const container of consolidated.containers) {
+        newCargoLines.push({
+          id: crypto.randomUUID(),
+          description: container.notes || '',
+          origin: consolidated.origins[0] || '',
+          cargo_type: 'container',
+          container_type: container.type,
+          container_count: container.quantity,
+          coc_soc: container.coc_soc === 'SOC' ? 'SOC' : container.coc_soc === 'COC' ? 'COC' : 
+                   consolidated.specialRequirements.some(r => r.includes('SOC')) ? 'SOC' : 'COC',
+        });
+      }
+    } else if (consolidated.cargoTypes.includes('container') || consolidated.containerTypes.length > 0) {
+      // Fallback to old logic
       for (const ct of consolidated.containerTypes.length > 0 ? consolidated.containerTypes : ['40HC']) {
         newCargoLines.push({
           id: crypto.randomUUID(),
@@ -896,6 +992,17 @@ export default function QuotationSheet() {
     if (newCargoLines.length > 0) {
       setCargoLines(newCargoLines);
     }
+  };
+
+  // Helper function to calculate email age category
+  const getEmailAgeCategory = (date: string): 'active' | 'recent_archive' | 'historical' => {
+    const emailDate = new Date(date);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - emailDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 30) return 'active';
+    if (diffDays < 180) return 'recent_archive';
+    return 'historical';
   };
 
   const analyzeEmailContext = (emails: ThreadEmail[], consolidated: ConsolidatedData) => {
@@ -1416,6 +1523,18 @@ export default function QuotationSheet() {
                   ))}
                 </CardContent>
               </Card>
+            )}
+
+            {/* Learning Mode Panel for Historical Emails */}
+            {selectedEmail && !quotationCompleted && 
+             getEmailAgeCategory(selectedEmail.sent_at || selectedEmail.received_at) === 'historical' && (
+              <LearnFromEmailPanel
+                threadEmails={threadEmails}
+                emailDate={selectedEmail.sent_at || selectedEmail.received_at}
+                onLearningComplete={() => {
+                  toast.success('Apprentissage terminé');
+                }}
+              />
             )}
 
             {/* Regulatory Information */}
