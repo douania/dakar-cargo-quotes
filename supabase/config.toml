@@ -92,3 +92,6 @@ verify_jwt = false
 
 [functions.truck-optimization-proxy]
 verify_jwt = false
+
+[functions.reclassify-threads]
+verify_jwt = false

@@ -1588,31 +1588,120 @@ Réponds en JSON:
       }
     }
 
-    // ============ FETCH LEARNED TARIFFS (validated only) ============
-    const { data: knowledge } = await supabase
+    // ============ FETCH LEARNED TARIFFS WITH CONTEXTUAL MATCHING ============
+    // Build contextual query based on AI extracted data
+    let tariffQuery = supabase
       .from('learned_knowledge')
       .select('*')
       .eq('is_validated', true)
-      .in('category', ['tarif', 'tariff', 'rate', 'frais', 'honoraires'])
+      .in('category', ['tarif', 'tariff', 'rate', 'frais', 'honoraires']);
+    
+    // Apply contextual filters based on extracted data
+    const tariffFilters: string[] = [];
+    if (aiExtracted.destination) {
+      tariffFilters.push(aiExtracted.destination.toLowerCase());
+    }
+    if (aiExtracted.transport_mode && aiExtracted.transport_mode !== 'unknown') {
+      tariffFilters.push(aiExtracted.transport_mode);
+    }
+    if (aiExtracted.container_type) {
+      tariffFilters.push(aiExtracted.container_type.toLowerCase());
+    }
+    
+    const { data: allKnowledge } = await tariffQuery
       .order('confidence', { ascending: false })
-      .limit(50);
-
+      .limit(100);
+    
+    // Smart filtering: prioritize tariffs matching context
+    let relevantTariffs: any[] = [];
+    let genericTariffs: any[] = [];
+    
+    if (allKnowledge && allKnowledge.length > 0) {
+      for (const k of allKnowledge) {
+        const kName = (k.name || '').toLowerCase();
+        const kDesc = (k.description || '').toLowerCase();
+        const kData = JSON.stringify(k.data || {}).toLowerCase();
+        const fullText = `${kName} ${kDesc} ${kData}`;
+        
+        // Check if matches any filter
+        const matchesContext = tariffFilters.some(filter => fullText.includes(filter));
+        
+        if (matchesContext) {
+          relevantTariffs.push(k);
+        } else {
+          genericTariffs.push(k);
+        }
+      }
+    }
+    
+    // Use relevant tariffs first, then fill with generics (max 30 total)
+    const knowledge = [...relevantTariffs.slice(0, 20), ...genericTariffs.slice(0, 10)];
+    
     let tariffKnowledgeContext = '';
-    if (knowledge && knowledge.length > 0) {
-      tariffKnowledgeContext = '\n\n=== TARIFS VALIDÉS (opérations précédentes) ===\n';
-      for (const k of knowledge) {
-        tariffKnowledgeContext += `• ${k.name}: ${k.description}\n`;
-        if (k.data) {
-          const data = k.data as any;
-          if (data.montant) {
-            tariffKnowledgeContext += `  Montant: ${data.montant} ${data.devise || 'FCFA'}\n`;
+    if (knowledge.length > 0) {
+      if (relevantTariffs.length > 0) {
+        tariffKnowledgeContext = `\n\n=== TARIFS PERTINENTS POUR CETTE DEMANDE (${aiExtracted.destination || 'destination non précisée'}, ${aiExtracted.transport_mode}) ===\n`;
+        for (const k of relevantTariffs.slice(0, 20)) {
+          tariffKnowledgeContext += `✓ ${k.name}: ${k.description}\n`;
+          if (k.data) {
+            const data = k.data as any;
+            if (data.montant) {
+              tariffKnowledgeContext += `  💰 Montant: ${data.montant} ${data.devise || 'FCFA'}\n`;
+            }
+            if (data.conditions) {
+              tariffKnowledgeContext += `  📋 Conditions: ${data.conditions}\n`;
+            }
           }
-          if (data.conditions) {
-            tariffKnowledgeContext += `  Conditions: ${data.conditions}\n`;
+        }
+      }
+      
+      if (genericTariffs.length > 0 && relevantTariffs.length < 10) {
+        tariffKnowledgeContext += '\n--- Autres tarifs disponibles ---\n';
+        for (const k of genericTariffs.slice(0, 10)) {
+          tariffKnowledgeContext += `• ${k.name}: ${k.description}\n`;
+          if (k.data) {
+            const data = k.data as any;
+            if (data.montant) {
+              tariffKnowledgeContext += `  Montant: ${data.montant} ${data.devise || 'FCFA'}\n`;
+            }
           }
         }
       }
     }
+    
+    // ============ FETCH VALIDATED RESPONSE TEMPLATES ============
+    const { data: templates } = await supabase
+      .from('learned_knowledge')
+      .select('*')
+      .eq('is_validated', true)
+      .eq('category', 'template')
+      .order('usage_count', { ascending: false })
+      .limit(5);
+    
+    let templatesContext = '';
+    if (templates && templates.length > 0) {
+      templatesContext = '\n\n=== TEMPLATES DE RÉPONSE VALIDÉS ===\n';
+      templatesContext += 'Utilise ces templates comme référence pour le style et la structure de ta réponse:\n\n';
+      for (const t of templates) {
+        templatesContext += `📝 ${t.name}\n`;
+        if (t.description) {
+          templatesContext += `   Usage: ${t.description}\n`;
+        }
+        if (t.data) {
+          const data = t.data as any;
+          if (data.structure) {
+            templatesContext += `   Structure: ${data.structure}\n`;
+          }
+          if (data.exemple) {
+            templatesContext += `   Exemple: ${data.exemple.substring(0, 200)}...\n`;
+          }
+        }
+        templatesContext += '\n';
+      }
+    }
+    
+    // Add templates context to tariff context
+    tariffKnowledgeContext += templatesContext;
 
     // ============ FETCH EXPERT PROFILES AND SELECT STYLE ============
     const { data: allExperts } = await supabase
