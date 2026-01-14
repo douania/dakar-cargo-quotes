@@ -156,12 +156,24 @@ interface CAFInfo {
 // =====================================================
 const TRANSIT_COUNTRIES = ['MALI', 'MAURITANIE', 'GUINEE', 'BURKINA', 'NIGER', 'GAMBIE'];
 
+// Mali cities for detection
+const MALI_CITIES = [
+  'BAMAKO', 'SIKASSO', 'KAYES', 'KATI', 'KOULIKORO', 'SIRAKORO', 'TIAKADOUGOU',
+  'SEGOU', 'SÉGOU', 'MOPTI', 'GAO', 'TOMBOUCTOU', 'TIMBUKTU', 'KIDAL', 
+  'KOUTIALA', 'NIONO', 'DJENNE', 'DJENNÉ', 'KENIEBA', 'KÉNIÉBA', 'KITA'
+];
+
 function detectTransitCountry(destination: string): string | null {
   const destUpper = destination.toUpperCase();
   for (const country of TRANSIT_COUNTRIES) {
-    if (destUpper.includes(country) || 
-        (country === 'MALI' && (destUpper.includes('BAMAKO') || destUpper.includes('SIKASSO') || destUpper.includes('KAYES') || destUpper.includes('KATI')))) {
+    if (destUpper.includes(country)) {
       return country;
+    }
+  }
+  // Check Mali cities specifically
+  for (const city of MALI_CITIES) {
+    if (destUpper.includes(city)) {
+      return 'MALI';
     }
   }
   return null;
@@ -169,6 +181,265 @@ function detectTransitCountry(destination: string): string | null {
 
 function isTransitDestination(destination: string): boolean {
   return detectTransitCountry(destination) !== null;
+}
+
+// =====================================================
+// MALI INTELLIGENT TRANSPORT CALCULATION
+// =====================================================
+
+interface MaliTransportCalculation {
+  baseAmount: number;
+  fuelSurcharge: number;
+  securitySurcharge: number;
+  totalAmount: number;
+  distanceKm: number;
+  transitDays: number;
+  securityLevel: string;
+  alerts: Array<{ title: string; level: string }>;
+  breakdown: Array<{ description: string; calculation: string }>;
+  zone: any;
+}
+
+async function fetchMaliZone(
+  supabase: any,
+  destination: string
+): Promise<any | null> {
+  // Try exact match first
+  const { data: exactMatch } = await supabase
+    .from('mali_transport_zones')
+    .select('*')
+    .ilike('zone_name', destination.trim())
+    .eq('is_accessible', true)
+    .limit(1);
+  
+  if (exactMatch && exactMatch.length > 0) {
+    return exactMatch[0];
+  }
+  
+  // Try partial match
+  const destParts = destination.toUpperCase().split(/[\s,\-]+/);
+  for (const part of destParts) {
+    if (part.length < 3) continue;
+    const { data } = await supabase
+      .from('mali_transport_zones')
+      .select('*')
+      .ilike('zone_name', `%${part}%`)
+      .eq('is_accessible', true)
+      .limit(1);
+    
+    if (data && data.length > 0) {
+      return data[0];
+    }
+  }
+  
+  return null;
+}
+
+async function fetchTransportFormula(
+  supabase: any,
+  corridor: string,
+  containerType: string
+): Promise<any | null> {
+  // Normalize container type (40HC -> 40HC, 40'HC -> 40HC)
+  const normalizedType = containerType.replace(/['\s]/g, '').toUpperCase().slice(0, 4);
+  
+  const { data } = await supabase
+    .from('transport_rate_formula')
+    .select('*')
+    .eq('corridor', corridor)
+    .eq('is_active', true)
+    .or(`container_type.eq.${normalizedType},container_type.eq.${normalizedType.slice(0, 2)}DV,container_type.eq.${normalizedType.slice(0, 2)}HC`);
+  
+  if (data && data.length > 0) {
+    // Prefer exact match
+    const exact = data.find((d: any) => d.container_type === normalizedType);
+    return exact || data[0];
+  }
+  
+  return null;
+}
+
+async function fetchLatestFuelPrice(
+  supabase: any,
+  country: string
+): Promise<number> {
+  const { data } = await supabase
+    .from('fuel_price_tracking')
+    .select('price_per_liter')
+    .eq('country', country.toUpperCase())
+    .eq('fuel_type', 'DIESEL')
+    .order('recorded_date', { ascending: false })
+    .limit(1);
+  
+  if (data && data.length > 0) {
+    return parseFloat(data[0].price_per_liter);
+  }
+  
+  // Default prices
+  return country.toUpperCase() === 'MALI' ? 820 : 760;
+}
+
+async function fetchActiveSecurityAlerts(
+  supabase: any,
+  country: string,
+  zoneName: string
+): Promise<Array<{ title: string; level: string; action: string }>> {
+  const { data } = await supabase
+    .from('security_alerts')
+    .select('title, alert_level, recommended_action')
+    .eq('country', country.toUpperCase())
+    .eq('is_active', true)
+    .or(`affected_zones.cs.{"${zoneName}"},affected_zones.is.null`);
+  
+  if (data && data.length > 0) {
+    return data.map((a: any) => ({
+      title: a.title,
+      level: a.alert_level,
+      action: a.recommended_action
+    }));
+  }
+  
+  return [];
+}
+
+async function calculateMaliTransport(
+  supabase: any,
+  destination: string,
+  containerType: string,
+  quantity: number = 1
+): Promise<MaliTransportCalculation | null> {
+  console.log(`[Mali Transport] Calculating for ${destination}, ${containerType} x${quantity}`);
+  
+  // 1. Find the zone
+  const zone = await fetchMaliZone(supabase, destination);
+  if (!zone) {
+    console.log(`[Mali Transport] Zone not found for ${destination}`);
+    return null;
+  }
+  
+  console.log(`[Mali Transport] Found zone: ${zone.zone_name}, ${zone.distance_from_dakar_km}km, security=${zone.security_level}`);
+  
+  // 2. Get transport formula
+  const formula = await fetchTransportFormula(supabase, 'DAKAR_MALI', containerType);
+  if (!formula) {
+    console.log(`[Mali Transport] No formula found for ${containerType}`);
+    return null;
+  }
+  
+  console.log(`[Mali Transport] Formula: ${formula.base_rate_per_km}/km + ${formula.fixed_costs} fixed`);
+  
+  // 3. Calculate base amount
+  const baseAmount = (zone.distance_from_dakar_km * parseFloat(formula.base_rate_per_km)) + parseFloat(formula.fixed_costs || 0);
+  
+  // 4. Calculate fuel surcharge if current price > reference
+  const refFuelPrice = parseFloat(formula.fuel_reference_price) || 755;
+  const currentFuelPrice = await fetchLatestFuelPrice(supabase, 'MALI');
+  const fuelDelta = (currentFuelPrice - refFuelPrice) / refFuelPrice;
+  // Fuel represents ~40% of transport cost
+  const fuelSurcharge = fuelDelta > 0 ? Math.round(baseAmount * fuelDelta * 0.4) : 0;
+  
+  // 5. Calculate security surcharge
+  const securityPercent = zone.security_surcharge_percent || 0;
+  const securitySurcharge = Math.round(baseAmount * (securityPercent / 100));
+  
+  // 6. Get active alerts
+  const alerts = await fetchActiveSecurityAlerts(supabase, 'MALI', zone.zone_name);
+  
+  // 7. Total per container
+  const totalPerContainer = baseAmount + fuelSurcharge + securitySurcharge;
+  const totalAmount = Math.round(totalPerContainer * quantity);
+  
+  console.log(`[Mali Transport] Result: base=${baseAmount}, fuel=${fuelSurcharge}, security=${securitySurcharge}, total=${totalAmount}`);
+  
+  return {
+    baseAmount: Math.round(baseAmount * quantity),
+    fuelSurcharge: fuelSurcharge * quantity,
+    securitySurcharge: securitySurcharge * quantity,
+    totalAmount,
+    distanceKm: zone.distance_from_dakar_km,
+    transitDays: parseFloat(zone.estimated_transit_days) || 3,
+    securityLevel: zone.security_level,
+    alerts: alerts.map(a => ({ title: a.title, level: a.level })),
+    zone,
+    breakdown: [
+      { 
+        description: 'Transport base', 
+        calculation: `${zone.distance_from_dakar_km}km × ${formula.base_rate_per_km} + ${formula.fixed_costs} fixe` 
+      },
+      { 
+        description: 'Surcharge carburant', 
+        calculation: fuelSurcharge > 0 ? `+${(fuelDelta * 100).toFixed(0)}% (${currentFuelPrice} vs ${refFuelPrice} ref)` : 'N/A' 
+      },
+      { 
+        description: 'Surcharge sécurité', 
+        calculation: securityPercent > 0 ? `+${securityPercent}% (niveau ${zone.security_level})` : 'N/A' 
+      }
+    ]
+  };
+}
+
+async function findSimilarHistoricalMaliTransport(
+  supabase: any,
+  destination: string,
+  containerType: string
+): Promise<{ amount: number; source: string; date: string; destination: string } | null> {
+  // Search learned_knowledge for similar Mali transport
+  const { data } = await supabase
+    .from('learned_knowledge')
+    .select('*')
+    .eq('category', 'tarif')
+    .eq('is_validated', true)
+    .or('name.ilike.%Transport%Mali%,name.ilike.%Inland%Mali%,description.ilike.%Mali%')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  
+  if (!data || data.length === 0) return null;
+  
+  const destUpper = destination.toUpperCase();
+  const containerPrefix = containerType.replace(/['\s]/g, '').slice(0, 2);
+  
+  for (const entry of data) {
+    const entryData = entry.data || {};
+    const entryDest = (entryData.destination || entry.description || '').toUpperCase();
+    const entryContainer = (entryData.container_type || entryData.containerType || '').toUpperCase();
+    
+    // Check if destination is similar (same city or nearby)
+    const destWords = destUpper.split(/[\s,\-]+/);
+    const entryWords = entryDest.split(/[\s,\-]+/);
+    const hasDestMatch = destWords.some((w: string) => entryWords.some((ew: string) => 
+      w.length > 3 && ew.length > 3 && (w.includes(ew) || ew.includes(w))
+    ));
+    
+    // Check container type match
+    const hasContainerMatch = entryContainer.includes(containerPrefix);
+    
+    if (hasDestMatch && hasContainerMatch) {
+      const amount = entryData.montant || entryData.amount || entryData.total;
+      if (amount && amount > 0) {
+        // Increment usage count
+        try {
+          await supabase
+            .from('learned_knowledge')
+            .update({ 
+              usage_count: (entry.usage_count || 0) + 1,
+              last_used_at: new Date().toISOString()
+            })
+            .eq('id', entry.id);
+        } catch (e) {
+          console.error('Failed to increment usage_count:', e);
+        }
+        
+        return {
+          amount,
+          source: entry.name,
+          date: entry.created_at,
+          destination: entryData.destination || entry.description
+        };
+      }
+    }
+  }
+  
+  return null;
 }
 
 // =====================================================
@@ -748,111 +1019,231 @@ async function generateQuotationLines(
   }
   
   // =====================================================
-  // 5. TRANSPORT LOCAL
+  // 5. TRANSPORT LOCAL (with Mali intelligent calculation)
   // =====================================================
   
   if (request.includeLocalTransport !== false) {
-    for (const container of containers) {
-      // Search historical tariffs for this destination
-      const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
-        destination: request.finalDestination,
-        cargoType: request.cargoType,
-        transportMode: 'routier',
-        serviceName: 'transport'
-      });
-      
-      if (transportMatch) {
-        lines.push({
-          id: `transport_${container.type.toLowerCase()}_${lines.length}`,
-          bloc: 'operationnel',
-          category: 'Transport',
-          description: `Transport ${container.type} → ${request.finalDestination}`,
-          amount: transportMatch.tariff.matchedAmount * container.quantity,
-          currency: 'FCFA',
-          containerType: container.type,
-          source: {
-            type: 'HISTORICAL',
-            reference: `Historique ${new Date(transportMatch.tariff.created_at).toLocaleDateString('fr-FR')}`,
-            confidence: transportMatch.score / 100,
-            historicalMatch: {
-              originalDate: transportMatch.tariff.created_at,
-              originalRoute: transportMatch.tariff.data?.destination || request.finalDestination,
-              similarityScore: transportMatch.score
-            }
-          },
-          notes: transportMatch.warnings.join('. ') || undefined,
-          isEditable: true
-        });
-      } else {
-        // Try local_transport_rates table
-        const { data: localRates } = await supabase
-          .from('local_transport_rates')
-          .select('*')
-          .eq('is_active', true)
-          .ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
-          .limit(1);
+    // ===== MALI INTELLIGENT TRANSPORT =====
+    if (transitCountry === 'MALI') {
+      for (const container of containers) {
+        // Try intelligent Mali calculation first
+        const maliTransport = await calculateMaliTransport(
+          supabase,
+          request.finalDestination,
+          container.type,
+          container.quantity
+        );
         
-        if (localRates && localRates.length > 0) {
-          const rate = localRates[0];
+        if (maliTransport) {
+          // Main transport line
           lines.push({
-            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+            id: `transport_mali_${container.type.toLowerCase()}_${lines.length}`,
             bloc: 'operationnel',
-            category: 'Transport',
-            description: `Transport ${container.type} → ${rate.destination}`,
-            amount: rate.rate_amount * container.quantity,
-            currency: rate.rate_currency || 'FCFA',
+            category: 'Transport Mali',
+            description: `Transport ${container.type} Dakar → ${request.finalDestination} (${maliTransport.distanceKm}km)`,
+            amount: maliTransport.baseAmount,
+            currency: 'FCFA',
             containerType: container.type,
             source: {
-              type: 'OFFICIAL',
-              reference: rate.source_document || 'Grille transport local',
-              confidence: 0.95
+              type: 'CALCULATED',
+              reference: `Formule: ${maliTransport.distanceKm}km × tarif/km + fixe`,
+              confidence: 0.9
             },
+            notes: `Transit ~${maliTransport.transitDays}j | A/R inclus`,
             isEditable: true
           });
+          
+          // Fuel surcharge if applicable
+          if (maliTransport.fuelSurcharge > 0) {
+            lines.push({
+              id: `fuel_surcharge_mali_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport Mali',
+              description: `Surcharge Carburant Mali ${container.type}`,
+              amount: maliTransport.fuelSurcharge,
+              currency: 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'CALCULATED',
+                reference: maliTransport.breakdown.find(b => b.description.includes('carburant'))?.calculation || 'Prix carburant actuel',
+                confidence: 0.85
+              },
+              notes: 'Ajustement prix carburant Mali',
+              isEditable: true
+            });
+          }
+          
+          // Security surcharge based on zone level
+          if (maliTransport.securitySurcharge > 0) {
+            lines.push({
+              id: `security_surcharge_mali_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport Mali',
+              description: `Surcharge Sécurité Mali ${container.type} (${maliTransport.securityLevel})`,
+              amount: maliTransport.securitySurcharge,
+              currency: 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'CALCULATED',
+                reference: `Zone ${maliTransport.zone.zone_name} - Niveau ${maliTransport.securityLevel}`,
+                confidence: 0.85
+              },
+              notes: maliTransport.alerts.length > 0 
+                ? `⚠️ ${maliTransport.alerts[0].title}` 
+                : 'Situation sécuritaire à surveiller',
+              isEditable: true
+            });
+          }
+          
+          // Add warning if critical security
+          if (maliTransport.securityLevel === 'CRITICAL') {
+            warnings.push(`⚠️ ATTENTION: ${request.finalDestination} est en zone CRITIQUE - Transport déconseillé ou très risqué`);
+          } else if (maliTransport.securityLevel === 'HIGH') {
+            warnings.push(`⚠️ Vigilance: ${request.finalDestination} en zone HIGH - Prévoir mesures de sécurité`);
+          }
+          
+          // Add active alerts to warnings
+          for (const alert of maliTransport.alerts) {
+            if (alert.level === 'CRITICAL') {
+              warnings.push(`🚨 ${alert.title}`);
+            }
+          }
+          
         } else {
-          // Estimation based on zone
-          const estimatedRate = 350000 * zone.multiplier;
+          // Fallback: try historical match for Mali
+          const historicalMali = await findSimilarHistoricalMaliTransport(
+            supabase,
+            request.finalDestination,
+            container.type
+          );
+          
+          if (historicalMali) {
+            lines.push({
+              id: `transport_mali_hist_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport Mali',
+              description: `Transport ${container.type} → ${request.finalDestination}`,
+              amount: historicalMali.amount * container.quantity,
+              currency: 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'HISTORICAL',
+                reference: `${historicalMali.source} (${new Date(historicalMali.date).toLocaleDateString('fr-FR')})`,
+                confidence: 0.75,
+                historicalMatch: {
+                  originalDate: historicalMali.date,
+                  originalRoute: historicalMali.destination,
+                  similarityScore: 75
+                }
+              },
+              notes: `Basé sur tarif historique ${historicalMali.destination}`,
+              isEditable: true
+            });
+            warnings.push(`Transport Mali basé sur historique ${historicalMali.destination} - À confirmer`);
+          } else {
+            // Ultimate fallback: estimate
+            const estimatedRate = 2600000; // Base Bamako rate
+            lines.push({
+              id: `transport_mali_est_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport Mali',
+              description: `Transport ${container.type} → ${request.finalDestination}`,
+              amount: estimatedRate * container.quantity,
+              currency: 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'TO_CONFIRM',
+                reference: 'Estimation Mali standard',
+                confidence: 0.4
+              },
+              notes: `Estimation. Zone non trouvée dans la base. À confirmer avec transporteur.`,
+              isEditable: true
+            });
+            warnings.push(`Transport Mali estimé pour ${request.finalDestination} - Zone non référencée`);
+          }
+        }
+      }
+      
+    } else {
+      // ===== NON-MALI TRANSPORT (original logic) =====
+      for (const container of containers) {
+        // Search historical tariffs for this destination
+        const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
+          destination: request.finalDestination,
+          cargoType: request.cargoType,
+          transportMode: 'routier',
+          serviceName: 'transport'
+        });
+        
+        if (transportMatch) {
           lines.push({
             id: `transport_${container.type.toLowerCase()}_${lines.length}`,
             bloc: 'operationnel',
             category: 'Transport',
             description: `Transport ${container.type} → ${request.finalDestination}`,
-            amount: Math.round(estimatedRate / 10000) * 10000 * container.quantity,
-            currency: 'FCFA',
-            containerType: container.type,
-            source: {
-              type: 'TO_CONFIRM',
-              reference: `Estimation zone ${zone.name}`,
-              confidence: 0.3
-            },
-            notes: `Estimation basée sur distance ${zone.distanceKm}km. À confirmer avec transporteur.`,
-            isEditable: true
-          });
-          warnings.push(`Transport ${container.type} estimé (zone ${zone.name}) - Tarif à confirmer`);
-        }
-      }
-      
-      // Security surcharge for Mali
-      if (securitySurcharge && transitCountry === 'MALI') {
-        const is40 = container.type.toUpperCase().includes('40');
-        const surchargeAmount = is40 ? securitySurcharge.amount40ft : securitySurcharge.amount20ft;
-        if (surchargeAmount > 0) {
-          lines.push({
-            id: `security_surcharge_${container.type.toLowerCase()}_${lines.length}`,
-            bloc: 'operationnel',
-            category: 'Transport',
-            description: `Surcharge Sécurité Mali ${container.type}`,
-            amount: surchargeAmount * container.quantity,
+            amount: transportMatch.tariff.matchedAmount * container.quantity,
             currency: 'FCFA',
             containerType: container.type,
             source: {
               type: 'HISTORICAL',
-              reference: 'Security surcharge Oct 2024+',
-              confidence: 0.85
+              reference: `Historique ${new Date(transportMatch.tariff.created_at).toLocaleDateString('fr-FR')}`,
+              confidence: transportMatch.score / 100,
+              historicalMatch: {
+                originalDate: transportMatch.tariff.created_at,
+                originalRoute: transportMatch.tariff.data?.destination || request.finalDestination,
+                similarityScore: transportMatch.score
+              }
             },
-            notes: 'Due to ongoing security issues',
+            notes: transportMatch.warnings.join('. ') || undefined,
             isEditable: true
           });
+        } else {
+          // Try local_transport_rates table
+          const { data: localRates } = await supabase
+            .from('local_transport_rates')
+            .select('*')
+            .eq('is_active', true)
+            .ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
+            .limit(1);
+          
+          if (localRates && localRates.length > 0) {
+            const rate = localRates[0];
+            lines.push({
+              id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport',
+              description: `Transport ${container.type} → ${rate.destination}`,
+              amount: rate.rate_amount * container.quantity,
+              currency: rate.rate_currency || 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'OFFICIAL',
+                reference: rate.source_document || 'Grille transport local',
+                confidence: 0.95
+              },
+              isEditable: true
+            });
+          } else {
+            // Estimation based on zone
+            const estimatedRate = 350000 * zone.multiplier;
+            lines.push({
+              id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+              bloc: 'operationnel',
+              category: 'Transport',
+              description: `Transport ${container.type} → ${request.finalDestination}`,
+              amount: Math.round(estimatedRate / 10000) * 10000 * container.quantity,
+              currency: 'FCFA',
+              containerType: container.type,
+              source: {
+                type: 'TO_CONFIRM',
+                reference: `Estimation zone ${zone.name}`,
+                confidence: 0.3
+              },
+              notes: `Estimation basée sur distance ${zone.distanceKm}km. À confirmer avec transporteur.`,
+              isEditable: true
+            });
+            warnings.push(`Transport ${container.type} estimé (zone ${zone.name}) - Tarif à confirmer`);
+          }
         }
       }
     }

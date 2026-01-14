@@ -849,6 +849,45 @@ export type Database = {
         }
         Relationships: []
       }
+      fuel_price_tracking: {
+        Row: {
+          country: string
+          created_at: string | null
+          currency: string | null
+          fuel_type: string | null
+          id: string
+          is_crisis_price: boolean | null
+          notes: string | null
+          price_per_liter: number
+          recorded_date: string
+          source: string | null
+        }
+        Insert: {
+          country: string
+          created_at?: string | null
+          currency?: string | null
+          fuel_type?: string | null
+          id?: string
+          is_crisis_price?: boolean | null
+          notes?: string | null
+          price_per_liter: number
+          recorded_date: string
+          source?: string | null
+        }
+        Update: {
+          country?: string
+          created_at?: string | null
+          currency?: string | null
+          fuel_type?: string | null
+          id?: string
+          is_crisis_price?: boolean | null
+          notes?: string | null
+          price_per_liter?: number
+          recorded_date?: string
+          source?: string | null
+        }
+        Relationships: []
+      }
       holidays_pad: {
         Row: {
           created_at: string | null
@@ -1296,6 +1335,60 @@ export type Database = {
         }
         Relationships: []
       }
+      mali_transport_zones: {
+        Row: {
+          alternative_route: string | null
+          alternative_route_km: number | null
+          country: string | null
+          created_at: string | null
+          distance_from_dakar_km: number
+          estimated_transit_days: number | null
+          id: string
+          is_accessible: boolean | null
+          last_security_update: string | null
+          region: string
+          route_description: string | null
+          security_level: string | null
+          security_surcharge_percent: number | null
+          updated_at: string | null
+          zone_name: string
+        }
+        Insert: {
+          alternative_route?: string | null
+          alternative_route_km?: number | null
+          country?: string | null
+          created_at?: string | null
+          distance_from_dakar_km: number
+          estimated_transit_days?: number | null
+          id?: string
+          is_accessible?: boolean | null
+          last_security_update?: string | null
+          region: string
+          route_description?: string | null
+          security_level?: string | null
+          security_surcharge_percent?: number | null
+          updated_at?: string | null
+          zone_name: string
+        }
+        Update: {
+          alternative_route?: string | null
+          alternative_route_km?: number | null
+          country?: string | null
+          created_at?: string | null
+          distance_from_dakar_km?: number
+          estimated_transit_days?: number | null
+          id?: string
+          is_accessible?: boolean | null
+          last_security_update?: string | null
+          region?: string
+          route_description?: string | null
+          security_level?: string | null
+          security_surcharge_percent?: number | null
+          updated_at?: string | null
+          zone_name?: string
+        }
+        Relationships: []
+      }
       market_intelligence: {
         Row: {
           category: string
@@ -1530,6 +1623,54 @@ export type Database = {
           total_currency?: string | null
           updated_at?: string
           was_accepted?: boolean | null
+        }
+        Relationships: []
+      }
+      security_alerts: {
+        Row: {
+          affected_zones: string[] | null
+          alert_level: string
+          alert_type: string | null
+          country: string
+          created_at: string | null
+          description: string | null
+          effective_from: string
+          effective_until: string | null
+          id: string
+          is_active: boolean | null
+          recommended_action: string | null
+          source_url: string | null
+          title: string
+        }
+        Insert: {
+          affected_zones?: string[] | null
+          alert_level: string
+          alert_type?: string | null
+          country: string
+          created_at?: string | null
+          description?: string | null
+          effective_from: string
+          effective_until?: string | null
+          id?: string
+          is_active?: boolean | null
+          recommended_action?: string | null
+          source_url?: string | null
+          title: string
+        }
+        Update: {
+          affected_zones?: string[] | null
+          alert_level?: string
+          alert_type?: string | null
+          country?: string
+          created_at?: string | null
+          description?: string | null
+          effective_from?: string
+          effective_until?: string | null
+          id?: string
+          is_active?: boolean | null
+          recommended_action?: string | null
+          source_url?: string | null
+          title?: string
         }
         Relationships: []
       }
@@ -1962,6 +2103,54 @@ export type Database = {
           usage_description?: string | null
           volume_m3?: number | null
           width_m?: number | null
+        }
+        Relationships: []
+      }
+      transport_rate_formula: {
+        Row: {
+          base_rate_per_km: number
+          container_type: string
+          corridor: string
+          created_at: string | null
+          effective_date: string
+          expiry_date: string | null
+          fixed_costs: number | null
+          fuel_reference_price: number | null
+          id: string
+          includes_return: boolean | null
+          is_active: boolean | null
+          notes: string | null
+          source: string | null
+        }
+        Insert: {
+          base_rate_per_km: number
+          container_type: string
+          corridor: string
+          created_at?: string | null
+          effective_date: string
+          expiry_date?: string | null
+          fixed_costs?: number | null
+          fuel_reference_price?: number | null
+          id?: string
+          includes_return?: boolean | null
+          is_active?: boolean | null
+          notes?: string | null
+          source?: string | null
+        }
+        Update: {
+          base_rate_per_km?: number
+          container_type?: string
+          corridor?: string
+          created_at?: string | null
+          effective_date?: string
+          expiry_date?: string | null
+          fixed_costs?: number | null
+          fuel_reference_price?: number | null
+          id?: string
+          includes_return?: boolean | null
+          is_active?: boolean | null
+          notes?: string | null
+          source?: string | null
         }
         Relationships: []
       }
