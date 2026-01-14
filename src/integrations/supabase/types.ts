@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      border_clearing_rates: {
+        Row: {
+          amount_20ft: number | null
+          amount_40ft: number | null
+          calculation_method: string | null
+          charge_code: string
+          charge_name: string
+          corridor: string
+          country: string
+          created_at: string | null
+          currency: string | null
+          effective_date: string | null
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          source_document: string | null
+        }
+        Insert: {
+          amount_20ft?: number | null
+          amount_40ft?: number | null
+          calculation_method?: string | null
+          charge_code: string
+          charge_name: string
+          corridor: string
+          country: string
+          created_at?: string | null
+          currency?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          source_document?: string | null
+        }
+        Update: {
+          amount_20ft?: number | null
+          amount_40ft?: number | null
+          calculation_method?: string | null
+          charge_code?: string
+          charge_name?: string
+          corridor?: string
+          country?: string
+          created_at?: string | null
+          currency?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          source_document?: string | null
+        }
+        Relationships: []
+      }
       carrier_billing_templates: {
         Row: {
           base_reference: string | null
@@ -323,6 +374,63 @@ export type Database = {
           notes?: string | null
           source_document?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      destination_terminal_rates: {
+        Row: {
+          calculation_method: string | null
+          charge_code: string
+          charge_name: string
+          country: string
+          created_at: string | null
+          currency: string | null
+          effective_date: string | null
+          id: string
+          is_active: boolean | null
+          notes: string | null
+          rate_fixed: number | null
+          rate_per_cnt: number | null
+          rate_per_tonne: number | null
+          rate_per_truck: number | null
+          source_document: string | null
+          terminal_name: string
+        }
+        Insert: {
+          calculation_method?: string | null
+          charge_code: string
+          charge_name: string
+          country: string
+          created_at?: string | null
+          currency?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          rate_fixed?: number | null
+          rate_per_cnt?: number | null
+          rate_per_tonne?: number | null
+          rate_per_truck?: number | null
+          source_document?: string | null
+          terminal_name: string
+        }
+        Update: {
+          calculation_method?: string | null
+          charge_code?: string
+          charge_name?: string
+          country?: string
+          created_at?: string | null
+          currency?: string | null
+          effective_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          rate_fixed?: number | null
+          rate_per_cnt?: number | null
+          rate_per_tonne?: number | null
+          rate_per_truck?: number | null
+          source_document?: string | null
+          terminal_name?: string
         }
         Relationships: []
       }
@@ -1458,6 +1566,48 @@ export type Database = {
           scrape_frequency?: string | null
           selectors?: Json | null
           url?: string
+        }
+        Relationships: []
+      }
+      tariff_documents: {
+        Row: {
+          created_at: string | null
+          document_type: string
+          effective_date: string | null
+          expiry_date: string | null
+          filename: string
+          id: string
+          is_current: boolean | null
+          notes: string | null
+          provider: string
+          storage_path: string | null
+          version: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          document_type: string
+          effective_date?: string | null
+          expiry_date?: string | null
+          filename: string
+          id?: string
+          is_current?: boolean | null
+          notes?: string | null
+          provider: string
+          storage_path?: string | null
+          version?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          document_type?: string
+          effective_date?: string | null
+          expiry_date?: string | null
+          filename?: string
+          id?: string
+          is_current?: boolean | null
+          notes?: string | null
+          provider?: string
+          storage_path?: string | null
+          version?: string | null
         }
         Relationships: []
       }
