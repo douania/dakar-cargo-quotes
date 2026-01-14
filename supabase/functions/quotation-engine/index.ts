@@ -24,6 +24,14 @@ const corsHeaders = {
 // =====================================================
 // TYPES
 // =====================================================
+interface ContainerInfo {
+  type: string;
+  quantity: number;
+  cocSoc?: 'COC' | 'SOC';
+  weight?: number;
+  notes?: string;
+}
+
 interface QuotationRequest {
   // Paramètres de la demande
   originPort?: string;
@@ -37,10 +45,16 @@ interface QuotationRequest {
   cargoDescription?: string;
   cargoValue: number;
   cargoCurrency?: string;
+  cargoWeight?: number; // en tonnes
   
-  // Conteneurs
-  containerType?: string;
-  containerCount?: number;
+  // Conteneurs - Support multi-conteneurs
+  containers?: ContainerInfo[];
+  containerType?: string; // Legacy
+  containerCount?: number; // Legacy
+  
+  // Carrier / Shipping Line
+  carrier?: string;
+  shippingLine?: string;
   
   // Breakbulk / Conventionnel
   weightTonnes?: number;
@@ -60,6 +74,7 @@ interface QuotationRequest {
   isReefer?: boolean;
   reeferTemp?: number;
   isHazmat?: boolean;
+  isTransit?: boolean;
   
   // Code HS pour calcul droits
   hsCode?: string;
@@ -75,7 +90,7 @@ interface QuotationRequest {
 
 interface QuotationLine {
   id: string;
-  bloc: 'operationnel' | 'honoraires' | 'debours';
+  bloc: 'operationnel' | 'honoraires' | 'debours' | 'border' | 'terminal';
   category: string;
   description: string;
   amount: number | null;
@@ -85,6 +100,7 @@ interface QuotationLine {
   source: QuotationLineSource;
   notes?: string;
   isEditable: boolean;
+  containerType?: string;
 }
 
 interface QuotationResult {
@@ -94,6 +110,8 @@ interface QuotationResult {
     operationnel: number;
     honoraires: number;
     debours: number;
+    border: number;
+    terminal: number;
     dap: number;
     ddp: number;
   };
@@ -102,6 +120,8 @@ interface QuotationResult {
     zone: ZoneInfo;
     exceptional: ExceptionalInfo;
     caf: CAFInfo;
+    isTransit: boolean;
+    transitCountry?: string;
   };
   warnings: string[];
 }
@@ -118,6 +138,7 @@ interface ZoneInfo {
   name: string;
   multiplier: number;
   distanceKm: number;
+  country?: string;
 }
 
 interface ExceptionalInfo {
@@ -131,6 +152,61 @@ interface CAFInfo {
 }
 
 // =====================================================
+// TRANSIT DESTINATION DETECTION
+// =====================================================
+const TRANSIT_COUNTRIES = ['MALI', 'MAURITANIE', 'GUINEE', 'BURKINA', 'NIGER', 'GAMBIE'];
+
+function detectTransitCountry(destination: string): string | null {
+  const destUpper = destination.toUpperCase();
+  for (const country of TRANSIT_COUNTRIES) {
+    if (destUpper.includes(country) || 
+        (country === 'MALI' && (destUpper.includes('BAMAKO') || destUpper.includes('SIKASSO') || destUpper.includes('KAYES') || destUpper.includes('KATI')))) {
+      return country;
+    }
+  }
+  return null;
+}
+
+function isTransitDestination(destination: string): boolean {
+  return detectTransitCountry(destination) !== null;
+}
+
+// =====================================================
+// THD CATEGORY DETERMINATION
+// =====================================================
+function determineTariffCategory(cargoDescription: string): string {
+  const desc = cargoDescription.toLowerCase();
+  
+  // T09 - Véhicules, Tracteurs, Machines, Équipements de transport
+  if (desc.match(/power plant|generator|transformer|vehicle|truck|tractor|machine|equipment|genset|engine/)) {
+    return 'T09';
+  }
+  // T01 - Boissons, Produits chimiques, Équipements
+  if (desc.match(/drink|beverage|chemical|accessory|part|pump|valve/)) {
+    return 'T01';
+  }
+  // T05 - Céréales, Ciment, Engrais
+  if (desc.match(/cereal|wheat|rice|cement|fertilizer|flour/)) {
+    return 'T05';
+  }
+  // T14 - Produits métallurgiques
+  if (desc.match(/steel|iron|metal|metallurg|pipe|tube|beam/)) {
+    return 'T14';
+  }
+  // T07 - Textiles, Matériaux de construction
+  if (desc.match(/textile|fabric|building material|cotton|tile|brick/)) {
+    return 'T07';
+  }
+  // T12 - Produits divers
+  if (desc.match(/mixed|general|various|divers/)) {
+    return 'T12';
+  }
+  
+  // Défaut: T02 (catégorie générale moyenne)
+  return 'T02';
+}
+
+// =====================================================
 // FONCTIONS PRINCIPALES
 // =====================================================
 
@@ -141,6 +217,7 @@ async function fetchOfficialTariffs(
     category?: string;
     operationType?: string;
     classification?: string;
+    cargoType?: string;
   }
 ): Promise<any[]> {
   let query = supabase
@@ -151,7 +228,8 @@ async function fetchOfficialTariffs(
   if (params.provider) query = query.eq('provider', params.provider);
   if (params.category) query = query.eq('category', params.category);
   if (params.operationType) query = query.eq('operation_type', params.operationType);
-  if (params.classification) query = query.eq('classification', params.classification);
+  if (params.classification) query = query.ilike('classification', `%${params.classification}%`);
+  if (params.cargoType) query = query.eq('cargo_type', params.cargoType);
   
   const { data, error } = await query;
   
@@ -161,6 +239,105 @@ async function fetchOfficialTariffs(
   }
   
   return data || [];
+}
+
+async function fetchCarrierCharges(
+  supabase: any,
+  carrier?: string,
+  operationType: 'IMPORT' | 'EXPORT' | 'TRANSIT' = 'IMPORT'
+): Promise<any[]> {
+  let query = supabase
+    .from('carrier_billing_templates')
+    .select('*')
+    .eq('is_active', true)
+    .eq('operation_type', operationType);
+  
+  if (carrier) {
+    // Fetch both specific carrier and GENERIC templates
+    query = query.or(`carrier.eq.${carrier.toUpperCase()},carrier.eq.GENERIC`);
+  } else {
+    query = query.eq('carrier', 'GENERIC');
+  }
+  
+  const { data, error } = await query;
+  
+  if (error) {
+    console.error('Erreur fetch carrier charges:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+async function fetchBorderClearingRates(
+  supabase: any,
+  country: string,
+  corridor?: string
+): Promise<any[]> {
+  let query = supabase
+    .from('border_clearing_rates')
+    .select('*')
+    .eq('country', country.toUpperCase())
+    .eq('is_active', true);
+  
+  if (corridor) {
+    query = query.eq('corridor', corridor);
+  }
+  
+  const { data, error } = await query;
+  
+  if (error) {
+    console.error('Erreur fetch border clearing rates:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+async function fetchDestinationTerminalRates(
+  supabase: any,
+  country: string,
+  terminal?: string
+): Promise<any[]> {
+  let query = supabase
+    .from('destination_terminal_rates')
+    .select('*')
+    .eq('country', country.toUpperCase())
+    .eq('is_active', true);
+  
+  if (terminal) {
+    query = query.eq('terminal_name', terminal);
+  }
+  
+  const { data, error } = await query;
+  
+  if (error) {
+    console.error('Erreur fetch destination terminal rates:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+async function fetchCarrierTHD(
+  supabase: any,
+  carrier: string,
+  tariffCategory: string,
+  operationType: 'IMPORT' | 'EXPORT' | 'TRANSIT'
+): Promise<{ rate: number; classification: string } | null> {
+  const { data } = await supabase
+    .from('port_tariffs')
+    .select('amount, classification')
+    .eq('provider', carrier.toUpperCase())
+    .eq('category', operationType === 'EXPORT' ? 'THO' : 'THD')
+    .eq('operation_type', operationType === 'TRANSIT' ? 'IMPORT' : operationType)
+    .ilike('classification', `${tariffCategory}%`)
+    .limit(1);
+  
+  if (data && data.length > 0) {
+    return { rate: data[0].amount, classification: data[0].classification };
+  }
+  return null;
 }
 
 async function fetchHistoricalTariffs(
@@ -191,6 +368,27 @@ async function fetchHistoricalTariffs(
   }
   
   return data || [];
+}
+
+async function fetchSecuritySurcharge(
+  supabase: any,
+  destination: string
+): Promise<{ amount20ft: number; amount40ft: number } | null> {
+  const { data } = await supabase
+    .from('learned_knowledge')
+    .select('data')
+    .eq('category', 'surcharge')
+    .eq('is_validated', true)
+    .ilike('name', '%Sécurité%Mali%')
+    .limit(1);
+  
+  if (data && data.length > 0 && data[0].data) {
+    return {
+      amount20ft: data[0].data.montant_20ft || 0,
+      amount40ft: data[0].data.montant_40ft || 0
+    };
+  }
+  return null;
 }
 
 async function fetchQuotationHistory(
@@ -288,6 +486,10 @@ async function matchHistoricalTariff(
   return bestMatch;
 }
 
+// =====================================================
+// MAIN QUOTATION LINE GENERATION
+// =====================================================
+
 async function generateQuotationLines(
   supabase: any,
   request: QuotationRequest
@@ -296,384 +498,651 @@ async function generateQuotationLines(
   const warnings: string[] = [];
   
   // =====================================================
-  // 1. RÉCUPÉRER LES DONNÉES
+  // 1. DETERMINE CONTEXT
   // =====================================================
   
-  // Tarifs officiels THC
+  const transitCountry = detectTransitCountry(request.finalDestination);
+  const isTransit = request.isTransit || transitCountry !== null;
+  const effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT';
+  const zone = identifyZone(request.finalDestination);
+  
+  console.log(`Quotation context: isTransit=${isTransit}, transitCountry=${transitCountry}, operationType=${effectiveOperationType}`);
+  
+  // Build containers array from legacy or new format
+  const containers: ContainerInfo[] = request.containers?.length 
+    ? request.containers 
+    : request.containerType 
+      ? [{ type: request.containerType, quantity: request.containerCount || 1 }]
+      : [{ type: '40HC', quantity: 1 }];
+  
+  // Total weight from request
+  const totalWeightTonnes = request.cargoWeight || request.weightTonnes || 0;
+  
+  // Carrier detection
+  const carrier = request.carrier || request.shippingLine;
+  
+  // =====================================================
+  // 2. FETCH ALL NECESSARY DATA
+  // =====================================================
+  
+  // THC Tariffs - with correct operation type
   const thcTariffs = await fetchOfficialTariffs(supabase, {
     provider: 'DP_WORLD',
     category: 'THC',
-    operationType: 'Import'
+    operationType: effectiveOperationType
   });
   
-  // Tarifs officiels manutention
-  const handlingTariffs = await fetchOfficialTariffs(supabase, {
+  // PAD Tariffs (Redevances)
+  const padTariffs = await fetchOfficialTariffs(supabase, {
+    provider: 'PAD',
+    operationType: effectiveOperationType
+  });
+  
+  // DPW additional tariffs (Relevage, etc.)
+  const dpwAdditionalTariffs = await fetchOfficialTariffs(supabase, {
     provider: 'DP_WORLD',
-    category: 'HANDLING'
+    operationType: effectiveOperationType
   });
   
-  // Tarifs historiques
+  // Carrier charges (for transit)
+  const carrierCharges = await fetchCarrierCharges(supabase, carrier, effectiveOperationType as any);
+  
+  // Historical tariffs for transport
   const historicalTariffs = await fetchHistoricalTariffs(supabase, {
     destination: request.finalDestination,
     cargoType: request.cargoType,
     transportMode: request.transportMode
   });
   
-  // Cotations similaires
-  const similarQuotations = await fetchQuotationHistory(supabase, {
-    destination: request.finalDestination,
-    cargoType: request.cargoType
-  });
+  // Border and terminal rates for transit destinations
+  let borderRates: any[] = [];
+  let terminalRates: any[] = [];
   
-  // =====================================================
-  // 2. BLOC OPÉRATIONNEL - TARIFS OFFICIELS
-  // =====================================================
-  
-  const evpMultiplier = request.containerType ? getEVPMultiplier(request.containerType) : 1;
-  const containerQty = request.containerCount || 1;
-  
-  // THC (Terminal Handling Charges)
-  const thcTariff = thcTariffs.find(t => 
-    t.classification?.includes(request.containerType?.slice(0, 2) || '40')
-  );
-  
-  if (thcTariff) {
-    lines.push({
-      id: 'thc_import',
-      bloc: 'operationnel',
-      category: 'Port',
-      description: `THC Import ${request.containerType || '40HC'}`,
-      amount: thcTariff.amount * evpMultiplier * containerQty,
-      currency: 'FCFA',
-      unit: 'EVP',
-      quantity: evpMultiplier * containerQty,
-      source: {
-        type: 'OFFICIAL',
-        reference: thcTariff.source_document || 'DP World Dakar 2025',
-        confidence: 1.0,
-        validUntil: thcTariff.expiry_date
-      },
-      isEditable: false
-    });
-  } else {
-    lines.push({
-      id: 'thc_import',
-      bloc: 'operationnel',
-      category: 'Port',
-      description: `THC Import ${request.containerType || '40HC'}`,
-      amount: null,
-      currency: 'FCFA',
-      source: {
-        type: 'TO_CONFIRM',
-        reference: 'Tarif THC non trouvé',
-        confidence: 0
-      },
-      notes: 'Tarif THC à confirmer avec DP World',
-      isEditable: true
-    });
-    warnings.push('Tarif THC non trouvé dans la base - À confirmer');
+  if (transitCountry === 'MALI') {
+    borderRates = await fetchBorderClearingRates(supabase, 'MALI', 'KIDIRA_DIBOLI');
+    terminalRates = await fetchDestinationTerminalRates(supabase, 'MALI');
   }
   
-  // Magasinage (si applicable)
-  const storageTariffs = await fetchOfficialTariffs(supabase, {
-    category: 'STORAGE'
-  });
-  
-  if (storageTariffs.length > 0) {
-    const storageTariff = storageTariffs[0];
-    lines.push({
-      id: 'storage_provision',
-      bloc: 'operationnel',
-      category: 'Port',
-      description: 'Provision magasinage (estimé 7 jours)',
-      amount: Math.round(storageTariff.amount * 7 * evpMultiplier * containerQty),
-      currency: 'FCFA',
-      source: {
-        type: 'CALCULATED',
-        reference: `${storageTariff.source_document} - 7 jours estimés`,
-        confidence: 0.8
-      },
-      notes: 'Basé sur 7 jours de franchise. Ajuster selon délai réel.',
-      isEditable: true
-    });
+  // Security surcharge for Mali
+  let securitySurcharge: { amount20ft: number; amount40ft: number } | null = null;
+  if (transitCountry === 'MALI') {
+    securitySurcharge = await fetchSecuritySurcharge(supabase, request.finalDestination);
   }
   
-  // Transport local
-  if (request.includeLocalTransport !== false) {
-    const zone = identifyZone(request.finalDestination);
+  // =====================================================
+  // 3. BLOC OPÉRATIONNEL - THC PER CONTAINER TYPE
+  // =====================================================
+  
+  for (const container of containers) {
+    const is40 = container.type.toUpperCase().includes('40');
+    const evpMultiplier = getEVPMultiplier(container.type);
+    const cargoType = is40 ? 'CONTENEUR_40' : 'CONTENEUR_20';
     
-    // Chercher dans l'historique
-    const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
-      destination: request.finalDestination,
-      cargoType: request.cargoType,
-      transportMode: 'routier',
-      serviceName: 'transport'
-    });
+    // Find THC tariff for this container
+    const thcTariff = thcTariffs.find(t => 
+      t.cargo_type === cargoType || 
+      t.classification?.includes(container.type.slice(0, 2))
+    );
     
-    if (transportMatch) {
+    if (thcTariff) {
       lines.push({
-        id: 'local_transport',
+        id: `thc_${container.type.toLowerCase()}_${lines.length}`,
         bloc: 'operationnel',
-        category: 'Transport',
-        description: `Transport local ${request.containerType || ''} → ${request.finalDestination}`,
-        amount: transportMatch.tariff.matchedAmount * containerQty,
+        category: 'Terminal (DPW)',
+        description: `THC ${effectiveOperationType} ${container.type}`,
+        amount: thcTariff.amount * evpMultiplier * container.quantity,
         currency: 'FCFA',
-        quantity: containerQty,
+        unit: 'EVP',
+        quantity: evpMultiplier * container.quantity,
+        containerType: container.type,
         source: {
-          type: 'HISTORICAL',
-          reference: `Historique ${new Date(transportMatch.tariff.created_at).toLocaleDateString('fr-FR')}`,
-          confidence: transportMatch.score / 100,
-          historicalMatch: {
-            originalDate: transportMatch.tariff.created_at,
-            originalRoute: transportMatch.tariff.data?.destination || request.finalDestination,
-            similarityScore: transportMatch.score
-          }
+          type: 'OFFICIAL',
+          reference: thcTariff.source_document || 'DP World Dakar 2025',
+          confidence: 1.0,
+          validUntil: thcTariff.expiry_date
         },
-        notes: transportMatch.warnings.join('. ') || undefined,
-        isEditable: true
+        isEditable: false
       });
     } else {
-      // Essayer les tarifs locaux de la base
-      const { data: localRates } = await supabase
-        .from('local_transport_rates')
-        .select('*')
-        .eq('is_active', true)
-        .ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
-        .limit(1);
-      
-      if (localRates && localRates.length > 0) {
-        const rate = localRates[0];
+      // Fallback to standard THC rate
+      const standardRate = is40 ? 220000 : 110000;
+      lines.push({
+        id: `thc_${container.type.toLowerCase()}_${lines.length}`,
+        bloc: 'operationnel',
+        category: 'Terminal (DPW)',
+        description: `THC ${effectiveOperationType} ${container.type}`,
+        amount: standardRate * container.quantity,
+        currency: 'FCFA',
+        containerType: container.type,
+        source: {
+          type: 'CALCULATED',
+          reference: 'Tarif standard DPW',
+          confidence: 0.8
+        },
+        notes: 'Tarif standard appliqué - vérifier avec DPW',
+        isEditable: true
+      });
+      warnings.push(`THC ${container.type} non trouvé - tarif standard appliqué`);
+    }
+    
+    // Relevage for transit
+    if (isTransit) {
+      const relevageTariff = dpwAdditionalTariffs.find(t => 
+        t.category === 'RELEVAGE' && t.cargo_type === cargoType
+      );
+      if (relevageTariff) {
         lines.push({
-          id: 'local_transport',
+          id: `relevage_${container.type.toLowerCase()}_${lines.length}`,
           bloc: 'operationnel',
-          category: 'Transport',
-          description: `Transport local → ${rate.destination}`,
-          amount: rate.rate_amount * containerQty,
-          currency: rate.rate_currency || 'FCFA',
+          category: 'Terminal (DPW)',
+          description: `Relevage ${container.type}`,
+          amount: relevageTariff.amount * container.quantity,
+          currency: 'FCFA',
+          containerType: container.type,
           source: {
             type: 'OFFICIAL',
-            reference: rate.source_document || 'Grille transport local',
+            reference: relevageTariff.source_document || 'DPW Transit Tariff',
             confidence: 0.95
           },
-          isEditable: true
+          isEditable: false
         });
-      } else {
-        // Estimation basée sur la zone
-        const estimatedRate = 350000 * zone.multiplier;
+      }
+    }
+    
+    // PAD Redevance Variable
+    const redevanceTariff = padTariffs.find(t => 
+      t.category === 'REDEVANCE_VARIABLE' && t.cargo_type === cargoType
+    );
+    if (redevanceTariff) {
+      lines.push({
+        id: `redevance_${container.type.toLowerCase()}_${lines.length}`,
+        bloc: 'operationnel',
+        category: 'Port (PAD)',
+        description: `Redevance Variable ${container.type}`,
+        amount: redevanceTariff.amount * container.quantity,
+        currency: 'FCFA',
+        containerType: container.type,
+        source: {
+          type: 'OFFICIAL',
+          reference: redevanceTariff.source_document || 'PAD Tariff',
+          confidence: 0.95
+        },
+        isEditable: false
+      });
+    }
+    
+    // Port Tax
+    const portTaxTariff = padTariffs.find(t => 
+      t.category === 'PORT_TAX' && t.cargo_type === cargoType
+    );
+    if (portTaxTariff) {
+      lines.push({
+        id: `port_tax_${container.type.toLowerCase()}_${lines.length}`,
+        bloc: 'operationnel',
+        category: 'Port (PAD)',
+        description: `Port Tax ${container.type}`,
+        amount: portTaxTariff.amount * container.quantity,
+        currency: 'FCFA',
+        containerType: container.type,
+        source: {
+          type: 'OFFICIAL',
+          reference: portTaxTariff.source_document || 'PAD Tariff',
+          confidence: 0.95
+        },
+        isEditable: false
+      });
+    }
+  }
+  
+  // =====================================================
+  // 4. CARRIER CHARGES (For Transit)
+  // =====================================================
+  
+  if (isTransit && carrierCharges.length > 0) {
+    for (const charge of carrierCharges) {
+      let amount = 0;
+      
+      // Calculate based on method
+      switch (charge.calculation_method) {
+        case 'PER_CNT':
+          // Handle 20ft vs 40ft specific charges
+          if (charge.charge_code.includes('_20') || charge.charge_code.includes('20')) {
+            const cnt20 = containers.filter(c => !c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
+            amount = charge.default_amount * cnt20;
+          } else if (charge.charge_code.includes('_40') || charge.charge_code.includes('40')) {
+            const cnt40 = containers.filter(c => c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
+            amount = charge.default_amount * cnt40;
+          } else {
+            const totalCnt = containers.reduce((s, c) => s + c.quantity, 0);
+            amount = charge.default_amount * totalCnt;
+          }
+          break;
+        case 'PER_TEU':
+          const totalEVP = containers.reduce((s, c) => s + (getEVPMultiplier(c.type) * c.quantity), 0);
+          amount = charge.default_amount * totalEVP;
+          break;
+        case 'PER_BL':
+          amount = charge.default_amount; // Assume 1 BL
+          break;
+        default:
+          amount = charge.default_amount;
+      }
+      
+      if (amount > 0) {
         lines.push({
-          id: 'local_transport',
+          id: `carrier_${charge.charge_code.toLowerCase()}_${lines.length}`,
           bloc: 'operationnel',
-          category: 'Transport',
-          description: `Transport local → ${request.finalDestination}`,
-          amount: Math.round(estimatedRate / 10000) * 10000 * containerQty,
-          currency: 'FCFA',
+          category: 'Compagnie Maritime',
+          description: charge.charge_name,
+          amount: amount,
+          currency: charge.currency || 'XOF',
           source: {
-            type: 'TO_CONFIRM',
-            reference: `Estimation zone ${zone.name}`,
-            confidence: 0.3
+            type: 'OFFICIAL',
+            reference: `${charge.carrier} - ${charge.notes || 'Carrier Billing Template'}`,
+            confidence: 0.9
           },
-          notes: `Estimation basée sur distance ${zone.distanceKm}km. À confirmer avec transporteur.`,
-          isEditable: true
+          isEditable: false
         });
-        warnings.push(`Transport local estimé (zone ${zone.name}) - Tarif à confirmer`);
       }
     }
   }
   
   // =====================================================
-  // 3. BLOC HONORAIRES - RÈGLES CALCULÉES
+  // 5. TRANSPORT LOCAL
   // =====================================================
   
-  const sodatraParams: SodatraFeeParams = {
-    transportMode: request.transportMode,
-    cargoValue: request.cargoValue,
-    weightTonnes: request.weightTonnes || 0,
-    volumeM3: request.volumeM3 || 0,
-    containerCount: request.containerCount || 0,
-    containerTypes: request.containerType ? [request.containerType] : [],
-    destinationZone: identifyZone(request.finalDestination).code,
-    isIMO: request.isIMO || false,
-    isOOG: request.dimensions ? checkExceptionalTransport(request.dimensions).isExceptional : false,
-    isTransit: identifyZone(request.finalDestination).code.includes('MALI') ||
-               identifyZone(request.finalDestination).code.includes('MAURITANIE') ||
-               identifyZone(request.finalDestination).code.includes('GUINEE') ||
-               identifyZone(request.finalDestination).code.includes('GAMBIE'),
-    isReefer: request.isReefer || false
-  };
-  
-  const sodatraFees = calculateSodatraFees(sodatraParams);
-  
-  lines.push({
-    id: 'fee_clearance',
-    bloc: 'honoraires',
-    category: 'Dédouanement',
-    description: 'Honoraires de dédouanement',
-    amount: sodatraFees.dedouanement,
-    currency: 'FCFA',
-    source: {
-      type: 'CALCULATED',
-      reference: 'Grille SODATRA',
-      confidence: 0.9
-    },
-    notes: sodatraFees.complexity.reasons.length > 0 
-      ? `Facteur complexité: ${sodatraFees.complexity.factor.toFixed(2)} (${sodatraFees.complexity.reasons.join(', ')})`
-      : undefined,
-    isEditable: true
-  });
-  
-  lines.push({
-    id: 'fee_follow_up',
-    bloc: 'honoraires',
-    category: 'Suivi',
-    description: 'Suivi opérationnel',
-    amount: sodatraFees.suivi,
-    currency: 'FCFA',
-    source: {
-      type: 'CALCULATED',
-      reference: 'Grille SODATRA',
-      confidence: 0.9
-    },
-    isEditable: true
-  });
-  
-  lines.push({
-    id: 'fee_file',
-    bloc: 'honoraires',
-    category: 'Administratif',
-    description: 'Ouverture de dossier',
-    amount: sodatraFees.ouvertureDossier,
-    currency: 'FCFA',
-    source: {
-      type: 'CALCULATED',
-      reference: 'Grille SODATRA',
-      confidence: 1.0
-    },
-    isEditable: false
-  });
-  
-  lines.push({
-    id: 'fee_docs',
-    bloc: 'honoraires',
-    category: 'Administratif',
-    description: 'Frais de documentation',
-    amount: sodatraFees.documentation,
-    currency: 'FCFA',
-    source: {
-      type: 'CALCULATED',
-      reference: 'Grille SODATRA',
-      confidence: 1.0
-    },
-    isEditable: false
-  });
-  
-  // =====================================================
-  // 4. BLOC DÉBOURS - DROITS ET TAXES
-  // =====================================================
-  
-  // Calcul CAF
-  const incotermRule = INCOTERMS_MATRIX[request.incoterm?.toUpperCase() || 'CIF'];
-  const caf = calculateCAF({
-    incoterm: request.incoterm || 'CIF',
-    invoiceValue: request.cargoValue,
-    freightAmount: undefined,
-    insuranceRate: 0.005
-  });
-  
-  // Si code HS fourni, calculer les droits
-  if (request.hsCode) {
-    const { data: hsData } = await supabase
-      .from('hs_codes')
-      .select('*')
-      .or(`code.eq.${request.hsCode},code_normalized.eq.${request.hsCode.replace(/\D/g, '')}`)
-      .limit(1);
-    
-    if (hsData && hsData.length > 0) {
-      const hs = hsData[0];
-      const ddAmount = caf.cafValue * (hs.dd / 100);
-      const rsAmount = caf.cafValue * (hs.rs / 100);
-      const pcsAmount = caf.cafValue * (hs.pcs / 100);
-      const pccAmount = caf.cafValue * (hs.pcc / 100);
-      const cosecAmount = caf.cafValue * (hs.cosec / 100);
-      const baseVAT = caf.cafValue + ddAmount + rsAmount;
-      const tvaAmount = baseVAT * (hs.tva / 100);
-      
-      const totalDuties = ddAmount + rsAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
-      
-      lines.push({
-        id: 'duties_total',
-        bloc: 'debours',
-        category: 'Droits & Taxes',
-        description: `Droits et taxes (HS ${request.hsCode})`,
-        amount: Math.round(totalDuties),
-        currency: 'FCFA',
-        source: {
-          type: 'CALCULATED',
-          reference: `TEC UEMOA - DD ${hs.dd}% + RS ${hs.rs}% + TVA ${hs.tva}%`,
-          confidence: 0.95
-        },
-        notes: `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA`,
-        isEditable: true
+  if (request.includeLocalTransport !== false) {
+    for (const container of containers) {
+      // Search historical tariffs for this destination
+      const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
+        destination: request.finalDestination,
+        cargoType: request.cargoType,
+        transportMode: 'routier',
+        serviceName: 'transport'
       });
-    } else {
-      lines.push({
-        id: 'duties_total',
-        bloc: 'debours',
-        category: 'Droits & Taxes',
-        description: 'Droits et taxes douaniers',
-        amount: null,
-        currency: 'FCFA',
-        source: {
-          type: 'TO_CONFIRM',
-          reference: `Code HS ${request.hsCode} non trouvé`,
-          confidence: 0
-        },
-        notes: 'Code HS à vérifier pour calcul des droits',
-        isEditable: true
-      });
-      warnings.push(`Code HS ${request.hsCode} non trouvé - Droits à calculer manuellement`);
+      
+      if (transportMatch) {
+        lines.push({
+          id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Transport',
+          description: `Transport ${container.type} → ${request.finalDestination}`,
+          amount: transportMatch.tariff.matchedAmount * container.quantity,
+          currency: 'FCFA',
+          containerType: container.type,
+          source: {
+            type: 'HISTORICAL',
+            reference: `Historique ${new Date(transportMatch.tariff.created_at).toLocaleDateString('fr-FR')}`,
+            confidence: transportMatch.score / 100,
+            historicalMatch: {
+              originalDate: transportMatch.tariff.created_at,
+              originalRoute: transportMatch.tariff.data?.destination || request.finalDestination,
+              similarityScore: transportMatch.score
+            }
+          },
+          notes: transportMatch.warnings.join('. ') || undefined,
+          isEditable: true
+        });
+      } else {
+        // Try local_transport_rates table
+        const { data: localRates } = await supabase
+          .from('local_transport_rates')
+          .select('*')
+          .eq('is_active', true)
+          .ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
+          .limit(1);
+        
+        if (localRates && localRates.length > 0) {
+          const rate = localRates[0];
+          lines.push({
+            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+            bloc: 'operationnel',
+            category: 'Transport',
+            description: `Transport ${container.type} → ${rate.destination}`,
+            amount: rate.rate_amount * container.quantity,
+            currency: rate.rate_currency || 'FCFA',
+            containerType: container.type,
+            source: {
+              type: 'OFFICIAL',
+              reference: rate.source_document || 'Grille transport local',
+              confidence: 0.95
+            },
+            isEditable: true
+          });
+        } else {
+          // Estimation based on zone
+          const estimatedRate = 350000 * zone.multiplier;
+          lines.push({
+            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+            bloc: 'operationnel',
+            category: 'Transport',
+            description: `Transport ${container.type} → ${request.finalDestination}`,
+            amount: Math.round(estimatedRate / 10000) * 10000 * container.quantity,
+            currency: 'FCFA',
+            containerType: container.type,
+            source: {
+              type: 'TO_CONFIRM',
+              reference: `Estimation zone ${zone.name}`,
+              confidence: 0.3
+            },
+            notes: `Estimation basée sur distance ${zone.distanceKm}km. À confirmer avec transporteur.`,
+            isEditable: true
+          });
+          warnings.push(`Transport ${container.type} estimé (zone ${zone.name}) - Tarif à confirmer`);
+        }
+      }
+      
+      // Security surcharge for Mali
+      if (securitySurcharge && transitCountry === 'MALI') {
+        const is40 = container.type.toUpperCase().includes('40');
+        const surchargeAmount = is40 ? securitySurcharge.amount40ft : securitySurcharge.amount20ft;
+        if (surchargeAmount > 0) {
+          lines.push({
+            id: `security_surcharge_${container.type.toLowerCase()}_${lines.length}`,
+            bloc: 'operationnel',
+            category: 'Transport',
+            description: `Surcharge Sécurité Mali ${container.type}`,
+            amount: surchargeAmount * container.quantity,
+            currency: 'FCFA',
+            containerType: container.type,
+            source: {
+              type: 'HISTORICAL',
+              reference: 'Security surcharge Oct 2024+',
+              confidence: 0.85
+            },
+            notes: 'Due to ongoing security issues',
+            isEditable: true
+          });
+        }
+      }
     }
-  } else {
-    // Estimation générale basée sur catégorie 3 (20% DD)
-    const estimatedDuties = caf.cafValue * 0.45; // ~45% tous droits confondus
-    
-    lines.push({
-      id: 'duties_estimate',
-      bloc: 'debours',
-      category: 'Droits & Taxes',
-      description: 'Droits et taxes (estimation)',
-      amount: Math.round(estimatedDuties),
-      currency: 'FCFA',
-      source: {
-        type: 'TO_CONFIRM',
-        reference: 'Estimation générale - Code HS requis',
-        confidence: 0.4
-      },
-      notes: 'Estimation basée sur catégorie 3. Fournir code HS pour calcul exact.',
-      isEditable: true
-    });
-    warnings.push('Code HS non fourni - Droits estimés à confirmer');
   }
   
-  // Commission sur débours (5%)
-  const deboursTotal = lines
-    .filter(l => l.bloc === 'debours' && l.amount)
-    .reduce((sum, l) => sum + (l.amount || 0), 0);
+  // =====================================================
+  // 6. BORDER CLEARING (Mali)
+  // =====================================================
   
-  if (deboursTotal > 0) {
+  if (transitCountry === 'MALI' && borderRates.length > 0) {
+    for (const rate of borderRates) {
+      let amount = 0;
+      
+      for (const container of containers) {
+        const is40 = container.type.toUpperCase().includes('40');
+        const rateAmount = is40 ? (rate.amount_40ft || rate.amount_20ft) : rate.amount_20ft;
+        amount += rateAmount * container.quantity;
+      }
+      
+      if (amount > 0) {
+        lines.push({
+          id: `border_${rate.charge_code.toLowerCase()}_${lines.length}`,
+          bloc: 'border',
+          category: 'Frontière Mali',
+          description: rate.charge_name,
+          amount: amount,
+          currency: rate.currency || 'XOF',
+          source: {
+            type: 'OFFICIAL',
+            reference: rate.source_document || 'Border Clearing Rates',
+            confidence: 0.9
+          },
+          notes: rate.notes,
+          isEditable: true
+        });
+      }
+    }
+  }
+  
+  // =====================================================
+  // 7. DESTINATION TERMINAL (Mali - Kati/CMC/EMASE)
+  // =====================================================
+  
+  if (transitCountry === 'MALI' && terminalRates.length > 0) {
+    for (const rate of terminalRates) {
+      let amount = 0;
+      
+      switch (rate.calculation_method) {
+        case 'PER_TONNE':
+          if (rate.rate_per_tonne && totalWeightTonnes > 0) {
+            amount = rate.rate_per_tonne * totalWeightTonnes;
+          }
+          break;
+        case 'PER_TRUCK':
+          if (rate.rate_per_truck) {
+            const truckCount = containers.reduce((s, c) => s + c.quantity, 0);
+            amount = rate.rate_per_truck * truckCount;
+          }
+          break;
+        case 'FIXED':
+          if (rate.rate_fixed) {
+            amount = rate.rate_fixed;
+          }
+          break;
+        case 'PER_CNT':
+          if (rate.rate_per_cnt) {
+            const totalCnt = containers.reduce((s, c) => s + c.quantity, 0);
+            amount = rate.rate_per_cnt * totalCnt;
+          }
+          break;
+      }
+      
+      if (amount > 0) {
+        lines.push({
+          id: `terminal_${rate.charge_code.toLowerCase()}_${lines.length}`,
+          bloc: 'terminal',
+          category: 'Terminal Mali',
+          description: rate.charge_name,
+          amount: Math.round(amount),
+          currency: rate.currency || 'XOF',
+          source: {
+            type: 'OFFICIAL',
+            reference: rate.source_document || 'Destination Terminal Rates',
+            confidence: 0.85
+          },
+          notes: rate.notes,
+          isEditable: true
+        });
+      }
+    }
+  }
+  
+  // =====================================================
+  // 8. BLOC HONORAIRES - SODATRA FEES
+  // =====================================================
+  
+  // Don't include SODATRA fees for transit/tender contexts
+  const shouldIncludeSodatraFees = !isTransit || request.includeCustomsClearance;
+  
+  if (shouldIncludeSodatraFees) {
+    const sodatraParams: SodatraFeeParams = {
+      transportMode: request.transportMode,
+      cargoValue: request.cargoValue,
+      weightTonnes: totalWeightTonnes,
+      volumeM3: request.volumeM3 || 0,
+      containerCount: containers.reduce((s, c) => s + c.quantity, 0),
+      containerTypes: containers.map(c => c.type),
+      destinationZone: zone.code,
+      isIMO: request.isIMO || false,
+      isOOG: request.dimensions ? checkExceptionalTransport(request.dimensions).isExceptional : false,
+      isTransit: isTransit,
+      isReefer: request.isReefer || false
+    };
+    
+    const sodatraFees = calculateSodatraFees(sodatraParams);
+    
     lines.push({
-      id: 'commission_debours',
+      id: 'fee_clearance',
       bloc: 'honoraires',
-      category: 'Commission',
-      description: 'Commission sur débours (5%)',
-      amount: Math.round(deboursTotal * 0.05),
+      category: 'Dédouanement',
+      description: isTransit ? 'Honoraires transit SN' : 'Honoraires de dédouanement',
+      amount: sodatraFees.dedouanement,
       currency: 'FCFA',
       source: {
         type: 'CALCULATED',
-        reference: 'Grille SODATRA - 5% débours',
+        reference: 'Grille SODATRA',
+        confidence: 0.9
+      },
+      notes: sodatraFees.complexity.reasons.length > 0 
+        ? `Facteur complexité: ${sodatraFees.complexity.factor.toFixed(2)} (${sodatraFees.complexity.reasons.join(', ')})`
+        : undefined,
+      isEditable: true
+    });
+    
+    lines.push({
+      id: 'fee_follow_up',
+      bloc: 'honoraires',
+      category: 'Suivi',
+      description: 'Suivi opérationnel',
+      amount: sodatraFees.suivi,
+      currency: 'FCFA',
+      source: {
+        type: 'CALCULATED',
+        reference: 'Grille SODATRA',
+        confidence: 0.9
+      },
+      isEditable: true
+    });
+    
+    lines.push({
+      id: 'fee_file',
+      bloc: 'honoraires',
+      category: 'Administratif',
+      description: 'Ouverture de dossier',
+      amount: sodatraFees.ouvertureDossier,
+      currency: 'FCFA',
+      source: {
+        type: 'CALCULATED',
+        reference: 'Grille SODATRA',
         confidence: 1.0
       },
       isEditable: false
     });
+    
+    lines.push({
+      id: 'fee_docs',
+      bloc: 'honoraires',
+      category: 'Administratif',
+      description: 'Frais de documentation',
+      amount: sodatraFees.documentation,
+      currency: 'FCFA',
+      source: {
+        type: 'CALCULATED',
+        reference: 'Grille SODATRA',
+        confidence: 1.0
+      },
+      isEditable: false
+    });
+  }
+  
+  // =====================================================
+  // 9. BLOC DÉBOURS - DROITS ET TAXES (Only for non-transit)
+  // =====================================================
+  
+  if (!isTransit) {
+    // Calcul CAF
+    const incotermRule = INCOTERMS_MATRIX[request.incoterm?.toUpperCase() || 'CIF'];
+    const caf = calculateCAF({
+      incoterm: request.incoterm || 'CIF',
+      invoiceValue: request.cargoValue,
+      freightAmount: undefined,
+      insuranceRate: 0.005
+    });
+    
+    // Si code HS fourni, calculer les droits
+    if (request.hsCode) {
+      const { data: hsData } = await supabase
+        .from('hs_codes')
+        .select('*')
+        .or(`code.eq.${request.hsCode},code_normalized.eq.${request.hsCode.replace(/\D/g, '')}`)
+        .limit(1);
+      
+      if (hsData && hsData.length > 0) {
+        const hs = hsData[0];
+        const ddAmount = caf.cafValue * (hs.dd / 100);
+        const rsAmount = caf.cafValue * (hs.rs / 100);
+        const pcsAmount = caf.cafValue * (hs.pcs / 100);
+        const pccAmount = caf.cafValue * (hs.pcc / 100);
+        const cosecAmount = caf.cafValue * (hs.cosec / 100);
+        const baseVAT = caf.cafValue + ddAmount + rsAmount;
+        const tvaAmount = baseVAT * (hs.tva / 100);
+        
+        const totalDuties = ddAmount + rsAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+        
+        lines.push({
+          id: 'duties_total',
+          bloc: 'debours',
+          category: 'Droits & Taxes',
+          description: `Droits et taxes (HS ${request.hsCode})`,
+          amount: Math.round(totalDuties),
+          currency: 'FCFA',
+          source: {
+            type: 'CALCULATED',
+            reference: `TEC UEMOA - DD ${hs.dd}% + RS ${hs.rs}% + TVA ${hs.tva}%`,
+            confidence: 0.95
+          },
+          notes: `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA`,
+          isEditable: true
+        });
+      } else {
+        lines.push({
+          id: 'duties_total',
+          bloc: 'debours',
+          category: 'Droits & Taxes',
+          description: 'Droits et taxes douaniers',
+          amount: null,
+          currency: 'FCFA',
+          source: {
+            type: 'TO_CONFIRM',
+            reference: `Code HS ${request.hsCode} non trouvé`,
+            confidence: 0
+          },
+          notes: 'Code HS à vérifier pour calcul des droits',
+          isEditable: true
+        });
+        warnings.push(`Code HS ${request.hsCode} non trouvé - Droits à calculer manuellement`);
+      }
+    } else {
+      // Estimation générale basée sur catégorie 3 (20% DD)
+      const estimatedDuties = caf.cafValue * 0.45;
+      
+      lines.push({
+        id: 'duties_estimate',
+        bloc: 'debours',
+        category: 'Droits & Taxes',
+        description: 'Droits et taxes (estimation)',
+        amount: Math.round(estimatedDuties),
+        currency: 'FCFA',
+        source: {
+          type: 'TO_CONFIRM',
+          reference: 'Estimation générale - Code HS requis',
+          confidence: 0.4
+        },
+        notes: 'Estimation basée sur catégorie 3. Fournir code HS pour calcul exact.',
+        isEditable: true
+      });
+      warnings.push('Code HS non fourni - Droits estimés à confirmer');
+    }
+    
+    // Commission sur débours (5%)
+    const deboursTotal = lines
+      .filter(l => l.bloc === 'debours' && l.amount)
+      .reduce((sum, l) => sum + (l.amount || 0), 0);
+    
+    if (deboursTotal > 0) {
+      lines.push({
+        id: 'commission_debours',
+        bloc: 'honoraires',
+        category: 'Commission',
+        description: 'Commission sur débours (5%)',
+        amount: Math.round(deboursTotal * 0.05),
+        currency: 'FCFA',
+        source: {
+          type: 'CALCULATED',
+          reference: 'Grille SODATRA - 5% débours',
+          confidence: 1.0
+        },
+        isEditable: false
+      });
+    }
   }
   
   return { lines, warnings };
@@ -720,16 +1189,19 @@ serve(async (req) => {
           operationnel: lines.filter(l => l.bloc === 'operationnel' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           honoraires: lines.filter(l => l.bloc === 'honoraires' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           debours: lines.filter(l => l.bloc === 'debours' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
+          border: lines.filter(l => l.bloc === 'border' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
+          terminal: lines.filter(l => l.bloc === 'terminal' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           dap: 0,
           ddp: 0
         };
         
-        totals.dap = totals.operationnel + totals.honoraires;
+        totals.dap = totals.operationnel + totals.honoraires + totals.border + totals.terminal;
         totals.ddp = totals.dap + totals.debours;
         
         // Métadonnées
         const incotermRule = INCOTERMS_MATRIX[request.incoterm?.toUpperCase() || 'CIF'];
         const zone = identifyZone(request.finalDestination);
+        const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         const caf = calculateCAF({
           incoterm: request.incoterm || 'CIF',
@@ -751,13 +1223,16 @@ serve(async (req) => {
               code: zone.code,
               name: zone.name,
               multiplier: zone.multiplier,
-              distanceKm: zone.distanceKm
+              distanceKm: zone.distanceKm,
+              country: transitCountry || undefined
             },
             exceptional,
             caf: {
               value: caf.cafValue,
               method: caf.method
-            }
+            },
+            isTransit: transitCountry !== null,
+            transitCountry: transitCountry || undefined
           },
           warnings
         };
@@ -780,7 +1255,8 @@ serve(async (req) => {
                 code: k,
                 name: DELIVERY_ZONES[k].name,
                 multiplier: DELIVERY_ZONES[k].multiplier
-              }))
+              })),
+              transitCountries: TRANSIT_COUNTRIES
             }
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -808,7 +1284,9 @@ serve(async (req) => {
           JSON.stringify({
             success: issues.length === 0,
             isValid: issues.length === 0,
-            issues
+            issues,
+            isTransit: request.finalDestination ? isTransitDestination(request.finalDestination) : false,
+            transitCountry: request.finalDestination ? detectTransitCountry(request.finalDestination) : null
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );

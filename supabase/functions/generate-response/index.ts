@@ -2192,6 +2192,24 @@ Réponds en JSON:
     
     if (aiExtracted.can_quote_now && aiExtracted.destination) {
       console.log("Calling quotation-engine for structured tariffs...");
+      
+      // Prepare containers array from AI extraction
+      const containersForEngine = aiExtracted.containers?.length 
+        ? aiExtracted.containers.map((c: any) => ({
+            type: c.type,
+            quantity: c.quantity || 1,
+            cocSoc: c.coc_soc,
+            notes: c.notes
+          }))
+        : aiExtracted.container_type 
+          ? [{ type: aiExtracted.container_type, quantity: 1 }]
+          : undefined;
+      
+      // Calculate total weight from containers if available
+      const totalWeightTonnes = aiExtracted.weight_kg 
+        ? aiExtracted.weight_kg / 1000 
+        : undefined;
+      
       try {
         const qeResponse = await fetch(`${supabaseUrl}/functions/v1/quotation-engine`, {
           method: 'POST',
@@ -2208,16 +2226,30 @@ Réponds en JSON:
                              aiExtracted.transport_mode === 'air' ? 'aerien' : 'routier',
               incoterm: aiExtracted.incoterm || 'CIF',
               cargoType: aiExtracted.cargo_description || 'general',
+              cargoDescription: aiExtracted.cargo_description,
               cargoValue: aiExtracted.value || 10000000,
               cargoCurrency: aiExtracted.currency || 'FCFA',
-              containerType: aiExtracted.container_type,
-              containerCount: aiExtracted.containers?.length || 1,
-              weightTonnes: aiExtracted.weight_kg ? aiExtracted.weight_kg / 1000 : undefined,
+              cargoWeight: totalWeightTonnes,
+              // Multi-container support
+              containers: containersForEngine,
+              containerType: aiExtracted.container_type, // Legacy fallback
+              containerCount: aiExtracted.containers?.reduce((s: number, c: any) => s + (c.quantity || 1), 0) || 1,
+              // Carrier info for THD/carrier charges
+              carrier: aiExtracted.carrier,
+              shippingLine: aiExtracted.carrier,
+              // Weight and volume
+              weightTonnes: totalWeightTonnes,
               volumeM3: aiExtracted.volume_cbm,
+              // HS Code
               hsCode: aiExtracted.hs_codes?.[0],
-              includeCustomsClearance: true,
-              includeLocalTransport: true,
+              // Services
+              includeCustomsClearance: aiExtracted.services_requested?.includes('customs_clearance') !== false,
+              includeLocalTransport: aiExtracted.services_requested?.includes('local_delivery') !== false,
+              // Client
               clientCompany: aiExtracted.client_company,
+              // Transit detection from email context
+              isTransit: aiExtracted.email_context?.is_tender || 
+                         /mali|bamako|burkina|niger|guinée|mauritanie/i.test(aiExtracted.destination || ''),
             }
           }),
         });
@@ -2227,7 +2259,9 @@ Réponds en JSON:
           console.log("Quotation engine result:", JSON.stringify({
             success: quotationEngineResult?.success,
             linesCount: quotationEngineResult?.lines?.length,
-            totals: quotationEngineResult?.totals
+            totals: quotationEngineResult?.totals,
+            isTransit: quotationEngineResult?.metadata?.isTransit,
+            transitCountry: quotationEngineResult?.metadata?.transitCountry
           }));
         } else {
           console.error("Quotation engine call failed:", await qeResponse.text());
