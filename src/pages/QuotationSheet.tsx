@@ -56,6 +56,7 @@ import { cn } from '@/lib/utils';
 import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
 import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
+import { QuotationExcelExport } from '@/components/QuotationExcelExport';
 
 interface CargoLine {
   id: string;
@@ -2124,10 +2125,35 @@ export default function QuotationSheet() {
                       <FileText className="h-4 w-4 text-primary" />
                       Réponse générée
                     </span>
-                    <Button variant="outline" size="sm" onClick={handleCopyResponse}>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copier
-                    </Button>
+                    <div className="flex gap-2">
+                      <QuotationExcelExport
+                        client={projectContext.requesting_party || 'Client'}
+                        destination={finalDestination || destination}
+                        origin={cargoLines[0]?.origin}
+                        incoterm={incoterm}
+                        containerType={cargoLines[0]?.container_type}
+                        currency="FCFA"
+                        lines={serviceLines
+                          .filter(line => line.rate && line.rate > 0)
+                          .map(line => ({
+                            category: 'SERVICES',
+                            service: line.description,
+                            unit: line.unit,
+                            rate: line.rate || 0,
+                            quantity: line.quantity,
+                            amount: (line.rate || 0) * line.quantity,
+                            source: 'MANUAL',
+                          }))}
+                        marginPercent={5}
+                        validityDays={30}
+                        variant="outline"
+                        size="sm"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleCopyResponse}>
+                        <Copy className="h-4 w-4 mr-2" />
+                        Copier
+                      </Button>
+                    </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
