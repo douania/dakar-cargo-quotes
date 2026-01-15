@@ -2293,6 +2293,30 @@ Réponds en JSON:
         quotationContext += `\n→ TOTAL OPÉRATIONNEL: ${quotationEngineResult.totals.operationnel.toLocaleString('fr-FR')} FCFA\n\n`;
       }
       
+      // NOUVEAU: Bloc Frontière Mali
+      const borderLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'border');
+      if (borderLines.length > 0) {
+        quotationContext += '🚧 BLOC FRONTIÈRE MALI:\n';
+        quotationContext += '=== FRAIS FRONTIÈRE MALI (Moussala/Kidira) ===\n';
+        for (const line of borderLines) {
+          quotationContext += `• ${line.description}: ${line.amount?.toLocaleString('fr-FR')} FCFA\n`;
+          if (line.notes) quotationContext += `  ↳ ${line.notes}\n`;
+        }
+        quotationContext += `→ TOTAL FRONTIÈRE: ${quotationEngineResult.totals.border?.toLocaleString('fr-FR') || borderLines.reduce((s: number, l: any) => s + (l.amount || 0), 0).toLocaleString('fr-FR')} FCFA\n\n`;
+      }
+      
+      // NOUVEAU: Bloc Terminal Destination (Kati/Bamako)
+      const terminalLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'terminal');
+      if (terminalLines.length > 0) {
+        quotationContext += '🏭 BLOC CLEARING DESTINATION (KATI/BAMAKO):\n';
+        quotationContext += '=== FRAIS TERMINAL MALI ===\n';
+        for (const line of terminalLines) {
+          quotationContext += `• ${line.description}: ${line.amount?.toLocaleString('fr-FR')} FCFA\n`;
+          if (line.notes) quotationContext += `  ↳ ${line.notes}\n`;
+        }
+        quotationContext += `→ TOTAL TERMINAL: ${quotationEngineResult.totals.terminal?.toLocaleString('fr-FR') || terminalLines.reduce((s: number, l: any) => s + (l.amount || 0), 0).toLocaleString('fr-FR')} FCFA\n\n`;
+      }
+      
       // Bloc Honoraires
       const honorairesLines = quotationEngineResult.lines.filter((l: any) => l.bloc === 'honoraires');
       if (honorairesLines.length > 0) {
@@ -2326,6 +2350,46 @@ Réponds en JSON:
           quotationContext += `   • ${w}\n`;
         }
       }
+    }
+    
+    // ============ FETCH AND INJECT CGV CLAUSES (NEW) ============
+    let cgvContext = '';
+    const isTransitMali = /mali|bamako|sirakoro|sikasso|kayes|kati|koulikoro/i.test(aiExtracted.destination || '');
+    const destinationType = isTransitMali ? 'MALI_TRANSIT' : 'SENEGAL_IMPORT';
+    
+    try {
+      const { data: cgvClauses } = await supabase
+        .from('quotation_clauses')
+        .select('*')
+        .in('destination_type', [destinationType, 'ALL'])
+        .eq('is_active', true)
+        .order('sort_order');
+      
+      if (cgvClauses && cgvClauses.length > 0) {
+        const conditions = cgvClauses.filter((c: any) => !c.is_exclusion);
+        const exclusions = cgvClauses.filter((c: any) => c.is_exclusion);
+        
+        cgvContext = `\n\n=== CONDITIONS ${isTransitMali ? 'TRANSIT MALI' : 'IMPORT SÉNÉGAL'} ===\n`;
+        cgvContext += '🔴 INCLURE CES CONDITIONS DANS LA COTATION:\n\n';
+        
+        // Conditions principales
+        for (const clause of conditions) {
+          const prefix = clause.is_warning ? '⚠️ ' : '• ';
+          cgvContext += `${prefix}${clause.clause_title}: ${clause.clause_content}\n`;
+        }
+        
+        // Exclusions
+        if (exclusions.length > 0) {
+          cgvContext += '\n📋 EXCLUSIONS (À LISTER DANS L\'EMAIL):\n';
+          for (const excl of exclusions) {
+            cgvContext += `• ${excl.clause_title}: ${excl.clause_content}\n`;
+          }
+        }
+        
+        console.log(`Injected ${cgvClauses.length} CGV clauses for ${destinationType}`);
+      }
+    } catch (cgvError) {
+      console.error("CGV fetch error (non-blocking):", cgvError);
     }
 
     // ============ CALCULATE SODATRA FEES (from quotation-engine or fallback) ============
@@ -2475,6 +2539,7 @@ ${threadRoleContext}
 ${threadContext}
 ${expertContext}
 ${quotationContext}
+${cgvContext}
 ${sodatraFeesContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}

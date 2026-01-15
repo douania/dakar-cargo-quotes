@@ -11,6 +11,8 @@ import {
   ChevronUp,
   Info,
   TrendingUp,
+  Milestone,
+  Factory,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,8 +29,8 @@ export interface CostItem {
   description: string;
   montant: number | null;
   devise: string;
-  source: 'PORT_TARIFFS' | 'CARRIER_BILLING' | 'SODATRA_FEES' | 'ESTIMATE' | 'LEARNED';
-  bloc: 'operationnel' | 'honoraires' | 'debours';
+  source: 'PORT_TARIFFS' | 'CARRIER_BILLING' | 'SODATRA_FEES' | 'ESTIMATE' | 'LEARNED' | 'OFFICIAL' | 'CALCULATED';
+  bloc: 'operationnel' | 'honoraires' | 'debours' | 'border' | 'terminal';
   note?: string;
   is_editable?: boolean;
 }
@@ -47,6 +49,14 @@ export interface CostStructure {
     total: number | null; 
     items: CostItem[];
     note?: string;
+  };
+  bloc_border?: {
+    total: number;
+    items: CostItem[];
+  };
+  bloc_terminal?: {
+    total: number;
+    items: CostItem[];
   };
 }
 
@@ -67,6 +77,8 @@ const sourceLabels: Record<string, { label: string; color: string }> = {
   SODATRA_FEES: { label: 'Honoraires', color: 'bg-emerald-100 text-emerald-700' },
   ESTIMATE: { label: 'Estimé', color: 'bg-amber-100 text-amber-700' },
   LEARNED: { label: 'Appris', color: 'bg-indigo-100 text-indigo-700' },
+  OFFICIAL: { label: 'Officiel', color: 'bg-green-100 text-green-700' },
+  CALCULATED: { label: 'Calculé', color: 'bg-cyan-100 text-cyan-700' },
 };
 
 const statusIcons = {
@@ -89,6 +101,8 @@ export function QuotationCostBreakdown({
     operationnel: true,
     honoraires: true,
     debours: true,
+    border: true,
+    terminal: true,
   });
 
   const toggleBloc = (bloc: string) => {
@@ -362,6 +376,115 @@ export function QuotationCostBreakdown({
           </CollapsibleContent>
         </Card>
       </Collapsible>
+
+      {/* BLOC FRONTIÈRE MALI (Conditional) */}
+      {costStructure?.bloc_border && costStructure.bloc_border.items.length > 0 && (
+        <Collapsible open={expandedBlocs.border} onOpenChange={() => toggleBloc('border')}>
+          <Card className="border-orange-500/30 overflow-hidden">
+            <CollapsibleTrigger className="w-full">
+              <CardHeader className="bg-orange-500/10 hover:bg-orange-500/15 transition-colors cursor-pointer py-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-sm font-semibold text-orange-800">
+                    <Milestone className="h-4 w-4" />
+                    🚧 FRAIS FRONTIÈRE MALI
+                    <Badge variant="outline" className="text-xs ml-2 border-orange-300 text-orange-700">
+                      Kidira/Diboli
+                    </Badge>
+                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-orange-700">
+                      {formatAmount(costStructure.bloc_border.total)} {currency}
+                    </span>
+                    {expandedBlocs.border ? (
+                      <ChevronUp className="h-4 w-4 text-orange-600" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-orange-600" />
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            
+            <CollapsibleContent>
+              <CardContent className="pt-3 space-y-2">
+                {costStructure.bloc_border.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-2 border-b border-orange-100 last:border-0">
+                    <div className="flex items-center gap-2 flex-1">
+                      {getStatusIcon(item)}
+                      <span className="text-sm">{item.description}</span>
+                      <Badge className={cn("text-xs h-5", sourceLabels[item.source]?.color)}>
+                        {sourceLabels[item.source]?.label}
+                      </Badge>
+                    </div>
+                    <span className="font-mono text-sm font-medium">
+                      {formatAmount(item.montant)} {item.devise}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+
+      {/* BLOC TERMINAL MALI (Conditional) */}
+      {costStructure?.bloc_terminal && costStructure.bloc_terminal.items.length > 0 && (
+        <Collapsible open={expandedBlocs.terminal} onOpenChange={() => toggleBloc('terminal')}>
+          <Card className="border-rose-500/30 overflow-hidden">
+            <CollapsibleTrigger className="w-full">
+              <CardHeader className="bg-rose-500/10 hover:bg-rose-500/15 transition-colors cursor-pointer py-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-sm font-semibold text-rose-800">
+                    <Factory className="h-4 w-4" />
+                    🏭 CLEARING DESTINATION
+                    <Badge variant="outline" className="text-xs ml-2 border-rose-300 text-rose-700">
+                      Kati / Bamako
+                    </Badge>
+                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-rose-700">
+                      {formatAmount(costStructure.bloc_terminal.total)} {currency}
+                    </span>
+                    {expandedBlocs.terminal ? (
+                      <ChevronUp className="h-4 w-4 text-rose-600" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-rose-600" />
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            
+            <CollapsibleContent>
+              <CardContent className="pt-3 space-y-2">
+                {costStructure.bloc_terminal.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-2 border-b border-rose-100 last:border-0">
+                    <div className="flex items-center gap-2 flex-1">
+                      {getStatusIcon(item)}
+                      <span className="text-sm">{item.description}</span>
+                      {item.note && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Info className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">{item.note}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                    <span className="font-mono text-sm font-medium">
+                      {formatAmount(item.montant)} {item.devise}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
 
       {/* RÉCAPITULATIF */}
       <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
