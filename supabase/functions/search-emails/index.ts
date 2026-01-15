@@ -46,6 +46,85 @@ function cleanSpamPrefix(subject: string): string {
     .trim();
 }
 
+// Parse attachments from BODYSTRUCTURE response
+function parseAttachmentsFromBodyStructure(structure: string): Array<{
+  filename: string;
+  contentType: string;
+  size: number;
+}> {
+  const attachments: Array<{ filename: string; contentType: string; size: number }> = [];
+  
+  // Pattern to find filename in various formats
+  // "name" "filename.pdf" or "filename" "document.xlsx"
+  const filenamePatterns = [
+    /"(?:name|filename)"\s+"([^"]+)"/gi,
+    /"([^"]+\.(?:pdf|xlsx?|docx?|csv|zip|rar))"/gi
+  ];
+  
+  // Extract type/subtype pairs with their following content
+  const partPattern = /\("([^"]+)"\s+"([^"]+)"[^)]*\)/g;
+  let match;
+  
+  while ((match = partPattern.exec(structure)) !== null) {
+    const type = match[1].toLowerCase();
+    const subtype = match[2].toLowerCase();
+    const contentType = `${type}/${subtype}`;
+    const partContext = match[0];
+    
+    // Check if this part has a filename
+    let filename = '';
+    for (const pattern of filenamePatterns) {
+      pattern.lastIndex = 0;
+      const fnMatch = pattern.exec(partContext);
+      if (fnMatch) {
+        filename = decodeHeader(fnMatch[1]);
+        break;
+      }
+    }
+    
+    // Skip if no filename or it's an inline image
+    if (!filename) continue;
+    const lowerFilename = filename.toLowerCase();
+    
+    // Skip inline images (signatures, etc.)
+    if (lowerFilename.startsWith('~') || 
+        lowerFilename.startsWith('image0') ||
+        lowerFilename.includes('signature')) {
+      continue;
+    }
+    
+    // Only include relevant document types
+    const isDocument = 
+      contentType.includes('pdf') ||
+      contentType.includes('excel') ||
+      contentType.includes('spreadsheet') ||
+      contentType.includes('word') ||
+      contentType.includes('document') ||
+      contentType.includes('csv') ||
+      contentType.includes('zip') ||
+      lowerFilename.endsWith('.pdf') ||
+      lowerFilename.endsWith('.xlsx') ||
+      lowerFilename.endsWith('.xls') ||
+      lowerFilename.endsWith('.docx') ||
+      lowerFilename.endsWith('.doc') ||
+      lowerFilename.endsWith('.csv');
+    
+    if (isDocument) {
+      attachments.push({ 
+        filename, 
+        contentType,
+        size: 0 // Size extraction is complex, skip for preview
+      });
+    }
+  }
+  
+  // Deduplicate by filename
+  const unique = Array.from(new Map(attachments.map(a => [a.filename, a])).values());
+  
+  console.log(`[BODYSTRUCTURE] Found ${unique.length} document attachments`);
+  return unique;
+}
+
 // Normalize subject for thread grouping
 function normalizeSubject(subject: string): string {
   // 1. First clean spam prefixes
@@ -237,12 +316,14 @@ class IMAPSearchClient {
     date: string;
     messageId: string;
     references: string;
+    attachments: Array<{ filename: string; contentType: string; size: number }>;
   }>> {
     if (seqNums.length === 0) return [];
     
     const range = seqNums.join(',');
+    // Fetch headers AND BODYSTRUCTURE to get attachment info
     const response = await this.sendCommand(
-      `FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])`
+      `FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)] BODYSTRUCTURE)`
     );
     
     const messages: Array<{
@@ -254,15 +335,25 @@ class IMAPSearchClient {
       date: string;
       messageId: string;
       references: string;
+      attachments: Array<{ filename: string; contentType: string; size: number }>;
     }> = [];
 
-    const fetchRegex = /\* (\d+) FETCH \(UID (\d+).*?BODY\[HEADER\.FIELDS.*?\] \{(\d+)\}\r\n([\s\S]*?)(?=\* \d+ FETCH|\r\nA\d+|$)/gi;
-    let match;
+    // Split response by FETCH blocks
+    const fetchBlocks = response.split(/(?=\* \d+ FETCH)/);
     
-    while ((match = fetchRegex.exec(response)) !== null) {
-      const seq = parseInt(match[1]);
-      const uid = parseInt(match[2]);
-      const headerBlock = match[4];
+    for (const block of fetchBlocks) {
+      if (!block.includes('FETCH')) continue;
+      
+      const seqMatch = block.match(/\* (\d+) FETCH/);
+      const uidMatch = block.match(/UID (\d+)/);
+      if (!seqMatch || !uidMatch) continue;
+      
+      const seq = parseInt(seqMatch[1]);
+      const uid = parseInt(uidMatch[1]);
+      
+      // Extract header block
+      const headerMatch = block.match(/BODY\[HEADER\.FIELDS[^\]]*\] \{(\d+)\}\r\n([\s\S]*?)(?=BODYSTRUCTURE|\)$)/i);
+      const headerBlock = headerMatch?.[2] || '';
       
       const subjectMatch = headerBlock.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
       const fromMatch = headerBlock.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
@@ -282,6 +373,12 @@ class IMAPSearchClient {
         return m ? m[1].trim() : e.trim();
       }).filter(e => e);
       
+      // Extract BODYSTRUCTURE and parse attachments
+      const bodyStructureMatch = block.match(/BODYSTRUCTURE (\([\s\S]*\))\s*\)/);
+      const attachments = bodyStructureMatch 
+        ? parseAttachmentsFromBodyStructure(bodyStructureMatch[1])
+        : [];
+      
       messages.push({
         seq,
         uid,
@@ -290,7 +387,8 @@ class IMAPSearchClient {
         to,
         date: dateMatch?.[1]?.trim() || new Date().toISOString(),
         messageId: messageIdMatch?.[1]?.trim() || `<${uid}@imported>`,
-        references: referencesMatch?.[1]?.trim() || inReplyToMatch?.[1]?.trim() || ''
+        references: referencesMatch?.[1]?.trim() || inReplyToMatch?.[1]?.trim() || '',
+        attachments
       });
     }
     
@@ -479,6 +577,12 @@ serve(async (req) => {
       // Get original subject (cleaned of spam prefix) from oldest message
       const displaySubject = cleanSpamPrefix(sortedMsgs[0].subject);
       
+      // Aggregate all attachments from thread messages
+      const allAttachments = msgs.flatMap(m => m.attachments || []);
+      const uniqueAttachments = Array.from(
+        new Map(allAttachments.map(a => [a.filename, a])).values()
+      );
+      
       return {
         subject: displaySubject,
         normalizedSubject: subject,
@@ -488,6 +592,7 @@ serve(async (req) => {
           first: parseEmailDate(sortedMsgs[0].date), // Oldest
           last: parseEmailDate(sortedMsgs[sortedMsgs.length - 1].date) // Newest
         },
+        attachments: uniqueAttachments,
         messages: sortedMsgs.map(m => ({
           uid: m.uid,
           seq: m.seq,

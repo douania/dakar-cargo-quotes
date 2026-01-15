@@ -6,18 +6,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, Sparkles } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, FileSpreadsheet, Sparkles, Paperclip } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { processQuotationRequest, type QuotationProcessResult } from '@/services/emailService';
 import { QuotationProcessor } from '@/components/QuotationProcessor';
+
+interface AttachmentPreview {
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
 interface EmailThread {
   subject: string;
   normalizedSubject: string;
   messageCount: number;
   participants: string[];
   dateRange: { first: string; last: string };
+  attachments?: AttachmentPreview[];
   messages: Array<{
     uid: number;
     seq: number;
@@ -360,6 +369,58 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
                           <Calendar className="h-3 w-3" />
                           {formatDate(thread.dateRange.first)} → {formatDate(thread.dateRange.last)}
                         </span>
+                        
+                        {/* Attachment badges */}
+                        {thread.attachments && thread.attachments.length > 0 && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="flex items-center gap-1 cursor-help">
+                                <Paperclip className="h-3 w-3" />
+                                {thread.attachments.some(a => 
+                                  a.contentType.includes('pdf') || a.filename.toLowerCase().endsWith('.pdf')
+                                ) && (
+                                  <Badge variant="outline" className="text-red-600 border-red-200 text-xs py-0 px-1">
+                                    <FileText className="h-3 w-3 mr-0.5" />
+                                    PDF
+                                  </Badge>
+                                )}
+                                {thread.attachments.some(a => 
+                                  a.contentType.includes('excel') || 
+                                  a.contentType.includes('spreadsheet') ||
+                                  a.filename.toLowerCase().endsWith('.xlsx') ||
+                                  a.filename.toLowerCase().endsWith('.xls')
+                                ) && (
+                                  <Badge variant="outline" className="text-green-600 border-green-200 text-xs py-0 px-1">
+                                    <FileSpreadsheet className="h-3 w-3 mr-0.5" />
+                                    Excel
+                                  </Badge>
+                                )}
+                                {thread.attachments.some(a => 
+                                  a.contentType.includes('word') || 
+                                  a.contentType.includes('document') ||
+                                  a.filename.toLowerCase().endsWith('.docx') ||
+                                  a.filename.toLowerCase().endsWith('.doc')
+                                ) && (
+                                  <Badge variant="outline" className="text-blue-600 border-blue-200 text-xs py-0 px-1">
+                                    <FileText className="h-3 w-3 mr-0.5" />
+                                    Word
+                                  </Badge>
+                                )}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <p className="font-medium mb-1">Pièces jointes :</p>
+                              <ul className="text-xs space-y-0.5">
+                                {thread.attachments.slice(0, 5).map((a, i) => (
+                                  <li key={i} className="truncate">{a.filename}</li>
+                                ))}
+                                {thread.attachments.length > 5 && (
+                                  <li className="text-muted-foreground">+{thread.attachments.length - 5} autres...</li>
+                                )}
+                              </ul>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     </div>
                   </div>
