@@ -182,8 +182,6 @@ export function QuotationProcessorWithPuzzle({
 
   // Transform cost structure to QuotationLine[] format for Excel export
   const excelExportLines = useMemo(() => {
-    if (!costStructure) return [];
-    
     const lines: Array<{
       category: string;
       service: string;
@@ -195,19 +193,42 @@ export function QuotationProcessorWithPuzzle({
       notes?: string;
     }> = [];
     
-    // Operational costs
-    costStructure.bloc_operationnel.items.forEach(item => {
-      lines.push({
-        category: 'OPÉRATIONNEL',
-        service: item.description,
-        unit: 'Forfait',
-        rate: item.montant || 0,
-        quantity: 1,
-        amount: item.montant || 0,
-        source: item.source || 'CALCULATED',
-        notes: item.note,
+    // Operational costs from costStructure
+    if (costStructure?.bloc_operationnel?.items?.length > 0) {
+      costStructure.bloc_operationnel.items.forEach(item => {
+        lines.push({
+          category: 'OPÉRATIONNEL',
+          service: item.description,
+          unit: 'Forfait',
+          rate: item.montant || 0,
+          quantity: 1,
+          amount: item.montant || 0,
+          source: item.source || 'CALCULATED',
+          notes: item.note,
+        });
       });
-    });
+    }
+    
+    // FALLBACK: If no operational lines, parse from draft body
+    if (lines.length === 0 && result?.draft?.body) {
+      const regex = /[•\-]\s*(.+?):\s*([\d\s,]+)\s*FCFA/g;
+      let match;
+      while ((match = regex.exec(result.draft.body)) !== null) {
+        const [, service, amountStr] = match;
+        const amount = parseInt(amountStr.replace(/[\s,]/g, ''), 10) || 0;
+        if (amount > 0) {
+          lines.push({
+            category: 'OPÉRATIONNEL',
+            service: service.trim(),
+            unit: 'Forfait',
+            rate: amount,
+            quantity: 1,
+            amount: amount,
+            source: 'EXTRACTED',
+          });
+        }
+      }
+    }
     
     // Border costs (if Mali)
     (costStructure as any).bloc_border?.items?.forEach((item: any) => {
@@ -788,22 +809,20 @@ ${JSON.stringify(result.extractedData, null, 2)}
                       Fermer
                     </Button>
                     
-                    {/* Excel Export Button */}
-                    {excelExportLines.length > 0 && (
-                      <QuotationExcelExport
-                        client={result.originalEmail?.from || 'Client'}
-                        destination={result.extractedData?.destination || 'Destination'}
-                        origin={result.extractedData?.origin}
-                        incoterm={result.extractedData?.incoterm}
-                        containerType={result.extractedData?.container_type}
-                        currency="FCFA"
-                        lines={excelExportLines}
-                        marginPercent={5}
-                        validityDays={30}
-                        variant="outline"
-                        size="default"
-                      />
-                    )}
+                    {/* Excel Export Button - Always visible, disabled if no data */}
+                    <QuotationExcelExport
+                      client={result.originalEmail?.from || 'Client'}
+                      destination={result.extractedData?.destination || 'Destination'}
+                      origin={result.extractedData?.origin}
+                      incoterm={result.extractedData?.incoterm}
+                      containerType={result.extractedData?.container_type}
+                      currency="FCFA"
+                      lines={excelExportLines}
+                      marginPercent={5}
+                      validityDays={30}
+                      variant="outline"
+                      size="default"
+                    />
                     
                     <Button onClick={handleCopy} className="gap-2">
                       {copied ? (
