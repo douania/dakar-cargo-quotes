@@ -42,6 +42,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const [totalFound, setTotalFound] = useState(0);
+  const [reconstructThread, setReconstructThread] = useState(true); // Enable by default
   
   // Quotation processing state
   const [processingQuotation, setProcessingQuotation] = useState(false);
@@ -60,7 +61,13 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
 
     try {
       const { data, error } = await supabase.functions.invoke('search-emails', {
-        body: { configId, searchType, query: query.trim(), limit: 50 }
+        body: { 
+          configId, 
+          searchType, 
+          query: query.trim(), 
+          limit: 200,
+          reconstructThread 
+        }
       });
 
       if (error) throw error;
@@ -72,7 +79,8 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       if (data.threads?.length === 0) {
         toast.info('Aucun email trouvé pour cette recherche');
       } else {
-        toast.success(`${data.threads.length} conversation(s) trouvée(s)`);
+        const reconstructInfo = reconstructThread ? ' (reconstruction thread activée)' : '';
+        toast.success(`${data.threads.length} conversation(s) trouvée(s)${reconstructInfo}`);
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -257,6 +265,20 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
               {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               <span className="ml-2 hidden sm:inline">Rechercher</span>
             </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox 
+              id="reconstructThread"
+              checked={reconstructThread}
+              onCheckedChange={(checked) => setReconstructThread(checked === true)}
+            />
+            <label 
+              htmlFor="reconstructThread" 
+              className="text-sm text-muted-foreground cursor-pointer"
+            >
+              Reconstruire le thread complet (via Message-ID/References)
+            </label>
           </div>
 
           {totalFound > 0 && (

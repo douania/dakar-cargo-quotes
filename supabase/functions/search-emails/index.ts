@@ -297,6 +297,17 @@ class IMAPSearchClient {
     return messages;
   }
 
+  // Search by Message-ID header
+  async searchByMessageId(messageId: string): Promise<number[]> {
+    // Clean up the message ID for searching
+    const cleanId = messageId.replace(/^<|>$/g, '');
+    console.log(`Searching for Message-ID: ${cleanId}`);
+    const response = await this.sendCommand(`SEARCH HEADER Message-ID "${cleanId}"`);
+    const match = response.match(/\* SEARCH([\d\s]*)/);
+    if (!match) return [];
+    return match[1].trim().split(/\s+/).filter(Boolean).map(Number);
+  }
+
   async fetchBody(uid: number): Promise<{ text: string; html: string }> {
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
     let text = '';
@@ -344,7 +355,7 @@ serve(async (req) => {
 
   try {
     // Increased default limit from 30 to 200 for better thread coverage
-    const { configId, searchType, query, limit = 200, deepSearch = false } = await req.json();
+    const { configId, searchType, query, limit = 200, deepSearch = false, reconstructThread = false } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -393,7 +404,58 @@ serve(async (req) => {
     const selectedSeqs = seqNums.length <= limit ? seqNums : seqNums.slice(-limit);
     
     // Fetch headers
-    const messages = await client.fetchHeaders(selectedSeqs);
+    let messages = await client.fetchHeaders(selectedSeqs);
+    
+    // Thread reconstruction by Message-ID/References
+    if (reconstructThread && messages.length > 0) {
+      console.log(`Thread reconstruction enabled. Starting with ${messages.length} messages.`);
+      
+      // Collect all Message-IDs we already have
+      const foundMessageIds = new Set(messages.map(m => m.messageId));
+      
+      // Collect all referenced Message-IDs from References and In-Reply-To headers
+      const referencedIds = new Set<string>();
+      for (const msg of messages) {
+        if (msg.references) {
+          // References header can contain multiple Message-IDs separated by spaces
+          const refs = msg.references.split(/\s+/).filter(Boolean);
+          refs.forEach(ref => {
+            const cleanRef = ref.trim();
+            if (cleanRef && !foundMessageIds.has(cleanRef)) {
+              referencedIds.add(cleanRef);
+            }
+          });
+        }
+      }
+      
+      console.log(`Found ${referencedIds.size} referenced Message-IDs not in current results`);
+      
+      // Search for each missing Message-ID
+      let foundAdditional = 0;
+      for (const refId of referencedIds) {
+        try {
+          const refSeqs = await client.searchByMessageId(refId);
+          if (refSeqs.length > 0) {
+            console.log(`Found ${refSeqs.length} email(s) for Message-ID: ${refId}`);
+            const additionalMsgs = await client.fetchHeaders(refSeqs);
+            
+            // Add only if not already in our list (by UID to avoid duplicates)
+            const existingUids = new Set(messages.map(m => m.uid));
+            for (const addMsg of additionalMsgs) {
+              if (!existingUids.has(addMsg.uid)) {
+                messages.push(addMsg);
+                foundAdditional++;
+                existingUids.add(addMsg.uid);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`Error searching for Message-ID ${refId}:`, e);
+        }
+      }
+      
+      console.log(`Thread reconstruction complete. Added ${foundAdditional} emails. Total: ${messages.length}`);
+    }
     
     // Group by thread using improved normalization (handles Spam: prefixes)
     const threads = new Map<string, typeof messages>();
