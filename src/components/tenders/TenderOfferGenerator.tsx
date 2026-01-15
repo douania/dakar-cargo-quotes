@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { 
@@ -21,13 +20,14 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Ship,
   Truck,
-  Package
+  Package,
+  FileSpreadsheet
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { supabase } from '@/integrations/supabase/client';
 
 interface TenderSegment {
   id: string;
@@ -99,6 +99,8 @@ export function TenderOfferGenerator({
   const totalCost = contingents.reduce((sum, c) => sum + calculateContingentCost(c), 0);
   const totalWithMargin = totalCost * (1 + marginPercent / 100);
 
+  const [isGeneratingExcel, setIsGeneratingExcel] = useState(false);
+
   const generateOffer = () => {
     if (pendingSegments.length > 0) {
       toast.error(`${pendingSegments.length} segments n'ont pas de tarifs confirmés`);
@@ -110,6 +112,78 @@ export function TenderOfferGenerator({
     downloadAsText(offerContent, `Offre_${tender?.reference || 'tender'}.txt`);
     toast.success('Offre générée avec succès');
     onOpenChange(false);
+  };
+
+  const generateExcelOffer = async () => {
+    if (pendingSegments.length > 0) {
+      toast.error(`${pendingSegments.length} segments n'ont pas de tarifs confirmés`);
+      return;
+    }
+
+    setIsGeneratingExcel(true);
+
+    try {
+      // Convert segments to quotation lines format
+      const lines = segments.map(segment => ({
+        category: segment.segment_type === 'sea_freight' ? 'Fret Maritime' : 
+                  segment.segment_type === 'inland_transport' ? 'Transport Terrestre' :
+                  segment.segment_type === 'port_handling' ? 'Manutention Port' :
+                  segment.segment_type === 'customs' ? 'Dédouanement' : 'Autres',
+        service: `${segment.origin_location} → ${segment.destination_location}`,
+        unit: segment.rate_unit || 'forfait',
+        rate: segment.rate_per_unit || 0,
+        quantity: 1,
+        amount: segment.rate_per_unit || 0,
+        source: segment.status === 'confirmed' ? 'HISTORIQUE' : 'ESTIMÉ',
+        notes: segment.partner_company || undefined
+      }));
+
+      // Create scenarios from contingents
+      const scenarios = contingents.map(contingent => {
+        const multiplier = contingent.cargo_teus || 
+                          (contingent.cargo_cbm ? contingent.cargo_cbm / 30 : 1) || 1;
+        return {
+          name: contingent.contingent_name,
+          containerType: contingent.cargo_teus ? `${contingent.cargo_teus} TEUs` : 
+                        contingent.cargo_vehicles ? `${contingent.cargo_vehicles} véh.` : 'N/A',
+          lines: lines.map(l => ({ ...l, amount: l.amount * multiplier })),
+          total: totalSegmentsCost * multiplier * (1 + marginPercent / 100)
+        };
+      });
+
+      const { data, error } = await supabase.functions.invoke('generate-excel-quotation', {
+        body: {
+          reference: tender?.reference,
+          client: tender?.client || 'Client',
+          destination: contingents[0]?.destination_site || contingents[0]?.destination_port || 'Destination',
+          origin: tender?.origin_country,
+          currency: 'EUR',
+          lines,
+          marginPercent,
+          validityDays,
+          scenarios: scenarios.length > 1 ? scenarios : undefined
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.success && data?.file?.url) {
+        toast.success(`Excel généré: ${data.file.filename}`, {
+          action: {
+            label: 'Télécharger',
+            onClick: () => window.open(data.file.url, '_blank'),
+          }
+        });
+        window.open(data.file.url, '_blank');
+      } else {
+        throw new Error(data?.error || 'Échec de la génération');
+      }
+    } catch (error) {
+      console.error('Excel generation error:', error);
+      toast.error('Erreur lors de la génération Excel');
+    } finally {
+      setIsGeneratingExcel(false);
+    }
   };
 
   const generateOfferContent = () => {
@@ -356,13 +430,21 @@ export function TenderOfferGenerator({
           </Card>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Annuler
           </Button>
-          <Button onClick={generateOffer} className="gap-2">
+          <Button variant="outline" onClick={generateOffer} className="gap-2">
             <Download className="h-4 w-4" />
-            Télécharger l'offre
+            Télécharger (Texte)
+          </Button>
+          <Button onClick={generateExcelOffer} disabled={isGeneratingExcel} className="gap-2">
+            {isGeneratingExcel ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-4 w-4" />
+            )}
+            Excel Pro (Multi-onglets)
           </Button>
         </DialogFooter>
       </DialogContent>

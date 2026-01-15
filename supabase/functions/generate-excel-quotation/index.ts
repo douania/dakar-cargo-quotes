@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import ExcelJS from "https://esm.sh/exceljs@4.4.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,6 +31,14 @@ interface ExclusionItem {
   notes?: string;
 }
 
+interface ContainerScenario {
+  name: string;
+  containerType: string;
+  weight?: number;
+  lines: QuotationLine[];
+  total: number;
+}
+
 interface QuotationRequest {
   reference?: string;
   client: string;
@@ -43,13 +52,7 @@ interface QuotationRequest {
   exclusions?: ExclusionItem[];
   marginPercent?: number;
   validityDays?: number;
-  includeScenarios?: boolean;
-  scenarios?: {
-    name: string;
-    containerType: string;
-    weight?: number;
-    lines: QuotationLine[];
-  }[];
+  scenarios?: ContainerScenario[];
 }
 
 // Detect destination country
@@ -74,21 +77,23 @@ function getDefaultCGV(country: string): CGVClause[] {
     return [
       ...common,
       { code: 'TRANSIT', title: 'Transit Time', content: 'Transit estimé: 15-18 jours depuis arrivée navire Dakar.', isWarning: false },
-      { code: 'DEMURRAGE', title: 'Demurrage', content: 'Demander 21 jours franchise demurrage au booking.', isWarning: true },
-      { code: 'DETENTION', title: 'Détention COC', content: '20\' @€23/j, 40\' @€39/j + Addcom. Délai A/R estimé 8-13 jours.', isWarning: true },
-      { code: 'CAUTION', title: 'Caution COC', content: '20\': $3,200 | 40\': $5,100. Maersk/Safmarine: dispensé.', isWarning: true },
-      { code: 'TRUCK', title: 'Immobilisation', content: '48h franchise. Au-delà: €38.11/jour.', isWarning: false },
-      { code: 'SECURITY', title: 'Sécurité Mali', content: 'Retards sécuritaires non imputables.', isWarning: true },
-      { code: 'PAYMENT', title: 'Paiement', content: '80% avant arrivée, 10% TRIE, 10% POD.', isWarning: false },
+      { code: 'DEMURRAGE', title: 'Demurrage Free Time', content: 'Demander 21 jours franchise demurrage au booking (standard: 10 jours).', isWarning: true },
+      { code: 'STORAGE', title: 'Magasinage DPW', content: 'Franchise magasinage Transit TRIE: 21 jours depuis arrivée navire.', isWarning: false },
+      { code: 'MERCHANT_HAULAGE', title: 'Merchant Haulage Free Time', content: '23 jours depuis gate out full jusqu\'au gate in empty.', isWarning: false },
+      { code: 'DETENTION', title: 'Détention COC', content: '20\' DRY: €23/jour + Addcom (MSC 5.5%, autres 2.8%)\n40\' DRY: €39/jour + Addcom\nDélai A/R estimé: 8-13 jours', isWarning: true },
+      { code: 'CAUTION', title: 'Caution Conteneur COC', content: '20\': $3,200 USD | 40\': $5,100 USD\nAlternative broker: €150 (20\') / €250 (40\')\nMaersk/Safmarine: Dispensé', isWarning: true },
+      { code: 'TRUCK', title: 'Immobilisation Camion', content: 'Franchise: 48h (frontière, Kati, site)\nAu-delà: €38.11/jour (~25,000 FCFA/jour)', isWarning: false },
+      { code: 'SECURITY', title: 'Force Majeure / Sécurité', content: 'Grèves, émeutes, situation sécuritaire: retards non imputables.\nSurestaries et immobilisation camion restent applicables.', isWarning: true },
+      { code: 'PAYMENT', title: 'Conditions Paiement', content: '80% avant arrivée navire\n10% passage frontière TRIE\n10% sur POD', isWarning: false },
     ];
   }
 
   return [
     ...common,
-    { code: 'STORAGE', title: 'Magasinage', content: 'Franchise 10 jours PAD.', isWarning: false },
-    { code: 'DEMURRAGE', title: 'Surestaries', content: 'Franchise 10 jours.', isWarning: false },
+    { code: 'STORAGE', title: 'Franchise Magasinage', content: 'Franchise magasinage PAD: 10 jours.', isWarning: false },
+    { code: 'DEMURRAGE', title: 'Surestaries', content: 'Franchise: 10 jours depuis arrivée navire.', isWarning: false },
     { code: 'DETENTION', title: 'Détention', content: '48h après sortie port. 20\' @€27/j, 40\' @€45/j.', isWarning: false },
-    { code: 'TRUCK', title: 'Immobilisation', content: '24h franchise. Au-delà: 100,000 FCFA/j.', isWarning: false },
+    { code: 'TRUCK', title: 'Immobilisation Camion', content: '24h franchise. Au-delà: 100,000 FCFA/j.', isWarning: false },
   ];
 }
 
@@ -96,7 +101,7 @@ function getDefaultCGV(country: string): CGVClause[] {
 function getDefaultExclusions(country: string): ExclusionItem[] {
   const common: ExclusionItem[] = [
     { service: 'Droits et taxes douaniers', rate: 'Selon déclaration' },
-    { service: 'Magasinage hors franchise', rate: 'Tarif DPW' },
+    { service: 'Magasinage hors franchise', rate: 'Tarif DPW/PAD' },
     { service: 'Surestaries hors franchise', rate: 'Tarif armateur' },
   ];
 
@@ -105,7 +110,7 @@ function getDefaultExclusions(country: string): ExclusionItem[] {
       ...common,
       { service: 'BL Charges', rate: '€100' },
       { service: 'Pre-import / ENS', rate: '€300' },
-      { service: 'PVI', rate: '0.75% FOB' },
+      { service: 'PVI (Inspection)', rate: '0.75% FOB' },
       { service: 'Assurance Mali', rate: '0.15% CIF' },
       { service: 'Road Tax Mali', rate: '0.25% CIF' },
     ];
@@ -117,276 +122,9 @@ function getDefaultExclusions(country: string): ExclusionItem[] {
   ];
 }
 
-// Generate CSV content (compatible with Excel)
-function generateCSV(request: QuotationRequest): string {
-  const date = new Date().toLocaleDateString('fr-FR');
-  const reference = request.reference || `QT-${Date.now()}`;
-  const country = detectCountry(request.destination);
-  const cgv = request.cgvClauses || getDefaultCGV(country);
-  const exclusions = request.exclusions || getDefaultExclusions(country);
-  const currency = request.currency || 'EUR';
-  
-  let csv = '';
-  
-  // BOM for Excel UTF-8 compatibility
-  csv += '\ufeff';
-  
-  // Header section
-  csv += 'SODATRA SHIPPING & LOGISTICS\n';
-  csv += `Cotation ${country === 'MALI' ? 'Transit Mali' : 'Import Sénégal'}\n`;
-  csv += '\n';
-  csv += `Référence;${reference}\n`;
-  csv += `Client;${request.client}\n`;
-  csv += `Date;${date}\n`;
-  csv += `Validité;${request.validityDays || 30} jours\n`;
-  csv += `Destination;${request.destination}\n`;
-  if (request.origin) csv += `Origine;${request.origin}\n`;
-  if (request.incoterm) csv += `Incoterm;${request.incoterm}\n`;
-  if (request.containerType) csv += `Type Conteneur;${request.containerType}\n`;
-  csv += '\n';
-  
-  // Cost breakdown section
-  csv += '=== DÉTAIL DES COÛTS ===\n';
-  csv += 'Catégorie;Service;Unité;Taux;Qté;Montant;Source\n';
-  
-  let subtotal = 0;
-  let currentCategory = '';
-  
-  for (const line of request.lines) {
-    if (line.category !== currentCategory) {
-      currentCategory = line.category;
-      csv += `\n${currentCategory};;;;\n`;
-    }
-    
-    const amount = line.amount || (line.rate * line.quantity);
-    subtotal += amount;
-    
-    csv += `;${line.service};${line.unit};${line.rate};${line.quantity};${amount};${line.source}\n`;
-  }
-  
-  csv += '\n';
-  csv += `SOUS-TOTAL;;;;;${subtotal};${currency}\n`;
-  
-  if (request.marginPercent && request.marginPercent > 0) {
-    const margin = subtotal * (request.marginPercent / 100);
-    const total = subtotal + margin;
-    csv += `Marge (${request.marginPercent}%);;;;;${margin.toFixed(0)};${currency}\n`;
-    csv += `TOTAL;;;;;${total.toFixed(0)};${currency}\n`;
-  } else {
-    csv += `TOTAL;;;;;${subtotal};${currency}\n`;
-  }
-  
-  csv += '\n\n';
-  
-  // CGV section
-  csv += '=== CONDITIONS GÉNÉRALES ===\n';
-  for (const clause of cgv) {
-    const warning = clause.isWarning ? '⚠️ ' : '';
-    csv += `${warning}${clause.title}\n`;
-    csv += `"${clause.content.replace(/"/g, '""')}"\n`;
-    csv += '\n';
-  }
-  
-  csv += '\n';
-  
-  // Exclusions section
-  csv += '=== EXCLUSIONS ===\n';
-  csv += 'Service;Taux;Notes\n';
-  for (const excl of exclusions) {
-    csv += `${excl.service};${excl.rate};${excl.notes || ''}\n`;
-  }
-  
-  csv += '\n\n';
-  csv += 'Document généré automatiquement par SODATRA Intelligence\n';
-  csv += `Date de génération: ${new Date().toLocaleString('fr-FR')}\n`;
-  
-  return csv;
-}
-
-// Generate HTML version (for preview)
-function generateHTML(request: QuotationRequest): string {
-  const date = new Date().toLocaleDateString('fr-FR');
-  const reference = request.reference || `QT-${Date.now()}`;
-  const country = detectCountry(request.destination);
-  const cgv = request.cgvClauses || getDefaultCGV(country);
-  const exclusions = request.exclusions || getDefaultExclusions(country);
-  const currency = request.currency || 'EUR';
-  
-  let subtotal = 0;
-  request.lines.forEach(l => subtotal += l.amount || (l.rate * l.quantity));
-  
-  const margin = request.marginPercent ? subtotal * (request.marginPercent / 100) : 0;
-  const total = subtotal + margin;
-  
-  const formatAmount = (amt: number) => {
-    return new Intl.NumberFormat('fr-FR').format(Math.round(amt));
-  };
-
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cotation ${reference}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; font-size: 11px; line-height: 1.4; color: #333; padding: 20px; max-width: 900px; margin: 0 auto; }
-    .header { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }
-    .header h1 { font-size: 18px; margin-bottom: 4px; }
-    .header p { opacity: 0.9; font-size: 12px; }
-    .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; padding: 15px; background: #f8fafc; border: 1px solid #e2e8f0; }
-    .meta-item { }
-    .meta-label { font-size: 9px; color: #64748b; text-transform: uppercase; }
-    .meta-value { font-weight: 600; color: #1e293b; }
-    .section { margin-top: 20px; }
-    .section-title { font-size: 12px; font-weight: 600; color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 4px; margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; font-size: 10px; }
-    th { background: #f1f5f9; padding: 8px; text-align: left; font-weight: 600; border-bottom: 2px solid #cbd5e1; }
-    td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
-    .category-row { background: #f8fafc; font-weight: 600; }
-    .amount { text-align: right; font-family: monospace; }
-    .source { font-size: 8px; padding: 2px 6px; border-radius: 10px; }
-    .source-official { background: #dcfce7; color: #166534; }
-    .source-historical { background: #fef3c7; color: #92400e; }
-    .source-estimated { background: #e0e7ff; color: #3730a3; }
-    .total-row { background: #1e40af; color: white; font-weight: 600; }
-    .total-row td { padding: 10px 8px; }
-    .subtotal-row { background: #f1f5f9; font-weight: 600; }
-    .cgv-item { margin-bottom: 12px; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #3b82f6; }
-    .cgv-warning { border-left-color: #f59e0b; background: #fffbeb; }
-    .cgv-title { font-weight: 600; color: #1e293b; margin-bottom: 4px; }
-    .cgv-content { color: #64748b; white-space: pre-line; }
-    .exclusions { display: grid; gap: 8px; }
-    .exclusion-item { display: flex; justify-content: space-between; padding: 6px 10px; background: #fef2f2; border-radius: 4px; }
-    .exclusion-service { color: #991b1b; }
-    .exclusion-rate { font-weight: 600; color: #dc2626; }
-    .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #e2e8f0; text-align: center; color: #64748b; font-size: 9px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>SODATRA SHIPPING & LOGISTICS</h1>
-    <p>Cotation ${country === 'MALI' ? 'Transit Mali' : 'Import Sénégal'} - ${request.destination}</p>
-  </div>
-  
-  <div class="meta">
-    <div class="meta-item">
-      <div class="meta-label">Référence</div>
-      <div class="meta-value">${reference}</div>
-    </div>
-    <div class="meta-item">
-      <div class="meta-label">Client</div>
-      <div class="meta-value">${request.client}</div>
-    </div>
-    <div class="meta-item">
-      <div class="meta-label">Date</div>
-      <div class="meta-value">${date}</div>
-    </div>
-    <div class="meta-item">
-      <div class="meta-label">Validité</div>
-      <div class="meta-value">${request.validityDays || 30} jours</div>
-    </div>
-    ${request.origin ? `
-    <div class="meta-item">
-      <div class="meta-label">Origine</div>
-      <div class="meta-value">${request.origin}</div>
-    </div>` : ''}
-    ${request.incoterm ? `
-    <div class="meta-item">
-      <div class="meta-label">Incoterm</div>
-      <div class="meta-value">${request.incoterm}</div>
-    </div>` : ''}
-    ${request.containerType ? `
-    <div class="meta-item">
-      <div class="meta-label">Conteneur</div>
-      <div class="meta-value">${request.containerType}</div>
-    </div>` : ''}
-  </div>
-  
-  <div class="section">
-    <div class="section-title">DÉTAIL DES COÛTS</div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 35%">Service</th>
-          <th style="width: 10%">Unité</th>
-          <th style="width: 15%">Taux</th>
-          <th style="width: 8%">Qté</th>
-          <th style="width: 17%">Montant</th>
-          <th style="width: 15%">Source</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(() => {
-          let html = '';
-          let currentCat = '';
-          for (const line of request.lines) {
-            if (line.category !== currentCat) {
-              currentCat = line.category;
-              html += `<tr class="category-row"><td colspan="6">${currentCat}</td></tr>`;
-            }
-            const amt = line.amount || (line.rate * line.quantity);
-            const sourceClass = line.source === 'OFFICIEL' ? 'source-official' : 
-                               line.source === 'HISTORIQUE' ? 'source-historical' : 'source-estimated';
-            html += `<tr>
-              <td style="padding-left: 20px">${line.service}</td>
-              <td>${line.unit}</td>
-              <td class="amount">${formatAmount(line.rate)}</td>
-              <td class="amount">${line.quantity}</td>
-              <td class="amount">${formatAmount(amt)} ${currency}</td>
-              <td><span class="source ${sourceClass}">${line.source}</span></td>
-            </tr>`;
-          }
-          return html;
-        })()}
-        <tr class="subtotal-row">
-          <td colspan="4">SOUS-TOTAL</td>
-          <td class="amount">${formatAmount(subtotal)} ${currency}</td>
-          <td></td>
-        </tr>
-        ${request.marginPercent ? `
-        <tr>
-          <td colspan="4">Marge (${request.marginPercent}%)</td>
-          <td class="amount">${formatAmount(margin)} ${currency}</td>
-          <td></td>
-        </tr>` : ''}
-        <tr class="total-row">
-          <td colspan="4">TOTAL ${request.incoterm || ''} ${request.destination}</td>
-          <td class="amount">${formatAmount(total)} ${currency}</td>
-          <td></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  
-  <div class="section">
-    <div class="section-title">CONDITIONS GÉNÉRALES - ${country === 'MALI' ? 'TRANSIT MALI' : 'IMPORT SÉNÉGAL'}</div>
-    ${cgv.map(c => `
-      <div class="cgv-item ${c.isWarning ? 'cgv-warning' : ''}">
-        <div class="cgv-title">${c.isWarning ? '⚠️ ' : ''}${c.title}</div>
-        <div class="cgv-content">${c.content}</div>
-      </div>
-    `).join('')}
-  </div>
-  
-  <div class="section">
-    <div class="section-title">EXCLUSIONS</div>
-    <div class="exclusions">
-      ${exclusions.map(e => `
-        <div class="exclusion-item">
-          <span class="exclusion-service">${e.service}</span>
-          <span class="exclusion-rate">${e.rate}</span>
-        </div>
-      `).join('')}
-    </div>
-  </div>
-  
-  <div class="footer">
-    <p>Document généré automatiquement par SODATRA Intelligence</p>
-    <p>Date de génération: ${new Date().toLocaleString('fr-FR')}</p>
-  </div>
-</body>
-</html>`;
+// Format number for Excel
+function formatNumber(num: number): number {
+  return Math.round(num * 100) / 100;
 }
 
 serve(async (req) => {
@@ -409,86 +147,436 @@ serve(async (req) => {
     }
 
     const reference = request.reference || `QT-${Date.now()}`;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const country = detectCountry(request.destination);
+    const cgv = request.cgvClauses || getDefaultCGV(country);
+    const exclusions = request.exclusions || getDefaultExclusions(country);
+    const currency = request.currency || 'EUR';
+    const date = new Date().toLocaleDateString('fr-FR');
     
-    // Generate CSV
-    const csvContent = generateCSV(request);
-    const csvFilename = `cotation-${reference}-${timestamp}.csv`;
+    console.log(`Generating Excel quotation ${reference} for ${request.client} to ${request.destination}`);
+
+    // Create workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'SODATRA Intelligence';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    // ========================================
+    // TAB 1: COTATION (Main Summary)
+    // ========================================
+    const mainSheet = workbook.addWorksheet('Cotation', {
+      properties: { tabColor: { argb: '1E40AF' } }
+    });
+
+    // Set column widths
+    mainSheet.columns = [
+      { width: 5 },   // A - empty
+      { width: 35 },  // B - Service
+      { width: 12 },  // C - Unit
+      { width: 15 },  // D - Rate
+      { width: 8 },   // E - Qty
+      { width: 18 },  // F - Amount
+      { width: 15 },  // G - Source
+    ];
+
+    // Header section
+    mainSheet.mergeCells('B2:G2');
+    const titleCell = mainSheet.getCell('B2');
+    titleCell.value = 'SODATRA SHIPPING & LOGISTICS';
+    titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    mainSheet.getRow(2).height = 30;
+
+    mainSheet.mergeCells('B3:G3');
+    const subtitleCell = mainSheet.getCell('B3');
+    subtitleCell.value = `Cotation ${country === 'MALI' ? 'Transit Mali' : 'Import Sénégal'} - ${request.destination}`;
+    subtitleCell.font = { name: 'Arial', size: 12, color: { argb: 'FF1E40AF' } };
+    subtitleCell.alignment = { horizontal: 'center' };
+
+    // Meta information
+    const metaStart = 5;
+    const metaData = [
+      ['Référence', reference],
+      ['Client', request.client],
+      ['Date', date],
+      ['Validité', `${request.validityDays || 30} jours`],
+      ['Destination', request.destination],
+    ];
+    if (request.origin) metaData.push(['Origine', request.origin]);
+    if (request.incoterm) metaData.push(['Incoterm', request.incoterm]);
+    if (request.containerType) metaData.push(['Conteneur', request.containerType]);
+
+    metaData.forEach((row, idx) => {
+      const labelCell = mainSheet.getCell(`B${metaStart + idx}`);
+      labelCell.value = row[0];
+      labelCell.font = { name: 'Arial', size: 10, bold: true };
+      labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+      
+      const valueCell = mainSheet.getCell(`C${metaStart + idx}`);
+      mainSheet.mergeCells(`C${metaStart + idx}:D${metaStart + idx}`);
+      valueCell.value = row[1];
+      valueCell.font = { name: 'Arial', size: 10 };
+    });
+
+    // Cost breakdown header
+    const costHeaderRow = metaStart + metaData.length + 2;
+    mainSheet.mergeCells(`B${costHeaderRow}:G${costHeaderRow}`);
+    const costHeader = mainSheet.getCell(`B${costHeaderRow}`);
+    costHeader.value = 'DÉTAIL DES COÛTS';
+    costHeader.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF1E40AF' } };
+    costHeader.border = { bottom: { style: 'thick', color: { argb: 'FF1E40AF' } } };
+
+    // Table headers
+    const tableHeaderRow = costHeaderRow + 2;
+    const headers = ['', 'Service', 'Unité', 'Taux', 'Qté', 'Montant', 'Source'];
+    headers.forEach((header, idx) => {
+      const cell = mainSheet.getCell(tableHeaderRow, idx + 1);
+      cell.value = header;
+      cell.font = { name: 'Arial', size: 10, bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.border = { bottom: { style: 'medium', color: { argb: 'FFCBD5E1' } } };
+      cell.alignment = { horizontal: idx >= 3 ? 'right' : 'left' };
+    });
+
+    // Cost lines
+    let currentRow = tableHeaderRow + 1;
+    let subtotal = 0;
+    let currentCategory = '';
+
+    for (const line of request.lines) {
+      // Category row
+      if (line.category !== currentCategory) {
+        currentCategory = line.category;
+        mainSheet.mergeCells(`B${currentRow}:G${currentRow}`);
+        const catCell = mainSheet.getCell(`B${currentRow}`);
+        catCell.value = currentCategory;
+        catCell.font = { name: 'Arial', size: 10, bold: true };
+        catCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        currentRow++;
+      }
+
+      // Line data
+      const amount = line.amount || (line.rate * line.quantity);
+      subtotal += amount;
+
+      mainSheet.getCell(`B${currentRow}`).value = `  ${line.service}`;
+      mainSheet.getCell(`C${currentRow}`).value = line.unit;
+      mainSheet.getCell(`D${currentRow}`).value = formatNumber(line.rate);
+      mainSheet.getCell(`D${currentRow}`).numFmt = '#,##0';
+      mainSheet.getCell(`D${currentRow}`).alignment = { horizontal: 'right' };
+      mainSheet.getCell(`E${currentRow}`).value = line.quantity;
+      mainSheet.getCell(`E${currentRow}`).alignment = { horizontal: 'right' };
+      mainSheet.getCell(`F${currentRow}`).value = formatNumber(amount);
+      mainSheet.getCell(`F${currentRow}`).numFmt = '#,##0';
+      mainSheet.getCell(`F${currentRow}`).alignment = { horizontal: 'right' };
+      
+      const sourceCell = mainSheet.getCell(`G${currentRow}`);
+      sourceCell.value = line.source;
+      sourceCell.font = { name: 'Arial', size: 9 };
+      if (line.source === 'OFFICIEL') {
+        sourceCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+        sourceCell.font = { name: 'Arial', size: 9, color: { argb: 'FF166534' } };
+      } else if (line.source === 'HISTORIQUE') {
+        sourceCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+        sourceCell.font = { name: 'Arial', size: 9, color: { argb: 'FF92400E' } };
+      }
+
+      // Border
+      for (let col = 2; col <= 7; col++) {
+        mainSheet.getCell(currentRow, col).border = { 
+          bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } 
+        };
+      }
+
+      currentRow++;
+    }
+
+    // Subtotal row
+    currentRow++;
+    mainSheet.getCell(`B${currentRow}`).value = 'SOUS-TOTAL';
+    mainSheet.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    mainSheet.getCell(`F${currentRow}`).value = formatNumber(subtotal);
+    mainSheet.getCell(`F${currentRow}`).numFmt = '#,##0';
+    mainSheet.getCell(`F${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    mainSheet.getCell(`F${currentRow}`).alignment = { horizontal: 'right' };
+    mainSheet.getCell(`G${currentRow}`).value = currency;
+    for (let col = 2; col <= 7; col++) {
+      mainSheet.getCell(currentRow, col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    }
+
+    // Margin and total (if margin applied)
+    let total = subtotal;
+    if (request.marginPercent && request.marginPercent > 0) {
+      const margin = subtotal * (request.marginPercent / 100);
+      total = subtotal + margin;
+      
+      currentRow++;
+      mainSheet.getCell(`B${currentRow}`).value = `Frais de service`;
+      mainSheet.getCell(`F${currentRow}`).value = formatNumber(margin);
+      mainSheet.getCell(`F${currentRow}`).numFmt = '#,##0';
+      mainSheet.getCell(`F${currentRow}`).alignment = { horizontal: 'right' };
+      mainSheet.getCell(`G${currentRow}`).value = currency;
+    }
+
+    // Total row
+    currentRow++;
+    mainSheet.mergeCells(`B${currentRow}:E${currentRow}`);
+    const totalLabelCell = mainSheet.getCell(`B${currentRow}`);
+    totalLabelCell.value = `TOTAL ${request.incoterm || ''} ${request.destination}`.trim();
+    totalLabelCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
     
-    // Generate HTML
-    const htmlContent = generateHTML(request);
-    const htmlFilename = `cotation-${reference}-${timestamp}.html`;
+    const totalValueCell = mainSheet.getCell(`F${currentRow}`);
+    totalValueCell.value = formatNumber(total);
+    totalValueCell.numFmt = '#,##0';
+    totalValueCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+    totalValueCell.alignment = { horizontal: 'right' };
     
-    // Upload CSV to storage
-    const { data: csvUpload, error: csvError } = await supabase.storage
+    const totalCurrencyCell = mainSheet.getCell(`G${currentRow}`);
+    totalCurrencyCell.value = currency;
+    totalCurrencyCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+
+    for (let col = 2; col <= 7; col++) {
+      mainSheet.getCell(currentRow, col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    }
+    mainSheet.getRow(currentRow).height = 25;
+
+    // ========================================
+    // TAB 2: DÉTAIL PAR CONTENEUR (Scenarios)
+    // ========================================
+    if (request.scenarios && request.scenarios.length > 0) {
+      const scenarioSheet = workbook.addWorksheet('Détail par Conteneur', {
+        properties: { tabColor: { argb: '059669' } }
+      });
+
+      scenarioSheet.columns = [
+        { width: 5 },
+        { width: 35 },
+        { width: 12 },
+        { width: 15 },
+        ...request.scenarios.map(() => ({ width: 15 })),
+      ];
+
+      // Header
+      scenarioSheet.mergeCells('B2:' + String.fromCharCode(67 + request.scenarios.length) + '2');
+      const scenarioTitle = scenarioSheet.getCell('B2');
+      scenarioTitle.value = 'DÉTAIL PAR CONTENEUR';
+      scenarioTitle.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      scenarioTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+      scenarioTitle.alignment = { horizontal: 'center' };
+      scenarioSheet.getRow(2).height = 25;
+
+      // Column headers
+      const scenarioHeaders = ['', 'Service', 'Unité', 'Taux', ...request.scenarios.map(s => s.name)];
+      scenarioHeaders.forEach((header, idx) => {
+        const cell = scenarioSheet.getCell(4, idx + 1);
+        cell.value = header;
+        cell.font = { name: 'Arial', size: 10, bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        cell.alignment = { horizontal: idx >= 3 ? 'center' : 'left' };
+      });
+
+      // Group lines by category
+      const categories = [...new Set(request.lines.map(l => l.category))];
+      let scenarioRow = 5;
+
+      categories.forEach(category => {
+        // Category header
+        scenarioSheet.mergeCells(`B${scenarioRow}:` + String.fromCharCode(67 + request.scenarios!.length) + scenarioRow);
+        scenarioSheet.getCell(`B${scenarioRow}`).value = category;
+        scenarioSheet.getCell(`B${scenarioRow}`).font = { name: 'Arial', size: 10, bold: true };
+        scenarioSheet.getCell(`B${scenarioRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        scenarioRow++;
+
+        const categoryLines = request.lines.filter(l => l.category === category);
+        categoryLines.forEach(line => {
+          scenarioSheet.getCell(`B${scenarioRow}`).value = `  ${line.service}`;
+          scenarioSheet.getCell(`C${scenarioRow}`).value = line.unit;
+          scenarioSheet.getCell(`D${scenarioRow}`).value = line.rate;
+          scenarioSheet.getCell(`D${scenarioRow}`).numFmt = '#,##0';
+
+          // Scenario columns
+          request.scenarios!.forEach((scenario, sIdx) => {
+            const scenarioLine = scenario.lines.find(sl => sl.service === line.service);
+            const cell = scenarioSheet.getCell(scenarioRow, 5 + sIdx);
+            cell.value = scenarioLine ? formatNumber(scenarioLine.amount) : formatNumber(line.amount);
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right' };
+          });
+
+          scenarioRow++;
+        });
+      });
+
+      // Totals row
+      scenarioRow++;
+      scenarioSheet.getCell(`B${scenarioRow}`).value = 'TOTAL';
+      scenarioSheet.getCell(`B${scenarioRow}`).font = { name: 'Arial', size: 11, bold: true };
+      request.scenarios.forEach((scenario, sIdx) => {
+        const cell = scenarioSheet.getCell(scenarioRow, 5 + sIdx);
+        cell.value = formatNumber(scenario.total);
+        cell.numFmt = '#,##0';
+        cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+        cell.alignment = { horizontal: 'right' };
+      });
+    }
+
+    // ========================================
+    // TAB 3: CGV - CONDITIONS
+    // ========================================
+    const cgvSheet = workbook.addWorksheet('CGV - Conditions', {
+      properties: { tabColor: { argb: 'D97706' } }
+    });
+
+    cgvSheet.columns = [
+      { width: 5 },
+      { width: 25 },
+      { width: 70 },
+    ];
+
+    // Header
+    cgvSheet.mergeCells('B2:C2');
+    const cgvTitle = cgvSheet.getCell('B2');
+    cgvTitle.value = `CONDITIONS GÉNÉRALES - ${country === 'MALI' ? 'TRANSIT MALI' : 'IMPORT SÉNÉGAL'}`;
+    cgvTitle.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+    cgvTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } };
+    cgvTitle.alignment = { horizontal: 'center' };
+    cgvSheet.getRow(2).height = 25;
+
+    let cgvRow = 4;
+    cgv.forEach(clause => {
+      const titleCell = cgvSheet.getCell(`B${cgvRow}`);
+      titleCell.value = clause.isWarning ? `⚠️ ${clause.title}` : clause.title;
+      titleCell.font = { name: 'Arial', size: 10, bold: true };
+      
+      const contentCell = cgvSheet.getCell(`C${cgvRow}`);
+      contentCell.value = clause.content;
+      contentCell.font = { name: 'Arial', size: 10 };
+      contentCell.alignment = { wrapText: true, vertical: 'top' };
+      
+      if (clause.isWarning) {
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+        contentCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+      }
+
+      // Calculate row height based on content
+      const lines = clause.content.split('\n').length;
+      cgvSheet.getRow(cgvRow).height = Math.max(20, lines * 15);
+      
+      cgvRow += 2;
+    });
+
+    // ========================================
+    // TAB 4: EXCLUSIONS
+    // ========================================
+    const exclusionsSheet = workbook.addWorksheet('Exclusions', {
+      properties: { tabColor: { argb: 'DC2626' } }
+    });
+
+    exclusionsSheet.columns = [
+      { width: 5 },
+      { width: 35 },
+      { width: 20 },
+      { width: 40 },
+    ];
+
+    // Header
+    exclusionsSheet.mergeCells('B2:D2');
+    const exclTitle = exclusionsSheet.getCell('B2');
+    exclTitle.value = 'EXCLUSIONS';
+    exclTitle.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+    exclTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } };
+    exclTitle.alignment = { horizontal: 'center' };
+    exclusionsSheet.getRow(2).height = 25;
+
+    // Table headers
+    ['', 'Service', 'Taux/Montant', 'Notes'].forEach((header, idx) => {
+      const cell = exclusionsSheet.getCell(4, idx + 1);
+      cell.value = header;
+      cell.font = { name: 'Arial', size: 10, bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+    });
+
+    exclusions.forEach((excl, idx) => {
+      const row = 5 + idx;
+      exclusionsSheet.getCell(`B${row}`).value = excl.service;
+      exclusionsSheet.getCell(`C${row}`).value = excl.rate;
+      exclusionsSheet.getCell(`C${row}`).font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFDC2626' } };
+      exclusionsSheet.getCell(`D${row}`).value = excl.notes || '';
+      
+      for (let col = 2; col <= 4; col++) {
+        exclusionsSheet.getCell(row, col).border = { 
+          bottom: { style: 'thin', color: { argb: 'FFFECACA' } } 
+        };
+      }
+    });
+
+    // ========================================
+    // GENERATE FILE
+    // ========================================
+    const buffer = await workbook.xlsx.writeBuffer();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+    const filename = `Cotation_${reference}_${timestamp}.xlsx`;
+
+    // Upload to storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from('quotation-attachments')
-      .upload(`exports/${csvFilename}`, new Blob([csvContent], { type: 'text/csv;charset=utf-8' }), {
-        contentType: 'text/csv;charset=utf-8',
+      .upload(`exports/${filename}`, buffer, {
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         upsert: true,
       });
 
-    if (csvError) {
-      console.error('CSV upload error:', csvError);
-      throw new Error(`Failed to upload CSV: ${csvError.message}`);
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw new Error(`Failed to upload Excel: ${uploadError.message}`);
     }
 
-    // Upload HTML to storage
-    const { data: htmlUpload, error: htmlError } = await supabase.storage
+    // Get public URL
+    const { data: urlData } = supabase.storage
       .from('quotation-attachments')
-      .upload(`exports/${htmlFilename}`, new Blob([htmlContent], { type: 'text/html;charset=utf-8' }), {
-        contentType: 'text/html;charset=utf-8',
-        upsert: true,
-      });
+      .getPublicUrl(`exports/${filename}`);
 
-    if (htmlError) {
-      console.error('HTML upload error:', htmlError);
-      throw new Error(`Failed to upload HTML: ${htmlError.message}`);
-    }
-
-    // Get public URLs
-    const { data: csvUrl } = supabase.storage
-      .from('quotation-attachments')
-      .getPublicUrl(`exports/${csvFilename}`);
-
-    const { data: htmlUrl } = supabase.storage
-      .from('quotation-attachments')
-      .getPublicUrl(`exports/${htmlFilename}`);
-
-    console.log(`Generated quotation ${reference} for ${request.client} to ${request.destination}`);
+    console.log(`Excel quotation ${reference} generated successfully: ${filename}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         reference,
-        files: {
-          csv: {
-            filename: csvFilename,
-            url: csvUrl.publicUrl,
-            size: csvContent.length,
-          },
-          html: {
-            filename: htmlFilename,
-            url: htmlUrl.publicUrl,
-            size: htmlContent.length,
-          },
+        file: {
+          filename,
+          url: urlData.publicUrl,
+          size: buffer.byteLength,
+          format: 'xlsx',
+          tabs: [
+            'Cotation',
+            ...(request.scenarios?.length ? ['Détail par Conteneur'] : []),
+            'CGV - Conditions',
+            'Exclusions'
+          ]
         },
         summary: {
           client: request.client,
           destination: request.destination,
-          country: detectCountry(request.destination),
-          lineCount: request.lines.length,
-          currency: request.currency || 'EUR',
-        },
+          country,
+          currency,
+          subtotal: formatNumber(subtotal),
+          total: formatNumber(total),
+          linesCount: request.lines.length,
+          cgvCount: cgv.length,
+          exclusionsCount: exclusions.length,
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
-    console.error('Error generating Excel quotation:', error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error generating Excel quotation:', errorMessage);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error',
-        success: false,
+        error: 'Failed to generate Excel quotation', 
+        details: errorMessage 
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
