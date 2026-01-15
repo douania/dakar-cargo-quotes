@@ -31,28 +31,43 @@ const EXCLUDED_SENDERS = [
   'dropbox.com', 'wetransfer.com'
 ];
 
+// Subjects that indicate non-quotation emails (but check for false positives)
+// Note: 'spam:' is handled specially - it's often just an Outlook tag, not real spam
 const EXCLUDED_SUBJECTS = [
-  'spam:', '[spam]',
+  // Notifications bancaires (hard exclusions)
   'notification de credit', 'notification de débit', 'notification de debit',
   'avis de credit', 'avis de débit', 'avis de debit',
   'encours ligne', 'relevé de compte', 'releve de compte',
   'virement reçu', 'virement recu', 'transfert reçu',
   'solde de compte', 'état de compte',
   'alerte compte', 'mouvement compte',
+  // LinkedIn
   'a publié récemment', 'has posted', 'a partagé',
   'invitation à se connecter', 'wants to connect',
   'a consulté votre profil', 'viewed your profile',
   'new job', 'nouveau poste',
+  // Newsletters/Marketing
   'holiday operating hours', 'operating hours update',
   'membership updates', 'membership renewal',
   'annual conference', 'webinar invitation',
   'unsubscribe', 'se désabonner',
+  // Sécurité/Système
   'new login from', 'nouvelle connexion',
   'password reset', 'réinitialisation mot de passe',
   'verify your email', 'vérifiez votre email',
   'account security', 'sécurité du compte',
+  // Autres
   'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique'
 ];
+
+// Clean Outlook spam prefix from subject
+function cleanSpamPrefix(subject: string): string {
+  return (subject || '')
+    .replace(/^Spam:\**,?\s*/i, '')
+    .replace(/^\[Spam\]\s*/i, '')
+    .replace(/^\*+Spam\*+:?\s*/i, '')
+    .trim();
+}
 
 const QUOTATION_KEYWORDS = [
   'demande de cotation', 'request for quotation', 'rfq',
@@ -78,17 +93,22 @@ const QUOTATION_KEYWORDS = [
 
 function isQuotationRelated(from: string, subject: string, body: string): boolean {
   const fromLower = from.toLowerCase();
-  const subjectLower = subject.toLowerCase();
+  // Clean spam prefix before checking subject
+  const cleanedSubject = cleanSpamPrefix(subject);
+  const subjectLower = cleanedSubject.toLowerCase();
   const bodyLower = body.toLowerCase();
   
+  // 1. EXCLURE si expéditeur dans la liste noire
   if (EXCLUDED_SENDERS.some(sender => fromLower.includes(sender.toLowerCase()))) {
     return false;
   }
   
+  // 2. EXCLURE si sujet (nettoyé) dans la liste noire
   if (EXCLUDED_SUBJECTS.some(subj => subjectLower.includes(subj.toLowerCase()))) {
     return false;
   }
   
+  // 3. INCLURE si mots-clés positifs trouvés dans sujet ou corps
   const text = `${subjectLower} ${bodyLower}`;
   return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
 }

@@ -36,10 +36,10 @@ const EXCLUDED_SENDERS = [
   'dropbox.com', 'wetransfer.com'
 ];
 
-// Sujets à exclure (notifications bancaires, spam, LinkedIn, etc.)
+// Sujets à exclure (notifications bancaires, LinkedIn, etc.)
+// Note: 'spam:' is NOT in this list - it's handled specially as often false positive
 const EXCLUDED_SUBJECTS = [
   // Notifications bancaires
-  'spam:', '[spam]',
   'notification de credit', 'notification de débit', 'notification de debit',
   'avis de credit', 'avis de débit', 'avis de debit',
   'encours ligne', 'relevé de compte', 'releve de compte',
@@ -64,6 +64,15 @@ const EXCLUDED_SUBJECTS = [
   // Autres
   'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique'
 ];
+
+// Clean Outlook spam prefix from subject (these are often false positives)
+function cleanSpamPrefix(subject: string): string {
+  return (subject || '')
+    .replace(/^Spam:\**,?\s*/i, '')
+    .replace(/^\[Spam\]\s*/i, '')
+    .replace(/^\*+Spam\*+:?\s*/i, '')
+    .trim();
+}
 
 // Mots-clés positifs plus spécifiques pour les demandes de cotation
 const QUOTATION_KEYWORDS = [
@@ -98,7 +107,9 @@ const QUOTATION_KEYWORDS = [
 
 function isQuotationRelated(from: string, subject: string, body: string): boolean {
   const fromLower = from.toLowerCase();
-  const subjectLower = subject.toLowerCase();
+  // Clean spam prefix before checking - "Spam:" alone is not an exclusion indicator
+  const cleanedSubject = cleanSpamPrefix(subject);
+  const subjectLower = cleanedSubject.toLowerCase();
   const bodyLower = body.toLowerCase();
   
   // 1. EXCLURE si expéditeur dans la liste noire
@@ -107,9 +118,9 @@ function isQuotationRelated(from: string, subject: string, body: string): boolea
     return false;
   }
   
-  // 2. EXCLURE si sujet dans la liste noire
+  // 2. EXCLURE si sujet (nettoyé) dans la liste noire
   if (EXCLUDED_SUBJECTS.some(subj => subjectLower.includes(subj.toLowerCase()))) {
-    console.log(`Email excluded - subject blacklisted: ${subject}`);
+    console.log(`Email excluded - subject blacklisted: ${cleanedSubject}`);
     return false;
   }
   
@@ -118,7 +129,7 @@ function isQuotationRelated(from: string, subject: string, body: string): boolea
   const hasKeyword = QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
   
   if (hasKeyword) {
-    console.log(`Email included - quotation keyword found in: ${subject}`);
+    console.log(`Email included - quotation keyword found in: ${cleanedSubject}`);
   }
   
   return hasKeyword;
@@ -169,13 +180,21 @@ interface ThreadRoles {
 
 // ============ THREAD & ROLE IDENTIFICATION ============
 
-// Normaliser le sujet (retirer RE:, FW:, etc.)
+// Normaliser le sujet (retirer RE:, FW:, Spam:, etc.)
 function normalizeSubject(subject: string): string {
-  return (subject || '')
-    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:|\[external\]|\(sans sujet\))\s*/gi, '')
-    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:)\s*/gi, '') // Second pass
-    .trim()
-    .toLowerCase();
+  // 1. Clean spam prefix first
+  let cleaned = cleanSpamPrefix(subject);
+  
+  // 2. Remove reply/forward prefixes (loop)
+  let prev = '';
+  while (prev !== cleaned) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:|\[external\]|\(sans sujet\))\s*/gi, '')
+      .trim();
+  }
+  
+  return cleaned.toLowerCase();
 }
 
 // Extraire le nom de l'entreprise depuis l'email (fallback si pas dans known_business_contacts)

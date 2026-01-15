@@ -31,9 +31,11 @@ interface ThreadGroup {
 }
 
 // ============ SPAM DETECTION ============
+// Note: 'spam:' prefix from Outlook is handled specially - it's often legitimate business email
+// marked by Outlook but containing valid quotation requests
 
-const SPAM_INDICATORS = [
-  'spam:', '[spam]', 'spam*',
+const SPAM_INDICATORS_HARD = [
+  // These are always spam, regardless of content
   'notification de credit', 'notification de débit', 'notification de crédit',
   'new login from', 'nouvelle connexion', 'connexion depuis',
   'holiday operating hours', 'membership updates',
@@ -48,7 +50,16 @@ const SPAM_INDICATORS = [
   'bank transfer', 'virement bancaire', 'relevé de compte'
 ];
 
-// Additional sender domains to exclude
+// Clean Outlook spam prefix from subject
+function cleanSpamPrefix(subject: string): string {
+  return (subject || '')
+    .replace(/^Spam:\**,?\s*/i, '')
+    .replace(/^\[Spam\]\s*/i, '')
+    .replace(/^\*+Spam\*+:?\s*/i, '')
+    .trim();
+}
+
+// Additional sender domains to always exclude
 const EXCLUDED_DOMAINS = [
   'linkedin.com', 'facebook.com', 'twitter.com', 'newsletter',
   'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
@@ -56,11 +67,13 @@ const EXCLUDED_DOMAINS = [
 ];
 
 function isSpam(subject: string, fromAddress?: string): boolean {
-  const subjectLower = (subject || '').toLowerCase();
+  // Clean spam prefix first - the presence of "Spam:" alone doesn't mean it's spam
+  const cleanedSubject = cleanSpamPrefix(subject);
+  const subjectLower = cleanedSubject.toLowerCase();
   const fromLower = (fromAddress || '').toLowerCase();
   
-  // Check subject indicators
-  if (SPAM_INDICATORS.some(spam => subjectLower.includes(spam))) {
+  // Check hard spam indicators (these are always spam)
+  if (SPAM_INDICATORS_HARD.some(spam => subjectLower.includes(spam))) {
     return true;
   }
   
@@ -109,11 +122,19 @@ function isQuotationRelated(email: Email): boolean {
 // ============ SUBJECT NORMALIZATION ============
 
 function normalizeSubject(subject: string): string {
-  return (subject || '')
-    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:|\[external\]|\(sans sujet\))\s*/gi, '')
-    .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:)\s*/gi, '')
-    .trim()
-    .toLowerCase();
+  // 1. Clean spam prefix first
+  let cleaned = cleanSpamPrefix(subject);
+  
+  // 2. Remove reply/forward prefixes (loop)
+  let prev = '';
+  while (prev !== cleaned) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/^(re:|fw:|fwd:|tr:|aw:|wg:|r:|転送:|回复:|antw:|\[external\]|\(sans sujet\))\s*/gi, '')
+      .trim();
+  }
+  
+  return cleaned.toLowerCase();
 }
 
 // ============ PROJECT NAME EXTRACTION ============

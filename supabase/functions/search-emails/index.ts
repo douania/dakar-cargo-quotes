@@ -36,6 +36,36 @@ function parseEmailDate(dateStr: string): string {
   return new Date().toISOString();
 }
 
+// Remove Outlook spam tags and normalize subject for threading
+function cleanSpamPrefix(subject: string): string {
+  // Remove variations of Outlook spam prefixes: "Spam:*********, " "Spam: " "[SPAM]" etc.
+  return subject
+    .replace(/^Spam:\**,?\s*/i, '')
+    .replace(/^\[Spam\]\s*/i, '')
+    .replace(/^\*+Spam\*+:?\s*/i, '')
+    .trim();
+}
+
+// Normalize subject for thread grouping
+function normalizeSubject(subject: string): string {
+  // 1. First clean spam prefixes
+  let cleaned = cleanSpamPrefix(subject);
+  
+  // 2. Remove reply/forward prefixes (loop to handle multiple)
+  let prev = '';
+  while (prev !== cleaned) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/^(Re|Fwd|Fw|TR|AW|WG|R|転送|回复|Antw):\s*/gi, '')
+      .trim();
+  }
+  
+  // 3. Remove external tag
+  cleaned = cleaned.replace(/^\[External\]\s*/i, '').trim();
+  
+  return cleaned.toLowerCase();
+}
+
 // Simple IMAP client for search
 class IMAPSearchClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
@@ -313,7 +343,8 @@ serve(async (req) => {
   let client: IMAPSearchClient | null = null;
 
   try {
-    const { configId, searchType, query, limit = 30 } = await req.json();
+    // Increased default limit from 30 to 200 for better thread coverage
+    const { configId, searchType, query, limit = 200, deepSearch = false } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -339,10 +370,15 @@ serve(async (req) => {
     const mailbox = config.folder || 'INBOX';
     await client.select(mailbox);
 
-    // Build search criteria
+    // Build search criteria - use OR for deep search to find related emails
     let criteria = 'ALL';
     if (searchType === 'subject' && query) {
-      criteria = `SUBJECT "${query}"`;
+      if (deepSearch) {
+        // Deep search: OR subject, body, from
+        criteria = `OR OR SUBJECT "${query}" BODY "${query}" FROM "${query}"`;
+      } else {
+        criteria = `SUBJECT "${query}"`;
+      }
     } else if (searchType === 'from' && query) {
       criteria = `FROM "${query}"`;
     } else if (searchType === 'text' && query) {
@@ -351,49 +387,56 @@ serve(async (req) => {
 
     // Search emails
     const seqNums = await client.search(criteria);
-    console.log(`Found ${seqNums.length} matching emails`);
+    console.log(`Found ${seqNums.length} matching emails on server`);
 
-    // Get last N results (most recent)
-    const selectedSeqs = seqNums.slice(-limit);
+    // Apply limit - take all if within limit, otherwise take most recent
+    const selectedSeqs = seqNums.length <= limit ? seqNums : seqNums.slice(-limit);
     
     // Fetch headers
     const messages = await client.fetchHeaders(selectedSeqs);
     
-    // Group by thread (subject-based for simplicity)
+    // Group by thread using improved normalization (handles Spam: prefixes)
     const threads = new Map<string, typeof messages>();
     for (const msg of messages) {
-      // Normalize subject for threading (remove Re:, Fwd:, etc.)
-      const normalizedSubject = msg.subject
-        .replace(/^(Re|Fwd|Fw|TR):\s*/gi, '')
-        .trim()
-        .toLowerCase();
+      // Use the improved normalizeSubject that handles Spam: prefixes
+      const normalizedSubj = normalizeSubject(msg.subject);
       
-      if (!threads.has(normalizedSubject)) {
-        threads.set(normalizedSubject, []);
+      if (!threads.has(normalizedSubj)) {
+        threads.set(normalizedSubj, []);
       }
-      threads.get(normalizedSubject)!.push(msg);
+      threads.get(normalizedSubj)!.push(msg);
     }
 
-    // Convert to array format
-    const threadList = Array.from(threads.entries()).map(([subject, msgs]) => ({
-      subject: msgs[0].subject, // Use original subject from first message
-      normalizedSubject: subject,
-      messageCount: msgs.length,
-      participants: [...new Set(msgs.map(m => m.from))],
-      dateRange: {
-        first: parseEmailDate(msgs[msgs.length - 1].date),
-        last: parseEmailDate(msgs[0].date)
-      },
-      messages: msgs.map(m => ({
-        uid: m.uid,
-        seq: m.seq,
-        subject: m.subject,
-        from: m.from,
-        to: m.to,
-        date: parseEmailDate(m.date),
-        messageId: m.messageId
-      }))
-    })).sort((a, b) => new Date(b.dateRange.last).getTime() - new Date(a.dateRange.last).getTime());
+    // Convert to array format with proper date sorting
+    const threadList = Array.from(threads.entries()).map(([subject, msgs]) => {
+      // Sort messages by date (oldest first) for accurate dateRange
+      const sortedMsgs = [...msgs].sort(
+        (a, b) => new Date(parseEmailDate(a.date)).getTime() - new Date(parseEmailDate(b.date)).getTime()
+      );
+      
+      // Get original subject (cleaned of spam prefix) from oldest message
+      const displaySubject = cleanSpamPrefix(sortedMsgs[0].subject);
+      
+      return {
+        subject: displaySubject,
+        normalizedSubject: subject,
+        messageCount: msgs.length,
+        participants: [...new Set(msgs.map(m => m.from).filter(f => f))],
+        dateRange: {
+          first: parseEmailDate(sortedMsgs[0].date), // Oldest
+          last: parseEmailDate(sortedMsgs[sortedMsgs.length - 1].date) // Newest
+        },
+        messages: sortedMsgs.map(m => ({
+          uid: m.uid,
+          seq: m.seq,
+          subject: cleanSpamPrefix(m.subject),
+          from: m.from,
+          to: m.to,
+          date: parseEmailDate(m.date),
+          messageId: m.messageId
+        }))
+      };
+    }).sort((a, b) => new Date(b.dateRange.last).getTime() - new Date(a.dateRange.last).getTime());
 
     await client.logout();
     client = null;
@@ -402,6 +445,9 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         totalFound: seqNums.length,
+        selectedCount: selectedSeqs.length,
+        limitApplied: limit,
+        deepSearchEnabled: deepSearch,
         threads: threadList
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
