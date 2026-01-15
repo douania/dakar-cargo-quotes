@@ -1250,6 +1250,101 @@ serve(async (req) => {
       }
     }
 
+    // ========== PHASE 1: Create/Update email_threads entry ==========
+    if (allEmailIds.length > 0 && threadId) {
+      console.log('Creating/updating email_threads entry for imported thread...');
+      
+      // Normalize subject for matching
+      function normalizeSubjectForThread(subject: string): string {
+        return (subject || '')
+          .replace(/^(Re:|Fwd:|Fw:|Spam:\**,?\s*)+/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+      }
+      
+      const firstEmailSubject = allEmailsForAnalysis[0]?.subject || '';
+      const normalizedSubject = normalizeSubjectForThread(firstEmailSubject);
+      const participants = [...new Set(allEmailsForAnalysis.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))];
+      const dateFirst = allEmailsForAnalysis[allEmailsForAnalysis.length - 1]?.sent_at;
+      const dateLast = allEmailsForAnalysis[0]?.sent_at;
+      
+      // Check if a thread with similar normalized subject already exists
+      const { data: existingThread } = await supabase
+        .from('email_threads')
+        .select('id, email_count')
+        .eq('subject_normalized', normalizedSubject)
+        .maybeSingle();
+      
+      // Determine if this is a quotation thread based on keywords
+      const THREAD_QUOTATION_KEYWORDS = [
+        'dap', 'cif', 'fob', 'exw', 'cfr', 'cpt', 'cip', 'ddp',
+        'cotation', 'quotation', 'devis', 'rfq', 'tarif',
+        'fret', 'freight', 'transport', 'conteneur', 'container'
+      ];
+      
+      const subjectLower = normalizedSubject.toLowerCase();
+      const hasQuotationKeyword = THREAD_QUOTATION_KEYWORDS.some(kw => subjectLower.includes(kw));
+      const hasQuotationEmail = allEmailsForAnalysis.some(e => e.is_quotation_request);
+      const isQuotationThread = hasQuotationKeyword || hasQuotationEmail || learningCase === 'quotation';
+      
+      const threadData = {
+        subject_normalized: normalizedSubject || firstEmailSubject.substring(0, 200),
+        first_message_at: dateFirst || new Date().toISOString(),
+        last_message_at: dateLast || new Date().toISOString(),
+        participants: participants.map(email => ({ email, role: 'participant' })),
+        email_count: allEmailIds.length,
+        is_quotation_thread: isQuotationThread,
+        status: 'active',
+        updated_at: new Date().toISOString()
+      };
+      
+      if (existingThread) {
+        // Update existing thread with merged data
+        console.log(`Updating existing email_thread ${existingThread.id} with ${allEmailIds.length} emails`);
+        await supabase
+          .from('email_threads')
+          .update({
+            ...threadData,
+            email_count: Math.max(existingThread.email_count || 0, allEmailIds.length)
+          })
+          .eq('id', existingThread.id);
+        
+        // Update emails to link to this thread
+        for (const emailId of allEmailIds) {
+          await supabase
+            .from('emails')
+            .update({ thread_ref: existingThread.id })
+            .eq('id', emailId);
+        }
+      } else {
+        // Create new thread entry
+        console.log(`Creating new email_thread for "${normalizedSubject.substring(0, 50)}..." with ${allEmailIds.length} emails`);
+        const { data: newThread, error: insertError } = await supabase
+          .from('email_threads')
+          .insert({
+            ...threadData,
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (!insertError && newThread) {
+          // Update emails to link to this new thread
+          for (const emailId of allEmailIds) {
+            await supabase
+              .from('emails')
+              .update({ thread_ref: newThread.id })
+              .eq('id', emailId);
+          }
+          console.log(`Created email_thread ${newThread.id} and linked ${allEmailIds.length} emails`);
+        } else if (insertError) {
+          console.error('Error creating email_thread:', insertError);
+        }
+      }
+    }
+    // ========== END PHASE 1 ==========
+
     // AI Analysis of the thread (even if all emails already exist)
     let analysisResult = null;
     let knowledgeStored = 0;

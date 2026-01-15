@@ -640,6 +640,256 @@ serve(async (req) => {
         );
       }
 
+      case 'merge_threads_by_subject': {
+        // Merge fragmented threads by normalized subject
+        console.log('Starting thread merge by normalized subject...');
+        
+        function normalizeSubjectForMerge(subject: string): string {
+          return (subject || '')
+            .replace(/^(Re:|Fwd:|Fw:|Spam:\**,?\s*)+/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+        }
+        
+        // Fetch all emails with their subjects and thread_id
+        const { data: allEmails, error: emailsError } = await supabase
+          .from('emails')
+          .select('id, subject, thread_id, thread_ref, sent_at');
+        
+        if (emailsError) throw emailsError;
+        if (!allEmails || allEmails.length === 0) {
+          return new Response(
+            JSON.stringify({ success: true, merged: 0, message: "Aucun email à fusionner" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Group emails by normalized subject
+        const subjectGroups = new Map<string, typeof allEmails>();
+        
+        for (const email of allEmails) {
+          const normalized = normalizeSubjectForMerge(email.subject || '');
+          if (!normalized) continue;
+          
+          if (!subjectGroups.has(normalized)) {
+            subjectGroups.set(normalized, []);
+          }
+          subjectGroups.get(normalized)!.push(email);
+        }
+        
+        let mergedCount = 0;
+        let threadsCreated = 0;
+        
+        // Process each group
+        for (const [normalizedSubject, emails] of subjectGroups) {
+          if (emails.length <= 1) continue;
+          
+          // Sort by date to get the canonical thread_id from the first email
+          emails.sort((a, b) => new Date(a.sent_at || 0).getTime() - new Date(b.sent_at || 0).getTime());
+          
+          const canonicalThreadId = emails[0].thread_id;
+          
+          // Check if a email_threads entry exists for this subject
+          let { data: existingThread } = await supabase
+            .from('email_threads')
+            .select('id')
+            .eq('subject_normalized', normalizedSubject)
+            .maybeSingle();
+          
+          // Create one if not exists
+          if (!existingThread) {
+            const { data: newThread, error: createError } = await supabase
+              .from('email_threads')
+              .insert({
+                subject_normalized: normalizedSubject,
+                first_message_at: emails[0].sent_at,
+                last_message_at: emails[emails.length - 1].sent_at,
+                email_count: emails.length,
+                is_quotation_thread: true, // Default to true, reclassify will fix if needed
+                status: 'active',
+                participants: [],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .select()
+              .single();
+            
+            if (!createError && newThread) {
+              existingThread = newThread;
+              threadsCreated++;
+            } else if (createError) {
+              console.error(`Error creating thread for "${normalizedSubject.substring(0, 30)}...":`, createError);
+              continue;
+            }
+          }
+          
+          if (!existingThread) continue;
+          
+          // Update all emails in this group to use the same thread_ref
+          for (const email of emails) {
+            if (email.thread_ref !== existingThread.id) {
+              await supabase
+                .from('emails')
+                .update({ 
+                  thread_ref: existingThread.id,
+                  thread_id: canonicalThreadId 
+                })
+                .eq('id', email.id);
+              mergedCount++;
+            }
+          }
+          
+          // Update thread email count
+          await supabase
+            .from('email_threads')
+            .update({ 
+              email_count: emails.length,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingThread.id);
+        }
+        
+        console.log(`Thread merge complete: ${mergedCount} emails merged, ${threadsCreated} threads created`);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            merged: mergedCount,
+            threadsCreated,
+            subjectGroups: subjectGroups.size
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case 'create_threads_from_emails': {
+        // Create email_threads entries from existing emails that don't have thread_ref
+        console.log('Creating email_threads from orphan emails...');
+        
+        function normalizeSubjectForCreate(subject: string): string {
+          return (subject || '')
+            .replace(/^(Re:|Fwd:|Fw:|Spam:\**,?\s*)+/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+        }
+        
+        // Fetch emails without thread_ref
+        const { data: orphanEmails, error: orphanError } = await supabase
+          .from('emails')
+          .select('id, subject, from_address, to_addresses, sent_at, is_quotation_request')
+          .is('thread_ref', null);
+        
+        if (orphanError) throw orphanError;
+        if (!orphanEmails || orphanEmails.length === 0) {
+          return new Response(
+            JSON.stringify({ success: true, created: 0, message: "Aucun email orphelin" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        console.log(`Found ${orphanEmails.length} orphan emails`);
+        
+        // Group by normalized subject
+        const subjectGroups = new Map<string, typeof orphanEmails>();
+        
+        for (const email of orphanEmails) {
+          const normalized = normalizeSubjectForCreate(email.subject || '');
+          if (!normalized) continue;
+          
+          if (!subjectGroups.has(normalized)) {
+            subjectGroups.set(normalized, []);
+          }
+          subjectGroups.get(normalized)!.push(email);
+        }
+        
+        let threadsCreated = 0;
+        let emailsLinked = 0;
+        
+        for (const [normalizedSubject, emails] of subjectGroups) {
+          // Check if thread already exists
+          let { data: existingThread } = await supabase
+            .from('email_threads')
+            .select('id')
+            .eq('subject_normalized', normalizedSubject)
+            .maybeSingle();
+          
+          // Sort emails by date
+          emails.sort((a, b) => new Date(a.sent_at || 0).getTime() - new Date(b.sent_at || 0).getTime());
+          
+          const participants = [...new Set(emails.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))];
+          const hasQuotationEmail = emails.some(e => e.is_quotation_request);
+          
+          // Determine if quotation thread
+          const THREAD_QUOTATION_KEYWORDS = [
+            'dap', 'cif', 'fob', 'exw', 'cfr', 'cpt', 'cip', 'ddp',
+            'cotation', 'quotation', 'devis', 'rfq', 'tarif',
+            'fret', 'freight', 'transport', 'conteneur', 'container'
+          ];
+          const hasKeyword = THREAD_QUOTATION_KEYWORDS.some(kw => normalizedSubject.includes(kw));
+          const isQuotationThread = hasQuotationEmail || hasKeyword;
+          
+          if (!existingThread) {
+            const { data: newThread, error: createError } = await supabase
+              .from('email_threads')
+              .insert({
+                subject_normalized: normalizedSubject,
+                first_message_at: emails[0].sent_at,
+                last_message_at: emails[emails.length - 1].sent_at,
+                email_count: emails.length,
+                is_quotation_thread: isQuotationThread,
+                status: 'active',
+                participants: participants.map(email => ({ email, role: 'participant' })),
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .select()
+              .single();
+            
+            if (!createError && newThread) {
+              existingThread = newThread;
+              threadsCreated++;
+            } else if (createError) {
+              console.error(`Error creating thread:`, createError);
+              continue;
+            }
+          }
+          
+          if (!existingThread) continue;
+          
+          // Link emails to thread
+          for (const email of emails) {
+            await supabase
+              .from('emails')
+              .update({ thread_ref: existingThread.id })
+              .eq('id', email.id);
+            emailsLinked++;
+          }
+          
+          // Update thread count
+          await supabase
+            .from('email_threads')
+            .update({ 
+              email_count: emails.length,
+              is_quotation_thread: isQuotationThread,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingThread.id);
+        }
+        
+        console.log(`Created ${threadsCreated} threads, linked ${emailsLinked} emails`);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            threadsCreated,
+            emailsLinked
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       default:
         throw new Error(`Action inconnue: ${action}`);
     }
