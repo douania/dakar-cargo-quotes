@@ -449,8 +449,8 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // Temporary file patterns to skip
-    const isTemporaryFile = (filename: string): boolean => {
+    // Temporary file and signature patterns to skip
+    const isTemporaryOrSignatureFile = (filename: string, contentType: string, size?: number): boolean => {
       const patterns = [
         /^~\$/,           // Word temp files
         /^~WRD/i,         // Word recovery
@@ -459,14 +459,22 @@ serve(async (req) => {
         /^Thumbs\.db$/i,  // Windows thumbnails
         /^\.DS_Store$/,   // Mac files
         /^~\$[^.]+\.docx?$/i,  // Word lock files
+        /^image00\d+\.(jpg|png|gif)$/i, // Outlook inline images
+        /^cid:/i,         // Content-ID references
       ];
+      
+      // Skip small images (likely signatures) < 50KB
+      if (contentType?.startsWith('image/') && size && size < 50000) {
+        return true;
+      }
+      
       return patterns.some(pattern => pattern.test(filename));
     };
     
     // Fetch attachment(s) to analyze
     let query = supabase
       .from('email_attachments')
-      .select('id, filename, content_type, storage_path, email_id');
+      .select('id, filename, content_type, storage_path, email_id, size');
     
     if (attachmentId) {
       query = query.eq('id', attachmentId);
@@ -485,7 +493,7 @@ serve(async (req) => {
     const skippedFiles = [];
     
     for (const att of (rawAttachments || [])) {
-      if (isTemporaryFile(att.filename)) {
+      if (isTemporaryOrSignatureFile(att.filename, att.content_type, att.size)) {
         skippedFiles.push(att);
         // Mark as analyzed with skip reason
         await supabase.from('email_attachments').update({
