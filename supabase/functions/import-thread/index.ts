@@ -103,6 +103,59 @@ function decodeBase64(content: string): Uint8Array {
   }
 }
 
+// Decode base64 by chunks to handle large attachments
+function decodeBase64Chunked(content: string): Uint8Array {
+  try {
+    // Clean line breaks and whitespace
+    const cleaned = content.replace(/[\r\n\s]/g, '');
+    
+    if (cleaned.length === 0) {
+      console.log("[BASE64] Empty content after cleaning");
+      return new Uint8Array(0);
+    }
+    
+    // Decode in chunks to avoid memory issues with large files
+    const CHUNK_SIZE = 32768; // 32KB chunks (must be multiple of 4 for base64)
+    const chunks: Uint8Array[] = [];
+    
+    for (let i = 0; i < cleaned.length; i += CHUNK_SIZE) {
+      let chunk = cleaned.substring(i, Math.min(i + CHUNK_SIZE, cleaned.length));
+      
+      // Ensure chunk length is multiple of 4 (except for last chunk)
+      if (i + CHUNK_SIZE < cleaned.length) {
+        const remainder = chunk.length % 4;
+        if (remainder !== 0) {
+          chunk = chunk.substring(0, chunk.length - remainder);
+        }
+      }
+      
+      try {
+        const decoded = atob(chunk);
+        chunks.push(new Uint8Array([...decoded].map(c => c.charCodeAt(0))));
+      } catch (chunkError) {
+        console.error(`[BASE64] Chunk decode error at offset ${i}:`, chunkError);
+        // Try to recover by skipping invalid chunk
+        continue;
+      }
+    }
+    
+    // Concatenate all chunks
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    console.log(`[BASE64] Decoded ${cleaned.length} base64 chars to ${result.length} bytes`);
+    return result;
+  } catch (e) {
+    console.error("[BASE64] Decode error:", e);
+    return new Uint8Array(0);
+  }
+}
+
 // Decode quoted-printable content to Uint8Array (for attachments)
 function decodeQuotedPrintable(content: string): Uint8Array {
   const decoded = content
@@ -311,153 +364,265 @@ interface AttachmentInfo {
   size: number;
 }
 
-// Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
-function parseBodyStructure(response: string): AttachmentInfo[] {
+// ============ ROBUST BODYSTRUCTURE PARSER ============
+
+// Tokenizer for IMAP BODYSTRUCTURE
+function tokenizeBodyStructure(structure: string): string[] {
+  const tokens: string[] = [];
+  let i = 0;
+  
+  while (i < structure.length) {
+    const ch = structure[i];
+    
+    // Skip whitespace
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    
+    // Parentheses
+    if (ch === '(' || ch === ')') {
+      tokens.push(ch);
+      i++;
+      continue;
+    }
+    
+    // Quoted string
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < structure.length) {
+        if (structure[end] === '\\' && end + 1 < structure.length) {
+          end += 2; // Skip escaped char
+          continue;
+        }
+        if (structure[end] === '"') {
+          break;
+        }
+        end++;
+      }
+      tokens.push(structure.substring(i + 1, end)); // Content without quotes
+      i = end + 1;
+      continue;
+    }
+    
+    // NIL or atom (unquoted word/number)
+    if (/[A-Za-z0-9]/.test(ch)) {
+      let end = i;
+      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) {
+        end++;
+      }
+      tokens.push(structure.substring(i, end));
+      i = end;
+      continue;
+    }
+    
+    // Skip unknown characters
+    i++;
+  }
+  
+  return tokens;
+}
+
+// Extract filename from BODYSTRUCTURE parameters
+function extractFilenameFromParams(tokens: string[], startIdx: number): string {
+  let filename = '';
+  
+  // Look for "name" or "filename" parameter in subsequent tokens
+  for (let i = startIdx; i < Math.min(startIdx + 100, tokens.length); i++) {
+    const token = tokens[i]?.toLowerCase();
+    
+    // Check for name parameter
+    if (token === 'name' || token === 'filename') {
+      // Next non-empty token should be the value
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          filename = decodeHeader(val);
+          break;
+        }
+      }
+      if (filename) break;
+    }
+    
+    // Check for filename* (RFC 2231 extended parameter)
+    if (token && token.startsWith('filename*')) {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          // Handle UTF-8''encoded format
+          const match = val.match(/(?:UTF-8''|utf-8'')?(.*)/i);
+          if (match) {
+            try {
+              filename = decodeURIComponent(match[1] || val);
+            } catch {
+              filename = match[1] || val;
+            }
+          }
+          break;
+        }
+      }
+      if (filename) break;
+    }
+  }
+  
+  return filename;
+}
+
+// Recursive parser for BODYSTRUCTURE
+interface ParseContext {
+  pos: number;
+}
+
+function parseMimePart(tokens: string[], ctx: ParseContext, path: string): AttachmentInfo[] {
   const attachments: AttachmentInfo[] = [];
   
-  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s*\)|\s*$)/i);
-  if (!structureMatch) {
-    console.log("No BODYSTRUCTURE match found");
+  if (ctx.pos >= tokens.length || tokens[ctx.pos] !== '(') {
     return attachments;
   }
   
-  const structure = structureMatch[1];
-  console.log("Parsing BODYSTRUCTURE:", structure.substring(0, 500));
+  ctx.pos++; // Skip opening (
   
-  // Recursive function to parse MIME structure and track part numbers
-  function parsePart(str: string, partPath: string, depth: number = 0): void {
-    // Prevent infinite recursion
-    if (depth > 20) {
-      console.log("Max recursion depth reached, stopping");
-      return;
+  // Check if this is multipart (next token is also '(')
+  if (tokens[ctx.pos] === '(') {
+    // Multipart - parse each subpart
+    let subPartNum = 1;
+    while (ctx.pos < tokens.length && tokens[ctx.pos] === '(') {
+      const subPath = path ? `${path}.${subPartNum}` : String(subPartNum);
+      attachments.push(...parseMimePart(tokens, ctx, subPath));
+      subPartNum++;
     }
     
-    // Check if this is a multipart (starts with nested parentheses)
-    const trimmed = str.trim();
+    // Skip remaining tokens until closing )
+    let depth = 1;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+  } else {
+    // Single part - parse type, subtype, params, etc.
+    // Format: type subtype (params) id description encoding size [lines] [md5] [disposition] [language] [location]
     
-    if (trimmed.startsWith('((')) {
-      // This is a multipart - extract subparts
-      // Skip the outer wrapper parenthesis
-      let parenDepth = 0;
-      let partStart = -1;
-      let subPartNum = 1;
+    const startPos = ctx.pos;
+    const type = tokens[ctx.pos++] || 'unknown';
+    const subtype = tokens[ctx.pos++] || 'unknown';
+    const contentType = `${type}/${subtype}`.toLowerCase();
+    
+    // Skip params (could be NIL or (...))
+    if (tokens[ctx.pos] === '(') {
+      let depth = 1;
+      ctx.pos++;
+      while (ctx.pos < tokens.length && depth > 0) {
+        if (tokens[ctx.pos] === '(') depth++;
+        else if (tokens[ctx.pos] === ')') depth--;
+        ctx.pos++;
+      }
+    } else {
+      ctx.pos++; // Skip NIL
+    }
+    
+    // Skip id and description (each NIL or "string")
+    ctx.pos++; // id
+    ctx.pos++; // description
+    
+    // Get encoding
+    const encoding = (tokens[ctx.pos++] || 'base64').toLowerCase();
+    
+    // Get size
+    const sizeStr = tokens[ctx.pos++] || '0';
+    const size = parseInt(sizeStr, 10) || 0;
+    
+    // Skip to end of this part
+    let depth = 1;
+    const dispositionSearchStart = ctx.pos;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+    
+    // Only process attachments, not body text parts
+    if (contentType !== 'text/plain' && contentType !== 'text/html') {
+      // Try to extract filename from params or disposition
+      let filename = extractFilenameFromParams(tokens, startPos);
       
-      for (let i = 1; i < trimmed.length - 1; i++) {
-        if (trimmed[i] === '(') {
-          if (parenDepth === 0) partStart = i;
-          parenDepth++;
-        } else if (trimmed[i] === ')') {
-          parenDepth--;
-          if (parenDepth === 0 && partStart !== -1) {
-            const subPart = trimmed.substring(partStart, i + 1);
-            // Check if this looks like a subtype declaration (e.g., "MIXED" "ALTERNATIVE")
-            if (!subPart.match(/^\s*"[A-Z]+"/i)) {
-              const newPath = partPath ? `${partPath}.${subPartNum}` : String(subPartNum);
-              parsePart(subPart, newPath, depth + 1);
-              subPartNum++;
-            }
-            partStart = -1;
+      // If no filename found, check disposition section
+      if (!filename) {
+        for (let i = dispositionSearchStart; i < ctx.pos; i++) {
+          const tok = tokens[i]?.toLowerCase();
+          if (tok === 'attachment' || tok === 'inline') {
+            filename = extractFilenameFromParams(tokens, i);
+            if (filename) break;
           }
         }
       }
-    } else if (trimmed.startsWith('(')) {
-      // This is a single part - check if it's an attachment
-      // Pattern: ("type" "subtype" (params) "id" "desc" "encoding" size ...)
-      const singlePartMatch = trimmed.match(/^\(\s*"([^"]+)"\s+"([^"]+)"\s+(NIL|\([^)]*\))\s+(NIL|"[^"]*")\s+(NIL|"[^"]*")\s+"([^"]+)"\s+(\d+)/i);
       
-      if (singlePartMatch) {
-        const [, type, subtype, params, , , encoding, size] = singlePartMatch;
-        const contentType = `${type}/${subtype}`.toLowerCase();
-        
-        // Skip body text parts
-        if (contentType === 'text/plain' || contentType === 'text/html') return;
-        
-        // Extract filename from params
-        let filename = `attachment`;
-        const nameMatch = params.match(/(?:"name"\s+"([^"]+)"|name\s+"([^"]+)")/i) || 
-                         trimmed.match(/(?:"name"\s+"([^"]+)"|filename\*?[^"]*"([^"]+)")/i);
-        if (nameMatch) {
-          filename = decodeHeader(nameMatch[1] || nameMatch[2] || filename);
-        }
-        
-        // Add extension if missing
-        if (!filename.includes('.')) {
-          const extMap: Record<string, string> = {
-            'application/pdf': '.pdf',
-            'application/vnd.ms-excel': '.xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-            'application/msword': '.doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-            'image/jpeg': '.jpg',
-            'image/png': '.png',
-          };
-          filename += extMap[contentType] || '';
-        }
-        
-        const finalPath = partPath || "1";
-        console.log(`Found attachment: ${filename} at part ${finalPath}, type: ${contentType}`);
-        
-        attachments.push({
-          partNumber: finalPath,
-          filename,
-          contentType,
-          encoding: encoding.toLowerCase(),
-          size: parseInt(size) || 0
-        });
+      // Generate filename if still not found
+      if (!filename) {
+        const extMap: Record<string, string> = {
+          'application/pdf': '.pdf',
+          'application/vnd.ms-excel': '.xls',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+          'application/msword': '.doc',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          'image/jpeg': '.jpg',
+          'image/png': '.png',
+          'image/gif': '.gif',
+        };
+        const ext = extMap[contentType] || '';
+        filename = `attachment_${path || '1'}${ext}`;
       }
+      
+      const partNumber = path || '1';
+      
+      console.log(`[BODYSTRUCTURE] Found attachment: ${filename} at part ${partNumber} (${contentType}, ${size} bytes, ${encoding})`);
+      
+      attachments.push({
+        partNumber,
+        filename,
+        contentType,
+        encoding,
+        size
+      });
     }
   }
   
-  // Alternative simpler approach: scan for attachment patterns with context
-  // Pattern for inline/attachment parts with disposition
-  const dispositionRegex = /\(\s*"(application|image|audio|video)"[^)]*?"([^"]+)"[^)]*?\((?:[^)]*"name"\s*"([^"]+)")?[^)]*\)[^)]*(?:NIL|"[^"]*")[^)]*(?:NIL|"[^"]*")[^)]*"(base64|quoted-printable|7bit)"[^)]*?(\d+)/gi;
+  return attachments;
+}
+
+// Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
+function parseBodyStructure(response: string): AttachmentInfo[] {
+  console.log(`[BODYSTRUCTURE] Parsing response (${response.length} chars)`);
   
-  let match;
-  let foundWithRegex = false;
-  
-  // First, try to identify parts by looking at the raw structure
-  // Count opening parens to determine part depth
-  let currentPart = 0;
-  let inMultipart = structure.startsWith('((');
-  
-  // Simpler approach: find all attachment-like patterns and assign sequential part numbers
-  const attachmentPattern = /\("(application|image|audio|video)"\s+"([^"]+)"\s+(?:NIL|\([^)]*\))[^)]*"(base64|quoted-printable|7bit|8bit)"\s+(\d+)/gi;
-  
-  while ((match = attachmentPattern.exec(structure)) !== null) {
-    const [fullMatch, type, subtype, encoding, size] = match;
-    const contentType = `${type}/${subtype}`.toLowerCase();
-    currentPart++;
-    
-    // Try to find filename near this match
-    const contextStart = Math.max(0, match.index - 100);
-    const contextEnd = Math.min(structure.length, match.index + fullMatch.length + 200);
-    const context = structure.substring(contextStart, contextEnd);
-    
-    let filename = `attachment_${currentPart}`;
-    const fnMatch = context.match(/(?:"name"\s*"([^"]+)"|filename[^"]*"([^"]+)")/i);
-    if (fnMatch) {
-      filename = decodeHeader(fnMatch[1] || fnMatch[2] || filename);
+  // Extract the BODYSTRUCTURE content
+  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*\))\s*\)\s*$/i);
+  if (!structureMatch) {
+    // Try alternative pattern
+    const altMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s+UID|\s*$)/i);
+    if (!altMatch) {
+      console.log("[BODYSTRUCTURE] No BODYSTRUCTURE match found in response");
+      console.log(`[BODYSTRUCTURE] Response preview: ${response.substring(0, 500)}`);
+      return [];
     }
-    
-    // For multipart messages, the first non-text part is typically at position 2 or higher
-    // The actual part number depends on structure, but we can estimate
-    const partNumber = inMultipart ? String(currentPart + 1) : String(currentPart);
-    
-    console.log(`Detected attachment via pattern: ${filename} (${contentType}) at estimated part ${partNumber}`);
-    
-    attachments.push({
-      partNumber,
-      filename,
-      contentType,
-      encoding: encoding.toLowerCase(),
-      size: parseInt(size) || 0
-    });
-    foundWithRegex = true;
   }
   
-  // If regex approach found nothing, try recursive parse
-  if (!foundWithRegex) {
-    parsePart(structure, "");
+  const structure = structureMatch?.[1] || response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s+UID|\s*$)/i)?.[1] || '';
+  
+  console.log(`[BODYSTRUCTURE] Raw structure: ${structure.substring(0, 300)}...`);
+  
+  // Tokenize
+  const tokens = tokenizeBodyStructure(structure);
+  console.log(`[BODYSTRUCTURE] Tokenized into ${tokens.length} tokens`);
+  
+  // Parse
+  const ctx: ParseContext = { pos: 0 };
+  const attachments = parseMimePart(tokens, ctx, '');
+  
+  console.log(`[BODYSTRUCTURE] Found ${attachments.length} attachment(s)`);
+  
+  // Log all found attachments for debugging
+  for (const att of attachments) {
+    console.log(`  - Part ${att.partNumber}: ${att.filename} (${att.contentType}, ${att.size} bytes)`);
   }
   
   return attachments;
@@ -618,64 +783,72 @@ class IMAPClient {
   }
 
   async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
-    console.log(`Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
+    console.log(`[FETCH] Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
+    
+    // Use BODY.PEEK to not mark as read
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
-    console.log(`Fetch response length: ${response.length}, preview: ${response.substring(0, 200)}`);
+    console.log(`[FETCH] Response length: ${response.length} chars`);
+    console.log(`[FETCH] Response preview: ${response.substring(0, 300)}`);
     
-    // Pattern 1: BODY[X] {size}\r\ncontent
-    const sizeMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
-    if (sizeMatch) {
-      const size = parseInt(sizeMatch[1]);
-      const afterBrace = response.indexOf(`{${size}}`);
-      if (afterBrace !== -1) {
-        const contentStart = response.indexOf('\r\n', afterBrace);
-        if (contentStart !== -1) {
-          // Extract exactly 'size' bytes after the \r\n
-          const content = response.substring(contentStart + 2, contentStart + 2 + size);
-          console.log(`Extracted content (pattern 1), length: ${content.length}`);
-          
-          if (content.length > 0) {
-            if (encoding === 'base64') {
-              return decodeBase64(content);
-            } else if (encoding === 'quoted-printable') {
-              return decodeQuotedPrintable(content);
-            }
-            return new TextEncoder().encode(content);
-          }
+    let rawContent = '';
+    
+    // Pattern 1: BODY[X] {size}\r\ncontent - literal format (most common for attachments)
+    const literalMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
+    if (literalMatch) {
+      const expectedSize = parseInt(literalMatch[1], 10);
+      const literalMarker = `{${expectedSize}}`;
+      const afterBrace = response.indexOf(literalMarker) + literalMarker.length;
+      
+      // Find the \r\n after the literal marker
+      let contentStart = afterBrace;
+      if (response.substring(afterBrace, afterBrace + 2) === '\r\n') {
+        contentStart = afterBrace + 2;
+      } else if (response[afterBrace] === '\n') {
+        contentStart = afterBrace + 1;
+      }
+      
+      rawContent = response.substring(contentStart, contentStart + expectedSize);
+      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes using literal pattern`);
+    }
+    
+    // Pattern 2: BODY[X] "content" - quoted format (rare for binary)
+    if (!rawContent) {
+      const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
+      if (quotedMatch && quotedMatch[1]) {
+        rawContent = quotedMatch[1];
+        console.log(`[FETCH] Extracted ${rawContent.length} bytes using quoted pattern`);
+      }
+    }
+    
+    // Pattern 3: Extract content between BODY[X] and closing paren
+    if (!rawContent) {
+      const bodyStartMatch = response.match(/BODY\[[\d.]+\]\s*/i);
+      if (bodyStartMatch) {
+        const startIdx = response.indexOf(bodyStartMatch[0]) + bodyStartMatch[0].length;
+        // Find the last ) before the final tag response
+        const tagMatch = response.match(/\r\n[A-Z]\d+\s+(OK|NO|BAD)/i);
+        const endIdx = tagMatch ? response.lastIndexOf(')', response.indexOf(tagMatch[0])) : response.lastIndexOf(')');
+        
+        if (endIdx > startIdx) {
+          rawContent = response.substring(startIdx, endIdx).trim();
+          console.log(`[FETCH] Extracted ${rawContent.length} bytes using fallback pattern`);
         }
       }
     }
     
-    // Pattern 2: BODY[X] "content"
-    const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
-    if (quotedMatch && quotedMatch[1]) {
-      const content = quotedMatch[1];
-      console.log(`Extracted content (pattern 2), length: ${content.length}`);
-      if (encoding === 'base64') {
-        return decodeBase64(content);
-      } else if (encoding === 'quoted-printable') {
-        return decodeQuotedPrintable(content);
-      }
-      return new TextEncoder().encode(content);
+    if (!rawContent || rawContent.length === 0) {
+      console.log(`[FETCH] No content extracted for part ${partNumber}`);
+      return new Uint8Array(0);
     }
     
-    // Pattern 3: Try to extract everything between BODY[X] and the closing )
-    const bodyMatch = response.match(/BODY\[[\d.]+\]\s*(?:\{\d+\}\r\n)?([\s\S]*?)(?:\)\r\n[A-Z]\d+|$)/i);
-    if (bodyMatch && bodyMatch[1]) {
-      const content = bodyMatch[1].trim();
-      console.log(`Extracted content (pattern 3), length: ${content.length}`);
-      if (content.length > 0) {
-        if (encoding === 'base64') {
-          return decodeBase64(content);
-        } else if (encoding === 'quoted-printable') {
-          return decodeQuotedPrintable(content);
-        }
-        return new TextEncoder().encode(content);
-      }
+    // Decode based on encoding
+    if (encoding.toLowerCase() === 'base64') {
+      return decodeBase64Chunked(rawContent);
+    } else if (encoding.toLowerCase() === 'quoted-printable') {
+      return decodeQuotedPrintable(rawContent);
     }
     
-    console.log("No content pattern matched, returning empty");
-    return new Uint8Array(0);
+    return new TextEncoder().encode(rawContent);
   }
 
   async fetchMessage(uid: number): Promise<{

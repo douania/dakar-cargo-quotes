@@ -842,6 +842,51 @@ class SimpleIMAPClient {
     return { text, html };
   }
 
+  async fetchBodyStructure(uid: number): Promise<string> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
+    return response;
+  }
+
+  async fetchAttachmentPart(uid: number, partNumber: string): Promise<{ data: Uint8Array; encoding: string }> {
+    console.log(`[FETCH] Fetching attachment part ${partNumber} for UID ${uid}`);
+    const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    
+    let rawContent = '';
+    
+    // Pattern 1: Literal format {size}
+    const literalMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
+    if (literalMatch) {
+      const expectedSize = parseInt(literalMatch[1], 10);
+      const literalMarker = `{${expectedSize}}`;
+      const afterBrace = response.indexOf(literalMarker) + literalMarker.length;
+      
+      let contentStart = afterBrace;
+      if (response.substring(afterBrace, afterBrace + 2) === '\r\n') {
+        contentStart = afterBrace + 2;
+      } else if (response[afterBrace] === '\n') {
+        contentStart = afterBrace + 1;
+      }
+      
+      rawContent = response.substring(contentStart, contentStart + expectedSize);
+      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes`);
+    }
+    
+    // Decode base64
+    if (rawContent) {
+      try {
+        const cleaned = rawContent.replace(/[\r\n\s]/g, '');
+        const binary = atob(cleaned);
+        const bytes = new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+        console.log(`[FETCH] Decoded ${bytes.length} bytes from base64`);
+        return { data: bytes, encoding: 'base64' };
+      } catch (e) {
+        console.error(`[FETCH] Base64 decode error:`, e);
+      }
+    }
+    
+    return { data: new Uint8Array(0), encoding: 'unknown' };
+  }
+
   async logout(): Promise<void> {
     try {
       await this.sendCommand('LOGOUT');
