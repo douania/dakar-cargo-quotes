@@ -1545,6 +1545,48 @@ export type Database = {
         }
         Relationships: []
       }
+      quotation_clauses: {
+        Row: {
+          clause_code: string
+          clause_content: string
+          clause_title: string
+          created_at: string | null
+          destination_type: string
+          id: string
+          is_active: boolean | null
+          is_exclusion: boolean | null
+          is_warning: boolean | null
+          sort_order: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          clause_code: string
+          clause_content: string
+          clause_title: string
+          created_at?: string | null
+          destination_type: string
+          id?: string
+          is_active?: boolean | null
+          is_exclusion?: boolean | null
+          is_warning?: boolean | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          clause_code?: string
+          clause_content?: string
+          clause_title?: string
+          created_at?: string | null
+          destination_type?: string
+          id?: string
+          is_active?: boolean | null
+          is_exclusion?: boolean | null
+          is_warning?: boolean | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       quotation_history: {
         Row: {
           cargo_type: string
