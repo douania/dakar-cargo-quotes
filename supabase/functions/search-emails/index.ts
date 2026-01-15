@@ -46,6 +46,63 @@ function cleanSpamPrefix(subject: string): string {
     .trim();
 }
 
+// Extract BODYSTRUCTURE with balanced parentheses
+function extractBodyStructure(block: string): string {
+  const startMarker = 'BODYSTRUCTURE ';
+  const startIdx = block.indexOf(startMarker);
+  if (startIdx === -1) return '';
+  
+  let depth = 0;
+  let start = startIdx + startMarker.length;
+  let end = start;
+  
+  for (let i = start; i < block.length; i++) {
+    if (block[i] === '(') {
+      if (depth === 0) start = i;
+      depth++;
+    }
+    if (block[i] === ')') {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+  
+  return block.substring(start, end);
+}
+
+// Extract filename from context with multiple pattern support
+function extractFilenameFromContext(context: string): string {
+  // Pattern 1: "name" "filename.xlsx" or "filename" "document.pdf"
+  let match = context.match(/["'](?:name|filename)["']\s+["']([^"']+)["']/i);
+  if (match) return decodeHeader(match[1]);
+  
+  // Pattern 2: ("name" "filename.xlsx") format
+  match = context.match(/\(["'](?:name|filename)["']\s+["']([^"']+)["']\)/i);
+  if (match) return decodeHeader(match[1]);
+  
+  // Pattern 3: NIL "name" "filename" format
+  match = context.match(/NIL\s+["']([^"']+\.(?:pdf|xlsx?|docx?|csv|zip))["']/i);
+  if (match) return decodeHeader(match[1]);
+  
+  // Pattern 4: RFC 2231 - "name*0" "part1" ...
+  const parts: string[] = [];
+  const rfc2231 = /["'](?:name|filename)\*(\d+)["']\s+["']([^"']+)["']/gi;
+  let rfcMatch;
+  while ((rfcMatch = rfc2231.exec(context)) !== null) {
+    parts[parseInt(rfcMatch[1])] = rfcMatch[2];
+  }
+  if (parts.length > 0) return decodeHeader(parts.filter(Boolean).join(''));
+  
+  // Pattern 5: Direct filename with extension in quotes
+  match = context.match(/["']([^"']*[^"'\s]\.(?:xlsx?|pdf|docx?|csv|zip|rar))["']/i);
+  if (match) return decodeHeader(match[1]);
+  
+  return '';
+}
+
 // Parse attachments from BODYSTRUCTURE response
 function parseAttachmentsFromBodyStructure(structure: string): Array<{
   filename: string;
@@ -54,74 +111,78 @@ function parseAttachmentsFromBodyStructure(structure: string): Array<{
 }> {
   const attachments: Array<{ filename: string; contentType: string; size: number }> = [];
   
-  // Pattern to find filename in various formats
-  // "name" "filename.pdf" or "filename" "document.xlsx"
-  const filenamePatterns = [
-    /"(?:name|filename)"\s+"([^"]+)"/gi,
-    /"([^"]+\.(?:pdf|xlsx?|docx?|csv|zip|rar))"/gi
+  // Log raw structure for debugging (first 800 chars)
+  console.log(`[BODYSTRUCTURE] Raw (800 chars): ${structure.substring(0, 800)}`);
+  
+  // Pattern for document MIME types
+  const docTypePatterns = [
+    { pattern: /"APPLICATION"\s+"PDF"/gi, type: 'application/pdf' },
+    { pattern: /"APPLICATION"\s+"VND\.OPENXMLFORMATS[^"]*SPREADSHEET[^"]*"/gi, type: 'application/xlsx' },
+    { pattern: /"APPLICATION"\s+"VND\.MS-EXCEL"/gi, type: 'application/excel' },
+    { pattern: /"APPLICATION"\s+"VND\.OPENXMLFORMATS[^"]*WORD[^"]*"/gi, type: 'application/docx' },
+    { pattern: /"APPLICATION"\s+"MSWORD"/gi, type: 'application/msword' },
+    { pattern: /"APPLICATION"\s+"OCTET-STREAM"/gi, type: 'application/octet-stream' },
+    { pattern: /"TEXT"\s+"CSV"/gi, type: 'text/csv' },
+    { pattern: /"APPLICATION"\s+"ZIP"/gi, type: 'application/zip' },
   ];
   
-  // Extract type/subtype pairs with their following content
-  const partPattern = /\("([^"]+)"\s+"([^"]+)"[^)]*\)/g;
-  let match;
-  
-  while ((match = partPattern.exec(structure)) !== null) {
-    const type = match[1].toLowerCase();
-    const subtype = match[2].toLowerCase();
-    const contentType = `${type}/${subtype}`;
-    const partContext = match[0];
-    
-    // Check if this part has a filename
-    let filename = '';
-    for (const pattern of filenamePatterns) {
-      pattern.lastIndex = 0;
-      const fnMatch = pattern.exec(partContext);
-      if (fnMatch) {
-        filename = decodeHeader(fnMatch[1]);
-        break;
+  for (const { pattern, type } of docTypePatterns) {
+    let match;
+    while ((match = pattern.exec(structure)) !== null) {
+      // Get context around the match (500 chars before and after)
+      const contextStart = Math.max(0, match.index - 200);
+      const contextEnd = Math.min(structure.length, match.index + 500);
+      const context = structure.substring(contextStart, contextEnd);
+      
+      const filename = extractFilenameFromContext(context);
+      
+      if (filename) {
+        const lowerFilename = filename.toLowerCase();
+        // Skip inline images/signatures
+        if (lowerFilename.startsWith('~') || 
+            lowerFilename.startsWith('image0') ||
+            lowerFilename.includes('signature')) {
+          continue;
+        }
+        
+        console.log(`[BODYSTRUCTURE] Found attachment: ${filename} (${type})`);
+        attachments.push({ filename, contentType: type, size: 0 });
       }
     }
-    
-    // Skip if no filename or it's an inline image
-    if (!filename) continue;
+  }
+  
+  // Also scan for filenames with known extensions even if MIME type wasn't matched
+  const extensionPattern = /["']([^"']*\.(?:xlsx?|pdf|docx?|csv|zip|rar))["']/gi;
+  let extMatch;
+  while ((extMatch = extensionPattern.exec(structure)) !== null) {
+    const filename = decodeHeader(extMatch[1]);
     const lowerFilename = filename.toLowerCase();
     
-    // Skip inline images (signatures, etc.)
+    // Skip if already found or is inline/signature
+    if (attachments.some(a => a.filename === filename)) continue;
     if (lowerFilename.startsWith('~') || 
         lowerFilename.startsWith('image0') ||
         lowerFilename.includes('signature')) {
       continue;
     }
     
-    // Only include relevant document types
-    const isDocument = 
-      contentType.includes('pdf') ||
-      contentType.includes('excel') ||
-      contentType.includes('spreadsheet') ||
-      contentType.includes('word') ||
-      contentType.includes('document') ||
-      contentType.includes('csv') ||
-      contentType.includes('zip') ||
-      lowerFilename.endsWith('.pdf') ||
-      lowerFilename.endsWith('.xlsx') ||
-      lowerFilename.endsWith('.xls') ||
-      lowerFilename.endsWith('.docx') ||
-      lowerFilename.endsWith('.doc') ||
-      lowerFilename.endsWith('.csv');
+    // Determine content type from extension
+    let contentType = 'application/octet-stream';
+    if (lowerFilename.endsWith('.pdf')) contentType = 'application/pdf';
+    else if (lowerFilename.endsWith('.xlsx')) contentType = 'application/xlsx';
+    else if (lowerFilename.endsWith('.xls')) contentType = 'application/excel';
+    else if (lowerFilename.endsWith('.docx') || lowerFilename.endsWith('.doc')) contentType = 'application/msword';
+    else if (lowerFilename.endsWith('.csv')) contentType = 'text/csv';
+    else if (lowerFilename.endsWith('.zip')) contentType = 'application/zip';
     
-    if (isDocument) {
-      attachments.push({ 
-        filename, 
-        contentType,
-        size: 0 // Size extraction is complex, skip for preview
-      });
-    }
+    console.log(`[BODYSTRUCTURE] Found attachment by extension: ${filename}`);
+    attachments.push({ filename, contentType, size: 0 });
   }
   
   // Deduplicate by filename
   const unique = Array.from(new Map(attachments.map(a => [a.filename, a])).values());
   
-  console.log(`[BODYSTRUCTURE] Found ${unique.length} document attachments`);
+  console.log(`[BODYSTRUCTURE] Total unique attachments: ${unique.length}`);
   return unique;
 }
 
@@ -373,10 +434,10 @@ class IMAPSearchClient {
         return m ? m[1].trim() : e.trim();
       }).filter(e => e);
       
-      // Extract BODYSTRUCTURE and parse attachments
-      const bodyStructureMatch = block.match(/BODYSTRUCTURE (\([\s\S]*\))\s*\)/);
-      const attachments = bodyStructureMatch 
-        ? parseAttachmentsFromBodyStructure(bodyStructureMatch[1])
+      // Extract BODYSTRUCTURE using balanced parentheses
+      const bodyStructure = extractBodyStructure(block);
+      const attachments = bodyStructure 
+        ? parseAttachmentsFromBodyStructure(bodyStructure)
         : [];
       
       messages.push({
