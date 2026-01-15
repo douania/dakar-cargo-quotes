@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Puzzle,
   Package,
@@ -20,6 +20,7 @@ import {
   TrendingUp,
   FileText,
   MessageSquare,
+  BookOpen,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Collapsible,
   CollapsibleContent,
@@ -70,6 +72,23 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
   const [puzzle, setPuzzle] = useState<PuzzleState | null>(null);
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set(['cargo', 'routing']));
 
+  // Fetch existing learned knowledge for this thread
+  const { data: existingKnowledge, refetch: refetchKnowledge } = useQuery({
+    queryKey: ['thread-knowledge', threadId],
+    queryFn: async () => {
+      if (!threadId) return [];
+      const { data, error } = await supabase
+        .from('learned_knowledge')
+        .select('id, name, category, description, created_at, is_validated')
+        .eq('source_id', threadId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!threadId
+  });
+
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke('learn-quotation-puzzle', {
@@ -83,6 +102,7 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
       if (data.success && data.puzzle) {
         setPuzzle(data.puzzle);
         toast.success(`Puzzle analysé: ${data.puzzle.puzzle_completeness}% complet`);
+        refetchKnowledge(); // Refresh existing knowledge after analysis
         if (onPuzzleComplete) {
           onPuzzleComplete(data.puzzle);
         }
@@ -190,6 +210,36 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Existing Knowledge Alert */}
+        {existingKnowledge && existingKnowledge.length > 0 && (
+          <Alert className="border-green-200 bg-green-50">
+            <BookOpen className="h-4 w-4 text-green-600" />
+            <AlertTitle className="text-green-800">
+              Connaissances déjà extraites ({existingKnowledge.length})
+            </AlertTitle>
+            <AlertDescription className="text-green-700">
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                {existingKnowledge.slice(0, 5).map((k: any) => (
+                  <li key={k.id} className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {k.category}
+                    </Badge>
+                    <span>{k.name}</span>
+                    {k.is_validated && (
+                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                    )}
+                  </li>
+                ))}
+                {existingKnowledge.length > 5 && (
+                  <li className="text-green-600 italic">
+                    + {existingKnowledge.length - 5} autres éléments
+                  </li>
+                )}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Stats */}
         {puzzle && (
           <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">

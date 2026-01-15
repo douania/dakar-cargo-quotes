@@ -342,7 +342,7 @@ serve(async (req) => {
 
     console.log(`[Puzzle] Found ${allEmails.length} emails in thread`);
 
-    // 2. Fetch analyzed attachments
+    // 2. Fetch ALL attachments (not just analyzed ones - PDF/Excel are always useful)
     const emailIds = allEmails.map(e => e.id);
     const { data: attachments } = await supabase
       .from("email_attachments")
@@ -355,19 +355,39 @@ serve(async (req) => {
         extracted_data,
         is_analyzed
       `)
-      .in("email_id", emailIds)
-      .eq("is_analyzed", true);
+      .in("email_id", emailIds);
 
     const relevantAttachments = (attachments || []).filter(a => {
       const filename = a.filename?.toLowerCase() || "";
-      // Filter out signature images and temp files
-      if (a.content_type?.startsWith("image/") && (!a.extracted_data || !a.extracted_data.tariff_lines)) {
-        if (filename.includes("image00") || filename.includes("~wrd") || 
-            filename.startsWith("~") || a.extracted_data?.type === "signature") {
+      const contentType = a.content_type?.toLowerCase() || "";
+      
+      // Always include PDF and Excel files - they contain quotations
+      if (contentType.includes("pdf") || 
+          contentType.includes("spreadsheet") || 
+          contentType.includes("excel") ||
+          contentType.includes("sheet") ||
+          filename.endsWith(".pdf") || 
+          filename.endsWith(".xlsx") || 
+          filename.endsWith(".xls")) {
+        return true;
+      }
+      
+      // Filter out Outlook signature images and temp files
+      if (contentType.startsWith("image/")) {
+        // Exclude common signature image patterns
+        if (filename.includes("image00") || 
+            filename.includes("~wrd") || 
+            filename.startsWith("~") || 
+            filename.match(/^image\d+\.(jpg|png|gif)$/i) ||
+            a.extracted_data?.type === "signature") {
           return false;
         }
+        // Include images with useful extracted data
+        return !!(a.extracted_data?.tariff_lines || (a.extracted_text && a.extracted_text.length > 100));
       }
-      return true;
+      
+      // Include analyzed attachments
+      return a.is_analyzed === true;
     });
 
     console.log(`[Puzzle] Found ${relevantAttachments.length} relevant attachments`);
