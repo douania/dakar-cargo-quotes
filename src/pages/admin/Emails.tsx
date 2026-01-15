@@ -113,6 +113,8 @@ export default function Emails() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
+  const [isMergingThreads, setIsMergingThreads] = useState(false);
+  const [isCreatingThreads, setIsCreatingThreads] = useState(false);
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other' | 'with_attachments' | 'without_attachments'>('all');
   const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
   
@@ -440,6 +442,48 @@ export default function Emails() {
     setIsReclassifyingThreads(false);
   };
 
+  const mergeThreadsBySubject = async () => {
+    if (!confirm('Fusionner les emails ayant le même sujet en un seul fil ?\n\nCela regroupera les emails fragmentés (ex: "Spam: Re: sujet" avec "Re: sujet")')) return;
+    
+    setIsMergingThreads(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'merge_threads_by_subject' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.merged} email(s) fusionné(s), ${data.threadsCreated} fil(s) créé(s)`);
+      loadData();
+    } catch (error) {
+      console.error('Merge threads error:', error);
+      toast.error('Erreur de fusion des fils');
+    }
+    setIsMergingThreads(false);
+  };
+
+  const createThreadsFromEmails = async () => {
+    if (!confirm('Créer des fils pour les emails orphelins (sans fil assigné) ?\n\nCela regroupera les emails par sujet et créera les entrées manquantes.')) return;
+    
+    setIsCreatingThreads(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'create_threads_from_emails' }
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Erreur');
+
+      toast.success(`${data.threadsCreated} fil(s) créé(s), ${data.emailsLinked} email(s) liés`);
+      loadData();
+    } catch (error) {
+      console.error('Create threads error:', error);
+      toast.error('Erreur de création des fils');
+    }
+    setIsCreatingThreads(false);
+  };
+
   const analyzeAllUnhandledAttachments = async () => {
     if (unanalyzedAttachments.length === 0) {
       toast.info('Aucune pièce jointe à analyser');
@@ -691,16 +735,43 @@ export default function Emails() {
                     </Select>
                   </div>
 
-                  {/* Reclassify threads */}
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={reclassifyThreads}
-                    disabled={isReclassifyingThreads}
-                  >
-                    <RotateCcw className={`h-4 w-4 mr-2 ${isReclassifyingThreads ? 'animate-spin' : ''}`} />
-                    Reclassifier fils
-                  </Button>
+                  {/* Thread management buttons */}
+                  <div className="flex items-center gap-2">
+                    {/* Create threads from orphan emails */}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={createThreadsFromEmails}
+                      disabled={isCreatingThreads}
+                      title="Créer des fils pour les emails sans fil assigné"
+                    >
+                      <Plus className={`h-4 w-4 mr-2 ${isCreatingThreads ? 'animate-pulse' : ''}`} />
+                      {isCreatingThreads ? 'Création...' : 'Créer fils'}
+                    </Button>
+
+                    {/* Merge fragmented threads */}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={mergeThreadsBySubject}
+                      disabled={isMergingThreads}
+                      title="Fusionner les emails fragmentés par sujet"
+                    >
+                      <GitBranch className={`h-4 w-4 mr-2 ${isMergingThreads ? 'animate-pulse' : ''}`} />
+                      {isMergingThreads ? 'Fusion...' : 'Fusionner'}
+                    </Button>
+
+                    {/* Reclassify threads */}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={reclassifyThreads}
+                      disabled={isReclassifyingThreads}
+                    >
+                      <RotateCcw className={`h-4 w-4 mr-2 ${isReclassifyingThreads ? 'animate-spin' : ''}`} />
+                      Reclassifier
+                    </Button>
+                  </div>
 
                   {otherThreadCount > 0 && threadFilter === 'all' && (
                     <Badge variant="secondary" className="text-xs">
