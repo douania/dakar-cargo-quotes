@@ -21,6 +21,7 @@ import Intake from "./pages/Intake";
 import CaseView from "./pages/CaseView";
 import TariffReports from "./pages/admin/TariffReports";
 import TendersAdmin from "./pages/admin/Tenders";
+import TransportRates from "./pages/admin/TransportRates";
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,7 @@ const App = () => (
           <Route path="/admin/tarifs-portuaires" element={<PortTariffsAdmin />} />
           <Route path="/admin/tariff-reports" element={<TariffReports />} />
           <Route path="/admin/tenders" element={<TendersAdmin />} />
+          <Route path="/admin/transport-rates" element={<TransportRates />} />
           <Route path="/truck-loading" element={<TruckLoading />} />
           <Route path="/intake" element={<Intake />} />
           <Route path="/case/:caseId" element={<CaseView />} />
