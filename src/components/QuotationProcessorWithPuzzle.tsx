@@ -47,6 +47,7 @@ import { QuotationCostBreakdown, type CostStructure } from '@/components/Quotati
 import { useSodatraFees, type FeeCalculationParams, type SodatraFeeSuggestion } from '@/hooks/useSodatraFees';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
 import { useComplexityAssessment } from '@/hooks/useComplexityAssessment';
+import { QuotationExcelExport } from '@/components/QuotationExcelExport';
 import { supabase } from '@/integrations/supabase/client';
 import type { QuotationProcessResult } from '@/services/emailService';
 
@@ -178,6 +179,93 @@ export function QuotationProcessorWithPuzzle({
     if (!costStructure?.bloc_debours.total) return 'TBC' as const;
     return totalDap + (costStructure.bloc_debours.total || 0);
   }, [costStructure, totalDap]);
+
+  // Transform cost structure to QuotationLine[] format for Excel export
+  const excelExportLines = useMemo(() => {
+    if (!costStructure) return [];
+    
+    const lines: Array<{
+      category: string;
+      service: string;
+      unit: string;
+      rate: number;
+      quantity: number;
+      amount: number;
+      source: string;
+      notes?: string;
+    }> = [];
+    
+    // Operational costs
+    costStructure.bloc_operationnel.items.forEach(item => {
+      lines.push({
+        category: 'OPÉRATIONNEL',
+        service: item.description,
+        unit: 'Forfait',
+        rate: item.montant || 0,
+        quantity: 1,
+        amount: item.montant || 0,
+        source: item.source || 'CALCULATED',
+        notes: item.note,
+      });
+    });
+    
+    // Border costs (if Mali)
+    (costStructure as any).bloc_border?.items?.forEach((item: any) => {
+      lines.push({
+        category: 'FRONTIÈRE MALI',
+        service: item.description,
+        unit: 'Forfait',
+        rate: item.montant || 0,
+        quantity: 1,
+        amount: item.montant || 0,
+        source: item.source || 'OFFICIAL',
+        notes: item.note,
+      });
+    });
+    
+    // Terminal costs (if Mali)
+    (costStructure as any).bloc_terminal?.items?.forEach((item: any) => {
+      lines.push({
+        category: 'TERMINAL DESTINATION',
+        service: item.description,
+        unit: 'Forfait',
+        rate: item.montant || 0,
+        quantity: 1,
+        amount: item.montant || 0,
+        source: item.source || 'OFFICIAL',
+        notes: item.note,
+      });
+    });
+    
+    // Honoraires (from sodatraFees)
+    sodatraFees?.fees?.forEach(fee => {
+      lines.push({
+        category: 'HONORAIRES',
+        service: fee.label,
+        unit: 'Forfait',
+        rate: fee.suggested_amount,
+        quantity: 1,
+        amount: fee.suggested_amount,
+        source: 'SODATRA',
+      });
+    });
+    
+    // Debours (customs)
+    costStructure.bloc_debours.items.forEach(item => {
+      lines.push({
+        category: 'DÉBOURS D&T',
+        service: item.description,
+        unit: 'Forfait',
+        rate: item.montant || 0,
+        quantity: 1,
+        amount: item.montant || 0,
+        source: item.source || 'ESTIMATE',
+        notes: item.note,
+      });
+    });
+    
+    return lines;
+  }, [costStructure, sodatraFees]);
 
   // Initialize edited body when result changes
   useEffect(() => {
@@ -699,6 +787,24 @@ ${JSON.stringify(result.extractedData, null, 2)}
                     <Button variant="outline" onClick={handleClose}>
                       Fermer
                     </Button>
+                    
+                    {/* Excel Export Button */}
+                    {excelExportLines.length > 0 && (
+                      <QuotationExcelExport
+                        client={result.originalEmail?.from || 'Client'}
+                        destination={result.extractedData?.destination || 'Destination'}
+                        origin={result.extractedData?.origin}
+                        incoterm={result.extractedData?.incoterm}
+                        containerType={result.extractedData?.container_type}
+                        currency="FCFA"
+                        lines={excelExportLines}
+                        marginPercent={5}
+                        validityDays={30}
+                        variant="outline"
+                        size="default"
+                      />
+                    )}
+                    
                     <Button onClick={handleCopy} className="gap-2">
                       {copied ? (
                         <>
