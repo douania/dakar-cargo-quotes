@@ -499,46 +499,162 @@ serve(async (req) => {
           
           allEmails = allEmails.concat(batch);
           offset += pageSize;
-          
-          if (batch.length < pageSize) break;
         }
         
-        console.log(`Found ${allEmails.length} emails to reclassify`);
+        console.log(`Reclassifying ${allEmails.length} emails...`);
         
-        let quotationCount = 0;
-        let nonQuotationCount = 0;
+        let reclassified = 0;
         
         for (const email of allEmails) {
-          const from = email.from_address || '';
-          const subject = email.subject || '';
-          const body = email.body_text || email.body_html || '';
+          const isQuotation = isQuotationRelated(
+            email.from_address,
+            email.subject || '',
+            email.body_text || email.body_html || ''
+          );
           
-          const isQuotation = isQuotationRelated(from, subject, body);
-          
-          const { error: updateError } = await supabase
+          await supabase
             .from('emails')
             .update({ is_quotation_request: isQuotation })
             .eq('id', email.id);
           
-          if (updateError) {
-            console.error(`Error updating email ${email.id}:`, updateError);
-          } else {
-            if (isQuotation) {
-              quotationCount++;
-            } else {
-              nonQuotationCount++;
-            }
+          reclassified++;
+        }
+        
+        console.log(`Reclassified ${reclassified} emails`);
+        
+        return new Response(
+          JSON.stringify({ success: true, reclassified }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case 'reimport_attachments': {
+        // Find emails that might have PDF/Excel attachments but none in database
+        console.log('Starting attachment reimport scan...');
+        
+        // Get emails with potential attachments (based on size or keywords)
+        const { data: emails, error: fetchError } = await supabase
+          .from('emails')
+          .select(`
+            id, 
+            message_id, 
+            email_config_id,
+            subject,
+            body_text,
+            from_address
+          `)
+          .order('sent_at', { ascending: false })
+          .limit(data?.limit || 50);
+        
+        if (fetchError) throw fetchError;
+        
+        if (!emails || emails.length === 0) {
+          return new Response(
+            JSON.stringify({ success: true, scanned: 0, needsReimport: [] }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // Check which emails have PDF/Excel attachments already
+        const emailIds = emails.map(e => e.id);
+        const { data: existingAttachments } = await supabase
+          .from('email_attachments')
+          .select('email_id, filename, content_type')
+          .in('email_id', emailIds);
+        
+        // Find emails without PDF/Excel attachments
+        const attachmentMap = new Map<string, Array<{ filename: string; content_type: string }>>();
+        for (const att of existingAttachments || []) {
+          if (!attachmentMap.has(att.email_id)) {
+            attachmentMap.set(att.email_id, []);
+          }
+          attachmentMap.get(att.email_id)!.push({ 
+            filename: att.filename, 
+            content_type: att.content_type || '' 
+          });
+        }
+        
+        const needsReimport: Array<{
+          id: string;
+          subject: string;
+          from: string;
+          currentAttachments: string[];
+          reason: string;
+        }> = [];
+        
+        for (const email of emails) {
+          const attachments = attachmentMap.get(email.id) || [];
+          
+          // Check if email mentions attachments but has none or only images
+          const bodyLower = (email.body_text || '').toLowerCase();
+          const subjectLower = (email.subject || '').toLowerCase();
+          const text = `${subjectLower} ${bodyLower}`;
+          
+          const mentionsAttachment = 
+            text.includes('pièce jointe') ||
+            text.includes('piece jointe') ||
+            text.includes('ci-joint') ||
+            text.includes('attached') ||
+            text.includes('attachment') ||
+            text.includes('.pdf') ||
+            text.includes('.xlsx') ||
+            text.includes('.xls') ||
+            text.includes('cotation') ||
+            text.includes('quotation') ||
+            text.includes('devis') ||
+            text.includes('tarif');
+          
+          const hasPdfOrExcel = attachments.some(a => {
+            const ct = (a.content_type || '').toLowerCase();
+            const fn = (a.filename || '').toLowerCase();
+            return ct.includes('pdf') || 
+                   ct.includes('excel') || 
+                   ct.includes('spreadsheet') ||
+                   fn.endsWith('.pdf') ||
+                   fn.endsWith('.xlsx') ||
+                   fn.endsWith('.xls');
+          });
+          
+          const onlyHasImages = attachments.length > 0 && attachments.every(a => {
+            const ct = (a.content_type || '').toLowerCase();
+            return ct.startsWith('image/');
+          });
+          
+          let reason = '';
+          if (mentionsAttachment && attachments.length === 0) {
+            reason = 'Mentions pièces jointes mais aucune enregistrée';
+          } else if (mentionsAttachment && !hasPdfOrExcel && onlyHasImages) {
+            reason = 'Mentionne pièces jointes mais seulement des images (signatures)';
+          } else if (attachments.length === 0 && (
+            subjectLower.includes('cotation') ||
+            subjectLower.includes('quotation') ||
+            subjectLower.includes('offre') ||
+            subjectLower.includes('tarif')
+          )) {
+            reason = 'Email de cotation sans pièce jointe';
+          }
+          
+          if (reason) {
+            needsReimport.push({
+              id: email.id,
+              subject: email.subject || '(sans sujet)',
+              from: email.from_address,
+              currentAttachments: attachments.map(a => a.filename),
+              reason
+            });
           }
         }
         
-        console.log(`Reclassification complete: ${quotationCount} quotations, ${nonQuotationCount} non-quotations`);
+        console.log(`Scanned ${emails.length} emails, ${needsReimport.length} need reimport`);
         
         return new Response(
           JSON.stringify({ 
             success: true, 
-            total: allEmails.length,
-            quotations: quotationCount,
-            nonQuotations: nonQuotationCount
+            scanned: emails.length,
+            needsReimport,
+            message: needsReimport.length > 0 
+              ? `${needsReimport.length} email(s) peuvent avoir des pièces jointes manquantes. Utilisez "Importer" sur le fil correspondant pour les récupérer.`
+              : "Tous les emails semblent avoir leurs pièces jointes."
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
