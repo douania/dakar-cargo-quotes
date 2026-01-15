@@ -23,6 +23,7 @@ import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole
 import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFromEmailButton';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
 import { LearningStats } from '@/components/LearningStats';
+import { QuotationPuzzleView } from '@/components/QuotationPuzzleView';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
@@ -117,6 +118,7 @@ export default function Emails() {
   const [isCreatingThreads, setIsCreatingThreads] = useState(false);
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other' | 'with_attachments' | 'without_attachments'>('all');
   const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
+  const [analyzingThreadId, setAnalyzingThreadId] = useState<string | null>(null);
   
   // Search states
   const [emailSearchQuery, setEmailSearchQuery] = useState('');
@@ -857,12 +859,23 @@ export default function Emails() {
                             </div>
                           </div>
                           
-                          {/* Create Tender Button - only show for complex requests (level >= 3) */}
-                          {complexity.level >= 3 && (
-                            <div className="ml-4">
+                          <div className="flex flex-col gap-2 ml-4">
+                            {/* Analyze Puzzle Button */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setAnalyzingThreadId(thread.id)}
+                              className="text-primary"
+                            >
+                              <Brain className="h-4 w-4 mr-2" />
+                              Analyser Puzzle
+                            </Button>
+                            
+                            {/* Create Tender Button - only show for complex requests (level >= 3) */}
+                            {complexity.level >= 3 && (
                               <CreateTenderFromEmailButton thread={thread} />
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -1383,6 +1396,30 @@ export default function Emails() {
           emailSubject={guidanceEmailSubject}
           isRegenerating={!!selectedDraft}
         />
+
+        {/* Puzzle Analysis Dialog */}
+        <Dialog open={!!analyzingThreadId} onOpenChange={() => setAnalyzingThreadId(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5 text-primary" />
+                Analyse Puzzle du fil
+              </DialogTitle>
+              <DialogDescription>
+                Extraction des connaissances depuis les emails et pièces jointes
+              </DialogDescription>
+            </DialogHeader>
+            {analyzingThreadId && (
+              <QuotationPuzzleView 
+                threadId={analyzingThreadId} 
+                onPuzzleComplete={(puzzle) => {
+                  toast.success(`Puzzle analysé: ${puzzle.puzzle_completeness}% complet`);
+                  loadData(); // Refresh stats
+                }}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

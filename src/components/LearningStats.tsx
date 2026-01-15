@@ -58,8 +58,10 @@ export function LearningStats() {
         .from('known_business_contacts')
         .select('default_role');
 
-      // Process tariffs
-      const tariffs = (knowledge || []).filter(k => k.category === 'tariff');
+      // Process tariffs - accept both English and French category names
+      const tariffs = (knowledge || []).filter(k => 
+        k.category === 'tariff' || k.category === 'tarif'
+      );
       const tariffsByDestination: Record<string, number> = {};
       tariffs.forEach(t => {
         const dest = (t.data as any)?.destination || (t.data as any)?.pod || 'Unknown';
@@ -69,10 +71,13 @@ export function LearningStats() {
       // Process templates
       const templates = (knowledge || []).filter(k => k.category === 'template');
 
-      // Process patterns
+      // Process patterns - include French category names
       const patterns = (knowledge || []).filter(k => 
         k.category === 'negotiation_pattern' || 
+        k.category === 'negociation' ||
+        k.category === 'patterns_de_negociation' ||
         k.category === 'operational_condition' ||
+        k.category === 'condition' ||
         k.category === 'pattern'
       );
 
@@ -106,8 +111,15 @@ export function LearningStats() {
         },
         patterns: {
           total: patterns.length,
-          negotiation: patterns.filter(p => p.category === 'negotiation_pattern').length,
-          operational: patterns.filter(p => p.category === 'operational_condition').length
+          negotiation: patterns.filter(p => 
+            p.category === 'negotiation_pattern' || 
+            p.category === 'negociation' || 
+            p.category === 'patterns_de_negociation'
+          ).length,
+          operational: patterns.filter(p => 
+            p.category === 'operational_condition' || 
+            p.category === 'condition'
+          ).length
         }
       });
     } catch (error) {
