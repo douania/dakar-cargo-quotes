@@ -450,6 +450,87 @@ function detectCargoTypeFromSheet(sheetName: string): string {
   return 'container';
 }
 
+// Store packing list data as learned knowledge (marchandise category)
+async function storePackingListKnowledge(
+  supabase: any, 
+  attachment: any, 
+  extractedData: any
+): Promise<void> {
+  if (extractedData?.document_type !== 'packing_list') {
+    console.log(`[Knowledge] Skipping - not a packing list: ${extractedData?.document_type}`);
+    return;
+  }
+  
+  const items = extractedData.items || [];
+  const totals = extractedData.totals;
+  
+  if (items.length === 0) {
+    console.log(`[Knowledge] Skipping - no items in packing list`);
+    return;
+  }
+  
+  // Filter main heavy items (>5 tonnes)
+  const mainItems = items
+    .filter((i: any) => (i.gross_weight_kg || 0) > 5000)
+    .map((i: any) => ({
+      id: i.id,
+      description: i.description,
+      weight_kg: i.gross_weight_kg,
+      dimensions_cm: { 
+        l: i.length_cm, 
+        w: i.width_cm, 
+        h: i.height_cm 
+      },
+      volume_m3: i.volume_m3
+    }));
+  
+  const shipmentRef = extractedData.shipment_ref || extractedData.po_number || attachment.filename;
+  const totalWeight = totals?.gross_weight_kg || items.reduce((sum: number, i: any) => sum + (i.gross_weight_kg || 0), 0);
+  const totalVolume = totals?.volume_m3 || items.reduce((sum: number, i: any) => sum + (i.volume_m3 || 0), 0);
+  
+  const knowledgeEntry = {
+    category: 'marchandise',
+    name: `Packing List: ${shipmentRef}`,
+    description: `${items.length} colis, ${Math.round(totalWeight).toLocaleString()} kg brut, ${totalVolume.toFixed(1)} m³. ${mainItems.length > 0 ? `Inclut ${mainItems.length} pièce(s) lourde(s) >5t.` : ''} Origine: ${extractedData.origin || 'N/A'}, Destination: ${extractedData.destination || 'N/A'}`,
+    data: {
+      type: 'packing_list_summary',
+      shipment_ref: shipmentRef,
+      items_count: items.length,
+      main_items: mainItems,
+      all_items: items.slice(0, 50), // Limit to 50 items to avoid huge payloads
+      totals: {
+        packages: totals?.packages || items.length,
+        gross_weight_kg: totalWeight,
+        net_weight_kg: totals?.net_weight_kg,
+        volume_m3: totalVolume
+      },
+      origin: extractedData.origin,
+      destination: extractedData.destination,
+      consignee: extractedData.consignee,
+      shipper: extractedData.shipper,
+      source_attachment_id: attachment.id,
+      source_filename: attachment.filename
+    },
+    source_type: 'attachment',
+    source_id: attachment.id,
+    confidence: 0.95,
+    is_validated: false,
+    matching_criteria: {
+      cargo_type: mainItems.length > 0 ? 'heavy_lift' : 'general',
+      max_piece_weight_kg: mainItems.length > 0 ? Math.max(...mainItems.map((i: any) => i.weight_kg || 0)) : null,
+      keywords: ['transformateur', 'transformer', 'breakbulk', 'heavy', 'packing', 'colisage']
+    }
+  };
+  
+  const { error } = await supabase.from('learned_knowledge').insert(knowledgeEntry);
+  
+  if (error) {
+    console.error(`[Knowledge] Error storing packing list knowledge:`, error);
+  } else {
+    console.log(`[Knowledge] Stored packing list as marchandise: ${items.length} items, ${mainItems.length} heavy pieces`);
+  }
+}
+
 // Background analysis function
 async function analyzeAttachmentInBackground(
   supabase: any, 
@@ -687,6 +768,11 @@ ${excelText}`;
       extracted_text: extractedText?.substring(0, 5000) || '',
       extracted_data: extractedData
     }).eq('id', attachment.id);
+    
+    // Store packing list data as learned knowledge (marchandise category)
+    if (extractedData?.document_type === 'packing_list') {
+      await storePackingListKnowledge(supabase, attachment, extractedData);
+    }
     
     console.log(`[BG] ✓ Analysis complete: ${attachment.filename}`);
     return { success: true, filename: attachment.filename };
@@ -1253,10 +1339,16 @@ Réponds en JSON avec cette structure:
           console.error(`Failed to update attachment ${attachment.id}:`, updateError);
         } else {
           console.log(`Successfully analyzed: ${attachment.filename}`);
+          
+          // Store packing list data as learned knowledge (marchandise category)
+          if (extractedData?.document_type === 'packing_list') {
+            await storePackingListKnowledge(supabase, attachment, extractedData);
+          }
+          
           results.push({
             id: attachment.id,
             filename: attachment.filename,
-            type: extractedData?.type || 'unknown',
+            type: extractedData?.type || extractedData?.document_type || 'unknown',
             sheetsFound: extractedData?.sheetNames?.length || 0,
             linesExtracted: tariffLines.length,
             success: true
