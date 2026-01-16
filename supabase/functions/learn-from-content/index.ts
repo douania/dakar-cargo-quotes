@@ -41,11 +41,69 @@ Analyse le contenu fourni et extrais les connaissances suivantes si présentes:
    - Règles spécifiques par client
    Format: { type, description, applicable_a }
 
+6. **MARCHANDISES** (category: "marchandise")
+   - Caractéristiques des produits transportés
+   - Dimensions et poids types par catégorie
+   - Contraintes de transport (fragile, dangereux, température...)
+   - Références et codes SH
+   Format: { 
+     nom, 
+     type_produit, 
+     poids_kg, 
+     dimensions_cm: {longueur, largeur, hauteur}, 
+     volume_m3,
+     contraintes: [], 
+     hs_code, 
+     origine_typique,
+     mode_transport_recommande 
+   }
+
+7. **FOURNISSEURS** (category: "fournisseur")
+   - Fabricants et leurs produits
+   - Références et prix
+   - Pays et contacts
+   Format: { 
+     nom, 
+     pays, 
+     produits: [], 
+     references: [],
+     contacts: [{nom, email, tel}],
+     conditions_paiement,
+     incoterm_habituel
+   }
+
+8. **ROUTES** (category: "route")
+   - Itinéraires fréquents
+   - Temps de transit
+   - Contraintes logistiques
+   - Points de transbordement
+   Format: { 
+     origine, 
+     destination, 
+     via: [],
+     mode_transport,
+     duree_jours,
+     distance_km,
+     contraintes: [],
+     operateurs_recommandes: []
+   }
+
+9. **EQUIPEMENTS** (category: "equipement")
+   - Spécifications de conteneurs ou camions utilisés
+   - Capacités et contraintes
+   Format: {
+     type,
+     dimensions_interieures_cm: {},
+     capacite_kg,
+     capacite_m3,
+     contraintes: []
+   }
+
 Réponds UNIQUEMENT avec un JSON valide au format:
 {
   "extractions": [
     {
-      "category": "tarif|template|contact|processus|condition",
+      "category": "tarif|template|contact|processus|condition|marchandise|fournisseur|route|equipement",
       "name": "Nom court descriptif",
       "description": "Description détaillée",
       "data": { ... données structurées ... },
@@ -53,6 +111,12 @@ Réponds UNIQUEMENT avec un JSON valide au format:
     }
   ]
 }
+
+RÈGLES IMPORTANTES:
+- Chaque extraction doit avoir un nom UNIQUE et descriptif
+- confidence >= 0.8 pour les données clairement identifiées
+- confidence 0.5-0.8 pour les données partielles
+- confidence < 0.5 = ignorer
 
 Si aucune connaissance exploitable n'est trouvée, retourne: { "extractions": [] }`;
 
@@ -117,6 +181,48 @@ ${doc.content_text}
 
 DONNÉES EXTRAITES:
 ${JSON.stringify(doc.extracted_data, null, 2)}
+          `;
+        }
+      } else if (contentType === 'attachment') {
+        // NEW: Support for email attachments (packing lists, invoices, etc.)
+        const { data: att } = await supabase
+          .from('email_attachments')
+          .select('*')
+          .eq('id', contentId)
+          .single();
+        
+        if (att) {
+          sourceRecord = att;
+          
+          // Get parent email for context
+          let emailContext = '';
+          if (att.email_id) {
+            const { data: email } = await supabase
+              .from('emails')
+              .select('subject, from_address, sent_at')
+              .eq('id', att.email_id)
+              .single();
+            
+            if (email) {
+              emailContext = `
+EMAIL CONTEXTE:
+Sujet: ${email.subject}
+De: ${email.from_address}
+Date: ${email.sent_at}
+`;
+            }
+          }
+          
+          textContent = `
+PIÈCE JOINTE: ${att.filename}
+TYPE: ${att.content_type}
+${emailContext}
+
+TEXTE EXTRAIT:
+${att.extracted_text || '(aucun texte extrait)'}
+
+DONNÉES STRUCTURÉES:
+${att.extracted_data ? JSON.stringify(att.extracted_data, null, 2) : '(aucune donnée structurée)'}
           `;
         }
       }
