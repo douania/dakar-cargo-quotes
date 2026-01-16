@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFr
 import { ComplexityBadge } from '@/components/ComplexityBadge';
 import { LearningStats } from '@/components/LearningStats';
 import { QuotationPuzzleView } from '@/components/QuotationPuzzleView';
+import { AttachmentStatusPanel } from '@/components/AttachmentStatusPanel';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
@@ -98,6 +99,7 @@ export default function Emails() {
   const [threads, setThreads] = useState<EmailThread[]>([]);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [attachmentDetails, setAttachmentDetails] = useState<Record<string, { types: string[], filenames: string[] }>>({});
+  const [allAttachments, setAllAttachments] = useState<any[]>([]);
   const [unanalyzedAttachments, setUnanalyzedAttachments] = useState<{ id: string; filename: string; content_type: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -153,6 +155,9 @@ export default function Emails() {
         
         const counts: Record<string, number> = {};
         const details: Record<string, { types: string[], filenames: string[] }> = {};
+        
+        // Store all attachments for stats
+        setAllAttachments(data.attachments || []);
         
         (data.attachments || []).forEach((att: any) => {
           if (att.email_id) {
@@ -607,6 +612,41 @@ export default function Emails() {
   const quotationThreadCount = threads.filter(t => t.is_quotation_thread !== false).length;
   const otherThreadCount = threads.filter(t => t.is_quotation_thread === false).length;
 
+  // Compute attachment stats
+  const attachmentStats = useMemo(() => {
+    const TEMP_FILE_PATTERNS = [
+      /^~\$/,           // Word temp files
+      /^~WRD/,          // Word recovery
+      /^~WRL/,          // Word lock
+      /\.tmp$/i,        // Temp files
+      /^Thumbs\.db$/i,  // Windows thumbnails
+      /^\.DS_Store$/,   // Mac files
+    ];
+    
+    const isTemporaryFile = (filename: string) => 
+      TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
+    
+    const isRelevantFile = (filename: string) => {
+      const ext = filename.split('.').pop()?.toLowerCase() || '';
+      return ['pdf', 'xlsx', 'xls', 'jpg', 'jpeg', 'png', 'docx', 'doc'].includes(ext);
+    };
+    
+    // Only count relevant, non-temporary files
+    const relevantAttachments = allAttachments.filter(att => 
+      !isTemporaryFile(att.filename) && isRelevantFile(att.filename)
+    );
+    
+    const analyzed = relevantAttachments.filter(att => att.is_analyzed && att.storage_path).length;
+    const pending = relevantAttachments.filter(att => !att.is_analyzed && att.storage_path).length;
+    const errors = relevantAttachments.filter(att => 
+      att.is_analyzed && 
+      att.extracted_data?.type === 'error'
+    ).length;
+    const missing = relevantAttachments.filter(att => !att.storage_path).length;
+    
+    return { pending, analyzed, errors, missing };
+  }, [allAttachments]);
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
@@ -691,6 +731,13 @@ export default function Emails() {
 
           {/* Threads Tab */}
           <TabsContent value="threads" className="space-y-4">
+            {/* Attachment Status Panel */}
+            <AttachmentStatusPanel 
+              stats={attachmentStats}
+              unanalyzedAttachments={unanalyzedAttachments}
+              onRefresh={loadData}
+            />
+            
             {/* Learning Stats */}
             <LearningStats />
             
