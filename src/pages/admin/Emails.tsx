@@ -623,17 +623,18 @@ export default function Emails() {
       /^\.DS_Store$/,   // Mac files
     ];
     
-    const isTemporaryFile = (filename: string) => 
-      TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
+    const isTemporaryFile = (filename: string | undefined) => 
+      filename ? TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename)) : false;
     
-    const isRelevantFile = (filename: string) => {
+    const isRelevantFile = (filename: string | undefined) => {
+      if (!filename) return false;
       const ext = filename.split('.').pop()?.toLowerCase() || '';
       return ['pdf', 'xlsx', 'xls', 'jpg', 'jpeg', 'png', 'docx', 'doc'].includes(ext);
     };
     
     // Only count relevant, non-temporary files
     const relevantAttachments = allAttachments.filter(att => 
-      !isTemporaryFile(att.filename) && isRelevantFile(att.filename)
+      att.filename && !isTemporaryFile(att.filename) && isRelevantFile(att.filename)
     );
     
     const analyzed = relevantAttachments.filter(att => att.is_analyzed && att.storage_path).length;
