@@ -904,70 +904,8 @@ serve(async (req) => {
         
         console.log(`File converted to base64: ${attachment.filename} (${uint8Array.length} bytes)`);
         
-        // Handle Excel files - send to AI with specialized prompt
+        // Handle Excel files - use document type detection (unified with background mode)
         if (isExcel) {
-          const mimeType = attachment.content_type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-          
-          const excelPrompt = `Tu es un expert en analyse de fichiers Excel de cotation logistique et maritime.
-
-Analyse ce fichier Excel et extrais TOUTES les données tarifaires.
-
-INSTRUCTIONS CRITIQUES - TARIFS DE TRANSPORT PAR DESTINATION:
-1. ⚠️ PRIORITÉ ABSOLUE: Détecte les tarifs de transport terrestre par DESTINATION (ville de livraison)
-2. Les onglets "Transport", "Trucking", "On-carriage", "Camionnage" contiennent ces tarifs
-3. Les colonnes peuvent être des VILLES (Bamako, Tambacounda, Saint-Louis, Kaolack, etc.)
-4. Chaque ligne = type conteneur (20', 40', etc.) ou catégorie poids
-5. Chaque cellule = prix de transport vers cette destination
-
-STRUCTURE ATTENDUE POUR LES TARIFS DE TRANSPORT:
-- Pour chaque destination trouvée, extrais le tarif pour chaque type de conteneur
-- Les tarifs varient selon: destination, type conteneur (20'/40'), catégorie cargo (Dry/DG/OOG)
-
-AUTRES EXTRACTIONS:
-- Services portuaires (THC, Documentation, etc.)
-- Tarifs par onglet (Dry, DG Cargo, Special, Services)
-- Métadonnées (client, route, date, incoterm)
-
-Réponds UNIQUEMENT en JSON valide avec cette structure:
-{
-  "type": "transport_tariffs",
-  "sheetNames": ["Dry Containers", "DG Cargo", "Transport Tariffs"],
-  "transport_rates": [
-    {
-      "destination": "Bamako",
-      "distance_km": 1200,
-      "container_type": "20' Dry",
-      "cargo_category": "Dry",
-      "amount": 2500000,
-      "currency": "XOF",
-      "sheet_name": "Transport"
-    },
-    {
-      "destination": "Bamako",
-      "container_type": "40' Dry",
-      "cargo_category": "Dry", 
-      "amount": 4200000,
-      "currency": "XOF"
-    },
-    {
-      "destination": "Tambacounda",
-      "container_type": "20' Dry",
-      "cargo_category": "Dry",
-      "amount": 650000,
-      "currency": "XOF"
-    }
-  ],
-  "tariff_lines": [
-    { "service": "DTHC", "amount": 182900, "currency": "XOF", "container_type": "20'", "sheet_name": "Dry" }
-  ],
-  "metadata": {
-    "client": "nom si visible",
-    "partner": "transitaire",
-    "route": "Dakar -> destinations multiples",
-    "date": "date si visible"
-  }
-}`;
-
           console.log(`Parsing Excel ${attachment.filename} with SheetJS...`);
           
           // Parse Excel using SheetJS first
@@ -986,9 +924,48 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
             continue;
           }
           
-          console.log(`Excel parsed: ${excelSheets.length} sheets, ${excelText.length} chars. Sending to AI...`);
+          // DETECT DOCUMENT TYPE - same logic as background mode
+          const docType = detectDocumentType(attachment.filename, excelText);
+          const promptConfig = DOCUMENT_PROMPTS[docType];
           
-          // Send parsed text to AI (not the binary file)
+          console.log(`Detected document type: ${docType} for ${attachment.filename}`);
+          console.log(`Excel parsed: ${excelSheets.length} sheets, ${excelText.length} chars. Sending to AI with ${docType} prompt...`);
+          
+          // Build the appropriate prompt based on document type
+          let systemPrompt = promptConfig.systemPrompt;
+          let userPrompt = '';
+          
+          if (docType === 'tariff') {
+            // Special handling for tariff Excel files - check for transport tabs
+            const hasTruckingTab = excelSheets.some(s => 
+              s.name.toLowerCase().includes('trucking') || 
+              s.name.toLowerCase().includes('transport') ||
+              s.name.toLowerCase().includes('camionnage')
+            );
+            
+            if (hasTruckingTab) {
+              userPrompt = `Analyse ce fichier Excel de tarifs transport.
+PRIORITÉ: Extrais les tarifs de transport terrestre par destination.
+Les onglets Transport/Trucking contiennent les prix par ville de destination.
+
+Voici le contenu COMPLET du fichier Excel parsé (tous les onglets):
+
+${excelText.substring(0, 50000)}`;
+            } else {
+              userPrompt = `Analyse ce fichier Excel et extrais les tarifs.
+
+Voici le contenu COMPLET du fichier Excel parsé (tous les onglets):
+
+${excelText.substring(0, 50000)}`;
+            }
+          } else {
+            // Use specialized prompt for packing_list, invoice, etc.
+            userPrompt = `Analyse ce fichier Excel (${attachment.filename}):
+
+${excelText.substring(0, 50000)}`;
+          }
+          
+          // Send parsed text to AI with appropriate prompt
           const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -996,16 +973,10 @@ Réponds UNIQUEMENT en JSON valide avec cette structure:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',  // Flash is enough for parsed text
+              model: 'google/gemini-2.5-flash',
               messages: [
-                { 
-                  role: 'system', 
-                  content: 'Tu es un expert en extraction de données de cotations logistiques depuis des fichiers Excel. Réponds uniquement en JSON valide.' 
-                },
-                { 
-                  role: 'user', 
-                  content: `${excelPrompt}\n\nVoici le contenu COMPLET du fichier Excel parsé (tous les onglets):\n\n${excelText.substring(0, 50000)}` 
-                }
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
               ]
             }),
           });
