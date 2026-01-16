@@ -63,6 +63,266 @@ function parseExcelToText(arrayBuffer: ArrayBuffer): { text: string; sheets: Arr
   }
 }
 
+// =============================================================================
+// DOCUMENT TYPE DETECTION AND SPECIALIZED PROMPTS
+// =============================================================================
+
+type DocumentType = 'packing_list' | 'invoice' | 'bill_of_lading' | 'certificate' | 'tariff' | 'quotation' | 'generic';
+
+interface DocumentTypeConfig {
+  type: DocumentType;
+  systemPrompt: string;
+  knowledgeCategories: string[];
+}
+
+// Detect document type from filename and content preview
+function detectDocumentType(filename: string, content: string): DocumentType {
+  const lowerName = filename.toLowerCase();
+  const lowerContent = content.toLowerCase().substring(0, 3000);
+  
+  // Packing list detection
+  if (lowerName.includes('packing') || lowerName.includes('colisage') || lowerName.includes('liste_colisage')) {
+    return 'packing_list';
+  }
+  if (lowerContent.includes('gross weight') || lowerContent.includes('net weight') ||
+      lowerContent.includes('poids brut') || lowerContent.includes('poids net') ||
+      (lowerContent.includes('dimensions') && lowerContent.includes('packages')) ||
+      lowerContent.includes('nbr of packages') || lowerContent.includes('number of packages')) {
+    return 'packing_list';
+  }
+  
+  // Invoice detection
+  if (lowerName.includes('invoice') || lowerName.includes('facture') || lowerName.includes('inv_')) {
+    return 'invoice';
+  }
+  if (lowerContent.includes('invoice number') || lowerContent.includes('numéro facture') ||
+      lowerContent.includes('total amount due') || lowerContent.includes('montant à payer') ||
+      (lowerContent.includes('unit price') && lowerContent.includes('quantity'))) {
+    return 'invoice';
+  }
+  
+  // Bill of Lading detection
+  if (lowerName.includes('bl') || lowerName.includes('lading') || lowerName.includes('connaissement')) {
+    return 'bill_of_lading';
+  }
+  if (lowerContent.includes('bill of lading') || lowerContent.includes('shipper') ||
+      lowerContent.includes('consignee') || lowerContent.includes('notify party') ||
+      lowerContent.includes('port of loading') || lowerContent.includes('port of discharge')) {
+    return 'bill_of_lading';
+  }
+  
+  // Certificate detection
+  if (lowerName.includes('certificat') || lowerName.includes('certificate') || 
+      lowerName.includes('cert_') || lowerName.includes('origine')) {
+    return 'certificate';
+  }
+  if (lowerContent.includes('certificate of origin') || lowerContent.includes('certificat d\'origine') ||
+      lowerContent.includes('eur.1') || lowerContent.includes('form a')) {
+    return 'certificate';
+  }
+  
+  // Quotation detection
+  if (lowerName.includes('cotation') || lowerName.includes('quote') || lowerName.includes('offre')) {
+    return 'quotation';
+  }
+  if (lowerContent.includes('notre offre') || lowerContent.includes('our quotation') ||
+      lowerContent.includes('prix unitaire') || lowerContent.includes('total ht')) {
+    return 'quotation';
+  }
+  
+  // Tariff detection
+  if (lowerName.includes('tarif') || lowerName.includes('rate') || lowerName.includes('price')) {
+    return 'tariff';
+  }
+  if (lowerContent.includes('trucking') || lowerContent.includes('transport rate') ||
+      lowerContent.includes('freight rate') || lowerContent.includes('local charges')) {
+    return 'tariff';
+  }
+  
+  return 'generic';
+}
+
+// Specialized prompts for each document type
+const DOCUMENT_PROMPTS: Record<DocumentType, DocumentTypeConfig> = {
+  packing_list: {
+    type: 'packing_list',
+    systemPrompt: `Tu es un expert en extraction de données de packing lists / listes de colisage.
+
+Extrais TOUTES les informations en JSON avec cette structure EXACTE:
+{
+  "document_type": "packing_list",
+  "shipment_ref": "référence expédition",
+  "items": [
+    {
+      "id": "identifiant unique (ligne 1, 2, 3...)",
+      "description": "description complète",
+      "quantity": 1,
+      "gross_weight_kg": 0,
+      "net_weight_kg": 0,
+      "length_cm": 0,
+      "width_cm": 0,
+      "height_cm": 0,
+      "volume_m3": 0,
+      "package_type": "caisse/palette/nu",
+      "marks": "marques"
+    }
+  ],
+  "totals": {
+    "packages": 0,
+    "gross_weight_kg": 0,
+    "net_weight_kg": 0,
+    "volume_m3": 0
+  },
+  "shipper": "expéditeur",
+  "consignee": "destinataire",
+  "origin": "origine",
+  "destination": "destination"
+}
+
+RÈGLES: Convertis dimensions en cm, poids en kg. Pour articles identiques: ID unique (1-A, 1-B...). JSON valide uniquement.`,
+    knowledgeCategories: ['marchandise', 'route']
+  },
+  
+  invoice: {
+    type: 'invoice',
+    systemPrompt: `Tu es un expert en extraction de factures commerciales.
+
+Extrais en JSON:
+{
+  "document_type": "invoice",
+  "invoice_number": "numéro",
+  "invoice_date": "YYYY-MM-DD",
+  "seller": { "name": "", "address": "", "country": "" },
+  "buyer": { "name": "", "address": "", "country": "" },
+  "items": [
+    { "description": "", "quantity": 0, "unit_price": 0, "total": 0, "currency": "", "hs_code": "" }
+  ],
+  "subtotal": 0,
+  "taxes": 0,
+  "total": 0,
+  "currency": "EUR/USD",
+  "payment_terms": "",
+  "incoterm": "FOB/CIF/DAP"
+}
+
+JSON valide uniquement.`,
+    knowledgeCategories: ['fournisseur', 'tarif', 'marchandise']
+  },
+  
+  bill_of_lading: {
+    type: 'bill_of_lading',
+    systemPrompt: `Tu es un expert en extraction de connaissements (Bill of Lading).
+
+Extrais en JSON:
+{
+  "document_type": "bill_of_lading",
+  "bl_number": "",
+  "carrier": "",
+  "vessel": "",
+  "voyage": "",
+  "shipper": { "name": "", "address": "" },
+  "consignee": { "name": "", "address": "" },
+  "notify_party": { "name": "", "address": "" },
+  "port_of_loading": "",
+  "port_of_discharge": "",
+  "place_of_delivery": "",
+  "containers": [
+    { "number": "XXXX1234567", "type": "20'/40'", "seal": "", "weight_kg": 0 }
+  ],
+  "cargo_description": "",
+  "gross_weight_kg": 0,
+  "measurement_m3": 0,
+  "freight_terms": "Prepaid/Collect",
+  "date_of_issue": "YYYY-MM-DD"
+}
+
+JSON valide uniquement.`,
+    knowledgeCategories: ['route', 'contact', 'marchandise']
+  },
+  
+  certificate: {
+    type: 'certificate',
+    systemPrompt: `Tu es un expert en extraction de certificats (origine, qualité, conformité).
+
+Extrais en JSON:
+{
+  "document_type": "certificate",
+  "certificate_type": "origine/conformité/qualité",
+  "certificate_number": "",
+  "issue_date": "YYYY-MM-DD",
+  "issuing_authority": "",
+  "exporter": { "name": "", "country": "" },
+  "importer": { "name": "", "country": "" },
+  "goods_description": "",
+  "origin_country": "",
+  "hs_codes": []
+}
+
+JSON valide uniquement.`,
+    knowledgeCategories: ['processus', 'marchandise']
+  },
+  
+  quotation: {
+    type: 'quotation',
+    systemPrompt: `Tu es un expert en extraction de cotations/devis logistiques.
+
+Extrais en JSON:
+{
+  "document_type": "quotation",
+  "quotation_number": "",
+  "quotation_date": "YYYY-MM-DD",
+  "from_company": "",
+  "to_company": "",
+  "route": { "origin": "", "destination": "", "incoterm": "" },
+  "cargo": { "description": "", "weight_kg": 0, "volume_m3": 0 },
+  "cost_breakdown": [
+    { "category": "", "description": "", "amount": 0, "currency": "" }
+  ],
+  "total": 0,
+  "currency": ""
+}
+
+JSON valide uniquement.`,
+    knowledgeCategories: ['tarif', 'template', 'processus']
+  },
+  
+  tariff: {
+    type: 'tariff',
+    systemPrompt: `Tu es un expert en extraction de tarifs logistiques depuis Excel.
+RÈGLES: Réponds UNIQUEMENT en JSON valide. Pour onglets Trucking/Transport: COLONNES = VILLES/DESTINATIONS.`,
+    knowledgeCategories: ['tarif']
+  },
+  
+  generic: {
+    type: 'generic',
+    systemPrompt: `Tu es un expert en extraction de données de documents logistiques.
+
+Extrais en JSON:
+{
+  "document_type": "generic",
+  "detected_content_type": "tarif/contact/processus/autre",
+  "key_information": {
+    "companies": [],
+    "contacts": [],
+    "locations": [],
+    "amounts": []
+  },
+  "raw_text_summary": "résumé"
+}
+
+JSON valide uniquement.`,
+    knowledgeCategories: ['contact', 'tarif', 'processus']
+  }
+};
+
+function getPromptForDocumentType(docType: DocumentType): DocumentTypeConfig {
+  return DOCUMENT_PROMPTS[docType] || DOCUMENT_PROMPTS.generic;
+}
+
+// =============================================================================
+// TARIFF LINE EXTRACTION
+// =============================================================================
+
 interface TariffLine {
   service: string;
   description?: string;
@@ -244,24 +504,27 @@ async function analyzeAttachmentInBackground(
         return { success: false, filename: attachment.filename, error: 'Empty file' };
       }
       
-      console.log(`[BG] Sending ${excelText.length} chars to AI...`);
+      // DETECT DOCUMENT TYPE from filename and content
+      const docType = detectDocumentType(attachment.filename, excelText);
+      const promptConfig = getPromptForDocumentType(docType);
       
-      // Detect if this contains trucking/transport tabs with destination columns
-      const hasTruckingTab = sheets.some(s => 
-        s.name.toLowerCase().includes('trucking') || 
-        s.name.toLowerCase().includes('transport') ||
-        s.name.toLowerCase().includes('other city')
-      );
+      console.log(`[BG] Detected document type: ${docType} for ${attachment.filename}`);
+      console.log(`[BG] Sending ${excelText.length} chars to AI with ${docType} prompt...`);
       
-      const systemPrompt = `Tu es un expert en extraction de tarifs logistiques depuis Excel. 
-RÈGLES IMPORTANTES:
-1. Réponds UNIQUEMENT en JSON valide, sans markdown
-2. Pour les onglets "Trucking" ou "Transport": les COLONNES représentent des VILLES/DESTINATIONS
-3. Format typique trucking: 1ère colonne = type conteneur, colonnes suivantes = villes avec tarifs
-4. Extrais CHAQUE cellule comme un tarif distinct avec sa destination`;
-
-      const userPrompt = hasTruckingTab 
-        ? `Analyse ce fichier Excel de tarifs transport.
+      // Build the appropriate prompt based on document type
+      let systemPrompt = promptConfig.systemPrompt;
+      let userPrompt = '';
+      
+      if (docType === 'tariff') {
+        // Special handling for tariff Excel files (existing logic)
+        const hasTruckingTab = sheets.some(s => 
+          s.name.toLowerCase().includes('trucking') || 
+          s.name.toLowerCase().includes('transport') ||
+          s.name.toLowerCase().includes('other city')
+        );
+        
+        userPrompt = hasTruckingTab 
+          ? `Analyse ce fichier Excel de tarifs transport.
 
 STRUCTURE JSON ATTENDUE:
 {
@@ -281,15 +544,14 @@ STRUCTURE JSON ATTENDUE:
 }
 
 INSTRUCTIONS CRITIQUES pour les onglets Trucking/Transport:
-- La PREMIÈRE ligne contient souvent les NOMS DE VILLES en colonnes (Saint Louis, Tambacounda, Kaolack, etc.)
-- La PREMIÈRE colonne contient les TYPES DE CONTENEURS (20', 40', 40'HC, etc.)
+- La PREMIÈRE ligne contient souvent les NOMS DE VILLES en colonnes
+- La PREMIÈRE colonne contient les TYPES DE CONTENEURS
 - CHAQUE CELLULE avec un montant = un tarif de transport vers cette destination
-- Ignore les cellules vides ou non-numériques
 - Les montants sont généralement en FCFA/XOF (6 chiffres: 850000, 1200000, etc.)
 
 Contenu du fichier:
 ${excelText}`
-        : `Analyse ce fichier Excel et extrais les tarifs.
+          : `Analyse ce fichier Excel et extrais les tarifs.
 
 STRUCTURE JSON ATTENDUE:
 {
@@ -303,6 +565,10 @@ STRUCTURE JSON ATTENDUE:
 
 Contenu:
 ${excelText}`;
+      } else {
+        // Use specialized prompt for other document types
+        userPrompt = `Analyse ce fichier (${attachment.filename}):\n\n${excelText}`;
+      }
 
       const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
