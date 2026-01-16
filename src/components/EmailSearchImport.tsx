@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, FileSpreadsheet, Sparkles, Paperclip } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, FileSpreadsheet, Sparkles, Paperclip, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -57,6 +59,10 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   const [processingQuotation, setProcessingQuotation] = useState(false);
   const [quotationResult, setQuotationResult] = useState<QuotationProcessResult | null>(null);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
+  
+  // Auto-analyze option
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
+  const [analyzingAfterImport, setAnalyzingAfterImport] = useState(false);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -183,6 +189,29 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       
       toast.success(message || 'Import terminé');
       
+      // Auto-analyze if enabled
+      if (autoAnalyze && totalAttachments > 0) {
+        setAnalyzingAfterImport(true);
+        toast.info('Lancement de l\'analyse des pièces jointes...');
+        
+        try {
+          // Trigger bulk analysis for newly imported attachments
+          const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke('analyze-attachments', {
+            body: { bulk: true, unanalyzedOnly: true }
+          });
+          
+          if (analyzeError) {
+            console.error('Auto-analyze error:', analyzeError);
+            toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
+          } else {
+            toast.success(`Analyse lancée pour ${analyzeData?.processed || 0} pièce(s) jointe(s)`);
+          }
+        } catch (error) {
+          console.error('Auto-analyze error:', error);
+        }
+        setAnalyzingAfterImport(false);
+      }
+      
       // Clear selection and refresh
       setSelectedThreads(new Set());
       onImportComplete();
@@ -276,18 +305,35 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
             </Button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Checkbox 
-              id="reconstructThread"
-              checked={reconstructThread}
-              onCheckedChange={(checked) => setReconstructThread(checked === true)}
-            />
-            <label 
-              htmlFor="reconstructThread" 
-              className="text-sm text-muted-foreground cursor-pointer"
-            >
-              Reconstruire le thread complet (via Message-ID/References)
-            </label>
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Checkbox 
+                id="reconstructThread"
+                checked={reconstructThread}
+                onCheckedChange={(checked) => setReconstructThread(checked === true)}
+              />
+              <label 
+                htmlFor="reconstructThread" 
+                className="text-sm text-muted-foreground cursor-pointer"
+              >
+                Reconstruire le thread complet
+              </label>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Switch
+                id="autoAnalyze"
+                checked={autoAnalyze}
+                onCheckedChange={setAutoAnalyze}
+              />
+              <Label 
+                htmlFor="autoAnalyze" 
+                className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1"
+              >
+                <Zap className="h-3 w-3 text-amber-500" />
+                Analyser automatiquement les PJ après import
+              </Label>
+            </div>
           </div>
 
           {totalFound > 0 && (
@@ -308,15 +354,21 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
               <Button 
                 variant="outline"
                 onClick={handleImport} 
-                disabled={importing || processingQuotation || selectedThreads.size === 0}
+                disabled={importing || processingQuotation || analyzingAfterImport || selectedThreads.size === 0}
                 className="gap-2"
               >
                 {importing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : analyzingAfterImport ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analyse PJ...
+                  </>
                 ) : (
                   <BookOpen className="h-4 w-4" />
                 )}
-                Importer pour apprentissage
+                {!importing && !analyzingAfterImport && 'Importer pour apprentissage'}
+                {importing && 'Import...'}
               </Button>
               <Button 
                 onClick={handleProcessQuotation} 
