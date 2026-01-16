@@ -643,7 +643,49 @@ function parseBodyStructure(response: string): AttachmentInfo[] {
   const ctx: ParseContext = { pos: 0 };
   const attachments = parseMimePart(tokens, ctx, '');
   
-  console.log(`[BODYSTRUCTURE] Found ${attachments.length} attachment(s)`);
+  console.log(`[BODYSTRUCTURE] Found ${attachments.length} attachment(s) from MIME parsing`);
+  
+  // Fallback: Search by file extension for attachments not detected by MIME type
+  // This matches the approach in search-emails which successfully finds Excel/PDF files
+  const extensionPattern = /["']([^"']*\.(?:xlsx?|pdf|docx?|csv|zip|rar|pptx?))["']/gi;
+  let extMatch;
+  while ((extMatch = extensionPattern.exec(structure)) !== null) {
+    const filename = decodeHeader(extMatch[1]);
+    const lowerFilename = filename.toLowerCase();
+    
+    // Skip if already detected or inline/temp file
+    if (attachments.some(a => a.filename === filename)) continue;
+    if (lowerFilename.startsWith('~') || 
+        lowerFilename.startsWith('image0') ||
+        lowerFilename.includes('signature')) continue;
+    
+    // Determine content-type from extension
+    let contentType = 'application/octet-stream';
+    if (lowerFilename.endsWith('.pdf')) contentType = 'application/pdf';
+    else if (lowerFilename.endsWith('.xlsx')) 
+      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (lowerFilename.endsWith('.xls')) contentType = 'application/vnd.ms-excel';
+    else if (lowerFilename.endsWith('.docx')) 
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (lowerFilename.endsWith('.doc')) contentType = 'application/msword';
+    else if (lowerFilename.endsWith('.csv')) contentType = 'text/csv';
+    else if (lowerFilename.endsWith('.pptx') || lowerFilename.endsWith('.ppt')) 
+      contentType = 'application/vnd.ms-powerpoint';
+    
+    // Find part number by counting depth in structure
+    const partNumber = findPartNumberByPosition(structure, extMatch.index);
+    
+    console.log(`[BODYSTRUCTURE] Found attachment by extension: ${filename} -> part ${partNumber}`);
+    attachments.push({
+      partNumber,
+      filename,
+      contentType,
+      encoding: 'base64',
+      size: 0
+    });
+  }
+  
+  console.log(`[BODYSTRUCTURE] Total: ${attachments.length} attachment(s)`);
   
   // Log all found attachments for debugging
   for (const att of attachments) {
@@ -651,6 +693,23 @@ function parseBodyStructure(response: string): AttachmentInfo[] {
   }
   
   return attachments;
+}
+
+// Find part number by counting nested sections before position
+function findPartNumberByPosition(structure: string, position: number): string {
+  const before = structure.substring(0, position);
+  let depth = 0;
+  let partNum = 0;
+  
+  for (const char of before) {
+    if (char === '(') {
+      depth++;
+      if (depth === 2) partNum++;
+    }
+    if (char === ')') depth--;
+  }
+  
+  return String(partNum || 1);
 }
 
 // Simple IMAP client with attachment support
