@@ -939,6 +939,31 @@ serve(async (req) => {
           continue;
         }
         
+        // Check if storage_path exists (file may not have been uploaded due to timeout)
+        if (!attachment.storage_path) {
+          console.error(`Missing storage_path for ${attachment.filename} - file was not uploaded to storage`);
+          await supabase
+            .from('email_attachments')
+            .update({ 
+              is_analyzed: true,
+              extracted_text: null,
+              extracted_data: { 
+                type: 'error', 
+                message: 'File not uploaded to storage (storage_path is null)', 
+                requires_reimport: true,
+                email_id: attachment.email_id
+              }
+            })
+            .eq('id', attachment.id);
+          results.push({
+            id: attachment.id,
+            filename: attachment.filename,
+            success: false,
+            error: 'Missing storage_path - requires reimport from email'
+          });
+          continue;
+        }
+        
         // Download the file from storage
         const { data: fileData, error: downloadError } = await supabase
           .storage

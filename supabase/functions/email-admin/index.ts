@@ -1006,6 +1006,50 @@ serve(async (req) => {
         );
       }
 
+      case 'find_missing_files': {
+        // Find attachments that have NULL storage_path (file not uploaded)
+        const { data: missingAttachments, error: missingError } = await supabase
+          .from('email_attachments')
+          .select(`
+            id, 
+            email_id, 
+            filename, 
+            content_type, 
+            size,
+            emails!email_attachments_email_id_fkey (
+              id,
+              subject,
+              from_address,
+              message_id
+            )
+          `)
+          .is('storage_path', null)
+          .not('content_type', 'is', null);
+        
+        if (missingError) {
+          throw new Error(`Error finding missing files: ${missingError.message}`);
+        }
+        
+        console.log(`Found ${missingAttachments?.length || 0} attachments with missing storage_path`);
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            count: missingAttachments?.length || 0,
+            attachments: missingAttachments?.map((a: any) => ({
+              id: a.id,
+              filename: a.filename,
+              content_type: a.content_type,
+              size: a.size,
+              email_subject: a.emails?.subject,
+              email_from: a.emails?.from_address,
+              message_id: a.emails?.message_id
+            })) || []
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       default:
         throw new Error(`Action inconnue: ${action}`);
     }
