@@ -590,24 +590,49 @@ function parseMimePart(tokens: string[], ctx: ParseContext, path: string): Attac
   return attachments;
 }
 
+// Extract BODYSTRUCTURE using balanced parenthesis counting (robust method)
+function extractBodyStructure(response: string): string {
+  const marker = 'BODYSTRUCTURE ';
+  const upperResponse = response.toUpperCase();
+  const start = upperResponse.indexOf(marker);
+  if (start === -1) return '';
+  
+  let depth = 0;
+  let structureStart = start + marker.length;
+  let structureEnd = structureStart;
+  let started = false;
+  
+  for (let i = structureStart; i < response.length; i++) {
+    if (response[i] === '(') {
+      if (!started) started = true;
+      depth++;
+    }
+    if (response[i] === ')') {
+      depth--;
+      if (started && depth === 0) {
+        structureEnd = i + 1;
+        break;
+      }
+    }
+  }
+  
+  return response.substring(structureStart, structureEnd);
+}
+
 // Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
 function parseBodyStructure(response: string): AttachmentInfo[] {
   console.log(`[BODYSTRUCTURE] Parsing response (${response.length} chars)`);
   
-  // Extract the BODYSTRUCTURE content
-  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*\))\s*\)\s*$/i);
-  if (!structureMatch) {
-    // Try alternative pattern
-    const altMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s+UID|\s*$)/i);
-    if (!altMatch) {
-      console.log("[BODYSTRUCTURE] No BODYSTRUCTURE match found in response");
-      console.log(`[BODYSTRUCTURE] Response preview: ${response.substring(0, 500)}`);
-      return [];
-    }
+  // Use balanced parenthesis extraction instead of regex
+  const structure = extractBodyStructure(response);
+  
+  if (!structure || structure.length < 10) {
+    console.log("[BODYSTRUCTURE] No BODYSTRUCTURE match found in response");
+    console.log(`[BODYSTRUCTURE] Response preview: ${response.substring(0, 500)}`);
+    return [];
   }
   
-  const structure = structureMatch?.[1] || response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s+UID|\s*$)/i)?.[1] || '';
-  
+  console.log(`[BODYSTRUCTURE] Extracted structure (${structure.length} chars)`);
   console.log(`[BODYSTRUCTURE] Raw structure: ${structure.substring(0, 300)}...`);
   
   // Tokenize
