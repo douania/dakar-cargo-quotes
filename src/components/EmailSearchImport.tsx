@@ -141,6 +141,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       let totalAttachments = 0;
       let lastAnalysis: any = null;
       let batchNum = 0;
+      const importedEmailIds: string[] = [];  // Collect all email IDs for bulk analysis
 
       // Process in batches
       while (remainingUids.length > 0) {
@@ -162,6 +163,11 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         totalExisting += data.alreadyExisted || 0;
         totalAttachments += data.attachmentsProcessed || 0;
         if (data.analysis) lastAnalysis = data.analysis;
+        
+        // Collect email IDs for bulk analysis
+        if (data.emailIds && Array.isArray(data.emailIds)) {
+          importedEmailIds.push(...data.emailIds);
+        }
 
         // Update remaining UIDs from response
         remainingUids = data.remainingUids || [];
@@ -193,22 +199,27 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       
       toast.success(message || 'Import terminé');
       
-      // Auto-analyze if enabled
-      if (autoAnalyze && totalAttachments > 0) {
+      // Auto-analyze if enabled - now with specific email IDs
+      if (autoAnalyze && importedEmailIds.length > 0) {
         setAnalyzingAfterImport(true);
-        toast.info('Lancement de l\'analyse des pièces jointes...');
+        toast.info(`Lancement de l'analyse des pièces jointes pour ${importedEmailIds.length} email(s)...`);
         
         try {
-          // Trigger bulk analysis for newly imported attachments
+          // Trigger bulk analysis for specific imported email attachments
           const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke('analyze-attachments', {
-            body: { bulk: true, unanalyzedOnly: true }
+            body: { 
+              bulk: true, 
+              emailIds: importedEmailIds  // Target only the emails we just imported
+            }
           });
           
           if (analyzeError) {
             console.error('Auto-analyze error:', analyzeError);
             toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
           } else {
-            toast.success(`Analyse lancée pour ${analyzeData?.processed || 0} pièce(s) jointe(s)`);
+            const analyzed = analyzeData?.analyzed || analyzeData?.processed || 0;
+            const skipped = analyzeData?.skipped || 0;
+            toast.success(`Analyse: ${analyzed} pièce(s) jointe(s) traitée(s)${skipped > 0 ? `, ${skipped} ignorée(s)` : ''}`);
           }
         } catch (error) {
           console.error('Auto-analyze error:', error);
