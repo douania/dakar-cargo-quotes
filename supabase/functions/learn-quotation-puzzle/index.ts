@@ -344,7 +344,9 @@ serve(async (req) => {
 
     // 2. Fetch ALL attachments (not just analyzed ones - PDF/Excel are always useful)
     const emailIds = allEmails.map(e => e.id);
-    const { data: attachments } = await supabase
+    let attachments: any[] = [];
+    
+    const { data: initialAttachments } = await supabase
       .from("email_attachments")
       .select(`
         id,
@@ -353,11 +355,81 @@ serve(async (req) => {
         content_type,
         extracted_text,
         extracted_data,
-        is_analyzed
+        is_analyzed,
+        storage_path
       `)
       .in("email_id", emailIds);
 
-    const relevantAttachments = (attachments || []).filter(a => {
+    attachments = initialAttachments || [];
+
+    // Identify unanalyzed PDF/Excel attachments that need analysis
+    const unanalyzedPdfs = attachments.filter(a => {
+      const filename = a.filename?.toLowerCase() || "";
+      const contentType = a.content_type?.toLowerCase() || "";
+      const isPdfOrExcel = 
+        contentType.includes("pdf") || 
+        contentType.includes("spreadsheet") || 
+        contentType.includes("excel") ||
+        contentType.includes("sheet") ||
+        filename.endsWith('.pdf') || 
+        filename.endsWith('.xlsx') || 
+        filename.endsWith('.xls');
+      return isPdfOrExcel && !a.is_analyzed && a.storage_path;
+    });
+
+    // Automatically analyze unanalyzed attachments (max 5 to avoid timeout)
+    if (unanalyzedPdfs.length > 0) {
+      console.log(`[Puzzle] Analyzing ${unanalyzedPdfs.length} unanalyzed attachments first...`);
+      
+      const toAnalyze = unanalyzedPdfs.slice(0, 5); // Limit to 5 to avoid timeout
+      
+      for (const att of toAnalyze) {
+        try {
+          console.log(`[Puzzle] Analyzing attachment: ${att.filename} (${att.id})`);
+          
+          const response = await fetch(`${supabaseUrl}/functions/v1/analyze-attachments`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              attachmentId: att.id,
+              mode: 'sync'
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`[Puzzle] Analyzed ${att.filename}: ${result.success ? 'OK' : 'FAILED'}`);
+          } else {
+            console.error(`[Puzzle] Failed to analyze ${att.filename}: HTTP ${response.status}`);
+          }
+        } catch (e) {
+          console.error(`[Puzzle] Failed to analyze ${att.filename}:`, e);
+        }
+      }
+      
+      // Re-fetch attachments with updated extracted data
+      const { data: refreshedAttachments } = await supabase
+        .from("email_attachments")
+        .select(`
+          id,
+          email_id,
+          filename,
+          content_type,
+          extracted_text,
+          extracted_data,
+          is_analyzed,
+          storage_path
+        `)
+        .in("email_id", emailIds);
+      
+      attachments = refreshedAttachments || [];
+      console.log(`[Puzzle] Refreshed attachments after analysis`);
+    }
+
+    const relevantAttachments = attachments.filter(a => {
       const filename = a.filename?.toLowerCase() || "";
       const contentType = a.content_type?.toLowerCase() || "";
       
@@ -390,7 +462,9 @@ serve(async (req) => {
       return a.is_analyzed === true;
     });
 
-    console.log(`[Puzzle] Found ${relevantAttachments.length} relevant attachments`);
+    // Count analyzed vs total for stats
+    const analyzedCount = relevantAttachments.filter(a => a.is_analyzed).length;
+    console.log(`[Puzzle] Found ${relevantAttachments.length} relevant attachments (${analyzedCount} analyzed)`);
 
     // 3. Build thread content for AI analysis
     const threadContent = buildThreadContent(allEmails, relevantAttachments);
@@ -436,11 +510,16 @@ serve(async (req) => {
 
     console.log(`[Puzzle] Analysis complete. Stored ${storedCount} knowledge items`);
 
+    // Count analyzed attachments for response
+    const finalAnalyzedCount = relevantAttachments.filter(a => a.is_analyzed).length;
+
     return new Response(JSON.stringify({
       success: true,
       thread_id: targetThreadId,
       email_count: allEmails.length,
       attachment_count: relevantAttachments.length,
+      attachments_analyzed: finalAnalyzedCount,
+      auto_analyzed: unanalyzedPdfs.length > 0 ? Math.min(unanalyzedPdfs.length, 5) : 0,
       phases_completed: results.filter(r => r.success).map(r => r.phase),
       puzzle: puzzleState,
       knowledge_stored: storedCount,
