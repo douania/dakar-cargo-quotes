@@ -58,13 +58,14 @@ const mainNavItems = [
   },
 ];
 
-import { TrendingUp, Briefcase } from 'lucide-react';
+import { TrendingUp, Briefcase, History } from 'lucide-react';
 
 const adminItems = [
   { title: 'Emails', url: '/admin/emails', icon: Mail },
   { title: 'Tenders', url: '/admin/tenders', icon: Briefcase },
+  { title: 'Historique cotations', url: '/admin/quotation-history', icon: History },
   { title: 'Connaissances', url: '/admin/knowledge', icon: Brain },
-  { title: 'Rapports tarifs', url: '/admin/tariff-reports', icon: TrendingUp },
+  { title: 'Rapports tarifs', url: '/admin/tariff-report', icon: TrendingUp },
   { title: 'Codes SH', url: '/admin/hs-codes', icon: Package },
   { title: 'Taux & Taxes', url: '/admin/tax-rates', icon: DollarSign },
   { title: 'Régimes douaniers', url: '/admin/customs-regimes', icon: FileText },

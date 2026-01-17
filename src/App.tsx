@@ -22,6 +22,7 @@ import CaseView from "./pages/CaseView";
 import TariffReports from "./pages/admin/TariffReports";
 import TendersAdmin from "./pages/admin/Tenders";
 import TransportRates from "./pages/admin/TransportRates";
+import QuotationHistory from "./pages/admin/QuotationHistory";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
           <Route path="/admin/tariff-reports" element={<TariffReports />} />
           <Route path="/admin/tenders" element={<TendersAdmin />} />
           <Route path="/admin/transport-rates" element={<TransportRates />} />
+          <Route path="/admin/quotation-history" element={<QuotationHistory />} />
           <Route path="/truck-loading" element={<TruckLoading />} />
           <Route path="/intake" element={<Intake />} />
           <Route path="/case/:caseId" element={<CaseView />} />

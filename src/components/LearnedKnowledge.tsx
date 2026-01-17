@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
@@ -9,10 +10,11 @@ import { fr } from 'date-fns/locale';
 import { 
   Brain, CheckCircle, XCircle, Trash2, 
   Tag, DollarSign, FileText, Users, Clock, Package,
-  TrendingUp, Loader2, RefreshCw
+  TrendingUp, Loader2, RefreshCw, AlertTriangle, CheckSquare
 } from 'lucide-react';
-import { useKnowledge, useToggleValidation, useDeleteKnowledge } from '@/hooks/useKnowledge';
+import { useKnowledge, useToggleValidation, useDeleteKnowledge, useBulkValidation, useBulkDelete } from '@/hooks/useKnowledge';
 import type { LearnedKnowledge as LearnedKnowledgeType } from '@/types';
+import { toast } from 'sonner';
 
 const categoryIcons: Record<string, React.ReactNode> = {
   tarif: <DollarSign className="h-4 w-4" />,
@@ -55,9 +57,12 @@ export function LearnedKnowledge() {
   const { data: knowledge = [], isLoading, refetch } = useKnowledge();
   const toggleValidation = useToggleValidation();
   const deleteKnowledgeMutation = useDeleteKnowledge();
+  const bulkValidation = useBulkValidation();
+  const bulkDelete = useBulkDelete();
   
   const [selectedItem, setSelectedItem] = useState<LearnedKnowledgeType | null>(null);
-  const [filter, setFilter] = useState<string>('all');
+  const [filter, setFilter] = useState<string>('pending'); // Default to pending for validation workflow
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const categories = useMemo(() => 
     [...new Set(knowledge.map(k => k.category))],
@@ -65,21 +70,93 @@ export function LearnedKnowledge() {
   );
 
   const filteredKnowledge = useMemo(() => {
-    if (filter === 'all') return knowledge;
-    if (filter === 'validated') return knowledge.filter(k => k.is_validated);
-    if (filter === 'pending') return knowledge.filter(k => !k.is_validated);
-    return knowledge.filter(k => k.category === filter);
+    let result = knowledge;
+    if (filter === 'validated') result = knowledge.filter(k => k.is_validated);
+    else if (filter === 'pending') result = knowledge.filter(k => !k.is_validated);
+    else if (filter === 'low_confidence') result = knowledge.filter(k => k.confidence < 0.5);
+    else if (filter !== 'all') result = knowledge.filter(k => k.category === filter);
+    
+    // Sort pending items by confidence (lowest first for review priority)
+    if (filter === 'pending' || filter === 'low_confidence') {
+      result = [...result].sort((a, b) => a.confidence - b.confidence);
+    }
+    return result;
   }, [knowledge, filter]);
+
+  // Detect potential duplicates (same name or similar description)
+  const duplicateCandidates = useMemo(() => {
+    const duplicates = new Set<string>();
+    const nameMap = new Map<string, string[]>();
+    
+    knowledge.forEach(k => {
+      const normalizedName = k.name.toLowerCase().trim();
+      if (!nameMap.has(normalizedName)) {
+        nameMap.set(normalizedName, []);
+      }
+      nameMap.get(normalizedName)!.push(k.id);
+    });
+    
+    nameMap.forEach((ids) => {
+      if (ids.length > 1) {
+        ids.forEach(id => duplicates.add(id));
+      }
+    });
+    
+    return duplicates;
+  }, [knowledge]);
 
   const stats = useMemo(() => ({
     total: knowledge.length,
     validated: knowledge.filter(k => k.is_validated).length,
     pending: knowledge.filter(k => !k.is_validated).length,
+    lowConfidence: knowledge.filter(k => k.confidence < 0.5).length,
+    duplicates: duplicateCandidates.size,
     byCategory: categories.reduce((acc, cat) => {
       acc[cat] = knowledge.filter(k => k.category === cat).length;
       return acc;
     }, {} as Record<string, number>)
-  }), [knowledge, categories]);
+  }), [knowledge, categories, duplicateCandidates]);
+
+  // Selection handlers
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    if (selectedIds.size === filteredKnowledge.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredKnowledge.map(k => k.id)));
+    }
+  }, [filteredKnowledge, selectedIds.size]);
+
+  const handleBulkValidate = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    bulkValidation.mutate(ids, {
+      onSuccess: () => {
+        setSelectedIds(new Set());
+        toast.success(`${ids.length} connaissance(s) validée(s)`);
+      }
+    });
+  }, [selectedIds, bulkValidation]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Supprimer ${selectedIds.size} connaissance(s) ?`)) return;
+    const ids = Array.from(selectedIds);
+    bulkDelete.mutate(ids, {
+      onSuccess: () => {
+        setSelectedIds(new Set());
+        toast.success(`${ids.length} connaissance(s) supprimée(s)`);
+      }
+    });
+  }, [selectedIds, bulkDelete]);
 
   const handleToggleValidation = useCallback((id: string, currentState: boolean) => {
     toggleValidation.mutate({ id, currentState });
@@ -91,6 +168,11 @@ export function LearnedKnowledge() {
     setSelectedItem(null);
   }, [deleteKnowledgeMutation]);
 
+  // Reset selection when filter changes
+  const handleFilterChange = useCallback((newFilter: string) => {
+    setFilter(newFilter);
+    setSelectedIds(new Set());
+  }, []);
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -102,7 +184,7 @@ export function LearnedKnowledge() {
   return (
     <div className="space-y-4">
       {/* Stats Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -119,20 +201,31 @@ export function LearnedKnowledge() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Validées</p>
-                <p className="text-2xl font-bold text-green-600">{stats.validated}</p>
+                <p className="text-2xl font-bold text-success">{stats.validated}</p>
               </div>
-              <CheckCircle className="h-8 w-8 text-green-500/50" />
+              <CheckCircle className="h-8 w-8 text-success/50" />
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={stats.pending > 0 ? 'border-warning' : ''}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">En attente</p>
-                <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
+                <p className="text-sm text-muted-foreground">À valider</p>
+                <p className="text-2xl font-bold text-warning">{stats.pending}</p>
               </div>
-              <Clock className="h-8 w-8 text-yellow-500/50" />
+              <Clock className="h-8 w-8 text-warning/50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={stats.lowConfidence > 0 ? 'border-destructive/50' : ''}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Confiance faible</p>
+                <p className="text-2xl font-bold text-destructive">{stats.lowConfidence}</p>
+              </div>
+              <AlertTriangle className="h-8 w-8 text-destructive/50" />
             </div>
           </CardContent>
         </Card>
@@ -151,16 +244,20 @@ export function LearnedKnowledge() {
       </div>
 
       {/* Filters */}
-      <Tabs value={filter} onValueChange={setFilter} className="w-full">
+      <Tabs value={filter} onValueChange={handleFilterChange} className="w-full">
         <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="pending" className="text-warning">
+            <Clock className="h-3 w-3 mr-1" />
+            À valider ({stats.pending})
+          </TabsTrigger>
+          <TabsTrigger value="low_confidence" className="text-destructive">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Confiance faible ({stats.lowConfidence})
+          </TabsTrigger>
           <TabsTrigger value="all">Tout ({stats.total})</TabsTrigger>
-          <TabsTrigger value="validated" className="text-green-600">
+          <TabsTrigger value="validated" className="text-success">
             <CheckCircle className="h-3 w-3 mr-1" />
             Validées ({stats.validated})
-          </TabsTrigger>
-          <TabsTrigger value="pending" className="text-yellow-600">
-            <Clock className="h-3 w-3 mr-1" />
-            En attente ({stats.pending})
           </TabsTrigger>
           {categories.map(cat => (
             <TabsTrigger key={cat} value={cat}>
@@ -170,6 +267,44 @@ export function LearnedKnowledge() {
           ))}
         </TabsList>
       </Tabs>
+
+      {/* Bulk Actions */}
+      {filteredKnowledge.length > 0 && (
+        <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selectedIds.size === filteredKnowledge.length && filteredKnowledge.length > 0}
+              onCheckedChange={selectAll}
+            />
+            <span className="text-sm text-muted-foreground">
+              {selectedIds.size > 0 ? `${selectedIds.size} sélectionnée(s)` : 'Tout sélectionner'}
+            </span>
+          </div>
+          
+          {selectedIds.size > 0 && (
+            <>
+              <Button 
+                size="sm" 
+                variant="default"
+                onClick={handleBulkValidate}
+                disabled={bulkValidation.isPending}
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Valider ({selectedIds.size})
+              </Button>
+              <Button 
+                size="sm" 
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={bulkDelete.isPending}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Supprimer ({selectedIds.size})
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Knowledge List */}
       {filteredKnowledge.length === 0 ? (
@@ -188,13 +323,27 @@ export function LearnedKnowledge() {
             <Card 
               key={item.id} 
               className={`cursor-pointer transition-colors hover:bg-accent/50 ${
-                item.is_validated ? 'border-l-4 border-l-green-500' : ''
+                item.is_validated ? 'border-l-4 border-l-success' : ''
+              } ${
+                duplicateCandidates.has(item.id) ? 'ring-1 ring-warning' : ''
+              } ${
+                selectedIds.has(item.id) ? 'bg-accent/30' : ''
               }`}
-              onClick={() => setSelectedItem(item)}
             >
               <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
+                <div className="flex items-start gap-3">
+                  {/* Checkbox for selection */}
+                  <Checkbox
+                    checked={selectedIds.has(item.id)}
+                    onCheckedChange={() => toggleSelection(item.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1"
+                  />
+                  
+                  <div 
+                    className="flex-1 min-w-0"
+                    onClick={() => setSelectedItem(item)}
+                  >
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="outline" className="gap-1">
                         {categoryIcons[item.category] || <Tag className="h-3 w-3" />}
@@ -202,9 +351,14 @@ export function LearnedKnowledge() {
                       </Badge>
                       {getConfidenceBadge(item.confidence)}
                       {item.is_validated && (
-                        <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+                        <Badge className="bg-success/20 text-success border-success/30">
                           <CheckCircle className="h-3 w-3 mr-1" />
                           Validée
+                        </Badge>
+                      )}
+                      {duplicateCandidates.has(item.id) && (
+                        <Badge variant="outline" className="text-warning border-warning">
+                          Doublon potentiel
                         </Badge>
                       )}
                     </div>
@@ -219,6 +373,7 @@ export function LearnedKnowledge() {
                       {item.usage_count > 0 && ` • Utilisé ${item.usage_count} fois`}
                     </p>
                   </div>
+                  
                   <div className="flex items-center gap-1">
                     <Button 
                       size="sm" 

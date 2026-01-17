@@ -1,10 +1,14 @@
-import { Ship, Plane, Anchor, MessageSquare, LayoutDashboard } from "lucide-react";
+import { Ship, Plane, Anchor, MessageSquare, LayoutDashboard, Mail } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link, useLocation } from "react-router-dom";
+import { useRealtimeEmails } from "@/hooks/useRealtimeEmails";
+import { Badge } from "@/components/ui/badge";
 
 export function Header() {
   const location = useLocation();
   const isChat = location.pathname === "/chat";
+  const { newEmailCount, resetCount } = useRealtimeEmails();
+  
   return (
     <motion.header
       initial={{ opacity: 0, y: -20 }}
@@ -50,10 +54,27 @@ export function Header() {
                   <span className="text-sm font-medium">Dashboard</span>
                 </>
               ) : (
-                <>
+              <>
                   <MessageSquare className="w-4 h-4" />
                   <span className="text-sm font-medium">Chat IA</span>
                 </>
+              )}
+            </Link>
+            
+            {/* Email notifications badge */}
+            <Link 
+              to="/admin/emails"
+              onClick={resetCount}
+              className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-accent transition-colors"
+            >
+              <Mail className="w-4 h-4 text-muted-foreground" />
+              {newEmailCount > 0 && (
+                <Badge 
+                  variant="destructive" 
+                  className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                >
+                  {newEmailCount > 9 ? '9+' : newEmailCount}
+                </Badge>
               )}
             </Link>
             

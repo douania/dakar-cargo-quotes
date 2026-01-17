@@ -40,3 +40,33 @@ export function useDeleteKnowledge() {
     },
   });
 }
+
+export function useBulkValidation() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await knowledgeService.toggleKnowledgeValidation(id, false);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+  });
+}
+
+export function useBulkDelete() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await knowledgeService.deleteKnowledge(id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
+    },
+  });
+}
