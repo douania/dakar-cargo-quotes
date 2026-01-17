@@ -50,6 +50,8 @@ interface PuzzleState {
   thread_id: string;
   email_count: number;
   attachment_count: number;
+  attachments_analyzed?: number;
+  auto_analyzed?: number;
   phases_completed: string[];
   puzzle_completeness: number;
   cargo?: any;
@@ -242,7 +244,7 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
 
         {/* Stats */}
         {puzzle && (
-          <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+          <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg">
             <div className="flex items-center gap-2">
               <Mail className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">{puzzle.email_count} emails</span>
@@ -251,9 +253,23 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
             <div className="flex items-center gap-2">
               <Paperclip className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">{puzzle.attachment_count} pièces jointes</span>
+              {puzzle.attachments_analyzed !== undefined && (
+                <Badge 
+                  variant={puzzle.attachments_analyzed < puzzle.attachment_count ? "destructive" : "default"}
+                  className="text-xs"
+                >
+                  {puzzle.attachments_analyzed}/{puzzle.attachment_count} analysées
+                </Badge>
+              )}
+              {puzzle.auto_analyzed && puzzle.auto_analyzed > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  +{puzzle.auto_analyzed} auto
+                </Badge>
+              )}
             </div>
             <Separator orientation="vertical" className="h-4" />
-            <div className="flex-1">
+            <div className="flex-1 min-w-[150px]">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm text-muted-foreground">Complétude</span>
                 <span className="text-sm font-bold">{puzzle.puzzle_completeness}%</span>
