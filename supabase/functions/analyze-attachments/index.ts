@@ -789,7 +789,9 @@ serve(async (req) => {
   }
 
   try {
-    const { attachmentId, background = true } = await req.json();
+    const { attachmentId, background = true, bulk = false, emailIds = [] } = await req.json();
+    
+    console.log(`Request params: attachmentId=${attachmentId}, background=${background}, bulk=${bulk}, emailIds=${emailIds?.length || 0}`);
     
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -830,7 +832,16 @@ serve(async (req) => {
     
     if (attachmentId) {
       query = query.eq('id', attachmentId);
+    } else if (bulk && emailIds && emailIds.length > 0) {
+      // Mode bulk après import : cibler les emails spécifiques
+      console.log(`Bulk mode: targeting ${emailIds.length} specific emails`);
+      query = query.in('email_id', emailIds).eq('is_analyzed', false);
+    } else if (bulk) {
+      // Mode bulk général : prioriser les fichiers récents
+      console.log('Bulk mode: targeting recent unanalyzed files');
+      query = query.eq('is_analyzed', false).order('created_at', { ascending: false }).limit(50);
     } else {
+      // Mode par défaut : 10 fichiers
       query = query.eq('is_analyzed', false).limit(10);
     }
     
