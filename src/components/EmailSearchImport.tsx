@@ -62,6 +62,9 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   
   // Auto-analyze option
   const [autoAnalyze, setAutoAnalyze] = useState(false);
+  
+  // Extended sender search (includes CC and TO)
+  const [extendedFromSearch, setExtendedFromSearch] = useState(true);
   const [analyzingAfterImport, setAnalyzingAfterImport] = useState(false);
 
   const handleSearch = async () => {
@@ -81,7 +84,8 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           searchType, 
           query: query.trim(), 
           limit: 200,
-          reconstructThread 
+          reconstructThread,
+          extendedFromSearch: searchType === 'from' ? extendedFromSearch : undefined
         }
       });
 
@@ -319,6 +323,23 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
                 Reconstruire le thread complet
               </label>
             </div>
+            
+            {searchType === 'from' && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="extendedFromSearch"
+                  checked={extendedFromSearch}
+                  onCheckedChange={setExtendedFromSearch}
+                />
+                <Label 
+                  htmlFor="extendedFromSearch" 
+                  className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1"
+                >
+                  <Users className="h-3 w-3 text-blue-500" />
+                  Inclure CC et destinataires
+                </Label>
+              </div>
+            )}
             
             <div className="flex items-center gap-2">
               <Switch
