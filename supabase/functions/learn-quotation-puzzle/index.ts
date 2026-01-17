@@ -112,10 +112,20 @@ Extrais la STRUCTURE COMPLÈTE de la cotation:
    - Corridor/route
    - Type de cargo
 
+5. **COMPAGNIE MARITIME / TRANSPORTEUR**:
+   - Nom de la compagnie (CMA CGM, MSC, Maersk, Hapag-Lloyd, etc.)
+   - Numéro de réservation/booking si mentionné
+   - Date de départ navire prévue
+   - ETA (Estimated Time of Arrival)
+
 Réponds en JSON:
 {
   "quotation_found": true/false,
   "quotation_date": "ISO date",
+  "carrier": "string | null - Compagnie maritime identifiée",
+  "booking_reference": "string | null - Numéro de réservation",
+  "departure_date": "string | null - Date départ navire (ISO)",
+  "arrival_date": "string | null - ETA (ISO)",
   "tariff_lines": [
     {
       "category": "FREIGHT|PORT|TRANSPORT|CUSTOMS|OTHER",
@@ -246,6 +256,10 @@ interface PuzzleState {
   contacts: any[];
   negotiation: any;
   missing_info: string[];
+  carrier?: string;
+  booking_reference?: string;
+  departure_date?: string;
+  arrival_date?: string;
 }
 
 serve(async (req) => {
@@ -505,8 +519,8 @@ serve(async (req) => {
     // 5. Build unified puzzle state
     const puzzleState = buildPuzzleState(targetThreadId, allEmails, relevantAttachments, results);
 
-    // 6. Store extracted knowledge
-    const storedCount = await storeKnowledge(supabase, puzzleState, targetThreadId, emailIds);
+    // 6. Store extracted knowledge (including PDF/Excel tariff lines)
+    const storedCount = await storeKnowledge(supabase, puzzleState, targetThreadId, emailIds, relevantAttachments);
 
     console.log(`[Puzzle] Analysis complete. Stored ${storedCount} knowledge items`);
 
@@ -662,6 +676,10 @@ function buildPuzzleState(
     contacts: [],
     negotiation: null,
     missing_info: [],
+    carrier: undefined,
+    booking_reference: undefined,
+    departure_date: undefined,
+    arrival_date: undefined,
   };
 
   // Process each phase result
@@ -691,6 +709,10 @@ function buildPuzzleState(
         if (result.data.quotation_found) {
           state.tariff_lines = result.data.tariff_lines || [];
           state.matching_criteria = result.data.matching_criteria;
+          state.carrier = result.data.carrier || undefined;
+          state.booking_reference = result.data.booking_reference || undefined;
+          state.departure_date = result.data.departure_date || undefined;
+          state.arrival_date = result.data.arrival_date || undefined;
         }
         break;
 
@@ -728,7 +750,8 @@ async function storeKnowledge(
   supabase: any,
   puzzle: PuzzleState,
   threadId: string,
-  emailIds: string[]
+  emailIds: string[],
+  attachments: any[] = []
 ): Promise<number> {
   let stored = 0;
 
@@ -746,6 +769,7 @@ async function storeKnowledge(
         description: `${line.category}: ${line.service}`,
         data: {
           ...line,
+          carrier: puzzle.carrier,
           source_thread: threadId,
           extracted_from_puzzle: true,
         },
@@ -796,6 +820,10 @@ async function storeKnowledge(
           cargo: puzzle.cargo,
           routing: puzzle.routing,
           timing: puzzle.timing,
+          carrier: puzzle.carrier,
+          booking_reference: puzzle.booking_reference,
+          departure_date: puzzle.departure_date,
+          arrival_date: puzzle.arrival_date,
           tariff_summary: {
             line_count: puzzle.tariff_lines.length,
             total_amount: totalAmount,
@@ -839,6 +867,87 @@ async function storeKnowledge(
       }, { onConflict: "name,category" });
 
     stored++;
+  }
+
+  // 5. Store carrier as dedicated entity if detected
+  if (puzzle.carrier) {
+    const carrierName = puzzle.carrier.toUpperCase().includes("CMA") ? "CMA CGM" : puzzle.carrier;
+    
+    const { error } = await supabase
+      .from("learned_knowledge")
+      .upsert({
+        category: "carrier",
+        name: `Armateur: ${carrierName}`,
+        description: `Compagnie maritime utilisée pour ${puzzle.routing?.origin_city || puzzle.routing?.origin_country || "Origine"} → ${puzzle.routing?.destination_city || puzzle.routing?.destination_port || "Destination"}`,
+        data: {
+          carrier_name: carrierName,
+          route: {
+            origin: puzzle.routing?.origin_city || puzzle.routing?.origin_country,
+            destination: puzzle.routing?.destination_city || puzzle.routing?.destination_port,
+          },
+          container_type: puzzle.cargo?.container_type,
+          booking_reference: puzzle.booking_reference,
+          departure_date: puzzle.departure_date,
+          arrival_date: puzzle.arrival_date,
+          source_thread_id: threadId,
+        },
+        matching_criteria: {
+          origin_port: puzzle.routing?.origin_city,
+          destination_port: puzzle.routing?.destination_port || puzzle.routing?.destination_city,
+          mode: "maritime",
+        },
+        source_type: "email",
+        source_id: emailIds[0],
+        confidence: 0.85,
+        is_validated: false,
+        knowledge_type: "carrier_info",
+      }, { onConflict: "name,category" });
+
+    if (!error) stored++;
+    console.log(`[Puzzle] Stored carrier: ${carrierName}`);
+  }
+
+  // 6. Store tariff lines directly from analyzed PDF/Excel attachments
+  for (const att of attachments) {
+    if (!att.extracted_data?.tariff_lines) continue;
+    
+    console.log(`[Puzzle] Processing ${att.extracted_data.tariff_lines.length} tariff lines from ${att.filename}`);
+    
+    for (const line of att.extracted_data.tariff_lines) {
+      if (!line.amount || line.amount <= 0) continue;
+      
+      const lineName = `${line.service || line.description || "Service"} - ${puzzle.routing?.destination_port || puzzle.routing?.destination_city || "Export"}`;
+      
+      const { error } = await supabase
+        .from("learned_knowledge")
+        .upsert({
+          category: "tarif",
+          name: lineName.substring(0, 100),
+          description: `Tarif extrait de ${att.filename}`,
+          data: {
+            service: line.service || line.description,
+            montant: line.amount,
+            devise: line.currency || "FCFA",
+            unite: line.unit,
+            details: line.details || line.notes,
+            carrier: puzzle.carrier,
+            source_document: att.filename,
+            source_thread_id: threadId,
+          },
+          matching_criteria: {
+            destination: puzzle.routing?.destination_city || puzzle.routing?.destination_port,
+            container_type: puzzle.cargo?.container_type || line.container_types?.[0],
+            mode: "maritime",
+          },
+          source_type: "document",
+          source_id: att.id,
+          confidence: 0.95,
+          is_validated: false,
+          knowledge_type: "document_extracted_tariff",
+        }, { onConflict: "name,category" });
+
+      if (!error) stored++;
+    }
   }
 
   return stored;

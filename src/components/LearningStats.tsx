@@ -4,10 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Brain, Database, FileText, Route, Users, 
-  CheckCircle, AlertCircle, TrendingUp
+  CheckCircle, AlertCircle, TrendingUp, Ship, DollarSign, Sparkles
 } from 'lucide-react';
 
 interface LearningStatsData {
+  total: number;
+  validated: number;
+  validatedRate: number;
+  usageCount: number;
   tariffs: {
     total: number;
     validated: number;
@@ -31,6 +35,16 @@ interface LearningStatsData {
     negotiation: number;
     operational: number;
   };
+  carriers: {
+    total: number;
+    names: string[];
+  };
+  bySource: {
+    email: number;
+    document: number;
+    expert: number;
+    other: number;
+  };
 }
 
 export function LearningStats() {
@@ -46,7 +60,7 @@ export function LearningStats() {
       // Fetch learned knowledge
       const { data: knowledge } = await supabase
         .from('learned_knowledge')
-        .select('category, is_validated, data');
+        .select('category, is_validated, data, source_type, usage_count, name');
 
       // Fetch email threads
       const { data: threads } = await supabase
@@ -58,21 +72,26 @@ export function LearningStats() {
         .from('known_business_contacts')
         .select('default_role');
 
+      const allKnowledge = knowledge || [];
+      const totalKnowledge = allKnowledge.length;
+      const validatedKnowledge = allKnowledge.filter(k => k.is_validated).length;
+      const totalUsageCount = allKnowledge.reduce((sum, k) => sum + (k.usage_count || 0), 0);
+
       // Process tariffs - accept both English and French category names
-      const tariffs = (knowledge || []).filter(k => 
+      const tariffs = allKnowledge.filter(k => 
         k.category === 'tariff' || k.category === 'tarif'
       );
       const tariffsByDestination: Record<string, number> = {};
       tariffs.forEach(t => {
-        const dest = (t.data as any)?.destination || (t.data as any)?.pod || 'Unknown';
+        const dest = (t.data as any)?.destination || (t.data as any)?.pod || (t.data as any)?.matching_criteria?.destination || 'Unknown';
         tariffsByDestination[dest] = (tariffsByDestination[dest] || 0) + 1;
       });
 
       // Process templates
-      const templates = (knowledge || []).filter(k => k.category === 'template');
+      const templates = allKnowledge.filter(k => k.category === 'template');
 
       // Process patterns - include French category names
-      const patterns = (knowledge || []).filter(k => 
+      const patterns = allKnowledge.filter(k => 
         k.category === 'negotiation_pattern' || 
         k.category === 'negociation' ||
         k.category === 'patterns_de_negociation' ||
@@ -80,6 +99,22 @@ export function LearningStats() {
         k.category === 'condition' ||
         k.category === 'pattern'
       );
+
+      // Process carriers
+      const carriers = allKnowledge.filter(k => k.category === 'carrier');
+      const carrierNames = carriers.map(c => {
+        const name = (c.data as any)?.carrier_name || c.name?.replace('Armateur: ', '');
+        return name;
+      }).filter(Boolean);
+      const uniqueCarriers = [...new Set(carrierNames)];
+
+      // Process by source
+      const bySource = {
+        email: allKnowledge.filter(k => k.source_type === 'email').length,
+        document: allKnowledge.filter(k => k.source_type === 'document').length,
+        expert: allKnowledge.filter(k => k.source_type === 'expert').length,
+        other: allKnowledge.filter(k => !['email', 'document', 'expert'].includes(k.source_type || '')).length,
+      };
 
       // Process contacts by role
       const contactsByRole: Record<string, number> = {};
@@ -91,6 +126,10 @@ export function LearningStats() {
       const quotationThreads = (threads || []).filter(t => t.is_quotation_thread).length;
 
       setStats({
+        total: totalKnowledge,
+        validated: validatedKnowledge,
+        validatedRate: totalKnowledge > 0 ? Math.round((validatedKnowledge / totalKnowledge) * 100) : 0,
+        usageCount: totalUsageCount,
         tariffs: {
           total: tariffs.length,
           validated: tariffs.filter(t => t.is_validated).length,
@@ -120,7 +159,12 @@ export function LearningStats() {
             p.category === 'operational_condition' || 
             p.category === 'condition'
           ).length
-        }
+        },
+        carriers: {
+          total: carriers.length,
+          names: uniqueCarriers.slice(0, 5),
+        },
+        bySource,
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -156,12 +200,34 @@ export function LearningStats() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Global Stats */}
+        <div className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-lg p-4 border border-primary/20">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-primary">{stats.total}</div>
+              <div className="text-xs text-muted-foreground">Total connaissances</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-600">{stats.validatedRate}%</div>
+              <div className="text-xs text-muted-foreground">Validées</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-amber-600">{stats.usageCount}</div>
+              <div className="text-xs text-muted-foreground">Utilisations</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-600">{stats.carriers.total}</div>
+              <div className="text-xs text-muted-foreground">Armateurs</div>
+            </div>
+          </div>
+        </div>
+
         {/* Main Stats Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* Tariffs */}
           <div className="bg-background/80 rounded-lg p-3 border">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Database className="h-4 w-4" />
+              <DollarSign className="h-4 w-4" />
               <span className="text-xs">Tarifs</span>
             </div>
             <div className="flex items-baseline gap-2">
@@ -223,6 +289,23 @@ export function LearningStats() {
           </div>
         </div>
 
+        {/* Carriers */}
+        {stats.carriers.names.length > 0 && (
+          <div className="bg-background/80 rounded-lg p-3 border">
+            <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+              <Ship className="h-3 w-3" />
+              Armateurs détectés
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {stats.carriers.names.map((name) => (
+                <Badge key={name} variant="secondary" className="text-xs">
+                  {name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Top Destinations */}
         {topDestinations.length > 0 && (
           <div className="bg-background/80 rounded-lg p-3 border">
@@ -239,6 +322,36 @@ export function LearningStats() {
             </div>
           </div>
         )}
+
+        {/* Source breakdown */}
+        <div className="bg-background/80 rounded-lg p-3 border">
+          <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+            <Sparkles className="h-3 w-3" />
+            Répartition par source
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {stats.bySource.email > 0 && (
+              <Badge variant="outline" className="text-xs">
+                📧 Emails: {stats.bySource.email}
+              </Badge>
+            )}
+            {stats.bySource.document > 0 && (
+              <Badge variant="outline" className="text-xs">
+                📄 Documents: {stats.bySource.document}
+              </Badge>
+            )}
+            {stats.bySource.expert > 0 && (
+              <Badge variant="outline" className="text-xs">
+                👨‍💼 Expert: {stats.bySource.expert}
+              </Badge>
+            )}
+            {stats.bySource.other > 0 && (
+              <Badge variant="outline" className="text-xs">
+                📦 Autre: {stats.bySource.other}
+              </Badge>
+            )}
+          </div>
+        </div>
 
         {/* Patterns */}
         {stats.patterns.total > 0 && (
