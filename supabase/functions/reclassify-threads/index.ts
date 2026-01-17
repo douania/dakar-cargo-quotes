@@ -137,6 +137,109 @@ function normalizeSubject(subject: string): string {
   return cleaned.toLowerCase();
 }
 
+// ============ BL/BOOKING REFERENCE EXTRACTION ============
+
+const BL_PATTERNS = [
+  /\b(HLCU[A-Z0-9]+)/i,       // Hapag-Lloyd
+  /\b(CMAU[A-Z0-9]+)/i,       // CMA CGM
+  /\b(MSCU[A-Z0-9]+)/i,       // MSC
+  /\b(MAEU[A-Z0-9]+)/i,       // Maersk
+  /\b(OOCL[A-Z0-9]+)/i,       // OOCL
+  /\bBL\s*[:.]?\s*([A-Z0-9-]{8,})/i,     // Generic BL
+  /\bB\/L\s*[:.]?\s*([A-Z0-9-]{8,})/i,   // B/L format
+  /\bBKNG\s*[:.]?\s*([A-Z0-9-]{6,})/i,   // Booking
+  /\bBooking\s*[:.]?\s*([A-Z0-9-]{6,})/i, // Booking word
+];
+
+function extractBLReferences(text: string): string[] {
+  const refs: string[] = [];
+  for (const pattern of BL_PATTERNS) {
+    const matches = text.matchAll(new RegExp(pattern, 'gi'));
+    for (const match of matches) {
+      const ref = (match[1] || match[0]).toUpperCase().trim();
+      if (ref.length >= 6 && !refs.includes(ref)) {
+        refs.push(ref);
+      }
+    }
+  }
+  return refs;
+}
+
+// ============ SUBJECT CHANGE DETECTION ============
+
+// Keywords that indicate cargo type - if these differ, it's likely different operations
+const CARGO_KEYWORDS = [
+  'quran', 'holy quran', 'coran',
+  'dates', 'dattes',
+  'reefer', 'refrigerated', 'frigorifique',
+  'vehicles', 'véhicules', 'cars', 'voitures', 'trucks', 'camions',
+  'machinery', 'machines', 'équipement',
+  'containers', 'conteneurs',
+  'breakbulk', 'conventionnel',
+  'chemicals', 'produits chimiques', 'dangerous', 'dangereux', 'imo',
+];
+
+function extractKeywords(text: string): string[] {
+  const textLower = (text || '').toLowerCase();
+  return CARGO_KEYWORDS.filter(kw => textLower.includes(kw));
+}
+
+function detectSubjectChange(subject1: string, subject2: string): { changed: boolean; reason?: string } {
+  const norm1 = normalizeSubject(subject1);
+  const norm2 = normalizeSubject(subject2);
+  
+  // If subjects are very similar, no change
+  if (norm1 === norm2) {
+    return { changed: false };
+  }
+  
+  // Extract cargo keywords from both
+  const keywords1 = extractKeywords(subject1);
+  const keywords2 = extractKeywords(subject2);
+  
+  // If one has cargo keywords the other doesn't have, it's different
+  const uniqueIn1 = keywords1.filter(k => !keywords2.includes(k));
+  const uniqueIn2 = keywords2.filter(k => !keywords1.includes(k));
+  
+  if (uniqueIn1.length > 0 || uniqueIn2.length > 0) {
+    return { 
+      changed: true, 
+      reason: `Cargo keywords differ: [${uniqueIn1.join(', ')}] vs [${uniqueIn2.join(', ')}]` 
+    };
+  }
+  
+  // Check BL references
+  const bls1 = extractBLReferences(subject1);
+  const bls2 = extractBLReferences(subject2);
+  
+  if (bls1.length > 0 && bls2.length > 0 && !bls1.some(b => bls2.includes(b))) {
+    return { 
+      changed: true, 
+      reason: `BL references differ: ${bls1.join(', ')} vs ${bls2.join(', ')}` 
+    };
+  }
+  
+  // Calculate word overlap
+  const words1 = new Set(norm1.split(/\s+/).filter(w => w.length > 3));
+  const words2 = new Set(norm2.split(/\s+/).filter(w => w.length > 3));
+  
+  if (words1.size === 0 || words2.size === 0) {
+    return { changed: false };
+  }
+  
+  const overlap = [...words1].filter(w => words2.has(w));
+  const overlapRatio = overlap.length / Math.max(words1.size, words2.size);
+  
+  if (overlapRatio < 0.3) {
+    return { 
+      changed: true, 
+      reason: `Low word overlap: ${Math.round(overlapRatio * 100)}%` 
+    };
+  }
+  
+  return { changed: false };
+}
+
 // ============ PROJECT NAME EXTRACTION ============
 
 const PROJECT_PATTERNS = [
@@ -186,6 +289,7 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
   
   for (const email of sortedEmails) {
     let threadKey: string | null = null;
+    let shouldSplit = false;
     
     // 1. Try to group by thread_id (References header)
     const threadRef = extractThreadReference(email);
@@ -196,28 +300,63 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
           extractThreadReference(e) === threadRef || e.message_id === threadRef
         );
         if (hasMatchingRef) {
-          threadKey = key;
+          // CRITICAL: Check if subject changed significantly (different operation)
+          const lastEmail = group.emails[group.emails.length - 1];
+          const subjectChange = detectSubjectChange(lastEmail.subject || '', email.subject || '');
+          
+          if (subjectChange.changed) {
+            console.log(`[Thread Split] Detected subject change: ${subjectChange.reason}`);
+            shouldSplit = true;
+          } else {
+            threadKey = key;
+          }
           break;
         }
       }
     }
     
-    // 2. Try to group by project name
-    if (!threadKey) {
+    // 2. Check for BL reference - emails with same BL should be grouped
+    if (!threadKey && !shouldSplit) {
+      const emailBLs = extractBLReferences(`${email.subject || ''} ${(email.body_text || '').substring(0, 2000)}`);
+      
+      if (emailBLs.length > 0) {
+        for (const [key, group] of threadGroups) {
+          // Check if any email in group has matching BL
+          for (const groupEmail of group.emails) {
+            const groupBLs = extractBLReferences(`${groupEmail.subject || ''} ${(groupEmail.body_text || '').substring(0, 500)}`);
+            if (groupBLs.some(bl => emailBLs.includes(bl))) {
+              threadKey = key;
+              console.log(`[Thread Match] BL reference match: ${emailBLs.join(', ')}`);
+              break;
+            }
+          }
+          if (threadKey) break;
+        }
+      }
+    }
+    
+    // 3. Try to group by project name (only if subjects are similar)
+    if (!threadKey && !shouldSplit) {
       const projectName = extractProjectName(email.subject || '', email.body_text || '');
       if (projectName) {
         for (const [key, group] of threadGroups) {
           if (group.projectName && 
               group.projectName.toLowerCase() === projectName.toLowerCase()) {
-            threadKey = key;
+            // Additional check: subjects shouldn't be too different
+            const lastEmail = group.emails[group.emails.length - 1];
+            const subjectChange = detectSubjectChange(lastEmail.subject || '', email.subject || '');
+            
+            if (!subjectChange.changed) {
+              threadKey = key;
+            }
             break;
           }
         }
       }
     }
     
-    // 3. Try to group by normalized subject + similar participants within 7 days
-    if (!threadKey) {
+    // 4. Try to group by normalized subject + similar participants within 7 days
+    if (!threadKey && !shouldSplit) {
       const normalizedSubj = normalizeSubject(email.subject || '');
       if (normalizedSubj.length > 10) { // Avoid grouping very short subjects
         const emailDate = new Date(email.sent_at);
@@ -228,12 +367,16 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
         ]);
         
         for (const [key, group] of threadGroups) {
-          // Check subject similarity
-          if (group.normalizedSubject !== normalizedSubj) continue;
-          
           // Check time proximity (within 7 days)
           const timeDiff = Math.abs(emailDate.getTime() - group.lastMessageAt.getTime());
           if (timeDiff > 7 * 24 * 60 * 60 * 1000) continue;
+          
+          // Check subject similarity using improved detection
+          const subjectChange = detectSubjectChange(group.normalizedSubject, normalizedSubj);
+          if (subjectChange.changed) continue;
+          
+          // Check normalized subject match
+          if (group.normalizedSubject !== normalizedSubj) continue;
           
           // Check participant overlap
           const groupParticipants = new Set<string>();
@@ -252,8 +395,8 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       }
     }
     
-    // 4. Create new thread group if no match found
-    if (!threadKey) {
+    // 5. Create new thread group if no match found or split required
+    if (!threadKey || shouldSplit) {
       threadKey = email.id; // Use email ID as thread key
       threadGroups.set(threadKey, {
         emails: [],
