@@ -324,34 +324,36 @@ export function LearningStats() {
         )}
 
         {/* Source breakdown */}
-        <div className="bg-background/80 rounded-lg p-3 border">
-          <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-            <Sparkles className="h-3 w-3" />
-            Répartition par source
+        {stats.bySource && (
+          <div className="bg-background/80 rounded-lg p-3 border">
+            <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              Répartition par source
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(stats.bySource.email || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  📧 Emails: {stats.bySource.email}
+                </Badge>
+              )}
+              {(stats.bySource.document || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  📄 Documents: {stats.bySource.document}
+                </Badge>
+              )}
+              {(stats.bySource.expert || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  👨‍💼 Expert: {stats.bySource.expert}
+                </Badge>
+              )}
+              {(stats.bySource.other || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  📦 Autre: {stats.bySource.other}
+                </Badge>
+              )}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {stats.bySource.email > 0 && (
-              <Badge variant="outline" className="text-xs">
-                📧 Emails: {stats.bySource.email}
-              </Badge>
-            )}
-            {stats.bySource.document > 0 && (
-              <Badge variant="outline" className="text-xs">
-                📄 Documents: {stats.bySource.document}
-              </Badge>
-            )}
-            {stats.bySource.expert > 0 && (
-              <Badge variant="outline" className="text-xs">
-                👨‍💼 Expert: {stats.bySource.expert}
-              </Badge>
-            )}
-            {stats.bySource.other > 0 && (
-              <Badge variant="outline" className="text-xs">
-                📦 Autre: {stats.bySource.other}
-              </Badge>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Patterns */}
         {stats.patterns.total > 0 && (
