@@ -25,6 +25,7 @@ import { ComplexityBadge } from '@/components/ComplexityBadge';
 import { LearningStats } from '@/components/LearningStats';
 import { QuotationPuzzleView } from '@/components/QuotationPuzzleView';
 import { AttachmentStatusPanel } from '@/components/AttachmentStatusPanel';
+import { ThreadConversationView } from '@/components/ThreadConversationView';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
@@ -121,6 +122,7 @@ export default function Emails() {
   const [filter, setFilter] = useState<'all' | 'quotation' | 'other' | 'with_attachments' | 'without_attachments'>('all');
   const [threadFilter, setThreadFilter] = useState<'quotation' | 'all'>('quotation');
   const [analyzingThreadId, setAnalyzingThreadId] = useState<string | null>(null);
+  const [viewingThreadId, setViewingThreadId] = useState<string | null>(null);
   
   // Search states
   const [emailSearchQuery, setEmailSearchQuery] = useState('');
@@ -908,6 +910,16 @@ export default function Emails() {
                           </div>
                           
                           <div className="flex flex-col gap-2 ml-4">
+                            {/* View Conversation Button */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setViewingThreadId(thread.id)}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              Conversation
+                            </Button>
+                            
                             {/* Analyze Puzzle Button */}
                             <Button
                               variant="outline"
@@ -1465,6 +1477,24 @@ export default function Emails() {
                   loadData(); // Refresh stats
                 }}
               />
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Thread Conversation Dialog */}
+        <Dialog open={!!viewingThreadId} onOpenChange={() => setViewingThreadId(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-primary" />
+                Conversation du fil
+              </DialogTitle>
+              <DialogDescription>
+                Vue chronologique des échanges
+              </DialogDescription>
+            </DialogHeader>
+            {viewingThreadId && (
+              <ThreadConversationView threadId={viewingThreadId} />
             )}
           </DialogContent>
         </Dialog>
