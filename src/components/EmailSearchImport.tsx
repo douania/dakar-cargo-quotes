@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { processQuotationRequest, type QuotationProcessResult } from '@/services/emailService';
 import { QuotationProcessor } from '@/components/QuotationProcessor';
+import { ImportSummaryDialog, type ImportSummary, type AttachmentResult } from '@/components/ImportSummaryDialog';
 
 interface AttachmentPreview {
   filename: string;
@@ -66,6 +67,10 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   // Extended sender search (includes CC and TO)
   const [extendedFromSearch, setExtendedFromSearch] = useState(true);
   const [analyzingAfterImport, setAnalyzingAfterImport] = useState(false);
+  
+  // Import summary state
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
+  const [showSummaryDialog, setShowSummaryDialog] = useState(false);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -139,6 +144,20 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     }
 
     setImporting(true);
+    
+    // Initialize summary object
+    const summary: ImportSummary = {
+      emailsImported: 0,
+      emailsExisting: 0,
+      attachmentsProcessed: 0,
+      knowledgeStored: 0,
+      quotationDetected: false,
+      quotationAmount: null,
+      attachmentResults: [],
+      totalTariffLines: 0,
+      contactsDiscovered: 0,
+      templatesIdentified: 0,
+    };
 
     try {
       // Collect all UIDs from selected threads
@@ -149,9 +168,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         }
       }
 
-      let totalImported = 0;
-      let totalExisting = 0;
-      let totalAttachments = 0;
       let lastAnalysis: any = null;
       let batchNum = 0;
       const importedEmailIds: string[] = [];  // Collect all email IDs for bulk analysis
@@ -172,10 +188,17 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         if (error) throw error;
         if (data.error) throw new Error(data.error);
 
-        totalImported += data.imported || 0;
-        totalExisting += data.alreadyExisted || 0;
-        totalAttachments += data.attachmentsProcessed || 0;
-        if (data.analysis) lastAnalysis = data.analysis;
+        summary.emailsImported += data.imported || 0;
+        summary.emailsExisting += data.alreadyExisted || 0;
+        summary.attachmentsProcessed += data.attachmentsProcessed || 0;
+        if (data.analysis) {
+          lastAnalysis = data.analysis;
+          summary.knowledgeStored += data.analysis.knowledgeStored || 0;
+          if (data.analysis.quotationDetected) {
+            summary.quotationDetected = true;
+            summary.quotationAmount = data.analysis.quotationAmount || null;
+          }
+        }
         
         // Collect email IDs for bulk analysis
         if (data.emailIds && Array.isArray(data.emailIds)) {
@@ -188,30 +211,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         if (!data.hasMore) break;
       }
 
-      // Build informative message
-      let message = '';
-      if (totalImported > 0) {
-        message = `${totalImported} nouvel email(s) importé(s)`;
-      }
-      if (totalExisting > 0) {
-        message += message ? ' + ' : '';
-        message += `${totalExisting} email(s) déjà présent(s)`;
-      }
-      if (totalAttachments > 0) {
-        message += `. ${totalAttachments} pièce(s) jointe(s) traitée(s)`;
-      }
-      if (lastAnalysis) {
-        message += `. Analyse IA: ${lastAnalysis.knowledgeStored} connaissance(s) extraite(s)`;
-        if (lastAnalysis.attachmentsAnalyzed > 0) {
-          message += ` (incl. ${lastAnalysis.attachmentsAnalyzed} document(s))`;
-        }
-        if (lastAnalysis.quotationDetected) {
-          message += ` - Cotation détectée${lastAnalysis.quotationAmount ? `: ${lastAnalysis.quotationAmount}` : ''}`;
-        }
-      }
-      
-      toast.success(message || 'Import terminé');
-      
       // Auto-analyze if enabled - now with specific email IDs
       if (autoAnalyze && importedEmailIds.length > 0) {
         setAnalyzingAfterImport(true);
@@ -230,15 +229,44 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
             console.error('Auto-analyze error:', analyzeError);
             toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
           } else {
-            const analyzed = analyzeData?.analyzed || analyzeData?.processed || 0;
-            const skipped = analyzeData?.skipped || 0;
-            toast.success(`Analyse: ${analyzed} pièce(s) jointe(s) traitée(s)${skipped > 0 ? `, ${skipped} ignorée(s)` : ''}`);
+            // Collect attachment results
+            if (analyzeData?.results && Array.isArray(analyzeData.results)) {
+              summary.attachmentResults = analyzeData.results.map((r: any) => ({
+                id: r.id,
+                filename: r.filename,
+                type: r.type || 'unknown',
+                linesExtracted: r.linesExtracted || 0,
+                sheetsFound: r.sheetsFound || 0,
+                success: r.success,
+                error: r.error,
+              } as AttachmentResult));
+              
+              // Calculate derived stats from attachment results
+              for (const result of summary.attachmentResults) {
+                if (result.success) {
+                  summary.totalTariffLines += result.linesExtracted || 0;
+                  
+                  // Count contacts and templates based on type
+                  const typeLower = (result.type || '').toLowerCase();
+                  if (typeLower === 'signature' || typeLower === 'contact') {
+                    summary.contactsDiscovered += 1;
+                  }
+                  if (typeLower === 'quotation' || typeLower === 'invoice' || typeLower === 'tariff') {
+                    summary.templatesIdentified += 1;
+                  }
+                }
+              }
+            }
           }
         } catch (error) {
           console.error('Auto-analyze error:', error);
         }
         setAnalyzingAfterImport(false);
       }
+      
+      // Show summary dialog instead of toast
+      setImportSummary(summary);
+      setShowSummaryDialog(true);
       
       // Clear selection and refresh
       setSelectedThreads(new Set());
@@ -548,6 +576,12 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         result={quotationResult}
         isLoading={processingQuotation}
         onComplete={handleQuotationComplete}
+      />
+
+      <ImportSummaryDialog
+        open={showSummaryDialog}
+        onOpenChange={setShowSummaryDialog}
+        summary={importSummary}
       />
     </div>
   );
