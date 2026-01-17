@@ -188,8 +188,14 @@ function detectSubjectChange(subject1: string, subject2: string): { changed: boo
   const norm1 = normalizeSubject(subject1);
   const norm2 = normalizeSubject(subject2);
   
-  // If subjects are very similar, no change
+  // If subjects are identical, no change
   if (norm1 === norm2) {
+    return { changed: false };
+  }
+  
+  // NEW: Check if one subject contains the other (minor variation)
+  // "quran dss" should match "quran dss urgent export from dakar"
+  if (norm1.includes(norm2) || norm2.includes(norm1)) {
     return { changed: false };
   }
   
@@ -230,7 +236,8 @@ function detectSubjectChange(subject1: string, subject2: string): { changed: boo
   const overlap = [...words1].filter(w => words2.has(w));
   const overlapRatio = overlap.length / Math.max(words1.size, words2.size);
   
-  if (overlapRatio < 0.3) {
+  // Increase threshold from 0.3 to 0.4 for better grouping
+  if (overlapRatio < 0.4) {
     return { 
       changed: true, 
       reason: `Low word overlap: ${Math.round(overlapRatio * 100)}%` 
@@ -367,16 +374,17 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
         ]);
         
         for (const [key, group] of threadGroups) {
-          // Check time proximity (within 7 days)
+          // Check time proximity (within 14 days for better grouping)
           const timeDiff = Math.abs(emailDate.getTime() - group.lastMessageAt.getTime());
-          if (timeDiff > 7 * 24 * 60 * 60 * 1000) continue;
+          if (timeDiff > 14 * 24 * 60 * 60 * 1000) continue;
           
           // Check subject similarity using improved detection
+          // This already handles: identical, inclusion, cargo keywords, BL refs, word overlap
           const subjectChange = detectSubjectChange(group.normalizedSubject, normalizedSubj);
           if (subjectChange.changed) continue;
           
-          // Check normalized subject match
-          if (group.normalizedSubject !== normalizedSubj) continue;
+          // REMOVED: Strict subject match condition that was preventing consolidation
+          // The detectSubjectChange function is now sufficient
           
           // Check participant overlap
           const groupParticipants = new Set<string>();
@@ -626,7 +634,8 @@ serve(async (req) => {
       threadsUpdated: 0,
       emailsLinked: 0,
       spamMarked: spamEmails.length,
-      quotationUpdates
+      quotationUpdates,
+      orphansDeleted: 0
     };
     
     for (const [_key, group] of threadGroups) {
@@ -685,15 +694,47 @@ serve(async (req) => {
       }
     }
     
-    // 5. Clean old spam threads
+    // 7. Clean up spam threads and orphan threads (no linked emails)
     if (!dryRun) {
-      const { error: deleteError } = await supabase
+      // Clean spam threads
+      const { error: deleteSpamError } = await supabase
         .from('email_threads')
         .delete()
         .ilike('subject_normalized', '%spam%');
       
-      if (!deleteError) {
+      if (!deleteSpamError) {
         console.log('Cleaned up spam threads');
+      }
+      
+      // Clean orphan threads (threads with no linked emails)
+      // First get all thread_refs that are actually used
+      const { data: usedThreadRefs } = await supabase
+        .from('emails')
+        .select('thread_ref')
+        .not('thread_ref', 'is', null);
+      
+      const usedRefIds = new Set((usedThreadRefs || []).map(e => e.thread_ref));
+      
+      // Get all thread IDs
+      const { data: allThreads } = await supabase
+        .from('email_threads')
+        .select('id');
+      
+      // Delete threads that have no emails linked
+      const orphanThreadIds = (allThreads || [])
+        .filter(t => !usedRefIds.has(t.id))
+        .map(t => t.id);
+      
+      if (orphanThreadIds.length > 0) {
+        const { error: deleteOrphanError } = await supabase
+          .from('email_threads')
+          .delete()
+          .in('id', orphanThreadIds);
+        
+        if (!deleteOrphanError) {
+          console.log(`Cleaned up ${orphanThreadIds.length} orphan threads`);
+          stats.orphansDeleted = orphanThreadIds.length;
+        }
       }
     }
     
