@@ -119,6 +119,19 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     setSelectedThreads(newSelected);
   };
 
+  const toggleSelectAll = () => {
+    if (selectedThreads.size === threads.length) {
+      // Si tout est sélectionné, tout désélectionner
+      setSelectedThreads(new Set());
+    } else {
+      // Sinon, tout sélectionner
+      const allSubjects = threads.map(t => t.normalizedSubject);
+      setSelectedThreads(new Set(allSubjects));
+    }
+  };
+
+  const isAllSelected = threads.length > 0 && selectedThreads.size === threads.length;
+
   const handleImport = async () => {
     if (selectedThreads.size === 0) {
       toast.error('Sélectionnez au moins une conversation');
@@ -379,9 +392,23 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       {threads.length > 0 && (
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <p className="text-sm font-medium">
-              {selectedThreads.size} conversation(s) sélectionnée(s)
-            </p>
+            <div className="flex items-center gap-4">
+              <div 
+                className="flex items-center gap-2 cursor-pointer"
+                onClick={toggleSelectAll}
+              >
+                <Checkbox 
+                  checked={isAllSelected}
+                  onCheckedChange={toggleSelectAll}
+                />
+                <Label className="text-sm font-medium cursor-pointer">
+                  Tout sélectionner
+                </Label>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                ({selectedThreads.size}/{threads.length})
+              </span>
+            </div>
             <div className="flex gap-2 flex-wrap">
               <Button 
                 variant="outline"
