@@ -8,44 +8,6 @@ const corsHeaders = {
 
 // Analysis prompts for each puzzle phase
 const PUZZLE_PHASES = {
-  detect_operations: {
-    name: "Détection opérations distinctes",
-    prompt: `Tu es un expert en logistique maritime et routière pour l'Afrique de l'Ouest.
-
-MISSION CRITIQUE: Identifier les OPÉRATIONS LOGISTIQUES DISTINCTES dans ce fil de discussion.
-
-Une NOUVELLE OPÉRATION est détectée quand l'un de ces éléments change SIGNIFICATIVEMENT:
-1. **Référence BL/Booking** différente (ex: HLCUJE2251207250 vs HLCUJE2251207251)
-2. **Type de marchandise** radicalement différent (ex: "Holy Qurans" ≠ "Dates/Dattes")
-3. **Destination finale** différente (ex: "Banjul" ≠ "Dakar Embassy")
-4. **Type de conteneur** incompatible (ex: "Reefer" ≠ "Dry")
-5. **Client/Destinataire** différent
-
-ATTENTION:
-- Des emails avec le même sujet principal peuvent concerner des opérations DIFFÉRENTES
-- Un thread Outlook peut regrouper plusieurs demandes distinctes
-- Chaque conteneur avec un contenu différent = opération distincte
-
-Réponds en JSON:
-{
-  "has_multiple_operations": true/false,
-  "operations": [
-    {
-      "operation_id": "op_1",
-      "cargo_type": "Description marchandise (ex: 'Holy Qurans', 'Dates/Dattes')",
-      "destination": "Destination finale",
-      "container_type": "Type conteneur (20' DRY, 40' REEFER, etc.)",
-      "bl_reference": "Référence BL ou null",
-      "email_indices": [0, 2, 4],
-      "key_emails": ["indices des emails concernés"],
-      "distinguishing_factors": ["Pourquoi c'est une opération distincte"]
-    }
-  ],
-  "separation_confidence": 0.0-1.0,
-  "separation_reason": "Explication de la séparation"
-}`
-  },
-
   extract_request: {
     name: "Demande initiale",
     prompt: `Tu es un expert en analyse de demandes de cotation logistique pour le Sénégal/Afrique de l'Ouest.
@@ -75,37 +37,13 @@ Analyse l'email initial de demande de cotation et extrais les informations suiva
    - Facture commerciale ?
    - Autres documents
 
-5. **INFORMATIONS MANQUANTES** (CRITIQUE - catégoriser précisément):
-
-CATÉGORIE "CRITICAL" (BLOQUENT le devis):
-- Poids total de l'expédition (si non mentionné)
-- Nombre de colis/pièces (si non mentionné)  
-- Dimensions des colis (si non mentionnées et cargo non-conteneurisé)
-- Incoterm souhaité (si ambigu)
-- Port/lieu de chargement précis
-
-CATÉGORIE "IMPORTANT" (devis approximatif sans):
-- Volume total CBM (si non calculable)
-- Date de chargement souhaitée
-- Nature exacte des marchandises (pour code douanier)
-- Conditionnement précis
-
-CATÉGORIE "OPTIONAL" (utile mais non bloquant):
-- Contact destinataire
-- Préférences de transport
-- Assurance souhaitée ou non
-
 Réponds en JSON:
 {
   "cargo": { "description": "", "pieces": N, "weight_kg": N, "volume_cbm": N, "dimensions": [], "packaging": "", "hazardous": false, "imo_class": null },
   "routing": { "origin_city": "", "origin_country": "", "destination_city": "", "destination_site": "", "destination_country": "", "incoterm_requested": "", "transit_ports": [] },
   "timing": { "loading_date": "", "delivery_deadline": "", "urgency": "normal|urgent|critical" },
   "documents_mentioned": [],
-  "missing_info": {
-    "critical": ["Liste des infos BLOQUANTES pour tout devis"],
-    "important": ["Liste des infos pour devis précis"],
-    "optional": ["Liste des infos bonus"]
-  },
+  "missing_info": ["liste des infos manquantes critiques"],
   "request_type": "FCL|LCL|BREAKBULK|RORO|AIR|ROAD|MULTIMODAL",
   "confidence": 0.0-1.0
 }`
@@ -297,28 +235,11 @@ Réponds en JSON:
   }
 };
 
-interface DetectedOperation {
-  operation_id: string;
-  cargo_type: string;
-  destination: string;
-  container_type: string;
-  bl_reference: string | null;
-  email_indices: number[];
-  key_emails: string[];
-  distinguishing_factors: string[];
-}
-
 interface PuzzleResult {
   phase: string;
   success: boolean;
   data: any;
   error?: string;
-}
-
-interface MissingInfoCategorized {
-  critical: string[];
-  important: string[];
-  optional: string[];
 }
 
 interface PuzzleState {
@@ -335,13 +256,10 @@ interface PuzzleState {
   contacts: any[];
   negotiation: any;
   missing_info: string[];
-  missing_info_categorized?: MissingInfoCategorized;
   carrier?: string;
   booking_reference?: string;
   departure_date?: string;
   arrival_date?: string;
-  detected_operations?: DetectedOperation[];
-  has_multiple_operations?: boolean;
 }
 
 serve(async (req) => {
@@ -565,8 +483,8 @@ serve(async (req) => {
     // 3. Build thread content for AI analysis
     const threadContent = buildThreadContent(allEmails, relevantAttachments);
 
-    // 4. Run puzzle phases (detect_operations first, then the rest)
-    const phasesToRun = phases || ["detect_operations", "extract_request", "extract_clarifications", "extract_quotation", "extract_negotiation", "extract_contacts"];
+    // 4. Run puzzle phases
+    const phasesToRun = phases || ["extract_request", "extract_clarifications", "extract_quotation", "extract_negotiation", "extract_contacts"];
     const results: PuzzleResult[] = [];
 
     for (const phaseName of phasesToRun) {
@@ -769,49 +687,12 @@ function buildPuzzleState(
     if (!result.success || !result.data) continue;
 
     switch (result.phase) {
-      case "detect_operations":
-        state.has_multiple_operations = result.data.has_multiple_operations || false;
-        if (result.data.operations && result.data.operations.length > 0) {
-          state.detected_operations = result.data.operations.map((op: any) => ({
-            operation_id: op.operation_id,
-            cargo_type: op.cargo_type,
-            destination: op.destination,
-            container_type: op.container_type,
-            bl_reference: op.bl_reference || null,
-            email_count: op.email_indices?.length || 0,
-          }));
-        }
-        break;
-
       case "extract_request":
         state.cargo = result.data.cargo;
         state.routing = result.data.routing;
         state.timing = result.data.timing;
-        
-        // Handle categorized missing info
         if (result.data.missing_info) {
-          // Check if it's the new categorized format
-          if (typeof result.data.missing_info === 'object' && 
-              (result.data.missing_info.critical || result.data.missing_info.important || result.data.missing_info.optional)) {
-            state.missing_info_categorized = {
-              critical: result.data.missing_info.critical || [],
-              important: result.data.missing_info.important || [],
-              optional: result.data.missing_info.optional || [],
-            };
-            // Also populate legacy missing_info with critical + important
-            state.missing_info = [
-              ...(result.data.missing_info.critical || []),
-              ...(result.data.missing_info.important || []),
-            ];
-          } else if (Array.isArray(result.data.missing_info)) {
-            // Legacy format - treat all as important
-            state.missing_info.push(...result.data.missing_info);
-            state.missing_info_categorized = {
-              critical: [],
-              important: result.data.missing_info,
-              optional: [],
-            };
-          }
+          state.missing_info.push(...result.data.missing_info);
         }
         break;
 

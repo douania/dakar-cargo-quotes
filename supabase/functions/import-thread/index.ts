@@ -1686,9 +1686,6 @@ serve(async (req) => {
       }
     }
 
-    // Use existing allEmailIds for bulk analysis (already declared above)
-    console.log(`Returning ${allEmailIds.length} email IDs for bulk analysis`);
-    
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -1698,7 +1695,6 @@ serve(async (req) => {
         attachmentsProcessed: totalAttachments,
         threadId,
         emails: importedEmails,
-        emailIds: allEmailIds,  // NEW: IDs for bulk attachment analysis
         remainingUids: remainingUids,
         hasMore: remainingUids.length > 0,
         analysis: analysisResult ? {

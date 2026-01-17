@@ -514,7 +514,7 @@ serve(async (req) => {
 
   try {
     // Increased default limit from 30 to 200 for better thread coverage
-    const { configId, searchType, query, limit = 200, deepSearch = false, reconstructThread = false, extendedFromSearch = true } = await req.json();
+    const { configId, searchType, query, limit = 200, deepSearch = false, reconstructThread = false } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -541,7 +541,6 @@ serve(async (req) => {
     await client.select(mailbox);
 
     // Build search criteria - use OR for deep search to find related emails
-    // extendedFromSearch: also search CC and TO fields when searching by sender
     let criteria = 'ALL';
     if (searchType === 'subject' && query) {
       if (deepSearch) {
@@ -551,14 +550,7 @@ serve(async (req) => {
         criteria = `SUBJECT "${query}"`;
       }
     } else if (searchType === 'from' && query) {
-      if (extendedFromSearch) {
-        // Extended search: find emails where the person is in FROM, CC, or TO
-        criteria = `OR OR FROM "${query}" CC "${query}" TO "${query}"`;
-        console.log(`Extended sender search: FROM/CC/TO for "${query}"`);
-      } else {
-        // Strict search: only FROM field
-        criteria = `FROM "${query}"`;
-      }
+      criteria = `FROM "${query}"`;
     } else if (searchType === 'text' && query) {
       criteria = `TEXT "${query}"`;
     }
@@ -624,46 +616,17 @@ serve(async (req) => {
       console.log(`Thread reconstruction complete. Added ${foundAdditional} emails. Total: ${messages.length}`);
     }
     
-    // Group by thread using Message-ID links + subject+domain fallback
-    // This prevents grouping unrelated threads with the same subject from different clients
-    const messageIdToThreadKey = new Map<string, string>();
+    // Group by thread using improved normalization (handles Spam: prefixes)
     const threads = new Map<string, typeof messages>();
-    
-    // First pass: build thread graph using Message-ID/References links
     for (const msg of messages) {
+      // Use the improved normalizeSubject that handles Spam: prefixes
       const normalizedSubj = normalizeSubject(msg.subject);
       
-      // Extract domain from sender for differentiation
-      const fromDomain = msg.from.split('@')[1]?.toLowerCase().split('.').slice(-2).join('.') || 'unknown';
-      
-      // Check if this message references any existing thread via Message-ID links
-      let existingThreadKey: string | null = null;
-      
-      if (msg.references) {
-        const refs = msg.references.split(/\s+/).filter(Boolean);
-        for (const refId of refs) {
-          const cleanRef = refId.trim();
-          if (messageIdToThreadKey.has(cleanRef)) {
-            existingThreadKey = messageIdToThreadKey.get(cleanRef)!;
-            break;
-          }
-        }
+      if (!threads.has(normalizedSubj)) {
+        threads.set(normalizedSubj, []);
       }
-      
-      // If no reference found, create a composite key: subject + sender domain
-      // This distinguishes "DAP SAINT LOUIS" from client@a.com vs client@b.com
-      const threadKey = existingThreadKey || `${normalizedSubj}|${fromDomain}`;
-      
-      // Register this message's ID for future linking
-      messageIdToThreadKey.set(msg.messageId, threadKey);
-      
-      if (!threads.has(threadKey)) {
-        threads.set(threadKey, []);
-      }
-      threads.get(threadKey)!.push(msg);
+      threads.get(normalizedSubj)!.push(msg);
     }
-    
-    console.log(`Grouped ${messages.length} messages into ${threads.size} threads (using Message-ID links + domain differentiation)`);
 
     // Convert to array format with proper date sorting
     const threadList = Array.from(threads.entries()).map(([subject, msgs]) => {

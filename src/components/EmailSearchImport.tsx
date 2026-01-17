@@ -15,7 +15,6 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { processQuotationRequest, type QuotationProcessResult } from '@/services/emailService';
 import { QuotationProcessor } from '@/components/QuotationProcessor';
-import { ImportSummaryDialog, type ImportSummary, type AttachmentResult } from '@/components/ImportSummaryDialog';
 
 interface AttachmentPreview {
   filename: string;
@@ -63,14 +62,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   
   // Auto-analyze option
   const [autoAnalyze, setAutoAnalyze] = useState(false);
-  
-  // Extended sender search (includes CC and TO)
-  const [extendedFromSearch, setExtendedFromSearch] = useState(true);
   const [analyzingAfterImport, setAnalyzingAfterImport] = useState(false);
-  
-  // Import summary state
-  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
-  const [showSummaryDialog, setShowSummaryDialog] = useState(false);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -89,8 +81,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           searchType, 
           query: query.trim(), 
           limit: 200,
-          reconstructThread,
-          extendedFromSearch: searchType === 'from' ? extendedFromSearch : undefined
+          reconstructThread 
         }
       });
 
@@ -124,19 +115,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     setSelectedThreads(newSelected);
   };
 
-  const toggleSelectAll = () => {
-    if (selectedThreads.size === threads.length) {
-      // Si tout est sélectionné, tout désélectionner
-      setSelectedThreads(new Set());
-    } else {
-      // Sinon, tout sélectionner
-      const allSubjects = threads.map(t => t.normalizedSubject);
-      setSelectedThreads(new Set(allSubjects));
-    }
-  };
-
-  const isAllSelected = threads.length > 0 && selectedThreads.size === threads.length;
-
   const handleImport = async () => {
     if (selectedThreads.size === 0) {
       toast.error('Sélectionnez au moins une conversation');
@@ -144,20 +122,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     }
 
     setImporting(true);
-    
-    // Initialize summary object
-    const summary: ImportSummary = {
-      emailsImported: 0,
-      emailsExisting: 0,
-      attachmentsProcessed: 0,
-      knowledgeStored: 0,
-      quotationDetected: false,
-      quotationAmount: null,
-      attachmentResults: [],
-      totalTariffLines: 0,
-      contactsDiscovered: 0,
-      templatesIdentified: 0,
-    };
 
     try {
       // Collect all UIDs from selected threads
@@ -168,9 +132,11 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         }
       }
 
+      let totalImported = 0;
+      let totalExisting = 0;
+      let totalAttachments = 0;
       let lastAnalysis: any = null;
       let batchNum = 0;
-      const importedEmailIds: string[] = [];  // Collect all email IDs for bulk analysis
 
       // Process in batches
       while (remainingUids.length > 0) {
@@ -188,22 +154,10 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         if (error) throw error;
         if (data.error) throw new Error(data.error);
 
-        summary.emailsImported += data.imported || 0;
-        summary.emailsExisting += data.alreadyExisted || 0;
-        summary.attachmentsProcessed += data.attachmentsProcessed || 0;
-        if (data.analysis) {
-          lastAnalysis = data.analysis;
-          summary.knowledgeStored += data.analysis.knowledgeStored || 0;
-          if (data.analysis.quotationDetected) {
-            summary.quotationDetected = true;
-            summary.quotationAmount = data.analysis.quotationAmount || null;
-          }
-        }
-        
-        // Collect email IDs for bulk analysis
-        if (data.emailIds && Array.isArray(data.emailIds)) {
-          importedEmailIds.push(...data.emailIds);
-        }
+        totalImported += data.imported || 0;
+        totalExisting += data.alreadyExisted || 0;
+        totalAttachments += data.attachmentsProcessed || 0;
+        if (data.analysis) lastAnalysis = data.analysis;
 
         // Update remaining UIDs from response
         remainingUids = data.remainingUids || [];
@@ -211,62 +165,52 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         if (!data.hasMore) break;
       }
 
-      // Auto-analyze if enabled - now with specific email IDs
-      if (autoAnalyze && importedEmailIds.length > 0) {
+      // Build informative message
+      let message = '';
+      if (totalImported > 0) {
+        message = `${totalImported} nouvel email(s) importé(s)`;
+      }
+      if (totalExisting > 0) {
+        message += message ? ' + ' : '';
+        message += `${totalExisting} email(s) déjà présent(s)`;
+      }
+      if (totalAttachments > 0) {
+        message += `. ${totalAttachments} pièce(s) jointe(s) traitée(s)`;
+      }
+      if (lastAnalysis) {
+        message += `. Analyse IA: ${lastAnalysis.knowledgeStored} connaissance(s) extraite(s)`;
+        if (lastAnalysis.attachmentsAnalyzed > 0) {
+          message += ` (incl. ${lastAnalysis.attachmentsAnalyzed} document(s))`;
+        }
+        if (lastAnalysis.quotationDetected) {
+          message += ` - Cotation détectée${lastAnalysis.quotationAmount ? `: ${lastAnalysis.quotationAmount}` : ''}`;
+        }
+      }
+      
+      toast.success(message || 'Import terminé');
+      
+      // Auto-analyze if enabled
+      if (autoAnalyze && totalAttachments > 0) {
         setAnalyzingAfterImport(true);
-        toast.info(`Lancement de l'analyse des pièces jointes pour ${importedEmailIds.length} email(s)...`);
+        toast.info('Lancement de l\'analyse des pièces jointes...');
         
         try {
-          // Trigger bulk analysis for specific imported email attachments
+          // Trigger bulk analysis for newly imported attachments
           const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke('analyze-attachments', {
-            body: { 
-              bulk: true, 
-              emailIds: importedEmailIds  // Target only the emails we just imported
-            }
+            body: { bulk: true, unanalyzedOnly: true }
           });
           
           if (analyzeError) {
             console.error('Auto-analyze error:', analyzeError);
             toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
           } else {
-            // Collect attachment results
-            if (analyzeData?.results && Array.isArray(analyzeData.results)) {
-              summary.attachmentResults = analyzeData.results.map((r: any) => ({
-                id: r.id,
-                filename: r.filename,
-                type: r.type || 'unknown',
-                linesExtracted: r.linesExtracted || 0,
-                sheetsFound: r.sheetsFound || 0,
-                success: r.success,
-                error: r.error,
-              } as AttachmentResult));
-              
-              // Calculate derived stats from attachment results
-              for (const result of summary.attachmentResults) {
-                if (result.success) {
-                  summary.totalTariffLines += result.linesExtracted || 0;
-                  
-                  // Count contacts and templates based on type
-                  const typeLower = (result.type || '').toLowerCase();
-                  if (typeLower === 'signature' || typeLower === 'contact') {
-                    summary.contactsDiscovered += 1;
-                  }
-                  if (typeLower === 'quotation' || typeLower === 'invoice' || typeLower === 'tariff') {
-                    summary.templatesIdentified += 1;
-                  }
-                }
-              }
-            }
+            toast.success(`Analyse lancée pour ${analyzeData?.processed || 0} pièce(s) jointe(s)`);
           }
         } catch (error) {
           console.error('Auto-analyze error:', error);
         }
         setAnalyzingAfterImport(false);
       }
-      
-      // Show summary dialog instead of toast
-      setImportSummary(summary);
-      setShowSummaryDialog(true);
       
       // Clear selection and refresh
       setSelectedThreads(new Set());
@@ -376,23 +320,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
               </label>
             </div>
             
-            {searchType === 'from' && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="extendedFromSearch"
-                  checked={extendedFromSearch}
-                  onCheckedChange={setExtendedFromSearch}
-                />
-                <Label 
-                  htmlFor="extendedFromSearch" 
-                  className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1"
-                >
-                  <Users className="h-3 w-3 text-blue-500" />
-                  Inclure CC et destinataires
-                </Label>
-              </div>
-            )}
-            
             <div className="flex items-center gap-2">
               <Switch
                 id="autoAnalyze"
@@ -420,23 +347,9 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       {threads.length > 0 && (
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div className="flex items-center gap-4">
-              <div 
-                className="flex items-center gap-2 cursor-pointer"
-                onClick={toggleSelectAll}
-              >
-                <Checkbox 
-                  checked={isAllSelected}
-                  onCheckedChange={toggleSelectAll}
-                />
-                <Label className="text-sm font-medium cursor-pointer">
-                  Tout sélectionner
-                </Label>
-              </div>
-              <span className="text-sm text-muted-foreground">
-                ({selectedThreads.size}/{threads.length})
-              </span>
-            </div>
+            <p className="text-sm font-medium">
+              {selectedThreads.size} conversation(s) sélectionnée(s)
+            </p>
             <div className="flex gap-2 flex-wrap">
               <Button 
                 variant="outline"
@@ -576,12 +489,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         result={quotationResult}
         isLoading={processingQuotation}
         onComplete={handleQuotationComplete}
-      />
-
-      <ImportSummaryDialog
-        open={showSummaryDialog}
-        onOpenChange={setShowSummaryDialog}
-        summary={importSummary}
       />
     </div>
   );

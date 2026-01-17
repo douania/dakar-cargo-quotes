@@ -430,47 +430,23 @@ export default function Emails() {
     setIsReclassifying(false);
   };
 
-  const reclassifyThreads = async (dryRun: boolean = false) => {
-    const confirmMessage = dryRun 
-      ? 'Prévisualiser la réorganisation des fils ?\n\nCela affichera les changements sans les appliquer.'
-      : 'Réorganiser TOUS les fils de discussion ?\n\n⚠️ Cette action va :\n- Supprimer tous les fils existants\n- Recréer les fils en séparant les opérations distinctes (différents BL, cargaisons, destinations)\n\nCette opération peut prendre 1-2 minutes.';
-    
-    if (!confirm(confirmMessage)) return;
+  const reclassifyThreads = async () => {
+    if (!confirm('Recalculer la classification de tous les fils de discussion ?\n\nCela mettra à jour le statut "fil de cotation" de tous les fils.')) return;
     
     setIsReclassifyingThreads(true);
     try {
-      // Call the real reclassify-threads function with full segregation logic
-      const { data, error } = await supabase.functions.invoke('reclassify-threads', {
-        body: { dry_run: dryRun }
+      const { data, error } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'reclassify_threads' }
       });
 
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || 'Erreur');
 
-      const stats = data.stats || {};
-      
-      if (dryRun) {
-        toast.info(
-          `Prévisualisation:\n` +
-          `• ${stats.validEmails || 0} emails valides\n` +
-          `• ${stats.threadsCreated || 0} fils à créer\n` +
-          `• ${stats.emailsLinked || 0} emails à lier\n` +
-          `• ${stats.spamFiltered || 0} spam filtrés`,
-          { duration: 8000 }
-        );
-      } else {
-        toast.success(
-          `Réorganisation terminée:\n` +
-          `• ${stats.threadsCreated || 0} fils créés\n` +
-          `• ${stats.emailsLinked || 0} emails liés\n` +
-          `• ${stats.quotationThreads || 0} fils de cotation`,
-          { duration: 6000 }
-        );
-        loadData();
-      }
+      toast.success(`${data.total} fils reclassifiés: ${data.quotationThreads} cotations, ${data.nonQuotationThreads} autres`);
+      loadData();
     } catch (error) {
       console.error('Reclassify threads error:', error);
-      toast.error('Erreur de réorganisation des fils');
+      toast.error('Erreur de reclassification des fils');
     }
     setIsReclassifyingThreads(false);
   };
@@ -837,26 +813,15 @@ export default function Emails() {
                       {isMergingThreads ? 'Fusion...' : 'Fusionner'}
                     </Button>
 
-                    {/* Preview thread reorganization */}
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => reclassifyThreads(true)}
-                      disabled={isReclassifyingThreads}
-                    >
-                      <Eye className={`h-4 w-4 mr-2 ${isReclassifyingThreads ? 'animate-pulse' : ''}`} />
-                      Prévisualiser
-                    </Button>
-
                     {/* Reclassify threads */}
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      onClick={() => reclassifyThreads(false)}
+                      onClick={reclassifyThreads}
                       disabled={isReclassifyingThreads}
                     >
                       <RotateCcw className={`h-4 w-4 mr-2 ${isReclassifyingThreads ? 'animate-spin' : ''}`} />
-                      Réorganiser
+                      Reclassifier
                     </Button>
                   </div>
 

@@ -20,9 +20,6 @@ import {
   TrendingUp,
   FileText,
   MessageSquare,
-  AlertTriangle,
-  Ban,
-  Layers,
   BookOpen,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,21 +46,6 @@ interface PuzzlePhase {
   data?: any;
 }
 
-interface MissingInfoCategory {
-  critical: string[];
-  important: string[];
-  optional: string[];
-}
-
-interface DetectedOperation {
-  operation_id: string;
-  cargo_type: string;
-  destination: string;
-  container_type: string;
-  bl_reference: string | null;
-  email_count: number;
-}
-
 interface PuzzleState {
   thread_id: string;
   email_count: number;
@@ -80,9 +62,6 @@ interface PuzzleState {
   contacts?: any[];
   negotiation?: any;
   missing_info?: string[];
-  missing_info_categorized?: MissingInfoCategory;
-  detected_operations?: DetectedOperation[];
-  has_multiple_operations?: boolean;
 }
 
 interface Props {
@@ -460,99 +439,8 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
           </ScrollArea>
         </div>
 
-        {/* Multiple Operations Warning */}
-        {puzzle?.has_multiple_operations && puzzle.detected_operations && puzzle.detected_operations.length > 1 && (
-          <Alert className="border-blue-200 bg-blue-50">
-            <Layers className="h-4 w-4 text-blue-600" />
-            <AlertTitle className="text-blue-800">
-              Opérations multiples détectées ({puzzle.detected_operations.length})
-            </AlertTitle>
-            <AlertDescription className="text-blue-700">
-              <p className="mb-2 text-sm">
-                Ce fil contient plusieurs opérations logistiques distinctes. Chaque opération sera analysée séparément.
-              </p>
-              <div className="grid gap-2">
-                {puzzle.detected_operations.map((op, idx) => (
-                  <div key={idx} className="flex items-center gap-2 p-2 bg-white/50 rounded border border-blue-100">
-                    <Badge variant="outline" className="text-xs bg-blue-100">
-                      #{idx + 1}
-                    </Badge>
-                    <span className="font-medium text-sm">{op.cargo_type}</span>
-                    <span className="text-muted-foreground text-xs">→</span>
-                    <span className="text-sm">{op.destination}</span>
-                    {op.bl_reference && (
-                      <Badge variant="secondary" className="text-xs ml-auto">
-                        BL: {op.bl_reference}
-                      </Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Critical Missing Info - BLOCKS QUOTATION */}
-        {puzzle?.missing_info_categorized?.critical && puzzle.missing_info_categorized.critical.length > 0 && (
-          <Alert variant="destructive" className="border-red-300 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertTitle className="text-red-800 flex items-center gap-2">
-              <Ban className="h-4 w-4" />
-              Informations critiques manquantes ({puzzle.missing_info_categorized.critical.length})
-            </AlertTitle>
-            <AlertDescription className="text-red-700">
-              <ul className="list-disc list-inside mt-2 space-y-1">
-                {puzzle.missing_info_categorized.critical.map((info, idx) => (
-                  <li key={idx} className="font-medium">{info}</li>
-                ))}
-              </ul>
-              <div className="mt-3 p-2 bg-red-100 rounded border border-red-200">
-                <p className="font-semibold text-sm flex items-center gap-2">
-                  <Ban className="h-4 w-4" />
-                  ⚠️ Génération de devis BLOQUÉE - Ces informations sont obligatoires
-                </p>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Important Missing Info - WARNING */}
-        {puzzle?.missing_info_categorized?.important && puzzle.missing_info_categorized.important.length > 0 && (
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-600" />
-            <AlertTitle className="text-amber-800">
-              Informations importantes manquantes ({puzzle.missing_info_categorized.important.length})
-            </AlertTitle>
-            <AlertDescription className="text-amber-700">
-              <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                {puzzle.missing_info_categorized.important.map((info, idx) => (
-                  <li key={idx}>{info}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs italic">
-                Le devis sera approximatif sans ces informations
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Optional Missing Info - INFO */}
-        {puzzle?.missing_info_categorized?.optional && puzzle.missing_info_categorized.optional.length > 0 && (
-          <div className="p-3 bg-muted/50 border border-border rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium text-muted-foreground text-sm">Informations optionnelles</span>
-            </div>
-            <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-              {puzzle.missing_info_categorized.optional.map((info, idx) => (
-                <li key={idx}>{info}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Legacy missing info fallback */}
-        {puzzle?.missing_info && puzzle.missing_info.length > 0 && !puzzle.missing_info_categorized && (
+        {/* Missing info */}
+        {puzzle?.missing_info && puzzle.missing_info.length > 0 && (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <AlertCircle className="h-4 w-4 text-amber-600" />
