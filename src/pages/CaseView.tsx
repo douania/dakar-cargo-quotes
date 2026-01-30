@@ -20,31 +20,12 @@ import {
   History,
   Inbox
 } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_TRUCK_LOADING_API_URL || "https://web-production-8afea.up.railway.app";
-
-interface CaseData {
-  success: boolean;
-  case: {
-    id: string;
-    status: string;
-    workflow_key: string;
-    complexity_level: number;
-    confidence: number | null;
-    missing_fields: any[];
-    assumptions: any[];
-    normalized_request: any;
-    client_name: string | null;
-    client_email: string | null;
-    customer_ref: string | null;
-    created_at: string | null;
-    updated_at: string | null;
-  };
-  inputs: any[];
-  tasks: any[];
-  outputs: any[];
-  events: any[];
-}
+import { 
+  fetchCaseFile, 
+  runWorkflow as runCaseWorkflow, 
+  type CaseFileResponse 
+} from "@/services/railwayApi";
+import { WORKFLOW_LABELS, TASK_STATUS_COLORS } from "@/features/quotation/constants";
 
 const statusIcons: Record<string, React.ReactNode> = {
   queued: <Clock className="h-4 w-4 text-gray-500" />,
@@ -54,43 +35,22 @@ const statusIcons: Record<string, React.ReactNode> = {
   skipped: <Clock className="h-4 w-4 text-gray-400" />,
 };
 
-const statusColors: Record<string, string> = {
-  intake: "bg-gray-100 text-gray-800",
-  needs_info: "bg-orange-100 text-orange-800",
-  ready: "bg-blue-100 text-blue-800",
-  running: "bg-yellow-100 text-yellow-800",
-  completed: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
-};
-
-const workflowLabels: Record<string, string> = {
-  WF_SIMPLE_QUOTE: "Devis Simple",
-  WF_STANDARD_QUOTE: "Devis Standard",
-  WF_PROJECT_CARGO: "Project Cargo",
-  WF_TENDER: "Appel d'Offres",
-};
 
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const navigate = useNavigate();
-  const [data, setData] = useState<CaseData | null>(null);
+  const [data, setData] = useState<CaseFileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
 
-  async function fetchCase() {
+  async function loadCase() {
     if (!caseId) return;
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/casefiles/${caseId}`);
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "Dossier non trouvé");
-      }
-
+      const result = await fetchCaseFile(caseId);
       setData(result);
     } catch (err: any) {
       setError(err.message || "Erreur de connexion");
@@ -99,26 +59,15 @@ export default function CaseView() {
     }
   }
 
-  async function runWorkflow() {
+  async function handleRunWorkflow() {
     if (!caseId) return;
     setRunning(true);
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/casefiles/${caseId}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "Erreur lors de l'exécution");
-      }
-
+      await runCaseWorkflow(caseId);
       // Rafraîchir les données
-      await fetchCase();
+      await loadCase();
     } catch (err: any) {
       setError(err.message || "Erreur lors de l'exécution");
     } finally {
@@ -127,7 +76,7 @@ export default function CaseView() {
   }
 
   useEffect(() => {
-    fetchCase();
+    loadCase();
   }, [caseId]);
 
   if (loading) {
@@ -175,11 +124,11 @@ export default function CaseView() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <Badge className={statusColors[caseInfo.status] || "bg-gray-100"}>
+          <Badge className={TASK_STATUS_COLORS[caseInfo.status] || "bg-gray-100"}>
             {caseInfo.status}
           </Badge>
           <Badge variant="outline">
-            {workflowLabels[caseInfo.workflow_key] || caseInfo.workflow_key}
+            {WORKFLOW_LABELS[caseInfo.workflow_key]?.label || caseInfo.workflow_key}
           </Badge>
         </div>
       </div>
@@ -208,12 +157,12 @@ export default function CaseView() {
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={fetchCase} disabled={loading}>
+            <Button variant="outline" onClick={loadCase} disabled={loading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Rafraîchir
             </Button>
             <Button
-              onClick={runWorkflow}
+              onClick={handleRunWorkflow}
               disabled={running || caseInfo.status === "running" || caseInfo.status === "completed"}
             >
               {running ? (
@@ -259,7 +208,7 @@ export default function CaseView() {
             <CardHeader>
               <CardTitle>Tâches du workflow</CardTitle>
               <CardDescription>
-                Workflow: {workflowLabels[caseInfo.workflow_key] || caseInfo.workflow_key}
+                Workflow: {WORKFLOW_LABELS[caseInfo.workflow_key]?.label || caseInfo.workflow_key}
               </CardDescription>
             </CardHeader>
             <CardContent>

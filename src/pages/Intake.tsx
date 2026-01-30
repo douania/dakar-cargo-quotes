@@ -18,31 +18,8 @@ import {
   Mail,
   Hash
 } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_TRUCK_LOADING_API_URL || "https://web-production-8afea.up.railway.app";
-
-interface IntakeResponse {
-  success: boolean;
-  case_id: string;
-  status: string;
-  workflow_key: string;
-  complexity_level: number;
-  confidence: number;
-  missing_fields: Array<{
-    field: string;
-    question: string;
-    priority: string;
-  }>;
-  assumptions: string[];
-  normalized_request: any;
-}
-
-const workflowLabels: Record<string, { label: string; color: string }> = {
-  WF_SIMPLE_QUOTE: { label: "Devis Simple", color: "bg-green-100 text-green-800" },
-  WF_STANDARD_QUOTE: { label: "Devis Standard", color: "bg-blue-100 text-blue-800" },
-  WF_PROJECT_CARGO: { label: "Project Cargo", color: "bg-orange-100 text-orange-800" },
-  WF_TENDER: { label: "Appel d'Offres", color: "bg-purple-100 text-purple-800" },
-};
+import { createIntake, type IntakeResponse } from "@/services/railwayApi";
+import { WORKFLOW_LABELS } from "@/features/quotation/constants";
 
 export default function Intake() {
   const navigate = useNavigate();
@@ -60,22 +37,12 @@ export default function Intake() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/casefiles/intake`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: { type: "email_text", text },
-          client_name: clientName || undefined,
-          client_email: clientEmail || undefined,
-          customer_ref: customerRef || undefined,
-        }),
+      const data = await createIntake({
+        source: { type: "email_text", text },
+        client_name: clientName || undefined,
+        client_email: clientEmail || undefined,
+        customer_ref: customerRef || undefined,
       });
-
-      const data = await response.json();
-      
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Erreur lors de l'analyse");
-      }
 
       setResult(data);
     } catch (err: any) {
@@ -208,8 +175,8 @@ Merci de nous faire une cotation."
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
                 Analyse terminée
               </CardTitle>
-              <Badge className={workflowLabels[result.workflow_key]?.color || "bg-gray-100"}>
-                {workflowLabels[result.workflow_key]?.label || result.workflow_key}
+              <Badge className={WORKFLOW_LABELS[result.workflow_key]?.color || "bg-gray-100"}>
+                {WORKFLOW_LABELS[result.workflow_key]?.label || result.workflow_key}
               </Badge>
             </div>
           </CardHeader>
