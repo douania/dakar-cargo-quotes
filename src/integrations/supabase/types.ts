@@ -1644,6 +1644,7 @@ export type Database = {
           client_name: string | null
           container_types: string[] | null
           created_at: string
+          created_by: string
           id: string
           incoterm: string | null
           margin_percent: number | null
@@ -1674,6 +1675,7 @@ export type Database = {
           client_name?: string | null
           container_types?: string[] | null
           created_at?: string
+          created_by?: string
           id?: string
           incoterm?: string | null
           margin_percent?: number | null
@@ -1704,6 +1706,7 @@ export type Database = {
           client_name?: string | null
           container_types?: string[] | null
           created_at?: string
+          created_by?: string
           id?: string
           incoterm?: string | null
           margin_percent?: number | null
@@ -2484,7 +2487,47 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_quotation_documents_safe: {
+        Row: {
+          created_at: string | null
+          document_type: string | null
+          file_size: number | null
+          id: string | null
+          quotation_id: string | null
+          root_quotation_id: string | null
+          status: string | null
+          version: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          document_type?: string | null
+          file_size?: number | null
+          id?: string | null
+          quotation_id?: string | null
+          root_quotation_id?: string | null
+          status?: string | null
+          version?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          document_type?: string | null
+          file_size?: number | null
+          id?: string | null
+          quotation_id?: string | null
+          root_quotation_id?: string | null
+          status?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotation_documents_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never

@@ -119,6 +119,15 @@ export function useQuotationDraft() {
         setCurrentDraft(data as unknown as DraftQuotation);
         return data as unknown as DraftQuotation;
       } else {
+        // Récupérer l'utilisateur authentifié (Phase 5D)
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData.user?.id;
+
+        if (!userId) {
+          toast.error('Veuillez vous connecter pour créer un devis');
+          return null;
+        }
+
         // Nouveau draft (v1)
         const { data, error } = await supabase
           .from('quotation_history')
@@ -128,6 +137,7 @@ export function useQuotationDraft() {
             status: 'draft',
             root_quotation_id: null,
             parent_quotation_id: null,
+            created_by: userId,  // Phase 5D: ownership explicite
           } as any)
           .select('id, version, status, parent_quotation_id, root_quotation_id')
           .single();
@@ -198,6 +208,15 @@ export function useQuotationDraft() {
 
     setIsSaving(true);
     try {
+      // Récupérer l'utilisateur authentifié (Phase 5D)
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
+
+      if (!userId) {
+        toast.error('Veuillez vous connecter pour créer une révision');
+        return null;
+      }
+
       // AMENDEMENT 1 : root = root du parent OU id du parent si v1
       const rootId = currentDraft.root_quotation_id ?? currentDraft.id;
 
@@ -227,6 +246,7 @@ export function useQuotationDraft() {
           parent_quotation_id: currentDraft.id,
           root_quotation_id: rootId,
           status: 'draft',
+          created_by: userId,  // Phase 5D: ownership explicite
         } as any)
         .select('id, version, status, parent_quotation_id, root_quotation_id')
         .single();
