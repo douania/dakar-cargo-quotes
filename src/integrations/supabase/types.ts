@@ -2530,7 +2530,18 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      check_quotation_ownership_status: {
+        Args: never
+        Returns: {
+          metric: string
+          value: string
+        }[]
+      }
+      finalize_quotation_ownership: { Args: never; Returns: string }
+      migrate_legacy_quotations: {
+        Args: { owner_user_id: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
