@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { History, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,29 @@ interface ThreadTimelineCardProps {
   formatDate: (date: string | null) => string;
 }
 
-export function ThreadTimelineCard({
+// Skeleton loader pour état de chargement (future-proof)
+function ThreadTimelineSkeleton() {
+  return (
+    <Card className="border-ocean/30 bg-ocean/5 animate-pulse">
+      <CardHeader className="pb-2">
+        <div className="h-4 w-48 bg-muted rounded" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-start gap-3">
+            <div className="w-3 h-3 rounded-full bg-muted mt-1.5" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-1/3 bg-muted rounded" />
+              <div className="h-3 w-2/3 bg-muted rounded" />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+export const ThreadTimelineCard = memo(function ThreadTimelineCard({
   threadEmails,
   selectedEmailId,
   quotationOffers,
@@ -29,6 +52,11 @@ export function ThreadTimelineCard({
   onSelectEmail,
   formatDate,
 }: ThreadTimelineCardProps) {
+  // Skeleton si données non chargées (future-proof)
+  if (!threadEmails) {
+    return <ThreadTimelineSkeleton />;
+  }
+
   // Condition d'affichage conservée STRICTEMENT
   if (threadEmails.length <= 1) {
     return null;
@@ -39,7 +67,19 @@ export function ThreadTimelineCard({
       <Card className="border-ocean/30 bg-ocean/5">
         <CardHeader className="pb-2">
           <CollapsibleTrigger asChild>
-            <div className="flex items-center justify-between cursor-pointer">
+            <div
+              className="flex items-center justify-between cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-expanded={expanded}
+              aria-label="Afficher l'historique du fil"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onExpandedChange(!expanded);
+                }
+              }}
+            >
               <CardTitle className="text-base flex items-center gap-2">
                 <History className="h-4 w-4 text-ocean" />
                 Historique du fil ({threadEmails.length} échanges)
@@ -68,12 +108,20 @@ export function ThreadTimelineCard({
                       key={email.id} 
                       className={cn(
                         "relative pl-8 py-2 rounded-lg transition-colors cursor-pointer",
+                        "focus:outline-none focus:ring-2 focus:ring-ocean/40",
                         email.id === selectedEmailId 
                           ? "bg-ocean/10 border border-ocean/30" 
                           : "hover:bg-muted/50",
                         isOffer && "border-l-2 border-l-green-500"
                       )}
                       onClick={() => onSelectEmail(email)}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectEmail(email);
+                        }
+                      }}
                     >
                       {/* Timeline dot */}
                       <div className={cn(
@@ -129,4 +177,4 @@ export function ThreadTimelineCard({
       </Card>
     </Collapsible>
   );
-}
+});
