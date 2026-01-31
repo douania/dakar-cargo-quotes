@@ -1,3 +1,9 @@
+/**
+ * UI COMPONENT — FROZEN (Phase 3B)
+ * - Ne pas modifier sans ouvrir une nouvelle phase
+ * - Logique métier volontairement absente
+ * - Toute évolution = nouvelle phase (3B.x)
+ */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Ship, Info, CheckCircle, ShieldCheck } from 'lucide-react';
