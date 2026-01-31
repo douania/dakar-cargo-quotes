@@ -1,232 +1,153 @@
 
-# PHASE 3B.2 — EXÉCUTION ThreadTimelineCard (P1)
 
-## JSX Source vérifié (lignes 870-965)
+# PHASE 3B.3 — ThreadTimelineCard P2 (UI Hardening)
 
-J'ai lu le fichier et identifié le bloc exact. Voici l'exécution complète :
+## Périmètre vérifié
+
+| Attribut | Valeur |
+|----------|--------|
+| Fichier cible | `src/features/quotation/components/ThreadTimelineCard.tsx` |
+| Lignes actuelles | 132 |
+| Type | Améliorations UI P2 |
+| Risque | **Très faible** (aucune logique modifiée) |
 
 ---
 
-## 1. Composant à créer
+## Modifications P2 prévues
 
-**Fichier** : `src/features/quotation/components/ThreadTimelineCard.tsx`
+### 1. Ajout du Skeleton Loader (composant local)
 
 ```typescript
-import { History, ChevronUp, ChevronDown } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { cn } from '@/lib/utils';
-import { isInternalEmail, getEmailSenderName } from '@/features/quotation/utils/parsing';
-import type { ThreadEmail, QuotationOffer } from '@/features/quotation/types';
-
-interface ThreadTimelineCardProps {
-  threadEmails: ThreadEmail[];
-  selectedEmailId: string | null;
-  quotationOffers: QuotationOffer[];
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-  onSelectEmail: (email: ThreadEmail) => void;
-  formatDate: (date: string | null) => string;
-}
-
-export function ThreadTimelineCard({
-  threadEmails,
-  selectedEmailId,
-  quotationOffers,
-  expanded,
-  onExpandedChange,
-  onSelectEmail,
-  formatDate,
-}: ThreadTimelineCardProps) {
-  // Condition d'affichage conservée STRICTEMENT
-  if (threadEmails.length <= 1) {
-    return null;
-  }
-
+function ThreadTimelineSkeleton() {
   return (
-    <Collapsible open={expanded} onOpenChange={onExpandedChange}>
-      <Card className="border-ocean/30 bg-ocean/5">
-        <CardHeader className="pb-2">
-          <CollapsibleTrigger asChild>
-            <div className="flex items-center justify-between cursor-pointer">
-              <CardTitle className="text-base flex items-center gap-2">
-                <History className="h-4 w-4 text-ocean" />
-                Historique du fil ({threadEmails.length} échanges)
-              </CardTitle>
-              {expanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
+    <Card className="border-ocean/30 bg-ocean/5 animate-pulse">
+      <CardHeader className="pb-2">
+        <div className="h-4 w-48 bg-muted rounded" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-start gap-3">
+            <div className="w-3 h-3 rounded-full bg-muted mt-1.5" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-1/3 bg-muted rounded" />
+              <div className="h-3 w-2/3 bg-muted rounded" />
             </div>
-          </CollapsibleTrigger>
-        </CardHeader>
-        <CollapsibleContent>
-          <CardContent className="pt-0">
-            <div className="relative">
-              {/* Timeline line */}
-              <div className="absolute left-3 top-0 bottom-0 w-px bg-border" />
-              
-              <div className="space-y-2">
-                {threadEmails.map((email, index) => {
-                  const isInternal = isInternalEmail(email.from_address);
-                  const isOffer = quotationOffers.some(o => o.email.id === email.id);
-                  
-                  return (
-                    <div 
-                      key={email.id} 
-                      className={cn(
-                        "relative pl-8 py-2 rounded-lg transition-colors cursor-pointer",
-                        email.id === selectedEmailId 
-                          ? "bg-ocean/10 border border-ocean/30" 
-                          : "hover:bg-muted/50",
-                        isOffer && "border-l-2 border-l-green-500"
-                      )}
-                      onClick={() => onSelectEmail(email)}
-                    >
-                      {/* Timeline dot */}
-                      <div className={cn(
-                        "absolute left-1.5 top-4 w-3 h-3 rounded-full border-2",
-                        index === 0 
-                          ? "bg-primary border-primary"
-                          : isOffer
-                          ? "bg-green-500 border-green-500"
-                          : isInternal
-                          ? "bg-ocean border-ocean"
-                          : email.id === selectedEmailId
-                          ? "bg-ocean border-ocean"
-                          : "bg-muted border-muted-foreground/30"
-                      )} />
-                      
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm truncate">
-                              {getEmailSenderName(email.from_address)}
-                            </span>
-                            {index === 0 && (
-                              <Badge variant="outline" className="text-xs">
-                                Original
-                              </Badge>
-                            )}
-                            {isOffer && (
-                              <Badge className="text-xs bg-green-500/20 text-green-600 border-green-500/30">
-                                Offre
-                              </Badge>
-                            )}
-                            {isInternal && !isOffer && (
-                              <Badge variant="outline" className="text-xs text-ocean">
-                                Interne
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">
-                            {email.subject}
-                          </p>
-                        </div>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDate(email.sent_at || email.received_at)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 ```
 
+**Activation** : Garde future-proof sans nouvelle prop
+```typescript
+if (!threadEmails) {
+  return <ThreadTimelineSkeleton />;
+}
+```
+
 ---
 
-## 2. Modifications QuotationSheet.tsx
-
-### Import à ajouter (après ligne 67)
+### 2. React.memo (stabilité de rendu)
 
 ```typescript
-import { ThreadTimelineCard } from '@/features/quotation/components/ThreadTimelineCard';
+import { memo } from 'react';
+
+export const ThreadTimelineCard = memo(function ThreadTimelineCard(
+  props: ThreadTimelineCardProps
+) {
+  // contenu IDENTIQUE
+});
 ```
 
-### Bloc à remplacer (lignes 870-965)
+**Sécurité** : Props primitives/tableaux déjà stabilisés, aucun state interne.
 
-**Remplacement par :**
+---
 
-```tsx
-{/* Thread Timeline */}
-<ThreadTimelineCard
-  threadEmails={threadEmails}
-  selectedEmailId={selectedEmail?.id ?? null}
-  quotationOffers={quotationOffers}
-  expanded={timelineExpanded}
-  onExpandedChange={setTimelineExpanded}
-  onSelectEmail={setSelectedEmail}
-  formatDate={formatDate}
-/>
+### 3. Accessibilité (A11y minimale)
+
+**a) Trigger clavier + ARIA** (ligne 42-52)
+
+```typescript
+<div
+  className="flex items-center justify-between cursor-pointer"
+  role="button"
+  tabIndex={0}
+  aria-expanded={expanded}
+  aria-label="Afficher l'historique du fil"
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onExpandedChange(!expanded);
+    }
+  }}
+>
+```
+
+**b) Focus ring sur items email** (ligne 69-75)
+
+Ajout dans className :
+```typescript
+"focus:outline-none focus:ring-2 focus:ring-ocean/40"
 ```
 
 ---
 
-## 3. Adaptations JSX (différences props vs state)
+## Récapitulatif des changements
 
-| Original | Composant | Raison |
-|----------|-----------|--------|
-| `selectedEmail?.id` | `selectedEmailId` | Prop primitive au lieu d'objet |
-| `setSelectedEmail(email)` | `onSelectEmail(email)` | Callback via prop |
-| `timelineExpanded` | `expanded` | Prop renommée pour clarté |
-| `setTimelineExpanded` | `onExpandedChange` | Callback via prop |
-
-**Aucune logique modifiée** — seuls les noms de variables changent pour correspondre aux props.
+| Amélioration | Impact | Logique métier |
+|-------------|--------|----------------|
+| Skeleton loader | UX ⬆️ | ❌ Aucun |
+| React.memo | Perf ⬆️ | ❌ Aucun |
+| A11y clavier | Accessibilité ⬆️ | ❌ Aucun |
+| Focus ring | UX ⬆️ | ❌ Aucun |
 
 ---
 
-## 4. Réduction attendue
-
-| Métrique | Valeur |
-|----------|--------|
-| Lignes supprimées | ~95 |
-| Lignes ajoutées (appel) | ~9 |
-| **Réduction nette** | **~86 lignes** |
-
-**QuotationSheet.tsx après Phase 3B.2 : ~1412 lignes**
-
----
-
-## 5. Validation obligatoire
-
-- [ ] Build TypeScript OK
-- [ ] Timeline affichée si > 1 email
-- [ ] Timeline masquée si ≤ 1 email  
-- [ ] Expand/collapse fonctionne
-- [ ] Sélection d'email met à jour `selectedEmail`
-- [ ] Badges "Original", "Offre", "Interne" affichés correctement
-- [ ] Dots colorés selon statut
-
----
-
-## 6. Fichiers impactés
+## Fichier modifié
 
 | Fichier | Action |
 |---------|--------|
-| `src/features/quotation/components/ThreadTimelineCard.tsx` | **Créer** |
-| `src/pages/QuotationSheet.tsx` | **Modifier** |
+| `src/features/quotation/components/ThreadTimelineCard.tsx` | **Modifier** |
+
+---
+
+## Lignes impactées
+
+| Section | Lignes | Modification |
+|---------|--------|--------------|
+| Import | 1 | Ajouter `memo` |
+| Skeleton | Après ligne 21 | Nouveau composant local |
+| Garde skeleton | Ligne 33 | Ajouter check `!threadEmails` |
+| Export | Ligne 23 | Wrapper `memo()` |
+| Trigger A11y | Lignes 42-52 | Ajouter attributs ARIA |
+| Email item | Ligne 70 | Ajouter focus ring |
+
+---
+
+## Validation obligatoire après exécution
+
+- [ ] Build TypeScript OK
+- [ ] Timeline comportement IDENTIQUE
+- [ ] Expand/collapse souris OK
+- [ ] Expand/collapse clavier (Enter / Space) OK
+- [ ] Sélection email inchangée
+- [ ] Focus visible sur navigation clavier
+- [ ] Aucun warning React
 
 ---
 
 ## Message de clôture attendu
 
 ```
-Phase 3B.2 exécutée.
-Composant créé : src/features/quotation/components/ThreadTimelineCard.tsx
-Lignes supprimées dans QuotationSheet.tsx : ~86
-Build OK.
-En attente de validation avant 3B.3.
+Phase 3B.3 exécutée.
+ThreadTimelineCard durci (P2) :
+- Skeleton loader (future-proof)
+- Accessibilité clavier & ARIA
+- React.memo
+- Focus ring
+Aucune logique métier modifiée.
+Prêt pour Phase 3B.4 ou validation finale.
 ```
+
