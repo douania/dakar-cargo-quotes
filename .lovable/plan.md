@@ -1,202 +1,192 @@
 
+# PHASE 5D — Ownership Individuel (CORRIGÉ)
 
-# PHASE 5C — Export PDF Versionné
+## Corrections CTO intégrées
 
-## Vue d'ensemble
-
-Implémentation d'un système d'export PDF professionnel et versionné, générant des documents immuables liés à une version spécifique du devis (`quotation_history.id`).
+| # | Correction | Statut |
+|---|------------|--------|
+| 1 | `NOT NULL` + `DEFAULT auth.uid()` sur `created_by` | INTÉGRÉ |
+| 2 | Vue SAFE avec `security_invoker = true` | INTÉGRÉ |
 
 ---
 
-## 1. Migration SQL — Table `quotation_documents`
+## 1. Migration SQL — Schema + RLS + Vue SAFE
 
-### Objectif
-Créer une table de traçabilité pour tous les documents générés (PDF, Excel) avec lien vers la version exacte du devis.
-
-### Schema
 ```sql
-CREATE TABLE IF NOT EXISTS quotation_documents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quotation_id UUID NOT NULL REFERENCES quotation_history(id) ON DELETE CASCADE,
-  root_quotation_id UUID NOT NULL,
-  version INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  document_type TEXT NOT NULL CHECK (document_type IN ('pdf', 'excel')),
-  file_path TEXT NOT NULL,
-  file_size INTEGER,
-  file_hash TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  created_by UUID REFERENCES auth.users(id)
-);
-```
+-- Phase 5D : Ownership individuel sur quotation_history
+-- Corrections CTO : NOT NULL, DEFAULT, security_invoker
 
-### Sécurité RLS
-- Policies alignées sur Phase 5D : `auth.uid() IS NOT NULL`
-- Index sur `quotation_id` et `root_quotation_id`
+-- 1. Ajouter colonne created_by
+ALTER TABLE quotation_history
+ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id);
 
----
+-- 2. Backfill données existantes (premier utilisateur admin)
+UPDATE quotation_history
+SET created_by = (
+  SELECT id FROM auth.users 
+  ORDER BY created_at ASC 
+  LIMIT 1
+)
+WHERE created_by IS NULL;
 
-## 2. Edge Function — `generate-quotation-pdf`
+-- 3. CORRECTION CTO #1 : NOT NULL + DEFAULT
+ALTER TABLE quotation_history
+ALTER COLUMN created_by SET NOT NULL;
 
-### Architecture
+ALTER TABLE quotation_history
+ALTER COLUMN created_by SET DEFAULT auth.uid();
 
-```
-Request { quotationId: UUID }
-         │
-         ▼
-┌────────────────────────────────────┐
-│  1. Auth validation (getClaims)    │
-│     → user_id pour RLS/traçabilité │
-└────────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────────┐
-│  2. Fetch quotation_history (id)   │
-│     Données figées uniquement      │
-└────────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────────┐
-│  3. Construire PDF (pdf-lib)       │
-│     → Header SODATRA               │
-│     → Bloc client/route            │
-│     → Tableau services             │
-│     → Totaux + footer légal        │
-└────────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────────┐
-│  4. Upload Storage                  │
-│     quotation-attachments/         │
-│     Q-{rootId}/v{version}/         │
-│     quote-{id}-{ts}.pdf            │
-└────────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────────┐
-│  5. Insert quotation_documents     │
-│     + SHA-256 hash                 │
-└────────────────────────────────────┘
-         │
-         ▼
-Response { url, documentId, filePath }
-```
+-- 4. Index pour performance RLS
+CREATE INDEX IF NOT EXISTS idx_quotation_history_created_by
+ON quotation_history(created_by);
 
-### Données SELECT depuis `quotation_history`
+-- 5. RLS stricte ownership sur quotation_history
+DROP POLICY IF EXISTS "quotation_history_select" ON quotation_history;
+DROP POLICY IF EXISTS "quotation_history_insert" ON quotation_history;
+DROP POLICY IF EXISTS "quotation_history_update" ON quotation_history;
+DROP POLICY IF EXISTS "quotation_history_delete" ON quotation_history;
+DROP POLICY IF EXISTS "quotation_history_service_access" ON quotation_history;
 
-| Champ | Utilisation PDF |
-|-------|-----------------|
-| `id` | Identifiant unique |
-| `root_quotation_id` | Chemin storage |
-| `version` | Badge "v1", "v2" |
-| `status` | Mention légale conditionnelle |
-| `client_name` | Bloc client |
-| `client_company` | Bloc client |
-| `project_name` | Titre projet |
-| `route_origin` | Route |
-| `route_port` | Route |
-| `route_destination` | Route |
-| `incoterm` | Conditions |
-| `tariff_lines` | Tableau services (JSON) |
-| `total_amount` | Total |
-| `total_currency` | Devise |
-| `created_at` | Date émission |
+CREATE POLICY "quotation_history_owner_select"
+ON quotation_history FOR SELECT TO authenticated
+USING (auth.uid() = created_by);
 
-### Mentions légales par statut
+CREATE POLICY "quotation_history_owner_insert"
+ON quotation_history FOR INSERT TO authenticated
+WITH CHECK (auth.uid() = created_by);
 
-| Statut | Mention |
-|--------|---------|
-| `draft` | "BROUILLON — Document non contractuel" |
-| `sent` | "Offre valable 30 jours à compter de la date d'émission" |
-| `accepted` | "Devis accepté" |
-| `rejected` | "Offre déclinée" |
-| `expired` | "Offre expirée" |
+CREATE POLICY "quotation_history_owner_update"
+ON quotation_history FOR UPDATE TO authenticated
+USING (auth.uid() = created_by);
 
-### Librairie PDF
-Utilisation de `pdf-lib` via Deno (compatible Edge Functions, pas de DOM requis) :
-```typescript
-import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
-```
+CREATE POLICY "quotation_history_owner_delete"
+ON quotation_history FOR DELETE TO authenticated
+USING (auth.uid() = created_by);
 
-### Chemin storage (non-écrasant)
-```
-quotation-attachments/
-  Q-{root_quotation_id}/
-    v{version}/
-      quote-{quotation_id}-{timestamp}.pdf
+-- 6. Alignement RLS quotation_documents (ownership strict)
+DROP POLICY IF EXISTS "quotation_documents_select" ON quotation_documents;
+DROP POLICY IF EXISTS "quotation_documents_insert" ON quotation_documents;
+
+CREATE POLICY "quotation_documents_owner_select"
+ON quotation_documents FOR SELECT TO authenticated
+USING (auth.uid() = created_by);
+
+CREATE POLICY "quotation_documents_owner_insert"
+ON quotation_documents FOR INSERT TO authenticated
+WITH CHECK (auth.uid() = created_by);
+
+-- 7. CORRECTION CTO #2 : Vue SAFE avec security_invoker
+CREATE OR REPLACE VIEW v_quotation_documents_safe
+WITH (security_invoker = true)
+AS
+SELECT
+  id,
+  quotation_id,
+  root_quotation_id,
+  version,
+  status,
+  document_type,
+  file_size,
+  created_at
+FROM quotation_documents;
 ```
 
 ---
 
-## 3. Composant Frontend — `QuotationPdfExport.tsx`
+## 2. Modification Hook — useQuotationDraft.ts
 
-### Props
+### Problème actuel
+Le hook ne passe pas `created_by` lors des inserts. Même avec `DEFAULT auth.uid()` en base, c'est une bonne pratique de le passer explicitement pour :
+- Lisibilité du code
+- Testabilité
+- Robustesse (double vérification)
+
+### Modifications requises
+
+#### 2.1 Section "Nouveau draft (v1)" (lignes 121-148)
+
+**Avant :**
 ```typescript
-interface QuotationPdfExportProps {
-  quotationId: string;
-  version: number;
-  status: string;
-  variant?: 'default' | 'outline';
-  size?: 'default' | 'sm';
+const { data, error } = await supabase
+  .from('quotation_history')
+  .insert({
+    ...dbPayload,
+    version: 1,
+    status: 'draft',
+    root_quotation_id: null,
+    parent_quotation_id: null,
+  } as any)
+```
+
+**Après :**
+```typescript
+// Récupérer l'utilisateur authentifié
+const { data: userData } = await supabase.auth.getUser();
+const userId = userData.user?.id;
+
+if (!userId) {
+  toast.error('Veuillez vous connecter pour créer un devis');
+  return null;
 }
+
+const { data, error } = await supabase
+  .from('quotation_history')
+  .insert({
+    ...dbPayload,
+    version: 1,
+    status: 'draft',
+    root_quotation_id: null,
+    parent_quotation_id: null,
+    created_by: userId,  // ← AJOUT CRITIQUE
+  } as any)
 ```
 
-### Comportement
-1. Bouton affiche "PDF v{version}"
-2. Click → `supabase.functions.invoke('generate-quotation-pdf', { body: { quotationId } })`
-3. Loader pendant génération
-4. Succès → `window.open(data.url, '_blank')` + toast
-5. Erreur → toast error
+#### 2.2 Section "createRevision" (lignes 222-232)
 
-### Pattern identique à `QuotationExcelExport.tsx`
-
----
-
-## 4. Intégration `QuotationSheet.tsx`
-
-### Emplacement
-À côté du bouton Excel existant (ligne ~947), dans la zone exports :
-
+**Avant :**
 ```typescript
-<div className="flex gap-2">
-  <QuotationExcelExport ... />
-  
-  {/* Phase 5C : Export PDF versionné */}
-  {currentDraft && (
-    <QuotationPdfExport
-      quotationId={currentDraft.id}
-      version={currentDraft.version}
-      status={currentDraft.status}
-      variant="outline"
-      size="sm"
-    />
-  )}
-</div>
+const { data, error } = await supabase
+  .from('quotation_history')
+  .insert({
+    ...dbPayload,
+    version: currentDraft.version + 1,
+    parent_quotation_id: currentDraft.id,
+    root_quotation_id: rootId,
+    status: 'draft',
+  } as any)
 ```
 
-### Condition
-- Visible uniquement si `currentDraft` existe (après saveDraft via handleGenerateResponse)
-- Fonctionne pour status `draft` ET `sent`
+**Après :**
+```typescript
+// Récupérer l'utilisateur authentifié
+const { data: userData } = await supabase.auth.getUser();
+const userId = userData.user?.id;
+
+if (!userId) {
+  toast.error('Veuillez vous connecter pour créer une révision');
+  return null;
+}
+
+const { data, error } = await supabase
+  .from('quotation_history')
+  .insert({
+    ...dbPayload,
+    version: currentDraft.version + 1,
+    parent_quotation_id: currentDraft.id,
+    root_quotation_id: rootId,
+    status: 'draft',
+    created_by: userId,  // ← AJOUT CRITIQUE
+  } as any)
+```
 
 ---
 
-## 5. Configuration
+## 3. Fichiers créés/modifiés
 
-### `supabase/config.toml`
-**NE PAS ajouter** `verify_jwt = false` — on veut l'authentification pour :
-- RLS fonctionnelle
-- `created_by` dans `quotation_documents`
-
----
-
-## Fichiers créés/modifiés
-
-| Fichier | Action | Lignes estimées |
-|---------|--------|-----------------|
-| `supabase/migrations/{ts}_quotation_documents.sql` | CRÉER | ~30 |
-| `supabase/functions/generate-quotation-pdf/index.ts` | CRÉER | ~280 |
-| `src/components/QuotationPdfExport.tsx` | CRÉER | ~80 |
-| `src/pages/QuotationSheet.tsx` | +import, +rendu bouton | ~10 |
+| Fichier | Action | Lignes |
+|---------|--------|--------|
+| `supabase/migrations/{ts}_ownership_rls.sql` | CRÉER | ~55 |
+| `src/features/quotation/hooks/useQuotationDraft.ts` | +getUser, +created_by, +validation | ~25 |
 
 ## Fichiers NON modifiés
 
@@ -204,154 +194,74 @@ interface QuotationPdfExportProps {
 |---------|--------|
 | `CargoLinesForm.tsx` | FROZEN |
 | `ServiceLinesForm.tsx` | FROZEN |
-| `useQuotationDraft.ts` | Aucun changement |
-| `quotation_history` (schema) | Aucune modification |
+| `QuotationHistory.tsx` | Aucun changement (RLS filtre auto) |
+| `QuotationPdfExport.tsx` | Aucun changement |
+| `generate-quotation-pdf/index.ts` | Déjà correct (user.id passé) |
 
 ---
 
-## Structure du PDF (V1)
+## 4. Comportement résultant
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
-│  SODATRA SHIPPING & LOGISTICS                               │
-│  ───────────────────────────────────────────────────────    │
-│  DEVIS N° Q-{short_id}              [v2] [BROUILLON]       │
-│  Date: 31/01/2026                                           │
-├─────────────────────────────────────────────────────────────┤
-│  CLIENT                                                     │
-│  Nom: John Doe                                              │
-│  Société: ACME Corp                                         │
-│  Projet: Équipement industriel                              │
-├─────────────────────────────────────────────────────────────┤
-│  ROUTE                                                      │
-│  Shanghai → Dakar → Bamako                                  │
-│  Incoterm: DAP                                              │
-├─────────────────────────────────────────────────────────────┤
-│  SERVICES                                                   │
-│  ┌────────────────────────────────────────────────────────┐│
-│  │ Service          │ Description    │ Montant   │ Devise ││
-│  │ THC              │ Container 40HC │  350,000  │ FCFA   ││
-│  │ Transit          │ Dakar-Bamako   │  850,000  │ FCFA   ││
-│  │ ...              │ ...            │ ...       │ ...    ││
-│  └────────────────────────────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────┤
-│  TOTAL:  1,200,000 FCFA                                    │
-├─────────────────────────────────────────────────────────────┤
-│  BROUILLON — Document non contractuel                      │
-│  Généré le 31/01/2026 à 22:30                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Workflow utilisateur
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    QuotationSheet                           │
+│                     Base de données                         │
 │                                                             │
-│  [Générer réponse] ──▶ saveDraft() ──▶ currentDraft.id     │
+│  quotation_history                                          │
+│  ├── created_by UUID NOT NULL DEFAULT auth.uid()           │
+│  └── RLS: auth.uid() = created_by                          │
+│                                                             │
+│  quotation_documents                                        │
+│  ├── created_by UUID (déjà existant)                       │
+│  └── RLS: auth.uid() = created_by                          │
+│                                                             │
+│  v_quotation_documents_safe (security_invoker=true)        │
+│  └── Colonnes: id, quotation_id, version, status, ...      │
+│      (sans file_path, file_hash, created_by)               │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                     Utilisateur A                           │
+│                                                             │
+│  [Créer devis] ──▶ INSERT quotation_history                │
+│                    created_by = auth.uid() (User A)        │
 │                              │                              │
 │                              ▼                              │
-│              ┌─────────────────────────────────┐           │
-│              │ Réponse générée visible         │           │
-│              │                                 │           │
-│              │ [Excel] [PDF v1] [Confirmer]   │           │
-│              └─────────────────────────────────┘           │
-│                              │                              │
-│                        [PDF v1] cliqué                      │
-│                              │                              │
-│                              ▼                              │
-│            generate-quotation-pdf(quotationId)             │
-│                              │                              │
-│         ┌────────────────────┼────────────────────┐        │
-│         │                    │                    │        │
-│         ▼                    ▼                    ▼        │
-│  Fetch history       Render PDF         Upload Storage     │
-│  (données figées)    (pdf-lib)          Insert trace       │
-│                              │                              │
-│                              ▼                              │
-│                     Téléchargement auto                    │
+│              RLS: auth.uid() = created_by ✓                │
+│                                                             │
+│  [Voir historique] ──▶ RLS filtre automatiquement          │
+│              → User A ne voit QUE ses devis                │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                     Utilisateur B                           │
+│                                                             │
+│  [Voir historique] ──▶ RLS filtre automatiquement          │
+│              → Devis de User A INVISIBLES ✓                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Sécurité
+## 5. Points de sécurité validés
 
 | Point | Implémentation |
 |-------|----------------|
-| Authentification | JWT requis (pas verify_jwt=false) |
-| RLS | `auth.uid() IS NOT NULL` sur `quotation_documents` |
-| Source unique | Lecture exclusive `quotation_history` (pas de recalcul) |
-| Traçabilité | `created_by` = user_id, hash SHA-256 |
-| Stockage | Bucket `quotation-attachments` existant |
+| Pas de lignes orphelines | `NOT NULL` sur `created_by` |
+| Pas de dépendance frontend | `DEFAULT auth.uid()` en base |
+| Isolation stricte | RLS `auth.uid() = created_by` |
+| Vue sécurisée | `security_invoker = true` |
+| Double vérification | Hook passe explicitement `created_by` |
 
 ---
 
-## Critères de sortie Phase 5C
+## 6. Critères de sortie Phase 5D (corrigés)
 
-- [ ] Table `quotation_documents` créée avec RLS
-- [ ] Edge function `generate-quotation-pdf` déployée
-- [ ] PDF généré depuis `quotation_history` uniquement (source figée)
-- [ ] Version et statut visibles dans le PDF
-- [ ] Fichier stocké dans bucket avec chemin versionné
-- [ ] Trace insérée dans `quotation_documents` avec hash
-- [ ] Signed URL retournée et téléchargement automatique
-- [ ] Bouton "PDF v{version}" visible après génération réponse
+- [ ] Colonne `created_by NOT NULL DEFAULT auth.uid()` sur `quotation_history`
+- [ ] Données existantes migrées vers premier utilisateur
+- [ ] RLS stricte `auth.uid() = created_by` sur les 2 tables
+- [ ] Vue `v_quotation_documents_safe` avec `security_invoker = true`
+- [ ] Hook `useQuotationDraft` passe `created_by` sur tous les INSERT
+- [ ] Gestion cas non-authentifié avec toast + return null
+- [ ] Un utilisateur ne voit que ses propres devis
 - [ ] Build TypeScript OK
 - [ ] Aucun composant FROZEN modifié
-
----
-
-## Section technique détaillée
-
-### Edge Function — Gestion Auth
-
-```typescript
-// Validation JWT (pas de verify_jwt=false dans config)
-const authHeader = req.headers.get('Authorization');
-if (!authHeader?.startsWith('Bearer ')) {
-  return errorResponse('Unauthorized', 401);
-}
-
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_ANON_KEY')!,
-  { global: { headers: { Authorization: authHeader } } }
-);
-
-const { data: { user }, error: authError } = await supabase.auth.getUser();
-if (authError || !user) {
-  return errorResponse('Unauthorized', 401);
-}
-```
-
-### Hash SHA-256
-
-```typescript
-async function sha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-```
-
-### Upload Storage + Signed URL
-
-```typescript
-const filePath = `Q-${rootId}/v${version}/quote-${quotationId}-${Date.now()}.pdf`;
-
-const { error: uploadError } = await supabase.storage
-  .from('quotation-attachments')
-  .upload(filePath, pdfBytes, {
-    contentType: 'application/pdf',
-    upsert: false,
-  });
-
-const { data: signedData } = await supabase.storage
-  .from('quotation-attachments')
-  .createSignedUrl(filePath, 3600); // 1 heure
-```
-
