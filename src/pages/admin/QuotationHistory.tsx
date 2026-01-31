@@ -43,6 +43,33 @@ interface QuotationRecord {
   total_currency: string | null;
   margin_percent: number | null;
   created_at: string;
+  // Phase 5D
+  version?: number;
+  status?: string;
+  parent_quotation_id?: string;
+  root_quotation_id?: string;
+}
+
+// Phase 5D: Status helpers
+function getStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'draft': return 'Brouillon';
+    case 'sent': return 'Envoyé';
+    case 'accepted': return 'Accepté';
+    case 'rejected': return 'Refusé';
+    case 'expired': return 'Expiré';
+    default: return 'Inconnu';
+  }
+}
+
+function getStatusVariant(status: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (status) {
+    case 'sent': return 'default';
+    case 'accepted': return 'default';
+    case 'rejected': return 'destructive';
+    case 'draft': return 'outline';
+    default: return 'secondary';
+  }
 }
 
 const PAGE_SIZE = 20;
@@ -52,6 +79,7 @@ export default function QuotationHistory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cargoFilter, setCargoFilter] = useState<string>('all');
   const [periodFilter, setPeriodFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedQuotation, setSelectedQuotation] = useState<QuotationRecord | null>(null);
   const [page, setPage] = useState(0);
 
@@ -111,8 +139,13 @@ export default function QuotationHistory() {
       result = result.filter(q => new Date(q.created_at) >= cutoff);
     }
 
+    // Status filter (Phase 5D)
+    if (statusFilter !== 'all') {
+      result = result.filter(q => q.status === statusFilter);
+    }
+
     return result;
-  }, [quotations, searchQuery, cargoFilter, periodFilter]);
+  }, [quotations, searchQuery, cargoFilter, periodFilter, statusFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredQuotations.length / PAGE_SIZE);
@@ -194,6 +227,21 @@ export default function QuotationHistory() {
                   <SelectItem value="1y">1 an</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Phase 5D: Status filter */}
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
+                <SelectTrigger className="w-[150px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Statut" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous statuts</SelectItem>
+                  <SelectItem value="draft">Brouillons</SelectItem>
+                  <SelectItem value="sent">Envoyés</SelectItem>
+                  <SelectItem value="accepted">Acceptés</SelectItem>
+                  <SelectItem value="rejected">Refusés</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -216,6 +264,7 @@ export default function QuotationHistory() {
                       <TableHead>Route</TableHead>
                       <TableHead>Client / Partenaire</TableHead>
                       <TableHead>Cargo</TableHead>
+                      <TableHead>Statut</TableHead>
                       <TableHead className="text-right">Montant</TableHead>
                       <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
@@ -264,6 +313,17 @@ export default function QuotationHistory() {
                               <span className="text-xs text-muted-foreground">
                                 {q.container_types.join(', ')}
                               </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        {/* Phase 5D: Status column */}
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Badge variant={getStatusVariant(q.status)}>
+                              {getStatusLabel(q.status)}
+                            </Badge>
+                            {(q.version ?? 1) > 1 && (
+                              <span className="text-xs text-muted-foreground">v{q.version}</span>
                             )}
                           </div>
                         </TableCell>

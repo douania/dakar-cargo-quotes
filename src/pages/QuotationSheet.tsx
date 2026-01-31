@@ -127,6 +127,9 @@ import {
 import { useCargoLines } from '@/features/quotation/hooks/useCargoLines';
 import { useServiceLines } from '@/features/quotation/hooks/useServiceLines';
 
+// Hook versioning (Phase 5D)
+import { useQuotationDraft } from '@/features/quotation/hooks/useQuotationDraft';
+
 // Domain layer (Phase 4F)
 import { runQuotationEngine } from '@/features/quotation/domain/engine';
 import type { QuotationInput } from '@/features/quotation/domain/types';
@@ -182,6 +185,14 @@ export default function QuotationSheet() {
   const [finalDestination, setFinalDestination] = useState('');
   const [incoterm, setIncoterm] = useState('DAP');
   const [specialRequirements, setSpecialRequirements] = useState('');
+
+  // Quotation Draft lifecycle (Phase 5D)
+  const {
+    currentDraft,
+    isSaving,
+    saveDraft,
+    markAsSent,
+  } = useQuotationDraft();
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5
@@ -607,6 +618,34 @@ export default function QuotationSheet() {
   const handleGenerateResponse = async () => {
     setIsGenerating(true);
     try {
+      // Phase 5D : Sauvegarder le draft AVANT génération
+      await saveDraft({
+        route_origin: cargoLines[0]?.origin || null,
+        route_port: 'Dakar',
+        route_destination: finalDestination || destination,
+        cargo_type: cargoLines[0]?.cargo_type || 'container',
+        container_types: cargoLines.filter(c => c.container_type).map(c => c.container_type!),
+        client_name: projectContext.requesting_party || null,
+        client_company: projectContext.requesting_company || null,
+        partner_company: projectContext.partner_company || null,
+        project_name: projectContext.project_name || null,
+        incoterm: incoterm || null,
+        tariff_lines: serviceLines
+          .filter(s => s.rate && s.rate > 0)
+          .map(s => ({
+            service: s.service || '',
+            description: s.description || '',
+            amount: (s.rate || 0) * s.quantity,
+            currency: s.currency || 'FCFA',
+            unit: s.unit || '',
+          })),
+        total_amount: engineResult.snapshot.totals.total_ht,
+        total_currency: 'FCFA',
+        source_email_id: isNewQuotation ? null : emailId,
+        regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
+      });
+
+      // Générer la réponse
       const { data, error } = await supabase.functions.invoke('generate-response', {
         body: { 
           emailId: isNewQuotation ? null : emailId,
@@ -631,7 +670,7 @@ export default function QuotationSheet() {
       if (error) throw error;
 
       setGeneratedResponse(data.response || data.draft?.body_text || '');
-      toast.success('Réponse générée');
+      toast.success('Brouillon sauvegardé & réponse générée');
     } catch (error) {
       console.error('Error generating response:', error);
       toast.error('Erreur de génération');
@@ -692,6 +731,7 @@ export default function QuotationSheet() {
           isGenerating={isGenerating}
           onBack={() => navigate('/')}
           onGenerateResponse={handleGenerateResponse}
+          currentDraft={currentDraft}
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -934,13 +974,30 @@ export default function QuotationSheet() {
                     </div>
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                   <Textarea
                     value={generatedResponse}
                     onChange={(e) => setGeneratedResponse(e.target.value)}
                     rows={12}
                     className="font-mono text-sm"
                   />
+                  
+                  {/* Phase 5D : Bouton confirmation envoi */}
+                  {currentDraft?.status === 'draft' && (
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                      <span className="text-sm text-muted-foreground">
+                        Brouillon sauvegardé
+                      </span>
+                      <Button
+                        onClick={markAsSent}
+                        disabled={isSaving}
+                        className="gap-2"
+                      >
+                        <Send className="h-4 w-4" />
+                        Confirmer envoi
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

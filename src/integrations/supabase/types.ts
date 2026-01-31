@@ -1597,10 +1597,12 @@ export type Database = {
           id: string
           incoterm: string | null
           margin_percent: number | null
+          parent_quotation_id: string | null
           partner_company: string | null
           project_name: string | null
           quotation_lines: Json | null
           regulatory_info: Json | null
+          root_quotation_id: string | null
           route_destination: string
           route_hash: string | null
           route_origin: string | null
@@ -1608,10 +1610,12 @@ export type Database = {
           source_attachment_id: string | null
           source_breakdown: Json | null
           source_email_id: string | null
+          status: string | null
           tariff_lines: Json
           total_amount: number | null
           total_currency: string | null
           updated_at: string
+          version: number | null
           was_accepted: boolean | null
         }
         Insert: {
@@ -1623,10 +1627,12 @@ export type Database = {
           id?: string
           incoterm?: string | null
           margin_percent?: number | null
+          parent_quotation_id?: string | null
           partner_company?: string | null
           project_name?: string | null
           quotation_lines?: Json | null
           regulatory_info?: Json | null
+          root_quotation_id?: string | null
           route_destination: string
           route_hash?: string | null
           route_origin?: string | null
@@ -1634,10 +1640,12 @@ export type Database = {
           source_attachment_id?: string | null
           source_breakdown?: Json | null
           source_email_id?: string | null
+          status?: string | null
           tariff_lines?: Json
           total_amount?: number | null
           total_currency?: string | null
           updated_at?: string
+          version?: number | null
           was_accepted?: boolean | null
         }
         Update: {
@@ -1649,10 +1657,12 @@ export type Database = {
           id?: string
           incoterm?: string | null
           margin_percent?: number | null
+          parent_quotation_id?: string | null
           partner_company?: string | null
           project_name?: string | null
           quotation_lines?: Json | null
           regulatory_info?: Json | null
+          root_quotation_id?: string | null
           route_destination?: string
           route_hash?: string | null
           route_origin?: string | null
@@ -1660,13 +1670,23 @@ export type Database = {
           source_attachment_id?: string | null
           source_breakdown?: Json | null
           source_email_id?: string | null
+          status?: string | null
           tariff_lines?: Json
           total_amount?: number | null
           total_currency?: string | null
           updated_at?: string
+          version?: number | null
           was_accepted?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quotation_history_parent_quotation_id_fkey"
+            columns: ["parent_quotation_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       security_alerts: {
         Row: {
