@@ -57,6 +57,7 @@ import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
 import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
 import { QuotationExcelExport } from '@/components/QuotationExcelExport';
+import { QuotationPdfExport } from '@/components/QuotationPdfExport';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -967,6 +968,16 @@ export default function QuotationSheet() {
                         variant="outline"
                         size="sm"
                       />
+                      {/* Phase 5C : Export PDF versionné */}
+                      {currentDraft && (
+                        <QuotationPdfExport
+                          quotationId={currentDraft.id}
+                          version={currentDraft.version}
+                          status={currentDraft.status}
+                          variant="outline"
+                          size="sm"
+                        />
+                      )}
                       <Button variant="outline" size="sm" onClick={handleCopyResponse}>
                         <Copy className="h-4 w-4 mr-2" />
                         Copier

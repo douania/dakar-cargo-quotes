@@ -1587,6 +1587,56 @@ export type Database = {
         }
         Relationships: []
       }
+      quotation_documents: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          document_type: string
+          file_hash: string | null
+          file_path: string
+          file_size: number | null
+          id: string
+          quotation_id: string
+          root_quotation_id: string
+          status: string
+          version: number
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          document_type: string
+          file_hash?: string | null
+          file_path: string
+          file_size?: number | null
+          id?: string
+          quotation_id: string
+          root_quotation_id: string
+          status: string
+          version: number
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          document_type?: string
+          file_hash?: string | null
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          quotation_id?: string
+          root_quotation_id?: string
+          status?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotation_documents_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quotation_history: {
         Row: {
           cargo_type: string
