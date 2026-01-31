@@ -4,7 +4,7 @@
  */
 
 import type { ThreadEmail, ConsolidatedData, RegulatoryInfo } from '../types';
-import { decodeBase64Content, parseSubject, parseEmailBody } from './parsing';
+import { decodeBase64Content, parseSubject, parseEmailBody, getEmailSenderName } from './parsing';
 
 /**
  * Extract regulatory information from email body
@@ -118,9 +118,7 @@ export const consolidateThreadData = (emails: ThreadEmail[]): ConsolidatedData =
   if (firstEmail) {
     const senderEmail = firstEmail.from_address.toLowerCase();
     const senderDomain = senderEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
-    const senderName = senderEmail.split('@')[0]
-      .replace(/[._-]/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase());
+    const senderName = getEmailSenderName(firstEmail.from_address);
     
     // Store original requestor info
     consolidated.originalRequestor = {
