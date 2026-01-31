@@ -63,6 +63,8 @@ import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryIn
 import { AlertsPanel } from '@/features/quotation/components/AlertsPanel';
 import { SuggestionsCard } from '@/features/quotation/components/SuggestionsCard';
 import { QuickActionsCard } from '@/features/quotation/components/QuickActionsCard';
+// Composants UI P1 extraits (Phase 3B)
+import { QuotationHeader } from '@/features/quotation/components/QuotationHeader';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
 
@@ -730,48 +732,15 @@ export default function QuotationSheet() {
     <MainLayout>
       <div className="container mx-auto px-4 py-6 max-w-7xl">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">
-                {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
-              </h1>
-              {quotationCompleted && (
-                <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Cotation réalisée
-                </Badge>
-              )}
-            </div>
-            {selectedEmail && (
-              <p className="text-sm text-muted-foreground truncate">
-                {selectedEmail.subject}
-              </p>
-            )}
-            {threadEmails.length > 1 && (
-              <Badge variant="outline" className="mt-1">
-                <MessageSquare className="h-3 w-3 mr-1" />
-                {threadEmails.length} emails dans le fil
-              </Badge>
-            )}
-          </div>
-          {!quotationCompleted && (
-            <Button 
-              onClick={handleGenerateResponse}
-              disabled={isGenerating}
-            >
-              {isGenerating ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
-              )}
-              Générer la réponse
-            </Button>
-          )}
-        </div>
+        <QuotationHeader
+          isNewQuotation={isNewQuotation}
+          quotationCompleted={quotationCompleted}
+          selectedEmailSubject={selectedEmail?.subject ?? null}
+          threadCount={threadEmails.length}
+          isGenerating={isGenerating}
+          onBack={() => navigate('/')}
+          onGenerateResponse={handleGenerateResponse}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Main Form */}
