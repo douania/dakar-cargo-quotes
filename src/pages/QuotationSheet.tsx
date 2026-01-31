@@ -70,6 +70,8 @@ import { ThreadTimelineCard } from '@/features/quotation/components/ThreadTimeli
 import { QuotationCompletedBanner } from '@/features/quotation/components/QuotationCompletedBanner';
 // Composants UI P3 extraits (Phase 4D)
 import { CargoLinesForm } from '@/features/quotation/components/CargoLinesForm';
+// Composant récapitulatif (Phase 5B)
+import { QuotationTotalsCard } from '@/features/quotation/components/QuotationTotalsCard';
 import { ServiceLinesForm } from '@/features/quotation/components/ServiceLinesForm';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
@@ -881,6 +883,13 @@ export default function QuotationSheet() {
                   addServiceLine={addServiceLine}
                   updateServiceLine={updateServiceLine}
                   removeServiceLine={removeServiceLine}
+                />
+
+                {/* Récapitulatif Totaux - Phase 5B */}
+                <QuotationTotalsCard
+                  totals={engineResult.snapshot.totals}
+                  currency="FCFA"
+                  issues={engineResult.snapshot.issues}
                 />
               </>
             )}
