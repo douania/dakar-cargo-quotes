@@ -125,6 +125,9 @@ import {
 import { useCargoLines } from '@/features/quotation/hooks/useCargoLines';
 import { useServiceLines } from '@/features/quotation/hooks/useServiceLines';
 
+// Domain layer (Phase 4F)
+import { runQuotationEngine } from '@/features/quotation/domain/engine';
+import type { QuotationInput } from '@/features/quotation/domain/types';
 
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
@@ -178,6 +181,30 @@ export default function QuotationSheet() {
   const [incoterm, setIncoterm] = useState('DAP');
   const [specialRequirements, setSpecialRequirements] = useState('');
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Quotation Engine — Phase 4F.5
+  // Mapping UI → Domain puis calcul des totaux
+  // ═══════════════════════════════════════════════════════════════════
+  const quotationInput: QuotationInput = {
+    cargoLines: cargoLines.map((c) => ({
+      id: c.id,
+      quantity: c.container_count ?? c.pieces ?? 1,
+      weight_kg: c.weight_kg ?? null,
+      volume_m3: c.volume_cbm ?? null,
+      description: c.description || null,
+    })),
+    serviceLines: serviceLines.map((s) => ({
+      id: s.id,
+      quantity: s.quantity ?? 1,
+      unit_price: s.rate ?? null,
+      description: s.description || null,
+      service_code: s.service || null,
+    })),
+    context: { rounding: 'none' },
+  };
+
+  const engineResult = runQuotationEngine(quotationInput);
+  const quotationTotals = engineResult.snapshot.totals;
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
