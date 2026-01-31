@@ -1,3 +1,9 @@
+/**
+ * UI COMPONENT — FROZEN (Phase 3B.4)
+ * - Ne pas modifier sans ouvrir une nouvelle phase
+ * - Logique métier volontairement absente
+ * - Toute évolution = nouvelle phase (3B.x)
+ */
 import { memo } from 'react';
 import { History, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
