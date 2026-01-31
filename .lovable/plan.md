@@ -1,45 +1,49 @@
-# PHASE 3B — COMPLETED ✅
 
-## Bilan des extractions
 
-- **6 composants UI** extraits et gelés
-- **5 tests unitaires** (ThreadTimelineCard)
-- **3 modules utilitaires** (parsing, detection, consolidation)
-- **Types/Constants** centralisés
-- **QuotationSheet.tsx** réduit de ~2312 à ~1400 lignes (-40%)
+# PHASE 4B.1 — Quick Win Safe : Suppression du state inutilisé
 
-## Composants gelés
+## Analyse
 
-| Composant | Lignes | Tests | FREEZE |
-|-----------|--------|-------|--------|
-| `ThreadTimelineCard.tsx` | 186 | 5/5 | ✅ Phase 3B.4 |
-| `QuotationHeader.tsx` | 68 | - | ✅ Phase 3B |
-| `AlertsPanel.tsx` | 35 | - | ✅ Phase 3B |
-| `RegulatoryInfoCard.tsx` | 81 | - | ✅ Phase 3B |
-| `SuggestionsCard.tsx` | 41 | - | ✅ Phase 3B |
-| `QuickActionsCard.tsx` | 31 | - | ✅ Phase 3B |
-
-## Modules utilitaires stables
-
-| Fichier | Statut |
+| Élément | Statut |
 |---------|--------|
-| `types.ts` | Stable |
-| `constants.ts` | Stable |
-| `utils/parsing.ts` | Stable |
-| `utils/detection.ts` | Stable |
-| `utils/consolidation.ts` | Stable |
+| `offersExpanded` | Déclaré ligne 131, **jamais lu** |
+| `setOffersExpanded` | Déclaré ligne 131, **jamais appelé** |
+| Références dans le JSX | **Aucune** |
+| Impact logique métier | **Zéro** |
 
----
+## Modification prévue
 
-## Prochaines phases possibles
+**Fichier** : `src/pages/QuotationSheet.tsx`
 
-- **Phase 3C**: Extraction de composants supplémentaires (EmailBodyCard, OffersPanel)
-- **Phase 4**: Optimisations backend (quotation-engine)
-- **Phase 5**: Tests d'intégration
+**Action** : Supprimer la ligne 131 uniquement
 
----
+```
+Avant (ligne 131) :
+  const [offersExpanded, setOffersExpanded] = useState(true);
 
-## Historique
+Après :
+  (ligne supprimée)
+```
 
-- **Phase 3B.4** (2025-01-31): ThreadTimelineCard gelé + tests unitaires + infrastructure Vitest
-- **Phase 3B** (2025-01-31): Freeze global de 6 composants UI
+## Fichiers impactés
+
+| Fichier | Action |
+|---------|--------|
+| `src/pages/QuotationSheet.tsx` | Supprimer ligne 131 |
+
+## Validation
+
+- [ ] Build TypeScript OK
+- [ ] Tests Vitest : ThreadTimelineCard 5/5
+- [ ] Aucun runtime error
+- [ ] Diff minimal (1 ligne supprimée)
+
+## Message de clôture attendu
+
+```
+Phase 4B.1 exécutée.
+State inutilisé supprimé : offersExpanded
+Diff : -1 ligne
+Build OK. Tests 5/5.
+```
+
