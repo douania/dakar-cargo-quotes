@@ -1,236 +1,256 @@
 
+# PHASE 4D - Extraction UI Formulaires (Cargo / Services)
 
-# PHASE 4C — Découplage Formulaire (Cargo / Services)
+## Contexte
 
-## Objectif
-
-Extraire la logique de gestion des lignes cargo et services dans des hooks dédiés, réduisant la complexité de `QuotationSheet.tsx` sans modifier le comportement.
+Phase 4C validee. Hooks `useCargoLines` et `useServiceLines` extraits et fonctionnels.
+Objectif Phase 4D : Extraire le JSX des formulaires vers des composants UI purs.
 
 ---
 
 ## Analyse du code actuel
 
-| Élément | Emplacement | Détails |
-|---------|-------------|---------|
-| State `cargoLines` | Ligne 151 | `useState<CargoLine[]>([])` |
-| State `serviceLines` | Ligne 154 | `useState<ServiceLine[]>([])` |
-| `addCargoLine(type)` | L559-570 | Prend un type `'container' \| 'breakbulk'` |
-| `updateCargoLine(id, updates)` | L572-576 | Mise à jour partielle |
-| `removeCargoLine(id)` | L578-580 | Suppression par ID |
-| `addServiceLine(template?)` | L582-592 | Template optionnel |
-| `updateServiceLine(id, updates)` | L594-598 | Mise à jour partielle |
-| `removeServiceLine(id)` | L600-602 | Suppression par ID |
-| Usage `setCargoLines` | L305 | Dans `applyConsolidatedData` |
-
-### Point d'attention
-
-Les fonctions `addCargoLine` et `addServiceLine` ont des signatures spécifiques :
-- `addCargoLine(type: 'container' | 'breakbulk')` — création typée
-- `addServiceLine(template?: ServiceTemplate)` — template optionnel
-
-Le hook doit reproduire exactement ces signatures pour une extraction safe.
-
----
-
-## Fichiers à créer
-
-### 1. `src/features/quotation/hooks/useCargoLines.ts`
-
+### Formulaire Cargo (lignes 779-939)
 ```text
-/**
- * Hook de gestion des lignes cargo
- * Phase 4C — Extraction safe de QuotationSheet
- */
+Localisation : QuotationSheet.tsx L779-939 (~160 lignes)
+Contenu :
+- Card avec header incluant boutons "Conteneur" / "Breakbulk"
+- Empty state avec icone Package
+- Liste iterative des cargoLines
+  - Badge cargo_type (container/breakbulk)
+  - Bouton supprimer
+  - Champs : description, origin
+  - Champs container : type (Select), count, coc_soc (Select), weight_kg
+  - Champs breakbulk : weight_kg, volume_cbm, dimensions, pieces
+```
 
-import { useState, useCallback } from 'react';
-import type { CargoLine } from '@/features/quotation/types';
-
-export function useCargoLines(initial: CargoLine[] = []) {
-  const [cargoLines, setCargoLines] = useState<CargoLine[]>(initial);
-
-  const addCargoLine = useCallback((type: 'container' | 'breakbulk') => {
-    const newLine: CargoLine = {
-      id: crypto.randomUUID(),
-      description: '',
-      origin: '',
-      cargo_type: type,
-      container_type: type === 'container' ? '40HC' : undefined,
-      container_count: type === 'container' ? 1 : undefined,
-      coc_soc: 'COC',
-    };
-    setCargoLines(lines => [...lines, newLine]);
-  }, []);
-
-  const updateCargoLine = useCallback((id: string, updates: Partial<CargoLine>) => {
-    setCargoLines(lines =>
-      lines.map(line => (line.id === id ? { ...line, ...updates } : line))
-    );
-  }, []);
-
-  const removeCargoLine = useCallback((id: string) => {
-    setCargoLines(lines => lines.filter(line => line.id !== id));
-  }, []);
-
-  return {
-    cargoLines,
-    setCargoLines,
-    addCargoLine,
-    updateCargoLine,
-    removeCargoLine,
-  };
-}
+### Formulaire Services (lignes 1002-1092)
+```text
+Localisation : QuotationSheet.tsx L1002-1092 (~90 lignes)
+Contenu :
+- Card avec header incluant Select pour ajouter service
+- Empty state avec badges cliquables (serviceTemplates)
+- Liste iterative des serviceLines
+  - Input description
+  - Input quantity
+  - Input unit
+  - Input rate
+  - Bouton supprimer
 ```
 
 ---
 
-### 2. `src/features/quotation/hooks/useServiceLines.ts`
+## Fichiers a creer
 
-```text
-/**
- * Hook de gestion des lignes services
- * Phase 4C — Extraction safe de QuotationSheet
- */
+### 1. `src/features/quotation/components/CargoLinesForm.tsx`
 
-import { useState, useCallback } from 'react';
-import type { ServiceLine } from '@/features/quotation/types';
+**Props interface :**
+```typescript
+interface CargoLinesFormProps {
+  cargoLines: CargoLine[];
+  addCargoLine: (type: 'container' | 'breakbulk') => void;
+  updateCargoLine: (id: string, updates: Partial<CargoLine>) => void;
+  removeCargoLine: (id: string) => void;
+}
+```
 
+**Imports necessaires :**
+- React (Fragment)
+- UI : Card, CardHeader, CardTitle, CardContent, Button, Input, Label, Badge, Select, SelectTrigger, SelectValue, SelectContent, SelectItem
+- Icons : Package, Container, Boxes, Trash2
+- Types : CargoLine
+- Constants : containerTypes
+
+**Copie stricte du JSX :**
+- Lignes 779-939 de QuotationSheet.tsx
+- Aucune modification logique
+
+---
+
+### 2. `src/features/quotation/components/ServiceLinesForm.tsx`
+
+**Props interface :**
+```typescript
 interface ServiceTemplate {
   service: string;
   description: string;
   unit: string;
 }
 
-export function useServiceLines(initial: ServiceLine[] = []) {
-  const [serviceLines, setServiceLines] = useState<ServiceLine[]>(initial);
-
-  const addServiceLine = useCallback((template?: ServiceTemplate) => {
-    const newLine: ServiceLine = {
-      id: crypto.randomUUID(),
-      service: template?.service || '',
-      description: template?.description || '',
-      unit: template?.unit || 'forfait',
-      quantity: 1,
-      currency: 'FCFA',
-    };
-    setServiceLines(lines => [...lines, newLine]);
-  }, []);
-
-  const updateServiceLine = useCallback((id: string, updates: Partial<ServiceLine>) => {
-    setServiceLines(lines =>
-      lines.map(line => (line.id === id ? { ...line, ...updates } : line))
-    );
-  }, []);
-
-  const removeServiceLine = useCallback((id: string) => {
-    setServiceLines(lines => lines.filter(line => line.id !== id));
-  }, []);
-
-  return {
-    serviceLines,
-    setServiceLines,
-    addServiceLine,
-    updateServiceLine,
-    removeServiceLine,
-  };
+interface ServiceLinesFormProps {
+  serviceLines: ServiceLine[];
+  addServiceLine: (template?: ServiceTemplate) => void;
+  updateServiceLine: (id: string, updates: Partial<ServiceLine>) => void;
+  removeServiceLine: (id: string) => void;
 }
 ```
+
+**Imports necessaires :**
+- React (Fragment)
+- UI : Card, CardHeader, CardTitle, CardContent, Button, Input, Badge, Select, SelectTrigger, SelectValue, SelectContent, SelectItem
+- Icons : DollarSign, Plus, Trash2
+- Types : ServiceLine
+- Constants : serviceTemplates
+
+**Copie stricte du JSX :**
+- Lignes 1002-1092 de QuotationSheet.tsx
+- Aucune modification logique
 
 ---
 
 ## Modifications dans QuotationSheet.tsx
 
-### 1. Ajout des imports
+### Phase 4D.3 - Integration
 
+**Nouveaux imports a ajouter :**
 ```typescript
-// Après les imports existants
-import { useCargoLines } from '@/features/quotation/hooks/useCargoLines';
-import { useServiceLines } from '@/features/quotation/hooks/useServiceLines';
+import { CargoLinesForm } from '@/features/quotation/components/CargoLinesForm';
+import { ServiceLinesForm } from '@/features/quotation/components/ServiceLinesForm';
 ```
 
-### 2. Remplacement des states et fonctions
-
-**À supprimer** (lignes 150-154 + 559-602) :
-
+**Remplacement du JSX Cargo (L779-939) :**
 ```typescript
-// ❌ SUPPRIMER
-const [cargoLines, setCargoLines] = useState<CargoLine[]>([]);
-const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
-
-const addCargoLine = (type: 'container' | 'breakbulk') => { ... };
-const updateCargoLine = (id: string, updates: Partial<CargoLine>) => { ... };
-const removeCargoLine = (id: string) => { ... };
-
-const addServiceLine = (template?: typeof serviceTemplates[0]) => { ... };
-const updateServiceLine = (id: string, updates: Partial<ServiceLine>) => { ... };
-const removeServiceLine = (id: string) => { ... };
+<CargoLinesForm
+  cargoLines={cargoLines}
+  addCargoLine={addCargoLine}
+  updateCargoLine={updateCargoLine}
+  removeCargoLine={removeCargoLine}
+/>
 ```
 
-**À ajouter** (après les autres states, ~ligne 161) :
-
+**Remplacement du JSX Services (L1002-1092) :**
 ```typescript
-// ✅ HOOKS FORMULAIRE
-const {
+<ServiceLinesForm
+  serviceLines={serviceLines}
+  addServiceLine={addServiceLine}
+  updateServiceLine={updateServiceLine}
+  removeServiceLine={removeServiceLine}
+/>
+```
+
+---
+
+## Impact attendu
+
+| Fichier | Lignes supprimees | Lignes ajoutees | Diff net |
+|---------|-------------------|-----------------|----------|
+| QuotationSheet.tsx | ~250 | ~12 | **-238** |
+| CargoLinesForm.tsx | 0 | ~170 | +170 |
+| ServiceLinesForm.tsx | 0 | ~100 | +100 |
+
+**Total QuotationSheet.tsx apres Phase 4D :** ~1000 lignes (vs ~1240 actuelles)
+
+---
+
+## Contraintes respectees
+
+| Contrainte | Verification |
+|------------|--------------|
+| Pas de modification logique metier | Copie stricte du JSX |
+| Pas de modification des hooks | Aucun changement |
+| Pas de creation de nouveaux states | Props only |
+| Pas de deplacement de fonctions | Handlers passes via props |
+| Pas de tests | Aucun fichier test |
+| Signatures identiques | Props = handlers existants |
+| Pas de gel (FROZEN) | Report Phase suivante |
+
+---
+
+## Execution sequentielle
+
+### Etape 4D.1 - CargoLinesForm
+1. Creer `src/features/quotation/components/CargoLinesForm.tsx`
+2. Copier JSX L779-939 strictement
+3. Definir props interface
+4. Verifier build TypeScript
+
+### Etape 4D.2 - ServiceLinesForm
+1. Creer `src/features/quotation/components/ServiceLinesForm.tsx`
+2. Copier JSX L1002-1092 strictement
+3. Definir props interface
+4. Verifier build TypeScript
+
+### Etape 4D.3 - Integration
+1. Ajouter imports dans QuotationSheet.tsx
+2. Remplacer JSX Cargo par composant
+3. Remplacer JSX Services par composant
+4. Verifier build TypeScript
+5. Verification visuelle (rendu identique)
+
+---
+
+## Criteres de sortie
+
+- Build TypeScript OK
+- Aucun runtime error
+- Rendu formulaire Cargo identique (visuel + interaction)
+- Rendu formulaire Services identique (visuel + interaction)
+- QuotationSheet.tsx reduit de ~238 lignes
+- Tests existants toujours verts (19/19)
+
+---
+
+## Message de cloture attendu
+
+```
+Phase 4D executee.
+2 composants UI crees : CargoLinesForm, ServiceLinesForm
+Diff QuotationSheet : -238 lignes (~1000 lignes restantes)
+Build OK. Tests 19/19.
+```
+
+---
+
+## Section technique
+
+### Structure CargoLinesForm.tsx
+```text
+src/features/quotation/components/CargoLinesForm.tsx
+
+export function CargoLinesForm({
   cargoLines,
-  setCargoLines,
   addCargoLine,
   updateCargoLine,
   removeCargoLine,
-} = useCargoLines();
+}: CargoLinesFormProps) {
+  return (
+    <Card className="border-border/50 bg-gradient-card">
+      {/* Header avec boutons Conteneur/Breakbulk */}
+      {/* Empty state */}
+      {/* Liste cargoLines.map(...) */}
+    </Card>
+  );
+}
+```
 
-const {
+### Structure ServiceLinesForm.tsx
+```text
+src/features/quotation/components/ServiceLinesForm.tsx
+
+export function ServiceLinesForm({
   serviceLines,
-  setServiceLines,
   addServiceLine,
   updateServiceLine,
   removeServiceLine,
-} = useServiceLines();
+}: ServiceLinesFormProps) {
+  return (
+    <Card className="border-border/50 bg-gradient-card">
+      {/* Header avec Select ajouter service */}
+      {/* Empty state avec badges */}
+      {/* Liste serviceLines.map(...) */}
+    </Card>
+  );
+}
 ```
 
----
+### Mapping des handlers
 
-## Impact
-
-| Fichier | Lignes supprimées | Lignes ajoutées | Diff net |
-|---------|-------------------|-----------------|----------|
-| `QuotationSheet.tsx` | ~50 | ~15 | **-35** |
-| `useCargoLines.ts` | 0 | ~35 | +35 |
-| `useServiceLines.ts` | 0 | ~35 | +35 |
-
-**Total** : +35 lignes mais complexité réduite dans le monolithe
-
----
-
-## Contraintes respectées
-
-| Contrainte | Statut |
-|------------|--------|
-| Signatures identiques | ✅ |
-| Comportement inchangé | ✅ |
-| setCargoLines exposé | ✅ (pour applyConsolidatedData) |
-| setServiceLines exposé | ✅ |
-| useCallback pour performance | ✅ |
-| Aucun JSX modifié | ✅ |
-| Aucune logique métier modifiée | ✅ |
-
----
-
-## Validation attendue
-
-- [ ] Build TypeScript OK
-- [ ] Aucun runtime error
-- [ ] Formulaire cargo identique
-- [ ] Formulaire services identique
-- [ ] Génération de réponse identique
-- [ ] Tests existants toujours verts (19/19)
-
----
-
-## Message de clôture attendu
-
-```
-Phase 4C exécutée.
-2 hooks créés : useCargoLines, useServiceLines
-Diff QuotationSheet : -35 lignes
-Build OK. Tests 19/19.
-```
+| QuotationSheet | Prop | Composant |
+|----------------|------|-----------|
+| `addCargoLine` | `addCargoLine` | CargoLinesForm |
+| `updateCargoLine` | `updateCargoLine` | CargoLinesForm |
+| `removeCargoLine` | `removeCargoLine` | CargoLinesForm |
+| `addServiceLine` | `addServiceLine` | ServiceLinesForm |
+| `updateServiceLine` | `updateServiceLine` | ServiceLinesForm |
+| `removeServiceLine` | `removeServiceLine` | ServiceLinesForm |
 
