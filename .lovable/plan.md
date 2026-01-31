@@ -1,30 +1,46 @@
 
 
-# PHASE 3B.4 — ThreadTimelineCard Freeze + Tests + Garde-fous
+# PHASE 3B — Freeze Global
 
-## Analyse de l'existant
+## Inventaire des extractions Phase 3B
 
-| Element | Statut |
-|---------|--------|
-| Composant ThreadTimelineCard | 180 lignes, stable |
-| Configuration Vitest | **Non existante** |
-| Dépendances de test | **Non installées** |
-| Dossier __tests__ | **Non existant** |
-| README-dev | **Non existant** (seulement README.md) |
+| Composant | Lignes | Tests | FREEZE | Statut |
+|-----------|--------|-------|--------|--------|
+| `ThreadTimelineCard.tsx` | 186 | 5/5 | Oui | **Validé** |
+| `QuotationHeader.tsx` | 68 | Non | Non | **À geler** |
+| `AlertsPanel.tsx` | 35 | Non | Non | **À geler** |
+| `RegulatoryInfoCard.tsx` | 81 | Non | Non | **À geler** |
+| `SuggestionsCard.tsx` | 41 | Non | Non | **À geler** |
+| `QuickActionsCard.tsx` | 31 | Non | Non | **À geler** |
+
+**Modules utilitaires :**
+
+| Fichier | Lignes | Statut |
+|---------|--------|--------|
+| `types.ts` | 123 | Stable |
+| `constants.ts` | 79 | Stable |
+| `utils/parsing.ts` | ~ | Stable |
+| `utils/detection.ts` | ~ | Stable |
+| `utils/consolidation.ts` | ~ | Stable |
 
 ---
 
-## Modifications prévues
+## Actions de gel global
 
-### 1. Gel fonctionnel (Commentaire FREEZE)
+### 1. Ajout du commentaire FREEZE sur tous les composants
 
-**Fichier** : `src/features/quotation/components/ThreadTimelineCard.tsx`
+**Fichiers concernés :**
+- `src/features/quotation/components/QuotationHeader.tsx`
+- `src/features/quotation/components/AlertsPanel.tsx`
+- `src/features/quotation/components/RegulatoryInfoCard.tsx`
+- `src/features/quotation/components/SuggestionsCard.tsx`
+- `src/features/quotation/components/QuickActionsCard.tsx`
 
-Ajouter en tête du fichier :
+**Commentaire standardisé :**
 
 ```typescript
 /**
- * UI COMPONENT — FROZEN (Phase 3B.4)
+ * UI COMPONENT — FROZEN (Phase 3B)
  * - Ne pas modifier sans ouvrir une nouvelle phase
  * - Logique métier volontairement absente
  * - Toute évolution = nouvelle phase (3B.x)
@@ -33,222 +49,45 @@ Ajouter en tête du fichier :
 
 ---
 
-### 2. Infrastructure de test (pré-requis)
+### 2. Documentation du gel dans README.md
 
-**a) Dépendances à installer** (package.json devDependencies)
-
-```json
-"@testing-library/jest-dom": "^6.6.0",
-"@testing-library/react": "^16.0.0",
-"@testing-library/user-event": "^14.5.2",
-"jsdom": "^20.0.3",
-"vitest": "^3.2.4"
-```
-
-**b) Configuration Vitest** — `vitest.config.ts`
-
-```typescript
-import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
-
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
-  },
-  resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
-  },
-});
-```
-
-**c) Setup de test** — `src/test/setup.ts`
-
-```typescript
-import "@testing-library/jest-dom";
-
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => {},
-  }),
-});
-```
-
-**d) Configuration TypeScript** — `tsconfig.app.json`
-
-Ajouter dans `compilerOptions.types` :
-```json
-"types": ["vitest/globals"]
-```
-
----
-
-### 3. Tests unitaires ciblés
-
-**Fichier** : `src/features/quotation/components/__tests__/ThreadTimelineCard.test.tsx`
-
-5 cas de test couvrant les comportements critiques :
-
-| Test | Description |
-|------|-------------|
-| 1 | Ne rend rien si 1 email ou moins |
-| 2 | Affiche la timeline si > 1 email |
-| 3 | Toggle expand/collapse au clic |
-| 4 | Sélection d'un email au clic |
-| 5 | Support clavier (Enter/Space) |
-
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { ThreadTimelineCard } from '../ThreadTimelineCard';
-
-const mockEmail = (id: string, subject: string) => ({
-  id,
-  subject,
-  from_address: 'test@example.com',
-  sent_at: '2024-01-15T10:00:00Z',
-  received_at: '2024-01-15T10:00:00Z',
-});
-
-const defaultProps = {
-  selectedEmailId: null,
-  quotationOffers: [],
-  expanded: false,
-  onExpandedChange: vi.fn(),
-  onSelectEmail: vi.fn(),
-  formatDate: () => '15 Jan 2024',
-};
-
-describe('ThreadTimelineCard', () => {
-  it('returns null when threadEmails has 1 or fewer items', () => {
-    const { container } = render(
-      <ThreadTimelineCard
-        {...defaultProps}
-        threadEmails={[mockEmail('1', 'Test')]}
-      />
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
-  it('renders timeline when threadEmails has more than 1 item', () => {
-    render(
-      <ThreadTimelineCard
-        {...defaultProps}
-        threadEmails={[
-          mockEmail('1', 'First email'),
-          mockEmail('2', 'Second email'),
-        ]}
-      />
-    );
-    expect(screen.getByText(/Historique du fil/)).toBeInTheDocument();
-    expect(screen.getByText('(2 échanges)')).toBeInTheDocument();
-  });
-
-  it('calls onExpandedChange when toggle is clicked', async () => {
-    const onExpandedChange = vi.fn();
-    const user = userEvent.setup();
-    
-    render(
-      <ThreadTimelineCard
-        {...defaultProps}
-        threadEmails={[
-          mockEmail('1', 'First'),
-          mockEmail('2', 'Second'),
-        ]}
-        onExpandedChange={onExpandedChange}
-      />
-    );
-    
-    await user.click(screen.getByRole('button', { name: /Afficher l'historique/i }));
-    expect(onExpandedChange).toHaveBeenCalledWith(true);
-  });
-
-  it('calls onSelectEmail when an email item is clicked', async () => {
-    const onSelectEmail = vi.fn();
-    const user = userEvent.setup();
-    const emails = [
-      mockEmail('1', 'First email'),
-      mockEmail('2', 'Second email'),
-    ];
-    
-    render(
-      <ThreadTimelineCard
-        {...defaultProps}
-        threadEmails={emails}
-        expanded={true}
-        onSelectEmail={onSelectEmail}
-      />
-    );
-    
-    await user.click(screen.getByText('Second email'));
-    expect(onSelectEmail).toHaveBeenCalledWith(emails[1]);
-  });
-
-  it('supports keyboard navigation with Enter and Space', async () => {
-    const onExpandedChange = vi.fn();
-    const user = userEvent.setup();
-    
-    render(
-      <ThreadTimelineCard
-        {...defaultProps}
-        threadEmails={[
-          mockEmail('1', 'First'),
-          mockEmail('2', 'Second'),
-        ]}
-        onExpandedChange={onExpandedChange}
-      />
-    );
-    
-    const trigger = screen.getByRole('button', { name: /Afficher l'historique/i });
-    trigger.focus();
-    
-    await user.keyboard('{Enter}');
-    expect(onExpandedChange).toHaveBeenCalled();
-  });
-});
-```
-
----
-
-### 4. Documentation des conventions
-
-**Fichier** : `README.md` (section ajoutée à la fin)
+Ajouter une section récapitulative des composants gelés :
 
 ```markdown
----
+### Frozen Components (Phase 3B)
 
-## Development Conventions
-
-### UI Components
-
-Components extracted to `src/features/*/components/` follow these rules:
-
-- **Named exports only** — Never use `export default`
-- **Import syntax** — Always use `import { Component } from '...'`
-- **memo()** — Wrapped components require a cold restart in Vite after changes
-- **FROZEN components** — Components marked with `FROZEN` comment should not be modified without opening a new phase
-
-### Testing
-
-Run tests with:
-```sh
-npx vitest
+| Component | Location | Frozen Since |
+|-----------|----------|--------------|
+| ThreadTimelineCard | `src/features/quotation/components/` | Phase 3B.4 |
+| QuotationHeader | `src/features/quotation/components/` | Phase 3B |
+| AlertsPanel | `src/features/quotation/components/` | Phase 3B |
+| RegulatoryInfoCard | `src/features/quotation/components/` | Phase 3B |
+| SuggestionsCard | `src/features/quotation/components/` | Phase 3B |
+| QuickActionsCard | `src/features/quotation/components/` | Phase 3B |
 ```
 
-Test files location: `src/**/__tests__/*.test.tsx`
+---
+
+### 3. Mise à jour du plan dans `.lovable/plan.md`
+
+Marquer Phase 3B comme **TERMINÉE** avec le bilan :
+
+```markdown
+## PHASE 3B — COMPLETED
+
+### Bilan des extractions
+
+- **6 composants UI** extraits et gelés
+- **5 tests unitaires** (ThreadTimelineCard)
+- **3 modules utilitaires** (parsing, detection, consolidation)
+- **Types/Constants** centralisés
+- **QuotationSheet.tsx** réduit de ~2312 à ~1400 lignes
+
+### Prochaines phases possibles
+
+- Phase 3C: Extraction de composants supplémentaires (EmailBodyCard, OffersPanel)
+- Phase 4: Optimisations backend (quotation-engine)
+- Phase 5: Tests d'intégration
 ```
 
 ---
@@ -257,35 +96,46 @@ Test files location: `src/**/__tests__/*.test.tsx`
 
 | Fichier | Action |
 |---------|--------|
-| `src/features/quotation/components/ThreadTimelineCard.tsx` | Ajouter commentaire FREEZE |
-| `package.json` | Ajouter devDependencies de test |
-| `vitest.config.ts` | **Créer** |
-| `src/test/setup.ts` | **Créer** |
-| `tsconfig.app.json` | Ajouter types vitest |
-| `src/features/quotation/components/__tests__/ThreadTimelineCard.test.tsx` | **Créer** |
-| `README.md` | Ajouter section conventions |
+| `QuotationHeader.tsx` | Ajouter commentaire FREEZE |
+| `AlertsPanel.tsx` | Ajouter commentaire FREEZE |
+| `RegulatoryInfoCard.tsx` | Ajouter commentaire FREEZE |
+| `SuggestionsCard.tsx` | Ajouter commentaire FREEZE |
+| `QuickActionsCard.tsx` | Ajouter commentaire FREEZE |
+| `README.md` | Ajouter section "Frozen Components" |
+| `.lovable/plan.md` | Marquer Phase 3B COMPLETED |
 
 ---
 
-## Checklist de validation
+## Checklist de validation finale
 
 - [ ] Build TypeScript OK
 - [ ] Aucun runtime error
-- [ ] Tests unitaires verts (5/5)
-- [ ] Import nommé vérifié dans QuotationSheet.tsx
-- [ ] Composant gelé (commentaire FREEZE présent)
+- [ ] Tests unitaires verts (ThreadTimelineCard 5/5)
+- [ ] 6 composants avec commentaire FREEZE
+- [ ] Documentation mise à jour
+- [ ] Plan.md marqué COMPLETED
 
 ---
 
 ## Message de clôture attendu
 
 ```
-Phase 3B.4 exécutée.
-ThreadTimelineCard gelé (freeze UI).
-Infrastructure de test créée (Vitest + Testing Library).
-5 tests unitaires ajoutés.
-Conventions documentées dans README.md.
-Aucune logique métier modifiée.
-Extraction validée définitivement.
+Phase 3B — Freeze Global exécuté.
+
+Composants gelés : 6/6
+- ThreadTimelineCard (testé)
+- QuotationHeader
+- AlertsPanel
+- RegulatoryInfoCard
+- SuggestionsCard
+- QuickActionsCard
+
+Types/Constants : Stables
+Utilitaires : 3 modules (parsing, detection, consolidation)
+
+QuotationSheet.tsx : ~2312 → ~1400 lignes (-40%)
+
+Phase 3B officiellement terminée.
+Passage en mode maintenance.
 ```
 
