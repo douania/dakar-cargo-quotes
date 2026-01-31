@@ -1,7 +1,11 @@
 /**
+ * UI COMPONENT — FROZEN Phase 4E
+ * 
  * ServiceLinesForm - Composant UI formulaire services
  * Phase 4D.2 - Extraction stricte depuis QuotationSheet.tsx L1002-1092
  * Aucune logique métier, props only
+ * 
+ * NE PAS MODIFIER sans ouvrir une nouvelle phase de développement.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

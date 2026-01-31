@@ -1,7 +1,11 @@
 /**
+ * UI COMPONENT — FROZEN Phase 4E
+ * 
  * CargoLinesForm - Composant UI formulaire cargo
  * Phase 4D.1 - Extraction stricte depuis QuotationSheet.tsx L779-939
  * Aucune logique métier, props only
+ * 
+ * NE PAS MODIFIER sans ouvrir une nouvelle phase de développement.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
