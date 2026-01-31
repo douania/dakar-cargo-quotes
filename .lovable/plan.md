@@ -1,108 +1,82 @@
 
+# Correction P0 – Écart consolidation.ts
 
-# Étape 2 – Extraction parsing (mode sécurisé) – TERMINÉE ✅
+## Écart identifié
 
-## Résumé de l'exécution
+**Fichier** : `src/features/quotation/utils/consolidation.ts`
+**Lignes** : 121-123
 
-| Métrique | Valeur |
-|----------|--------|
-| **Lignes avant** | 2312 |
-| **Lignes après** | 1660 |
-| **Lignes supprimées** | 652 |
-| **Fichiers créés** | 3 |
-| **Build** | ✅ OK |
-
----
-
-## Fichiers créés
-
-| Fichier | Lignes | Fonctions |
-|---------|--------|-----------|
-| `src/features/quotation/utils/parsing.ts` | 237 | `decodeBase64Content`, `isInternalEmail`, `containsOfferKeywords`, `detectOfferType`, `parseSubject`, `parseEmailBody`, `getEmailSenderName` |
-| `src/features/quotation/utils/consolidation.ts` | 189 | `extractRegulatoryInfo`, `normalizeSubject`, `consolidateThreadData` |
-| `src/features/quotation/utils/detection.ts` | 107 | `detectQuotationOffers`, `extractAllRegulatoryInfo` |
-
----
-
-## Modifications dans `QuotationSheet.tsx`
-
-### Imports ajoutés
+**Problème** : Logique de formatage du nom expéditeur dupliquée inline au lieu d'utiliser `getEmailSenderName` depuis `parsing.ts`.
 
 ```typescript
-// Constantes depuis le fichier centralisé
-import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
-
-// Types depuis le fichier centralisé
-import type { 
-  CargoLine, ServiceLine, ProjectContext, ExtractedData, 
-  ThreadEmail, ConsolidatedData, Suggestion, Alert, 
-  QuotationOffer, RegulatoryInfo 
-} from '@/features/quotation/types';
-
-// Utilitaires de parsing
-import { 
-  decodeBase64Content, isInternalEmail, containsOfferKeywords,
-  detectOfferType, parseSubject, parseEmailBody, getEmailSenderName
-} from '@/features/quotation/utils/parsing';
-
-// Utilitaires de consolidation
-import { 
-  extractRegulatoryInfo, normalizeSubject, consolidateThreadData 
-} from '@/features/quotation/utils/consolidation';
-
-// Utilitaires de détection
-import { 
-  detectQuotationOffers, extractAllRegulatoryInfo 
-} from '@/features/quotation/utils/detection';
+// ❌ Code actuel (lignes 121-123)
+const senderName = senderEmail.split('@')[0]
+  .replace(/[._-]/g, ' ')
+  .replace(/\b\w/g, l => l.toUpperCase());
 ```
 
-### Code supprimé
+---
 
-- Types/Interfaces locaux (lignes 61-179 originales)
-- Constantes locales (lignes 181-224 originales)
-- Fonctions module-level (lignes 227-655 originales)
-- Fonctions composant `detectQuotationOffers`, `extractAllRegulatoryInfo`, `getEmailSenderName`
+## Corrections à appliquer
+
+### 1. Ajouter l'import (ligne 7)
+
+**Avant :**
+```typescript
+import { decodeBase64Content, parseSubject, parseEmailBody } from './parsing';
+```
+
+**Après :**
+```typescript
+import { decodeBase64Content, parseSubject, parseEmailBody, getEmailSenderName } from './parsing';
+```
 
 ---
 
-## Corrections appliquées
+### 2. Remplacer la logique inline (lignes 119-123)
 
-| Correction | Action |
-|------------|--------|
-| **P0** | Suppression des constantes 181-224 + import depuis `constants.ts` |
-| **P1** | `normalizeSubject` → `consolidation.ts` (pas `parsing.ts`) |
-| **Option A** | `getEmailSenderName` ajoutée à `parsing.ts` |
-| **Fix TS** | Retrait de `as const` des tableaux dans `constants.ts` pour compatibilité avec les signatures existantes |
+**Avant :**
+```typescript
+const senderEmail = firstEmail.from_address.toLowerCase();
+const senderDomain = senderEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
+const senderName = senderEmail.split('@')[0]
+  .replace(/[._-]/g, ' ')
+  .replace(/\b\w/g, l => l.toUpperCase());
+```
 
----
-
-## Validation
-
-- [x] Build TypeScript OK
-- [x] Aucune erreur de compilation
-- [x] Imports fonctionnels
-- [x] Structure des fichiers respectée
-
----
-
-## Prochaines étapes suggérées
-
-### Étape 3 – Extraction des hooks
-- Extraire les hooks personnalisés du composant (useQuotationData, useQuotationForm, etc.)
-- Réduire encore la taille de QuotationSheet.tsx
-
-### Étape 4 – Extraction des sous-composants UI
-- Créer des composants dédiés pour chaque section du formulaire
-- Objectif final : QuotationSheet.tsx < 400 lignes
+**Après :**
+```typescript
+const senderEmail = firstEmail.from_address.toLowerCase();
+const senderDomain = senderEmail.split('@')[1]?.split('.')[0]?.toUpperCase() || '';
+const senderName = getEmailSenderName(firstEmail.from_address);
+```
 
 ---
 
-## Message de clôture
+## Fichiers modifiés
+
+| Fichier | Modification |
+|---------|--------------|
+| `src/features/quotation/utils/consolidation.ts` | Import + remplacement logique inline |
+
+---
+
+## Validation post-correction
+
+- [ ] Build TypeScript OK
+- [ ] Ouverture cotation existante OK
+- [ ] Pré-remplissage IDENTIQUE
+- [ ] `originalRequestor.name` correctement formaté
+
+---
+
+## Message de clôture attendu
 
 ```
-Étape 2 exécutée conformément au plan corrigé.
-Aucun ajout non autorisé, aucune modification de signature, aucune amélioration.
+Correction P0 appliquée.
+Import getEmailSenderName ajouté.
+Logique inline supprimée.
 Build OK.
-QuotationSheet.tsx : 2312 → 1660 lignes (-652 lignes)
+Étape 2 conforme au plan validé.
 En attente du GO pour l'étape suivante.
 ```
