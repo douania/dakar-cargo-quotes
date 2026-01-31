@@ -1,213 +1,374 @@
 
-# PHASE 4F.5 - Integration minimale Engine dans QuotationSheet.tsx
 
-## Contexte
+# PHASE 5B - Recapitulatif visuel Totaux
 
-Phase 4F.1-4F.4 executees. Le domain layer est pret :
-- `src/features/quotation/domain/` contient types, guards, rules, engine
-- Tests Vitest 4/4 OK
-- Engine expose `runQuotationEngine(input): QuotationEngineResult`
+## Objectif
 
-## Analyse du code actuel
-
-### Hooks existants (lignes 157-173)
-```typescript
-const { cargoLines, setCargoLines, addCargoLine, updateCargoLine, removeCargoLine } = useCargoLines();
-const { serviceLines, setServiceLines, addServiceLine, updateServiceLine, removeServiceLine } = useServiceLines();
-```
-
-### Calculs inline identifies
-- **Ligne 886** : `amount: (line.rate || 0) * line.quantity` dans QuotationExcelExport
-
-### Pas de section "Totaux" affichee
-Le fichier ne contient pas de rendu de totaux dans l'UI principale.
-L'engine sera utilise pour :
-1. Alimenter QuotationExcelExport avec des totaux valides
-2. Preparer l'affichage futur d'un recapitulatif
+Creer un composant UI affichant les totaux calcules par l'engine :
+- Metriques cargo (poids, volume, quantite)
+- Totaux financiers (sous-total services, HT, TTC)
+- Alertes issues de l'engine (valeurs negatives coercees, etc.)
 
 ---
 
-## Modifications a effectuer
+## Architecture
 
-### 1. Ajout de l'import (ligne ~74)
-```typescript
-// Domain layer (Phase 4F)
-import { runQuotationEngine } from '@/features/quotation/domain/engine';
-import type { QuotationInput } from '@/features/quotation/domain/types';
+### Nouveau fichier a creer
+
+```
+src/features/quotation/components/QuotationTotalsCard.tsx
 ```
 
-### 2. Mapping UI to Domain (apres ligne 179)
-```typescript
-// Quotation Engine - mapping UI → Domain (Phase 4F.5)
-const quotationInput: QuotationInput = {
-  cargoLines: cargoLines.map((c, i) => ({
-    id: c.id,
-    quantity: c.container_count ?? c.pieces ?? 1,
-    weight_kg: c.weight_kg ?? null,
-    volume_m3: c.volume_cbm ?? null,
-    description: c.description || null,
-  })),
-  serviceLines: serviceLines.map((s) => ({
-    id: s.id,
-    quantity: s.quantity ?? 1,
-    unit_price: s.rate ?? null,
-    description: s.description || null,
-    service_code: s.service || null,
-  })),
-  context: { rounding: 'none' },
-};
+### Emplacement dans QuotationSheet.tsx
 
-const engineResult = runQuotationEngine(quotationInput);
-const quotationTotals = engineResult.snapshot.totals;
+Apres `ServiceLinesForm` (ligne 884), avant le bloc `generatedResponse` (ligne 888) :
+
+```text
+├── CargoLinesForm (FROZEN)
+├── Route & Incoterm Card
+├── ServiceLinesForm (FROZEN)
+├── QuotationTotalsCard   ← NOUVEAU (Phase 5B)
+├── Generated Response
 ```
-
-### 3. Usage dans QuotationExcelExport (optionnel, non bloquant)
-Le composant QuotationExcelExport calcule deja `amount` inline.
-Phase 4F.5 se limite a rendre `quotationTotals` disponible.
-L'integration dans QuotationExcelExport peut etre reportee.
 
 ---
 
-## Fichiers modifies
+## Composant QuotationTotalsCard
 
-| Fichier | Modification |
-|---------|-------------|
-| QuotationSheet.tsx | +2 imports, +15 lignes mapping |
+### Props
 
-## Fichiers NON modifies (verification)
+```typescript
+interface QuotationTotalsCardProps {
+  totals: QuotationTotals;
+  currency?: string;
+  issues?: ReadonlyArray<QuoteIssue>;
+}
+```
+
+### Structure visuelle
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Calculator  Recapitulatif                                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   POIDS     │  │   VOLUME    │  │   QTE       │         │
+│  │  1,250 kg   │  │  45.2 m3    │  │   3         │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+│                                                             │
+│  ───────────────────────────────────────────────────────   │
+│                                                             │
+│  Sous-total services                    1,250,000 FCFA     │
+│  Total HT                               1,250,000 FCFA     │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  ! Valeur negative ramenee a 0 (serviceLines[2])   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Comportement
+
+- Affiche les metriques cargo (poids/volume/quantite) en grid 3 colonnes
+- Affiche sous-total services et total HT
+- Affiche total_tax et total_ttc UNIQUEMENT si tax > 0
+- Affiche les issues de l'engine en zone d'alerte jaune
+- Ne s'affiche PAS si quotationCompleted === true (coherent avec les autres formulaires)
+
+---
+
+## Code du composant
+
+```typescript
+/**
+ * UI COMPONENT — Phase 5B
+ * QuotationTotalsCard - Affichage recapitulatif des totaux engine
+ * Aucune logique metier, props only
+ */
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { AlertTriangle, Calculator, Package, Scale, Box } from 'lucide-react';
+import type { QuotationTotals, QuoteIssue } from '@/features/quotation/domain/types';
+
+interface QuotationTotalsCardProps {
+  totals: QuotationTotals;
+  currency?: string;
+  issues?: ReadonlyArray<QuoteIssue>;
+}
+
+function formatNumber(value: number, decimals = 0): string {
+  return value.toLocaleString('fr-FR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+function formatMoney(amount: number, currency: string): string {
+  return `${formatNumber(amount)} ${currency}`;
+}
+
+export function QuotationTotalsCard({
+  totals,
+  currency = 'FCFA',
+  issues = [],
+}: QuotationTotalsCardProps) {
+  const { subtotal_cargo_metrics, subtotal_services, total_ht, total_tax, total_ttc } = totals;
+  const hasTax = total_tax > 0;
+
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Calculator className="h-4 w-4 text-primary" />
+          Recapitulatif
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Metriques cargo */}
+        <div className="grid grid-cols-3 gap-4">
+          <MetricItem
+            icon={<Scale className="h-4 w-4 text-muted-foreground" />}
+            label="Poids total"
+            value={formatNumber(subtotal_cargo_metrics.total_weight_kg)}
+            unit="kg"
+          />
+          <MetricItem
+            icon={<Box className="h-4 w-4 text-muted-foreground" />}
+            label="Volume total"
+            value={formatNumber(subtotal_cargo_metrics.total_volume_m3, 2)}
+            unit="m3"
+          />
+          <MetricItem
+            icon={<Package className="h-4 w-4 text-muted-foreground" />}
+            label="Quantite"
+            value={formatNumber(subtotal_cargo_metrics.total_quantity)}
+          />
+        </div>
+
+        <Separator />
+
+        {/* Totaux financiers */}
+        <div className="space-y-2">
+          <TotalRow
+            label="Sous-total services"
+            amount={subtotal_services}
+            currency={currency}
+          />
+          <TotalRow
+            label="Total HT"
+            amount={total_ht}
+            currency={currency}
+            bold
+          />
+          {hasTax && (
+            <>
+              <TotalRow
+                label="TVA"
+                amount={total_tax}
+                currency={currency}
+              />
+              <TotalRow
+                label="Total TTC"
+                amount={total_ttc}
+                currency={currency}
+                bold
+                highlight
+              />
+            </>
+          )}
+        </div>
+
+        {/* Issues / Alertes engine */}
+        {issues.length > 0 && (
+          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <span className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                Alertes de calcul
+              </span>
+            </div>
+            <div className="space-y-1">
+              {issues.map((issue, i) => (
+                <p key={i} className="text-xs text-yellow-700 dark:text-yellow-300">
+                  {issue.message}
+                  {issue.path && <span className="text-yellow-500"> ({issue.path})</span>}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Sous-composants internes
+
+function MetricItem({
+  icon,
+  label,
+  value,
+  unit,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  unit?: string;
+}) {
+  return (
+    <div className="text-center p-3 rounded-lg bg-muted/30">
+      <div className="flex items-center justify-center gap-1 mb-1">
+        {icon}
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+      <p className="text-lg font-semibold">
+        {value}
+        {unit && <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>}
+      </p>
+    </div>
+  );
+}
+
+function TotalRow({
+  label,
+  amount,
+  currency,
+  bold = false,
+  highlight = false,
+}: {
+  label: string;
+  amount: number;
+  currency: string;
+  bold?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between py-1 ${
+        highlight ? 'bg-primary/10 px-2 rounded -mx-2' : ''
+      }`}
+    >
+      <span className={`text-sm ${bold ? 'font-medium' : 'text-muted-foreground'}`}>
+        {label}
+      </span>
+      <span className={`text-sm ${bold ? 'font-semibold' : ''}`}>
+        {formatMoney(amount, currency)}
+      </span>
+    </div>
+  );
+}
+```
+
+---
+
+## Integration dans QuotationSheet.tsx
+
+### 1. Import (apres ligne 127)
+
+```typescript
+import { QuotationTotalsCard } from '@/features/quotation/components/QuotationTotalsCard';
+```
+
+### 2. Rendu (apres ServiceLinesForm, ligne 884)
+
+```typescript
+{/* Services to Quote */}
+<ServiceLinesForm
+  serviceLines={serviceLines}
+  addServiceLine={addServiceLine}
+  updateServiceLine={updateServiceLine}
+  removeServiceLine={removeServiceLine}
+/>
+
+{/* Recapitulatif Totaux - Phase 5B */}
+<QuotationTotalsCard
+  totals={quotationTotals}
+  currency="FCFA"
+  issues={engineResult.snapshot.issues}
+/>
+```
+
+Le composant est rendu a l'interieur du bloc `{!quotationCompleted && ( ... )}` donc il ne s'affiche pas quand le devis est complete.
+
+---
+
+## Fichiers modifies/crees
+
+| Fichier | Action | Lignes |
+|---------|--------|--------|
+| QuotationTotalsCard.tsx | CREER | ~130 |
+| QuotationSheet.tsx | +1 import, +5 lignes rendu | ~6 |
+
+## Fichiers NON modifies
 
 | Fichier | Statut |
 |---------|--------|
-| CargoLinesForm.tsx | FROZEN - aucun changement |
-| ServiceLinesForm.tsx | FROZEN - aucun changement |
-| useCargoLines.ts | aucun changement |
-| useServiceLines.ts | aucun changement |
+| CargoLinesForm.tsx | FROZEN |
+| ServiceLinesForm.tsx | FROZEN |
+| useCargoLines.ts | Aucun changement |
+| useServiceLines.ts | Aucun changement |
+| domain/engine.ts | Aucun changement |
 
 ---
 
-## Code a ajouter
+## Tests visuels attendus
 
-### Import (apres ligne 126)
-```typescript
-// Domain layer (Phase 4F)
-import { runQuotationEngine } from '@/features/quotation/domain/engine';
-import type { QuotationInput } from '@/features/quotation/domain/types';
-```
-
-### Mapping + appel engine (apres ligne 179, avant useEffect)
-```typescript
-// ═══════════════════════════════════════════════════════════════════
-// Quotation Engine — Phase 4F.5
-// Mapping UI → Domain puis calcul des totaux
-// ═══════════════════════════════════════════════════════════════════
-const quotationInput: QuotationInput = {
-  cargoLines: cargoLines.map((c) => ({
-    id: c.id,
-    quantity: c.container_count ?? c.pieces ?? 1,
-    weight_kg: c.weight_kg ?? null,
-    volume_m3: c.volume_cbm ?? null,
-    description: c.description || null,
-  })),
-  serviceLines: serviceLines.map((s) => ({
-    id: s.id,
-    quantity: s.quantity ?? 1,
-    unit_price: s.rate ?? null,
-    description: s.description || null,
-    service_code: s.service || null,
-  })),
-  context: { rounding: 'none' },
-};
-
-const engineResult = runQuotationEngine(quotationInput);
-const quotationTotals = engineResult.snapshot.totals;
-
-// Debug : afficher issues en dev (optionnel)
-// if (engineResult.snapshot.issues.length > 0) {
-//   console.debug('[QuotationEngine] Issues:', engineResult.snapshot.issues);
-// }
-```
+1. **Metriques cargo affichees** : poids, volume, quantite depuis l'engine
+2. **Totaux corrects** : sous-total = somme(rate * quantity) des services
+3. **Pas de TVA** : section TVA/TTC masquee (context.tax_rate = 0)
+4. **Issues affichees** : si valeurs negatives ou invalides saisies
+5. **Masque automatique** : composant invisible si quotationCompleted = true
 
 ---
 
-## Verification post-integration
+## Criteres de sortie Phase 5B
 
-1. **Build TypeScript OK** - aucun type error
-2. **Tests Vitest OK** - 23/23 (19 existants + 4 engine)
-3. **Rendu visuel identique** - aucun changement UI
-4. **Console** - `quotationTotals` disponible pour debug
-
----
-
-## Impact
-
-| Metrique | Avant | Apres |
-|----------|-------|-------|
-| Lignes QuotationSheet.tsx | 1005 | ~1022 |
-| Imports | 32 | 34 |
-| Variables disponibles | - | quotationTotals, engineResult |
-
----
-
-## Criteres de sortie Phase 4F.5
-
-- Import runQuotationEngine ajoute
-- Mapping UI → Domain en place
-- Variable `quotationTotals` disponible dans le composant
-- Build OK, Tests OK
-- Aucun changement visuel
-- Composants FROZEN non modifies
+- [ ] Fichier QuotationTotalsCard.tsx cree
+- [ ] Import ajoute dans QuotationSheet.tsx
+- [ ] Rendu ajoute apres ServiceLinesForm
+- [ ] Totaux reactifs (changement serviceLines = mise a jour immediate)
+- [ ] Build TypeScript OK
+- [ ] Aucun composant FROZEN modifie
 
 ---
 
 ## Section technique
 
-### Schema d'integration
+### Flux de donnees
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                    QuotationSheet.tsx                       │
-│                                                             │
-│  ┌─────────────┐    ┌──────────────┐                       │
-│  │ cargoLines  │    │ serviceLines │  (hooks Phase 4C)     │
-│  └──────┬──────┘    └──────┬───────┘                       │
-│         │                  │                                │
-│         └────────┬─────────┘                                │
-│                  ▼                                          │
-│  ┌──────────────────────────────────────┐                  │
-│  │        quotationInput (mapping)      │ ← NEW (4F.5)     │
-│  └──────────────────┬───────────────────┘                  │
-│                     │                                       │
-│                     ▼                                       │
-│  ┌──────────────────────────────────────┐                  │
-│  │     runQuotationEngine(input)        │                  │
-│  └──────────────────┬───────────────────┘                  │
-│                     │                                       │
-│                     ▼                                       │
-│  ┌──────────────────────────────────────┐                  │
-│  │  quotationTotals                     │                  │
-│  │  ├─ subtotal_services                │                  │
-│  │  ├─ subtotal_cargo_metrics           │                  │
-│  │  ├─ total_ht                         │                  │
-│  │  └─ total_ttc                        │                  │
-│  └──────────────────────────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
+cargoLines (hook)    serviceLines (hook)
+      │                     │
+      └──────────┬──────────┘
+                 ▼
+    quotationInput (mapping Phase 4F.5)
+                 │
+                 ▼
+    runQuotationEngine(quotationInput)
+                 │
+                 ▼
+    engineResult.snapshot
+         │              │
+         ▼              ▼
+   .totals         .issues
+         │              │
+         └──────┬───────┘
+                ▼
+    <QuotationTotalsCard
+      totals={quotationTotals}
+      issues={engineResult.snapshot.issues}
+    />
 ```
 
-### Mapping champs UI → Domain
+### Reactivite
 
-| CargoLine (UI) | CargoLineDomain |
-|----------------|-----------------|
-| id | id |
-| container_count ?? pieces ?? 1 | quantity |
-| weight_kg | weight_kg |
-| volume_cbm | volume_m3 |
-| description | description |
+Le composant est recalcule a chaque modification de `cargoLines` ou `serviceLines` car :
+1. Les hooks declenchent un re-render
+2. `quotationInput` est recalcule (mapping inline)
+3. `runQuotationEngine()` retourne de nouveaux totaux
+4. `QuotationTotalsCard` affiche les nouvelles valeurs
 
-| ServiceLine (UI) | ServiceLineDomain |
-|------------------|-------------------|
-| id | id |
-| quantity | quantity |
-| rate | unit_price |
-| description | description |
-| service | service_code |
+Pas de state supplementaire, pas de useEffect, pas de memo necessaire.
 
