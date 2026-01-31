@@ -68,6 +68,9 @@ import { QuotationHeader } from '@/features/quotation/components/QuotationHeader
 import { ThreadTimelineCard } from '@/features/quotation/components/ThreadTimelineCard';
 // Composants UI P2 extraits (Phase 4B)
 import { QuotationCompletedBanner } from '@/features/quotation/components/QuotationCompletedBanner';
+// Composants UI P3 extraits (Phase 4D)
+import { CargoLinesForm } from '@/features/quotation/components/CargoLinesForm';
+import { ServiceLinesForm } from '@/features/quotation/components/ServiceLinesForm';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
 
@@ -777,166 +780,12 @@ export default function QuotationSheet() {
                 </Card>
 
                 {/* Cargo Lines */}
-                <Card className="border-border/50 bg-gradient-card">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Package className="h-4 w-4 text-primary" />
-                        Marchandises ({cargoLines.length})
-                      </CardTitle>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => addCargoLine('container')}>
-                          <Container className="h-4 w-4 mr-1" />
-                          Conteneur
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => addCargoLine('breakbulk')}>
-                          <Boxes className="h-4 w-4 mr-1" />
-                          Breakbulk
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {cargoLines.length === 0 ? (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Ajoutez des lignes de marchandise</p>
-                      </div>
-                    ) : (
-                      cargoLines.map((line, index) => (
-                        <div key={line.id} className="p-4 rounded-lg border bg-muted/30 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <Badge variant={line.cargo_type === 'container' ? 'default' : 'secondary'}>
-                              {line.cargo_type === 'container' ? (
-                                <><Container className="h-3 w-3 mr-1" /> Conteneur</>
-                              ) : (
-                                <><Boxes className="h-3 w-3 mr-1" /> Breakbulk</>
-                              )}
-                            </Badge>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                              onClick={() => removeCargoLine(line.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="col-span-2 space-y-1">
-                              <Label className="text-xs">Description</Label>
-                              <Input
-                                value={line.description}
-                                onChange={(e) => updateCargoLine(line.id, { description: e.target.value })}
-                                placeholder="Description marchandise"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Origine</Label>
-                              <Input
-                                value={line.origin}
-                                onChange={(e) => updateCargoLine(line.id, { origin: e.target.value })}
-                                placeholder="Pays/Port"
-                              />
-                            </div>
-                          </div>
-
-                          {line.cargo_type === 'container' ? (
-                            <div className="grid grid-cols-4 gap-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Type</Label>
-                                <Select 
-                                  value={line.container_type || '40HC'} 
-                                  onValueChange={(v) => updateCargoLine(line.id, { container_type: v })}
-                                >
-                                  <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {containerTypes.map((type) => (
-                                      <SelectItem key={type.value} value={type.value}>
-                                        {type.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Nombre</Label>
-                                <Input
-                                  type="number"
-                                  min="1"
-                                  value={line.container_count || 1}
-                                  onChange={(e) => updateCargoLine(line.id, { container_count: parseInt(e.target.value) })}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">COC/SOC</Label>
-                                <Select 
-                                  value={line.coc_soc || 'COC'} 
-                                  onValueChange={(v) => updateCargoLine(line.id, { coc_soc: v as 'COC' | 'SOC' })}
-                                >
-                                  <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="COC">COC (Armateur)</SelectItem>
-                                    <SelectItem value="SOC">SOC (Chargeur)</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Poids (kg)</Label>
-                                <Input
-                                  type="number"
-                                  value={line.weight_kg || ''}
-                                  onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
-                                  placeholder="18000"
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-4 gap-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Poids (kg)</Label>
-                                <Input
-                                  type="number"
-                                  value={line.weight_kg || ''}
-                                  onChange={(e) => updateCargoLine(line.id, { weight_kg: parseFloat(e.target.value) })}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Volume (m³)</Label>
-                                <Input
-                                  type="number"
-                                  value={line.volume_cbm || ''}
-                                  onChange={(e) => updateCargoLine(line.id, { volume_cbm: parseFloat(e.target.value) })}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Dimensions</Label>
-                                <Input
-                                  value={line.dimensions || ''}
-                                  onChange={(e) => updateCargoLine(line.id, { dimensions: e.target.value })}
-                                  placeholder="L x l x H"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Pièces</Label>
-                                <Input
-                                  type="number"
-                                  value={line.pieces || ''}
-                                  onChange={(e) => updateCargoLine(line.id, { pieces: parseInt(e.target.value) })}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                <CargoLinesForm
+                  cargoLines={cargoLines}
+                  addCargoLine={addCargoLine}
+                  updateCargoLine={updateCargoLine}
+                  removeCargoLine={removeCargoLine}
+                />
 
                 {/* Route & Incoterm */}
                 <Card className="border-border/50 bg-gradient-card">
@@ -1000,96 +849,12 @@ export default function QuotationSheet() {
                 </Card>
 
                 {/* Services to Quote */}
-                <Card className="border-border/50 bg-gradient-card">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-primary" />
-                        Services à coter ({serviceLines.length})
-                      </CardTitle>
-                      <Select onValueChange={(v) => {
-                        const template = serviceTemplates.find(t => t.service === v);
-                        if (template) addServiceLine(template);
-                      }}>
-                        <SelectTrigger className="w-[200px] h-8">
-                          <Plus className="h-4 w-4 mr-1" />
-                          <span className="text-sm">Ajouter service</span>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {serviceTemplates.map((t) => (
-                            <SelectItem key={t.service} value={t.service}>
-                              {t.description}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {serviceLines.length === 0 ? (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Ajoutez les services demandés</p>
-                        <div className="flex flex-wrap justify-center gap-2 mt-3">
-                          {serviceTemplates.slice(0, 4).map((t) => (
-                            <Badge 
-                              key={t.service} 
-                              variant="outline" 
-                              className="cursor-pointer hover:bg-primary/10"
-                              onClick={() => addServiceLine(t)}
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              {t.description}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      serviceLines.map((line) => (
-                        <div key={line.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                          <div className="flex-1">
-                            <Input
-                              value={line.description}
-                              onChange={(e) => updateServiceLine(line.id, { description: e.target.value })}
-                              className="font-medium"
-                            />
-                          </div>
-                          <div className="w-20">
-                            <Input
-                              type="number"
-                              value={line.quantity}
-                              onChange={(e) => updateServiceLine(line.id, { quantity: parseInt(e.target.value) })}
-                              className="text-center"
-                            />
-                          </div>
-                          <div className="w-24">
-                            <Input
-                              value={line.unit}
-                              onChange={(e) => updateServiceLine(line.id, { unit: e.target.value })}
-                              placeholder="unité"
-                            />
-                          </div>
-                          <div className="w-28">
-                            <Input
-                              type="number"
-                              value={line.rate || ''}
-                              onChange={(e) => updateServiceLine(line.id, { rate: parseFloat(e.target.value) })}
-                              placeholder="Tarif"
-                            />
-                          </div>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeServiceLine(line.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                <ServiceLinesForm
+                  serviceLines={serviceLines}
+                  addServiceLine={addServiceLine}
+                  updateServiceLine={updateServiceLine}
+                  removeServiceLine={removeServiceLine}
+                />
               </>
             )}
 
