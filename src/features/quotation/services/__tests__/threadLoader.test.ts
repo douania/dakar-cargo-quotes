@@ -28,6 +28,11 @@ vi.mock('@/integrations/supabase/client', () => ({
   },
 }));
 
+// Helper to safely mock supabase.from with proper type casting
+const mockSupabaseFrom = (mockFn: ReturnType<typeof vi.fn>) => {
+  (supabase.from as unknown as ReturnType<typeof vi.fn>).mockImplementation(mockFn);
+};
+
 // Import après le mock
 import { supabase } from '@/integrations/supabase/client';
 
@@ -182,7 +187,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ in: mockIn }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadAttachments(['email-1', 'email-2']);
 
@@ -197,7 +202,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ in: mockIn }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadAttachments(['email-1']);
 
@@ -213,7 +218,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ eq: mockEq }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadEmailsByRef('thread-123');
 
@@ -244,7 +249,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ eq: mockEq }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadEmailsByRef('thread-123');
 
@@ -261,7 +266,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ order: mockOrder }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadEmailsBySubject('RE: Some Subject');
 
@@ -315,7 +320,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ order: mockOrder }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadEmailsBySubject('Transport Request');
 
@@ -331,7 +336,7 @@ describe('threadLoader', () => {
       const mockSelect = vi.fn(() => ({ order: mockOrder }));
       const mockFrom = vi.fn(() => ({ select: mockSelect }));
       
-      vi.mocked(supabase.from).mockImplementation(mockFrom);
+      mockSupabaseFrom(mockFrom);
 
       const result = await loadThreadEmailsBySubject('Any Subject');
 
