@@ -1,89 +1,185 @@
 
 
-# PHASE 4B.2 — Extraction Bannière Cotation Réalisée
+# PHASE 4B.3 — Stabilisation fetchThreadData (Safe Mode)
 
-## Analyse du bloc cible
+## Analyse de la fonction cible
 
 | Élément | Détails |
 |---------|---------|
-| Lignes source | 749–850 (conditionnel inclus) |
-| Condition d'affichage | `quotationCompleted && quotationOffers.length > 0` |
-| Icônes utilisées | `CheckCircle`, `Loader2`, `GraduationCap`, `Container`, `Boxes`, `Package`, `FileSpreadsheet`, `Paperclip` |
-| Composants UI | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `Button`, `Badge` |
-| Helpers internes | `getOfferTypeIcon()`, `getOfferTypeLabel()`, `formatDate()` |
+| Fichier source | `src/pages/QuotationSheet.tsx` |
+| Fonction | `fetchThreadData()` (L165-292) |
+| Taille | ~127 lignes |
+| Responsabilités | Fetch emails, attachments, consolidation, détection offres, alerts |
 
-## Props identifiées pour le nouveau composant
+## Fonctions pures extractables
 
-| Prop | Type | Usage |
-|------|------|-------|
-| `quotationOffers` | `QuotationOffer[]` | Liste des offres à afficher |
-| `isLearning` | `boolean` | État du bouton d'apprentissage |
-| `onLearnFromQuotation` | `() => void` | Callback du bouton "Apprendre" |
-| `formatDate` | `(dateStr: string \| null) => string` | Formatage des dates |
-| `getOfferTypeIcon` | `(type) => ReactNode` | Icône selon type d'offre |
-| `getOfferTypeLabel` | `(type) => string` | Label selon type d'offre |
+### 1. `mapRawEmailToThreadEmail()`
 
-## Fichier à créer
+**Rôle** : Convertit un enregistrement brut Supabase en `ThreadEmail`
 
-**Chemin** : `src/features/quotation/components/QuotationCompletedBanner.tsx`
-
-**Structure** :
-```text
-/**
- * UI COMPONENT — FROZEN (Phase 4B)
- * - Ne pas modifier sans ouvrir une nouvelle phase
- */
-
-// Imports UI (Card, Badge, Button, icônes)
-// Import types (QuotationOffer)
-// Import cn depuis @/lib/utils
-
-interface QuotationCompletedBannerProps {
-  quotationOffers: QuotationOffer[];
-  isLearning: boolean;
-  onLearnFromQuotation: () => void;
-  formatDate: (dateStr: string | null) => string;
-  getOfferTypeIcon: (type: 'container' | 'breakbulk' | 'combined') => React.ReactNode;
-  getOfferTypeLabel: (type: 'container' | 'breakbulk' | 'combined') => string;
-}
-
-export function QuotationCompletedBanner({ ... }) {
-  // JSX copié strictement identique (lignes 750-849)
-}
+**Signature** :
+```typescript
+function mapRawEmailToThreadEmail(rawEmail: any): ThreadEmail
 ```
 
-## Modifications dans QuotationSheet.tsx
+**Code source** : Lignes 188-199, 219-230, 236-247 (logique dupliquée 3x)
+
+---
+
+### 2. `loadThreadEmailsByRef()`
+
+**Rôle** : Charge les emails d'un thread via `thread_ref`
+
+**Signature** :
+```typescript
+async function loadThreadEmailsByRef(threadRef: string): Promise<ThreadEmail[]>
+```
+
+**Code source** : Lignes 179-201
+
+---
+
+### 3. `loadThreadEmailsBySubject()`
+
+**Rôle** : Charge les emails similaires par sujet normalisé (fallback)
+
+**Signature** :
+```typescript
+async function loadThreadEmailsBySubject(subject: string): Promise<ThreadEmail[]>
+```
+
+**Code source** : Lignes 204-232
+
+---
+
+### 4. `loadThreadAttachments()`
+
+**Rôle** : Charge les pièces jointes pour une liste d'emails
+
+**Signature** :
+```typescript
+async function loadThreadAttachments(
+  emailIds: string[]
+): Promise<Array<{ id: string; filename: string; content_type: string; email_id?: string }>>
+```
+
+**Code source** : Lignes 257-263
+
+---
+
+### 5. `buildCurrentEmail()`
+
+**Rôle** : Détermine l'email sélectionné dans le thread
+
+**Signature** :
+```typescript
+function buildCurrentEmail(
+  emails: ThreadEmail[], 
+  targetEmailId: string
+): ThreadEmail
+```
+
+**Code source** : Ligne 253
+
+---
+
+## Structure du fichier à créer
+
+**Chemin** : `src/features/quotation/services/threadLoader.ts`
+
+```text
+/**
+ * Service de chargement des threads email
+ * Phase 4B.3 — Extraction pure de fetchThreadData
+ */
+
+// Imports
+import { supabase } from '@/integrations/supabase/client';
+import { normalizeSubject } from '../utils/consolidation';
+import type { ThreadEmail, ExtractedData } from '../types';
+
+// Type pour les données brutes Supabase
+interface RawEmailRecord { ... }
+
+// Fonction 1: mapRawEmailToThreadEmail
+export function mapRawEmailToThreadEmail(raw: RawEmailRecord): ThreadEmail { ... }
+
+// Fonction 2: loadThreadEmailsByRef
+export async function loadThreadEmailsByRef(threadRef: string): Promise<ThreadEmail[]> { ... }
+
+// Fonction 3: loadThreadEmailsBySubject
+export async function loadThreadEmailsBySubject(subject: string): Promise<ThreadEmail[]> { ... }
+
+// Fonction 4: loadThreadAttachments
+export async function loadThreadAttachments(emailIds: string[]): Promise<...> { ... }
+
+// Fonction 5: buildCurrentEmail
+export function buildCurrentEmail(emails: ThreadEmail[], targetId: string): ThreadEmail { ... }
+```
+
+---
+
+## Modification dans QuotationSheet.tsx
 
 ### 1. Ajout de l'import
 
 ```typescript
-// Après les imports existants de features/quotation/components
-import { QuotationCompletedBanner } from '@/features/quotation/components/QuotationCompletedBanner';
+import { 
+  mapRawEmailToThreadEmail,
+  loadThreadEmailsByRef,
+  loadThreadEmailsBySubject,
+  loadThreadAttachments,
+  buildCurrentEmail
+} from '@/features/quotation/services/threadLoader';
 ```
 
-### 2. Remplacement du bloc JSX (lignes 749-850)
+### 2. Simplification de fetchThreadData
 
-**Avant** :
+**Avant** (~127 lignes) :
 ```typescript
-{quotationCompleted && quotationOffers.length > 0 && (
-  <Card className="border-green-500/30 bg-green-500/5">
-    {/* ~100 lignes de JSX */}
-  </Card>
-)}
+const fetchThreadData = async () => {
+  // Toute la logique inline
+};
 ```
 
-**Après** :
+**Après** (~60 lignes estimées) :
 ```typescript
-{quotationCompleted && quotationOffers.length > 0 && (
-  <QuotationCompletedBanner
-    quotationOffers={quotationOffers}
-    isLearning={isLearning}
-    onLearnFromQuotation={handleLearnFromQuotation}
-    formatDate={formatDate}
-    getOfferTypeIcon={getOfferTypeIcon}
-    getOfferTypeLabel={getOfferTypeLabel}
-  />
-)}
+const fetchThreadData = async () => {
+  try {
+    // Fetch initial email (reste inline - besoin de emailId du scope)
+    const { data: emailData, error } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('id', emailId)
+      .single();
+    
+    if (error) throw error;
+    
+    // Load thread emails (appels aux fonctions extraites)
+    let threadEmailsList = await loadThreadEmailsByRef(emailData.thread_ref);
+    
+    if (threadEmailsList.length <= 1 && emailData.subject) {
+      threadEmailsList = await loadThreadEmailsBySubject(emailData.subject);
+    }
+    
+    if (threadEmailsList.length === 0) {
+      threadEmailsList = [mapRawEmailToThreadEmail(emailData)];
+    }
+    
+    setThreadEmails(threadEmailsList);
+    
+    // Current email
+    const currentEmail = buildCurrentEmail(threadEmailsList, emailId!);
+    setSelectedEmail(currentEmail);
+    
+    // Attachments
+    const attachmentData = await loadThreadAttachments(threadEmailsList.map(e => e.id));
+    setAttachments(attachmentData);
+    
+    // Le reste (consolidation, detection, alerts) reste identique
+    // ...
+  } catch (error) { ... }
+};
 ```
 
 ---
@@ -92,8 +188,22 @@ import { QuotationCompletedBanner } from '@/features/quotation/components/Quotat
 
 | Fichier | Action |
 |---------|--------|
-| `src/features/quotation/components/QuotationCompletedBanner.tsx` | **Créer** — Nouveau composant FROZEN |
-| `src/pages/QuotationSheet.tsx` | **Modifier** — Import + remplacement bloc |
+| `src/features/quotation/services/threadLoader.ts` | **Créer** — Nouveau service |
+| `src/pages/QuotationSheet.tsx` | **Modifier** — Import + refactor fetchThreadData |
+
+---
+
+## Contraintes respectées
+
+| Contrainte | Statut |
+|------------|--------|
+| Signature fetchThreadData inchangée | ✅ |
+| useEffect non déplacé | ✅ |
+| fetchThreadData reste orchestrateur | ✅ |
+| Fonctions pures uniquement | ✅ |
+| Aucune logique métier modifiée | ✅ |
+| Aucun state supprimé/renommé | ✅ |
+| Aucun composant UI touché | ✅ |
 
 ---
 
@@ -101,19 +211,18 @@ import { QuotationCompletedBanner } from '@/features/quotation/components/Quotat
 
 - [ ] Build TypeScript OK
 - [ ] Aucun runtime error
-- [ ] Tests Vitest 5/5 (ThreadTimelineCard)
-- [ ] Rendu visuel strictement identique
-- [ ] Commentaire FREEZE présent
+- [ ] Tests Vitest existants toujours verts (5/5)
+- [ ] Comportement fonctionnel identique
 
 ---
 
 ## Message de clôture attendu
 
 ```
-Phase 4B.2 exécutée.
-Bannière extraite et gelée.
-Fichier créé : QuotationCompletedBanner.tsx
-Diff QuotationSheet : ~100 lignes → 8 lignes
+Phase 4B.3 exécutée.
+fetchThreadData stabilisée sans changement fonctionnel.
+Fichier créé : src/features/quotation/services/threadLoader.ts
+5 fonctions pures extraites.
 Build OK. Tests 5/5.
 ```
 
