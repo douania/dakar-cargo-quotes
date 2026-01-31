@@ -1,3 +1,9 @@
+/**
+ * UI COMPONENT — FROZEN (Phase 3B)
+ * - Ne pas modifier sans ouvrir une nouvelle phase
+ * - Logique métier volontairement absente
+ * - Toute évolution = nouvelle phase (3B.x)
+ */
 import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

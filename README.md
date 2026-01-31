@@ -93,3 +93,14 @@ npx vitest
 ```
 
 Test files location: `src/**/__tests__/*.test.tsx`
+
+### Frozen Components (Phase 3B)
+
+| Component | Location | Frozen Since |
+|-----------|----------|--------------|
+| ThreadTimelineCard | `src/features/quotation/components/` | Phase 3B.4 |
+| QuotationHeader | `src/features/quotation/components/` | Phase 3B |
+| AlertsPanel | `src/features/quotation/components/` | Phase 3B |
+| RegulatoryInfoCard | `src/features/quotation/components/` | Phase 3B |
+| SuggestionsCard | `src/features/quotation/components/` | Phase 3B |
+| QuickActionsCard | `src/features/quotation/components/` | Phase 3B |
