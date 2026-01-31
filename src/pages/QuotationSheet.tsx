@@ -109,6 +109,15 @@ import {
   extractAllRegulatoryInfo 
 } from '@/features/quotation/utils/detection';
 
+// Service de chargement des threads (Phase 4B.3)
+import {
+  mapRawEmailToThreadEmail,
+  loadThreadEmailsByRef,
+  loadThreadEmailsBySubject,
+  loadThreadAttachments,
+  buildCurrentEmail
+} from '@/features/quotation/services/threadLoader';
+
 
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
@@ -164,7 +173,7 @@ export default function QuotationSheet() {
 
   const fetchThreadData = async () => {
     try {
-      // First, get the selected email
+      // First, get the selected email (reste inline - besoin de emailId du scope)
       const { data: emailData, error: emailError } = await supabase
         .from('emails')
         .select('*')
@@ -173,97 +182,35 @@ export default function QuotationSheet() {
 
       if (emailError) throw emailError;
       
+      // Load thread emails using extracted service functions
       let threadEmailsList: ThreadEmail[] = [];
       
-      // Try to get all emails from the thread
       if (emailData.thread_ref) {
-        // Get all emails with same thread_ref
-        const { data: threadData } = await supabase
-          .from('emails')
-          .select('*')
-          .eq('thread_ref', emailData.thread_ref)
-          .order('sent_at', { ascending: true });
-        
-        if (threadData && threadData.length > 0) {
-          threadEmailsList = threadData.map(e => ({
-            id: e.id,
-            subject: e.subject,
-            from_address: e.from_address,
-            to_addresses: e.to_addresses,
-            cc_addresses: e.cc_addresses,
-            body_text: e.body_text,
-            received_at: e.received_at || e.created_at || '',
-            sent_at: e.sent_at,
-            extracted_data: e.extracted_data as ExtractedData | null,
-            thread_ref: e.thread_ref,
-          }));
-        }
+        threadEmailsList = await loadThreadEmailsByRef(emailData.thread_ref);
       }
       
-      // If no thread_ref or no results, try matching by normalized subject
+      // Fallback: try matching by normalized subject
       if (threadEmailsList.length <= 1 && emailData.subject) {
-        const normalizedSubject = normalizeSubject(emailData.subject);
-        
-        // Search for emails with similar subject
-        const { data: similarEmails } = await supabase
-          .from('emails')
-          .select('*')
-          .order('sent_at', { ascending: true });
-        
-        if (similarEmails) {
-          threadEmailsList = similarEmails
-            .filter(e => {
-              const eNormalized = normalizeSubject(e.subject);
-              return eNormalized.includes(normalizedSubject) || normalizedSubject.includes(eNormalized);
-            })
-            .map(e => ({
-              id: e.id,
-              subject: e.subject,
-              from_address: e.from_address,
-              to_addresses: e.to_addresses,
-              cc_addresses: e.cc_addresses,
-              body_text: e.body_text,
-              received_at: e.received_at || e.created_at || '',
-              sent_at: e.sent_at,
-              extracted_data: e.extracted_data as ExtractedData | null,
-              thread_ref: e.thread_ref,
-            }));
-        }
+        threadEmailsList = await loadThreadEmailsBySubject(emailData.subject);
       }
       
-      // If still nothing, just use the single email
+      // Last fallback: use single email
       if (threadEmailsList.length === 0) {
-        threadEmailsList = [{
-          id: emailData.id,
-          subject: emailData.subject,
-          from_address: emailData.from_address,
-          to_addresses: emailData.to_addresses,
-          cc_addresses: emailData.cc_addresses,
-          body_text: emailData.body_text,
-          received_at: emailData.received_at || emailData.created_at || '',
-          sent_at: emailData.sent_at,
-          extracted_data: emailData.extracted_data as ExtractedData | null,
-          thread_ref: emailData.thread_ref,
-        }];
+        threadEmailsList = [mapRawEmailToThreadEmail(emailData)];
       }
       
       setThreadEmails(threadEmailsList);
       
-      // Set selected email to the one in the URL
-      const currentEmail = threadEmailsList.find(e => e.id === emailId) || threadEmailsList[threadEmailsList.length - 1];
+      // Set selected email using extracted function
+      const currentEmail = buildCurrentEmail(threadEmailsList, emailId!);
       setSelectedEmail(currentEmail);
       
-      // Fetch attachments for all thread emails
-      const emailIds = threadEmailsList.map(e => e.id);
-      const { data: attachmentData } = await supabase
-        .from('email_attachments')
-        .select('id, filename, content_type, email_id')
-        .in('email_id', emailIds);
-      
-      setAttachments(attachmentData || []);
+      // Fetch attachments using extracted function
+      const attachmentData = await loadThreadAttachments(threadEmailsList.map(e => e.id));
+      setAttachments(attachmentData);
       
       // Detect completed quotation offers
-      const offers = detectQuotationOffers(threadEmailsList, attachmentData || []);
+      const offers = detectQuotationOffers(threadEmailsList, attachmentData);
       setQuotationOffers(offers);
       setQuotationCompleted(offers.length > 0);
       
