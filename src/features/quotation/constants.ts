@@ -11,11 +11,11 @@ export const containerTypes = [
   { value: '40FR', label: "40' Flat Rack" },
   { value: '20RF', label: "20' Reefer" },
   { value: '40RF', label: "40' Reefer" },
-] as const;
+];
 
 export const incoterms = [
   'EXW', 'FCA', 'FAS', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'
-] as const;
+];
 
 export const serviceTemplates = [
   { service: 'DTHC', description: 'Destination Terminal Handling', unit: 'EVP' },
@@ -25,13 +25,13 @@ export const serviceTemplates = [
   { service: 'PORT_CHARGES', description: 'Frais de port Dakar', unit: 'tonne' },
   { service: 'TRUCKING', description: 'Transport routier vers site', unit: 'voyage' },
   { service: 'CUSTOMS', description: 'Dédouanement', unit: 'déclaration' },
-] as const;
+];
 
 /**
  * Domaines internes de l'entreprise
  * Utilisés pour détecter les emails internes vs externes
  */
-export const INTERNAL_DOMAINS = ['sodatra.sn', '2hlgroup.com', '2hl.sn'] as const;
+export const INTERNAL_DOMAINS = ['sodatra.sn', '2hlgroup.com', '2hl.sn'];
 
 /**
  * Mots-clés indiquant une offre de cotation
@@ -54,7 +54,7 @@ export const OFFER_KEYWORDS = [
   'please see attached',
   'kindly find attached',
   'please find enclosed',
-] as const;
+];
 
 /**
  * Labels des workflows pour l'affichage
