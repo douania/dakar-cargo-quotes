@@ -1,232 +1,234 @@
 
 
-# ÉTAPE 3A – PLAN D'EXTRACTION UI P0 (VERSION CORRIGÉE)
+# PHASE 3B.1 — EXTRACTION QuotationHeader (P1)
 
-## Corrections intégrées par rapport au plan initial
-
-| Correction | Impact |
-|------------|--------|
-| **Emplacement** | `src/features/quotation/components/` (feature-first, pas `src/components/quotation/`) |
-| **SuggestionsCard** | Reclassé P0 (lecture seule pure) |
-| **SelectedEmailPreview** | Reporté en P1 (dépendances utilitaires) |
-
----
-
-## 1. COMPOSANTS À EXTRAIRE (P0 uniquement)
-
-### 1.1 RegulatoryInfoCard
+## Périmètre identifié
 
 | Attribut | Valeur |
 |----------|--------|
-| Lignes source | 890-956 (67 lignes) |
-| Fichier cible | `src/features/quotation/components/RegulatoryInfoCard.tsx` |
-| Props | `regulatoryInfo: RegulatoryInfo \| null` |
-| Imports requis | `Card`, `CardHeader`, `CardTitle`, `CardContent`, `Badge`, `Ship`, `Info`, `CheckCircle`, `ShieldCheck`, `RegulatoryInfo` type |
-| Handlers | Aucun |
-| State modifié | Aucun |
-| Risque | **Faible** |
+| Lignes source | 732-774 (43 lignes) |
+| Fichier cible | `src/features/quotation/components/QuotationHeader.tsx` |
+| Type | Composant UI P1 (callbacks simples) |
+| Risque | **Moyen** (navigation + action générer) |
 
 ---
 
-### 1.2 AlertsPanel
+## JSX à extraire (lignes 732-774)
 
-| Attribut | Valeur |
+```tsx
+{/* Header */}
+<div className="flex items-center gap-4 mb-6">
+  <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
+    <ArrowLeft className="h-5 w-5" />
+  </Button>
+  <div className="flex-1">
+    <div className="flex items-center gap-2">
+      <h1 className="text-xl font-bold">
+        {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
+      </h1>
+      {quotationCompleted && (
+        <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+          <CheckCircle className="h-3 w-3 mr-1" />
+          Cotation réalisée
+        </Badge>
+      )}
+    </div>
+    {selectedEmail && (
+      <p className="text-sm text-muted-foreground truncate">
+        {selectedEmail.subject}
+      </p>
+    )}
+    {threadEmails.length > 1 && (
+      <Badge variant="outline" className="mt-1">
+        <MessageSquare className="h-3 w-3 mr-1" />
+        {threadEmails.length} emails dans le fil
+      </Badge>
+    )}
+  </div>
+  {!quotationCompleted && (
+    <Button 
+      onClick={handleGenerateResponse}
+      disabled={isGenerating}
+    >
+      {isGenerating ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <Send className="h-4 w-4 mr-2" />
+      )}
+      Générer la réponse
+    </Button>
+  )}
+</div>
+```
+
+---
+
+## Props nécessaires
+
+```typescript
+interface QuotationHeaderProps {
+  isNewQuotation: boolean;
+  quotationCompleted: boolean;
+  selectedEmailSubject: string | null;
+  threadCount: number;
+  isGenerating: boolean;
+  onBack: () => void;
+  onGenerateResponse: () => void;
+}
+```
+
+| Prop | Type | Source dans QuotationSheet |
+|------|------|---------------------------|
+| `isNewQuotation` | `boolean` | Variable locale |
+| `quotationCompleted` | `boolean` | State |
+| `selectedEmailSubject` | `string \| null` | `selectedEmail?.subject` |
+| `threadCount` | `number` | `threadEmails.length` |
+| `isGenerating` | `boolean` | State |
+| `onBack` | `() => void` | `() => navigate('/')` |
+| `onGenerateResponse` | `() => void` | `handleGenerateResponse` |
+
+---
+
+## Imports requis pour le composant
+
+```typescript
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+```
+
+---
+
+## Structure du composant
+
+```typescript
+// src/features/quotation/components/QuotationHeader.tsx
+
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+
+interface QuotationHeaderProps {
+  isNewQuotation: boolean;
+  quotationCompleted: boolean;
+  selectedEmailSubject: string | null;
+  threadCount: number;
+  isGenerating: boolean;
+  onBack: () => void;
+  onGenerateResponse: () => void;
+}
+
+export function QuotationHeader({
+  isNewQuotation,
+  quotationCompleted,
+  selectedEmailSubject,
+  threadCount,
+  isGenerating,
+  onBack,
+  onGenerateResponse,
+}: QuotationHeaderProps) {
+  return (
+    <div className="flex items-center gap-4 mb-6">
+      {/* JSX identique lignes 733-773 */}
+    </div>
+  );
+}
+```
+
+---
+
+## Modifications dans QuotationSheet.tsx
+
+### 1. Ajouter l'import (après ligne 65)
+
+```typescript
+import { QuotationHeader } from '@/features/quotation/components/QuotationHeader';
+```
+
+### 2. Remplacer le bloc (lignes 732-774)
+
+**Avant :**
+```tsx
+{/* Header */}
+<div className="flex items-center gap-4 mb-6">
+  ...43 lignes...
+</div>
+```
+
+**Après :**
+```tsx
+<QuotationHeader
+  isNewQuotation={isNewQuotation}
+  quotationCompleted={quotationCompleted}
+  selectedEmailSubject={selectedEmail?.subject ?? null}
+  threadCount={threadEmails.length}
+  isGenerating={isGenerating}
+  onBack={() => navigate('/')}
+  onGenerateResponse={handleGenerateResponse}
+/>
+```
+
+---
+
+## Ce qui reste dans QuotationSheet.tsx
+
+| Élément | Statut |
+|---------|--------|
+| `handleGenerateResponse` | **Conservé** (passé en prop) |
+| `navigate` | **Conservé** (utilisé dans onBack) |
+| `isNewQuotation` | **Conservé** (variable locale) |
+| `quotationCompleted` | **Conservé** (state) |
+| `isGenerating` | **Conservé** (state) |
+
+---
+
+## Fichiers à créer/modifier
+
+| Fichier | Action |
+|---------|--------|
+| `src/features/quotation/components/QuotationHeader.tsx` | **Créer** |
+| `src/pages/QuotationSheet.tsx` | **Modifier** (import + remplacement JSX) |
+
+---
+
+## Réduction attendue
+
+| Métrique | Valeur |
 |----------|--------|
-| Lignes source | 958-981 (24 lignes) |
-| Fichier cible | `src/features/quotation/components/AlertsPanel.tsx` |
-| Props | `alerts: Alert[]` |
-| Imports requis | `Card`, `CardHeader`, `CardTitle`, `CardContent`, `AlertTriangle`, `HelpCircle`, `CheckCircle`, `Alert` type |
-| Handlers | Aucun |
-| State modifié | Aucun |
-| Risque | **Faible** |
+| Lignes supprimées | ~43 |
+| Lignes ajoutées (appel) | ~8 |
+| **Réduction nette** | **~35 lignes** |
 
 ---
 
-### 1.3 SuggestionsCard
+## Validation obligatoire après exécution
 
-| Attribut | Valeur |
-|----------|--------|
-| Lignes source | 1601-1629 (29 lignes) |
-| Fichier cible | `src/features/quotation/components/SuggestionsCard.tsx` |
-| Props | `suggestions: Suggestion[]` |
-| Imports requis | `Card`, `CardHeader`, `CardTitle`, `CardContent`, `Badge`, `Lightbulb`, `Suggestion` type |
-| Handlers | Aucun |
-| State modifié | Aucun |
-| Risque | **Faible** |
-
----
-
-### 1.4 QuickActionsCard
-
-| Attribut | Valeur |
-|----------|--------|
-| Lignes source | 1631-1654 (24 lignes) |
-| Fichier cible | `src/features/quotation/components/QuickActionsCard.tsx` |
-| Props | Aucune (boutons statiques sans fonctionnalité) |
-| Imports requis | `Card`, `CardHeader`, `CardTitle`, `CardContent`, `Button`, `DollarSign`, `Package`, `Truck`, `History` |
-| Handlers | Aucun (boutons inactifs pour l'instant) |
-| State modifié | Aucun |
-| Risque | **Faible** |
-
----
-
-## 2. ORDRE D'EXÉCUTION
-
-| Étape | Action |
-|-------|--------|
-| 1 | Créer `src/features/quotation/components/RegulatoryInfoCard.tsx` |
-| 2 | Créer `src/features/quotation/components/AlertsPanel.tsx` |
-| 3 | Créer `src/features/quotation/components/SuggestionsCard.tsx` |
-| 4 | Créer `src/features/quotation/components/QuickActionsCard.tsx` |
-| 5 | Modifier `QuotationSheet.tsx` : ajouter imports + remplacer JSX inline |
-| 6 | Build TypeScript |
-| 7 | Test manuel sur cotation existante |
-
----
-
-## 3. MODIFICATIONS DANS QuotationSheet.tsx
-
-### 3.1 Imports à ajouter
-
-```typescript
-import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
-import { AlertsPanel } from '@/features/quotation/components/AlertsPanel';
-import { SuggestionsCard } from '@/features/quotation/components/SuggestionsCard';
-import { QuickActionsCard } from '@/features/quotation/components/QuickActionsCard';
-```
-
-### 3.2 Blocs à remplacer
-
-| Lignes | Bloc actuel | Remplacement |
-|--------|-------------|--------------|
-| 890-956 | JSX RegulatoryInfo inline | `<RegulatoryInfoCard regulatoryInfo={regulatoryInfo} />` |
-| 958-981 | JSX Alerts inline | `<AlertsPanel alerts={alerts} />` |
-| 1601-1629 | JSX Suggestions inline | `<SuggestionsCard suggestions={suggestions} />` |
-| 1631-1654 | JSX QuickActions inline | `<QuickActionsCard />` |
-
----
-
-## 4. STRUCTURE DES COMPOSANTS
-
-### RegulatoryInfoCard.tsx
-
-```typescript
-interface RegulatoryInfoCardProps {
-  regulatoryInfo: RegulatoryInfo | null;
-}
-
-export function RegulatoryInfoCard({ regulatoryInfo }: RegulatoryInfoCardProps) {
-  // Condition d'affichage conservée
-  if (!regulatoryInfo || (!regulatoryInfo.projectTaxation && !regulatoryInfo.dpiRequired && regulatoryInfo.customsNotes.length === 0)) {
-    return null;
-  }
-  
-  // JSX identique (lignes 892-955)
-}
-```
-
-### AlertsPanel.tsx
-
-```typescript
-interface AlertsPanelProps {
-  alerts: Alert[];
-}
-
-export function AlertsPanel({ alerts }: AlertsPanelProps) {
-  if (alerts.length === 0) return null;
-  
-  // JSX identique (lignes 960-980)
-}
-```
-
-### SuggestionsCard.tsx
-
-```typescript
-interface SuggestionsCardProps {
-  suggestions: Suggestion[];
-}
-
-export function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
-  if (suggestions.length === 0) return null;
-  
-  // JSX identique (lignes 1603-1628)
-}
-```
-
-### QuickActionsCard.tsx
-
-```typescript
-export function QuickActionsCard() {
-  // JSX identique (lignes 1632-1654)
-  // Boutons statiques sans handlers
-}
-```
-
----
-
-## 5. RÉDUCTION ATTENDUE
-
-| Composant | Lignes supprimées |
-|-----------|-------------------|
-| RegulatoryInfoCard | ~67 |
-| AlertsPanel | ~24 |
-| SuggestionsCard | ~29 |
-| QuickActionsCard | ~24 |
-| **Total Phase 3A** | **~144 lignes** |
-
-**QuotationSheet.tsx après Phase 3A : ~1516 lignes** (vs 1660 actuellement)
-
----
-
-## 6. FICHIERS CRÉÉS (RÉCAPITULATIF)
-
-| Fichier | Type |
-|---------|------|
-| `src/features/quotation/components/RegulatoryInfoCard.tsx` | Composant |
-| `src/features/quotation/components/AlertsPanel.tsx` | Composant |
-| `src/features/quotation/components/SuggestionsCard.tsx` | Composant |
-| `src/features/quotation/components/QuickActionsCard.tsx` | Composant |
-
----
-
-## 7. VALIDATION OBLIGATOIRE APRÈS EXÉCUTION
-
-- [ ] Build TypeScript OK
+- [ ] Build TypeScript OK (`tsc --noEmit`)
 - [ ] Ouverture cotation existante OK
-- [ ] Bloc "Informations réglementaires" affiché IDENTIQUE
-- [ ] Bloc "Points d'attention" affiché IDENTIQUE
-- [ ] Bloc "Suggestions IA" affiché IDENTIQUE
-- [ ] Bloc "Actions rapides" affiché IDENTIQUE
-- [ ] Aucune régression sur les autres blocs
+- [ ] Header affiché IDENTIQUE
+- [ ] Bouton "Retour" fonctionne
+- [ ] Bouton "Générer la réponse" fonctionne
+- [ ] Badge "Cotation réalisée" affiché si applicable
+- [ ] Badge "X emails dans le fil" affiché si applicable
 
 ---
 
-## 8. SIGNAUX D'ALERTE (ROLLBACK IMMÉDIAT)
+## Signaux d'alerte (ROLLBACK)
 
-- Erreur TypeScript bloquante
-- Affichage différent d'un bloc extrait
-- Props manquantes ou incorrectes
-- Condition d'affichage cassée
-
----
-
-## 9. CE QU'ON NE TOUCHE PAS (PHASE 3A)
-
-- Aucun handler (fetchThreadData, handleGenerateResponse, etc.)
-- Aucun state
-- Aucun utilitaire (formatDate, getEmailSenderName, etc.)
-- Aucune extraction de hooks
-- Les composants P1 et P2 (QuotationHeader, ThreadTimelineCard, etc.)
+- Erreur TypeScript
+- Navigation cassée
+- Bouton "Générer" ne déclenche pas l'action
+- Badges non affichés
 
 ---
 
 ## Message de clôture attendu
 
 ```
-Phase 3A exécutée.
-4 composants créés dans src/features/quotation/components/
-Lignes supprimées dans QuotationSheet.tsx : ~144
+Phase 3B.1 exécutée.
+Composant créé : src/features/quotation/components/QuotationHeader.tsx
+Lignes supprimées dans QuotationSheet.tsx : ~35
 Build OK.
-En attente du GO pour Phase 3B.
+En attente de validation avant 3B.2.
 ```
 
