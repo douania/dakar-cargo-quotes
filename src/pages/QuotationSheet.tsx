@@ -128,7 +128,6 @@ export default function QuotationSheet() {
   const [quotationCompleted, setQuotationCompleted] = useState(false);
   const [quotationOffers, setQuotationOffers] = useState<QuotationOffer[]>([]);
   const [regulatoryInfo, setRegulatoryInfo] = useState<RegulatoryInfo | null>(null);
-  const [offersExpanded, setOffersExpanded] = useState(true);
   
   // Project context
   const [projectContext, setProjectContext] = useState<ProjectContext>({
