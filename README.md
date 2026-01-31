@@ -71,3 +71,25 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+---
+
+## Development Conventions
+
+### UI Components
+
+Components extracted to `src/features/*/components/` follow these rules:
+
+- **Named exports only** — Never use `export default`
+- **Import syntax** — Always use `import { Component } from '...'`
+- **memo()** — Wrapped components require a cold restart in Vite after changes
+- **FROZEN components** — Components marked with `FROZEN` comment should not be modified without opening a new phase
+
+### Testing
+
+Run tests with:
+```sh
+npx vitest
+```
+
+Test files location: `src/**/__tests__/*.test.tsx`
