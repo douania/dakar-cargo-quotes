@@ -1,195 +1,202 @@
 
 
-# PHASE 4B.3 — Stabilisation fetchThreadData (Safe Mode)
+# PHASE 4C — Découplage Formulaire (Cargo / Services)
 
-## Analyse de la fonction cible
+## Objectif
 
-| Élément | Détails |
-|---------|---------|
-| Fichier source | `src/pages/QuotationSheet.tsx` |
-| Fonction | `fetchThreadData()` (L165-292) |
-| Taille | ~127 lignes |
-| Responsabilités | Fetch emails, attachments, consolidation, détection offres, alerts |
-
-## Fonctions pures extractables
-
-### 1. `mapRawEmailToThreadEmail()`
-
-**Rôle** : Convertit un enregistrement brut Supabase en `ThreadEmail`
-
-**Signature** :
-```typescript
-function mapRawEmailToThreadEmail(rawEmail: any): ThreadEmail
-```
-
-**Code source** : Lignes 188-199, 219-230, 236-247 (logique dupliquée 3x)
+Extraire la logique de gestion des lignes cargo et services dans des hooks dédiés, réduisant la complexité de `QuotationSheet.tsx` sans modifier le comportement.
 
 ---
 
-### 2. `loadThreadEmailsByRef()`
+## Analyse du code actuel
 
-**Rôle** : Charge les emails d'un thread via `thread_ref`
+| Élément | Emplacement | Détails |
+|---------|-------------|---------|
+| State `cargoLines` | Ligne 151 | `useState<CargoLine[]>([])` |
+| State `serviceLines` | Ligne 154 | `useState<ServiceLine[]>([])` |
+| `addCargoLine(type)` | L559-570 | Prend un type `'container' \| 'breakbulk'` |
+| `updateCargoLine(id, updates)` | L572-576 | Mise à jour partielle |
+| `removeCargoLine(id)` | L578-580 | Suppression par ID |
+| `addServiceLine(template?)` | L582-592 | Template optionnel |
+| `updateServiceLine(id, updates)` | L594-598 | Mise à jour partielle |
+| `removeServiceLine(id)` | L600-602 | Suppression par ID |
+| Usage `setCargoLines` | L305 | Dans `applyConsolidatedData` |
 
-**Signature** :
-```typescript
-async function loadThreadEmailsByRef(threadRef: string): Promise<ThreadEmail[]>
-```
+### Point d'attention
 
-**Code source** : Lignes 179-201
+Les fonctions `addCargoLine` et `addServiceLine` ont des signatures spécifiques :
+- `addCargoLine(type: 'container' | 'breakbulk')` — création typée
+- `addServiceLine(template?: ServiceTemplate)` — template optionnel
 
----
-
-### 3. `loadThreadEmailsBySubject()`
-
-**Rôle** : Charge les emails similaires par sujet normalisé (fallback)
-
-**Signature** :
-```typescript
-async function loadThreadEmailsBySubject(subject: string): Promise<ThreadEmail[]>
-```
-
-**Code source** : Lignes 204-232
+Le hook doit reproduire exactement ces signatures pour une extraction safe.
 
 ---
 
-### 4. `loadThreadAttachments()`
+## Fichiers à créer
 
-**Rôle** : Charge les pièces jointes pour une liste d'emails
-
-**Signature** :
-```typescript
-async function loadThreadAttachments(
-  emailIds: string[]
-): Promise<Array<{ id: string; filename: string; content_type: string; email_id?: string }>>
-```
-
-**Code source** : Lignes 257-263
-
----
-
-### 5. `buildCurrentEmail()`
-
-**Rôle** : Détermine l'email sélectionné dans le thread
-
-**Signature** :
-```typescript
-function buildCurrentEmail(
-  emails: ThreadEmail[], 
-  targetEmailId: string
-): ThreadEmail
-```
-
-**Code source** : Ligne 253
-
----
-
-## Structure du fichier à créer
-
-**Chemin** : `src/features/quotation/services/threadLoader.ts`
+### 1. `src/features/quotation/hooks/useCargoLines.ts`
 
 ```text
 /**
- * Service de chargement des threads email
- * Phase 4B.3 — Extraction pure de fetchThreadData
+ * Hook de gestion des lignes cargo
+ * Phase 4C — Extraction safe de QuotationSheet
  */
 
-// Imports
-import { supabase } from '@/integrations/supabase/client';
-import { normalizeSubject } from '../utils/consolidation';
-import type { ThreadEmail, ExtractedData } from '../types';
+import { useState, useCallback } from 'react';
+import type { CargoLine } from '@/features/quotation/types';
 
-// Type pour les données brutes Supabase
-interface RawEmailRecord { ... }
+export function useCargoLines(initial: CargoLine[] = []) {
+  const [cargoLines, setCargoLines] = useState<CargoLine[]>(initial);
 
-// Fonction 1: mapRawEmailToThreadEmail
-export function mapRawEmailToThreadEmail(raw: RawEmailRecord): ThreadEmail { ... }
+  const addCargoLine = useCallback((type: 'container' | 'breakbulk') => {
+    const newLine: CargoLine = {
+      id: crypto.randomUUID(),
+      description: '',
+      origin: '',
+      cargo_type: type,
+      container_type: type === 'container' ? '40HC' : undefined,
+      container_count: type === 'container' ? 1 : undefined,
+      coc_soc: 'COC',
+    };
+    setCargoLines(lines => [...lines, newLine]);
+  }, []);
 
-// Fonction 2: loadThreadEmailsByRef
-export async function loadThreadEmailsByRef(threadRef: string): Promise<ThreadEmail[]> { ... }
+  const updateCargoLine = useCallback((id: string, updates: Partial<CargoLine>) => {
+    setCargoLines(lines =>
+      lines.map(line => (line.id === id ? { ...line, ...updates } : line))
+    );
+  }, []);
 
-// Fonction 3: loadThreadEmailsBySubject
-export async function loadThreadEmailsBySubject(subject: string): Promise<ThreadEmail[]> { ... }
+  const removeCargoLine = useCallback((id: string) => {
+    setCargoLines(lines => lines.filter(line => line.id !== id));
+  }, []);
 
-// Fonction 4: loadThreadAttachments
-export async function loadThreadAttachments(emailIds: string[]): Promise<...> { ... }
-
-// Fonction 5: buildCurrentEmail
-export function buildCurrentEmail(emails: ThreadEmail[], targetId: string): ThreadEmail { ... }
+  return {
+    cargoLines,
+    setCargoLines,
+    addCargoLine,
+    updateCargoLine,
+    removeCargoLine,
+  };
+}
 ```
 
 ---
 
-## Modification dans QuotationSheet.tsx
+### 2. `src/features/quotation/hooks/useServiceLines.ts`
 
-### 1. Ajout de l'import
+```text
+/**
+ * Hook de gestion des lignes services
+ * Phase 4C — Extraction safe de QuotationSheet
+ */
 
-```typescript
-import { 
-  mapRawEmailToThreadEmail,
-  loadThreadEmailsByRef,
-  loadThreadEmailsBySubject,
-  loadThreadAttachments,
-  buildCurrentEmail
-} from '@/features/quotation/services/threadLoader';
-```
+import { useState, useCallback } from 'react';
+import type { ServiceLine } from '@/features/quotation/types';
 
-### 2. Simplification de fetchThreadData
+interface ServiceTemplate {
+  service: string;
+  description: string;
+  unit: string;
+}
 
-**Avant** (~127 lignes) :
-```typescript
-const fetchThreadData = async () => {
-  // Toute la logique inline
-};
-```
+export function useServiceLines(initial: ServiceLine[] = []) {
+  const [serviceLines, setServiceLines] = useState<ServiceLine[]>(initial);
 
-**Après** (~60 lignes estimées) :
-```typescript
-const fetchThreadData = async () => {
-  try {
-    // Fetch initial email (reste inline - besoin de emailId du scope)
-    const { data: emailData, error } = await supabase
-      .from('emails')
-      .select('*')
-      .eq('id', emailId)
-      .single();
-    
-    if (error) throw error;
-    
-    // Load thread emails (appels aux fonctions extraites)
-    let threadEmailsList = await loadThreadEmailsByRef(emailData.thread_ref);
-    
-    if (threadEmailsList.length <= 1 && emailData.subject) {
-      threadEmailsList = await loadThreadEmailsBySubject(emailData.subject);
-    }
-    
-    if (threadEmailsList.length === 0) {
-      threadEmailsList = [mapRawEmailToThreadEmail(emailData)];
-    }
-    
-    setThreadEmails(threadEmailsList);
-    
-    // Current email
-    const currentEmail = buildCurrentEmail(threadEmailsList, emailId!);
-    setSelectedEmail(currentEmail);
-    
-    // Attachments
-    const attachmentData = await loadThreadAttachments(threadEmailsList.map(e => e.id));
-    setAttachments(attachmentData);
-    
-    // Le reste (consolidation, detection, alerts) reste identique
-    // ...
-  } catch (error) { ... }
-};
+  const addServiceLine = useCallback((template?: ServiceTemplate) => {
+    const newLine: ServiceLine = {
+      id: crypto.randomUUID(),
+      service: template?.service || '',
+      description: template?.description || '',
+      unit: template?.unit || 'forfait',
+      quantity: 1,
+      currency: 'FCFA',
+    };
+    setServiceLines(lines => [...lines, newLine]);
+  }, []);
+
+  const updateServiceLine = useCallback((id: string, updates: Partial<ServiceLine>) => {
+    setServiceLines(lines =>
+      lines.map(line => (line.id === id ? { ...line, ...updates } : line))
+    );
+  }, []);
+
+  const removeServiceLine = useCallback((id: string) => {
+    setServiceLines(lines => lines.filter(line => line.id !== id));
+  }, []);
+
+  return {
+    serviceLines,
+    setServiceLines,
+    addServiceLine,
+    updateServiceLine,
+    removeServiceLine,
+  };
+}
 ```
 
 ---
 
-## Fichiers impactés
+## Modifications dans QuotationSheet.tsx
 
-| Fichier | Action |
-|---------|--------|
-| `src/features/quotation/services/threadLoader.ts` | **Créer** — Nouveau service |
-| `src/pages/QuotationSheet.tsx` | **Modifier** — Import + refactor fetchThreadData |
+### 1. Ajout des imports
+
+```typescript
+// Après les imports existants
+import { useCargoLines } from '@/features/quotation/hooks/useCargoLines';
+import { useServiceLines } from '@/features/quotation/hooks/useServiceLines';
+```
+
+### 2. Remplacement des states et fonctions
+
+**À supprimer** (lignes 150-154 + 559-602) :
+
+```typescript
+// ❌ SUPPRIMER
+const [cargoLines, setCargoLines] = useState<CargoLine[]>([]);
+const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+
+const addCargoLine = (type: 'container' | 'breakbulk') => { ... };
+const updateCargoLine = (id: string, updates: Partial<CargoLine>) => { ... };
+const removeCargoLine = (id: string) => { ... };
+
+const addServiceLine = (template?: typeof serviceTemplates[0]) => { ... };
+const updateServiceLine = (id: string, updates: Partial<ServiceLine>) => { ... };
+const removeServiceLine = (id: string) => { ... };
+```
+
+**À ajouter** (après les autres states, ~ligne 161) :
+
+```typescript
+// ✅ HOOKS FORMULAIRE
+const {
+  cargoLines,
+  setCargoLines,
+  addCargoLine,
+  updateCargoLine,
+  removeCargoLine,
+} = useCargoLines();
+
+const {
+  serviceLines,
+  setServiceLines,
+  addServiceLine,
+  updateServiceLine,
+  removeServiceLine,
+} = useServiceLines();
+```
+
+---
+
+## Impact
+
+| Fichier | Lignes supprimées | Lignes ajoutées | Diff net |
+|---------|-------------------|-----------------|----------|
+| `QuotationSheet.tsx` | ~50 | ~15 | **-35** |
+| `useCargoLines.ts` | 0 | ~35 | +35 |
+| `useServiceLines.ts` | 0 | ~35 | +35 |
+
+**Total** : +35 lignes mais complexité réduite dans le monolithe
 
 ---
 
@@ -197,32 +204,33 @@ const fetchThreadData = async () => {
 
 | Contrainte | Statut |
 |------------|--------|
-| Signature fetchThreadData inchangée | ✅ |
-| useEffect non déplacé | ✅ |
-| fetchThreadData reste orchestrateur | ✅ |
-| Fonctions pures uniquement | ✅ |
+| Signatures identiques | ✅ |
+| Comportement inchangé | ✅ |
+| setCargoLines exposé | ✅ (pour applyConsolidatedData) |
+| setServiceLines exposé | ✅ |
+| useCallback pour performance | ✅ |
+| Aucun JSX modifié | ✅ |
 | Aucune logique métier modifiée | ✅ |
-| Aucun state supprimé/renommé | ✅ |
-| Aucun composant UI touché | ✅ |
 
 ---
 
-## Validation
+## Validation attendue
 
 - [ ] Build TypeScript OK
 - [ ] Aucun runtime error
-- [ ] Tests Vitest existants toujours verts (5/5)
-- [ ] Comportement fonctionnel identique
+- [ ] Formulaire cargo identique
+- [ ] Formulaire services identique
+- [ ] Génération de réponse identique
+- [ ] Tests existants toujours verts (19/19)
 
 ---
 
 ## Message de clôture attendu
 
 ```
-Phase 4B.3 exécutée.
-fetchThreadData stabilisée sans changement fonctionnel.
-Fichier créé : src/features/quotation/services/threadLoader.ts
-5 fonctions pures extraites.
-Build OK. Tests 5/5.
+Phase 4C exécutée.
+2 hooks créés : useCargoLines, useServiceLines
+Diff QuotationSheet : -35 lignes
+Build OK. Tests 19/19.
 ```
 
