@@ -1,272 +1,320 @@
 
-# PHASE 5D — Ownership Individuel (CORRIGÉ)
 
-## Corrections CTO intégrées
+# PHASE 5D-bis — Migration Explicite (VERSION FINALE CTO)
+
+## Corrections CTO intégrées (toutes)
 
 | # | Correction | Statut |
 |---|------------|--------|
-| 1 | `NOT NULL` + `DEFAULT auth.uid()` sur `created_by` | INTÉGRÉ |
-| 2 | Vue SAFE avec `security_invoker = true` | INTÉGRÉ |
+| 1 | Aucun trigger sur `auth.users` | ✅ INTÉGRÉ |
+| 2 | Migration vers admin UUID explicite | ✅ INTÉGRÉ |
+| 3 | REVOKE sur fonctions SECURITY DEFINER | ✅ INTÉGRÉ |
+| 4 | FK idempotente (test existence) | ✅ INTÉGRÉ |
+| 5 | **`SET search_path = public, auth`** | ✅ INTÉGRÉ |
 
 ---
 
-## 1. Migration SQL — Schema + RLS + Vue SAFE
+## 1. Migration SQL complète
 
 ```sql
--- Phase 5D : Ownership individuel sur quotation_history
--- Corrections CTO : NOT NULL, DEFAULT, security_invoker
+-- Phase 5D-bis : Migration explicite vers admin choisi (VERSION FINALE CTO)
 
--- 1. Ajouter colonne created_by
-ALTER TABLE quotation_history
-ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id);
+-- ================================================================
+-- FONCTION 1 : Migrer les legacy vers un admin UUID explicite
+-- ================================================================
+CREATE OR REPLACE FUNCTION migrate_legacy_quotations(owner_user_id UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth  -- CORRECTION CTO FINALE
+AS $$
+DECLARE
+  migrated_count INTEGER;
+  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
+BEGIN
+  IF owner_user_id IS NULL THEN
+    RAISE EXCEPTION 'owner_user_id est requis';
+  END IF;
 
--- 2. Backfill données existantes (premier utilisateur admin)
-UPDATE quotation_history
-SET created_by = (
-  SELECT id FROM auth.users 
-  ORDER BY created_at ASC 
-  LIMIT 1
-)
-WHERE created_by IS NULL;
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = owner_user_id) THEN
+    RAISE EXCEPTION 'owner_user_id % n''existe pas dans auth.users', owner_user_id;
+  END IF;
 
--- 3. CORRECTION CTO #1 : NOT NULL + DEFAULT
-ALTER TABLE quotation_history
-ALTER COLUMN created_by SET NOT NULL;
+  SELECT COUNT(*) INTO migrated_count
+  FROM quotation_history
+  WHERE created_by = legacy_uuid;
 
-ALTER TABLE quotation_history
-ALTER COLUMN created_by SET DEFAULT auth.uid();
+  IF migrated_count = 0 THEN
+    RETURN 'INFO: Aucun devis legacy à migrer';
+  END IF;
 
--- 4. Index pour performance RLS
-CREATE INDEX IF NOT EXISTS idx_quotation_history_created_by
-ON quotation_history(created_by);
+  UPDATE quotation_history
+  SET created_by = owner_user_id
+  WHERE created_by = legacy_uuid;
 
--- 5. RLS stricte ownership sur quotation_history
-DROP POLICY IF EXISTS "quotation_history_select" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_insert" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_update" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_delete" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_service_access" ON quotation_history;
+  RETURN format('SUCCESS: %s devis legacy migrés vers %s', migrated_count, owner_user_id);
+END;
+$$;
 
-CREATE POLICY "quotation_history_owner_select"
-ON quotation_history FOR SELECT TO authenticated
-USING (auth.uid() = created_by);
+-- ================================================================
+-- FONCTION 2 : Finaliser (restaurer FK + RLS stricte)
+-- ================================================================
+CREATE OR REPLACE FUNCTION finalize_quotation_ownership()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth  -- CORRECTION CTO FINALE
+AS $$
+DECLARE
+  legacy_count INTEGER;
+  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
+  fk_exists BOOLEAN;
+BEGIN
+  SELECT COUNT(*) INTO legacy_count
+  FROM quotation_history
+  WHERE created_by = legacy_uuid;
 
-CREATE POLICY "quotation_history_owner_insert"
-ON quotation_history FOR INSERT TO authenticated
-WITH CHECK (auth.uid() = created_by);
+  IF legacy_count > 0 THEN
+    RETURN format('ERREUR: %s devis legacy existent encore. Exécutez d''abord migrate_legacy_quotations(uuid).', legacy_count);
+  END IF;
 
-CREATE POLICY "quotation_history_owner_update"
-ON quotation_history FOR UPDATE TO authenticated
-USING (auth.uid() = created_by);
+  -- CORRECTION CTO #2 : Vérifier si FK existe déjà (idempotent)
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'quotation_history_created_by_fkey'
+      AND table_name = 'quotation_history'
+  ) INTO fk_exists;
 
-CREATE POLICY "quotation_history_owner_delete"
-ON quotation_history FOR DELETE TO authenticated
-USING (auth.uid() = created_by);
+  IF NOT fk_exists THEN
+    ALTER TABLE quotation_history
+    ADD CONSTRAINT quotation_history_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES auth.users(id);
+  END IF;
 
--- 6. Alignement RLS quotation_documents (ownership strict)
-DROP POLICY IF EXISTS "quotation_documents_select" ON quotation_documents;
-DROP POLICY IF EXISTS "quotation_documents_insert" ON quotation_documents;
+  -- Remplacer RLS par ownership STRICT (sans exception legacy)
+  DROP POLICY IF EXISTS "quotation_history_owner_select" ON quotation_history;
+  CREATE POLICY "quotation_history_owner_select"
+  ON quotation_history FOR SELECT TO authenticated
+  USING (auth.uid() = created_by);
 
-CREATE POLICY "quotation_documents_owner_select"
-ON quotation_documents FOR SELECT TO authenticated
-USING (auth.uid() = created_by);
+  DROP POLICY IF EXISTS "quotation_history_owner_update" ON quotation_history;
+  CREATE POLICY "quotation_history_owner_update"
+  ON quotation_history FOR UPDATE TO authenticated
+  USING (auth.uid() = created_by)
+  WITH CHECK (auth.uid() = created_by);
 
-CREATE POLICY "quotation_documents_owner_insert"
-ON quotation_documents FOR INSERT TO authenticated
-WITH CHECK (auth.uid() = created_by);
+  DROP POLICY IF EXISTS "quotation_history_owner_delete" ON quotation_history;
+  CREATE POLICY "quotation_history_owner_delete"
+  ON quotation_history FOR DELETE TO authenticated
+  USING (auth.uid() = created_by);
 
--- 7. CORRECTION CTO #2 : Vue SAFE avec security_invoker
-CREATE OR REPLACE VIEW v_quotation_documents_safe
-WITH (security_invoker = true)
-AS
-SELECT
-  id,
-  quotation_id,
-  root_quotation_id,
-  version,
-  status,
-  document_type,
-  file_size,
-  created_at
-FROM quotation_documents;
+  RETURN 'SUCCESS: FK restaurée, RLS stricte activée. Intégrité complète.';
+END;
+$$;
+
+-- ================================================================
+-- FONCTION 3 : Diagnostic (vérifier l'état actuel)
+-- ================================================================
+CREATE OR REPLACE FUNCTION check_quotation_ownership_status()
+RETURNS TABLE(metric TEXT, value TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth  -- CORRECTION CTO FINALE
+AS $$
+DECLARE
+  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
+  total_count INTEGER;
+  legacy_count INTEGER;
+  migrated_count INTEGER;
+  fk_exists BOOLEAN;
+BEGIN
+  SELECT COUNT(*) INTO total_count FROM quotation_history;
+  SELECT COUNT(*) INTO legacy_count FROM quotation_history WHERE created_by = legacy_uuid;
+  migrated_count := total_count - legacy_count;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'quotation_history_created_by_fkey'
+    AND table_name = 'quotation_history'
+  ) INTO fk_exists;
+
+  RETURN QUERY SELECT 'total_quotations'::TEXT, total_count::TEXT;
+  RETURN QUERY SELECT 'legacy_quotations'::TEXT, legacy_count::TEXT;
+  RETURN QUERY SELECT 'migrated_quotations'::TEXT, migrated_count::TEXT;
+  RETURN QUERY SELECT 'fk_exists'::TEXT, fk_exists::TEXT;
+  RETURN QUERY SELECT 'status'::TEXT, 
+    CASE 
+      WHEN legacy_count > 0 THEN 'MODE_MIXTE'
+      WHEN NOT fk_exists THEN 'MIGRATION_DONE_FK_PENDING'
+      ELSE 'STRICT_OWNERSHIP'
+    END;
+END;
+$$;
+
+-- ================================================================
+-- DURCISSEMENT CTO : empêcher tout appel non-admin
+-- ================================================================
+REVOKE ALL ON FUNCTION migrate_legacy_quotations(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION migrate_legacy_quotations(uuid) FROM authenticated;
+
+REVOKE ALL ON FUNCTION finalize_quotation_ownership() FROM PUBLIC;
+REVOKE ALL ON FUNCTION finalize_quotation_ownership() FROM authenticated;
+
+REVOKE ALL ON FUNCTION check_quotation_ownership_status() FROM PUBLIC;
+REVOKE ALL ON FUNCTION check_quotation_ownership_status() FROM authenticated;
 ```
 
 ---
 
-## 2. Modification Hook — useQuotationDraft.ts
-
-### Problème actuel
-Le hook ne passe pas `created_by` lors des inserts. Même avec `DEFAULT auth.uid()` en base, c'est une bonne pratique de le passer explicitement pour :
-- Lisibilité du code
-- Testabilité
-- Robustesse (double vérification)
-
-### Modifications requises
-
-#### 2.1 Section "Nouveau draft (v1)" (lignes 121-148)
-
-**Avant :**
-```typescript
-const { data, error } = await supabase
-  .from('quotation_history')
-  .insert({
-    ...dbPayload,
-    version: 1,
-    status: 'draft',
-    root_quotation_id: null,
-    parent_quotation_id: null,
-  } as any)
-```
-
-**Après :**
-```typescript
-// Récupérer l'utilisateur authentifié
-const { data: userData } = await supabase.auth.getUser();
-const userId = userData.user?.id;
-
-if (!userId) {
-  toast.error('Veuillez vous connecter pour créer un devis');
-  return null;
-}
-
-const { data, error } = await supabase
-  .from('quotation_history')
-  .insert({
-    ...dbPayload,
-    version: 1,
-    status: 'draft',
-    root_quotation_id: null,
-    parent_quotation_id: null,
-    created_by: userId,  // ← AJOUT CRITIQUE
-  } as any)
-```
-
-#### 2.2 Section "createRevision" (lignes 222-232)
-
-**Avant :**
-```typescript
-const { data, error } = await supabase
-  .from('quotation_history')
-  .insert({
-    ...dbPayload,
-    version: currentDraft.version + 1,
-    parent_quotation_id: currentDraft.id,
-    root_quotation_id: rootId,
-    status: 'draft',
-  } as any)
-```
-
-**Après :**
-```typescript
-// Récupérer l'utilisateur authentifié
-const { data: userData } = await supabase.auth.getUser();
-const userId = userData.user?.id;
-
-if (!userId) {
-  toast.error('Veuillez vous connecter pour créer une révision');
-  return null;
-}
-
-const { data, error } = await supabase
-  .from('quotation_history')
-  .insert({
-    ...dbPayload,
-    version: currentDraft.version + 1,
-    parent_quotation_id: currentDraft.id,
-    root_quotation_id: rootId,
-    status: 'draft',
-    created_by: userId,  // ← AJOUT CRITIQUE
-  } as any)
-```
-
----
-
-## 3. Fichiers créés/modifiés
+## 2. Fichiers créés/modifiés
 
 | Fichier | Action | Lignes |
 |---------|--------|--------|
-| `supabase/migrations/{ts}_ownership_rls.sql` | CRÉER | ~55 |
-| `src/features/quotation/hooks/useQuotationDraft.ts` | +getUser, +created_by, +validation | ~25 |
+| `supabase/migrations/{ts}_lazy_migration_b1.sql` | CRÉER | ~120 |
+| `.lovable/plan.md` | METTRE À JOUR | ~15 |
 
 ## Fichiers NON modifiés
 
 | Fichier | Statut |
 |---------|--------|
+| `useQuotationDraft.ts` | Déjà correct (Phase 5D) |
 | `CargoLinesForm.tsx` | FROZEN |
 | `ServiceLinesForm.tsx` | FROZEN |
-| `QuotationHistory.tsx` | Aucun changement (RLS filtre auto) |
-| `QuotationPdfExport.tsx` | Aucun changement |
-| `generate-quotation-pdf/index.ts` | Déjà correct (user.id passé) |
+| Tous les composants UI | Aucun changement |
 
 ---
 
-## 4. Comportement résultant
+## 3. Mode opératoire admin (post-déploiement)
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                     Base de données                         │
+│  ÉTAPE 1 — Créer l'admin SODATRA                           │
 │                                                             │
-│  quotation_history                                          │
-│  ├── created_by UUID NOT NULL DEFAULT auth.uid()           │
-│  └── RLS: auth.uid() = created_by                          │
-│                                                             │
-│  quotation_documents                                        │
-│  ├── created_by UUID (déjà existant)                       │
-│  └── RLS: auth.uid() = created_by                          │
-│                                                             │
-│  v_quotation_documents_safe (security_invoker=true)        │
-│  └── Colonnes: id, quotation_id, version, status, ...      │
-│      (sans file_path, file_hash, created_by)               │
+│  Via l'interface Auth Lovable Cloud :                      │
+│  - Email: admin@sodatra.sn                                 │
+│  - Mot de passe sécurisé                                   │
+│  - Confirmer l'email                                       │
 └─────────────────────────────────────────────────────────────┘
-
+                          │
+                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     Utilisateur A                           │
+│  ÉTAPE 2 — Récupérer l'UUID admin (SQL editor owner)       │
 │                                                             │
-│  [Créer devis] ──▶ INSERT quotation_history                │
-│                    created_by = auth.uid() (User A)        │
-│                              │                              │
-│                              ▼                              │
-│              RLS: auth.uid() = created_by ✓                │
+│  SELECT * FROM check_quotation_ownership_status();         │
+│  -- Voir état actuel (devrait être MODE_MIXTE)             │
 │                                                             │
-│  [Voir historique] ──▶ RLS filtre automatiquement          │
-│              → User A ne voit QUE ses devis                │
+│  SELECT id, email, created_at                               │
+│  FROM auth.users                                            │
+│  ORDER BY created_at DESC LIMIT 5;                         │
+│  -- Copier l'UUID de admin@sodatra.sn                      │
 └─────────────────────────────────────────────────────────────┘
-
+                          │
+                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     Utilisateur B                           │
+│  ÉTAPE 3 — Migrer les 91 devis legacy                      │
 │                                                             │
-│  [Voir historique] ──▶ RLS filtre automatiquement          │
-│              → Devis de User A INVISIBLES ✓                │
+│  SELECT migrate_legacy_quotations(                         │
+│    'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'::uuid            │
+│  );                                                         │
+│                                                             │
+│  Résultat attendu:                                         │
+│  "SUCCESS: 91 devis legacy migrés vers xxx..."             │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ÉTAPE 4 — Finaliser (FK + RLS stricte)                    │
+│                                                             │
+│  SELECT finalize_quotation_ownership();                    │
+│                                                             │
+│  Résultat attendu:                                         │
+│  "SUCCESS: FK restaurée, RLS stricte activée..."           │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ÉTAPE 5 — Vérification finale                             │
+│                                                             │
+│  SELECT * FROM check_quotation_ownership_status();         │
+│                                                             │
+│  Résultat attendu:                                         │
+│  ┌──────────────────────┬────────────────────┐             │
+│  │ metric               │ value              │             │
+│  ├──────────────────────┼────────────────────┤             │
+│  │ total_quotations     │ 91                 │             │
+│  │ legacy_quotations    │ 0                  │             │
+│  │ migrated_quotations  │ 91                 │             │
+│  │ fk_exists            │ true               │             │
+│  │ status               │ STRICT_OWNERSHIP   │             │
+│  └──────────────────────┴────────────────────┘             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Points de sécurité validés
+## 4. Points de sécurité validés (tous)
 
 | Point | Implémentation |
 |-------|----------------|
-| Pas de lignes orphelines | `NOT NULL` sur `created_by` |
-| Pas de dépendance frontend | `DEFAULT auth.uid()` en base |
-| Isolation stricte | RLS `auth.uid() = created_by` |
-| Vue sécurisée | `security_invoker = true` |
-| Double vérification | Hook passe explicitement `created_by` |
+| Pas de trigger auth.users | Fonctions manuelles uniquement |
+| Admin explicite | UUID passé en paramètre |
+| REVOKE authenticated | Fonctions admin-only |
+| FK idempotente | Test existence avant ADD |
+| search_path complet | `public, auth` sur toutes fonctions |
+| SECURITY DEFINER | Accès contrôlé à auth.users |
 
 ---
 
-## 6. Critères de sortie Phase 5D (corrigés)
+## 5. État final attendu
 
-- [x] Colonne `created_by NOT NULL DEFAULT auth.uid()` sur `quotation_history`
-- [x] Données existantes migrées vers UUID système (00000000-0000-0000-0000-000000000000)
-- [x] RLS stricte `auth.uid() = created_by` sur les 2 tables
-- [x] Vue `v_quotation_documents_safe` avec `security_invoker = true`
-- [x] Hook `useQuotationDraft` passe `created_by` sur tous les INSERT
-- [x] Gestion cas non-authentifié avec toast + return null
-- [x] Un utilisateur ne voit que ses propres devis (+ legacy visible pour tous)
-- [x] Build TypeScript OK
-- [x] Aucun composant FROZEN modifié
+```text
+┌─────────────────────────────────────────────────────────────┐
+│               ÉTAT FINAL (STRICT_OWNERSHIP)                 │
+│                                                             │
+│  quotation_history                                          │
+│  ├── created_by UUID NOT NULL DEFAULT auth.uid()           │
+│  ├── FK → auth.users(id) ✅ RESTAURÉE                      │
+│  └── RLS: auth.uid() = created_by (STRICT)                 │
+│                                                             │
+│  quotation_documents                                        │
+│  ├── created_by UUID                                       │
+│  └── RLS: auth.uid() = created_by (STRICT)                 │
+│                                                             │
+│  91 devis legacy → owner = admin@sodatra.sn                │
+│  Nouveaux devis → owner = utilisateur connecté             │
+│                                                             │
+│  Isolation: Chaque user ne voit que SES devis ✅           │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Notes d'implémentation
+---
 
-- **Adaptation legacy** : Les 91 devis existants ont été attribués à un UUID système (`00000000-0000-0000-0000-000000000000`) car aucun utilisateur n'existe encore dans `auth.users`. Ces devis restent visibles par tous les utilisateurs authentifiés.
-- **FK retirée** : La foreign key vers `auth.users` a été retirée pour permettre le backfill avec l'UUID système. Les nouveaux devis utilisent `DEFAULT auth.uid()` qui garantit l'intégrité.
+## 6. Critères de sortie Phase 5D-bis
+
+- [ ] Fonction `migrate_legacy_quotations(uuid)` avec `search_path = public, auth`
+- [ ] Fonction `finalize_quotation_ownership()` avec FK idempotente
+- [ ] Fonction `check_quotation_ownership_status()` diagnostic
+- [ ] REVOKE appliqué sur les 3 fonctions
+- [ ] Aucune dépendance à trigger sur auth.users
+- [ ] Build TypeScript OK (aucun changement frontend)
+- [ ] Documentation mode opératoire complète
+
+---
+
+## Section technique : Rollback si nécessaire
+
+```sql
+-- Si erreur après finalize_quotation_ownership()
+ALTER TABLE quotation_history
+DROP CONSTRAINT IF EXISTS quotation_history_created_by_fkey;
+
+-- Remettre RLS mode mixte (temporaire)
+DROP POLICY IF EXISTS "quotation_history_owner_select" ON quotation_history;
+CREATE POLICY "quotation_history_owner_select"
+ON quotation_history FOR SELECT TO authenticated
+USING (
+  auth.uid() = created_by 
+  OR created_by = '00000000-0000-0000-0000-000000000000'::uuid
+);
+```
+
