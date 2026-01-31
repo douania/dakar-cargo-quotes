@@ -1,665 +1,357 @@
 
 
-# PHASE 5D - Versioning / Historique des devis (AMENDÉ)
+# PHASE 5C — Export PDF Versionné
 
-## Amendements CTO intégrés
+## Vue d'ensemble
 
-| # | Amendement | Statut |
-|---|------------|--------|
-| 1 | `root_quotation_id` pour arbre de versions | INTÉGRÉ |
-| 2 | `saveDraft` idempotent par `source_email_id` | INTÉGRÉ |
-| 3 | RLS minimale `auth.uid() IS NOT NULL` | INTÉGRÉ |
+Implémentation d'un système d'export PDF professionnel et versionné, générant des documents immuables liés à une version spécifique du devis (`quotation_history.id`).
 
 ---
 
-## 1. Migration SQL
+## 1. Migration SQL — Table `quotation_documents`
 
+### Objectif
+Créer une table de traçabilité pour tous les documents générés (PDF, Excel) avec lien vers la version exacte du devis.
+
+### Schema
 ```sql
--- Phase 5D : Versioning des devis
+CREATE TABLE IF NOT EXISTS quotation_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quotation_id UUID NOT NULL REFERENCES quotation_history(id) ON DELETE CASCADE,
+  root_quotation_id UUID NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  document_type TEXT NOT NULL CHECK (document_type IN ('pdf', 'excel')),
+  file_path TEXT NOT NULL,
+  file_size INTEGER,
+  file_hash TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by UUID REFERENCES auth.users(id)
+);
+```
 
--- 1. Ajouter colonnes versioning
-ALTER TABLE quotation_history
-ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1,
-ADD COLUMN IF NOT EXISTS parent_quotation_id UUID REFERENCES quotation_history(id),
-ADD COLUMN IF NOT EXISTS root_quotation_id UUID,
-ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'
-  CHECK (status IN ('draft', 'sent', 'accepted', 'rejected', 'expired'));
+### Sécurité RLS
+- Policies alignées sur Phase 5D : `auth.uid() IS NOT NULL`
+- Index sur `quotation_id` et `root_quotation_id`
 
--- 2. Migrer données existantes : was_accepted → status
-UPDATE quotation_history
-SET status = CASE
-  WHEN was_accepted = true THEN 'accepted'
-  WHEN was_accepted = false THEN 'rejected'
-  ELSE 'draft'
-END
-WHERE status IS NULL;
+---
 
--- 3. Index pour recherche par parent, root et status
-CREATE INDEX IF NOT EXISTS idx_quotation_history_parent
-ON quotation_history(parent_quotation_id);
+## 2. Edge Function — `generate-quotation-pdf`
 
-CREATE INDEX IF NOT EXISTS idx_quotation_history_root
-ON quotation_history(root_quotation_id);
+### Architecture
 
-CREATE INDEX IF NOT EXISTS idx_quotation_history_status
-ON quotation_history(status);
+```
+Request { quotationId: UUID }
+         │
+         ▼
+┌────────────────────────────────────┐
+│  1. Auth validation (getClaims)    │
+│     → user_id pour RLS/traçabilité │
+└────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────┐
+│  2. Fetch quotation_history (id)   │
+│     Données figées uniquement      │
+└────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────┐
+│  3. Construire PDF (pdf-lib)       │
+│     → Header SODATRA               │
+│     → Bloc client/route            │
+│     → Tableau services             │
+│     → Totaux + footer légal        │
+└────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────┐
+│  4. Upload Storage                  │
+│     quotation-attachments/         │
+│     Q-{rootId}/v{version}/         │
+│     quote-{id}-{ts}.pdf            │
+└────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────┐
+│  5. Insert quotation_documents     │
+│     + SHA-256 hash                 │
+└────────────────────────────────────┘
+         │
+         ▼
+Response { url, documentId, filePath }
+```
 
-CREATE INDEX IF NOT EXISTS idx_quotation_history_source_email_status
-ON quotation_history(source_email_id, status);
+### Données SELECT depuis `quotation_history`
 
--- 4. RLS minimale (Amendement 3)
-DROP POLICY IF EXISTS "quotation_history_select" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_insert" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_update" ON quotation_history;
-DROP POLICY IF EXISTS "quotation_history_delete" ON quotation_history;
+| Champ | Utilisation PDF |
+|-------|-----------------|
+| `id` | Identifiant unique |
+| `root_quotation_id` | Chemin storage |
+| `version` | Badge "v1", "v2" |
+| `status` | Mention légale conditionnelle |
+| `client_name` | Bloc client |
+| `client_company` | Bloc client |
+| `project_name` | Titre projet |
+| `route_origin` | Route |
+| `route_port` | Route |
+| `route_destination` | Route |
+| `incoterm` | Conditions |
+| `tariff_lines` | Tableau services (JSON) |
+| `total_amount` | Total |
+| `total_currency` | Devise |
+| `created_at` | Date émission |
 
-CREATE POLICY "quotation_history_select" ON quotation_history
-FOR SELECT TO authenticated
-USING (auth.uid() IS NOT NULL);
+### Mentions légales par statut
 
-CREATE POLICY "quotation_history_insert" ON quotation_history
-FOR INSERT TO authenticated
-WITH CHECK (auth.uid() IS NOT NULL);
+| Statut | Mention |
+|--------|---------|
+| `draft` | "BROUILLON — Document non contractuel" |
+| `sent` | "Offre valable 30 jours à compter de la date d'émission" |
+| `accepted` | "Devis accepté" |
+| `rejected` | "Offre déclinée" |
+| `expired` | "Offre expirée" |
 
-CREATE POLICY "quotation_history_update" ON quotation_history
-FOR UPDATE TO authenticated
-USING (auth.uid() IS NOT NULL);
+### Librairie PDF
+Utilisation de `pdf-lib` via Deno (compatible Edge Functions, pas de DOM requis) :
+```typescript
+import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
+```
 
-CREATE POLICY "quotation_history_delete" ON quotation_history
-FOR DELETE TO authenticated
-USING (auth.uid() IS NOT NULL);
+### Chemin storage (non-écrasant)
+```
+quotation-attachments/
+  Q-{root_quotation_id}/
+    v{version}/
+      quote-{quotation_id}-{timestamp}.pdf
 ```
 
 ---
 
-## 2. Type domain étendu
+## 3. Composant Frontend — `QuotationPdfExport.tsx`
 
-**Fichier : `src/features/quotation/domain/types.ts`**
-
-Ajouter à la fin du fichier :
-
+### Props
 ```typescript
-// Phase 5D : Statut workflow devis
-export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
-```
-
----
-
-## 3. Hook useQuotationDraft
-
-**Nouveau fichier : `src/features/quotation/hooks/useQuotationDraft.ts`**
-
-```typescript
-/**
- * Hook pour gérer le cycle de vie draft/sent d'un devis
- * Phase 5D — Amendements CTO intégrés
- */
-import { useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import type { QuotationStatus } from '@/features/quotation/domain/types';
-
-export interface DraftQuotation {
-  id: string;
+interface QuotationPdfExportProps {
+  quotationId: string;
   version: number;
-  status: QuotationStatus;
-  parent_quotation_id: string | null;
-  root_quotation_id: string | null;
-}
-
-interface SaveDraftParams {
-  route_origin?: string | null;
-  route_port: string;
-  route_destination: string;
-  cargo_type: string;
-  container_types?: string[];
-  client_name?: string | null;
-  client_company?: string | null;
-  partner_company?: string | null;
-  project_name?: string | null;
-  incoterm?: string | null;
-  tariff_lines: Array<{
-    service: string;
-    description?: string;
-    amount: number;
-    currency: string;
-    unit?: string;
-  }>;
-  total_amount: number;
-  total_currency: string;
-  source_email_id?: string | null;
-  regulatory_info?: Record<string, unknown> | null;
-}
-
-export function useQuotationDraft() {
-  const [currentDraft, setCurrentDraft] = useState<DraftQuotation | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  /**
-   * Sauvegarder ou mettre à jour un draft
-   * AMENDEMENT 2 : Idempotent par source_email_id
-   */
-  const saveDraft = useCallback(async (params: SaveDraftParams): Promise<DraftQuotation | null> => {
-    setIsSaving(true);
-    try {
-      // AMENDEMENT 2 : Vérifier s'il existe déjà un draft pour cet email
-      if (params.source_email_id && !currentDraft) {
-        const { data: existingDraft, error: searchError } = await supabase
-          .from('quotation_history')
-          .select('id, version, status, parent_quotation_id, root_quotation_id')
-          .eq('source_email_id', params.source_email_id)
-          .eq('status', 'draft')
-          .maybeSingle();
-
-        if (searchError) throw searchError;
-
-        if (existingDraft) {
-          // Réutiliser le draft existant
-          setCurrentDraft(existingDraft as DraftQuotation);
-          // Mettre à jour le draft existant
-          const { data, error } = await supabase
-            .from('quotation_history')
-            .update({
-              ...params,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingDraft.id)
-            .select('id, version, status, parent_quotation_id, root_quotation_id')
-            .single();
-
-          if (error) throw error;
-          setCurrentDraft(data as DraftQuotation);
-          return data as DraftQuotation;
-        }
-      }
-
-      if (currentDraft) {
-        // Mise à jour du draft actuel
-        const { data, error } = await supabase
-          .from('quotation_history')
-          .update({
-            ...params,
-            status: 'draft',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', currentDraft.id)
-          .select('id, version, status, parent_quotation_id, root_quotation_id')
-          .single();
-
-        if (error) throw error;
-        setCurrentDraft(data as DraftQuotation);
-        return data as DraftQuotation;
-      } else {
-        // Nouveau draft (v1)
-        const { data, error } = await supabase
-          .from('quotation_history')
-          .insert({
-            ...params,
-            version: 1,
-            status: 'draft',
-            root_quotation_id: null, // v1 : root = null, sera self-reference après insert
-            parent_quotation_id: null,
-          })
-          .select('id, version, status, parent_quotation_id, root_quotation_id')
-          .single();
-
-        if (error) throw error;
-
-        // Pour v1, root_quotation_id = id (self-reference)
-        const { error: updateError } = await supabase
-          .from('quotation_history')
-          .update({ root_quotation_id: data.id })
-          .eq('id', data.id);
-
-        if (updateError) throw updateError;
-
-        const draft = { ...data, root_quotation_id: data.id } as DraftQuotation;
-        setCurrentDraft(draft);
-        return draft;
-      }
-    } catch (error) {
-      console.error('Error saving draft:', error);
-      toast.error('Erreur sauvegarde brouillon');
-      return null;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [currentDraft]);
-
-  /**
-   * Marquer comme envoyé (transition draft → sent)
-   */
-  const markAsSent = useCallback(async (): Promise<boolean> => {
-    if (!currentDraft) {
-      toast.error('Aucun brouillon à envoyer');
-      return false;
-    }
-
-    if (currentDraft.status !== 'draft') {
-      toast.error('Ce devis a déjà été envoyé');
-      return false;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('quotation_history')
-        .update({ status: 'sent', updated_at: new Date().toISOString() })
-        .eq('id', currentDraft.id);
-
-      if (error) throw error;
-
-      setCurrentDraft({ ...currentDraft, status: 'sent' });
-      toast.success('Devis marqué comme envoyé');
-      return true;
-    } catch (error) {
-      console.error('Error marking as sent:', error);
-      toast.error('Erreur mise à jour statut');
-      return false;
-    }
-  }, [currentDraft]);
-
-  /**
-   * Créer une nouvelle version (révision)
-   * AMENDEMENT 1 : root_quotation_id conservé
-   */
-  const createRevision = useCallback(async (params: SaveDraftParams): Promise<DraftQuotation | null> => {
-    if (!currentDraft) {
-      return saveDraft(params);
-    }
-
-    setIsSaving(true);
-    try {
-      // AMENDEMENT 1 : root = root du parent OU id du parent si v1
-      const rootId = currentDraft.root_quotation_id ?? currentDraft.id;
-
-      const { data, error } = await supabase
-        .from('quotation_history')
-        .insert({
-          ...params,
-          version: currentDraft.version + 1,
-          parent_quotation_id: currentDraft.id,
-          root_quotation_id: rootId,
-          status: 'draft',
-        })
-        .select('id, version, status, parent_quotation_id, root_quotation_id')
-        .single();
-
-      if (error) throw error;
-      setCurrentDraft(data as DraftQuotation);
-      toast.success(`Révision v${data.version} créée`);
-      return data as DraftQuotation;
-    } catch (error) {
-      console.error('Error creating revision:', error);
-      toast.error('Erreur création révision');
-      return null;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [currentDraft, saveDraft]);
-
-  /**
-   * Réinitialiser le draft courant
-   */
-  const resetDraft = useCallback(() => {
-    setCurrentDraft(null);
-  }, []);
-
-  return {
-    currentDraft,
-    isSaving,
-    saveDraft,
-    markAsSent,
-    createRevision,
-    resetDraft,
-    setCurrentDraft,
-  };
+  status: string;
+  variant?: 'default' | 'outline';
+  size?: 'default' | 'sm';
 }
 ```
+
+### Comportement
+1. Bouton affiche "PDF v{version}"
+2. Click → `supabase.functions.invoke('generate-quotation-pdf', { body: { quotationId } })`
+3. Loader pendant génération
+4. Succès → `window.open(data.url, '_blank')` + toast
+5. Erreur → toast error
+
+### Pattern identique à `QuotationExcelExport.tsx`
 
 ---
 
-## 4. Intégration QuotationSheet.tsx
+## 4. Intégration `QuotationSheet.tsx`
 
-### 4.1 Import (après ligne 77)
-
-```typescript
-// Hook versioning (Phase 5D)
-import { useQuotationDraft } from '@/features/quotation/hooks/useQuotationDraft';
-```
-
-### 4.2 Instanciation hook (après ligne 173)
+### Emplacement
+À côté du bouton Excel existant (ligne ~947), dans la zone exports :
 
 ```typescript
-// Quotation Draft lifecycle (Phase 5D)
-const {
-  currentDraft,
-  isSaving,
-  saveDraft,
-  markAsSent,
-} = useQuotationDraft();
+<div className="flex gap-2">
+  <QuotationExcelExport ... />
+  
+  {/* Phase 5C : Export PDF versionné */}
+  {currentDraft && (
+    <QuotationPdfExport
+      quotationId={currentDraft.id}
+      version={currentDraft.version}
+      status={currentDraft.status}
+      variant="outline"
+      size="sm"
+    />
+  )}
+</div>
 ```
 
-### 4.3 Modification handleGenerateResponse (lignes 607-641)
-
-Remplacer par :
-
-```typescript
-const handleGenerateResponse = async () => {
-  setIsGenerating(true);
-  try {
-    // Phase 5D : Sauvegarder le draft AVANT génération
-    await saveDraft({
-      route_origin: cargoLines[0]?.origin || null,
-      route_port: 'Dakar',
-      route_destination: finalDestination || destination,
-      cargo_type: cargoLines[0]?.cargo_type || 'container',
-      container_types: cargoLines.filter(c => c.container_type).map(c => c.container_type!),
-      client_name: projectContext.requesting_party || null,
-      client_company: projectContext.requesting_company || null,
-      partner_company: projectContext.partner_company || null,
-      project_name: projectContext.project_name || null,
-      incoterm: incoterm || null,
-      tariff_lines: serviceLines
-        .filter(s => s.rate && s.rate > 0)
-        .map(s => ({
-          service: s.service || '',
-          description: s.description || '',
-          amount: (s.rate || 0) * s.quantity,
-          currency: s.currency || 'FCFA',
-          unit: s.unit || '',
-        })),
-      total_amount: engineResult.snapshot.totals.total_ht,
-      total_currency: 'FCFA',
-      source_email_id: isNewQuotation ? null : emailId,
-      regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
-    });
-
-    // Générer la réponse (existant)
-    const { data, error } = await supabase.functions.invoke('generate-response', {
-      body: {
-        emailId: isNewQuotation ? null : emailId,
-        threadEmails: threadEmails.map(e => ({
-          from: e.from_address,
-          subject: e.subject,
-          body: decodeBase64Content(e.body_text),
-          date: e.sent_at || e.received_at,
-        })),
-        quotationData: {
-          projectContext,
-          cargoLines,
-          serviceLines,
-          destination,
-          finalDestination,
-          incoterm,
-          specialRequirements,
-        },
-      }
-    });
-
-    if (error) throw error;
-
-    setGeneratedResponse(data.response || data.draft?.body_text || '');
-    toast.success('Brouillon sauvegardé & réponse générée');
-  } catch (error) {
-    console.error('Error generating response:', error);
-    toast.error('Erreur de génération');
-  } finally {
-    setIsGenerating(false);
-  }
-};
-```
-
-### 4.4 Ajout badge statut dans QuotationHeader
-
-Modifier l'appel à `QuotationHeader` (ligne 687-695) pour passer le draft :
-
-```typescript
-<QuotationHeader
-  isNewQuotation={isNewQuotation}
-  quotationCompleted={quotationCompleted}
-  selectedEmailSubject={selectedEmail?.subject ?? null}
-  threadCount={threadEmails.length}
-  isGenerating={isGenerating}
-  onBack={() => navigate('/')}
-  onGenerateResponse={handleGenerateResponse}
-  currentDraft={currentDraft}  // Phase 5D
-/>
-```
-
-Modification de `QuotationHeader.tsx` pour afficher le badge :
-
-```typescript
-// Ajouter dans les props
-currentDraft?: { status: string; version: number } | null;
-
-// Ajouter dans le rendu (après le badge quotationCompleted)
-{currentDraft && !quotationCompleted && (
-  <Badge variant={currentDraft.status === 'sent' ? 'default' : 'outline'}>
-    {currentDraft.status === 'draft' && 'Brouillon'}
-    {currentDraft.status === 'sent' && 'Envoyé'}
-    {currentDraft.version > 1 && ` v${currentDraft.version}`}
-  </Badge>
-)}
-```
-
-### 4.5 Bouton "Confirmer envoi" (après generatedResponse)
-
-Ajouter après le bloc `generatedResponse` (vers ligne 945) :
-
-```typescript
-{/* Phase 5D : Bouton confirmation envoi */}
-{generatedResponse && currentDraft?.status === 'draft' && (
-  <div className="flex items-center justify-end gap-2 mt-4">
-    <span className="text-sm text-muted-foreground">
-      Brouillon sauvegardé
-    </span>
-    <Button
-      onClick={markAsSent}
-      disabled={isSaving}
-      className="gap-2"
-    >
-      <Send className="h-4 w-4" />
-      Confirmer envoi
-    </Button>
-  </div>
-)}
-```
+### Condition
+- Visible uniquement si `currentDraft` existe (après saveDraft via handleGenerateResponse)
+- Fonctionne pour status `draft` ET `sent`
 
 ---
 
-## 5. Modification QuotationHistory.tsx
+## 5. Configuration
 
-### 5.1 Ajout filtre et colonne status
-
-Dans le TableHeader (ligne 214), ajouter :
-
-```typescript
-<TableHead>Statut</TableHead>
-```
-
-Dans le TableRow (après ligne 270), ajouter :
-
-```typescript
-<TableCell>
-  <div className="flex items-center gap-1">
-    <Badge variant={getStatusVariant(q.status)}>
-      {getStatusLabel(q.status)}
-    </Badge>
-    {q.version > 1 && (
-      <span className="text-xs text-muted-foreground">v{q.version}</span>
-    )}
-  </div>
-</TableCell>
-```
-
-### 5.2 Helpers status (ajouter en haut du fichier)
-
-```typescript
-function getStatusLabel(status: string | null): string {
-  switch (status) {
-    case 'draft': return 'Brouillon';
-    case 'sent': return 'Envoyé';
-    case 'accepted': return 'Accepté';
-    case 'rejected': return 'Refusé';
-    case 'expired': return 'Expiré';
-    default: return 'Inconnu';
-  }
-}
-
-function getStatusVariant(status: string | null): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case 'sent': return 'default';
-    case 'accepted': return 'default';
-    case 'rejected': return 'destructive';
-    case 'draft': return 'outline';
-    default: return 'secondary';
-  }
-}
-```
-
-### 5.3 Filtre par statut (après le filtre période ligne 184)
-
-```typescript
-<Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
-  <SelectTrigger className="w-[150px]">
-    <SelectValue placeholder="Statut" />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="all">Tous statuts</SelectItem>
-    <SelectItem value="draft">Brouillons</SelectItem>
-    <SelectItem value="sent">Envoyés</SelectItem>
-    <SelectItem value="accepted">Acceptés</SelectItem>
-    <SelectItem value="rejected">Refusés</SelectItem>
-  </SelectContent>
-</Select>
-```
-
-Ajouter le state :
-
-```typescript
-const [statusFilter, setStatusFilter] = useState<string>('all');
-```
-
-Et dans le filtre `filteredQuotations` :
-
-```typescript
-// Status filter
-if (statusFilter !== 'all') {
-  result = result.filter(q => q.status === statusFilter);
-}
-```
-
-### 5.4 Mise à jour interface QuotationRecord
-
-```typescript
-interface QuotationRecord {
-  // ... existant ...
-  version?: number;
-  status?: string;
-  parent_quotation_id?: string;
-  root_quotation_id?: string;
-}
-```
+### `supabase/config.toml`
+**NE PAS ajouter** `verify_jwt = false` — on veut l'authentification pour :
+- RLS fonctionnelle
+- `created_by` dans `quotation_documents`
 
 ---
 
-## Fichiers modifiés/créés
+## Fichiers créés/modifiés
 
-| Fichier | Action | Lignes |
-|---------|--------|--------|
-| Migration SQL | CRÉER | ~35 |
-| domain/types.ts | +1 type export | ~2 |
-| useQuotationDraft.ts | CRÉER | ~160 |
-| QuotationSheet.tsx | +import, +hook, +handleGenerateResponse modifié, +bouton | ~60 |
-| QuotationHeader.tsx | +prop currentDraft, +badge | ~15 |
-| QuotationHistory.tsx | +colonne, +filtre, +helpers, +interface | ~50 |
+| Fichier | Action | Lignes estimées |
+|---------|--------|-----------------|
+| `supabase/migrations/{ts}_quotation_documents.sql` | CRÉER | ~30 |
+| `supabase/functions/generate-quotation-pdf/index.ts` | CRÉER | ~280 |
+| `src/components/QuotationPdfExport.tsx` | CRÉER | ~80 |
+| `src/pages/QuotationSheet.tsx` | +import, +rendu bouton | ~10 |
 
 ## Fichiers NON modifiés
 
 | Fichier | Statut |
 |---------|--------|
-| CargoLinesForm.tsx | FROZEN |
-| ServiceLinesForm.tsx | FROZEN |
-| QuotationTotalsCard.tsx | Aucun changement |
-| domain/engine.ts | Aucun changement |
+| `CargoLinesForm.tsx` | FROZEN |
+| `ServiceLinesForm.tsx` | FROZEN |
+| `useQuotationDraft.ts` | Aucun changement |
+| `quotation_history` (schema) | Aucune modification |
 
 ---
 
-## Schéma versioning (Amendement 1)
+## Structure du PDF (V1)
 
-```text
-Quotation v1 (id: abc-123)
-├── root_quotation_id: abc-123 (self)
-├── parent_quotation_id: NULL
-├── version: 1
-└── status: 'sent'
-
-Quotation v2 (id: def-456)
-├── root_quotation_id: abc-123 ← MÊME ROOT
-├── parent_quotation_id: abc-123
-├── version: 2
-└── status: 'draft'
-
-Quotation v3 (id: ghi-789)
-├── root_quotation_id: abc-123 ← MÊME ROOT
-├── parent_quotation_id: def-456
-├── version: 3
-└── status: 'draft'
 ```
-
-Requête pour toutes les versions d'un devis :
-
-```sql
-SELECT * FROM quotation_history
-WHERE root_quotation_id = 'abc-123'
-ORDER BY version;
-```
-
----
-
-## Flux utilisateur final
-
-```text
 ┌─────────────────────────────────────────────────────────────┐
-│                    QuotationSheet                           │
-│                                                             │
-│  [Générer réponse] ──┬──▶ saveDraft()                      │
-│                      │    └─▶ AMENDEMENT 2 : check email   │
-│                      │        └─▶ réutilise ou crée v1     │
-│                      │                                      │
-│                      └──▶ status = 'draft' (PAS 'sent')    │
-│                                  │                          │
-│                                  ▼                          │
-│              ┌─────────────────────────────────┐           │
-│              │ Badge: "Brouillon v1"           │           │
-│              │ Réponse générée visible         │           │
-│              │                                 │           │
-│              │ [Confirmer envoi] ──────────────────────────│
-│              └─────────────────────────────────┘           │
-│                                  │                          │
-│                                  ▼                          │
-│                         markAsSent()                        │
-│                              │                              │
-│                              ▼                              │
-│                    status = 'sent'                          │
-│                    Badge: "Envoyé v1"                       │
+│  SODATRA SHIPPING & LOGISTICS                               │
+│  ───────────────────────────────────────────────────────    │
+│  DEVIS N° Q-{short_id}              [v2] [BROUILLON]       │
+│  Date: 31/01/2026                                           │
+├─────────────────────────────────────────────────────────────┤
+│  CLIENT                                                     │
+│  Nom: John Doe                                              │
+│  Société: ACME Corp                                         │
+│  Projet: Équipement industriel                              │
+├─────────────────────────────────────────────────────────────┤
+│  ROUTE                                                      │
+│  Shanghai → Dakar → Bamako                                  │
+│  Incoterm: DAP                                              │
+├─────────────────────────────────────────────────────────────┤
+│  SERVICES                                                   │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │ Service          │ Description    │ Montant   │ Devise ││
+│  │ THC              │ Container 40HC │  350,000  │ FCFA   ││
+│  │ Transit          │ Dakar-Bamako   │  850,000  │ FCFA   ││
+│  │ ...              │ ...            │ ...       │ ...    ││
+│  └────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────┤
+│  TOTAL:  1,200,000 FCFA                                    │
+├─────────────────────────────────────────────────────────────┤
+│  BROUILLON — Document non contractuel                      │
+│  Généré le 31/01/2026 à 22:30                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Critères de sortie Phase 5D
+## Workflow utilisateur
 
-- [ ] Migration SQL exécutée (version, parent, root, status, RLS)
-- [ ] Type QuotationStatus exporté
-- [ ] Hook useQuotationDraft créé et fonctionnel
-- [ ] saveDraft idempotent par source_email_id (Amendement 2)
-- [ ] root_quotation_id correct dans createRevision (Amendement 1)
-- [ ] RLS minimale auth.uid() (Amendement 3)
-- [ ] Draft sauvegardé au clic "Générer réponse" (status = draft)
-- [ ] Bouton "Confirmer envoi" visible après génération
-- [ ] Statut "sent" uniquement sur confirmation explicite
-- [ ] QuotationHistory affiche status et version avec filtre
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    QuotationSheet                           │
+│                                                             │
+│  [Générer réponse] ──▶ saveDraft() ──▶ currentDraft.id     │
+│                              │                              │
+│                              ▼                              │
+│              ┌─────────────────────────────────┐           │
+│              │ Réponse générée visible         │           │
+│              │                                 │           │
+│              │ [Excel] [PDF v1] [Confirmer]   │           │
+│              └─────────────────────────────────┘           │
+│                              │                              │
+│                        [PDF v1] cliqué                      │
+│                              │                              │
+│                              ▼                              │
+│            generate-quotation-pdf(quotationId)             │
+│                              │                              │
+│         ┌────────────────────┼────────────────────┐        │
+│         │                    │                    │        │
+│         ▼                    ▼                    ▼        │
+│  Fetch history       Render PDF         Upload Storage     │
+│  (données figées)    (pdf-lib)          Insert trace       │
+│                              │                              │
+│                              ▼                              │
+│                     Téléchargement auto                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Sécurité
+
+| Point | Implémentation |
+|-------|----------------|
+| Authentification | JWT requis (pas verify_jwt=false) |
+| RLS | `auth.uid() IS NOT NULL` sur `quotation_documents` |
+| Source unique | Lecture exclusive `quotation_history` (pas de recalcul) |
+| Traçabilité | `created_by` = user_id, hash SHA-256 |
+| Stockage | Bucket `quotation-attachments` existant |
+
+---
+
+## Critères de sortie Phase 5C
+
+- [ ] Table `quotation_documents` créée avec RLS
+- [ ] Edge function `generate-quotation-pdf` déployée
+- [ ] PDF généré depuis `quotation_history` uniquement (source figée)
+- [ ] Version et statut visibles dans le PDF
+- [ ] Fichier stocké dans bucket avec chemin versionné
+- [ ] Trace insérée dans `quotation_documents` avec hash
+- [ ] Signed URL retournée et téléchargement automatique
+- [ ] Bouton "PDF v{version}" visible après génération réponse
 - [ ] Build TypeScript OK
 - [ ] Aucun composant FROZEN modifié
+
+---
+
+## Section technique détaillée
+
+### Edge Function — Gestion Auth
+
+```typescript
+// Validation JWT (pas de verify_jwt=false dans config)
+const authHeader = req.headers.get('Authorization');
+if (!authHeader?.startsWith('Bearer ')) {
+  return errorResponse('Unauthorized', 401);
+}
+
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_ANON_KEY')!,
+  { global: { headers: { Authorization: authHeader } } }
+);
+
+const { data: { user }, error: authError } = await supabase.auth.getUser();
+if (authError || !user) {
+  return errorResponse('Unauthorized', 401);
+}
+```
+
+### Hash SHA-256
+
+```typescript
+async function sha256(data: Uint8Array): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+```
+
+### Upload Storage + Signed URL
+
+```typescript
+const filePath = `Q-${rootId}/v${version}/quote-${quotationId}-${Date.now()}.pdf`;
+
+const { error: uploadError } = await supabase.storage
+  .from('quotation-attachments')
+  .upload(filePath, pdfBytes, {
+    contentType: 'application/pdf',
+    upsert: false,
+  });
+
+const { data: signedData } = await supabase.storage
+  .from('quotation-attachments')
+  .createSignedUrl(filePath, 3600); // 1 heure
+```
 
