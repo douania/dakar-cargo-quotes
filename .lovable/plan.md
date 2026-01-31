@@ -1,252 +1,213 @@
 
-# PHASE 4F - Domain Layer Quotation Engine
+# PHASE 4F.5 - Integration minimale Engine dans QuotationSheet.tsx
 
 ## Contexte
 
-- Phase 4E validée (composants FROZEN)
-- Architecture existante : `src/features/quotation/` pour les types/composants UI
-- Types actuels : `CargoLine` (weight_kg, volume_cbm, container_count) et `ServiceLine` (rate, quantity)
-- Pas de taxe dans le formulaire quotation (TVA gérée via HS codes)
+Phase 4F.1-4F.4 executees. Le domain layer est pret :
+- `src/features/quotation/domain/` contient types, guards, rules, engine
+- Tests Vitest 4/4 OK
+- Engine expose `runQuotationEngine(input): QuotationEngineResult`
 
-## Décision architecturale
+## Analyse du code actuel
 
-Le user propose `src/domain/quotation/` mais le projet utilise déjà `src/features/quotation/`.
-
-**Proposition** : Créer `src/features/quotation/domain/` pour rester cohérent avec l'arborescence existante, tout en séparant clairement la couche métier.
-
----
-
-## Fichiers à créer (Phase 4F)
-
-```
-src/features/quotation/domain/
-├── types.ts        (4F.1 - contrat métier)
-├── guards.ts       (4F.1 - sanitization)
-├── rules.ts        (4F.2 - calculs purs)
-├── engine.ts       (4F.3 - orchestrateur)
-├── engine.test.ts  (4F.4 - tests Vitest)
-└── index.ts        (barrel export)
-```
-
----
-
-## 4F.1 — Contrat métier (types.ts)
-
-**Adaptation aux types existants :**
-
-| Type existant | Champ UI | Champ Domain |
-|--------------|----------|--------------|
-| CargoLine | weight_kg | weight_kg |
-| CargoLine | volume_cbm | volume_m3 (mapping) |
-| CargoLine | container_count | quantity |
-| ServiceLine | rate | unit_price (mapping) |
-| ServiceLine | quantity | quantity |
-
-**Types canoniques à créer :**
-
+### Hooks existants (lignes 157-173)
 ```typescript
-// Branded types pour la sécurité
-export type Money = number;
-export type Quantity = number;
-export type WeightKg = number;
-export type VolumeM3 = number;
-export type EntityId = string;
-
-// Interfaces domain (readonly, immutables)
-export interface CargoLineDomain { ... }
-export interface ServiceLineDomain { ... }
-export interface QuotationInput { ... }
-export interface QuotationTotals { ... }
-export interface QuoteIssue { ... }
-export interface QuotationSnapshot { ... }
-export interface QuotationEngineResult { ... }
+const { cargoLines, setCargoLines, addCargoLine, updateCargoLine, removeCargoLine } = useCargoLines();
+const { serviceLines, setServiceLines, addServiceLine, updateServiceLine, removeServiceLine } = useServiceLines();
 ```
 
----
+### Calculs inline identifies
+- **Ligne 886** : `amount: (line.rate || 0) * line.quantity` dans QuotationExcelExport
 
-## 4F.2 — Règles métier (rules.ts)
-
-**Calculs purs sans effet de bord :**
-
-1. `sumCargoMetrics()` - agrège weight_kg, volume_m3, quantity
-2. `sumServiceSubtotal()` - calcule quantity × unit_price
-3. `computeTotals()` - orchestre et applique arrondi/taxes
-
-**Pas de TVA par défaut** (context.tax_rate optionnel pour future extension)
+### Pas de section "Totaux" affichee
+Le fichier ne contient pas de rendu de totaux dans l'UI principale.
+L'engine sera utilise pour :
+1. Alimenter QuotationExcelExport avec des totaux valides
+2. Preparer l'affichage futur d'un recapitulatif
 
 ---
 
-## 4F.3 — Engine (engine.ts)
+## Modifications a effectuer
 
+### 1. Ajout de l'import (ligne ~74)
 ```typescript
-export function runQuotationEngine(input: QuotationInput): QuotationEngineResult
-```
-
-- Fonction pure
-- Sérialisable (prêt pour API/PDF)
-- Collecte les issues (valeurs négatives, NaN, etc.)
-
----
-
-## 4F.4 — Tests unitaires (engine.test.ts)
-
-```typescript
-describe("Quotation Engine", () => {
-  it("should compute service subtotal")
-  it("should aggregate cargo metrics")
-  it("should coerce negative values and record issues")
-  it("should apply integer rounding when configured")
-})
-```
-
----
-
-## 4F.5 — Intégration minimale (QuotationSheet.tsx)
-
-**Ajout d'import :**
-```typescript
+// Domain layer (Phase 4F)
 import { runQuotationEngine } from '@/features/quotation/domain/engine';
+import type { QuotationInput } from '@/features/quotation/domain/types';
 ```
 
-**Mapping types UI → Domain :**
+### 2. Mapping UI to Domain (apres ligne 179)
 ```typescript
-const domainInput = {
-  cargoLines: cargoLines.map(c => ({
+// Quotation Engine - mapping UI → Domain (Phase 4F.5)
+const quotationInput: QuotationInput = {
+  cargoLines: cargoLines.map((c, i) => ({
     id: c.id,
     quantity: c.container_count ?? c.pieces ?? 1,
-    weight_kg: c.weight_kg,
-    volume_m3: c.volume_cbm, // mapping cbm → m3
-    description: c.description,
+    weight_kg: c.weight_kg ?? null,
+    volume_m3: c.volume_cbm ?? null,
+    description: c.description || null,
   })),
-  serviceLines: serviceLines.map(s => ({
+  serviceLines: serviceLines.map((s) => ({
     id: s.id,
-    quantity: s.quantity,
-    unit_price: s.rate, // mapping rate → unit_price
-    description: s.description,
+    quantity: s.quantity ?? 1,
+    unit_price: s.rate ?? null,
+    description: s.description || null,
+    service_code: s.service || null,
   })),
-  context: { rounding: "none" },
+  context: { rounding: 'none' },
 };
 
-const engineResult = runQuotationEngine(domainInput);
+const engineResult = runQuotationEngine(quotationInput);
+const quotationTotals = engineResult.snapshot.totals;
 ```
 
-**Usage :** `engineResult.snapshot.totals` pour affichage
+### 3. Usage dans QuotationExcelExport (optionnel, non bloquant)
+Le composant QuotationExcelExport calcule deja `amount` inline.
+Phase 4F.5 se limite a rendre `quotationTotals` disponible.
+L'integration dans QuotationExcelExport peut etre reportee.
 
 ---
 
-## Contraintes respectées
+## Fichiers modifies
 
-| Contrainte | Vérification |
-|------------|--------------|
-| Composants FROZEN non modifiés | ✅ Aucun changement |
-| Hooks existants non modifiés | ✅ Aucun changement |
-| Pas de nouveau state | ✅ Calcul dérivé |
-| Pas de logique UI | ✅ Domain layer pur |
-| Pas de modification signatures | ✅ Extension uniquement |
+| Fichier | Modification |
+|---------|-------------|
+| QuotationSheet.tsx | +2 imports, +15 lignes mapping |
 
----
+## Fichiers NON modifies (verification)
 
-## Exécution séquentielle
-
-### Étape 4F.1 (Contrat)
-1. Créer `src/features/quotation/domain/types.ts`
-2. Créer `src/features/quotation/domain/guards.ts`
-3. Créer `src/features/quotation/domain/index.ts` (barrel partiel)
-
-### Étape 4F.2 (Règles)
-1. Créer `src/features/quotation/domain/rules.ts`
-2. Vérifier build TypeScript
-
-### Étape 4F.3 (Engine)
-1. Créer `src/features/quotation/domain/engine.ts`
-2. Mettre à jour barrel export
-
-### Étape 4F.4 (Tests)
-1. Créer `src/features/quotation/domain/engine.test.ts`
-2. Exécuter `pnpm test`
-
-### Étape 4F.5 (Intégration)
-1. Ajouter import dans QuotationSheet.tsx
-2. Ajouter mapping + appel engine
-3. Vérifier build + tests
+| Fichier | Statut |
+|---------|--------|
+| CargoLinesForm.tsx | FROZEN - aucun changement |
+| ServiceLinesForm.tsx | FROZEN - aucun changement |
+| useCargoLines.ts | aucun changement |
+| useServiceLines.ts | aucun changement |
 
 ---
 
-## Critères de sortie
+## Code a ajouter
 
-- 5 nouveaux fichiers dans `src/features/quotation/domain/`
-- Build TypeScript OK
-- Tests Vitest 23/23 (19 existants + 4 nouveaux)
-- Aucun diff sur composants FROZEN
-- Aucun diff sur hooks Phase 4C
-- Engine utilisable pour affichage totaux
-
----
-
-## Section technique détaillée
-
-### Mapping types existants → domain
-
-```text
-CargoLine (UI)                    CargoLineDomain
-─────────────                     ───────────────
-id: string                   →    id: EntityId
-container_count?: number     →    quantity?: Quantity
-weight_kg?: number          →    weight_kg?: WeightKg
-volume_cbm?: number         →    volume_m3?: VolumeM3
-description: string         →    description?: string
-(autres champs)             →    meta?: Record<string, unknown>
-
-ServiceLine (UI)                  ServiceLineDomain
-─────────────                     ────────────────
-id: string                   →    id: EntityId
-quantity: number            →    quantity?: Quantity
-rate?: number               →    unit_price?: Money
-description: string         →    description?: string
-(autres champs)             →    meta?: Record<string, unknown>
+### Import (apres ligne 126)
+```typescript
+// Domain layer (Phase 4F)
+import { runQuotationEngine } from '@/features/quotation/domain/engine';
+import type { QuotationInput } from '@/features/quotation/domain/types';
 ```
 
-### Schéma d'intégration
+### Mapping + appel engine (apres ligne 179, avant useEffect)
+```typescript
+// ═══════════════════════════════════════════════════════════════════
+// Quotation Engine — Phase 4F.5
+// Mapping UI → Domain puis calcul des totaux
+// ═══════════════════════════════════════════════════════════════════
+const quotationInput: QuotationInput = {
+  cargoLines: cargoLines.map((c) => ({
+    id: c.id,
+    quantity: c.container_count ?? c.pieces ?? 1,
+    weight_kg: c.weight_kg ?? null,
+    volume_m3: c.volume_cbm ?? null,
+    description: c.description || null,
+  })),
+  serviceLines: serviceLines.map((s) => ({
+    id: s.id,
+    quantity: s.quantity ?? 1,
+    unit_price: s.rate ?? null,
+    description: s.description || null,
+    service_code: s.service || null,
+  })),
+  context: { rounding: 'none' },
+};
+
+const engineResult = runQuotationEngine(quotationInput);
+const quotationTotals = engineResult.snapshot.totals;
+
+// Debug : afficher issues en dev (optionnel)
+// if (engineResult.snapshot.issues.length > 0) {
+//   console.debug('[QuotationEngine] Issues:', engineResult.snapshot.issues);
+// }
+```
+
+---
+
+## Verification post-integration
+
+1. **Build TypeScript OK** - aucun type error
+2. **Tests Vitest OK** - 23/23 (19 existants + 4 engine)
+3. **Rendu visuel identique** - aucun changement UI
+4. **Console** - `quotationTotals` disponible pour debug
+
+---
+
+## Impact
+
+| Metrique | Avant | Apres |
+|----------|-------|-------|
+| Lignes QuotationSheet.tsx | 1005 | ~1022 |
+| Imports | 32 | 34 |
+| Variables disponibles | - | quotationTotals, engineResult |
+
+---
+
+## Criteres de sortie Phase 4F.5
+
+- Import runQuotationEngine ajoute
+- Mapping UI → Domain en place
+- Variable `quotationTotals` disponible dans le composant
+- Build OK, Tests OK
+- Aucun changement visuel
+- Composants FROZEN non modifies
+
+---
+
+## Section technique
+
+### Schema d'integration
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    QuotationSheet.tsx                       │
 │                                                             │
-│  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │ useCargoLines│    │useServiceLines│   │ UI Components │  │
-│  │  (Phase 4C) │    │  (Phase 4C)  │    │  (FROZEN 4E)  │  │
-│  └──────┬──────┘    └──────┬───────┘    └───────────────┘  │
+│  ┌─────────────┐    ┌──────────────┐                       │
+│  │ cargoLines  │    │ serviceLines │  (hooks Phase 4C)     │
+│  └──────┬──────┘    └──────┬───────┘                       │
 │         │                  │                                │
-│         ▼                  ▼                                │
+│         └────────┬─────────┘                                │
+│                  ▼                                          │
 │  ┌──────────────────────────────────────┐                  │
-│  │        Mapping UI → Domain           │                  │
+│  │        quotationInput (mapping)      │ ← NEW (4F.5)     │
 │  └──────────────────┬───────────────────┘                  │
 │                     │                                       │
 │                     ▼                                       │
 │  ┌──────────────────────────────────────┐                  │
-│  │     runQuotationEngine(input)        │ ← NEW (4F.3)     │
-│  │     (src/features/quotation/domain)  │                  │
+│  │     runQuotationEngine(input)        │                  │
 │  └──────────────────┬───────────────────┘                  │
 │                     │                                       │
 │                     ▼                                       │
 │  ┌──────────────────────────────────────┐                  │
-│  │  engineResult.snapshot.totals        │                  │
-│  │  → Affichage récapitulatif           │                  │
+│  │  quotationTotals                     │                  │
+│  │  ├─ subtotal_services                │                  │
+│  │  ├─ subtotal_cargo_metrics           │                  │
+│  │  ├─ total_ht                         │                  │
+│  │  └─ total_ttc                        │                  │
 │  └──────────────────────────────────────┘                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Livrables Phase 4F
+### Mapping champs UI → Domain
 
-| Fichier | Lignes | Rôle |
-|---------|--------|------|
-| types.ts | ~80 | Contrat métier canonique |
-| guards.ts | ~60 | Sanitization non-destructive |
-| rules.ts | ~70 | Calculs purs |
-| engine.ts | ~25 | Orchestrateur |
-| engine.test.ts | ~50 | Tests unitaires |
-| index.ts | ~10 | Barrel export |
+| CargoLine (UI) | CargoLineDomain |
+|----------------|-----------------|
+| id | id |
+| container_count ?? pieces ?? 1 | quantity |
+| weight_kg | weight_kg |
+| volume_cbm | volume_m3 |
+| description | description |
 
-**Total nouveau code : ~295 lignes**
+| ServiceLine (UI) | ServiceLineDomain |
+|------------------|-------------------|
+| id | id |
+| quantity | quantity |
+| rate | unit_price |
+| description | description |
+| service | service_code |
 
-**Impact QuotationSheet.tsx : +15 lignes** (import + mapping + appel)
