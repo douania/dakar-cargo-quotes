@@ -118,6 +118,10 @@ import {
   buildCurrentEmail
 } from '@/features/quotation/services/threadLoader';
 
+// Hooks formulaire (Phase 4C)
+import { useCargoLines } from '@/features/quotation/hooks/useCargoLines';
+import { useServiceLines } from '@/features/quotation/hooks/useServiceLines';
+
 
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
@@ -147,11 +151,23 @@ export default function QuotationSheet() {
     our_role: 'direct',
   });
 
-  // Cargo lines (multiple items)
-  const [cargoLines, setCargoLines] = useState<CargoLine[]>([]);
-  
-  // Service lines for quotation
-  const [serviceLines, setServiceLines] = useState<ServiceLine[]>([]);
+  // Cargo lines (Phase 4C - hook extraction)
+  const {
+    cargoLines,
+    setCargoLines,
+    addCargoLine,
+    updateCargoLine,
+    removeCargoLine,
+  } = useCargoLines();
+
+  // Service lines (Phase 4C - hook extraction)
+  const {
+    serviceLines,
+    setServiceLines,
+    addServiceLine,
+    updateServiceLine,
+    removeServiceLine,
+  } = useServiceLines();
 
   // General quotation info
   const [destination, setDestination] = useState('Dakar');
@@ -554,51 +570,6 @@ export default function QuotationSheet() {
     } finally {
       setIsLearning(false);
     }
-  };
-
-  const addCargoLine = (type: 'container' | 'breakbulk') => {
-    const newLine: CargoLine = {
-      id: crypto.randomUUID(),
-      description: '',
-      origin: '',
-      cargo_type: type,
-      container_type: type === 'container' ? '40HC' : undefined,
-      container_count: type === 'container' ? 1 : undefined,
-      coc_soc: 'COC',
-    };
-    setCargoLines([...cargoLines, newLine]);
-  };
-
-  const updateCargoLine = (id: string, updates: Partial<CargoLine>) => {
-    setCargoLines(cargoLines.map(line => 
-      line.id === id ? { ...line, ...updates } : line
-    ));
-  };
-
-  const removeCargoLine = (id: string) => {
-    setCargoLines(cargoLines.filter(line => line.id !== id));
-  };
-
-  const addServiceLine = (template?: typeof serviceTemplates[0]) => {
-    const newLine: ServiceLine = {
-      id: crypto.randomUUID(),
-      service: template?.service || '',
-      description: template?.description || '',
-      unit: template?.unit || 'forfait',
-      quantity: 1,
-      currency: 'FCFA',
-    };
-    setServiceLines([...serviceLines, newLine]);
-  };
-
-  const updateServiceLine = (id: string, updates: Partial<ServiceLine>) => {
-    setServiceLines(serviceLines.map(line => 
-      line.id === id ? { ...line, ...updates } : line
-    ));
-  };
-
-  const removeServiceLine = (id: string) => {
-    setServiceLines(serviceLines.filter(line => line.id !== id));
   };
 
   const handleGenerateResponse = async () => {
