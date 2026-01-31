@@ -1,8 +1,6 @@
 /**
- * UI COMPONENT — FROZEN (Phase 3B)
- * - Ne pas modifier sans ouvrir une nouvelle phase
- * - Logique métier volontairement absente
- * - Toute évolution = nouvelle phase (3B.x)
+ * UI COMPONENT — Phase 5D (extended)
+ * - Ajout prop currentDraft pour affichage statut
  */
 import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +14,7 @@ interface QuotationHeaderProps {
   isGenerating: boolean;
   onBack: () => void;
   onGenerateResponse: () => void;
+  currentDraft?: { status: string; version: number } | null;
 }
 
 export function QuotationHeader({
@@ -26,6 +25,7 @@ export function QuotationHeader({
   isGenerating,
   onBack,
   onGenerateResponse,
+  currentDraft,
 }: QuotationHeaderProps) {
   return (
     <div className="flex items-center gap-4 mb-6">
@@ -38,9 +38,18 @@ export function QuotationHeader({
             {isNewQuotation ? 'Nouvelle cotation' : 'Fiche de cotation'}
           </h1>
           {quotationCompleted && (
-            <Badge className="bg-green-500/20 text-green-600 border-green-500/30">
+            <Badge className="bg-success/20 text-success border-success/30">
               <CheckCircle className="h-3 w-3 mr-1" />
               Cotation réalisée
+            </Badge>
+          )}
+          {currentDraft && !quotationCompleted && (
+            <Badge variant={currentDraft.status === 'sent' ? 'default' : 'outline'}>
+              {currentDraft.status === 'draft' && 'Brouillon'}
+              {currentDraft.status === 'sent' && 'Envoyé'}
+              {currentDraft.status === 'accepted' && 'Accepté'}
+              {currentDraft.status === 'rejected' && 'Refusé'}
+              {currentDraft.version > 1 && ` v${currentDraft.version}`}
             </Badge>
           )}
         </div>

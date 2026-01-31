@@ -73,3 +73,6 @@ export interface QuotationEngineResult {
   readonly input: QuotationInput;
   readonly snapshot: QuotationSnapshot;
 }
+
+// Phase 5D : Statut workflow devis
+export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
