@@ -58,6 +58,11 @@ import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
 import { QuotationExcelExport } from '@/components/QuotationExcelExport';
 
+// Composants UI P0 extraits (Phase 3A)
+import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
+import { AlertsPanel } from '@/features/quotation/components/AlertsPanel';
+import { SuggestionsCard } from '@/features/quotation/components/SuggestionsCard';
+import { QuickActionsCard } from '@/features/quotation/components/QuickActionsCard';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
 
@@ -888,97 +893,10 @@ export default function QuotationSheet() {
             )}
 
             {/* Regulatory Information */}
-            {regulatoryInfo && (regulatoryInfo.projectTaxation || regulatoryInfo.dpiRequired || regulatoryInfo.customsNotes.length > 0) && (
-              <Card className="border-blue-500/30 bg-blue-500/5">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2 text-blue-600">
-                    <ShieldCheck className="h-4 w-4" />
-                    Informations réglementaires extraites
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {regulatoryInfo.projectTaxation && (
-                    <div className="p-3 rounded-lg bg-background border">
-                      <p className="text-sm font-medium mb-1">Taxation projet exempté:</p>
-                      <div className="flex gap-4 text-sm">
-                        {regulatoryInfo.projectTaxation.sea && (
-                          <span>
-                            <Ship className="h-3 w-3 inline mr-1" />
-                            Maritime: <strong>{regulatoryInfo.projectTaxation.sea}</strong> CIF
-                          </span>
-                        )}
-                        {regulatoryInfo.projectTaxation.air && (
-                          <span>
-                            ✈️ Aérien: <strong>{regulatoryInfo.projectTaxation.air}</strong> CIF
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {regulatoryInfo.dpiRequired && (
-                    <div className="p-3 rounded-lg bg-background border">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Info className="h-4 w-4 text-amber-500" />
-                        <p className="text-sm font-medium">DPI Obligatoire</p>
-                      </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
-                        {regulatoryInfo.dpiThreshold && (
-                          <p>Seuil: CIF &gt; {regulatoryInfo.dpiThreshold}</p>
-                        )}
-                        {regulatoryInfo.dpiDeadline && (
-                          <p>Délai: {regulatoryInfo.dpiDeadline}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {regulatoryInfo.apeAvailable && (
-                    <div className="p-3 rounded-lg bg-background border">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <p className="text-sm">APE possible si exemption manquante (renouv. 10j)</p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {regulatoryInfo.customsNotes.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {regulatoryInfo.customsNotes.map((note, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          {note}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+            <RegulatoryInfoCard regulatoryInfo={regulatoryInfo} />
 
             {/* Alerts */}
-            {alerts.length > 0 && (
-              <Card className="border-amber-500/30 bg-amber-500/5">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2 text-amber-500">
-                    <AlertTriangle className="h-4 w-4" />
-                    Points d'attention ({alerts.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-1">
-                    {alerts.map((alert, i) => (
-                      <li key={i} className="text-sm flex items-center gap-2">
-                        {alert.type === 'warning' && <AlertTriangle className="h-3 w-3 text-amber-500" />}
-                        {alert.type === 'info' && <HelpCircle className="h-3 w-3 text-ocean" />}
-                        {alert.type === 'error' && <AlertTriangle className="h-3 w-3 text-red-500" />}
-                        {alert.type === 'success' && <CheckCircle className="h-3 w-3 text-green-500" />}
-                        <span className="text-muted-foreground">{alert.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
+            <AlertsPanel alerts={alerts} />
 
             {/* Thread Timeline */}
             {threadEmails.length > 1 && (
@@ -1599,59 +1517,10 @@ export default function QuotationSheet() {
             />
 
             {/* Suggestions */}
-            {suggestions.length > 0 && (
-              <Card className="border-border/50 bg-gradient-card">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-amber-500" />
-                    Suggestions IA
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {suggestions.slice(0, 5).map((sug, i) => (
-                      <div 
-                        key={i} 
-                        className="p-2 rounded-lg bg-muted/30 text-sm cursor-pointer hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{sug.value}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {Math.round(sug.confidence * 100)}%
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">{sug.source}</p>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <SuggestionsCard suggestions={suggestions} />
 
             {/* Quick Actions */}
-            <Card className="border-border/50 bg-gradient-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Actions rapides</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start" size="sm">
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  Calculer droits de douane
-                </Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">
-                  <Package className="h-4 w-4 mr-2" />
-                  Rechercher code SH
-                </Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">
-                  <Truck className="h-4 w-4 mr-2" />
-                  Tarifs transport routier
-                </Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">
-                  <History className="h-4 w-4 mr-2" />
-                  Voir cotations similaires
-                </Button>
-              </CardContent>
-            </Card>
+            <QuickActionsCard />
           </div>
         </div>
       </div>
