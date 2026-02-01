@@ -1245,7 +1245,7 @@ serve(async (req) => {
   }
 
   try {
-    const { emailId, customInstructions, expertStyle } = await req.json();
+    const { emailId, customInstructions, expertStyle, quotationData } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1257,18 +1257,31 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get the original email
-    const { data: email, error: emailError } = await supabase
-      .from('emails')
-      .select('*')
-      .eq('id', emailId)
-      .single();
+    // BUG #2 Fix: Rendre emailId optionnel pour cotation directe
+    let email: any = null;
 
-    if (emailError || !email) {
-      throw new Error("Email non trouvé");
+    if (emailId) {
+      const { data: emailData, error: emailError } = await supabase
+        .from('emails')
+        .select('*')
+        .eq('id', emailId)
+        .single();
+
+      if (emailError || !emailData) {
+        throw new Error("Email non trouvé");
+      }
+      email = emailData;
     }
 
-    console.log("Generating expert response for email:", email.subject);
+    // Fallbacks pour cotation directe (email = null)
+    const emailSubject = email?.subject || quotationData?.projectContext?.project_name || 'Cotation directe';
+    const emailFromAddress = email?.from_address || 'direct@quotation.local';
+    const emailBodyText = email?.body_text || '';
+    const emailSentAt = email?.sent_at || new Date().toISOString();
+    const emailThreadRef = email?.thread_ref || null;
+    const emailThreadId = email?.thread_id || null;
+
+    console.log("Generating expert response for:", emailSubject);
 
     // ============ FETCH OFFICIAL PORT TARIFFS (PRIMARY SOURCE) ============
     const { data: portTariffs } = await supabase
@@ -1768,8 +1781,8 @@ Réponds en JSON:
       selectedExpert = cherifProfile;
       expertName = 'cherif';
     } else if (expertStyle === 'auto' || !expertStyle) {
-      const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
-      expertName = selectExpertForResponse(emailContent, email.subject || '');
+      const emailContent = emailBodyText + ' ' + emailSubject;
+      expertName = selectExpertForResponse(emailContent, emailSubject);
       selectedExpert = expertName === 'cherif' ? cherifProfile : talebProfile;
     } else if (expertStyle === 'taleb') {
       selectedExpert = talebProfile;
@@ -1792,7 +1805,7 @@ Réponds en JSON:
     let threadContext = '';
     let threadRoleContext = '';
     
-    if (email.thread_ref) {
+    if (emailThreadRef) {
       const { data: threadInfo } = await supabase
         .from('email_threads')
         .select('*')
@@ -1829,20 +1842,23 @@ Réponds en JSON:
       }
     }
     
-    const { data: senderContact } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('email', email.from_address.toLowerCase())
-      .maybeSingle();
-    
-    if (senderContact) {
-      threadRoleContext += `\n\n=== PROFIL EXPÉDITEUR ===\n`;
-      threadRoleContext += `📧 Email: ${senderContact.email}\n`;
-      threadRoleContext += `🏢 Entreprise: ${senderContact.company || 'N/A'}\n`;
-      threadRoleContext += `👤 Rôle: ${senderContact.role?.toUpperCase() || 'PROSPECT'}\n`;
-      threadRoleContext += `📊 Interactions: ${senderContact.interaction_count || 1}\n`;
-      if (senderContact.is_trusted) {
-        threadRoleContext += `✅ Contact de confiance\n`;
+    // Skip sender contact lookup if no email source
+    if (emailFromAddress !== 'direct@quotation.local') {
+      const { data: senderContact } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('email', emailFromAddress.toLowerCase())
+        .maybeSingle();
+      
+      if (senderContact) {
+        threadRoleContext += `\n\n=== PROFIL EXPÉDITEUR ===\n`;
+        threadRoleContext += `📧 Email: ${senderContact.email}\n`;
+        threadRoleContext += `🏢 Entreprise: ${senderContact.company || 'N/A'}\n`;
+        threadRoleContext += `👤 Rôle: ${senderContact.role?.toUpperCase() || 'PROSPECT'}\n`;
+        threadRoleContext += `📊 Interactions: ${senderContact.interaction_count || 1}\n`;
+        if (senderContact.is_trusted) {
+          threadRoleContext += `✅ Contact de confiance\n`;
+        }
       }
     }
     
@@ -1871,11 +1887,11 @@ Réponds en JSON:
       return 'EXTERNE';
     }
 
-    if (email.thread_id) {
+    if (emailThreadId) {
       const { data: threadEmails } = await supabase
         .from('emails')
         .select('from_address, subject, body_text, sent_at')
-        .eq('thread_id', email.thread_id)
+        .eq('thread_id', emailThreadId)
         .order('sent_at', { ascending: true });
 
       if (threadEmails && threadEmails.length > 1) {
@@ -1889,19 +1905,19 @@ Réponds en JSON:
     }
 
     // ============ DETECT REGIME AND ADD LEGAL CONTEXT ============
-    const emailContent = (email.body_text || '') + ' ' + (email.subject || '');
+    const emailContentForRegime = emailBodyText + ' ' + emailSubject;
     const detectedRegimes: string[] = [];
     
-    if (/\bATE\b|admission\s+temporaire/i.test(emailContent)) {
+    if (/\bATE\b|admission\s+temporaire/i.test(emailContentForRegime)) {
       detectedRegimes.push('ATE');
     }
-    if (/\bTRIE\b|S120|transit\s+international/i.test(emailContent)) {
+    if (/\bTRIE\b|S120|transit\s+international/i.test(emailContentForRegime)) {
       detectedRegimes.push('TRIE');
     }
-    if (/\bC10\b|mise\s+à\s+la\s+consommation|import\s+définitif/i.test(emailContent)) {
+    if (/\bC10\b|mise\s+à\s+la\s+consommation|import\s+définitif/i.test(emailContentForRegime)) {
       detectedRegimes.push('C10');
     }
-    if (/\bMali\b|Burkina|Niger|Guinée/i.test(emailContent)) {
+    if (/\bMali\b|Burkina|Niger|Guinée/i.test(emailContentForRegime)) {
       detectedRegimes.push('TRIE');
     }
     
@@ -1914,8 +1930,8 @@ Réponds en JSON:
         legalContext += getLegalContextForRegime(regime);
       }
       
-      const maliMatch = emailContent.match(/\b(Mali|Bamako)\b/i);
-      const burkinaMatch = emailContent.match(/\b(Burkina|Ouagadougou)\b/i);
+      const maliMatch = emailContentForRegime.match(/\b(Mali|Bamako)\b/i);
+      const burkinaMatch = emailContentForRegime.match(/\b(Burkina|Ouagadougou)\b/i);
       const destination = maliMatch?.[1] || burkinaMatch?.[1] || '';
       
       if (destination && detectedRegimes.includes('ATE')) {
@@ -1938,7 +1954,7 @@ Réponds en JSON:
 
     // ============ CTU CODE CONTEXT (Container Loading Best Practices) ============
     let ctuContext = '';
-    const fullEmailContent = (email.body_text || '') + ' ' + (email.subject || '') + ' ' + 
+    const fullEmailContent = emailBodyText + ' ' + emailSubject + ' ' + 
       (attachments?.map(a => a.extracted_text || '').join(' ') || '');
     
     if (isCTURelevant(fullEmailContent)) {
@@ -2518,11 +2534,11 @@ transport_mode: "${aiExtracted.transport_mode}"
 clarification_questions_suggested: ${JSON.stringify(aiExtracted.questions_to_ask)}
 
 DEMANDE CLIENT À ANALYSER:
-De: ${email.from_address}
-Objet: ${email.subject}
-Date: ${email.sent_at}
+De: ${emailFromAddress}
+Objet: ${emailSubject}
+Date: ${emailSentAt}
 
-${email.body_text}
+${emailBodyText}
 
 ${analysisContext}
 ${portTariffsContext}
@@ -2615,8 +2631,8 @@ RAPPELS CRITIQUES:
       .from('email_drafts')
       .insert({
         original_email_id: emailId,
-        to_addresses: [email.from_address],
-        subject: parsedResponse.subject || `Re: ${email.subject}`,
+        to_addresses: [emailFromAddress],
+        subject: parsedResponse.subject || `Re: ${emailSubject}`,
         body_text: fullBodyText,
         status: 'draft',
         ai_generated: true
@@ -2638,7 +2654,7 @@ RAPPELS CRITIQUES:
       try {
         const enrichedAttachmentData = {
           ...parsedResponse.attachment_data,
-          client_name: email.from_address.split('@')[0].replace(/[._]/g, ' '),
+          client_name: emailFromAddress.split('@')[0].replace(/[._]/g, ' '),
           destination: aiExtracted.destination,
           incoterm: aiExtracted.incoterm,
         };
