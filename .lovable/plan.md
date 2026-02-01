@@ -1,116 +1,82 @@
 
-## Objectif (correction CTO)
-Stabiliser **uniquement** `supabase/functions/generate-quotation/index.ts` en garantissant :
-- **Une seule** logique d’auth (getUser), **zéro** trace de `getClaims()`
-- `Authorization` correctement propagé au client anon (sinon `getUser()` retourne `null`)
-- Code **compilable**, lisible, testable
-- Aucun changement d’architecture / aucune feature additionnelle
+
+## Rapport CTO Phase 6D.2 — Statut DONE
+
+### Verdict
+
+**Phase 6D.2 est complète et conforme aux règles CTO.**
+
+L'Edge Function `generate-quotation-pdf` est **100% snapshot-first** sans aucun reste Phase 5C.
 
 ---
 
-## Constats factuels (état actuel du repo)
-- `supabase/functions/generate-quotation/index.ts` ne contient **déjà** aucune occurrence de `getClaims()` (vérifié par recherche repo).
-- Le client anon est bien construit avec `global.headers.Authorization = authHeader` (présent et correct).
-- Malgré ça, pour alignement strict avec votre “VERSION FINALE” (et éviter tout piège de header non-`Bearer`/case), on applique le bloc **exact** demandé et on supprime toute variation.
+### Preuves techniques
+
+| Critère CTO | Statut | Vérification |
+|-------------|--------|--------------|
+| Aucun `QuotationData` | ✅ Validé | Recherche : 0 match dans le fichier |
+| Aucun `TariffLine` | ✅ Validé | Recherche : 0 match dans le fichier |
+| Aucun accès `tariff_lines` | ✅ Validé | Recherche : 0 match dans le fichier |
+| Aucun accès `client_name` | ✅ Validé | Recherche : 0 match dans le fichier |
+| Une seule fonction PDF | ✅ Validé | `generatePdfFromSnapshot()` uniquement |
+| Snapshot comme source | ✅ Validé | `quotation.generated_snapshot as GeneratedSnapshot` |
+| Ownership vérifié | ✅ Validé | `created_by !== user.id → 403` |
+| Statut vérifié | ✅ Validé | `status !== 'generated' → 400` |
+| `verify_jwt = true` | ✅ Validé | Ligne 7 de config.toml |
+| Trace DB | ✅ Validé | Insert dans `quotation_documents` |
+| Storage versionné | ✅ Validé | `Q-{id}/v{version}/quote-{id}-{ts}.pdf` |
 
 ---
 
-## Changements prévus (chirurgicaux)
+### Correction cosmétique mineure (optionnelle)
 
-### 1) Fichier : `supabase/functions/generate-quotation/index.ts`
-**But :** remplacer le bloc AUTH existant par votre version finale (copier-coller), sans laisser de logique résiduelle.
+**Fichier** : `src/components/QuotationPdfExport.tsx`
 
-#### 1.1 Remplacement du guard `Bearer`
-Actuellement :
-- Le code fait `if (!authHeader?.startsWith('Bearer ')) { ... }`
+| Ligne | Actuel | Correction |
+|-------|--------|------------|
+| 3 | `Phase 5C` | `Phase 6D.2` |
+| 56 | `status === 'draft' ? 'Document brouillon' : 'Document officiel'` | `'Document officiel'` (toujours) |
 
-À appliquer (version CTO) :
-- `if (!authHeader) { ... }`
-
-Raison : éviter les faux négatifs (token valide mais header non strictement “Bearer …”), tout en restant conforme à la règle “header obligatoire”.
-
-#### 1.2 Bloc client anon + getUser()
-S’assurer que le code **contient exactement** :
-```ts
-const anonClient = createClient(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    auth: { persistSession: false },
-    global: {
-      headers: {
-        Authorization: authHeader,
-      },
-    },
-  }
-);
-
-const { data: { user }, error: authError } = await anonClient.auth.getUser();
-
-if (authError || !user) { ... }
-
-const userId = user.id;
-```
-
-#### 1.3 Nettoyage “zéro trace”
-Vérifier qu’il ne reste **aucune** référence à :
-- `token`
-- `getClaims`
-- `claimsData`
-- `claimsError`
-- `claimsData.claims.sub`
+**Raison** : Le PDF ne peut plus être généré depuis un draft (le bouton est conditionné à `status === 'generated'`), donc la distinction est inutile.
 
 ---
 
-## Vérifications techniques (anti-régression)
-1) **Recherche repo** : confirmer 0 match sur `getClaims(` et `claimsData|claimsError`.
-2) Vérifier que le fichier `supabase/config.toml` contient bien :
-```toml
-[functions.generate-quotation]
-verify_jwt = false
-```
-(Si absent : l’ajouter. S’il est déjà présent : ne pas toucher.)
+### Ce qui reste hors scope (Phase 5C legacy)
+
+Les références à `tariff_lines` trouvées dans d'autres fonctions sont **légitimes** :
+- `create-quotation-draft/index.ts` : Gère la création de brouillons avec colonnes dénormalisées (Phase 5)
+- `data-admin/index.ts` : Admin data, hors cycle devis
+- `learn-quotation-puzzle/index.ts` : Apprentissage ML, hors cycle devis
+
+Ces fonctions **ne génèrent pas de PDF** et ne sont pas concernées par Phase 6D.2.
 
 ---
 
-## Tests CTO post-fix (obligatoires)
+### Recommandation finale
 
-### A) Tests fonctionnels (mêmes que votre checklist)
-1. Build / compilation OK (pas d’erreur runtime Deno / TS côté function)
-2. Appel `generate-quotation` avec JWT valide → **200**
-3. JWT invalide / absent → **401**
-4. Bon user + draft `status='draft'` → `status='generated'` + `generated_snapshot` persisté
-5. Refresh page `/quotation/new` après génération → preview relue depuis `generated_snapshot`
-
-### B) Test ownership critique (ajout CTO)
-Objectif : prouver le verrou ownership même si la function utilise le service role.
-
-Procédure (simple, réaliste) :
-1. **User A** : créer un draft, noter `quotation_id` (dans l’UI / logs / DB selon vos habitudes).
-2. Se déconnecter.
-3. **User B** (compte différent) : appeler la function `generate-quotation` en réutilisant **le quotation_id de A** (via un appel manuel DevTools ou en instrumentant temporairement un appel test).
-Résultat attendu :
-- **403 Non autorisé**
-- aucun update en base
+1. **Appliquer la correction cosmétique** (2 lignes) pour cohérence documentaire
+2. **Marquer Phase 6D.2 comme DONE**
+3. **Passer à Phase 6D.3** (si prévue) ou valider le cycle complet
 
 ---
 
-## Diff attendu (clair)
-### `supabase/functions/generate-quotation/index.ts`
-- Suppression/ajustement du check `startsWith('Bearer ')` → `if (!authHeader)`
-- Bloc AUTH remplacé pour correspondre strictement à la version CTO
-- Garantie “zéro occurrence getClaims”
+### Fichiers impactés (correction cosmétique uniquement)
+
+| Fichier | Modification |
+|---------|-------------|
+| `src/components/QuotationPdfExport.tsx` | Mise à jour commentaire + simplification toast |
 
 ---
 
-## Fichiers impactés (scope minimal)
-- Modifié : `supabase/functions/generate-quotation/index.ts`
-- Aucun autre fichier
+### Critères de DONE Phase 6D.2 — Tous validés
 
----
+- ✅ PDF généré depuis `generated_snapshot` uniquement
+- ✅ PDF stocké dans `quotation-attachments` bucket  
+- ✅ Trace écrite dans `quotation_documents`
+- ✅ Ownership vérifié (403 si mauvais user)
+- ✅ Statut vérifié (400 si pas `generated`)
+- ✅ Bouton visible uniquement si `status === 'generated'`
+- ✅ Contenu PDF = projection fidèle du snapshot
+- ✅ Aucune dette ajoutée
+- ✅ Aucun reste Phase 5C dans la fonction PDF
 
-## Critères d’acceptation (fin de correction)
-- La function ne contient **aucune** trace de `getClaims`
-- `getUser()` fonctionne (Authorization bien propagé au client anon)
-- 200 / 401 / 403 conformes aux scénarios
-- Build OK
