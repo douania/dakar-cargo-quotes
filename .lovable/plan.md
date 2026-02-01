@@ -1,82 +1,203 @@
 
 
-## Rapport CTO Phase 6D.2 — Statut DONE
+## Correction Phase 6D.x — Déblocage sauvegarde brouillon
 
-### Verdict
+### Problème actuel
+L'utilisateur est bloqué sur `/quotation/new` avec le message "Veuillez d'abord sauvegarder le brouillon" en boucle infinie.
 
-**Phase 6D.2 est complète et conforme aux règles CTO.**
-
-L'Edge Function `generate-quotation-pdf` est **100% snapshot-first** sans aucun reste Phase 5C.
-
----
-
-### Preuves techniques
-
-| Critère CTO | Statut | Vérification |
-|-------------|--------|--------------|
-| Aucun `QuotationData` | ✅ Validé | Recherche : 0 match dans le fichier |
-| Aucun `TariffLine` | ✅ Validé | Recherche : 0 match dans le fichier |
-| Aucun accès `tariff_lines` | ✅ Validé | Recherche : 0 match dans le fichier |
-| Aucun accès `client_name` | ✅ Validé | Recherche : 0 match dans le fichier |
-| Une seule fonction PDF | ✅ Validé | `generatePdfFromSnapshot()` uniquement |
-| Snapshot comme source | ✅ Validé | `quotation.generated_snapshot as GeneratedSnapshot` |
-| Ownership vérifié | ✅ Validé | `created_by !== user.id → 403` |
-| Statut vérifié | ✅ Validé | `status !== 'generated' → 400` |
-| `verify_jwt = true` | ✅ Validé | Ligne 7 de config.toml |
-| Trace DB | ✅ Validé | Insert dans `quotation_documents` |
-| Storage versionné | ✅ Validé | `Q-{id}/v{version}/quote-{id}-{ts}.pdf` |
+**Cause racine** : `saveDraft()` est importé mais jamais appelé, et `setCurrentDraft` n'est pas déstructuré du hook.
 
 ---
 
-### Correction cosmétique mineure (optionnelle)
+### Modifications (3 fichiers, ~60 lignes)
 
-**Fichier** : `src/components/QuotationPdfExport.tsx`
+#### 1. QuotationSheet.tsx — Déstructurer `setCurrentDraft` du hook
 
-| Ligne | Actuel | Correction |
-|-------|--------|------------|
-| 3 | `Phase 5C` | `Phase 6D.2` |
-| 56 | `status === 'draft' ? 'Document brouillon' : 'Document officiel'` | `'Document officiel'` (toujours) |
+**Ligne 193-199** : Ajouter `setCurrentDraft` à la déstructuration
 
-**Raison** : Le PDF ne peut plus être généré depuis un draft (le bouton est conditionné à `status === 'generated'`), donc la distinction est inutile.
-
----
-
-### Ce qui reste hors scope (Phase 5C legacy)
-
-Les références à `tariff_lines` trouvées dans d'autres fonctions sont **légitimes** :
-- `create-quotation-draft/index.ts` : Gère la création de brouillons avec colonnes dénormalisées (Phase 5)
-- `data-admin/index.ts` : Admin data, hors cycle devis
-- `learn-quotation-puzzle/index.ts` : Apprentissage ML, hors cycle devis
-
-Ces fonctions **ne génèrent pas de PDF** et ne sont pas concernées par Phase 6D.2.
+```typescript
+const {
+  currentDraft,
+  isSaving,
+  saveDraft,
+  markAsSent,
+  generateQuotation,
+  setCurrentDraft,  // AJOUT CRITIQUE
+} = useQuotationDraft();
+```
 
 ---
 
-### Recommandation finale
+#### 2. QuotationSheet.tsx — Ajouter `handleSaveDraft`
 
-1. **Appliquer la correction cosmétique** (2 lignes) pour cohérence documentaire
-2. **Marquer Phase 6D.2 comme DONE**
-3. **Passer à Phase 6D.3** (si prévue) ou valider le cycle complet
+Insérer après `buildSnapshot` (vers ligne 712) :
+
+```typescript
+/**
+ * Phase 6D.x: Sauvegarde explicite du brouillon
+ * Crée currentDraft.id pour débloquer generateQuotation
+ */
+const handleSaveDraft = useCallback(async () => {
+  if (!destination) {
+    toast.error('Destination requise');
+    return;
+  }
+
+  const params = {
+    route_origin: cargoLines[0]?.origin || null,
+    route_port: destination,
+    route_destination: finalDestination || destination,
+    cargo_type: cargoLines.some(c => c.cargo_type === 'container') && cargoLines.some(c => c.cargo_type === 'breakbulk')
+      ? 'combined'
+      : cargoLines[0]?.cargo_type || 'container',
+    container_types: [...new Set(cargoLines.filter(c => c.container_type).map(c => c.container_type!))],
+    client_name: projectContext.requesting_party || null,
+    client_company: projectContext.requesting_company || null,
+    partner_company: projectContext.partner_company || null,
+    project_name: projectContext.project_name || null,
+    incoterm: incoterm || null,
+    tariff_lines: serviceLines
+      .filter(s => s.rate && s.rate > 0)
+      .map(s => ({
+        service: s.service || '',
+        description: s.description || '',
+        amount: (s.rate || 0) * (s.quantity || 1),
+        currency: s.currency || 'FCFA',
+        unit: s.unit || '',
+      })),
+    total_amount: quotationTotals.total_ht,
+    total_currency: 'FCFA',
+    source_email_id: isNewQuotation ? null : emailId,
+    regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
+  };
+
+  const draft = await saveDraft(params);
+  if (draft?.id) {
+    setCurrentDraft(draft);  // LIGNE CRITIQUE CTO
+    toast.success('Brouillon sauvegardé');
+  }
+}, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft]);
+```
 
 ---
 
-### Fichiers impactés (correction cosmétique uniquement)
+#### 3. QuotationSheet.tsx — Passer les props au Header
 
-| Fichier | Modification |
-|---------|-------------|
-| `src/components/QuotationPdfExport.tsx` | Mise à jour commentaire + simplification toast |
+**Ligne 818-827** : Ajouter les nouvelles props
+
+```tsx
+<QuotationHeader
+  isNewQuotation={isNewQuotation}
+  quotationCompleted={quotationCompleted}
+  selectedEmailSubject={selectedEmail?.subject ?? null}
+  threadCount={threadEmails.length}
+  isGenerating={isGenerating}
+  onBack={() => navigate('/')}
+  onGenerateResponse={handleGenerateResponse}
+  currentDraft={currentDraft}
+  onSaveDraft={handleSaveDraft}  // NOUVEAU
+  isSaving={isSaving}            // NOUVEAU
+/>
+```
 
 ---
 
-### Critères de DONE Phase 6D.2 — Tous validés
+#### 4. QuotationHeader.tsx — Ajouter le bouton Sauvegarder
 
-- ✅ PDF généré depuis `generated_snapshot` uniquement
-- ✅ PDF stocké dans `quotation-attachments` bucket  
-- ✅ Trace écrite dans `quotation_documents`
-- ✅ Ownership vérifié (403 si mauvais user)
-- ✅ Statut vérifié (400 si pas `generated`)
-- ✅ Bouton visible uniquement si `status === 'generated'`
-- ✅ Contenu PDF = projection fidèle du snapshot
-- ✅ Aucune dette ajoutée
-- ✅ Aucun reste Phase 5C dans la fonction PDF
+**Import** : Ajouter `Save` aux imports Lucide
+
+```typescript
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send, Save } from 'lucide-react';
+```
+
+**Interface** : Étendre les props
+
+```typescript
+interface QuotationHeaderProps {
+  isNewQuotation: boolean;
+  quotationCompleted: boolean;
+  selectedEmailSubject: string | null;
+  threadCount: number;
+  isGenerating: boolean;
+  onBack: () => void;
+  onGenerateResponse: () => void;
+  currentDraft?: { status: string; version: number; id?: string } | null;
+  onSaveDraft?: () => void;    // NOUVEAU
+  isSaving?: boolean;          // NOUVEAU
+}
+```
+
+**JSX** : Remplacer le bouton unique par un groupe de 2 boutons
+
+```tsx
+{!quotationCompleted && (
+  <div className="flex gap-2">
+    {onSaveDraft && (
+      <Button 
+        variant="outline"
+        onClick={onSaveDraft}
+        disabled={isSaving}
+      >
+        {isSaving ? (
+          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+        ) : (
+          <Save className="h-4 w-4 mr-2" />
+        )}
+        {currentDraft?.id ? 'Sauvegarder' : 'Sauvegarder le brouillon'}
+      </Button>
+    )}
+    <Button 
+      onClick={onGenerateResponse}
+      disabled={isGenerating || !currentDraft?.id}
+    >
+      {isGenerating ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <Send className="h-4 w-4 mr-2" />
+      )}
+      Générer la réponse
+    </Button>
+  </div>
+)}
+```
+
+---
+
+### Résumé des changements critiques
+
+| Fichier | Modification | Raison |
+|---------|--------------|--------|
+| QuotationSheet.tsx | Déstructurer `setCurrentDraft` | Accès au setter |
+| QuotationSheet.tsx | Ajouter `handleSaveDraft` avec `setCurrentDraft(draft)` | **Correction CTO non négociable** |
+| QuotationSheet.tsx | Passer `onSaveDraft` et `isSaving` au Header | Connexion UI |
+| QuotationHeader.tsx | Ajouter bouton "Sauvegarder" + désactiver "Générer" si pas de draft | UX cohérente |
+
+---
+
+### Workflow corrigé
+
+```text
+1. Utilisateur remplit le formulaire
+2. Clique "Sauvegarder le brouillon"
+   → saveDraft() appelé
+   → setCurrentDraft(draft) exécuté (CRITIQUE)
+   → Badge "Brouillon" affiché
+   → Bouton "Générer" devient actif
+3. Clique "Générer la réponse"
+   → Guard `currentDraft?.id` passe
+   → Snapshot généré
+   → Toast succès
+```
+
+---
+
+### Impact
+
+| Critère | Valeur |
+|---------|--------|
+| Fichiers modifiés | 2 |
+| Lignes ajoutées | ~60 |
+| Changement DB | Aucun |
+| Changement Edge Function | Aucun |
+| Risque régression | Minimal |
 
