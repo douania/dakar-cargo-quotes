@@ -1,320 +1,464 @@
 
 
-# PHASE 5D-bis — Migration Explicite (VERSION FINALE CTO)
+# PHASE 6A COMPLÈTE — Auth Infrastructure + Login Fonctionnel
 
-## Corrections CTO intégrées (toutes)
+## Contexte de l'audit CTO
 
-| # | Correction | Statut |
-|---|------------|--------|
-| 1 | Aucun trigger sur `auth.users` | ✅ INTÉGRÉ |
-| 2 | Migration vers admin UUID explicite | ✅ INTÉGRÉ |
-| 3 | REVOKE sur fonctions SECURITY DEFINER | ✅ INTÉGRÉ |
-| 4 | FK idempotente (test existence) | ✅ INTÉGRÉ |
-| 5 | **`SET search_path = public, auth`** | ✅ INTÉGRÉ |
+L'audit a révélé que :
+- Les fichiers `AuthProvider.tsx` et `RequireAuth.tsx` n'ont pas encore été créés
+- Le découpage "6A Provider / 6A.2 Login" est invalide sans UI fonctionnelle
+- L'application est actuellement inutilisable (RLS bloque tout sans session)
 
----
-
-## 1. Migration SQL complète
-
-```sql
--- Phase 5D-bis : Migration explicite vers admin choisi (VERSION FINALE CTO)
-
--- ================================================================
--- FONCTION 1 : Migrer les legacy vers un admin UUID explicite
--- ================================================================
-CREATE OR REPLACE FUNCTION migrate_legacy_quotations(owner_user_id UUID)
-RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth  -- CORRECTION CTO FINALE
-AS $$
-DECLARE
-  migrated_count INTEGER;
-  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
-BEGIN
-  IF owner_user_id IS NULL THEN
-    RAISE EXCEPTION 'owner_user_id est requis';
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = owner_user_id) THEN
-    RAISE EXCEPTION 'owner_user_id % n''existe pas dans auth.users', owner_user_id;
-  END IF;
-
-  SELECT COUNT(*) INTO migrated_count
-  FROM quotation_history
-  WHERE created_by = legacy_uuid;
-
-  IF migrated_count = 0 THEN
-    RETURN 'INFO: Aucun devis legacy à migrer';
-  END IF;
-
-  UPDATE quotation_history
-  SET created_by = owner_user_id
-  WHERE created_by = legacy_uuid;
-
-  RETURN format('SUCCESS: %s devis legacy migrés vers %s', migrated_count, owner_user_id);
-END;
-$$;
-
--- ================================================================
--- FONCTION 2 : Finaliser (restaurer FK + RLS stricte)
--- ================================================================
-CREATE OR REPLACE FUNCTION finalize_quotation_ownership()
-RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth  -- CORRECTION CTO FINALE
-AS $$
-DECLARE
-  legacy_count INTEGER;
-  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
-  fk_exists BOOLEAN;
-BEGIN
-  SELECT COUNT(*) INTO legacy_count
-  FROM quotation_history
-  WHERE created_by = legacy_uuid;
-
-  IF legacy_count > 0 THEN
-    RETURN format('ERREUR: %s devis legacy existent encore. Exécutez d''abord migrate_legacy_quotations(uuid).', legacy_count);
-  END IF;
-
-  -- CORRECTION CTO #2 : Vérifier si FK existe déjà (idempotent)
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.table_constraints
-    WHERE constraint_name = 'quotation_history_created_by_fkey'
-      AND table_name = 'quotation_history'
-  ) INTO fk_exists;
-
-  IF NOT fk_exists THEN
-    ALTER TABLE quotation_history
-    ADD CONSTRAINT quotation_history_created_by_fkey
-    FOREIGN KEY (created_by) REFERENCES auth.users(id);
-  END IF;
-
-  -- Remplacer RLS par ownership STRICT (sans exception legacy)
-  DROP POLICY IF EXISTS "quotation_history_owner_select" ON quotation_history;
-  CREATE POLICY "quotation_history_owner_select"
-  ON quotation_history FOR SELECT TO authenticated
-  USING (auth.uid() = created_by);
-
-  DROP POLICY IF EXISTS "quotation_history_owner_update" ON quotation_history;
-  CREATE POLICY "quotation_history_owner_update"
-  ON quotation_history FOR UPDATE TO authenticated
-  USING (auth.uid() = created_by)
-  WITH CHECK (auth.uid() = created_by);
-
-  DROP POLICY IF EXISTS "quotation_history_owner_delete" ON quotation_history;
-  CREATE POLICY "quotation_history_owner_delete"
-  ON quotation_history FOR DELETE TO authenticated
-  USING (auth.uid() = created_by);
-
-  RETURN 'SUCCESS: FK restaurée, RLS stricte activée. Intégrité complète.';
-END;
-$$;
-
--- ================================================================
--- FONCTION 3 : Diagnostic (vérifier l'état actuel)
--- ================================================================
-CREATE OR REPLACE FUNCTION check_quotation_ownership_status()
-RETURNS TABLE(metric TEXT, value TEXT)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth  -- CORRECTION CTO FINALE
-AS $$
-DECLARE
-  legacy_uuid UUID := '00000000-0000-0000-0000-000000000000'::uuid;
-  total_count INTEGER;
-  legacy_count INTEGER;
-  migrated_count INTEGER;
-  fk_exists BOOLEAN;
-BEGIN
-  SELECT COUNT(*) INTO total_count FROM quotation_history;
-  SELECT COUNT(*) INTO legacy_count FROM quotation_history WHERE created_by = legacy_uuid;
-  migrated_count := total_count - legacy_count;
-
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.table_constraints
-    WHERE constraint_name = 'quotation_history_created_by_fkey'
-    AND table_name = 'quotation_history'
-  ) INTO fk_exists;
-
-  RETURN QUERY SELECT 'total_quotations'::TEXT, total_count::TEXT;
-  RETURN QUERY SELECT 'legacy_quotations'::TEXT, legacy_count::TEXT;
-  RETURN QUERY SELECT 'migrated_quotations'::TEXT, migrated_count::TEXT;
-  RETURN QUERY SELECT 'fk_exists'::TEXT, fk_exists::TEXT;
-  RETURN QUERY SELECT 'status'::TEXT, 
-    CASE 
-      WHEN legacy_count > 0 THEN 'MODE_MIXTE'
-      WHEN NOT fk_exists THEN 'MIGRATION_DONE_FK_PENDING'
-      ELSE 'STRICT_OWNERSHIP'
-    END;
-END;
-$$;
-
--- ================================================================
--- DURCISSEMENT CTO : empêcher tout appel non-admin
--- ================================================================
-REVOKE ALL ON FUNCTION migrate_legacy_quotations(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION migrate_legacy_quotations(uuid) FROM authenticated;
-
-REVOKE ALL ON FUNCTION finalize_quotation_ownership() FROM PUBLIC;
-REVOKE ALL ON FUNCTION finalize_quotation_ownership() FROM authenticated;
-
-REVOKE ALL ON FUNCTION check_quotation_ownership_status() FROM PUBLIC;
-REVOKE ALL ON FUNCTION check_quotation_ownership_status() FROM authenticated;
-```
-
----
-
-## 2. Fichiers créés/modifiés
+## Correction : Tout créer en une seule phase
 
 | Fichier | Action | Lignes |
 |---------|--------|--------|
-| `supabase/migrations/{ts}_lazy_migration_b1.sql` | CRÉER | ~120 |
-| `.lovable/plan.md` | METTRE À JOUR | ~15 |
+| `src/features/auth/AuthProvider.tsx` | CRÉER | ~60 |
+| `src/features/auth/RequireAuth.tsx` | CRÉER | ~35 |
+| `src/features/auth/index.ts` | CRÉER | ~3 |
+| `src/pages/LoginPage.tsx` | CRÉER | ~85 |
+| `src/App.tsx` | MODIFIER | ~40 lignes de changement |
 
-## Fichiers NON modifiés
+## Fichiers NON modifiés (FROZEN)
 
 | Fichier | Statut |
 |---------|--------|
-| `useQuotationDraft.ts` | Déjà correct (Phase 5D) |
 | `CargoLinesForm.tsx` | FROZEN |
 | `ServiceLinesForm.tsx` | FROZEN |
-| Tous les composants UI | Aucun changement |
+| `QuotationTotalsCard.tsx` | FROZEN |
 
 ---
 
-## 3. Mode opératoire admin (post-déploiement)
+## 1. AuthProvider.tsx
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  ÉTAPE 1 — Créer l'admin SODATRA                           │
-│                                                             │
-│  Via l'interface Auth Lovable Cloud :                      │
-│  - Email: admin@sodatra.sn                                 │
-│  - Mot de passe sécurisé                                   │
-│  - Confirmer l'email                                       │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ÉTAPE 2 — Récupérer l'UUID admin (SQL editor owner)       │
-│                                                             │
-│  SELECT * FROM check_quotation_ownership_status();         │
-│  -- Voir état actuel (devrait être MODE_MIXTE)             │
-│                                                             │
-│  SELECT id, email, created_at                               │
-│  FROM auth.users                                            │
-│  ORDER BY created_at DESC LIMIT 5;                         │
-│  -- Copier l'UUID de admin@sodatra.sn                      │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ÉTAPE 3 — Migrer les 91 devis legacy                      │
-│                                                             │
-│  SELECT migrate_legacy_quotations(                         │
-│    'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'::uuid            │
-│  );                                                         │
-│                                                             │
-│  Résultat attendu:                                         │
-│  "SUCCESS: 91 devis legacy migrés vers xxx..."             │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ÉTAPE 4 — Finaliser (FK + RLS stricte)                    │
-│                                                             │
-│  SELECT finalize_quotation_ownership();                    │
-│                                                             │
-│  Résultat attendu:                                         │
-│  "SUCCESS: FK restaurée, RLS stricte activée..."           │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ÉTAPE 5 — Vérification finale                             │
-│                                                             │
-│  SELECT * FROM check_quotation_ownership_status();         │
-│                                                             │
-│  Résultat attendu:                                         │
-│  ┌──────────────────────┬────────────────────┐             │
-│  │ metric               │ value              │             │
-│  ├──────────────────────┼────────────────────┤             │
-│  │ total_quotations     │ 91                 │             │
-│  │ legacy_quotations    │ 0                  │             │
-│  │ migrated_quotations  │ 91                 │             │
-│  │ fk_exists            │ true               │             │
-│  │ status               │ STRICT_OWNERSHIP   │             │
-│  └──────────────────────┴────────────────────┘             │
-└─────────────────────────────────────────────────────────────┘
+```typescript
+// src/features/auth/AuthProvider.tsx
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
+
+interface AuthContextType {
+  session: Session | null;
+  user: User | null;
+  isLoading: boolean;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // 1. Setup listener FIRST (before getSession) - pattern Supabase recommandé
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setIsLoading(false);
+      }
+    );
+
+    // 2. Then get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const value: AuthContextType = {
+    session,
+    user: session?.user ?? null,
+    isLoading,
+    signOut,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+```
+
+**Points clés :**
+- `onAuthStateChange` configuré AVANT `getSession` (anti race condition)
+- État `isLoading` pour éviter le flash de contenu
+- Export du hook `useAuth` depuis le même fichier
+
+---
+
+## 2. RequireAuth.tsx
+
+```typescript
+// src/features/auth/RequireAuth.tsx
+import { Navigate, useLocation } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
+import { useAuth } from './AuthProvider';
+
+interface RequireAuthProps {
+  children: React.ReactNode;
+}
+
+export function RequireAuth({ children }: RequireAuthProps) {
+  const { session, isLoading } = useAuth();
+  const location = useLocation();
+
+  // Loading state - écran minimal thème Maritime
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Non authentifié - redirect vers /login avec state pour retour
+  if (!session) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Authentifié - afficher le contenu protégé
+  return <>{children}</>;
+}
 ```
 
 ---
 
-## 4. Points de sécurité validés (tous)
+## 3. Barrel export
 
-| Point | Implémentation |
-|-------|----------------|
-| Pas de trigger auth.users | Fonctions manuelles uniquement |
-| Admin explicite | UUID passé en paramètre |
-| REVOKE authenticated | Fonctions admin-only |
-| FK idempotente | Test existence avant ADD |
-| search_path complet | `public, auth` sur toutes fonctions |
-| SECURITY DEFINER | Accès contrôlé à auth.users |
-
----
-
-## 5. État final attendu
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│               ÉTAT FINAL (STRICT_OWNERSHIP)                 │
-│                                                             │
-│  quotation_history                                          │
-│  ├── created_by UUID NOT NULL DEFAULT auth.uid()           │
-│  ├── FK → auth.users(id) ✅ RESTAURÉE                      │
-│  └── RLS: auth.uid() = created_by (STRICT)                 │
-│                                                             │
-│  quotation_documents                                        │
-│  ├── created_by UUID                                       │
-│  └── RLS: auth.uid() = created_by (STRICT)                 │
-│                                                             │
-│  91 devis legacy → owner = admin@sodatra.sn                │
-│  Nouveaux devis → owner = utilisateur connecté             │
-│                                                             │
-│  Isolation: Chaque user ne voit que SES devis ✅           │
-└─────────────────────────────────────────────────────────────┘
+```typescript
+// src/features/auth/index.ts
+export { AuthProvider, useAuth } from './AuthProvider';
+export { RequireAuth } from './RequireAuth';
 ```
 
 ---
 
-## 6. Critères de sortie Phase 5D-bis
+## 4. LoginPage.tsx (fonctionnelle, login-only)
 
-- [ ] Fonction `migrate_legacy_quotations(uuid)` avec `search_path = public, auth`
-- [ ] Fonction `finalize_quotation_ownership()` avec FK idempotente
-- [ ] Fonction `check_quotation_ownership_status()` diagnostic
-- [ ] REVOKE appliqué sur les 3 fonctions
-- [ ] Aucune dépendance à trigger sur auth.users
-- [ ] Build TypeScript OK (aucun changement frontend)
-- [ ] Documentation mode opératoire complète
+```typescript
+// src/pages/LoginPage.tsx
+import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Loader2, Anchor } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Redirect vers la page d'origine après login
+  const from = (location.state as any)?.from?.pathname || '/';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email || !password) {
+      toast.error('Veuillez remplir tous les champs');
+      return;
+    }
+
+    setIsLoading(true);
+    
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) throw error;
+
+      toast.success('Connexion réussie');
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      console.error('Login error:', err);
+      toast.error('Erreur de connexion', { 
+        description: err.message || 'Vérifiez vos identifiants' 
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md border-border/50 bg-gradient-card shadow-card">
+        <CardHeader className="text-center pb-2">
+          <div className="mx-auto mb-4 p-3 rounded-full bg-primary/10 w-fit">
+            <Anchor className="h-8 w-8 text-primary" />
+          </div>
+          <CardTitle className="text-2xl text-gradient-gold">
+            SODATRA
+          </CardTitle>
+          <CardDescription className="text-muted-foreground">
+            Connectez-vous pour accéder à l'application
+          </CardDescription>
+        </CardHeader>
+        
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="votre@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isLoading}
+                autoComplete="email"
+                autoFocus
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="password">Mot de passe</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                autoComplete="current-password"
+              />
+            </div>
+
+            <Button 
+              type="submit" 
+              className="w-full" 
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Connexion...
+                </>
+              ) : (
+                'Se connecter'
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+```
+
+**Design :**
+- Thème Maritime cohérent (`bg-gradient-card`, `text-gradient-gold`)
+- Logo Anchor pour l'identité SODATRA
+- Gestion des erreurs avec toast
+- État loading sur le bouton
+- Redirect vers la page d'origine après login
 
 ---
 
-## Section technique : Rollback si nécessaire
+## 5. App.tsx modifié
 
-```sql
--- Si erreur après finalize_quotation_ownership()
-ALTER TABLE quotation_history
-DROP CONSTRAINT IF EXISTS quotation_history_created_by_fkey;
+```typescript
+// src/App.tsx - avec AuthProvider et RequireAuth
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 
--- Remettre RLS mode mixte (temporaire)
-DROP POLICY IF EXISTS "quotation_history_owner_select" ON quotation_history;
-CREATE POLICY "quotation_history_owner_select"
-ON quotation_history FOR SELECT TO authenticated
-USING (
-  auth.uid() = created_by 
-  OR created_by = '00000000-0000-0000-0000-000000000000'::uuid
+// Auth
+import { AuthProvider } from "@/features/auth";
+import { RequireAuth } from "@/features/auth";
+
+// Pages
+import LoginPage from "./pages/LoginPage";
+import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
+import Dashboard from "./pages/Dashboard";
+import QuotationSheet from "./pages/QuotationSheet";
+import HsCodesAdmin from "./pages/admin/HsCodes";
+import TaxRatesAdmin from "./pages/admin/TaxRates";
+import DocumentsAdmin from "./pages/admin/Documents";
+import EmailsAdmin from "./pages/admin/Emails";
+import KnowledgeAdmin from "./pages/admin/Knowledge";
+import MarketIntelligence from "./pages/admin/MarketIntelligence";
+import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
+import PricingIntelligence from "./pages/admin/PricingIntelligence";
+import PortTariffsAdmin from "./pages/admin/PortTariffs";
+import TruckLoading from "./pages/TruckLoading";
+import Intake from "./pages/Intake";
+import CaseView from "./pages/CaseView";
+import TariffReports from "./pages/admin/TariffReports";
+import TendersAdmin from "./pages/admin/Tenders";
+import TransportRates from "./pages/admin/TransportRates";
+import QuotationHistory from "./pages/admin/QuotationHistory";
+
+const queryClient = new QueryClient();
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            {/* Route publique - Login */}
+            <Route path="/login" element={<LoginPage />} />
+
+            {/* Routes protégées */}
+            <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+            <Route path="/chat" element={<RequireAuth><Index /></RequireAuth>} />
+            <Route path="/quotation/new" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
+            <Route path="/quotation/:emailId" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
+            <Route path="/admin/hs-codes" element={<RequireAuth><HsCodesAdmin /></RequireAuth>} />
+            <Route path="/admin/tax-rates" element={<RequireAuth><TaxRatesAdmin /></RequireAuth>} />
+            <Route path="/admin/customs-regimes" element={<RequireAuth><CustomsRegimesAdmin /></RequireAuth>} />
+            <Route path="/admin/documents" element={<RequireAuth><DocumentsAdmin /></RequireAuth>} />
+            <Route path="/admin/emails" element={<RequireAuth><EmailsAdmin /></RequireAuth>} />
+            <Route path="/admin/knowledge" element={<RequireAuth><KnowledgeAdmin /></RequireAuth>} />
+            <Route path="/admin/market-intelligence" element={<RequireAuth><MarketIntelligence /></RequireAuth>} />
+            <Route path="/admin/pricing-intelligence" element={<RequireAuth><PricingIntelligence /></RequireAuth>} />
+            <Route path="/admin/tarifs-portuaires" element={<RequireAuth><PortTariffsAdmin /></RequireAuth>} />
+            <Route path="/admin/tariff-reports" element={<RequireAuth><TariffReports /></RequireAuth>} />
+            <Route path="/admin/tenders" element={<RequireAuth><TendersAdmin /></RequireAuth>} />
+            <Route path="/admin/transport-rates" element={<RequireAuth><TransportRates /></RequireAuth>} />
+            <Route path="/admin/quotation-history" element={<RequireAuth><QuotationHistory /></RequireAuth>} />
+            <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
+            <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />
+            <Route path="/case/:caseId" element={<RequireAuth><CaseView /></RequireAuth>} />
+
+            {/* 404 */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </AuthProvider>
+  </QueryClientProvider>
 );
+
+export default App;
 ```
+
+---
+
+## 6. Architecture finale
+
+```text
+src/
+├── features/
+│   ├── auth/
+│   │   ├── AuthProvider.tsx    # Context + session management
+│   │   ├── RequireAuth.tsx     # Route guard
+│   │   └── index.ts            # Barrel export
+│   └── quotation/              # (existant, FROZEN)
+│
+├── pages/
+│   ├── LoginPage.tsx           # NOUVEAU - UI login fonctionnelle
+│   ├── Dashboard.tsx
+│   └── ...
+│
+└── App.tsx                     # AuthProvider wrapper + RequireAuth guards
+```
+
+---
+
+## 7. Flux d'authentification
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    FLUX PHASE 6A COMPLET                   │
+│                                                             │
+│  User accède à /                                           │
+│      │                                                      │
+│      ▼                                                      │
+│  AuthProvider.isLoading = true                             │
+│      │ (loading spinner)                                   │
+│      ▼                                                      │
+│  getSession() + onAuthStateChange                          │
+│      │                                                      │
+│      ▼                                                      │
+│  isLoading = false                                         │
+│      │                                                      │
+│  ┌───┴───────────────┐                                     │
+│  │                   │                                     │
+│  session?         !session                                 │
+│  │                   │                                     │
+│  ▼                   ▼                                     │
+│  Dashboard       Navigate /login                           │
+│                      │                                     │
+│                      ▼                                     │
+│                  LoginPage                                 │
+│                      │                                     │
+│                  signInWithPassword()                      │
+│                      │                                     │
+│                      ▼                                     │
+│                  onAuthStateChange                         │
+│                  (session updated)                         │
+│                      │                                     │
+│                      ▼                                     │
+│                  navigate(from)                            │
+│                  → retour Dashboard                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Critères de sortie Phase 6A (corrigés)
+
+- [ ] `AuthProvider` créé avec `onAuthStateChange` + `getSession`
+- [ ] `RequireAuth` créé avec loading screen Maritime
+- [ ] Hook `useAuth()` exporté et fonctionnel
+- [ ] `LoginPage.tsx` fonctionnelle (login-only)
+- [ ] `App.tsx` wrappé avec `AuthProvider`
+- [ ] Toutes les routes protégées par `RequireAuth`
+- [ ] Route `/login` publique avec vraie UI
+- [ ] Build TypeScript OK
+- [ ] Aucun composant FROZEN modifié
+
+---
+
+## 9. Post-déploiement : Test manuel
+
+1. Accéder à `/` sans session → redirect `/login`
+2. Login avec un compte existant → retour `/`
+3. Refresh page → session persistante
+4. Créer un devis → fonctionne (RLS OK car `auth.uid()` existe)
+
+---
+
+## 10. Prochaines phases (non incluses)
+
+| Phase | Description |
+|-------|-------------|
+| 6A+ | Ajouter Signup (optionnel, admin crée les users) |
+| 6A+ | Bouton Logout dans sidebar/header |
+| 6B | Système de rôles (admin/agent) |
+| 6C | Durcissement RLS policies |
 
