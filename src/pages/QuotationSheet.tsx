@@ -1076,8 +1076,8 @@ export default function QuotationSheet() {
                         variant="outline"
                         size="sm"
                       />
-                      {/* Phase 5C : Export PDF versionné */}
-                      {currentDraft && (
+                      {/* Phase 6D.2 : Export PDF depuis snapshot validé uniquement */}
+                      {currentDraft?.status === 'generated' && (
                         <QuotationPdfExport
                           quotationId={currentDraft.id}
                           version={currentDraft.version}

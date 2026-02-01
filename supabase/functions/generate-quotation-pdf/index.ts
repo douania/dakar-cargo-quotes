@@ -1,58 +1,70 @@
 /**
  * Edge Function: generate-quotation-pdf
- * Phase 5C — Export PDF versionné
+ * Phase 6D.2 — Export PDF depuis snapshot validé
  * 
- * Génère un PDF professionnel depuis quotation_history (données figées)
+ * Génère un PDF professionnel depuis generated_snapshot (données figées)
  * Upload dans storage, trace dans quotation_documents
+ * 
+ * RÈGLES CTO :
+ * - PDF = projection pure du snapshot (aucun recalcul)
+ * - verify_jwt = true (document officiel)
+ * - Ownership vérifié (created_by)
+ * - Status vérifié (doit être 'generated')
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
-// Types
-interface TariffLine {
-  service: string;
-  description?: string;
-  amount: number;
-  currency: string;
-  unit?: string;
-}
-
-interface QuotationData {
-  id: string;
-  root_quotation_id: string | null;
+// Types alignés sur GeneratedSnapshot (Phase 6D.1)
+interface SnapshotMeta {
+  quotation_id: string;
   version: number;
-  status: string;
-  client_name: string | null;
-  client_company: string | null;
-  project_name: string | null;
-  route_origin: string | null;
-  route_port: string;
-  route_destination: string;
-  incoterm: string | null;
-  tariff_lines: TariffLine[] | null;
-  total_amount: number | null;
-  total_currency: string | null;
-  created_at: string;
+  generated_at: string;
+  currency: string;
 }
 
-// Mention légale selon statut
-function getStatusMention(status: string): string {
-  switch (status) {
-    case 'draft':
-      return 'BROUILLON — Document non contractuel';
-    case 'sent':
-      return 'Offre valable 30 jours à compter de la date d\'émission';
-    case 'accepted':
-      return 'Devis accepté';
-    case 'rejected':
-      return 'Offre déclinée';
-    case 'expired':
-      return 'Offre expirée';
-    default:
-      return '';
-  }
+interface SnapshotClient {
+  name: string | null;
+  company: string | null;
+  project_name: string | null;
+  incoterm: string | null;
+  route_origin: string | null;
+  route_destination: string | null;
+}
+
+interface SnapshotCargoLine {
+  id: string;
+  description: string | null;
+  cargo_type: string;
+  container_type?: string | null;
+  container_count?: number | null;
+  weight_kg?: number | null;
+  volume_cbm?: number | null;
+}
+
+interface SnapshotServiceLine {
+  id: string;
+  service: string;
+  description: string | null;
+  quantity: number;
+  rate: number;
+  currency: string;
+  unit: string | null;
+}
+
+interface SnapshotTotals {
+  subtotal: number;
+  total: number;
+  currency: string;
+}
+
+interface GeneratedSnapshot {
+  meta: SnapshotMeta;
+  client: SnapshotClient;
+  cargo_lines: SnapshotCargoLine[];
+  service_lines: SnapshotServiceLine[];
+  totals: SnapshotTotals;
 }
 
 // Format montant avec séparateurs
@@ -74,7 +86,6 @@ function formatDate(dateStr: string): string {
 
 // SHA-256 hash
 async function sha256(data: Uint8Array): Promise<string> {
-  // Créer un ArrayBuffer propre à partir du Uint8Array
   const arrayBuffer = new ArrayBuffer(data.length);
   const view = new Uint8Array(arrayBuffer);
   view.set(data);
@@ -84,8 +95,8 @@ async function sha256(data: Uint8Array): Promise<string> {
     .join('');
 }
 
-// Génération du PDF avec pdf-lib
-async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
+// Génération du PDF depuis snapshot (projection pure)
+async function generatePdfFromSnapshot(snapshot: GeneratedSnapshot): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595, 842]); // A4
   const { width, height } = page.getSize();
@@ -122,8 +133,8 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= lineHeight;
   
-  // Numéro devis + version + statut
-  const shortId = quotation.id.substring(0, 8).toUpperCase();
+  // Numéro devis + version (depuis snapshot.meta)
+  const shortId = snapshot.meta.quotation_id.substring(0, 8).toUpperCase();
   page.drawText(`DEVIS N° Q-${shortId}`, {
     x: margin,
     y,
@@ -132,24 +143,19 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
     color: black,
   });
   
-  // Badge version + statut (à droite)
-  const versionText = `v${quotation.version}`;
-  const statusText = quotation.status === 'draft' ? 'BROUILLON' : 
-                     quotation.status === 'sent' ? 'ENVOYÉ' :
-                     quotation.status === 'accepted' ? 'ACCEPTÉ' : 
-                     quotation.status === 'rejected' ? 'REFUSÉ' : 'EXPIRÉ';
-  
-  page.drawText(`[${versionText}] [${statusText}]`, {
-    x: width - margin - 120,
+  // Badge version + statut GÉNÉRÉ (à droite)
+  const versionText = `v${snapshot.meta.version}`;
+  page.drawText(`[${versionText}] [DOCUMENT OFFICIEL]`, {
+    x: width - margin - 160,
     y,
     size: 10,
     font: fontBold,
-    color: gray,
+    color: primary,
   });
   y -= lineHeight;
   
-  // Date
-  page.drawText(`Date: ${formatDate(quotation.created_at)}`, {
+  // Date de génération (depuis snapshot.meta)
+  page.drawText(`Date: ${formatDate(snapshot.meta.generated_at)}`, {
     x: margin,
     y,
     size: 10,
@@ -158,7 +164,7 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= sectionGap;
   
-  // === BLOC CLIENT ===
+  // === BLOC CLIENT (depuis snapshot.client) ===
   page.drawLine({
     start: { x: margin, y: y + 10 },
     end: { x: width - margin, y: y + 10 },
@@ -176,8 +182,8 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= lineHeight;
   
-  if (quotation.client_name) {
-    page.drawText(`Nom: ${quotation.client_name}`, {
+  if (snapshot.client.name) {
+    page.drawText(`Nom: ${snapshot.client.name}`, {
       x: margin,
       y,
       size: 10,
@@ -187,8 +193,8 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
     y -= lineHeight;
   }
   
-  if (quotation.client_company) {
-    page.drawText(`Société: ${quotation.client_company}`, {
+  if (snapshot.client.company) {
+    page.drawText(`Société: ${snapshot.client.company}`, {
       x: margin,
       y,
       size: 10,
@@ -198,8 +204,8 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
     y -= lineHeight;
   }
   
-  if (quotation.project_name) {
-    page.drawText(`Projet: ${quotation.project_name}`, {
+  if (snapshot.client.project_name) {
+    page.drawText(`Projet: ${snapshot.client.project_name}`, {
       x: margin,
       y,
       size: 10,
@@ -210,7 +216,7 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   }
   y -= sectionGap / 2;
   
-  // === ROUTE ===
+  // === ROUTE (depuis snapshot.client) ===
   page.drawLine({
     start: { x: margin, y: y + 10 },
     end: { x: width - margin, y: y + 10 },
@@ -229,9 +235,9 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   y -= lineHeight;
   
   const routeParts = [
-    quotation.route_origin,
-    quotation.route_port,
-    quotation.route_destination,
+    snapshot.client.route_origin,
+    'Dakar',
+    snapshot.client.route_destination,
   ].filter(Boolean);
   
   page.drawText(routeParts.join(' → '), {
@@ -243,8 +249,8 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= lineHeight;
   
-  if (quotation.incoterm) {
-    page.drawText(`Incoterm: ${quotation.incoterm}`, {
+  if (snapshot.client.incoterm) {
+    page.drawText(`Incoterm: ${snapshot.client.incoterm}`, {
       x: margin,
       y,
       size: 10,
@@ -255,7 +261,58 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   }
   y -= sectionGap / 2;
   
-  // === SERVICES ===
+  // === MARCHANDISES (depuis snapshot.cargo_lines) ===
+  if (snapshot.cargo_lines && snapshot.cargo_lines.length > 0) {
+    page.drawLine({
+      start: { x: margin, y: y + 10 },
+      end: { x: width - margin, y: y + 10 },
+      thickness: 0.5,
+      color: gray,
+    });
+    y -= 5;
+    
+    page.drawText('MARCHANDISES', {
+      x: margin,
+      y,
+      size: 11,
+      font: fontBold,
+      color: primary,
+    });
+    y -= lineHeight + 5;
+    
+    // En-tête tableau cargo
+    page.drawText('Description', { x: margin, y, size: 9, font: fontBold, color: gray });
+    page.drawText('Type', { x: margin + 200, y, size: 9, font: fontBold, color: gray });
+    page.drawText('Conteneurs', { x: margin + 300, y, size: 9, font: fontBold, color: gray });
+    page.drawText('Poids (kg)', { x: margin + 380, y, size: 9, font: fontBold, color: gray });
+    y -= lineHeight;
+    
+    page.drawLine({
+      start: { x: margin, y: y + 10 },
+      end: { x: width - margin, y: y + 10 },
+      thickness: 0.5,
+      color: gray,
+    });
+    y -= 5;
+    
+    for (const cargo of snapshot.cargo_lines) {
+      if (y < margin + 100) break;
+      
+      const descText = (cargo.description || cargo.cargo_type || '').substring(0, 30);
+      const typeText = (cargo.container_type || '-').substring(0, 15);
+      const countText = cargo.container_count?.toString() || '-';
+      const weightText = cargo.weight_kg ? formatAmount(cargo.weight_kg) : '-';
+      
+      page.drawText(descText, { x: margin, y, size: 9, font, color: black });
+      page.drawText(typeText, { x: margin + 200, y, size: 9, font, color: black });
+      page.drawText(countText, { x: margin + 300, y, size: 9, font, color: black });
+      page.drawText(weightText, { x: margin + 380, y, size: 9, font, color: black });
+      y -= lineHeight;
+    }
+    y -= sectionGap / 2;
+  }
+  
+  // === SERVICES (depuis snapshot.service_lines) ===
   page.drawLine({
     start: { x: margin, y: y + 10 },
     end: { x: width - margin, y: y + 10 },
@@ -264,7 +321,7 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= 5;
   
-  page.drawText('SERVICES', {
+  page.drawText('PRESTATIONS', {
     x: margin,
     y,
     size: 11,
@@ -273,14 +330,18 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= lineHeight + 5;
   
-  // En-tête tableau
+  // En-tête tableau services
   const colService = margin;
-  const colDesc = margin + 150;
-  const colAmount = width - margin - 100;
+  const colDesc = margin + 120;
+  const colQty = margin + 280;
+  const colRate = margin + 330;
+  const colAmount = margin + 400;
   const colCurrency = width - margin - 40;
   
   page.drawText('Service', { x: colService, y, size: 9, font: fontBold, color: gray });
   page.drawText('Description', { x: colDesc, y, size: 9, font: fontBold, color: gray });
+  page.drawText('Qté', { x: colQty, y, size: 9, font: fontBold, color: gray });
+  page.drawText('Tarif', { x: colRate, y, size: 9, font: fontBold, color: gray });
   page.drawText('Montant', { x: colAmount, y, size: 9, font: fontBold, color: gray });
   y -= lineHeight;
   
@@ -293,24 +354,26 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= 5;
   
-  // Lignes de services
-  const tariffLines = quotation.tariff_lines || [];
-  for (const line of tariffLines) {
-    if (y < margin + 100) break; // Protection bas de page
+  // Lignes de services (depuis snapshot)
+  const serviceLines = snapshot.service_lines || [];
+  for (const line of serviceLines) {
+    if (y < margin + 100) break;
     
-    // Tronquer le service si trop long
-    const serviceText = (line.service || '').substring(0, 25);
-    const descText = (line.description || '').substring(0, 30);
+    const serviceText = (line.service || '').substring(0, 18);
+    const descText = (line.description || '').substring(0, 22);
+    const amount = (line.rate || 0) * (line.quantity || 1);
     
     page.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
     page.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
-    page.drawText(formatAmount(line.amount || 0), { x: colAmount, y, size: 9, font, color: black });
+    page.drawText(line.quantity?.toString() || '1', { x: colQty, y, size: 9, font, color: black });
+    page.drawText(formatAmount(line.rate || 0), { x: colRate, y, size: 9, font, color: black });
+    page.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
     page.drawText(line.currency || 'FCFA', { x: colCurrency, y, size: 9, font, color: black });
     y -= lineHeight;
   }
   y -= sectionGap / 2;
   
-  // === TOTAL ===
+  // === TOTAL (depuis snapshot.totals) ===
   page.drawLine({
     start: { x: margin, y: y + 10 },
     end: { x: width - margin, y: y + 10 },
@@ -319,7 +382,7 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= 5;
   
-  const totalText = `TOTAL: ${formatAmount(quotation.total_amount || 0)} ${quotation.total_currency || 'FCFA'}`;
+  const totalText = `TOTAL: ${formatAmount(snapshot.totals.total || 0)} ${snapshot.totals.currency || 'FCFA'}`;
   page.drawText(totalText, {
     x: margin,
     y,
@@ -338,13 +401,13 @@ async function generatePdf(quotation: QuotationData): Promise<Uint8Array> {
   });
   y -= 5;
   
-  const mention = getStatusMention(quotation.status);
-  page.drawText(mention, {
+  // Mention légale pour document officiel (status = generated)
+  page.drawText('Document officiel — Offre valable 30 jours à compter de la date d\'émission', {
     x: margin,
     y,
     size: 10,
     font: fontBold,
-    color: quotation.status === 'draft' ? rgb(0.7, 0.3, 0.3) : gray,
+    color: primary,
   });
   y -= lineHeight;
   
@@ -365,7 +428,7 @@ Deno.serve(async (req) => {
   if (corsResponse) return corsResponse;
   
   try {
-    // Auth validation (JWT requis)
+    // Auth validation (JWT vérifié par Supabase gateway + getUser)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return errorResponse('Unauthorized', 401);
@@ -388,25 +451,15 @@ Deno.serve(async (req) => {
       return errorResponse('quotationId is required', 400);
     }
     
-    // Fetch quotation_history (données figées)
+    // Fetch quotation avec generated_snapshot (source unique Phase 6D.2)
     const { data: quotation, error: fetchError } = await supabase
       .from('quotation_history')
       .select(`
         id,
-        root_quotation_id,
-        version,
         status,
-        client_name,
-        client_company,
-        project_name,
-        route_origin,
-        route_port,
-        route_destination,
-        incoterm,
-        tariff_lines,
-        total_amount,
-        total_currency,
-        created_at
+        version,
+        generated_snapshot,
+        created_by
       `)
       .eq('id', quotationId)
       .single();
@@ -416,18 +469,37 @@ Deno.serve(async (req) => {
       return errorResponse('Quotation not found', 404);
     }
     
-    // Générer le PDF
-    const pdfBytes = await generatePdf(quotation as QuotationData);
+    // Vérification ownership (règle CTO non négociable)
+    if (quotation.created_by !== user.id) {
+      console.error('Ownership violation:', { quotation_owner: quotation.created_by, requester: user.id });
+      return errorResponse('Non autorisé', 403);
+    }
+    
+    // Vérification statut (PDF uniquement depuis snapshot validé)
+    if (quotation.status !== 'generated') {
+      return errorResponse('Devis non généré - impossible de créer le PDF', 400);
+    }
+    
+    // Vérification snapshot présent
+    if (!quotation.generated_snapshot) {
+      console.error('Missing snapshot for quotation:', quotationId);
+      return errorResponse('Snapshot manquant - régénérez le devis', 500);
+    }
+    
+    // Cast snapshot (JSONB → type)
+    const snapshot = quotation.generated_snapshot as GeneratedSnapshot;
+    
+    // Générer le PDF depuis snapshot (projection pure)
+    const pdfBytes = await generatePdfFromSnapshot(snapshot);
     
     // Calculer hash et taille
     const fileHash = await sha256(pdfBytes);
     const fileSize = pdfBytes.length;
     
-    // Chemin storage (non-écrasant)
-    const rootId = quotation.root_quotation_id || quotation.id;
+    // Chemin storage (non-écrasant, versionné)
     const version = quotation.version || 1;
     const timestamp = Date.now();
-    const filePath = `Q-${rootId}/v${version}/quote-${quotation.id}-${timestamp}.pdf`;
+    const filePath = `Q-${quotationId}/v${version}/quote-${quotationId}-${timestamp}.pdf`;
     
     // Upload dans storage
     const { error: uploadError } = await supabase.storage
@@ -447,9 +519,9 @@ Deno.serve(async (req) => {
       .from('quotation_documents')
       .insert({
         quotation_id: quotation.id,
-        root_quotation_id: rootId,
+        root_quotation_id: snapshot.meta.quotation_id,
         version,
-        status: quotation.status || 'draft',
+        status: 'generated',
         document_type: 'pdf',
         file_path: filePath,
         file_size: fileSize,
