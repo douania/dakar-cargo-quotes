@@ -228,26 +228,37 @@ Deno.serve(async (req) => {
     const detectedType = detectRequestType(threadContext, extractedFacts);
 
     // 9. Store facts using ATOMIC RPC supersede_fact
+    // CTO FIX Phase 7.0.3: Fail fast + error tracking + skip identical values
     let factsAdded = 0;
     let factsUpdated = 0;
+    let factsSkipped = 0;
+    const factErrors: Array<{ key: string; error: string; isCritical: boolean }> = [];
+    
+    // Get mandatory facts for this request type to mark critical errors
+    const mandatoryFactsForType = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.SEA_FCL_IMPORT;
 
     for (const fact of extractedFacts) {
-      // Check if fact already exists
-      const { data: existingFact } = await serviceClient
-        .from("quote_facts")
-        .select("id, value_text, value_number, value_json")
-        .eq("case_id", case_id)
-        .eq("fact_key", fact.key)
-        .eq("is_current", true)
-        .single();
+      try {
+        // Check if fact already exists
+        const { data: existingFact } = await serviceClient
+          .from("quote_facts")
+          .select("id, value_text, value_number, value_json")
+          .eq("case_id", case_id)
+          .eq("fact_key", fact.key)
+          .eq("is_current", true)
+          .single();
 
-      const factValue = getFactValue(fact);
+        const factValue = getFactValue(fact);
 
-      if (existingFact) {
-        // Compare values
-        const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
-        if (JSON.stringify(existingValue) !== JSON.stringify(factValue)) {
-          // CTO FIX: Use atomic RPC for supersession
+        if (existingFact) {
+          // CTO FIX: Skip if value is identical (avoid unnecessary writes)
+          const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
+          if (JSON.stringify(existingValue) === JSON.stringify(factValue)) {
+            factsSkipped++;
+            continue; // No change, skip
+          }
+
+          // Values differ - supersede
           const { data: newFactId, error: supersedeError } = await serviceClient.rpc('supersede_fact', {
             p_case_id: case_id,
             p_fact_key: fact.key,
@@ -264,6 +275,22 @@ Deno.serve(async (req) => {
           });
 
           if (supersedeError) {
+            const isCritical = mandatoryFactsForType.includes(fact.key);
+            factErrors.push({ key: fact.key, error: supersedeError.message, isCritical });
+            
+            // CTO FIX: Log error to timeline for observability
+            await serviceClient.from("case_timeline_events").insert({
+              case_id,
+              event_type: "fact_insert_failed",
+              event_data: { 
+                fact_key: fact.key, 
+                error: supersedeError.message,
+                is_critical: isCritical,
+                operation: "supersede"
+              },
+              actor_type: "system",
+            });
+            
             console.error(`Failed to supersede fact ${fact.key}:`, supersedeError);
             continue;
           }
@@ -277,39 +304,90 @@ Deno.serve(async (req) => {
             related_fact_id: existingFact.id,
             actor_type: "ai",
           });
+        } else {
+          // Insert new fact via RPC
+          const { data: newFactId, error: insertError } = await serviceClient.rpc('supersede_fact', {
+            p_case_id: case_id,
+            p_fact_key: fact.key,
+            p_fact_category: fact.category,
+            p_value_text: fact.valueType === 'text' ? String(fact.value) : null,
+            p_value_number: fact.valueType === 'number' ? Number(fact.value) : null,
+            p_value_json: fact.valueType === 'json' ? fact.value : null,
+            p_value_date: fact.valueType === 'date' ? String(fact.value) : null,
+            p_source_type: fact.isAssumption ? 'ai_assumption' : fact.sourceType,
+            p_source_email_id: fact.sourceEmailId || null,
+            p_source_attachment_id: fact.sourceAttachmentId || null,
+            p_source_excerpt: fact.sourceExcerpt || null,
+            p_confidence: fact.confidence,
+          });
+
+          if (insertError) {
+            const isCritical = mandatoryFactsForType.includes(fact.key);
+            factErrors.push({ key: fact.key, error: insertError.message, isCritical });
+            
+            // CTO FIX: Log error to timeline for observability
+            await serviceClient.from("case_timeline_events").insert({
+              case_id,
+              event_type: "fact_insert_failed",
+              event_data: { 
+                fact_key: fact.key, 
+                error: insertError.message,
+                is_critical: isCritical,
+                operation: "insert"
+              },
+              actor_type: "system",
+            });
+            
+            console.error(`Failed to insert fact ${fact.key}:`, insertError);
+            continue;
+          }
+
+          factsAdded++;
+
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "fact_added",
+            event_data: { fact_key: fact.key, value: factValue },
+            related_fact_id: newFactId,
+            actor_type: "ai",
+          });
         }
-      } else {
-        // Insert new fact via RPC (still atomic, handles first insert)
-        const { data: newFactId, error: insertError } = await serviceClient.rpc('supersede_fact', {
-          p_case_id: case_id,
-          p_fact_key: fact.key,
-          p_fact_category: fact.category,
-          p_value_text: fact.valueType === 'text' ? String(fact.value) : null,
-          p_value_number: fact.valueType === 'number' ? Number(fact.value) : null,
-          p_value_json: fact.valueType === 'json' ? fact.value : null,
-          p_value_date: fact.valueType === 'date' ? String(fact.value) : null,
-          p_source_type: fact.isAssumption ? 'ai_assumption' : fact.sourceType,
-          p_source_email_id: fact.sourceEmailId || null,
-          p_source_attachment_id: fact.sourceAttachmentId || null,
-          p_source_excerpt: fact.sourceExcerpt || null,
-          p_confidence: fact.confidence,
-        });
-
-        if (insertError) {
-          console.error(`Failed to insert fact ${fact.key}:`, insertError);
-          continue;
-        }
-
-        factsAdded++;
-
-        await serviceClient.from("case_timeline_events").insert({
-          case_id,
-          event_type: "fact_added",
-          event_data: { fact_key: fact.key, value: factValue },
-          related_fact_id: newFactId,
-          actor_type: "ai",
-        });
+      } catch (factError: any) {
+        const isCritical = mandatoryFactsForType.includes(fact.key);
+        factErrors.push({ key: fact.key, error: String(factError), isCritical });
+        console.error(`Unexpected error processing fact ${fact.key}:`, factError);
       }
+    }
+
+    // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
+    if (factErrors.length > 0) {
+      const criticalErrors = factErrors.filter(e => e.isCritical);
+      console.error(`${factErrors.length} fact errors for case ${case_id} (${criticalErrors.length} critical):`, factErrors);
+      
+      // Force status to FACTS_PARTIAL - cannot proceed to pricing with failed facts
+      await serviceClient
+        .from("quote_cases")
+        .update({
+          status: "FACTS_PARTIAL",
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", case_id);
+
+      return new Response(
+        JSON.stringify({
+          case_id,
+          new_status: "FACTS_PARTIAL",
+          facts_added: factsAdded,
+          facts_updated: factsUpdated,
+          facts_skipped: factsSkipped,
+          fact_errors: factErrors,
+          critical_errors_count: criticalErrors.length,
+          ready_to_price: false,
+          error_summary: `${factErrors.length} facts failed to save (${criticalErrors.length} critical)`
+        }),
+        { status: 207, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // 10. Identify gaps
@@ -446,7 +524,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Built puzzle for case ${case_id}: ${factsAdded} added, ${factsUpdated} updated, ${gapsIdentified} gaps`);
+    console.log(`Built puzzle for case ${case_id}: ${factsAdded} added, ${factsUpdated} updated, ${factsSkipped} skipped, ${gapsIdentified} gaps`);
 
     return new Response(
       JSON.stringify({
