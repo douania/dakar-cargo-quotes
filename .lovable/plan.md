@@ -1,23 +1,253 @@
 
 
-# PHASE 6A COMPLÈTE — Auth Infrastructure + Login Fonctionnel
+# FIX UX BUG — RLS INSERT Bloqué + Spinner Infini
 
-## Contexte de l'audit CTO
+## Diagnostic
 
-L'audit a révélé que :
-- Les fichiers `AuthProvider.tsx` et `RequireAuth.tsx` n'ont pas encore été créés
-- Le découpage "6A Provider / 6A.2 Login" est invalide sans UI fonctionnelle
-- L'application est actuellement inutilisable (RLS bloque tout sans session)
+### Cause racine identifiée
 
-## Correction : Tout créer en une seule phase
+1. **RLS `quotation_history_owner_insert`** impose `WITH CHECK (auth.uid() = created_by)`
+2. Le hook `useQuotationDraft.ts` (lignes 131-143) fait un `INSERT` direct via le client Supabase frontend
+3. En mode **STRICT_OWNERSHIP**, si la propagation de session échoue ou si le JWT expire pendant l'opération, l'INSERT est bloqué silencieusement
+4. Le hook ne gère pas explicitement les erreurs RLS → `isSaving` reste `true` → **spinner infini**
 
-| Fichier | Action | Lignes |
-|---------|--------|--------|
-| `src/features/auth/AuthProvider.tsx` | CRÉER | ~60 |
-| `src/features/auth/RequireAuth.tsx` | CRÉER | ~35 |
-| `src/features/auth/index.ts` | CRÉER | ~3 |
-| `src/pages/LoginPage.tsx` | CRÉER | ~85 |
-| `src/App.tsx` | MODIFIER | ~40 lignes de changement |
+### Policies actuelles (confirmées par query)
+
+```sql
+-- INSERT policy
+quotation_history_owner_insert: WITH CHECK (auth.uid() = created_by)
+
+-- SELECT/UPDATE/DELETE policies
+quotation_history_owner_select: USING (auth.uid() = created_by)
+quotation_history_owner_update: USING (auth.uid() = created_by), WITH CHECK (auth.uid() = created_by)
+quotation_history_owner_delete: USING (auth.uid() = created_by)
+```
+
+---
+
+## Solution en 3 parties
+
+### PARTIE 1 — Edge Function `create-quotation-draft`
+
+Créer une Edge Function sécurisée qui :
+1. Valide le JWT de l'utilisateur
+2. Extrait l'`user_id` du token
+3. Exécute l'INSERT avec **service role** (bypass RLS)
+4. Retourne le draft créé ou une erreur explicite
+
+```text
+supabase/functions/create-quotation-draft/index.ts
+```
+
+```typescript
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    // 1. Validate Authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 2. Create anon client to verify JWT
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: authHeader } }
+    });
+    
+    const { data: { user }, error: authError } = await anonClient.auth.getUser();
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired token', details: authError?.message }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 3. Parse request body
+    const body = await req.json();
+    const {
+      route_origin, route_port, route_destination, cargo_type,
+      container_types, client_name, client_company, partner_company,
+      project_name, incoterm, tariff_lines, total_amount, total_currency,
+      source_email_id, regulatory_info
+    } = body;
+
+    // 4. Validate required fields
+    if (!route_port || !route_destination || !cargo_type) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: route_port, route_destination, cargo_type' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 5. Create service role client (bypass RLS)
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    // 6. Check for existing draft (idempotent by source_email_id)
+    if (source_email_id) {
+      const { data: existingDraft, error: searchError } = await serviceClient
+        .from('quotation_history')
+        .select('id, version, status, parent_quotation_id, root_quotation_id')
+        .eq('source_email_id', source_email_id)
+        .eq('status', 'draft')
+        .eq('created_by', user.id)
+        .maybeSingle();
+
+      if (searchError) throw searchError;
+
+      if (existingDraft) {
+        // Update existing draft
+        const { data: updated, error: updateError } = await serviceClient
+          .from('quotation_history')
+          .update({
+            route_origin, route_port, route_destination, cargo_type,
+            container_types, client_name, client_company, partner_company,
+            project_name, incoterm, tariff_lines, total_amount, total_currency,
+            regulatory_info, updated_at: new Date().toISOString()
+          })
+          .eq('id', existingDraft.id)
+          .select('id, version, status, parent_quotation_id, root_quotation_id')
+          .single();
+
+        if (updateError) throw updateError;
+
+        return new Response(
+          JSON.stringify({ success: true, draft: updated, action: 'updated' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // 7. Insert new draft with service role
+    const { data: newDraft, error: insertError } = await serviceClient
+      .from('quotation_history')
+      .insert({
+        route_origin, route_port, route_destination, cargo_type,
+        container_types, client_name, client_company, partner_company,
+        project_name, incoterm, tariff_lines, total_amount, total_currency,
+        source_email_id, regulatory_info,
+        version: 1,
+        status: 'draft',
+        root_quotation_id: null,
+        parent_quotation_id: null,
+        created_by: user.id  // Ownership explicite
+      })
+      .select('id, version, status, parent_quotation_id, root_quotation_id')
+      .single();
+
+    if (insertError) throw insertError;
+
+    // 8. Update root_quotation_id = id (self-reference for v1)
+    await serviceClient
+      .from('quotation_history')
+      .update({ root_quotation_id: newDraft.id })
+      .eq('id', newDraft.id);
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        draft: { ...newDraft, root_quotation_id: newDraft.id },
+        action: 'created'
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('create-quotation-draft error:', error);
+    return new Response(
+      JSON.stringify({ 
+        error: 'Failed to create draft', 
+        details: error.message,
+        code: error.code || 'UNKNOWN'
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+```
+
+---
+
+### PARTIE 2 — Modifier `useQuotationDraft.ts`
+
+Remplacer l'INSERT direct par un appel à l'Edge Function :
+
+```typescript
+// AVANT (ligne 131-143)
+const { data, error } = await supabase
+  .from('quotation_history')
+  .insert({ ... })
+
+// APRÈS
+const { data: { session } } = await supabase.auth.getSession();
+if (!session) {
+  toast.error('Session expirée, veuillez vous reconnecter');
+  setIsSaving(false);
+  return null;
+}
+
+const response = await fetch(
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-quotation-draft`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(dbPayload),
+  }
+);
+
+if (!response.ok) {
+  const errorData = await response.json();
+  throw new Error(errorData.error || 'Failed to create draft');
+}
+
+const result = await response.json();
+const draft = result.draft as DraftQuotation;
+```
+
+**Gestion d'erreur explicite :**
+- Timeout après 10 secondes
+- Toast avec message clair en cas d'erreur RLS
+- `isSaving` toujours remis à `false` (finally block)
+
+---
+
+### PARTIE 3 — Améliorer le hook pour UPDATE/REVISION
+
+Le même pattern doit être appliqué pour :
+1. `createRevision` (ligne 241-252) — INSERT aussi bloqué par RLS
+2. Les UPDATE sont OK car ils ne créent pas de nouvelle ligne
+
+---
+
+## Fichiers modifiés
+
+| Fichier | Action | Description |
+|---------|--------|-------------|
+| `supabase/functions/create-quotation-draft/index.ts` | CRÉER | Edge Function service role |
+| `src/features/quotation/hooks/useQuotationDraft.ts` | MODIFIER | Appel Edge Function + gestion erreurs |
 
 ## Fichiers NON modifiés (FROZEN)
 
@@ -26,439 +256,75 @@ L'audit a révélé que :
 | `CargoLinesForm.tsx` | FROZEN |
 | `ServiceLinesForm.tsx` | FROZEN |
 | `QuotationTotalsCard.tsx` | FROZEN |
+| `QuotationSheet.tsx` | Non modifié (hook abstrait la logique) |
 
 ---
 
-## 1. AuthProvider.tsx
-
-```typescript
-// src/features/auth/AuthProvider.tsx
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-
-interface AuthContextType {
-  session: Session | null;
-  user: User | null;
-  isLoading: boolean;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // 1. Setup listener FIRST (before getSession) - pattern Supabase recommandé
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setIsLoading(false);
-      }
-    );
-
-    // 2. Then get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setIsLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-  };
-
-  const value: AuthContextType = {
-    session,
-    user: session?.user ?? null,
-    isLoading,
-    signOut,
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
-```
-
-**Points clés :**
-- `onAuthStateChange` configuré AVANT `getSession` (anti race condition)
-- État `isLoading` pour éviter le flash de contenu
-- Export du hook `useAuth` depuis le même fichier
-
----
-
-## 2. RequireAuth.tsx
-
-```typescript
-// src/features/auth/RequireAuth.tsx
-import { Navigate, useLocation } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
-import { useAuth } from './AuthProvider';
-
-interface RequireAuthProps {
-  children: React.ReactNode;
-}
-
-export function RequireAuth({ children }: RequireAuthProps) {
-  const { session, isLoading } = useAuth();
-  const location = useLocation();
-
-  // Loading state - écran minimal thème Maritime
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Chargement...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Non authentifié - redirect vers /login avec state pour retour
-  if (!session) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  // Authentifié - afficher le contenu protégé
-  return <>{children}</>;
-}
-```
-
----
-
-## 3. Barrel export
-
-```typescript
-// src/features/auth/index.ts
-export { AuthProvider, useAuth } from './AuthProvider';
-export { RequireAuth } from './RequireAuth';
-```
-
----
-
-## 4. LoginPage.tsx (fonctionnelle, login-only)
-
-```typescript
-// src/pages/LoginPage.tsx
-import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Anchor } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from 'sonner';
-
-export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  // Redirect vers la page d'origine après login
-  const from = (location.state as any)?.from?.pathname || '/';
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!email || !password) {
-      toast.error('Veuillez remplir tous les champs');
-      return;
-    }
-
-    setIsLoading(true);
-    
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (error) throw error;
-
-      toast.success('Connexion réussie');
-      navigate(from, { replace: true });
-    } catch (err: any) {
-      console.error('Login error:', err);
-      toast.error('Erreur de connexion', { 
-        description: err.message || 'Vérifiez vos identifiants' 
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md border-border/50 bg-gradient-card shadow-card">
-        <CardHeader className="text-center pb-2">
-          <div className="mx-auto mb-4 p-3 rounded-full bg-primary/10 w-fit">
-            <Anchor className="h-8 w-8 text-primary" />
-          </div>
-          <CardTitle className="text-2xl text-gradient-gold">
-            SODATRA
-          </CardTitle>
-          <CardDescription className="text-muted-foreground">
-            Connectez-vous pour accéder à l'application
-          </CardDescription>
-        </CardHeader>
-        
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="votre@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
-                autoComplete="email"
-                autoFocus
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="password">Mot de passe</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-                autoComplete="current-password"
-              />
-            </div>
-
-            <Button 
-              type="submit" 
-              className="w-full" 
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Connexion...
-                </>
-              ) : (
-                'Se connecter'
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-```
-
-**Design :**
-- Thème Maritime cohérent (`bg-gradient-card`, `text-gradient-gold`)
-- Logo Anchor pour l'identité SODATRA
-- Gestion des erreurs avec toast
-- État loading sur le bouton
-- Redirect vers la page d'origine après login
-
----
-
-## 5. App.tsx modifié
-
-```typescript
-// src/App.tsx - avec AuthProvider et RequireAuth
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-
-// Auth
-import { AuthProvider } from "@/features/auth";
-import { RequireAuth } from "@/features/auth";
-
-// Pages
-import LoginPage from "./pages/LoginPage";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
-import Dashboard from "./pages/Dashboard";
-import QuotationSheet from "./pages/QuotationSheet";
-import HsCodesAdmin from "./pages/admin/HsCodes";
-import TaxRatesAdmin from "./pages/admin/TaxRates";
-import DocumentsAdmin from "./pages/admin/Documents";
-import EmailsAdmin from "./pages/admin/Emails";
-import KnowledgeAdmin from "./pages/admin/Knowledge";
-import MarketIntelligence from "./pages/admin/MarketIntelligence";
-import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
-import PricingIntelligence from "./pages/admin/PricingIntelligence";
-import PortTariffsAdmin from "./pages/admin/PortTariffs";
-import TruckLoading from "./pages/TruckLoading";
-import Intake from "./pages/Intake";
-import CaseView from "./pages/CaseView";
-import TariffReports from "./pages/admin/TariffReports";
-import TendersAdmin from "./pages/admin/Tenders";
-import TransportRates from "./pages/admin/TransportRates";
-import QuotationHistory from "./pages/admin/QuotationHistory";
-
-const queryClient = new QueryClient();
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Route publique - Login */}
-            <Route path="/login" element={<LoginPage />} />
-
-            {/* Routes protégées */}
-            <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
-            <Route path="/chat" element={<RequireAuth><Index /></RequireAuth>} />
-            <Route path="/quotation/new" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
-            <Route path="/quotation/:emailId" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
-            <Route path="/admin/hs-codes" element={<RequireAuth><HsCodesAdmin /></RequireAuth>} />
-            <Route path="/admin/tax-rates" element={<RequireAuth><TaxRatesAdmin /></RequireAuth>} />
-            <Route path="/admin/customs-regimes" element={<RequireAuth><CustomsRegimesAdmin /></RequireAuth>} />
-            <Route path="/admin/documents" element={<RequireAuth><DocumentsAdmin /></RequireAuth>} />
-            <Route path="/admin/emails" element={<RequireAuth><EmailsAdmin /></RequireAuth>} />
-            <Route path="/admin/knowledge" element={<RequireAuth><KnowledgeAdmin /></RequireAuth>} />
-            <Route path="/admin/market-intelligence" element={<RequireAuth><MarketIntelligence /></RequireAuth>} />
-            <Route path="/admin/pricing-intelligence" element={<RequireAuth><PricingIntelligence /></RequireAuth>} />
-            <Route path="/admin/tarifs-portuaires" element={<RequireAuth><PortTariffsAdmin /></RequireAuth>} />
-            <Route path="/admin/tariff-reports" element={<RequireAuth><TariffReports /></RequireAuth>} />
-            <Route path="/admin/tenders" element={<RequireAuth><TendersAdmin /></RequireAuth>} />
-            <Route path="/admin/transport-rates" element={<RequireAuth><TransportRates /></RequireAuth>} />
-            <Route path="/admin/quotation-history" element={<RequireAuth><QuotationHistory /></RequireAuth>} />
-            <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
-            <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />
-            <Route path="/case/:caseId" element={<RequireAuth><CaseView /></RequireAuth>} />
-
-            {/* 404 */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
-
-export default App;
-```
-
----
-
-## 6. Architecture finale
-
-```text
-src/
-├── features/
-│   ├── auth/
-│   │   ├── AuthProvider.tsx    # Context + session management
-│   │   ├── RequireAuth.tsx     # Route guard
-│   │   └── index.ts            # Barrel export
-│   └── quotation/              # (existant, FROZEN)
-│
-├── pages/
-│   ├── LoginPage.tsx           # NOUVEAU - UI login fonctionnelle
-│   ├── Dashboard.tsx
-│   └── ...
-│
-└── App.tsx                     # AuthProvider wrapper + RequireAuth guards
-```
-
----
-
-## 7. Flux d'authentification
+## Architecture finale
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                    FLUX PHASE 6A COMPLET                   │
+│  FLUX CRÉATION DEVIS (POST-FIX)                            │
 │                                                             │
-│  User accède à /                                           │
+│  QuotationSheet                                            │
 │      │                                                      │
 │      ▼                                                      │
-│  AuthProvider.isLoading = true                             │
-│      │ (loading spinner)                                   │
-│      ▼                                                      │
-│  getSession() + onAuthStateChange                          │
+│  useQuotationDraft.saveDraft()                             │
+│      │                                                      │
+│      ├── Vérifie session active                            │
+│      │   └── ✗ Toast "Session expirée" + stop              │
 │      │                                                      │
 │      ▼                                                      │
-│  isLoading = false                                         │
+│  fetch('/functions/v1/create-quotation-draft')             │
 │      │                                                      │
-│  ┌───┴───────────────┐                                     │
-│  │                   │                                     │
-│  session?         !session                                 │
-│  │                   │                                     │
-│  ▼                   ▼                                     │
-│  Dashboard       Navigate /login                           │
-│                      │                                     │
-│                      ▼                                     │
-│                  LoginPage                                 │
-│                      │                                     │
-│                  signInWithPassword()                      │
-│                      │                                     │
-│                      ▼                                     │
-│                  onAuthStateChange                         │
-│                  (session updated)                         │
-│                      │                                     │
-│                      ▼                                     │
-│                  navigate(from)                            │
-│                  → retour Dashboard                        │
+│      ▼                                                      │
+│  Edge Function                                              │
+│      ├── Valide JWT (401 si invalide)                      │
+│      ├── Extrait user.id                                   │
+│      ├── Service Role INSERT (bypass RLS)                  │
+│      └── Retourne { draft } ou { error }                   │
+│                                                             │
+│      ▼                                                      │
+│  useQuotationDraft                                         │
+│      ├── ✓ Success → setCurrentDraft(draft)               │
+│      └── ✗ Error → toast.error() + stop loading            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 8. Critères de sortie Phase 6A (corrigés)
+## Séquence de déploiement
 
-- [ ] `AuthProvider` créé avec `onAuthStateChange` + `getSession`
-- [ ] `RequireAuth` créé avec loading screen Maritime
-- [ ] Hook `useAuth()` exporté et fonctionnel
-- [ ] `LoginPage.tsx` fonctionnelle (login-only)
-- [ ] `App.tsx` wrappé avec `AuthProvider`
-- [ ] Toutes les routes protégées par `RequireAuth`
-- [ ] Route `/login` publique avec vraie UI
-- [ ] Build TypeScript OK
-- [ ] Aucun composant FROZEN modifié
-
----
-
-## 9. Post-déploiement : Test manuel
-
-1. Accéder à `/` sans session → redirect `/login`
-2. Login avec un compte existant → retour `/`
-3. Refresh page → session persistante
-4. Créer un devis → fonctionne (RLS OK car `auth.uid()` existe)
+1. Créer `supabase/functions/create-quotation-draft/index.ts`
+2. Modifier `useQuotationDraft.ts` pour appeler l'Edge Function
+3. Tester flux complet :
+   - Login → Dashboard → "Nouvelle cotation"
+   - Remplir formulaire → Sauvegarder
+   - Vérifier toast "Brouillon sauvegardé" ✓
+   - Vérifier pas de spinner infini ✓
+   - Vérifier devis visible dans l'historique ✓
 
 ---
 
-## 10. Prochaines phases (non incluses)
+## Sécurité préservée
 
-| Phase | Description |
-|-------|-------------|
-| 6A+ | Ajouter Signup (optionnel, admin crée les users) |
-| 6A+ | Bouton Logout dans sidebar/header |
-| 6B | Système de rôles (admin/agent) |
-| 6C | Durcissement RLS policies |
+| Élément | État |
+|---------|------|
+| RLS policies | **INCHANGÉES** — Toujours strictes |
+| `quotation_history_owner_insert` | WITH CHECK (auth.uid() = created_by) |
+| Edge Function | Valide JWT avant toute action |
+| Service Role | Utilisé uniquement après validation JWT |
+| Ownership | `created_by = user.id` du token validé |
+
+---
+
+## Critères de sortie
+
+- [ ] Edge Function `create-quotation-draft` créée et déployée
+- [ ] Hook `useQuotationDraft` appelle l'Edge Function
+- [ ] Gestion d'erreur explicite (toast + stop loading)
+- [ ] Plus de spinner infini
+- [ ] Création de devis fonctionne pour utilisateur authentifié
+- [ ] RLS policies inchangées (strictes)
+- [ ] Test e2e : login → nouvelle cotation → sauvegarde → vérification historique
 
