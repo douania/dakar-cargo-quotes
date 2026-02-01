@@ -1,6 +1,6 @@
 /**
  * QuotationPdfExport.tsx
- * Phase 5C — Bouton export PDF versionné
+ * Phase 6D.2 — Bouton export PDF depuis snapshot validé
  * 
  * Génère un PDF depuis quotation_history (données figées)
  * via l'edge function generate-quotation-pdf
@@ -53,7 +53,7 @@ export function QuotationPdfExport({
         window.open(data.url, '_blank');
         
         toast.success(`PDF v${version} généré`, {
-          description: status === 'draft' ? 'Document brouillon' : 'Document officiel',
+          description: 'Document officiel',
         });
       } else {
         throw new Error(data?.error || 'Échec de la génération PDF');
