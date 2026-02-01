@@ -74,6 +74,8 @@ import { CargoLinesForm } from '@/features/quotation/components/CargoLinesForm';
 // Composant récapitulatif (Phase 5B)
 import { QuotationTotalsCard } from '@/features/quotation/components/QuotationTotalsCard';
 import { ServiceLinesForm } from '@/features/quotation/components/ServiceLinesForm';
+// Phase 6D.1: Preview du devis généré
+import { QuotationPreview } from '@/features/quotation/components/QuotationPreview';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
 
@@ -133,7 +135,7 @@ import { useQuotationDraft } from '@/features/quotation/hooks/useQuotationDraft'
 
 // Domain layer (Phase 4F)
 import { runQuotationEngine } from '@/features/quotation/domain/engine';
-import type { QuotationInput } from '@/features/quotation/domain/types';
+import type { QuotationInput, GeneratedSnapshot } from '@/features/quotation/domain/types';
 
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
@@ -187,13 +189,17 @@ export default function QuotationSheet() {
   const [incoterm, setIncoterm] = useState('DAP');
   const [specialRequirements, setSpecialRequirements] = useState('');
 
-  // Quotation Draft lifecycle (Phase 5D)
+  // Quotation Draft lifecycle (Phase 5D + 6D.1)
   const {
     currentDraft,
     isSaving,
     saveDraft,
     markAsSent,
+    generateQuotation,  // Phase 6D.1
   } = useQuotationDraft();
+
+  // Phase 6D.1: Snapshot généré
+  const [generatedSnapshot, setGeneratedSnapshot] = useState<GeneratedSnapshot | null>(null);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
@@ -221,6 +227,29 @@ export default function QuotationSheet() {
   }, [cargoLines, serviceLines]);
 
   const quotationTotals = engineResult.snapshot.totals;
+
+  // Phase 6D.1: Charger le snapshot existant si le devis est déjà généré
+  useEffect(() => {
+    if (currentDraft?.status === 'generated' && currentDraft.id) {
+      const loadSnapshot = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('quotation_history')
+            .select('generated_snapshot')
+            .eq('id', currentDraft.id)
+            .single();
+          
+          if (!error && data?.generated_snapshot) {
+            setGeneratedSnapshot(data.generated_snapshot as unknown as GeneratedSnapshot);
+          }
+        } catch (err) {
+          console.error('Error loading snapshot:', err);
+        }
+      };
+      loadSnapshot();
+    }
+  }, [currentDraft?.status, currentDraft?.id]);
+
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -618,11 +647,75 @@ export default function QuotationSheet() {
     }
   };
 
+  /**
+   * Phase 6D.1: Construire le snapshot figé du devis
+   * IMPORTANT: Utilise uniquement currentDraft.id, jamais de génération UUID côté client
+   */
+  const buildSnapshot = useCallback((): GeneratedSnapshot | null => {
+    // Draft obligatoire, jamais de génération UUID côté client
+    if (!currentDraft?.id) {
+      toast.error('Veuillez d\'abord sauvegarder le brouillon');
+      return null;
+    }
+
+    // Validation métier minimale
+    if (!projectContext.requesting_party && !projectContext.requesting_company) {
+      toast.error('Client requis pour générer le devis');
+      return null;
+    }
+
+    const validServiceLines = serviceLines.filter(s => s.rate && s.rate > 0);
+    if (validServiceLines.length === 0) {
+      toast.error('Au moins une ligne de service avec tarif requis');
+      return null;
+    }
+
+    return {
+      meta: {
+        quotation_id: currentDraft.id,  // Toujours l'ID existant
+        version: currentDraft.version,
+        generated_at: new Date().toISOString(),
+        currency: 'FCFA',
+      },
+      client: {
+        name: projectContext.requesting_party || null,
+        company: projectContext.requesting_company || null,
+        project_name: projectContext.project_name || null,
+        incoterm: incoterm || null,
+        route_origin: cargoLines[0]?.origin || null,
+        route_destination: finalDestination || destination || null,  // nullable per CTO review
+      },
+      cargo_lines: cargoLines.map(c => ({
+        id: c.id,
+        description: c.description || null,
+        cargo_type: c.cargo_type,
+        container_type: c.container_type || null,
+        container_count: c.container_count || null,
+        weight_kg: c.weight_kg || null,
+        volume_cbm: c.volume_cbm || null,
+      })),
+      service_lines: validServiceLines.map(s => ({
+        id: s.id,
+        service: s.service || '',
+        description: s.description || null,
+        quantity: s.quantity,
+        rate: s.rate || 0,
+        currency: s.currency || 'FCFA',
+        unit: s.unit || null,
+      })),
+      totals: {
+        subtotal: quotationTotals.subtotal_services,
+        total: quotationTotals.total_ht,
+        currency: 'FCFA',
+      },
+    };
+  }, [currentDraft, projectContext, cargoLines, serviceLines, incoterm, destination, finalDestination, quotationTotals]);
+
   const handleGenerateResponse = async () => {
     setIsGenerating(true);
     try {
       // Phase 5D : Sauvegarder le draft AVANT génération
-      await saveDraft({
+      const draft = await saveDraft({
         route_origin: cargoLines[0]?.origin || null,
         route_port: 'Dakar',
         route_destination: finalDestination || destination,
@@ -648,7 +741,25 @@ export default function QuotationSheet() {
         regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
       });
 
-      // Générer la réponse
+      if (!draft) {
+        throw new Error('Échec sauvegarde brouillon');
+      }
+
+      // Phase 6D.1: Construire le snapshot figé
+      const snapshot = buildSnapshot();
+      if (!snapshot) {
+        // Erreur de validation déjà affichée par buildSnapshot
+        return;
+      }
+
+      // Phase 6D.1: Appeler Edge Function pour transition draft → generated
+      const success = await generateQuotation(snapshot);
+
+      if (success) {
+        setGeneratedSnapshot(snapshot);
+      }
+
+      // Générer aussi la réponse email (existant)
       const { data, error } = await supabase.functions.invoke('generate-response', {
         body: { 
           emailId: isNewQuotation ? null : emailId,
@@ -673,7 +784,7 @@ export default function QuotationSheet() {
       if (error) throw error;
 
       setGeneratedResponse(data.response || data.draft?.body_text || '');
-      toast.success('Brouillon sauvegardé & réponse générée');
+      toast.success('Devis généré avec succès');
     } catch (error) {
       console.error('Error generating response:', error);
       toast.error('Erreur de génération');
@@ -935,6 +1046,23 @@ export default function QuotationSheet() {
                   issues={engineResult.snapshot.issues}
                 />
               </>
+            )}
+
+            {/* Phase 6D.1: Preview du devis généré */}
+            {generatedSnapshot && (
+              <div className="mt-6">
+                <QuotationPreview snapshot={generatedSnapshot} />
+              </div>
+            )}
+
+            {/* Badge statut generated (si pas encore de snapshot chargé) */}
+            {currentDraft?.status === 'generated' && !generatedSnapshot && (
+              <div className="mb-4">
+                <Badge className="bg-success/20 text-success">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Devis généré
+                </Badge>
+              </div>
             )}
 
             {/* Generated Response */}

@@ -1648,6 +1648,8 @@ export type Database = {
           container_types: string[] | null
           created_at: string
           created_by: string
+          generated_at: string | null
+          generated_snapshot: Json | null
           id: string
           incoterm: string | null
           margin_percent: number | null
@@ -1679,6 +1681,8 @@ export type Database = {
           container_types?: string[] | null
           created_at?: string
           created_by?: string
+          generated_at?: string | null
+          generated_snapshot?: Json | null
           id?: string
           incoterm?: string | null
           margin_percent?: number | null
@@ -1710,6 +1714,8 @@ export type Database = {
           container_types?: string[] | null
           created_at?: string
           created_by?: string
+          generated_at?: string | null
+          generated_snapshot?: Json | null
           id?: string
           incoterm?: string | null
           margin_percent?: number | null

@@ -74,5 +74,50 @@ export interface QuotationEngineResult {
   readonly snapshot: QuotationSnapshot;
 }
 
-// Phase 5D : Statut workflow devis
-export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
+// Phase 5D : Statut workflow devis (Phase 6D.1: ajout 'generated')
+export type QuotationStatus = 'draft' | 'generated' | 'sent' | 'accepted' | 'rejected' | 'expired';
+
+/**
+ * Phase 6D.1: Snapshot figé d'un devis généré
+ * Structure immuable après génération
+ */
+export interface GeneratedSnapshot {
+  readonly meta: {
+    readonly quotation_id: string;  // TOUJOURS un ID existant, jamais généré côté client
+    readonly version: number;
+    readonly generated_at: string;  // ISO 8601
+    readonly currency: string;
+  };
+  readonly client: {
+    readonly name: string | null;
+    readonly company: string | null;
+    readonly email?: string | null;
+    readonly project_name: string | null;
+    readonly incoterm: string | null;
+    readonly route_origin: string | null;
+    readonly route_destination: string | null;  // nullable per CTO review
+  };
+  readonly cargo_lines: ReadonlyArray<{
+    readonly id: string;
+    readonly description: string | null;
+    readonly cargo_type: string;
+    readonly container_type?: string | null;
+    readonly container_count?: number | null;
+    readonly weight_kg?: number | null;
+    readonly volume_cbm?: number | null;
+  }>;
+  readonly service_lines: ReadonlyArray<{
+    readonly id: string;
+    readonly service: string;
+    readonly description: string | null;
+    readonly quantity: number;
+    readonly rate: number;
+    readonly currency: string;
+    readonly unit: string | null;
+  }>;
+  readonly totals: {
+    readonly subtotal: number;
+    readonly total: number;
+    readonly currency: string;
+  };
+}
