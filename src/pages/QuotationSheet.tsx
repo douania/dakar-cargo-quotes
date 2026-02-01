@@ -196,6 +196,7 @@ export default function QuotationSheet() {
     saveDraft,
     markAsSent,
     generateQuotation,  // Phase 6D.1
+    setCurrentDraft,    // Phase 6D.x: Accès au setter pour débloquer génération
   } = useQuotationDraft();
 
   // Phase 6D.1: Snapshot généré
@@ -711,6 +712,51 @@ export default function QuotationSheet() {
     };
   }, [currentDraft, projectContext, cargoLines, serviceLines, incoterm, destination, finalDestination, quotationTotals]);
 
+  /**
+   * Phase 6D.x: Sauvegarde explicite du brouillon
+   * Crée currentDraft.id pour débloquer generateQuotation
+   */
+  const handleSaveDraft = useCallback(async () => {
+    if (!destination) {
+      toast.error('Destination requise');
+      return;
+    }
+
+    const params = {
+      route_origin: cargoLines[0]?.origin || null,
+      route_port: destination,
+      route_destination: finalDestination || destination,
+      cargo_type: cargoLines.some(c => c.cargo_type === 'container') && cargoLines.some(c => c.cargo_type === 'breakbulk')
+        ? 'combined'
+        : cargoLines[0]?.cargo_type || 'container',
+      container_types: [...new Set(cargoLines.filter(c => c.container_type).map(c => c.container_type!))] as string[],
+      client_name: projectContext.requesting_party || null,
+      client_company: projectContext.requesting_company || null,
+      partner_company: projectContext.partner_company || null,
+      project_name: projectContext.project_name || null,
+      incoterm: incoterm || null,
+      tariff_lines: serviceLines
+        .filter(s => s.rate && s.rate > 0)
+        .map(s => ({
+          service: s.service || '',
+          description: s.description || '',
+          amount: (s.rate || 0) * (s.quantity || 1),
+          currency: s.currency || 'FCFA',
+          unit: s.unit || '',
+        })),
+      total_amount: quotationTotals.total_ht,
+      total_currency: 'FCFA',
+      source_email_id: isNewQuotation ? null : emailId,
+      regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
+    };
+
+    const draft = await saveDraft(params);
+    if (draft?.id) {
+      setCurrentDraft(draft);  // LIGNE CRITIQUE CTO - débloque le guard
+      toast.success('Brouillon sauvegardé');
+    }
+  }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft]);
+
   const handleGenerateResponse = async () => {
     // BUG #1 Fix: Guard préalable - pas de sauvegarde implicite
     if (!currentDraft?.id) {
@@ -824,6 +870,8 @@ export default function QuotationSheet() {
           onBack={() => navigate('/')}
           onGenerateResponse={handleGenerateResponse}
           currentDraft={currentDraft}
+          onSaveDraft={handleSaveDraft}
+          isSaving={isSaving}
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
