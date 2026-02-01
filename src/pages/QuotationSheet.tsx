@@ -138,7 +138,7 @@ import type { QuotationInput } from '@/features/quotation/domain/types';
 export default function QuotationSheet() {
   const { emailId } = useParams<{ emailId: string }>();
   const navigate = useNavigate();
-  const isNewQuotation = emailId === 'new';
+  const isNewQuotation = !emailId || emailId === 'new';
   
   const [isLoading, setIsLoading] = useState(!isNewQuotation);
   const [isGenerating, setIsGenerating] = useState(false);
