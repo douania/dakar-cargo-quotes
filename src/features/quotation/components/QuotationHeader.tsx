@@ -1,8 +1,8 @@
 /**
  * UI COMPONENT — Phase 5D (extended)
- * - Ajout prop currentDraft pour affichage statut
+ * Phase 6D.x: Ajout bouton Sauvegarder le brouillon
  */
-import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -14,7 +14,9 @@ interface QuotationHeaderProps {
   isGenerating: boolean;
   onBack: () => void;
   onGenerateResponse: () => void;
-  currentDraft?: { status: string; version: number } | null;
+  currentDraft?: { status: string; version: number; id?: string } | null;
+  onSaveDraft?: () => void;
+  isSaving?: boolean;
 }
 
 export function QuotationHeader({
@@ -26,6 +28,8 @@ export function QuotationHeader({
   onBack,
   onGenerateResponse,
   currentDraft,
+  onSaveDraft,
+  isSaving,
 }: QuotationHeaderProps) {
   return (
     <div className="flex items-center gap-4 mb-6">
@@ -66,17 +70,33 @@ export function QuotationHeader({
         )}
       </div>
       {!quotationCompleted && (
-        <Button 
-          onClick={onGenerateResponse}
-          disabled={isGenerating}
-        >
-          {isGenerating ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4 mr-2" />
+        <div className="flex gap-2">
+          {onSaveDraft && (
+            <Button 
+              variant="outline"
+              onClick={onSaveDraft}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              {currentDraft?.id ? 'Sauvegarder' : 'Sauvegarder le brouillon'}
+            </Button>
           )}
-          Générer la réponse
-        </Button>
+          <Button 
+            onClick={onGenerateResponse}
+            disabled={isGenerating || !currentDraft?.id}
+          >
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4 mr-2" />
+            )}
+            Générer la réponse
+          </Button>
+        </div>
       )}
     </div>
   );
