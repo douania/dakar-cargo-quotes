@@ -578,6 +578,7 @@ export type Database = {
           body_text: string | null
           cc_addresses: string[] | null
           created_at: string | null
+          created_by: string | null
           id: string
           original_email_id: string | null
           sent_at: string | null
@@ -591,6 +592,7 @@ export type Database = {
           body_text?: string | null
           cc_addresses?: string[] | null
           created_at?: string | null
+          created_by?: string | null
           id?: string
           original_email_id?: string | null
           sent_at?: string | null
@@ -604,6 +606,7 @@ export type Database = {
           body_text?: string | null
           cc_addresses?: string[] | null
           created_at?: string | null
+          created_by?: string | null
           id?: string
           original_email_id?: string | null
           sent_at?: string | null

@@ -1,6 +1,7 @@
 /**
  * Hook pour gérer le cycle de vie draft/sent d'un devis
  * Phase 5D — Amendements CTO intégrés
+ * Phase 6B — Edge Function pour bypass RLS + gestion erreurs explicite
  */
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -40,19 +41,68 @@ interface SaveDraftParams {
   regulatory_info?: Record<string, unknown> | null;
 }
 
+const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-quotation-draft`;
+const REQUEST_TIMEOUT_MS = 15000;
+
+/**
+ * Helper to call Edge Function with timeout
+ */
+async function callEdgeFunction(
+  payload: Record<string, unknown>,
+  accessToken: string
+): Promise<{ success: boolean; draft?: DraftQuotation; action?: string; error?: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(EDGE_FUNCTION_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Délai dépassé, veuillez réessayer');
+    }
+    throw error;
+  }
+}
+
 export function useQuotationDraft() {
   const [currentDraft, setCurrentDraft] = useState<DraftQuotation | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   /**
-   * Sauvegarder ou mettre à jour un draft
-   * AMENDEMENT 2 : Idempotent par source_email_id
+   * Sauvegarder ou mettre à jour un draft via Edge Function
    */
   const saveDraft = useCallback(async (params: SaveDraftParams): Promise<DraftQuotation | null> => {
     setIsSaving(true);
     try {
-      // Build DB-compatible payload (cast regulatory_info to Json)
-      const dbPayload = {
+      // Vérifier session active
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        toast.error('Session expirée, veuillez vous reconnecter');
+        return null;
+      }
+
+      // Build payload
+      const payload = {
         route_origin: params.route_origin,
         route_port: params.route_port,
         route_destination: params.route_destination,
@@ -63,51 +113,21 @@ export function useQuotationDraft() {
         partner_company: params.partner_company,
         project_name: params.project_name,
         incoterm: params.incoterm,
-        tariff_lines: params.tariff_lines as unknown as Json,
+        tariff_lines: params.tariff_lines,
         total_amount: params.total_amount,
         total_currency: params.total_currency,
         source_email_id: params.source_email_id,
-        regulatory_info: (params.regulatory_info ?? null) as Json,
+        regulatory_info: params.regulatory_info ?? null,
       };
 
-      // AMENDEMENT 2 : Vérifier s'il existe déjà un draft pour cet email
-      if (params.source_email_id && !currentDraft) {
-        const { data: existingDraft, error: searchError } = await supabase
-          .from('quotation_history')
-          .select('id, version, status, parent_quotation_id, root_quotation_id')
-          .eq('source_email_id', params.source_email_id)
-          .eq('status', 'draft')
-          .maybeSingle();
-
-        if (searchError) throw searchError;
-
-        if (existingDraft) {
-          // Réutiliser le draft existant
-          const draft = existingDraft as unknown as DraftQuotation;
-          setCurrentDraft(draft);
-          // Mettre à jour le draft existant
-          const { data, error } = await supabase
-            .from('quotation_history')
-            .update({
-              ...dbPayload,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingDraft.id)
-            .select('id, version, status, parent_quotation_id, root_quotation_id')
-            .single();
-
-          if (error) throw error;
-          setCurrentDraft(data as unknown as DraftQuotation);
-          return data as unknown as DraftQuotation;
-        }
-      }
-
+      // Si on a déjà un draft, on fait une UPDATE directe (pas bloquée par RLS)
       if (currentDraft) {
-        // Mise à jour du draft actuel
         const { data, error } = await supabase
           .from('quotation_history')
           .update({
-            ...dbPayload,
+            ...payload,
+            tariff_lines: payload.tariff_lines as unknown as Json,
+            regulatory_info: (payload.regulatory_info ?? null) as Json,
             status: 'draft',
             updated_at: new Date().toISOString(),
           })
@@ -118,47 +138,22 @@ export function useQuotationDraft() {
         if (error) throw error;
         setCurrentDraft(data as unknown as DraftQuotation);
         return data as unknown as DraftQuotation;
-      } else {
-        // Récupérer l'utilisateur authentifié (Phase 5D)
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData.user?.id;
-
-        if (!userId) {
-          toast.error('Veuillez vous connecter pour créer un devis');
-          return null;
-        }
-
-        // Nouveau draft (v1)
-        const { data, error } = await supabase
-          .from('quotation_history')
-          .insert({
-            ...dbPayload,
-            version: 1,
-            status: 'draft',
-            root_quotation_id: null,
-            parent_quotation_id: null,
-            created_by: userId,  // Phase 5D: ownership explicite
-          } as any)
-          .select('id, version, status, parent_quotation_id, root_quotation_id')
-          .single();
-
-        if (error) throw error;
-
-        // Pour v1, root_quotation_id = id (self-reference)
-        const { error: updateError } = await supabase
-          .from('quotation_history')
-          .update({ root_quotation_id: data.id } as any)
-          .eq('id', data.id);
-
-        if (updateError) throw updateError;
-
-        const draft = { ...data, root_quotation_id: data.id } as unknown as DraftQuotation;
-        setCurrentDraft(draft);
-        return draft;
       }
+
+      // Nouveau draft → Edge Function (bypass RLS INSERT)
+      const result = await callEdgeFunction(payload, session.access_token);
+
+      if (!result.success || !result.draft) {
+        throw new Error(result.error || 'Échec création brouillon');
+      }
+
+      setCurrentDraft(result.draft);
+      return result.draft;
+
     } catch (error) {
       console.error('Error saving draft:', error);
-      toast.error('Erreur sauvegarde brouillon');
+      const message = error instanceof Error ? error.message : 'Erreur sauvegarde brouillon';
+      toast.error(message);
       return null;
     } finally {
       setIsSaving(false);
@@ -198,8 +193,7 @@ export function useQuotationDraft() {
   }, [currentDraft]);
 
   /**
-   * Créer une nouvelle version (révision)
-   * AMENDEMENT 1 : root_quotation_id conservé
+   * Créer une nouvelle version (révision) via Edge Function
    */
   const createRevision = useCallback(async (params: SaveDraftParams): Promise<DraftQuotation | null> => {
     if (!currentDraft) {
@@ -208,19 +202,16 @@ export function useQuotationDraft() {
 
     setIsSaving(true);
     try {
-      // Récupérer l'utilisateur authentifié (Phase 5D)
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData.user?.id;
-
-      if (!userId) {
-        toast.error('Veuillez vous connecter pour créer une révision');
+      // Vérifier session active
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        toast.error('Session expirée, veuillez vous reconnecter');
         return null;
       }
 
-      // AMENDEMENT 1 : root = root du parent OU id du parent si v1
-      const rootId = currentDraft.root_quotation_id ?? currentDraft.id;
-
-      const dbPayload = {
+      // Build payload with revision info
+      const payload = {
         route_origin: params.route_origin,
         route_port: params.route_port,
         route_destination: params.route_destination,
@@ -231,33 +222,31 @@ export function useQuotationDraft() {
         partner_company: params.partner_company,
         project_name: params.project_name,
         incoterm: params.incoterm,
-        tariff_lines: params.tariff_lines as unknown as Json,
+        tariff_lines: params.tariff_lines,
         total_amount: params.total_amount,
         total_currency: params.total_currency,
         source_email_id: params.source_email_id,
-        regulatory_info: (params.regulatory_info ?? null) as Json,
+        regulatory_info: params.regulatory_info ?? null,
+        // Revision-specific fields
+        action: 'create_revision',
+        parent_quotation_id: currentDraft.id,
+        current_version: currentDraft.version,
       };
 
-      const { data, error } = await supabase
-        .from('quotation_history')
-        .insert({
-          ...dbPayload,
-          version: currentDraft.version + 1,
-          parent_quotation_id: currentDraft.id,
-          root_quotation_id: rootId,
-          status: 'draft',
-          created_by: userId,  // Phase 5D: ownership explicite
-        } as any)
-        .select('id, version, status, parent_quotation_id, root_quotation_id')
-        .single();
+      const result = await callEdgeFunction(payload, session.access_token);
 
-      if (error) throw error;
-      setCurrentDraft(data as unknown as DraftQuotation);
-      toast.success(`Révision v${(data as any).version} créée`);
-      return data as unknown as DraftQuotation;
+      if (!result.success || !result.draft) {
+        throw new Error(result.error || 'Échec création révision');
+      }
+
+      setCurrentDraft(result.draft);
+      toast.success(`Révision v${result.draft.version} créée`);
+      return result.draft;
+
     } catch (error) {
       console.error('Error creating revision:', error);
-      toast.error('Erreur création révision');
+      const message = error instanceof Error ? error.message : 'Erreur création révision';
+      toast.error(message);
       return null;
     } finally {
       setIsSaving(false);
