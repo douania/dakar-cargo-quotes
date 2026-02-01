@@ -1,12 +1,13 @@
 /**
- * Hook pour gérer le cycle de vie draft/sent d'un devis
+ * Hook pour gérer le cycle de vie draft/generated/sent d'un devis
  * Phase 5D — Amendements CTO intégrés
  * Phase 6B — Edge Function pour bypass RLS + gestion erreurs explicite
+ * Phase 6D.1 — Ajout generateQuotation() via Edge Function
  */
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type { QuotationStatus } from '@/features/quotation/domain/types';
+import type { QuotationStatus, GeneratedSnapshot } from '@/features/quotation/domain/types';
 import type { Json } from '@/integrations/supabase/types';
 
 export interface DraftQuotation {
@@ -42,6 +43,7 @@ interface SaveDraftParams {
 }
 
 const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-quotation-draft`;
+const GENERATE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-quotation`;
 const REQUEST_TIMEOUT_MS = 15000;
 
 /**
@@ -260,6 +262,71 @@ export function useQuotationDraft() {
     setCurrentDraft(null);
   }, []);
 
+  /**
+   * Phase 6D.1: Générer le devis avec snapshot figé via Edge Function
+   * Transition: draft → generated
+   */
+  const generateQuotation = useCallback(async (snapshot: GeneratedSnapshot): Promise<boolean> => {
+    if (!currentDraft) {
+      toast.error('Aucun brouillon à générer');
+      return false;
+    }
+
+    if (currentDraft.status !== 'draft') {
+      toast.error('Ce devis a déjà été généré');
+      return false;
+    }
+
+    setIsSaving(true);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        toast.error('Session expirée, veuillez vous reconnecter');
+        return false;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      const response = await fetch(GENERATE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quotation_id: currentDraft.id,
+          snapshot,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+
+      setCurrentDraft({ ...currentDraft, status: 'generated' });
+      toast.success('Devis généré avec succès');
+      return true;
+
+    } catch (error) {
+      console.error('Error generating quotation:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        toast.error('Délai dépassé, veuillez réessayer');
+      } else {
+        const message = error instanceof Error ? error.message : 'Erreur génération';
+        toast.error(message);
+      }
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [currentDraft]);
+
   return {
     currentDraft,
     isSaving,
@@ -268,5 +335,6 @@ export function useQuotationDraft() {
     createRevision,
     resetDraft,
     setCurrentDraft,
+    generateQuotation,  // Phase 6D.1
   };
 }

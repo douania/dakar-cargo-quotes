@@ -101,3 +101,6 @@ verify_jwt = false
 
 [functions.learn-quotation-puzzle]
 verify_jwt = false
+
+[functions.generate-quotation]
+verify_jwt = false
