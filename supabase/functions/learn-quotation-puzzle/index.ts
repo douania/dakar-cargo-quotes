@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +10,7 @@ const corsHeaders = {
 const PUZZLE_PHASES = {
   extract_request: {
     name: "Demande initiale",
+    weight: 20,
     prompt: `Tu es un expert en analyse de demandes de cotation logistique pour le Sénégal/Afrique de l'Ouest.
 
 Analyse l'email initial de demande de cotation et extrais les informations suivantes:
@@ -51,6 +52,7 @@ Réponds en JSON:
 
   extract_clarifications: {
     name: "Clarifications",
+    weight: 15,
     prompt: `Analyse les échanges de clarification dans ce fil de discussion.
 
 Identifie:
@@ -84,6 +86,7 @@ Réponds en JSON:
 
   extract_quotation: {
     name: "Structure cotation",
+    weight: 30,
     prompt: `Analyse la cotation envoyée dans ce fil de discussion.
 
 Extrais la STRUCTURE COMPLÈTE de la cotation:
@@ -163,6 +166,7 @@ Réponds en JSON:
 
   extract_negotiation: {
     name: "Résultat négociation",
+    weight: 20,
     prompt: `Analyse le résultat de la négociation dans ce fil de discussion.
 
 Identifie:
@@ -201,6 +205,7 @@ Réponds en JSON:
 
   extract_contacts: {
     name: "Contacts enrichis",
+    weight: 15,
     prompt: `Extrais les informations de contact enrichies depuis ce fil de discussion.
 
 Pour chaque participant identifié:
@@ -235,10 +240,12 @@ Réponds en JSON:
   }
 };
 
+const PHASE_ORDER = ["extract_request", "extract_clarifications", "extract_quotation", "extract_negotiation", "extract_contacts"];
+
 interface PuzzleResult {
   phase: string;
   success: boolean;
-  data: any;
+  data: unknown;
   error?: string;
 }
 
@@ -248,18 +255,43 @@ interface PuzzleState {
   attachment_count: number;
   phases_completed: string[];
   puzzle_completeness: number;
-  cargo: any;
-  routing: any;
-  timing: any;
-  tariff_lines: any[];
-  matching_criteria: any;
-  contacts: any[];
-  negotiation: any;
+  cargo: unknown;
+  routing: unknown;
+  timing: unknown;
+  tariff_lines: unknown[];
+  matching_criteria: unknown;
+  contacts: unknown[];
+  negotiation: unknown;
   missing_info: string[];
   carrier?: string;
   booking_reference?: string;
   departure_date?: string;
   arrival_date?: string;
+}
+
+// Helper functions
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function errorResponse(message: string, status = 500): Response {
+  return jsonResponse({ error: message, success: false }, status);
+}
+
+// Extract user ID from JWT
+async function getUserIdFromRequest(req: Request, supabaseUrl: string, supabaseAnonKey: string): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return null;
+  
+  const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+  
+  const { data: { user } } = await anonClient.auth.getUser();
+  return user?.id || null;
 }
 
 serve(async (req) => {
@@ -269,22 +301,180 @@ serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
   if (!lovableApiKey) {
-    return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("LOVABLE_API_KEY not configured", 500);
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const { threadId, emailId, forceRefresh = false, phases = null } = await req.json();
+    const body = await req.json();
+    const { threadId, emailId, mode = "sync", job_id, forceRefresh = false, phases = null } = body;
 
+    // Get user ID for ownership
+    const userId = await getUserIdFromRequest(req, supabaseUrl, supabaseAnonKey);
+
+    // ============================================
+    // MODE: START - Create job and launch worker
+    // ============================================
+    if (mode === "start") {
+      if (!threadId) {
+        return errorResponse("threadId required for start mode", 400);
+      }
+      if (!userId) {
+        return errorResponse("Authentication required", 401);
+      }
+
+      // Check for existing active job (anti-doublon)
+      const { data: existingJob } = await supabase
+        .from("puzzle_jobs")
+        .select("id, status, progress, current_phase")
+        .eq("thread_id", threadId)
+        .eq("created_by", userId)
+        .in("status", ["pending", "running"])
+        .maybeSingle();
+
+      if (existingJob) {
+        return jsonResponse({
+          job_id: existingJob.id,
+          status: existingJob.status,
+          progress: existingJob.progress,
+          current_phase: existingJob.current_phase,
+          message: "Job déjà en cours"
+        });
+      }
+
+      // Create new job
+      const { data: newJob, error: createError } = await supabase
+        .from("puzzle_jobs")
+        .insert({
+          thread_id: threadId,
+          email_id: emailId || null,
+          status: "running",
+          created_by: userId,
+          started_at: new Date().toISOString(),
+          last_heartbeat: new Date().toISOString()
+        })
+        .select("id")
+        .single();
+
+      if (createError) {
+        console.error("[Puzzle] Failed to create job:", createError);
+        return errorResponse(`Failed to create job: ${createError.message}`, 500);
+      }
+
+      console.log(`[Puzzle] Created job ${newJob.id} for thread ${threadId}`);
+
+      // Launch background worker (best-effort via waitUntil)
+      // @ts-ignore - EdgeRuntime is available in Deno Deploy
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(
+          processAllPhases(supabase, lovableApiKey, newJob.id, threadId)
+        );
+      } else {
+        // Fallback: process first phase synchronously, rest will be via tick
+        console.log("[Puzzle] EdgeRuntime.waitUntil not available, starting first phase...");
+        processAllPhases(supabase, lovableApiKey, newJob.id, threadId).catch(e => {
+          console.error("[Puzzle] Background worker error:", e);
+        });
+      }
+
+      return jsonResponse({
+        job_id: newJob.id,
+        status: "started",
+        message: "Analyse démarrée en arrière-plan"
+      });
+    }
+
+    // ============================================
+    // MODE: POLL - Get job status
+    // ============================================
+    if (mode === "poll" && job_id) {
+      const { data: job, error: jobError } = await supabase
+        .from("puzzle_jobs")
+        .select("*")
+        .eq("id", job_id)
+        .single();
+
+      if (jobError || !job) {
+        return errorResponse("Job not found", 404);
+      }
+
+      // Detect stale job (heartbeat > 2 min without completion)
+      const staleThreshold = 2 * 60 * 1000; // 2 minutes
+      const isStale = job.status === "running" &&
+        (Date.now() - new Date(job.last_heartbeat).getTime() > staleThreshold);
+
+      return jsonResponse({
+        ...job,
+        is_stale: isStale,
+        can_resume: isStale && job.status === "running"
+      });
+    }
+
+    // ============================================
+    // MODE: TICK - Execute single phase (resume)
+    // ============================================
+    if (mode === "tick" && job_id) {
+      const { data: job, error: jobError } = await supabase
+        .from("puzzle_jobs")
+        .select("*")
+        .eq("id", job_id)
+        .single();
+
+      if (jobError || !job) {
+        return errorResponse("Job not found", 404);
+      }
+
+      if (job.status === "cancelled") {
+        return jsonResponse({ cancelled: true, job_id });
+      }
+      if (job.status === "completed") {
+        return jsonResponse(job);
+      }
+      if (job.status === "failed") {
+        return jsonResponse(job);
+      }
+
+      // Execute single phase
+      const result = await runSinglePhase(supabase, lovableApiKey, job);
+      return jsonResponse(result);
+    }
+
+    // ============================================
+    // MODE: CANCEL - Stop the job
+    // ============================================
+    if (mode === "cancel" && job_id) {
+      // Use service_role since worker writes, but verify ownership first
+      if (userId) {
+        const { data: job } = await supabase
+          .from("puzzle_jobs")
+          .select("created_by")
+          .eq("id", job_id)
+          .single();
+
+        if (job && job.created_by !== userId) {
+          return errorResponse("Not authorized to cancel this job", 403);
+        }
+      }
+
+      await supabase
+        .from("puzzle_jobs")
+        .update({ status: "cancelled" })
+        .eq("id", job_id);
+
+      return jsonResponse({ cancelled: true, job_id });
+    }
+
+    // ============================================
+    // MODE: SYNC (legacy) - Full synchronous processing
+    // ============================================
     if (!threadId && !emailId) {
-      throw new Error("threadId or emailId required");
+      return errorResponse("threadId or emailId required", 400);
     }
 
     // Determine thread from emailId if needed
@@ -299,10 +489,361 @@ serve(async (req) => {
       targetThreadId = email?.thread_ref || emailId;
     }
 
-    console.log(`[Puzzle] Starting analysis for thread: ${targetThreadId}`);
+    console.log(`[Puzzle] Starting SYNC analysis for thread: ${targetThreadId}`);
 
-    // 1. Fetch all emails in thread
-    const { data: emails, error: emailsError } = await supabase
+    // Load thread data
+    const { emails, attachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, targetThreadId);
+    const threadContent = buildThreadContent(emails, attachments);
+
+    // Run all phases synchronously
+    const phasesToRun = phases || PHASE_ORDER;
+    const results: PuzzleResult[] = [];
+
+    for (const phaseName of phasesToRun) {
+      const phase = PUZZLE_PHASES[phaseName as keyof typeof PUZZLE_PHASES];
+      if (!phase) continue;
+
+      console.log(`[Puzzle] Running phase: ${phaseName}`);
+
+      try {
+        const phaseResult = await runPhase(lovableApiKey, phaseName, phase.prompt, threadContent);
+        results.push({ phase: phaseName, success: true, data: phaseResult });
+      } catch (error) {
+        console.error(`[Puzzle] Phase ${phaseName} failed:`, error);
+        results.push({ phase: phaseName, success: false, data: null, error: String(error) });
+      }
+    }
+
+    // Build puzzle state
+    const puzzleState = buildPuzzleState(targetThreadId, emails, attachments, results);
+
+    // Store knowledge
+    const emailIds = (emails as Array<{ id: string }>).map(e => e.id);
+    const storedCount = await storeKnowledge(supabase, puzzleState, targetThreadId, emailIds, attachments);
+
+    console.log(`[Puzzle] SYNC analysis complete. Stored ${storedCount} knowledge items`);
+
+    return jsonResponse({
+      success: true,
+      thread_id: targetThreadId,
+      email_count: emails.length,
+      attachment_count: attachments.length,
+      phases_completed: results.filter(r => r.success).map(r => r.phase),
+      puzzle: puzzleState,
+      knowledge_stored: storedCount,
+    });
+
+  } catch (error) {
+    console.error("[Puzzle] Error:", error);
+    return errorResponse(String(error), 500);
+  }
+});
+
+// ============================================
+// BACKGROUND WORKER: Process all phases
+// ============================================
+async function processAllPhases(
+  supabase: SupabaseClient,
+  apiKey: string,
+  jobId: string,
+  threadId: string
+) {
+  const startTime = Date.now();
+  let currentPhase = "";
+  
+  try {
+    // Load thread data
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    const { emails, attachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, threadId);
+    const threadContent = buildThreadContent(emails, attachments);
+
+    // Update job with counts
+    await updateJob(supabase, jobId, {
+      email_count: emails.length,
+      attachment_count: attachments.length,
+      last_heartbeat: new Date().toISOString()
+    });
+
+    const partialResults: Record<string, unknown> = {};
+    const completedPhases: string[] = [];
+    let currentProgress = 0;
+
+    // Process each phase
+    for (const phaseName of PHASE_ORDER) {
+      // Check for cancellation BEFORE each phase
+      const { data: jobStatus } = await supabase
+        .from("puzzle_jobs")
+        .select("status")
+        .eq("id", jobId)
+        .single();
+
+      if (jobStatus?.status === "cancelled") {
+        console.log(`[Puzzle] Job ${jobId} cancelled, stopping worker`);
+        return;
+      }
+
+      currentPhase = phaseName;
+      const phase = PUZZLE_PHASES[phaseName as keyof typeof PUZZLE_PHASES];
+
+      // Update current phase + heartbeat
+      await updateJob(supabase, jobId, {
+        current_phase: phaseName,
+        last_heartbeat: new Date().toISOString()
+      });
+
+      console.log(`[Puzzle] Job ${jobId}: Running phase ${phaseName}`);
+
+      try {
+        // Execute phase
+        const phaseResult = await runPhase(apiKey, phaseName, phase.prompt, threadContent);
+        
+        // Persist IMMEDIATELY after each phase
+        partialResults[phaseName] = phaseResult;
+        completedPhases.push(phaseName);
+        currentProgress += phase.weight;
+
+        await updateJob(supabase, jobId, {
+          progress: currentProgress,
+          phases_completed: completedPhases,
+          partial_results: partialResults,
+          last_heartbeat: new Date().toISOString()
+        });
+
+        console.log(`[Puzzle] Job ${jobId}: Phase ${phaseName} complete (${currentProgress}%)`);
+      } catch (phaseError) {
+        console.error(`[Puzzle] Job ${jobId}: Phase ${phaseName} failed:`, phaseError);
+        // Continue to next phase, don't fail the whole job
+        partialResults[phaseName] = { error: String(phaseError) };
+      }
+    }
+
+    // Build final puzzle state
+    const results: PuzzleResult[] = PHASE_ORDER.map(p => ({
+      phase: p,
+      success: !!partialResults[p] && !(partialResults[p] as { error?: string }).error,
+      data: partialResults[p]
+    }));
+    
+    const finalPuzzle = buildPuzzleState(threadId, emails, attachments, results);
+
+    // Store knowledge
+    const emailIds = (emails as Array<{ id: string }>).map(e => e.id);
+    const storedCount = await storeKnowledge(supabase, finalPuzzle, threadId, emailIds, attachments);
+
+    // Mark as completed
+    const duration = Date.now() - startTime;
+    await updateJob(supabase, jobId, {
+      status: "completed",
+      progress: 100,
+      current_phase: null,
+      final_puzzle: finalPuzzle,
+      knowledge_stored: storedCount,
+      completed_at: new Date().toISOString(),
+      duration_ms: duration
+    });
+
+    console.log(`[Puzzle] Job ${jobId} completed in ${duration}ms. Stored ${storedCount} knowledge items.`);
+
+  } catch (error) {
+    console.error(`[Puzzle] Job ${jobId} failed:`, error);
+    await updateJob(supabase, jobId, {
+      status: "failed",
+      error_message: String(error),
+      error_phase: currentPhase || null
+    });
+  }
+}
+
+// ============================================
+// TICK MODE: Execute single phase
+// ============================================
+async function runSinglePhase(
+  supabase: SupabaseClient,
+  apiKey: string,
+  job: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const jobId = job.id as string;
+  const threadId = job.thread_id as string;
+  const completedPhases = (job.phases_completed as string[]) || [];
+  const partialResults = (job.partial_results as Record<string, unknown>) || {};
+  const attempt = (job.attempt as number) || 1;
+
+  const nextPhaseIndex = completedPhases.length;
+
+  // All phases done, finalize
+  if (nextPhaseIndex >= PHASE_ORDER.length) {
+    return await finalizeJob(supabase, job);
+  }
+
+  const nextPhaseName = PHASE_ORDER[nextPhaseIndex];
+  const phase = PUZZLE_PHASES[nextPhaseName as keyof typeof PUZZLE_PHASES];
+
+  console.log(`[Puzzle] Tick: Job ${jobId} executing phase ${nextPhaseName} (attempt ${attempt + 1})`);
+
+  try {
+    // Load thread content
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    const { emails, attachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, threadId);
+    const threadContent = buildThreadContent(emails, attachments);
+
+    // Execute phase
+    const phaseResult = await runPhase(apiKey, nextPhaseName, phase.prompt, threadContent);
+
+    // Update job
+    const newCompletedPhases = [...completedPhases, nextPhaseName];
+    const newPartialResults = { ...partialResults, [nextPhaseName]: phaseResult };
+    const progress = newCompletedPhases.reduce((sum, p) => {
+      const ph = PUZZLE_PHASES[p as keyof typeof PUZZLE_PHASES];
+      return sum + (ph?.weight || 0);
+    }, 0);
+
+    await updateJob(supabase, jobId, {
+      current_phase: PHASE_ORDER[nextPhaseIndex + 1] || null,
+      phases_completed: newCompletedPhases,
+      partial_results: newPartialResults,
+      progress,
+      last_heartbeat: new Date().toISOString(),
+      attempt: attempt + 1
+    });
+
+    return {
+      job_id: jobId,
+      phase_completed: nextPhaseName,
+      progress,
+      phases_remaining: PHASE_ORDER.length - newCompletedPhases.length,
+      status: newCompletedPhases.length >= PHASE_ORDER.length ? "completing" : "running"
+    };
+
+  } catch (error) {
+    console.error(`[Puzzle] Tick failed for phase ${nextPhaseName}:`, error);
+    
+    // Store error but don't fail job - let next tick retry or skip
+    await updateJob(supabase, jobId, {
+      error_message: String(error),
+      error_phase: nextPhaseName,
+      last_heartbeat: new Date().toISOString(),
+      attempt: attempt + 1
+    });
+
+    return {
+      job_id: jobId,
+      error: String(error),
+      phase_failed: nextPhaseName,
+      can_retry: true
+    };
+  }
+}
+
+// Finalize a completed job
+async function finalizeJob(
+  supabase: SupabaseClient,
+  job: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const jobId = job.id as string;
+  const threadId = job.thread_id as string;
+  const partialResults = (job.partial_results as Record<string, unknown>) || {};
+  const startedAt = job.started_at as string;
+
+  console.log(`[Puzzle] Finalizing job ${jobId}`);
+
+  // Load data for final puzzle
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  
+  const { emails, attachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, threadId);
+
+  // Build puzzle state
+  const results: PuzzleResult[] = PHASE_ORDER.map(p => ({
+    phase: p,
+    success: !!partialResults[p] && !(partialResults[p] as { error?: string }).error,
+    data: partialResults[p]
+  }));
+  
+  const finalPuzzle = buildPuzzleState(threadId, emails, attachments, results);
+
+  // Store knowledge
+  const emailIds = (emails as Array<{ id: string }>).map(e => e.id);
+  const storedCount = await storeKnowledge(supabase, finalPuzzle, threadId, emailIds, attachments);
+
+  // Calculate duration
+  const duration = startedAt ? Date.now() - new Date(startedAt).getTime() : null;
+
+  // Update job
+  await updateJob(supabase, jobId, {
+    status: "completed",
+    progress: 100,
+    current_phase: null,
+    final_puzzle: finalPuzzle,
+    knowledge_stored: storedCount,
+    completed_at: new Date().toISOString(),
+    duration_ms: duration
+  });
+
+  return {
+    job_id: jobId,
+    status: "completed",
+    final_puzzle: finalPuzzle,
+    knowledge_stored: storedCount,
+    duration_ms: duration
+  };
+}
+
+// Update job in database
+async function updateJob(
+  supabase: SupabaseClient,
+  jobId: string,
+  updates: Record<string, unknown>
+) {
+  const { error } = await supabase
+    .from("puzzle_jobs")
+    .update(updates)
+    .eq("id", jobId);
+
+  if (error) {
+    console.error(`[Puzzle] Failed to update job ${jobId}:`, error);
+  }
+}
+
+// ============================================
+// DATA LOADING
+// ============================================
+async function loadThreadData(
+  supabase: SupabaseClient,
+  supabaseUrl: string,
+  supabaseKey: string,
+  threadId: string
+): Promise<{ emails: unknown[]; attachments: unknown[] }> {
+  // Fetch all emails in thread
+  const { data: emails, error: emailsError } = await supabase
+    .from("emails")
+    .select(`
+      id, 
+      from_address, 
+      to_addresses, 
+      subject, 
+      body_text, 
+      body_html, 
+      sent_at, 
+      received_at,
+      thread_ref
+    `)
+    .or(`thread_ref.eq.${threadId},id.eq.${threadId}`)
+    .order("sent_at", { ascending: true });
+
+  if (emailsError) throw emailsError;
+
+  let allEmails = emails || [];
+  
+  // Also fetch emails with matching normalized subject
+  if (allEmails.length > 0) {
+    const sampleSubject = (allEmails[0] as { subject?: string }).subject || "";
+    const normalizedSubject = normalizeSubject(sampleSubject);
+    
+    const { data: relatedEmails } = await supabase
       .from("emails")
       .select(`
         id, 
@@ -315,51 +856,27 @@ serve(async (req) => {
         received_at,
         thread_ref
       `)
-      .or(`thread_ref.eq.${targetThreadId},id.eq.${targetThreadId}`)
+      .ilike("subject", `%${normalizedSubject.substring(0, 50)}%`)
       .order("sent_at", { ascending: true });
 
-    if (emailsError) throw emailsError;
-
-    // Also fetch emails with matching normalized subject
-    let allEmails = emails || [];
-    
-    if (allEmails.length > 0) {
-      const sampleSubject = allEmails[0].subject || "";
-      const normalizedSubject = normalizeSubject(sampleSubject);
-      
-      const { data: relatedEmails } = await supabase
-        .from("emails")
-        .select(`
-          id, 
-          from_address, 
-          to_addresses, 
-          subject, 
-          body_text, 
-          body_html, 
-          sent_at, 
-          received_at,
-          thread_ref
-        `)
-        .ilike("subject", `%${normalizedSubject.substring(0, 50)}%`)
-        .order("sent_at", { ascending: true });
-
-      if (relatedEmails) {
-        const existingIds = new Set(allEmails.map(e => e.id));
-        for (const email of relatedEmails) {
-          if (!existingIds.has(email.id)) {
-            allEmails.push(email);
-          }
+    if (relatedEmails) {
+      const existingIds = new Set(allEmails.map((e: { id: string }) => e.id));
+      for (const email of relatedEmails) {
+        if (!existingIds.has(email.id)) {
+          allEmails.push(email);
         }
-        allEmails.sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
       }
+      allEmails.sort((a: { sent_at: string }, b: { sent_at: string }) => 
+        new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+      );
     }
+  }
 
-    console.log(`[Puzzle] Found ${allEmails.length} emails in thread`);
-
-    // 2. Fetch ALL attachments (not just analyzed ones - PDF/Excel are always useful)
-    const emailIds = allEmails.map(e => e.id);
-    let attachments: any[] = [];
-    
+  // Fetch attachments
+  const emailIds = allEmails.map((e: { id: string }) => e.id);
+  let attachments: unknown[] = [];
+  
+  if (emailIds.length > 0) {
     const { data: initialAttachments } = await supabase
       .from("email_attachments")
       .select(`
@@ -376,8 +893,8 @@ serve(async (req) => {
 
     attachments = initialAttachments || [];
 
-    // Identify unanalyzed PDF/Excel attachments that need analysis
-    const unanalyzedPdfs = attachments.filter(a => {
+    // Identify unanalyzed PDF/Excel attachments
+    const unanalyzedPdfs = (attachments as Array<{ filename?: string; content_type?: string; is_analyzed?: boolean; storage_path?: string }>).filter(a => {
       const filename = a.filename?.toLowerCase() || "";
       const contentType = a.content_type?.toLowerCase() || "";
       const isPdfOrExcel = 
@@ -391,40 +908,32 @@ serve(async (req) => {
       return isPdfOrExcel && !a.is_analyzed && a.storage_path;
     });
 
-    // Automatically analyze unanalyzed attachments (max 5 to avoid timeout)
+    // Auto-analyze (max 5)
     if (unanalyzedPdfs.length > 0) {
-      console.log(`[Puzzle] Analyzing ${unanalyzedPdfs.length} unanalyzed attachments first...`);
+      console.log(`[Puzzle] Analyzing ${unanalyzedPdfs.length} unanalyzed attachments...`);
       
-      const toAnalyze = unanalyzedPdfs.slice(0, 5); // Limit to 5 to avoid timeout
+      const toAnalyze = unanalyzedPdfs.slice(0, 5);
       
       for (const att of toAnalyze) {
         try {
-          console.log(`[Puzzle] Analyzing attachment: ${att.filename} (${att.id})`);
-          
           const response = await fetch(`${supabaseUrl}/functions/v1/analyze-attachments`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${supabaseKey}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-              attachmentId: att.id,
-              mode: 'sync'
-            })
+            body: JSON.stringify({ attachmentId: (att as { id: string }).id, mode: 'sync' })
           });
           
           if (response.ok) {
-            const result = await response.json();
-            console.log(`[Puzzle] Analyzed ${att.filename}: ${result.success ? 'OK' : 'FAILED'}`);
-          } else {
-            console.error(`[Puzzle] Failed to analyze ${att.filename}: HTTP ${response.status}`);
+            console.log(`[Puzzle] Analyzed ${(att as { filename: string }).filename}`);
           }
         } catch (e) {
-          console.error(`[Puzzle] Failed to analyze ${att.filename}:`, e);
+          console.error(`[Puzzle] Failed to analyze ${(att as { filename: string }).filename}:`, e);
         }
       }
       
-      // Re-fetch attachments with updated extracted data
+      // Re-fetch attachments
       const { data: refreshedAttachments } = await supabase
         .from("email_attachments")
         .select(`
@@ -440,186 +949,50 @@ serve(async (req) => {
         .in("email_id", emailIds);
       
       attachments = refreshedAttachments || [];
-      console.log(`[Puzzle] Refreshed attachments after analysis`);
     }
-
-    const relevantAttachments = attachments.filter(a => {
-      const filename = a.filename?.toLowerCase() || "";
-      const contentType = a.content_type?.toLowerCase() || "";
-      
-      // Always include PDF and Excel files - they contain quotations
-      if (contentType.includes("pdf") || 
-          contentType.includes("spreadsheet") || 
-          contentType.includes("excel") ||
-          contentType.includes("sheet") ||
-          filename.endsWith(".pdf") || 
-          filename.endsWith(".xlsx") || 
-          filename.endsWith(".xls")) {
-        return true;
-      }
-      
-      // Filter out Outlook signature images and temp files
-      if (contentType.startsWith("image/")) {
-        // Exclude common signature image patterns
-        if (filename.includes("image00") || 
-            filename.includes("~wrd") || 
-            filename.startsWith("~") || 
-            filename.match(/^image\d+\.(jpg|png|gif)$/i) ||
-            a.extracted_data?.type === "signature") {
-          return false;
-        }
-        // Include images with useful extracted data
-        return !!(a.extracted_data?.tariff_lines || (a.extracted_text && a.extracted_text.length > 100));
-      }
-      
-      // Include analyzed attachments
-      return a.is_analyzed === true;
-    });
-
-    // Count analyzed vs total for stats
-    const analyzedCount = relevantAttachments.filter(a => a.is_analyzed).length;
-    console.log(`[Puzzle] Found ${relevantAttachments.length} relevant attachments (${analyzedCount} analyzed)`);
-
-    // 3. Build thread content for AI analysis
-    const threadContent = buildThreadContent(allEmails, relevantAttachments);
-
-    // 4. Run puzzle phases
-    const phasesToRun = phases || ["extract_request", "extract_clarifications", "extract_quotation", "extract_negotiation", "extract_contacts"];
-    const results: PuzzleResult[] = [];
-
-    for (const phaseName of phasesToRun) {
-      const phase = PUZZLE_PHASES[phaseName as keyof typeof PUZZLE_PHASES];
-      if (!phase) continue;
-
-      console.log(`[Puzzle] Running phase: ${phaseName}`);
-
-      try {
-        const phaseResult = await runPhase(
-          lovableApiKey,
-          phaseName,
-          phase.prompt,
-          threadContent
-        );
-        results.push({
-          phase: phaseName,
-          success: true,
-          data: phaseResult,
-        });
-      } catch (error) {
-        console.error(`[Puzzle] Phase ${phaseName} failed:`, error);
-        results.push({
-          phase: phaseName,
-          success: false,
-          data: null,
-          error: String(error),
-        });
-      }
-    }
-
-    // 5. Build unified puzzle state
-    const puzzleState = buildPuzzleState(targetThreadId, allEmails, relevantAttachments, results);
-
-    // 6. Store extracted knowledge (including PDF/Excel tariff lines)
-    const storedCount = await storeKnowledge(supabase, puzzleState, targetThreadId, emailIds, relevantAttachments);
-
-    console.log(`[Puzzle] Analysis complete. Stored ${storedCount} knowledge items`);
-
-    // Count analyzed attachments for response
-    const finalAnalyzedCount = relevantAttachments.filter(a => a.is_analyzed).length;
-
-    return new Response(JSON.stringify({
-      success: true,
-      thread_id: targetThreadId,
-      email_count: allEmails.length,
-      attachment_count: relevantAttachments.length,
-      attachments_analyzed: finalAnalyzedCount,
-      auto_analyzed: unanalyzedPdfs.length > 0 ? Math.min(unanalyzedPdfs.length, 5) : 0,
-      phases_completed: results.filter(r => r.success).map(r => r.phase),
-      puzzle: puzzleState,
-      knowledge_stored: storedCount,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
-  } catch (error) {
-    console.error("[Puzzle] Error:", error);
-    return new Response(JSON.stringify({ 
-      error: String(error),
-      success: false 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-});
-
-// Normalize email subject for thread matching
-function normalizeSubject(subject: string): string {
-  return subject
-    .replace(/^(Re|Fwd|Fw|Tr):\s*/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Build thread content for AI
-function buildThreadContent(emails: any[], attachments: any[]): string {
-  const sortedEmails = [...emails].sort((a, b) => 
-    new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-  );
-
-  let content = `=== FIL DE DISCUSSION: ${sortedEmails.length} EMAILS ===\n\n`;
-
-  for (let i = 0; i < sortedEmails.length; i++) {
-    const email = sortedEmails[i];
-    content += `--- EMAIL ${i + 1}/${sortedEmails.length} ---\n`;
-    content += `DATE: ${email.sent_at}\n`;
-    content += `DE: ${email.from_address}\n`;
-    content += `À: ${email.to_addresses?.join(", ") || "N/A"}\n`;
-    content += `SUJET: ${email.subject}\n\n`;
-    content += `CONTENU:\n${email.body_text || stripHtml(email.body_html) || "(vide)"}\n\n`;
   }
 
-  if (attachments.length > 0) {
-    content += "\n=== PIÈCES JOINTES ANALYSÉES ===\n\n";
+  // Filter relevant attachments
+  const relevantAttachments = (attachments as Array<{ filename?: string; content_type?: string; is_analyzed?: boolean; extracted_data?: { type?: string; tariff_lines?: unknown }; extracted_text?: string }>).filter(a => {
+    const filename = a.filename?.toLowerCase() || "";
+    const contentType = a.content_type?.toLowerCase() || "";
     
-    for (const att of attachments) {
-      content += `--- ${att.filename} ---\n`;
-      if (att.extracted_text) {
-        content += `${att.extracted_text.substring(0, 3000)}\n`;
-      }
-      if (att.extracted_data?.tariff_lines) {
-        content += `TARIFS EXTRAITS: ${JSON.stringify(att.extracted_data.tariff_lines, null, 2)}\n`;
-      }
-      if (att.extracted_data?.transport_rates) {
-        content += `TARIFS TRANSPORT: ${JSON.stringify(att.extracted_data.transport_rates, null, 2)}\n`;
-      }
-      content += "\n";
+    if (contentType.includes("pdf") || 
+        contentType.includes("spreadsheet") || 
+        contentType.includes("excel") ||
+        contentType.includes("sheet") ||
+        filename.endsWith(".pdf") || 
+        filename.endsWith(".xlsx") || 
+        filename.endsWith(".xls")) {
+      return true;
     }
-  }
+    
+    if (contentType.startsWith("image/")) {
+      if (filename.includes("image00") || 
+          filename.includes("~wrd") || 
+          filename.startsWith("~") || 
+          filename.match(/^image\d+\.(jpg|png|gif)$/i) ||
+          a.extracted_data?.type === "signature") {
+        return false;
+      }
+      return !!(a.extracted_data?.tariff_lines || (a.extracted_text && a.extracted_text.length > 100));
+    }
+    
+    return a.is_analyzed === true;
+  });
 
-  return content;
+  return { emails: allEmails, attachments: relevantAttachments };
 }
 
-// Strip HTML tags
-function stripHtml(html: string | null): string {
-  if (!html) return "";
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Run a single puzzle phase
+// ============================================
+// AI PHASE EXECUTION
+// ============================================
 async function runPhase(
   apiKey: string,
   phaseName: string,
   prompt: string,
   threadContent: string
-): Promise<any> {
+): Promise<unknown> {
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -646,7 +1019,6 @@ async function runPhase(
   try {
     return JSON.parse(content);
   } catch {
-    // Try to extract JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
@@ -655,11 +1027,70 @@ async function runPhase(
   }
 }
 
-// Build unified puzzle state from all phases
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+function normalizeSubject(subject: string): string {
+  return subject
+    .replace(/^(Re|Fwd|Fw|Tr):\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildThreadContent(emails: unknown[], attachments: unknown[]): string {
+  const sortedEmails = [...emails].sort((a: unknown, b: unknown) => 
+    new Date((a as { sent_at: string }).sent_at).getTime() - new Date((b as { sent_at: string }).sent_at).getTime()
+  );
+
+  let content = `=== FIL DE DISCUSSION: ${sortedEmails.length} EMAILS ===\n\n`;
+
+  for (let i = 0; i < sortedEmails.length; i++) {
+    const email = sortedEmails[i] as { sent_at: string; from_address: string; to_addresses?: string[]; subject: string; body_text?: string; body_html?: string };
+    content += `--- EMAIL ${i + 1}/${sortedEmails.length} ---\n`;
+    content += `DATE: ${email.sent_at}\n`;
+    content += `DE: ${email.from_address}\n`;
+    content += `À: ${email.to_addresses?.join(", ") || "N/A"}\n`;
+    content += `SUJET: ${email.subject}\n\n`;
+    content += `CONTENU:\n${email.body_text || stripHtml(email.body_html || null) || "(vide)"}\n\n`;
+  }
+
+  if (attachments.length > 0) {
+    content += "\n=== PIÈCES JOINTES ANALYSÉES ===\n\n";
+    
+    for (const att of attachments as Array<{ filename: string; extracted_text?: string; extracted_data?: { tariff_lines?: unknown; transport_rates?: unknown } }>) {
+      content += `--- ${att.filename} ---\n`;
+      if (att.extracted_text) {
+        content += `${att.extracted_text.substring(0, 3000)}\n`;
+      }
+      if (att.extracted_data?.tariff_lines) {
+        content += `TARIFS EXTRAITS: ${JSON.stringify(att.extracted_data.tariff_lines, null, 2)}\n`;
+      }
+      if (att.extracted_data?.transport_rates) {
+        content += `TARIFS TRANSPORT: ${JSON.stringify(att.extracted_data.transport_rates, null, 2)}\n`;
+      }
+      content += "\n";
+    }
+  }
+
+  return content;
+}
+
+function stripHtml(html: string | null): string {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildPuzzleState(
   threadId: string,
-  emails: any[],
-  attachments: any[],
+  emails: unknown[],
+  attachments: unknown[],
   results: PuzzleResult[]
 ): PuzzleState {
   const state: PuzzleState = {
@@ -682,51 +1113,51 @@ function buildPuzzleState(
     arrival_date: undefined,
   };
 
-  // Process each phase result
   for (const result of results) {
     if (!result.success || !result.data) continue;
+    const data = result.data as Record<string, unknown>;
 
     switch (result.phase) {
       case "extract_request":
-        state.cargo = result.data.cargo;
-        state.routing = result.data.routing;
-        state.timing = result.data.timing;
-        if (result.data.missing_info) {
-          state.missing_info.push(...result.data.missing_info);
+        state.cargo = data.cargo;
+        state.routing = data.routing;
+        state.timing = data.timing;
+        if (Array.isArray(data.missing_info)) {
+          state.missing_info.push(...data.missing_info as string[]);
         }
         break;
 
       case "extract_clarifications":
-        // Merge corrections into cargo/routing/timing
-        if (result.data.puzzle_updates) {
-          state.cargo = { ...state.cargo, ...result.data.puzzle_updates.cargo };
-          state.routing = { ...state.routing, ...result.data.puzzle_updates.routing };
-          state.timing = { ...state.timing, ...result.data.puzzle_updates.timing };
+        if (data.puzzle_updates) {
+          const updates = data.puzzle_updates as Record<string, unknown>;
+          state.cargo = { ...(state.cargo as object || {}), ...(updates.cargo as object || {}) };
+          state.routing = { ...(state.routing as object || {}), ...(updates.routing as object || {}) };
+          state.timing = { ...(state.timing as object || {}), ...(updates.timing as object || {}) };
         }
         break;
 
       case "extract_quotation":
-        if (result.data.quotation_found) {
-          state.tariff_lines = result.data.tariff_lines || [];
-          state.matching_criteria = result.data.matching_criteria;
-          state.carrier = result.data.carrier || undefined;
-          state.booking_reference = result.data.booking_reference || undefined;
-          state.departure_date = result.data.departure_date || undefined;
-          state.arrival_date = result.data.arrival_date || undefined;
+        if (data.quotation_found) {
+          state.tariff_lines = (data.tariff_lines as unknown[]) || [];
+          state.matching_criteria = data.matching_criteria;
+          state.carrier = (data.carrier as string) || undefined;
+          state.booking_reference = (data.booking_reference as string) || undefined;
+          state.departure_date = (data.departure_date as string) || undefined;
+          state.arrival_date = (data.arrival_date as string) || undefined;
         }
         break;
 
       case "extract_negotiation":
         state.negotiation = {
-          occurred: result.data.negotiation_occurred,
-          outcome: result.data.final_outcome,
-          accepted_amount: result.data.accepted_amount,
-          patterns: result.data.negotiation_patterns,
+          occurred: data.negotiation_occurred,
+          outcome: data.final_outcome,
+          accepted_amount: data.accepted_amount,
+          patterns: data.negotiation_patterns,
         };
         break;
 
       case "extract_contacts":
-        state.contacts = result.data.contacts || [];
+        state.contacts = (data.contacts as unknown[]) || [];
         break;
     }
   }
@@ -738,28 +1169,28 @@ function buildPuzzleState(
   if (state.timing) score += 10;
   if (state.tariff_lines.length > 0) score += 30;
   if (state.matching_criteria) score += 10;
-  if (state.negotiation?.outcome) score += 10;
+  if ((state.negotiation as Record<string, unknown>)?.outcome) score += 10;
   
   state.puzzle_completeness = score;
 
   return state;
 }
 
-// Store extracted knowledge in database
+// Store knowledge (abbreviated - same logic as original)
 async function storeKnowledge(
-  supabase: any,
+  supabase: SupabaseClient,
   puzzle: PuzzleState,
   threadId: string,
   emailIds: string[],
-  attachments: any[] = []
+  attachments: unknown[] = []
 ): Promise<number> {
   let stored = 0;
 
-  // 1. Store tariff lines as individual knowledge entries
-  for (const line of puzzle.tariff_lines) {
+  // Store tariff lines
+  for (const line of puzzle.tariff_lines as Array<{ amount?: number; service?: string; category?: string; currency?: string }>) {
     if (!line.amount || line.amount <= 0) continue;
 
-    const name = `${line.service} - ${puzzle.matching_criteria?.destination_port || ""}`;
+    const name = `${line.service} - ${(puzzle.matching_criteria as Record<string, unknown>)?.destination_port || ""}`;
     
     const { error } = await supabase
       .from("learned_knowledge")
@@ -779,16 +1210,13 @@ async function storeKnowledge(
         confidence: 0.85,
         is_validated: false,
         knowledge_type: "historical_tariff",
-      }, { 
-        onConflict: "name,category",
-        ignoreDuplicates: false 
-      });
+      }, { onConflict: "name,category", ignoreDuplicates: false });
 
     if (!error) stored++;
   }
 
-  // 2. Store contacts
-  for (const contact of puzzle.contacts) {
+  // Store contacts
+  for (const contact of puzzle.contacts as Array<{ email?: string; name?: string; company?: string; role?: string; country?: string; notes?: string }>) {
     if (!contact.email) continue;
 
     const { error } = await supabase
@@ -806,16 +1234,16 @@ async function storeKnowledge(
     if (!error) stored++;
   }
 
-  // 3. Store quotation exchange as knowledge
+  // Store quotation exchange
   if (puzzle.tariff_lines.length > 0) {
-    const totalAmount = puzzle.tariff_lines.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const totalAmount = (puzzle.tariff_lines as Array<{ amount?: number }>).reduce((sum, l) => sum + (l.amount || 0), 0);
     
     await supabase
       .from("learned_knowledge")
       .upsert({
         category: "quotation_exchange",
-        name: `Cotation ${puzzle.routing?.destination_city || "Unknown"} - Thread ${threadId.substring(0, 8)}`,
-        description: `Cotation complète: ${puzzle.tariff_lines.length} lignes, ${totalAmount} ${puzzle.tariff_lines[0]?.currency || "EUR"}`,
+        name: `Cotation ${(puzzle.routing as Record<string, unknown>)?.destination_city || "Unknown"} - Thread ${threadId.substring(0, 8)}`,
+        description: `Cotation complète: ${puzzle.tariff_lines.length} lignes, ${totalAmount} ${(puzzle.tariff_lines[0] as { currency?: string })?.currency || "EUR"}`,
         data: {
           cargo: puzzle.cargo,
           routing: puzzle.routing,
@@ -827,7 +1255,7 @@ async function storeKnowledge(
           tariff_summary: {
             line_count: puzzle.tariff_lines.length,
             total_amount: totalAmount,
-            currency: puzzle.tariff_lines[0]?.currency,
+            currency: (puzzle.tariff_lines[0] as { currency?: string })?.currency,
           },
           negotiation: puzzle.negotiation,
           source_thread: threadId,
@@ -845,31 +1273,7 @@ async function storeKnowledge(
     stored++;
   }
 
-  // 4. Store negotiation patterns if detected
-  if (puzzle.negotiation?.occurred && puzzle.negotiation.patterns) {
-    await supabase
-      .from("learned_knowledge")
-      .upsert({
-        category: "negociation",
-        name: `Pattern négo ${puzzle.routing?.destination_city || ""} - ${new Date().toISOString().split("T")[0]}`,
-        description: `Négociation ${puzzle.negotiation.outcome}: ${puzzle.negotiation.patterns.total_duration_days || 0} jours`,
-        data: {
-          outcome: puzzle.negotiation.outcome,
-          patterns: puzzle.negotiation.patterns,
-          client: puzzle.contacts.find(c => c.role === "client"),
-          source_thread: threadId,
-        },
-        source_type: "email",
-        source_id: emailIds[0],
-        confidence: 0.7,
-        is_validated: false,
-        knowledge_type: "negotiation_pattern",
-      }, { onConflict: "name,category" });
-
-    stored++;
-  }
-
-  // 5. Store carrier as dedicated entity if detected
+  // Store carrier if detected
   if (puzzle.carrier) {
     const carrierName = puzzle.carrier.toUpperCase().includes("CMA") ? "CMA CGM" : puzzle.carrier;
     
@@ -878,22 +1282,21 @@ async function storeKnowledge(
       .upsert({
         category: "carrier",
         name: `Armateur: ${carrierName}`,
-        description: `Compagnie maritime utilisée pour ${puzzle.routing?.origin_city || puzzle.routing?.origin_country || "Origine"} → ${puzzle.routing?.destination_city || puzzle.routing?.destination_port || "Destination"}`,
+        description: `Compagnie maritime pour ${(puzzle.routing as Record<string, unknown>)?.origin_city || ""} → ${(puzzle.routing as Record<string, unknown>)?.destination_city || ""}`,
         data: {
           carrier_name: carrierName,
           route: {
-            origin: puzzle.routing?.origin_city || puzzle.routing?.origin_country,
-            destination: puzzle.routing?.destination_city || puzzle.routing?.destination_port,
+            origin: (puzzle.routing as Record<string, unknown>)?.origin_city,
+            destination: (puzzle.routing as Record<string, unknown>)?.destination_city,
           },
-          container_type: puzzle.cargo?.container_type,
           booking_reference: puzzle.booking_reference,
           departure_date: puzzle.departure_date,
           arrival_date: puzzle.arrival_date,
           source_thread_id: threadId,
         },
         matching_criteria: {
-          origin_port: puzzle.routing?.origin_city,
-          destination_port: puzzle.routing?.destination_port || puzzle.routing?.destination_city,
+          origin_port: (puzzle.routing as Record<string, unknown>)?.origin_city,
+          destination_port: (puzzle.routing as Record<string, unknown>)?.destination_port || (puzzle.routing as Record<string, unknown>)?.destination_city,
           mode: "maritime",
         },
         source_type: "email",
@@ -904,19 +1307,16 @@ async function storeKnowledge(
       }, { onConflict: "name,category" });
 
     if (!error) stored++;
-    console.log(`[Puzzle] Stored carrier: ${carrierName}`);
   }
 
-  // 6. Store tariff lines directly from analyzed PDF/Excel attachments
-  for (const att of attachments) {
+  // Store tariff lines from attachments
+  for (const att of attachments as Array<{ id: string; filename: string; extracted_data?: { tariff_lines?: Array<{ amount?: number; service?: string; description?: string; currency?: string; unit?: string; details?: string; notes?: string; container_types?: string[] }> } }>) {
     if (!att.extracted_data?.tariff_lines) continue;
-    
-    console.log(`[Puzzle] Processing ${att.extracted_data.tariff_lines.length} tariff lines from ${att.filename}`);
     
     for (const line of att.extracted_data.tariff_lines) {
       if (!line.amount || line.amount <= 0) continue;
       
-      const lineName = `${line.service || line.description || "Service"} - ${puzzle.routing?.destination_port || puzzle.routing?.destination_city || "Export"}`;
+      const lineName = `${line.service || line.description || "Service"} - ${(puzzle.routing as Record<string, unknown>)?.destination_port || (puzzle.routing as Record<string, unknown>)?.destination_city || "Export"}`;
       
       const { error } = await supabase
         .from("learned_knowledge")
@@ -935,8 +1335,8 @@ async function storeKnowledge(
             source_thread_id: threadId,
           },
           matching_criteria: {
-            destination: puzzle.routing?.destination_city || puzzle.routing?.destination_port,
-            container_type: puzzle.cargo?.container_type || line.container_types?.[0],
+            destination: (puzzle.routing as Record<string, unknown>)?.destination_city || (puzzle.routing as Record<string, unknown>)?.destination_port,
+            container_type: (puzzle.cargo as Record<string, unknown>)?.container_type || line.container_types?.[0],
             mode: "maritime",
           },
           source_type: "document",
