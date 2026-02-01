@@ -1,6 +1,7 @@
 /**
- * Phase 7.0.3: build-case-puzzle
+ * Phase 7.0.3-fix: build-case-puzzle
  * Analyzes thread emails/attachments and populates facts/gaps
+ * CTO Fix: Uses atomic supersede_fact RPC for fact updates
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -226,7 +227,7 @@ Deno.serve(async (req) => {
     // 8. Detect request type from content
     const detectedType = detectRequestType(threadContext, extractedFacts);
 
-    // 9. Store facts and track changes
+    // 9. Store facts using ATOMIC RPC supersede_fact
     let factsAdded = 0;
     let factsUpdated = 0;
 
@@ -246,14 +247,27 @@ Deno.serve(async (req) => {
         // Compare values
         const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
         if (JSON.stringify(existingValue) !== JSON.stringify(factValue)) {
-          // Supersede old fact
-          await serviceClient
-            .from("quote_facts")
-            .update({ is_current: false, updated_at: new Date().toISOString() })
-            .eq("id", existingFact.id);
+          // CTO FIX: Use atomic RPC for supersession
+          const { data: newFactId, error: supersedeError } = await serviceClient.rpc('supersede_fact', {
+            p_case_id: case_id,
+            p_fact_key: fact.key,
+            p_fact_category: fact.category,
+            p_value_text: fact.valueType === 'text' ? String(fact.value) : null,
+            p_value_number: fact.valueType === 'number' ? Number(fact.value) : null,
+            p_value_json: fact.valueType === 'json' ? fact.value : null,
+            p_value_date: fact.valueType === 'date' ? String(fact.value) : null,
+            p_source_type: fact.isAssumption ? 'ai_assumption' : fact.sourceType,
+            p_source_email_id: fact.sourceEmailId || null,
+            p_source_attachment_id: fact.sourceAttachmentId || null,
+            p_source_excerpt: fact.sourceExcerpt || null,
+            p_confidence: fact.confidence,
+          });
 
-          // Insert new fact
-          await insertFact(serviceClient, case_id, fact, existingFact.id);
+          if (supersedeError) {
+            console.error(`Failed to supersede fact ${fact.key}:`, supersedeError);
+            continue;
+          }
+
           factsUpdated++;
 
           await serviceClient.from("case_timeline_events").insert({
@@ -265,15 +279,34 @@ Deno.serve(async (req) => {
           });
         }
       } else {
-        // Insert new fact
-        const newFact = await insertFact(serviceClient, case_id, fact, null);
+        // Insert new fact via RPC (still atomic, handles first insert)
+        const { data: newFactId, error: insertError } = await serviceClient.rpc('supersede_fact', {
+          p_case_id: case_id,
+          p_fact_key: fact.key,
+          p_fact_category: fact.category,
+          p_value_text: fact.valueType === 'text' ? String(fact.value) : null,
+          p_value_number: fact.valueType === 'number' ? Number(fact.value) : null,
+          p_value_json: fact.valueType === 'json' ? fact.value : null,
+          p_value_date: fact.valueType === 'date' ? String(fact.value) : null,
+          p_source_type: fact.isAssumption ? 'ai_assumption' : fact.sourceType,
+          p_source_email_id: fact.sourceEmailId || null,
+          p_source_attachment_id: fact.sourceAttachmentId || null,
+          p_source_excerpt: fact.sourceExcerpt || null,
+          p_confidence: fact.confidence,
+        });
+
+        if (insertError) {
+          console.error(`Failed to insert fact ${fact.key}:`, insertError);
+          continue;
+        }
+
         factsAdded++;
 
         await serviceClient.from("case_timeline_events").insert({
           case_id,
           event_type: "fact_added",
           event_data: { fact_key: fact.key, value: factValue },
-          related_fact_id: newFact?.id,
+          related_fact_id: newFactId,
           actor_type: "ai",
         });
       }
@@ -328,7 +361,6 @@ Deno.serve(async (req) => {
         }
       } else if (hasFact && !hasAssumption && existingGap) {
         // Resolve gap
-        const resolvedFact = extractedFacts.find((f) => f.key === requiredKey);
         const { data: factRecord } = await serviceClient
           .from("quote_facts")
           .select("id")
@@ -628,52 +660,4 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
 function getFactValue(fact: ExtractedFact): string | number | object {
   return fact.value;
-}
-
-async function insertFact(
-  client: any,
-  caseId: string,
-  fact: ExtractedFact,
-  supersedesId: string | null
-): Promise<{ id: string } | null> {
-  const insertData: Record<string, any> = {
-    case_id: caseId,
-    fact_key: fact.key,
-    fact_category: fact.category,
-    source_type: fact.sourceType,
-    source_email_id: fact.sourceEmailId || null,
-    source_attachment_id: fact.sourceAttachmentId || null,
-    source_excerpt: fact.sourceExcerpt || null,
-    confidence: fact.confidence,
-    is_current: true,
-    supersedes_fact_id: supersedesId,
-  };
-
-  // Set appropriate value column
-  switch (fact.valueType) {
-    case "number":
-      insertData.value_number = fact.value;
-      break;
-    case "json":
-      insertData.value_json = fact.value;
-      break;
-    case "date":
-      insertData.value_date = fact.value;
-      break;
-    default:
-      insertData.value_text = String(fact.value);
-  }
-
-  const { data, error } = await client
-    .from("quote_facts")
-    .insert(insertData)
-    .select("id")
-    .single();
-
-  if (error) {
-    console.error("Error inserting fact:", error);
-    return null;
-  }
-
-  return data;
 }
