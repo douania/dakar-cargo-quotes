@@ -1,6 +1,7 @@
 /**
- * Phase 7.0.4: run-pricing
+ * Phase 7.0.4-fix: run-pricing
  * Executes deterministic pricing via quotation-engine
+ * CTO Fixes: Atomic run_number, Status rollback compensation, Blocking gaps guard
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -111,7 +112,26 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Transition to PRICING_RUNNING
+    // 4. CTO FIX: Guard-fou - Revérifier les gaps bloquants même si status READY_TO_PRICE
+    const { count: blockingGapsCount } = await serviceClient
+      .from("quote_gaps")
+      .select("*", { count: "exact", head: true })
+      .eq("case_id", case_id)
+      .eq("is_blocking", true)
+      .eq("status", "open");
+
+    if (blockingGapsCount && blockingGapsCount > 0) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Blocking gaps still open",
+          blocking_gaps_count: blockingGapsCount,
+          hint: "Resolve blocking gaps before pricing"
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 5. Transition to PRICING_RUNNING
     await serviceClient
       .from("quote_cases")
       .update({ 
@@ -129,7 +149,7 @@ Deno.serve(async (req) => {
       actor_type: "system",
     });
 
-    // 5. Load all current facts
+    // 6. Load all current facts
     const { data: facts, error: factsError } = await serviceClient
       .from("quote_facts")
       .select("*")
@@ -137,10 +157,12 @@ Deno.serve(async (req) => {
       .eq("is_current", true);
 
     if (factsError) {
+      // CTO FIX: Rollback status on error
+      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "facts_load_failed");
       throw new Error(`Failed to load facts: ${factsError.message}`);
     }
 
-    // 6. Build facts snapshot (frozen copy)
+    // 7. Build facts snapshot (frozen copy)
     const factsSnapshot = (facts || []).map((f) => ({
       id: f.id,
       key: f.fact_key,
@@ -153,34 +175,54 @@ Deno.serve(async (req) => {
       confidence: f.confidence,
     }));
 
-    // 7. Build inputs_json from facts
+    // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
 
-    // 8. Get next run number
-    const { count: existingRuns } = await serviceClient
-      .from("pricing_runs")
-      .select("*", { count: "exact", head: true })
-      .eq("case_id", case_id);
+    // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
+    const { data: runNumber, error: rpcError } = await serviceClient
+      .rpc('get_next_pricing_run_number', { p_case_id: case_id });
 
-    const runNumber = (existingRuns || 0) + 1;
+    if (rpcError || runNumber === null) {
+      // CTO FIX: Rollback status on error
+      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_number_failed");
+      throw new Error(`Failed to get run number: ${rpcError?.message || "null result"}`);
+    }
 
-    // 9. Create pricing_run record
-    const { data: pricingRun, error: runInsertError } = await serviceClient
-      .from("pricing_runs")
-      .insert({
+    // 10. Create pricing_run record with compensation on failure
+    let pricingRun: { id: string } | null = null;
+    
+    try {
+      const { data: runData, error: runInsertError } = await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: runNumber,
+          inputs_json: inputs,
+          facts_snapshot: factsSnapshot,
+          status: "running",
+          started_at: new Date().toISOString(),
+          created_by: userId,
+        })
+        .select("id")
+        .single();
+
+      if (runInsertError || !runData) {
+        throw new Error(`Insert failed: ${runInsertError?.message}`);
+      }
+      
+      pricingRun = runData;
+    } catch (insertError: any) {
+      // CTO FIX: Rollback status if run creation fails
+      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_insert_failed");
+      
+      await serviceClient.from("case_timeline_events").insert({
         case_id,
-        run_number: runNumber,
-        inputs_json: inputs,
-        facts_snapshot: factsSnapshot,
-        status: "running",
-        started_at: new Date().toISOString(),
-        created_by: userId,
-      })
-      .select("id")
-      .single();
-
-    if (runInsertError || !pricingRun) {
-      throw new Error(`Failed to create pricing run: ${runInsertError?.message}`);
+        event_type: "pricing_failed",
+        event_data: { error: String(insertError), reason: "run_creation_failed" },
+        actor_type: "system",
+      });
+      
+      throw insertError;
     }
 
     await serviceClient.from("case_timeline_events").insert({
@@ -191,7 +233,7 @@ Deno.serve(async (req) => {
       actor_type: "system",
     });
 
-    // 10. Call quotation-engine
+    // 11. Call quotation-engine
     let engineResponse: any;
     let tariffSources: any[] = [];
 
@@ -241,7 +283,7 @@ Deno.serve(async (req) => {
         })
         .eq("id", pricingRun.id);
 
-      // Transition case back
+      // Transition case back to partial (engine failed, not setup)
       await serviceClient
         .from("quote_cases")
         .update({ 
@@ -268,7 +310,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 11. Parse and store results
+    // 12. Parse and store results
     const tariffLines = engineResponse.lines || engineResponse.quotationLines || [];
     const totalHt = engineResponse.totalHt || engineResponse.total_ht || 
                     tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0);
@@ -296,7 +338,7 @@ Deno.serve(async (req) => {
 
     const durationMs = Date.now() - startTime;
 
-    // 12. Update pricing_run with results
+    // 13. Update pricing_run with results
     await serviceClient
       .from("pricing_runs")
       .update({
@@ -318,7 +360,7 @@ Deno.serve(async (req) => {
       })
       .eq("id", pricingRun.id);
 
-    // 13. Transition case to PRICED_DRAFT
+    // 14. Transition case to PRICED_DRAFT
     await serviceClient
       .from("quote_cases")
       .update({ 
@@ -373,6 +415,38 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+/**
+ * CTO FIX: Rollback case status on pricing initialization failure
+ * Prevents cases from being stuck in PRICING_RUNNING
+ */
+async function rollbackToPreviousStatus(
+  client: any,
+  caseId: string,
+  targetStatus: string,
+  reason: string
+): Promise<void> {
+  try {
+    await client
+      .from("quote_cases")
+      .update({ 
+        status: targetStatus, 
+        updated_at: new Date().toISOString() 
+      })
+      .eq("id", caseId);
+
+    await client.from("case_timeline_events").insert({
+      case_id: caseId,
+      event_type: "status_rollback",
+      event_data: { reason, target_status: targetStatus },
+      actor_type: "system",
+    });
+
+    console.log(`Rolled back case ${caseId} to ${targetStatus} due to: ${reason}`);
+  } catch (rollbackError) {
+    console.error(`Failed to rollback case ${caseId}:`, rollbackError);
+  }
+}
 
 function buildPricingInputs(facts: any[]): PricingInputs {
   const inputs: PricingInputs = {};

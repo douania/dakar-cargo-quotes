@@ -2944,8 +2944,29 @@ export type Database = {
         }[]
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
+      get_next_pricing_run_number: {
+        Args: { p_case_id: string }
+        Returns: number
+      }
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
+        Returns: string
+      }
+      supersede_fact: {
+        Args: {
+          p_case_id: string
+          p_confidence?: number
+          p_fact_category: string
+          p_fact_key: string
+          p_source_attachment_id?: string
+          p_source_email_id?: string
+          p_source_excerpt?: string
+          p_source_type?: string
+          p_value_date?: string
+          p_value_json?: Json
+          p_value_number?: number
+          p_value_text?: string
+        }
         Returns: string
       }
     }
