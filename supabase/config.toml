@@ -107,3 +107,15 @@ verify_jwt = false
 
 [functions.generate-quotation-pdf]
 verify_jwt = true
+
+[functions.ensure-quote-case]
+verify_jwt = true
+
+[functions.build-case-puzzle]
+verify_jwt = true
+
+[functions.run-pricing]
+verify_jwt = true
+
+[functions.generate-case-outputs]
+verify_jwt = true
