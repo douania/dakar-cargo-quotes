@@ -712,46 +712,21 @@ export default function QuotationSheet() {
   }, [currentDraft, projectContext, cargoLines, serviceLines, incoterm, destination, finalDestination, quotationTotals]);
 
   const handleGenerateResponse = async () => {
+    // BUG #1 Fix: Guard préalable - pas de sauvegarde implicite
+    if (!currentDraft?.id) {
+      toast.error("Veuillez d'abord sauvegarder le brouillon");
+      return;
+    }
+
+    // Phase 6D.1: Construire le snapshot figé
+    const snapshot = buildSnapshot();
+    if (!snapshot) {
+      // Erreur de validation déjà affichée par buildSnapshot
+      return;
+    }
+
     setIsGenerating(true);
     try {
-      // Phase 5D : Sauvegarder le draft AVANT génération
-      const draft = await saveDraft({
-        route_origin: cargoLines[0]?.origin || null,
-        route_port: 'Dakar',
-        route_destination: finalDestination || destination,
-        cargo_type: cargoLines[0]?.cargo_type || 'container',
-        container_types: cargoLines.filter(c => c.container_type).map(c => c.container_type!),
-        client_name: projectContext.requesting_party || null,
-        client_company: projectContext.requesting_company || null,
-        partner_company: projectContext.partner_company || null,
-        project_name: projectContext.project_name || null,
-        incoterm: incoterm || null,
-        tariff_lines: serviceLines
-          .filter(s => s.rate && s.rate > 0)
-          .map(s => ({
-            service: s.service || '',
-            description: s.description || '',
-            amount: (s.rate || 0) * s.quantity,
-            currency: s.currency || 'FCFA',
-            unit: s.unit || '',
-          })),
-        total_amount: engineResult.snapshot.totals.total_ht,
-        total_currency: 'FCFA',
-        source_email_id: isNewQuotation ? null : emailId,
-        regulatory_info: regulatoryInfo ? { ...regulatoryInfo } : null,
-      });
-
-      if (!draft) {
-        throw new Error('Échec sauvegarde brouillon');
-      }
-
-      // Phase 6D.1: Construire le snapshot figé
-      const snapshot = buildSnapshot();
-      if (!snapshot) {
-        // Erreur de validation déjà affichée par buildSnapshot
-        return;
-      }
-
       // Phase 6D.1: Appeler Edge Function pour transition draft → generated
       const success = await generateQuotation(snapshot);
 
@@ -759,31 +734,34 @@ export default function QuotationSheet() {
         setGeneratedSnapshot(snapshot);
       }
 
-      // Générer aussi la réponse email (existant)
-      const { data, error } = await supabase.functions.invoke('generate-response', {
-        body: { 
-          emailId: isNewQuotation ? null : emailId,
-          threadEmails: threadEmails.map(e => ({
-            from: e.from_address,
-            subject: e.subject,
-            body: decodeBase64Content(e.body_text),
-            date: e.sent_at || e.received_at,
-          })),
-          quotationData: {
-            projectContext,
-            cargoLines,
-            serviceLines,
-            destination,
-            finalDestination,
-            incoterm,
-            specialRequirements,
-          },
-        }
-      });
+      // Générer aussi la réponse email (SEULEMENT si email source existe)
+      if (!isNewQuotation && emailId) {
+        const { data, error } = await supabase.functions.invoke('generate-response', {
+          body: { 
+            emailId,
+            threadEmails: threadEmails.map(e => ({
+              from: e.from_address,
+              subject: e.subject,
+              body: decodeBase64Content(e.body_text),
+              date: e.sent_at || e.received_at,
+            })),
+            quotationData: {
+              projectContext,
+              cargoLines,
+              serviceLines,
+              destination,
+              finalDestination,
+              incoterm,
+              specialRequirements,
+            },
+          }
+        });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      setGeneratedResponse(data.response || data.draft?.body_text || '');
+        setGeneratedResponse(data.response || data.draft?.body_text || '');
+      }
+
       toast.success('Devis généré avec succès');
     } catch (error) {
       console.error('Error generating response:', error);
