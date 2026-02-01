@@ -1712,6 +1712,93 @@ export type Database = {
           },
         ]
       }
+      puzzle_jobs: {
+        Row: {
+          attachment_count: number | null
+          attempt: number | null
+          completed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          current_phase: string | null
+          duration_ms: number | null
+          email_count: number | null
+          email_id: string | null
+          error_message: string | null
+          error_phase: string | null
+          final_puzzle: Json | null
+          id: string
+          knowledge_stored: number | null
+          last_heartbeat: string | null
+          partial_results: Json | null
+          phases_completed: string[] | null
+          progress: number | null
+          started_at: string | null
+          status: string
+          thread_id: string
+        }
+        Insert: {
+          attachment_count?: number | null
+          attempt?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          current_phase?: string | null
+          duration_ms?: number | null
+          email_count?: number | null
+          email_id?: string | null
+          error_message?: string | null
+          error_phase?: string | null
+          final_puzzle?: Json | null
+          id?: string
+          knowledge_stored?: number | null
+          last_heartbeat?: string | null
+          partial_results?: Json | null
+          phases_completed?: string[] | null
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          thread_id: string
+        }
+        Update: {
+          attachment_count?: number | null
+          attempt?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          current_phase?: string | null
+          duration_ms?: number | null
+          email_count?: number | null
+          email_id?: string | null
+          error_message?: string | null
+          error_phase?: string | null
+          final_puzzle?: Json | null
+          id?: string
+          knowledge_stored?: number | null
+          last_heartbeat?: string | null
+          partial_results?: Json | null
+          phases_completed?: string[] | null
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "puzzle_jobs_email_id_fkey"
+            columns: ["email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "puzzle_jobs_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "email_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quotation_clauses: {
         Row: {
           clause_code: string

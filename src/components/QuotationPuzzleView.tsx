@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Puzzle,
   Package,
@@ -17,10 +17,9 @@ import {
   Paperclip,
   Sparkles,
   Target,
-  TrendingUp,
-  FileText,
   MessageSquare,
   BookOpen,
+  X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,14 +35,14 @@ import {
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { usePuzzleJob, PHASE_LABELS } from '@/hooks/usePuzzleJob';
 
 interface PuzzlePhase {
   id: string;
   name: string;
   icon: React.ReactNode;
   status: 'pending' | 'completed' | 'partial' | 'failed';
-  data?: any;
+  data?: unknown;
 }
 
 interface PuzzleState {
@@ -54,13 +53,13 @@ interface PuzzleState {
   auto_analyzed?: number;
   phases_completed: string[];
   puzzle_completeness: number;
-  cargo?: any;
-  routing?: any;
-  timing?: any;
-  tariff_lines?: any[];
-  matching_criteria?: any;
-  contacts?: any[];
-  negotiation?: any;
+  cargo?: Record<string, unknown>;
+  routing?: Record<string, unknown>;
+  timing?: Record<string, unknown>;
+  tariff_lines?: Array<Record<string, unknown>>;
+  matching_criteria?: Record<string, unknown>;
+  contacts?: Array<Record<string, unknown>>;
+  negotiation?: Record<string, unknown>;
   missing_info?: string[];
 }
 
@@ -71,8 +70,30 @@ interface Props {
 }
 
 export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Props) {
-  const [puzzle, setPuzzle] = useState<PuzzleState | null>(null);
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set(['cargo', 'routing']));
+  
+  // Use the new async puzzle job hook
+  const {
+    job,
+    isPolling,
+    isStarting,
+    isTicking,
+    isStale,
+    isComplete,
+    isFailed,
+    startAnalysis,
+    cancelAnalysis,
+    resumeStaleJob,
+    phaseLabel,
+    phasesRemaining,
+  } = usePuzzleJob(threadId);
+
+  // Derive puzzle state from job
+  const puzzle: PuzzleState | null = job?.final_puzzle 
+    ? (job.final_puzzle as unknown as PuzzleState)
+    : job?.partial_results && Object.keys(job.partial_results).length > 0
+      ? buildPartialPuzzle(job)
+      : null;
 
   // Fetch existing learned knowledge for this thread
   const { data: existingKnowledge, refetch: refetchKnowledge } = useQuery({
@@ -91,30 +112,15 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
     enabled: !!threadId
   });
 
-  const analyzeMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('learn-quotation-puzzle', {
-        body: { threadId, emailId }
-      });
-      
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data.success && data.puzzle) {
-        setPuzzle(data.puzzle);
-        toast.success(`Puzzle analysé: ${data.puzzle.puzzle_completeness}% complet`);
-        refetchKnowledge(); // Refresh existing knowledge after analysis
-        if (onPuzzleComplete) {
-          onPuzzleComplete(data.puzzle);
-        }
-      }
-    },
-    onError: (error) => {
-      toast.error('Erreur lors de l\'analyse du puzzle');
-      console.error('Puzzle analysis error:', error);
-    }
-  });
+  // Refetch knowledge when job completes
+  if (isComplete && onPuzzleComplete && puzzle) {
+    onPuzzleComplete(puzzle);
+    refetchKnowledge();
+  }
+
+  const handleStartAnalysis = async () => {
+    await startAnalysis(emailId);
+  };
 
   const togglePhase = (phaseId: string) => {
     setExpandedPhases(prev => {
@@ -143,8 +149,8 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
       case 'quotation':
         return puzzle.tariff_lines && puzzle.tariff_lines.length > 0 ? 'completed' : 'pending';
       case 'negotiation':
-        return puzzle.negotiation?.outcome ? 'completed' : 
-               puzzle.negotiation?.occurred ? 'partial' : 'pending';
+        return (puzzle.negotiation as Record<string, unknown>)?.outcome ? 'completed' : 
+               (puzzle.negotiation as Record<string, unknown>)?.occurred ? 'partial' : 'pending';
       case 'contacts':
         return puzzle.contacts && puzzle.contacts.length > 0 ? 'completed' : 'pending';
       default:
@@ -182,6 +188,8 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
   const completedCount = phases.filter(p => p.status === 'completed').length;
   const partialCount = phases.filter(p => p.status === 'partial').length;
 
+  const isAnalyzing = isPolling || isStarting || isTicking;
+
   return (
     <Card className="border-primary/20">
       <CardHeader className="pb-3">
@@ -190,24 +198,17 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
             <Puzzle className="h-5 w-5 text-primary" />
             Puzzle d'apprentissage
           </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => analyzeMutation.mutate()}
-            disabled={analyzeMutation.isPending}
-          >
-            {analyzeMutation.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Analyse...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 mr-2" />
-                Analyser le fil complet
-              </>
-            )}
-          </Button>
+          {!isAnalyzing && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStartAnalysis}
+              disabled={isStarting}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Analyser le fil complet
+            </Button>
+          )}
         </div>
       </CardHeader>
 
@@ -221,7 +222,7 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
             </AlertTitle>
             <AlertDescription className="text-green-700">
               <ul className="list-disc list-inside mt-2 space-y-1">
-                {existingKnowledge.slice(0, 5).map((k: any) => (
+                {existingKnowledge.slice(0, 5).map((k) => (
                   <li key={k.id} className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs">
                       {k.category}
@@ -238,6 +239,78 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
                   </li>
                 )}
               </ul>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Progress indicator during analysis */}
+        {isAnalyzing && job && (
+          <div className="space-y-3 p-4 bg-primary/5 rounded-lg border border-primary/20">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">
+                {phaseLabel || 'Préparation...'}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {job.progress}%
+              </span>
+            </div>
+            
+            <Progress value={job.progress} className="h-2" />
+            
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {isStale ? (
+                <>
+                  <AlertCircle className="h-3 w-3 text-amber-500" />
+                  <span>Analyse interrompue - reprise en cours...</span>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>
+                    Phase {(job.phases_completed?.length || 0) + 1}/5
+                    {job.email_count && ` • ${job.email_count} emails`}
+                    {job.attachment_count && ` • ${job.attachment_count} PJ`}
+                  </span>
+                </>
+              )}
+            </div>
+            
+            <div className="flex gap-2">
+              {isStale && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={resumeStaleJob}
+                  disabled={isTicking}
+                >
+                  <RefreshCw className={cn("h-4 w-4 mr-2", isTicking && "animate-spin")} />
+                  Reprendre
+                </Button>
+              )}
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={cancelAnalysis}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Annuler
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Error state */}
+        {isFailed && job?.error_message && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Analyse échouée</AlertTitle>
+            <AlertDescription>
+              {job.error_message}
+              {job.error_phase && (
+                <span className="block mt-1 text-xs">
+                  Phase: {PHASE_LABELS[job.error_phase] || job.error_phase}
+                </span>
+              )}
             </AlertDescription>
           </Alert>
         )}
@@ -336,36 +409,36 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
                       
                       {phase.id === 'cargo' && phase.data && (
                         <div className="space-y-2">
-                          <p><strong>Description:</strong> {phase.data.description || '-'}</p>
-                          <p><strong>Poids:</strong> {phase.data.weight_kg ? `${phase.data.weight_kg} kg` : '-'}</p>
-                          <p><strong>Volume:</strong> {phase.data.volume_cbm ? `${phase.data.volume_cbm} CBM` : '-'}</p>
-                          <p><strong>Conditionnement:</strong> {phase.data.packaging || '-'}</p>
-                          {phase.data.hazardous && (
-                            <Badge variant="destructive">IMO {phase.data.imo_class}</Badge>
+                          <p><strong>Description:</strong> {(phase.data as Record<string, unknown>).description as string || '-'}</p>
+                          <p><strong>Poids:</strong> {(phase.data as Record<string, unknown>).weight_kg ? `${(phase.data as Record<string, unknown>).weight_kg} kg` : '-'}</p>
+                          <p><strong>Volume:</strong> {(phase.data as Record<string, unknown>).volume_cbm ? `${(phase.data as Record<string, unknown>).volume_cbm} CBM` : '-'}</p>
+                          <p><strong>Conditionnement:</strong> {(phase.data as Record<string, unknown>).packaging as string || '-'}</p>
+                          {(phase.data as Record<string, unknown>).hazardous && (
+                            <Badge variant="destructive">IMO {(phase.data as Record<string, unknown>).imo_class as string}</Badge>
                           )}
                         </div>
                       )}
 
                       {phase.id === 'routing' && phase.data && (
                         <div className="space-y-2">
-                          <p><strong>Origine:</strong> {phase.data.origin_city}, {phase.data.origin_country}</p>
-                          <p><strong>Destination:</strong> {phase.data.destination_city || phase.data.destination_site}, {phase.data.destination_country}</p>
-                          <p><strong>Incoterm:</strong> {phase.data.incoterm_requested || '-'}</p>
-                          {phase.data.transit_ports?.length > 0 && (
-                            <p><strong>Ports de transit:</strong> {phase.data.transit_ports.join(', ')}</p>
+                          <p><strong>Origine:</strong> {(phase.data as Record<string, unknown>).origin_city as string}, {(phase.data as Record<string, unknown>).origin_country as string}</p>
+                          <p><strong>Destination:</strong> {((phase.data as Record<string, unknown>).destination_city || (phase.data as Record<string, unknown>).destination_site) as string}, {(phase.data as Record<string, unknown>).destination_country as string}</p>
+                          <p><strong>Incoterm:</strong> {(phase.data as Record<string, unknown>).incoterm_requested as string || '-'}</p>
+                          {((phase.data as Record<string, unknown>).transit_ports as string[])?.length > 0 && (
+                            <p><strong>Ports de transit:</strong> {((phase.data as Record<string, unknown>).transit_ports as string[]).join(', ')}</p>
                           )}
                         </div>
                       )}
 
                       {phase.id === 'timing' && phase.data && (
                         <div className="space-y-2">
-                          <p><strong>Date de chargement:</strong> {phase.data.loading_date || '-'}</p>
-                          <p><strong>Deadline:</strong> {phase.data.delivery_deadline || '-'}</p>
+                          <p><strong>Date de chargement:</strong> {(phase.data as Record<string, unknown>).loading_date as string || '-'}</p>
+                          <p><strong>Deadline:</strong> {(phase.data as Record<string, unknown>).delivery_deadline as string || '-'}</p>
                           <Badge variant={
-                            phase.data.urgency === 'critical' ? 'destructive' :
-                            phase.data.urgency === 'urgent' ? 'secondary' : 'outline'
+                            (phase.data as Record<string, unknown>).urgency === 'critical' ? 'destructive' :
+                            (phase.data as Record<string, unknown>).urgency === 'urgent' ? 'secondary' : 'outline'
                           }>
-                            {phase.data.urgency || 'normal'}
+                            {(phase.data as Record<string, unknown>).urgency as string || 'normal'}
                           </Badge>
                         </div>
                       )}
@@ -374,11 +447,11 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
                         <div className="space-y-2">
                           <p><strong>{phase.data.length} lignes de tarif extraites</strong></p>
                           <div className="max-h-40 overflow-y-auto">
-                            {phase.data.slice(0, 5).map((line: any, idx: number) => (
+                            {phase.data.slice(0, 5).map((line: Record<string, unknown>, idx: number) => (
                               <div key={idx} className="flex justify-between py-1 border-b border-border/50">
-                                <span>{line.service}</span>
+                                <span>{line.service as string}</span>
                                 <span className="font-mono">
-                                  {line.amount?.toLocaleString()} {line.currency}
+                                  {(line.amount as number)?.toLocaleString()} {line.currency as string}
                                 </span>
                               </div>
                             ))}
@@ -393,43 +466,37 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
 
                       {phase.id === 'negotiation' && phase.data && (
                         <div className="space-y-2">
-                          <p><strong>Négociation:</strong> {phase.data.occurred ? 'Oui' : 'Non'}</p>
-                          {phase.data.outcome && (
+                          <p><strong>Négociation:</strong> {(phase.data as Record<string, unknown>).occurred ? 'Oui' : 'Non'}</p>
+                          {(phase.data as Record<string, unknown>).outcome && (
                             <Badge variant={
-                              phase.data.outcome === 'accepted' ? 'default' :
-                              phase.data.outcome === 'rejected' ? 'destructive' : 'secondary'
+                              (phase.data as Record<string, unknown>).outcome === 'accepted' ? 'default' :
+                              (phase.data as Record<string, unknown>).outcome === 'rejected' ? 'destructive' : 'secondary'
                             }>
-                              {phase.data.outcome === 'accepted' ? '✓ Acceptée' :
-                               phase.data.outcome === 'rejected' ? '✗ Refusée' : 
-                               phase.data.outcome}
+                              {(phase.data as Record<string, unknown>).outcome === 'accepted' ? '✓ Acceptée' :
+                               (phase.data as Record<string, unknown>).outcome === 'rejected' ? '✗ Refusée' : 
+                               (phase.data as Record<string, unknown>).outcome as string}
                             </Badge>
                           )}
-                          {phase.data.accepted_amount && (
-                            <p><strong>Montant final:</strong> {phase.data.accepted_amount?.toLocaleString()} {phase.data.accepted_currency}</p>
+                          {(phase.data as Record<string, unknown>).accepted_amount && (
+                            <p><strong>Montant final:</strong> {((phase.data as Record<string, unknown>).accepted_amount as number)?.toLocaleString()} {(phase.data as Record<string, unknown>).accepted_currency as string}</p>
                           )}
                         </div>
                       )}
 
                       {phase.id === 'contacts' && Array.isArray(phase.data) && (
                         <div className="space-y-2">
-                          {phase.data.map((contact: any, idx: number) => (
+                          {phase.data.map((contact: Record<string, unknown>, idx: number) => (
                             <div key={idx} className="flex items-center gap-2 py-1">
                               <Badge variant="outline" className="text-xs">
-                                {contact.role}
+                                {contact.role as string}
                               </Badge>
-                              <span>{contact.name || contact.email}</span>
-                              <span className="text-muted-foreground text-xs">
-                                {contact.company}
-                              </span>
+                              <span>{contact.name as string || contact.email as string}</span>
+                              {contact.company && (
+                                <span className="text-muted-foreground">({contact.company as string})</span>
+                              )}
                             </div>
                           ))}
                         </div>
-                      )}
-
-                      {phase.status === 'pending' && puzzle && (
-                        <p className="text-muted-foreground italic">
-                          Information non extraite ou non détectée
-                        </p>
                       )}
                     </div>
                   </CollapsibleContent>
@@ -441,43 +508,84 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
 
         {/* Missing info */}
         {puzzle?.missing_info && puzzle.missing_info.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="h-4 w-4 text-amber-600" />
-              <span className="font-medium text-amber-800">Informations manquantes</span>
-            </div>
-            <ul className="list-disc list-inside text-sm text-amber-700 space-y-1">
-              {puzzle.missing_info.map((info, idx) => (
-                <li key={idx}>{info}</li>
-              ))}
-            </ul>
-          </div>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Informations manquantes</AlertTitle>
+            <AlertDescription>
+              <ul className="list-disc list-inside mt-2">
+                {puzzle.missing_info.map((info, idx) => (
+                  <li key={idx}>{info}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* Matching criteria */}
-        {puzzle?.matching_criteria && (
-          <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              <span className="font-medium">Critères de réutilisation</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {puzzle.matching_criteria.container_types?.map((type: string) => (
-                <Badge key={type} variant="secondary">{type}</Badge>
-              ))}
-              {puzzle.matching_criteria.destination_port && (
-                <Badge variant="outline">{puzzle.matching_criteria.destination_port}</Badge>
-              )}
-              {puzzle.matching_criteria.destination_city && (
-                <Badge variant="outline">{puzzle.matching_criteria.destination_city}</Badge>
-              )}
-              {puzzle.matching_criteria.cargo_category && (
-                <Badge variant="outline">{puzzle.matching_criteria.cargo_category}</Badge>
-              )}
-            </div>
-          </div>
+        {/* Duration info */}
+        {isComplete && job?.duration_ms && (
+          <p className="text-xs text-muted-foreground text-center">
+            Analyse terminée en {Math.round(job.duration_ms / 1000)}s • {job.knowledge_stored || 0} connaissances stockées
+          </p>
         )}
       </CardContent>
     </Card>
   );
+}
+
+// Build partial puzzle state from job's partial_results
+function buildPartialPuzzle(job: { 
+  partial_results: Record<string, unknown>; 
+  email_count?: number | null; 
+  attachment_count?: number | null;
+  phases_completed?: string[];
+}): PuzzleState {
+  const results = job.partial_results || {};
+  
+  const extractRequest = results.extract_request as Record<string, unknown> | undefined;
+  const extractClarifications = results.extract_clarifications as Record<string, unknown> | undefined;
+  const extractQuotation = results.extract_quotation as Record<string, unknown> | undefined;
+  const extractNegotiation = results.extract_negotiation as Record<string, unknown> | undefined;
+  const extractContacts = results.extract_contacts as Record<string, unknown> | undefined;
+
+  let cargo = extractRequest?.cargo as Record<string, unknown> | undefined;
+  let routing = extractRequest?.routing as Record<string, unknown> | undefined;
+  let timing = extractRequest?.timing as Record<string, unknown> | undefined;
+
+  // Merge clarifications
+  if (extractClarifications?.puzzle_updates) {
+    const updates = extractClarifications.puzzle_updates as Record<string, unknown>;
+    if (updates.cargo) cargo = { ...cargo, ...(updates.cargo as Record<string, unknown>) };
+    if (updates.routing) routing = { ...routing, ...(updates.routing as Record<string, unknown>) };
+    if (updates.timing) timing = { ...timing, ...(updates.timing as Record<string, unknown>) };
+  }
+
+  // Calculate completeness
+  let score = 0;
+  if (cargo) score += 20;
+  if (routing) score += 20;
+  if (timing) score += 10;
+  if (extractQuotation?.tariff_lines && (extractQuotation.tariff_lines as unknown[]).length > 0) score += 30;
+  if (extractQuotation?.matching_criteria) score += 10;
+  if (extractNegotiation?.final_outcome) score += 10;
+
+  return {
+    thread_id: '',
+    email_count: job.email_count || 0,
+    attachment_count: job.attachment_count || 0,
+    phases_completed: job.phases_completed || [],
+    puzzle_completeness: score,
+    cargo,
+    routing,
+    timing,
+    tariff_lines: (extractQuotation?.tariff_lines as Array<Record<string, unknown>>) || [],
+    matching_criteria: extractQuotation?.matching_criteria as Record<string, unknown>,
+    contacts: (extractContacts?.contacts as Array<Record<string, unknown>>) || [],
+    negotiation: extractNegotiation ? {
+      occurred: extractNegotiation.negotiation_occurred,
+      outcome: extractNegotiation.final_outcome,
+      accepted_amount: extractNegotiation.accepted_amount,
+      patterns: extractNegotiation.negotiation_patterns,
+    } : undefined,
+    missing_info: (extractRequest?.missing_info as string[]) || [],
+  };
 }
