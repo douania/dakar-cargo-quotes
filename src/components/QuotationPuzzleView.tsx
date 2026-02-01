@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Puzzle,
@@ -112,11 +112,22 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
     enabled: !!threadId
   });
 
-  // Refetch knowledge when job completes
-  if (isComplete && onPuzzleComplete && puzzle) {
-    onPuzzleComplete(puzzle);
-    refetchKnowledge();
-  }
+  // Track if onPuzzleComplete has been called to prevent infinite loops
+  const hasCalledComplete = useRef(false);
+  
+  // Reset the flag when threadId changes
+  useEffect(() => {
+    hasCalledComplete.current = false;
+  }, [threadId]);
+
+  // Call onPuzzleComplete in an effect to avoid setState during render
+  useEffect(() => {
+    if (isComplete && onPuzzleComplete && puzzle && !hasCalledComplete.current) {
+      hasCalledComplete.current = true;
+      onPuzzleComplete(puzzle);
+      refetchKnowledge();
+    }
+  }, [isComplete, puzzle, onPuzzleComplete, refetchKnowledge]);
 
   const handleStartAnalysis = async () => {
     await startAnalysis(emailId);
