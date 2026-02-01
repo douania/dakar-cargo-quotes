@@ -169,6 +169,20 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
     }
   };
 
+  // Compute missing elements for user feedback
+  const getMissingElements = (p: PuzzleState | null): string[] => {
+    if (!p) return [];
+    const missing: string[] = [];
+    if (!p.cargo) missing.push('marchandises');
+    if (!p.routing) missing.push('itinéraire');
+    if (!p.timing) missing.push('délais');
+    if (!p.tariff_lines || p.tariff_lines.length === 0) missing.push('lignes tarifaires');
+    if (!(p.negotiation as Record<string, unknown>)?.outcome) missing.push('résultat de négociation');
+    return missing;
+  };
+
+  const missingElements = getMissingElements(puzzle);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'text-green-600 bg-green-100';
@@ -355,10 +369,15 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
             <Separator orientation="vertical" className="h-4" />
             <div className="flex-1 min-w-[150px]">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-muted-foreground">Complétude</span>
+                <span className="text-sm text-muted-foreground">Richesse du puzzle</span>
                 <span className="text-sm font-bold">{puzzle.puzzle_completeness}%</span>
               </div>
               <Progress value={puzzle.puzzle_completeness} className="h-2" />
+              {isComplete && puzzle.puzzle_completeness < 100 && missingElements.length > 0 && (
+                <p className="mt-1 text-xs text-amber-600 italic">
+                  Non trouvé : {missingElements.join(', ')}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -532,11 +551,18 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
           </Alert>
         )}
 
-        {/* Duration info */}
+        {/* Completion info - distinguish job progress from puzzle richness */}
         {isComplete && job?.duration_ms && (
-          <p className="text-xs text-muted-foreground text-center">
-            Analyse terminée en {Math.round(job.duration_ms / 1000)}s • {job.knowledge_stored || 0} connaissances stockées
-          </p>
+          <div className="space-y-1 text-center">
+            <p className="text-xs text-green-600 font-medium">
+              ✅ Analyse terminée (5/5 phases) en {Math.round(job.duration_ms / 1000)}s • {job.knowledge_stored || 0} connaissances stockées
+            </p>
+            {puzzle && puzzle.puzzle_completeness < 100 && (
+              <p className="text-xs text-amber-600">
+                ⚠️ Puzzle à {puzzle.puzzle_completeness}% : certaines informations n'ont pas été trouvées dans ce fil
+              </p>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
