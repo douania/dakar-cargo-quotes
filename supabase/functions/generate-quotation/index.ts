@@ -38,24 +38,18 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader } }
     });
     
-    // Validate JWT using getClaims
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+    // Validate JWT using getUser (méthode standard Supabase)
+    const { data: { user }, error: authError } = await anonClient.auth.getUser();
     
-    if (claimsError || !claimsData?.claims) {
+    if (authError || !user) {
+      console.error('Auth error:', authError);
       return new Response(
         JSON.stringify({ error: 'Invalid or expired token' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const userId = claimsData.claims.sub;
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: 'User ID not found in token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const userId = user.id;
 
     // 2. Parse body
     const { quotation_id, snapshot } = await req.json();
