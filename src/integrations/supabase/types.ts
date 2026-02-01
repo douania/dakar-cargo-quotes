@@ -134,6 +134,90 @@ export type Database = {
         }
         Relationships: []
       }
+      case_timeline_events: {
+        Row: {
+          actor_type: string | null
+          actor_user_id: string | null
+          case_id: string
+          created_at: string | null
+          event_data: Json | null
+          event_type: string
+          id: string
+          new_value: string | null
+          previous_value: string | null
+          related_email_id: string | null
+          related_fact_id: string | null
+          related_gap_id: string | null
+          related_pricing_run_id: string | null
+        }
+        Insert: {
+          actor_type?: string | null
+          actor_user_id?: string | null
+          case_id: string
+          created_at?: string | null
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          new_value?: string | null
+          previous_value?: string | null
+          related_email_id?: string | null
+          related_fact_id?: string | null
+          related_gap_id?: string | null
+          related_pricing_run_id?: string | null
+        }
+        Update: {
+          actor_type?: string | null
+          actor_user_id?: string | null
+          case_id?: string
+          created_at?: string | null
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          new_value?: string | null
+          previous_value?: string | null
+          related_email_id?: string | null
+          related_fact_id?: string | null
+          related_gap_id?: string | null
+          related_pricing_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_timeline_events_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "case_timeline_events_related_email_id_fkey"
+            columns: ["related_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "case_timeline_events_related_fact_id_fkey"
+            columns: ["related_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "case_timeline_events_related_gap_id_fkey"
+            columns: ["related_gap_id"]
+            isOneToOne: false
+            referencedRelation: "quote_gaps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "case_timeline_events_related_pricing_run_id_fkey"
+            columns: ["related_pricing_run_id"]
+            isOneToOne: false
+            referencedRelation: "pricing_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           company: string | null
@@ -1548,6 +1632,86 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_runs: {
+        Row: {
+          case_id: string
+          completed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          currency: string | null
+          duration_ms: number | null
+          engine_request: Json | null
+          engine_response: Json | null
+          engine_version: string | null
+          error_message: string | null
+          facts_snapshot: Json
+          id: string
+          inputs_json: Json
+          outputs_json: Json | null
+          run_number: number
+          started_at: string | null
+          status: string | null
+          tariff_lines: Json | null
+          tariff_sources: Json | null
+          total_ht: number | null
+          total_ttc: number | null
+        }
+        Insert: {
+          case_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          currency?: string | null
+          duration_ms?: number | null
+          engine_request?: Json | null
+          engine_response?: Json | null
+          engine_version?: string | null
+          error_message?: string | null
+          facts_snapshot: Json
+          id?: string
+          inputs_json: Json
+          outputs_json?: Json | null
+          run_number?: number
+          started_at?: string | null
+          status?: string | null
+          tariff_lines?: Json | null
+          tariff_sources?: Json | null
+          total_ht?: number | null
+          total_ttc?: number | null
+        }
+        Update: {
+          case_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          currency?: string | null
+          duration_ms?: number | null
+          engine_request?: Json | null
+          engine_response?: Json | null
+          engine_version?: string | null
+          error_message?: string | null
+          facts_snapshot?: Json
+          id?: string
+          inputs_json?: Json
+          outputs_json?: Json | null
+          run_number?: number
+          started_at?: string | null
+          status?: string | null
+          tariff_lines?: Json | null
+          tariff_sources?: Json | null
+          total_ht?: number | null
+          total_ttc?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pricing_runs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quotation_clauses: {
         Row: {
           clause_code: string
@@ -1746,6 +1910,239 @@ export type Database = {
             columns: ["parent_quotation_id"]
             isOneToOne: false
             referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_cases: {
+        Row: {
+          assigned_to: string | null
+          created_at: string | null
+          created_by: string | null
+          facts_count: number | null
+          gaps_count: number | null
+          id: string
+          last_activity_at: string | null
+          pricing_runs_count: number | null
+          priority: string | null
+          puzzle_completeness: number | null
+          request_type: Database["public"]["Enums"]["quote_request_type"] | null
+          status: Database["public"]["Enums"]["quote_case_status"]
+          thread_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          facts_count?: number | null
+          gaps_count?: number | null
+          id?: string
+          last_activity_at?: string | null
+          pricing_runs_count?: number | null
+          priority?: string | null
+          puzzle_completeness?: number | null
+          request_type?:
+            | Database["public"]["Enums"]["quote_request_type"]
+            | null
+          status?: Database["public"]["Enums"]["quote_case_status"]
+          thread_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          facts_count?: number | null
+          gaps_count?: number | null
+          id?: string
+          last_activity_at?: string | null
+          pricing_runs_count?: number | null
+          priority?: string | null
+          puzzle_completeness?: number | null
+          request_type?:
+            | Database["public"]["Enums"]["quote_request_type"]
+            | null
+          status?: Database["public"]["Enums"]["quote_case_status"]
+          thread_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_cases_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: true
+            referencedRelation: "email_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_facts: {
+        Row: {
+          case_id: string
+          confidence: number | null
+          created_at: string | null
+          fact_category: string
+          fact_key: string
+          id: string
+          is_current: boolean | null
+          is_validated: boolean | null
+          source_attachment_id: string | null
+          source_email_id: string | null
+          source_excerpt: string | null
+          source_type: string
+          supersedes_fact_id: string | null
+          updated_at: string | null
+          validated_at: string | null
+          validated_by: string | null
+          value_date: string | null
+          value_json: Json | null
+          value_number: number | null
+          value_text: string | null
+        }
+        Insert: {
+          case_id: string
+          confidence?: number | null
+          created_at?: string | null
+          fact_category: string
+          fact_key: string
+          id?: string
+          is_current?: boolean | null
+          is_validated?: boolean | null
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_type: string
+          supersedes_fact_id?: string | null
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          value_date?: string | null
+          value_json?: Json | null
+          value_number?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          case_id?: string
+          confidence?: number | null
+          created_at?: string | null
+          fact_category?: string
+          fact_key?: string
+          id?: string
+          is_current?: boolean | null
+          is_validated?: boolean | null
+          source_attachment_id?: string | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_type?: string
+          supersedes_fact_id?: string | null
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          value_date?: string | null
+          value_json?: Json | null
+          value_number?: number | null
+          value_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_facts_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_facts_source_attachment_id_fkey"
+            columns: ["source_attachment_id"]
+            isOneToOne: false
+            referencedRelation: "email_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_facts_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_facts_supersedes_fact_id_fkey"
+            columns: ["supersedes_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_gaps: {
+        Row: {
+          case_id: string
+          clarification_sent_at: string | null
+          created_at: string | null
+          gap_category: string
+          gap_key: string
+          id: string
+          is_blocking: boolean | null
+          priority: string | null
+          question_en: string | null
+          question_fr: string
+          resolved_at: string | null
+          resolved_by_fact_id: string | null
+          status: string | null
+          updated_at: string | null
+          waived_by: string | null
+          waived_reason: string | null
+        }
+        Insert: {
+          case_id: string
+          clarification_sent_at?: string | null
+          created_at?: string | null
+          gap_category: string
+          gap_key: string
+          id?: string
+          is_blocking?: boolean | null
+          priority?: string | null
+          question_en?: string | null
+          question_fr: string
+          resolved_at?: string | null
+          resolved_by_fact_id?: string | null
+          status?: string | null
+          updated_at?: string | null
+          waived_by?: string | null
+          waived_reason?: string | null
+        }
+        Update: {
+          case_id?: string
+          clarification_sent_at?: string | null
+          created_at?: string | null
+          gap_category?: string
+          gap_key?: string
+          id?: string
+          is_blocking?: boolean | null
+          priority?: string | null
+          question_en?: string | null
+          question_fr?: string
+          resolved_at?: string | null
+          resolved_by_fact_id?: string | null
+          status?: string | null
+          updated_at?: string | null
+          waived_by?: string | null
+          waived_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_gaps_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_gaps_resolved_by_fact_id_fkey"
+            columns: ["resolved_by_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
             referencedColumns: ["id"]
           },
         ]
@@ -2553,7 +2950,24 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      quote_case_status:
+        | "NEW_THREAD"
+        | "RFQ_DETECTED"
+        | "FACTS_PARTIAL"
+        | "NEED_INFO"
+        | "READY_TO_PRICE"
+        | "PRICING_RUNNING"
+        | "PRICED_DRAFT"
+        | "HUMAN_REVIEW"
+        | "SENT"
+        | "ARCHIVED"
+      quote_request_type:
+        | "SEA_FCL_IMPORT"
+        | "SEA_LCL_IMPORT"
+        | "SEA_BREAKBULK_IMPORT"
+        | "AIR_IMPORT"
+        | "ROAD_IMPORT"
+        | "MULTIMODAL_IMPORT"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2680,6 +3094,27 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      quote_case_status: [
+        "NEW_THREAD",
+        "RFQ_DETECTED",
+        "FACTS_PARTIAL",
+        "NEED_INFO",
+        "READY_TO_PRICE",
+        "PRICING_RUNNING",
+        "PRICED_DRAFT",
+        "HUMAN_REVIEW",
+        "SENT",
+        "ARCHIVED",
+      ],
+      quote_request_type: [
+        "SEA_FCL_IMPORT",
+        "SEA_LCL_IMPORT",
+        "SEA_BREAKBULK_IMPORT",
+        "AIR_IMPORT",
+        "ROAD_IMPORT",
+        "MULTIMODAL_IMPORT",
+      ],
+    },
   },
 } as const
