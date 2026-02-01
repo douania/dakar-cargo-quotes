@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -196,28 +196,30 @@ export default function QuotationSheet() {
   } = useQuotationDraft();
 
   // ═══════════════════════════════════════════════════════════════════
-  // Quotation Engine — Phase 4F.5
-  // Mapping UI → Domain puis calcul des totaux
+  // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
+  // Mapping UI → Domain puis calcul des totaux — MEMOIZED
   // ═══════════════════════════════════════════════════════════════════
-  const quotationInput: QuotationInput = {
-    cargoLines: cargoLines.map((c) => ({
-      id: c.id,
-      quantity: c.container_count ?? c.pieces ?? 1,
-      weight_kg: c.weight_kg ?? null,
-      volume_m3: c.volume_cbm ?? null,
-      description: c.description || null,
-    })),
-    serviceLines: serviceLines.map((s) => ({
-      id: s.id,
-      quantity: s.quantity ?? 1,
-      unit_price: s.rate ?? null,
-      description: s.description || null,
-      service_code: s.service || null,
-    })),
-    context: { rounding: 'none' },
-  };
+  const engineResult = useMemo(() => {
+    const quotationInput: QuotationInput = {
+      cargoLines: cargoLines.map((c) => ({
+        id: c.id,
+        quantity: c.container_count ?? c.pieces ?? 1,
+        weight_kg: c.weight_kg ?? null,
+        volume_m3: c.volume_cbm ?? null,
+        description: c.description || null,
+      })),
+      serviceLines: serviceLines.map((s) => ({
+        id: s.id,
+        quantity: s.quantity ?? 1,
+        unit_price: s.rate ?? null,
+        description: s.description || null,
+        service_code: s.service || null,
+      })),
+      context: { rounding: 'none' },
+    };
+    return runQuotationEngine(quotationInput);
+  }, [cargoLines, serviceLines]);
 
-  const engineResult = runQuotationEngine(quotationInput);
   const quotationTotals = engineResult.snapshot.totals;
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
