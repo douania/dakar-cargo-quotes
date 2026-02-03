@@ -26,6 +26,7 @@ import { LearningStats } from '@/components/LearningStats';
 import { QuotationPuzzleView } from '@/components/QuotationPuzzleView';
 import { AttachmentStatusPanel } from '@/components/AttachmentStatusPanel';
 import { ThreadConversationView } from '@/components/ThreadConversationView';
+import { ThreadUsageTagWithData } from '@/components/puzzle/ThreadUsageTagWithData';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
 
 interface EmailConfig {
@@ -866,6 +867,9 @@ export default function Emails() {
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap mb-2">
+                              {/* Phase 8.3: Thread Usage Tag */}
+                              <ThreadUsageTagWithData threadId={thread.id} size="sm" />
+                              
                               {/* Complexity Badge - replaces tenderType detection */}
                               <ComplexityBadge assessment={complexity} size="sm" />
                               
