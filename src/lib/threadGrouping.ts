@@ -70,6 +70,7 @@ export interface ThreadGroup<T> {
 interface ThreadForGrouping {
   id: string;
   subject_normalized: string;
+  subject?: string | null; // Original subject for display (optional)
   first_message_at: string | null;
   last_message_at: string | null;
 }
@@ -148,9 +149,16 @@ export function groupThreadsBySubject<T extends ThreadForGrouping>(
       // Combine all dates for range calculation
       const allDates = [...dates, ...lastDates];
       
+      // Use original subject if available, fallback to capitalized normalized
+      const firstThread = subGroup[0];
+      const displaySubject = firstThread.subject 
+        || (firstThread.subject_normalized 
+            ? firstThread.subject_normalized.replace(/^\w/, c => c.toUpperCase()) 
+            : 'Sans sujet');
+      
       result.push({
         groupKey: subGroups.length > 1 ? `${groupKey}_${index}` : groupKey,
-        displaySubject: subGroup[0].subject_normalized || 'Sans sujet',
+        displaySubject,
         threads: subGroup,
         threadCount: subGroup.length,
         dateRange: {
