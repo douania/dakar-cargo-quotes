@@ -15,6 +15,7 @@ export interface PuzzleJob {
   knowledge_stored: number;
   email_count: number | null;
   attachment_count: number | null;
+  emails_analyzed_ids: string[] | null;
   error_message: string | null;
   error_phase: string | null;
   attempt: number;

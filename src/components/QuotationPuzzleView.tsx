@@ -36,6 +36,12 @@ import {
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { usePuzzleJob, PHASE_LABELS } from '@/hooks/usePuzzleJob';
+import { useEmailSourceClassification, useHasNewSourceEmails } from '@/hooks/useEmailSourceClassification';
+import { useQuoteCaseData } from '@/hooks/useQuoteCaseData';
+import { EmailSourceCounter } from '@/components/puzzle/EmailSourceCounter';
+import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
+import { OperatorJournal } from '@/components/puzzle/OperatorJournal';
+import { NoNewEmailsWarning } from '@/components/puzzle/NoNewEmailsWarning';
 
 interface PuzzlePhase {
   id: string;
@@ -95,6 +101,29 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
       ? buildPartialPuzzle(job)
       : null;
 
+  // Phase 8 hooks: Email source classification (fallback frontend)
+  const emailsAnalyzedIds = job?.emails_analyzed_ids as string[] | undefined;
+  const { 
+    sourceCount, 
+    contextCount, 
+    isLoading: isLoadingClassification 
+  } = useEmailSourceClassification(threadId, emailsAnalyzedIds);
+
+  // Phase 8: Quote case data for blocking gaps panel
+  const { 
+    quoteCase, 
+    blockingGaps, 
+    isLoading: isLoadingQuoteCase 
+  } = useQuoteCaseData(threadId);
+
+  // Phase 8.2: Check for new source emails (anti-replay)
+  const { hasNewEmails } = useHasNewSourceEmails(threadId, emailsAnalyzedIds);
+  const [showLastResult, setShowLastResult] = useState(false);
+  const [forceAnalysis, setForceAnalysis] = useState(false);
+
+  // Show warning if no new emails and we have a completed job
+  const showNoNewEmailsWarning = !hasNewEmails && isComplete && !forceAnalysis && !showLastResult;
+
   // Fetch existing learned knowledge for this thread
   const { data: existingKnowledge, refetch: refetchKnowledge } = useQuery({
     queryKey: ['thread-knowledge', threadId],
@@ -118,6 +147,8 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
   // Reset the flag when threadId changes
   useEffect(() => {
     hasCalledComplete.current = false;
+    setForceAnalysis(false);
+    setShowLastResult(false);
   }, [threadId]);
 
   // Call onPuzzleComplete in an effect to avoid setState during render
@@ -130,7 +161,17 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
   }, [isComplete, puzzle, onPuzzleComplete, refetchKnowledge]);
 
   const handleStartAnalysis = async () => {
+    setForceAnalysis(false);
     await startAnalysis(emailId);
+  };
+
+  const handleForceAnalysis = async () => {
+    setForceAnalysis(true);
+    await startAnalysis(emailId);
+  };
+
+  const handleViewLastResult = () => {
+    setShowLastResult(true);
   };
 
   const togglePhase = (phaseId: string) => {
@@ -340,44 +381,69 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
           </Alert>
         )}
 
-        {/* Stats */}
+        {/* Phase 8.2: No new emails warning (anti-replay) */}
+        {showNoNewEmailsWarning && (
+          <NoNewEmailsWarning
+            onViewLastResult={handleViewLastResult}
+            onForceAnalysis={handleForceAnalysis}
+            isForcing={isStarting}
+          />
+        )}
+
+        {/* Phase 8.1B: Blocking gaps panel */}
+        {quoteCase && (
+          <BlockingGapsPanel
+            quoteCaseStatus={quoteCase.status}
+            blockingGaps={blockingGaps}
+            isLoading={isLoadingQuoteCase}
+          />
+        )}
+
+        {/* Stats with Phase 8.1A: Email source counter */}
         {puzzle && (
-          <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg">
-            <div className="flex items-center gap-2">
-              <Mail className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{puzzle.email_count} emails</span>
-            </div>
-            <Separator orientation="vertical" className="h-4" />
-            <div className="flex items-center gap-2">
-              <Paperclip className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{puzzle.attachment_count} pièces jointes</span>
-              {puzzle.attachments_analyzed !== undefined && (
-                <Badge 
-                  variant={puzzle.attachments_analyzed < puzzle.attachment_count ? "destructive" : "default"}
-                  className="text-xs"
-                >
-                  {puzzle.attachments_analyzed}/{puzzle.attachment_count} analysées
-                </Badge>
-              )}
-              {puzzle.auto_analyzed && puzzle.auto_analyzed > 0 && (
-                <Badge variant="secondary" className="text-xs">
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  +{puzzle.auto_analyzed} auto
-                </Badge>
-              )}
-            </div>
-            <Separator orientation="vertical" className="h-4" />
-            <div className="flex-1 min-w-[150px]">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-muted-foreground">Richesse du puzzle</span>
-                <span className="text-sm font-bold">{puzzle.puzzle_completeness}%</span>
+          <div className="space-y-3 p-3 bg-muted/50 rounded-lg">
+            {/* Phase 8.1A: Source/Context counter */}
+            <EmailSourceCounter
+              sourceCount={sourceCount}
+              contextCount={contextCount}
+              totalCount={puzzle.email_count}
+              isLoading={isLoadingClassification}
+            />
+            
+            <Separator />
+            
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{puzzle.attachment_count} pièces jointes</span>
+                {puzzle.attachments_analyzed !== undefined && (
+                  <Badge 
+                    variant={puzzle.attachments_analyzed < puzzle.attachment_count ? "destructive" : "default"}
+                    className="text-xs"
+                  >
+                    {puzzle.attachments_analyzed}/{puzzle.attachment_count} analysées
+                  </Badge>
+                )}
+                {puzzle.auto_analyzed && puzzle.auto_analyzed > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    +{puzzle.auto_analyzed} auto
+                  </Badge>
+                )}
               </div>
-              <Progress value={puzzle.puzzle_completeness} className="h-2" />
-              {isComplete && puzzle.puzzle_completeness < 100 && missingElements.length > 0 && (
-                <p className="mt-1 text-xs text-amber-600 italic">
-                  Non trouvé : {missingElements.join(', ')}
-                </p>
-              )}
+              <Separator orientation="vertical" className="h-4" />
+              <div className="flex-1 min-w-[150px]">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-muted-foreground">Richesse du puzzle</span>
+                  <span className="text-sm font-bold">{puzzle.puzzle_completeness}%</span>
+                </div>
+                <Progress value={puzzle.puzzle_completeness} className="h-2" />
+                {isComplete && puzzle.puzzle_completeness < 100 && missingElements.length > 0 && (
+                  <p className="mt-1 text-xs text-amber-600 italic">
+                    Non trouvé : {missingElements.join(', ')}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -563,6 +629,11 @@ export function QuotationPuzzleView({ threadId, emailId, onPuzzleComplete }: Pro
               </p>
             )}
           </div>
+        )}
+
+        {/* Phase 8.4: Operator Journal */}
+        {quoteCase?.id && (
+          <OperatorJournal caseId={quoteCase.id} />
         )}
       </CardContent>
     </Card>
