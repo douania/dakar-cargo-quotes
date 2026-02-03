@@ -854,13 +854,30 @@ async function updateJob(
 // ============================================
 // DATA LOADING
 // ============================================
+
+// Type pour traçabilité de l'origine des emails dans le puzzle
+type EmailSourceType = 'thread_ref' | 'subject_match';
+
+interface EnrichedEmail {
+  id: string;
+  from_address: string;
+  to_addresses: string[];
+  subject: string | null;
+  body_text: string | null;
+  body_html: string | null;
+  sent_at: string | null;
+  received_at: string | null;
+  thread_ref: string | null;
+  source_type: EmailSourceType;
+}
+
 async function loadThreadData(
   supabase: SupabaseClient,
   supabaseUrl: string,
   supabaseKey: string,
   threadId: string
-): Promise<{ emails: unknown[]; attachments: unknown[] }> {
-  // Fetch all emails in thread
+): Promise<{ emails: EnrichedEmail[]; attachments: unknown[] }> {
+  // Fetch all emails in thread (NIVEAU 1 - SOURCE: emails métier stricts)
   const { data: emails, error: emailsError } = await supabase
     .from("emails")
     .select(`
@@ -879,11 +896,15 @@ async function loadThreadData(
 
   if (emailsError) throw emailsError;
 
-  let allEmails = emails || [];
+  // Marquer les emails SOURCE avec source_type: 'thread_ref'
+  let allEmails: EnrichedEmail[] = (emails || []).map(e => ({
+    ...e,
+    source_type: 'thread_ref' as EmailSourceType
+  }));
   
-  // Also fetch emails with matching normalized subject
+  // NIVEAU 2 - CONTEXTE: emails par sujet approché (aide IA)
   if (allEmails.length > 0) {
-    const sampleSubject = (allEmails[0] as { subject?: string }).subject || "";
+    const sampleSubject = allEmails[0].subject || "";
     const normalizedSubject = normalizeSubject(sampleSubject);
     
     const { data: relatedEmails } = await supabase
@@ -903,17 +924,26 @@ async function loadThreadData(
       .order("sent_at", { ascending: true });
 
     if (relatedEmails) {
-      const existingIds = new Set(allEmails.map((e: { id: string }) => e.id));
+      const existingIds = new Set(allEmails.map(e => e.id));
       for (const email of relatedEmails) {
         if (!existingIds.has(email.id)) {
-          allEmails.push(email);
+          // Marquer les emails CONTEXTE avec source_type: 'subject_match'
+          allEmails.push({
+            ...email,
+            source_type: 'subject_match' as EmailSourceType
+          });
         }
       }
-      allEmails.sort((a: { sent_at: string }, b: { sent_at: string }) => 
-        new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+      allEmails.sort((a, b) => 
+        new Date(a.sent_at || 0).getTime() - new Date(b.sent_at || 0).getTime()
       );
     }
   }
+
+  // Log de traçabilité pour audit
+  const sourceCount = allEmails.filter(e => e.source_type === 'thread_ref').length;
+  const contextCount = allEmails.filter(e => e.source_type === 'subject_match').length;
+  console.log(`[Puzzle] Thread ${threadId}: ${sourceCount} source + ${contextCount} context = ${allEmails.length} total emails`);
 
   // Fetch attachments
   const emailIds = allEmails.map((e: { id: string }) => e.id);
