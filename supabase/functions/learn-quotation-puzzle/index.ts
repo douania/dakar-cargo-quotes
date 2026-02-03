@@ -557,9 +557,10 @@ async function processAllPhases(
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
     // Phase B: Check for previously analyzed emails to enable incremental processing
+    // Phase B: Check for previously analyzed emails + their puzzle to enable incremental processing
     const { data: previousJob } = await supabase
       .from("puzzle_jobs")
-      .select("emails_analyzed_ids")
+      .select("emails_analyzed_ids, final_puzzle, knowledge_stored")
       .eq("thread_id", threadId)
       .eq("status", "completed")
       .order("completed_at", { ascending: false })
@@ -582,15 +583,16 @@ async function processAllPhases(
 
     console.log(`[Puzzle] Thread has ${allEmails.length} emails total, ${newEmails.length} new (${previouslyAnalyzedIds.length} already analyzed)`);
 
-    // Phase B: Skip if no new emails (early exit)
+    // Phase B: Skip if no new emails (early exit) - reuse previous puzzle
     if (newEmails.length === 0 && previouslyAnalyzedIds.length > 0) {
-      console.log(`[Puzzle] No new emails for thread ${threadId}, marking job as completed (no-op)`);
+      console.log(`[Puzzle] No new emails for thread ${threadId}, reusing previous puzzle (no-op)`);
       await updateJob(supabase, jobId, {
         status: "completed",
         progress: 100,
         current_phase: null,
         completed_at: new Date().toISOString(),
-        knowledge_stored: 0,
+        final_puzzle: previousJob?.final_puzzle || null,
+        knowledge_stored: previousJob?.knowledge_stored || 0,
         emails_analyzed_ids: previouslyAnalyzedIds,
         duration_ms: Date.now() - startTime
       });
