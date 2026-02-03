@@ -556,13 +556,54 @@ async function processAllPhases(
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
-    const { emails, attachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, threadId);
-    const threadContent = buildThreadContent(emails, attachments);
+    // Phase B: Check for previously analyzed emails to enable incremental processing
+    const { data: previousJob } = await supabase
+      .from("puzzle_jobs")
+      .select("emails_analyzed_ids")
+      .eq("thread_id", threadId)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const previouslyAnalyzedIds: string[] = previousJob?.emails_analyzed_ids || [];
+    console.log(`[Puzzle] Thread ${threadId}: ${previouslyAnalyzedIds.length} emails previously analyzed`);
+
+    // Load all thread data
+    const { emails: allEmails, attachments: allAttachments } = await loadThreadData(supabase, supabaseUrl, supabaseKey, threadId);
+    const allEmailIds = (allEmails as Array<{ id: string }>).map(e => e.id);
+    
+    // Phase B: Filter to only new emails not previously analyzed
+    const previousSet = new Set(previouslyAnalyzedIds);
+    const newEmails = (allEmails as Array<{ id: string }>).filter(e => !previousSet.has(e.id));
+    const newAttachments = (allAttachments as Array<{ email_id: string }>).filter(a => 
+      newEmails.some(e => e.id === a.email_id)
+    );
+
+    console.log(`[Puzzle] Thread has ${allEmails.length} emails total, ${newEmails.length} new (${previouslyAnalyzedIds.length} already analyzed)`);
+
+    // Phase B: Skip if no new emails (early exit)
+    if (newEmails.length === 0 && previouslyAnalyzedIds.length > 0) {
+      console.log(`[Puzzle] No new emails for thread ${threadId}, marking job as completed (no-op)`);
+      await updateJob(supabase, jobId, {
+        status: "completed",
+        progress: 100,
+        current_phase: null,
+        completed_at: new Date().toISOString(),
+        knowledge_stored: 0,
+        emails_analyzed_ids: previouslyAnalyzedIds,
+        duration_ms: Date.now() - startTime
+      });
+      return;
+    }
+
+    // Build content from NEW emails only (but include all for context if needed)
+    const threadContent = buildThreadContent(newEmails.length > 0 ? newEmails : allEmails, newAttachments);
 
     // Update job with counts
     await updateJob(supabase, jobId, {
-      email_count: emails.length,
-      attachment_count: attachments.length,
+      email_count: allEmails.length,
+      attachment_count: allAttachments.length,
       last_heartbeat: new Date().toISOString()
     });
 
@@ -619,20 +660,19 @@ async function processAllPhases(
       }
     }
 
-    // Build final puzzle state
+    // Build final puzzle state (using ALL emails for complete picture)
     const results: PuzzleResult[] = PHASE_ORDER.map(p => ({
       phase: p,
       success: !!partialResults[p] && !(partialResults[p] as { error?: string }).error,
       data: partialResults[p]
     }));
     
-    const finalPuzzle = buildPuzzleState(threadId, emails, attachments, results);
+    const finalPuzzle = buildPuzzleState(threadId, allEmails, allAttachments, results);
 
     // Store knowledge
-    const emailIds = (emails as Array<{ id: string }>).map(e => e.id);
-    const storedCount = await storeKnowledge(supabase, finalPuzzle, threadId, emailIds, attachments);
+    const storedCount = await storeKnowledge(supabase, finalPuzzle, threadId, allEmailIds, allAttachments);
 
-    // Mark as completed
+    // Mark as completed - save ALL email IDs as analyzed for future incremental runs
     const duration = Date.now() - startTime;
     await updateJob(supabase, jobId, {
       status: "completed",
@@ -641,10 +681,11 @@ async function processAllPhases(
       final_puzzle: finalPuzzle,
       knowledge_stored: storedCount,
       completed_at: new Date().toISOString(),
-      duration_ms: duration
+      duration_ms: duration,
+      emails_analyzed_ids: allEmailIds  // Phase B: Track ALL emails now analyzed
     });
 
-    console.log(`[Puzzle] Job ${jobId} completed in ${duration}ms. Stored ${storedCount} knowledge items.`);
+    console.log(`[Puzzle] Job ${jobId} completed in ${duration}ms. Stored ${storedCount} knowledge items. Analyzed ${allEmailIds.length} emails.`);
 
   } catch (error) {
     console.error(`[Puzzle] Job ${jobId} failed:`, error);

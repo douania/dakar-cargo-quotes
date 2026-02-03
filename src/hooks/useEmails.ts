@@ -76,9 +76,14 @@ export function useSyncEmails() {
     mutationFn: emailService.syncEmails,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['emails'] });
-      toast.success(`${data.synced} emails synchronisés`);
-      if (data.message) {
-        toast.info(data.message);
+      
+      // Phase A: Distinction nouveaux / ignorés pour UX explicite
+      if (data.synced === 0 && (data.skipped || 0) > 0) {
+        toast.info(`Aucun nouvel email (${data.skipped} déjà présents)`);
+      } else if ((data.skipped || 0) > 0) {
+        toast.success(`${data.synced} nouveaux emails, ${data.skipped} ignorés`);
+      } else {
+        toast.success(`${data.synced} emails synchronisés`);
       }
     },
     onError: (error: Error) => {

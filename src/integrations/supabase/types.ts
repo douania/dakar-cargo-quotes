@@ -1723,6 +1723,7 @@ export type Database = {
           duration_ms: number | null
           email_count: number | null
           email_id: string | null
+          emails_analyzed_ids: string[] | null
           error_message: string | null
           error_phase: string | null
           final_puzzle: Json | null
@@ -1746,6 +1747,7 @@ export type Database = {
           duration_ms?: number | null
           email_count?: number | null
           email_id?: string | null
+          emails_analyzed_ids?: string[] | null
           error_message?: string | null
           error_phase?: string | null
           final_puzzle?: Json | null
@@ -1769,6 +1771,7 @@ export type Database = {
           duration_ms?: number | null
           email_count?: number | null
           email_id?: string | null
+          emails_analyzed_ids?: string[] | null
           error_message?: string | null
           error_phase?: string | null
           final_puzzle?: Json | null
@@ -2010,6 +2013,7 @@ export type Database = {
           gaps_count: number | null
           id: string
           last_activity_at: string | null
+          last_email_seen_at: string | null
           pricing_runs_count: number | null
           priority: string | null
           puzzle_completeness: number | null
@@ -2026,6 +2030,7 @@ export type Database = {
           gaps_count?: number | null
           id?: string
           last_activity_at?: string | null
+          last_email_seen_at?: string | null
           pricing_runs_count?: number | null
           priority?: string | null
           puzzle_completeness?: number | null
@@ -2044,6 +2049,7 @@ export type Database = {
           gaps_count?: number | null
           id?: string
           last_activity_at?: string | null
+          last_email_seen_at?: string | null
           pricing_runs_count?: number | null
           priority?: string | null
           puzzle_completeness?: number | null

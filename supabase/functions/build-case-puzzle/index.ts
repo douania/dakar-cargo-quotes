@@ -184,6 +184,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
+    const FROZEN_STATUSES = ["PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
+    const isFrozenCase = FROZEN_STATUSES.includes(caseData.status);
+
+    if (isFrozenCase && !force_refresh) {
+      console.log(`[BuildPuzzle] Case ${case_id} is frozen (${caseData.status}), facts will be added but status unchanged`);
+    }
+
     // 4. Load all emails from thread
     const { data: emails } = await serviceClient
       .from("emails")
@@ -490,14 +498,20 @@ Deno.serve(async (req) => {
       ? Math.round((Math.max(0, mandatoryFacts.length - (openGapsCount || 0)) / mandatoryFacts.length) * 100)
       : 0;
 
-    // 12. Determine new status
+    // 12. Determine new status (only if not frozen - Phase C protection)
     let newStatus = caseData.status;
-    if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
-      newStatus = "READY_TO_PRICE";
-    } else if ((openGapsCount || 0) > 0) {
-      newStatus = "NEED_INFO";
+    
+    // Re-use isFrozenCase from earlier check (line 189)
+    if (!isFrozenCase) {
+      if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
+        newStatus = "READY_TO_PRICE";
+      } else if ((openGapsCount || 0) > 0) {
+        newStatus = "NEED_INFO";
+      } else {
+        newStatus = "FACTS_PARTIAL";
+      }
     } else {
-      newStatus = "FACTS_PARTIAL";
+      console.log(`[BuildPuzzle] Case ${case_id} is frozen (${caseData.status}), status unchanged despite new facts`);
     }
 
     // 13. Update case

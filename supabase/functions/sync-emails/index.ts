@@ -1338,6 +1338,8 @@ serve(async (req) => {
     console.log(`Mailbox ${mailbox} selected, ${exists} messages`);
 
     const processedEmails = [];
+    // Phase A: Track skipped emails for UX feedback (outside if block for scope)
+    let skippedCount = 0;
     
     if (exists > 0) {
       // Fetch last N messages
@@ -1360,6 +1362,7 @@ serve(async (req) => {
 
           if (existing) {
             console.log("Email already exists:", msg.messageId);
+            skippedCount++;
             continue;
           }
 
@@ -1422,6 +1425,57 @@ serve(async (req) => {
             continue;
           }
 
+          // Phase C: Notify existing quote_case of new email (quotation continuity)
+          if (inserted.thread_ref) {
+            try {
+              const { data: existingCase } = await supabase
+                .from("quote_cases")
+                .select("id, status")
+                .eq("thread_id", inserted.thread_ref)
+                .maybeSingle();
+
+              if (existingCase) {
+                // Statuts qui peuvent être réouverts (attente d'info ou prêt à tarifer)
+                const REOPENABLE_STATUSES = ["NEED_INFO", "READY_TO_PRICE"];
+                // Statuts figés (devis déjà généré)
+                const FROZEN_STATUSES = ["PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
+                
+                const updates: Record<string, unknown> = {
+                  last_email_seen_at: new Date().toISOString(),
+                  last_activity_at: new Date().toISOString(),
+                };
+                
+                // Réouvrir si en attente d'info (nouvel email = potentielle réponse client)
+                if (REOPENABLE_STATUSES.includes(existingCase.status)) {
+                  updates.status = "FACTS_PARTIAL"; // Relancer l'analyse puzzle
+                }
+                
+                await supabase
+                  .from("quote_cases")
+                  .update(updates)
+                  .eq("id", existingCase.id);
+
+                // Log timeline event for traceability
+                await supabase.from("case_timeline_events").insert({
+                  case_id: existingCase.id,
+                  event_type: "new_email_received",
+                  event_data: { 
+                    email_id: inserted.id,
+                    previous_status: existingCase.status,
+                    new_status: updates.status || existingCase.status,
+                    was_frozen: FROZEN_STATUSES.includes(existingCase.status)
+                  },
+                  actor_type: "system",
+                });
+
+                console.log(`[Phase C] Notified quote_case ${existingCase.id} of new email ${inserted.id} (status: ${existingCase.status} -> ${updates.status || 'unchanged'})`);
+              }
+            } catch (caseError) {
+              console.error("Error notifying quote_case:", caseError);
+              // Non-blocking error - continue with import
+            }
+          }
+
           processedEmails.push(inserted);
           console.log(`Imported: ${msg.subject.substring(0, 50)}... (thread: ${threadRefId || 'none'})`);
         } catch (msgError) {
@@ -1440,12 +1494,16 @@ serve(async (req) => {
       .update({ last_sync_at: new Date().toISOString() })
       .eq('id', configId);
 
-    console.log(`Synced ${processedEmails.length} new emails`);
+    console.log(`Synced ${processedEmails.length} new emails, ${skippedCount} skipped`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         synced: processedEmails.length,
+        skipped: skippedCount,
+        message: skippedCount > 0 
+          ? `${processedEmails.length} nouveaux, ${skippedCount} ignorés (déjà présents)`
+          : null,
         emails: processedEmails
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
