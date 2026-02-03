@@ -28,6 +28,8 @@ import { AttachmentStatusPanel } from '@/components/AttachmentStatusPanel';
 import { ThreadConversationView } from '@/components/ThreadConversationView';
 import { ThreadUsageTagWithData } from '@/components/puzzle/ThreadUsageTagWithData';
 import { assessComplexity } from '@/hooks/useComplexityAssessment';
+import { groupThreadsBySubject } from '@/lib/threadGrouping';
+import { ThreadSubjectGroup } from '@/components/emails/ThreadSubjectGroup';
 
 interface EmailConfig {
   id: string;
@@ -610,6 +612,11 @@ export default function Emails() {
     return true;
   });
 
+  // Phase 8.5: Group threads by normalized subject for visual display
+  const groupedThreads = useMemo(() => {
+    return groupThreadsBySubject(filteredThreads);
+  }, [filteredThreads]);
+
   const quotationCount = emails.filter(e => e.is_quotation_request).length;
   const otherCount = emails.filter(e => !e.is_quotation_request).length;
   const quotationThreadCount = threads.filter(t => t.is_quotation_thread !== false).length;
@@ -854,97 +861,103 @@ export default function Emails() {
               </Card>
             ) : (
               <div className="space-y-3">
-                {filteredThreads.map((thread) => {
-                  // Assess complexity for this thread
-                  const complexity = assessComplexity({
-                    subject: thread.subject_normalized,
-                    from_address: thread.client_email || undefined,
-                  });
-                  
-                  return (
-                    <Card key={thread.id} className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : complexity.level >= 3 ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap mb-2">
-                              {/* Phase 8.3: Thread Usage Tag */}
-                              <ThreadUsageTagWithData threadId={thread.id} size="sm" />
+                {groupedThreads.map((group) => (
+                  <ThreadSubjectGroup
+                    key={group.groupKey}
+                    group={group}
+                    renderThread={(thread) => {
+                      // Assess complexity for this thread
+                      const complexity = assessComplexity({
+                        subject: thread.subject_normalized,
+                        from_address: thread.client_email || undefined,
+                      });
+                      
+                      return (
+                        <Card className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : complexity.level >= 3 ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 flex-wrap mb-2">
+                                  {/* Phase 8.3: Thread Usage Tag */}
+                                  <ThreadUsageTagWithData threadId={thread.id} size="sm" />
+                                  
+                                  {/* Complexity Badge - replaces tenderType detection */}
+                                  <ComplexityBadge assessment={complexity} size="sm" />
+                                  
+                                  {thread.project_name && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      📋 {thread.project_name}
+                                    </Badge>
+                                  )}
+                                  {thread.our_role === 'assist_partner' ? (
+                                    <Badge variant="outline" className="text-amber-600 border-amber-500">
+                                      <Users className="h-3 w-3 mr-1" />
+                                      Assister Partenaire
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-primary">
+                                      <Star className="h-3 w-3 mr-1" />
+                                      Cotation Directe
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline">
+                                    {thread.email_count} message(s)
+                                  </Badge>
+                                  {thread.is_quotation_thread === false && (
+                                    <Badge variant="outline" className="text-muted-foreground">
+                                      Non-cotation
+                                    </Badge>
+                                  )}
+                                </div>
+                                
+                                <p className="font-semibold">{thread.subject_normalized}</p>
+                                
+                                <div className="mt-2">
+                                  <ThreadParticipantsSummary participants={thread.participants} />
+                                </div>
+                                
+                                <div className="text-xs text-muted-foreground mt-2">
+                                  <Clock className="h-3 w-3 inline mr-1" />
+                                  {thread.first_message_at && new Date(thread.first_message_at).toLocaleDateString('fr-FR')} 
+                                  {' → '}
+                                  {thread.last_message_at && new Date(thread.last_message_at).toLocaleDateString('fr-FR')}
+                                </div>
+                              </div>
                               
-                              {/* Complexity Badge - replaces tenderType detection */}
-                              <ComplexityBadge assessment={complexity} size="sm" />
-                              
-                              {thread.project_name && (
-                                <Badge variant="secondary" className="text-xs">
-                                  📋 {thread.project_name}
-                                </Badge>
-                              )}
-                              {thread.our_role === 'assist_partner' ? (
-                                <Badge variant="outline" className="text-amber-600 border-amber-500">
-                                  <Users className="h-3 w-3 mr-1" />
-                                  Assister Partenaire
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-primary">
-                                  <Star className="h-3 w-3 mr-1" />
-                                  Cotation Directe
-                                </Badge>
-                              )}
-                              <Badge variant="outline">
-                                {thread.email_count} message(s)
-                              </Badge>
-                              {thread.is_quotation_thread === false && (
-                                <Badge variant="outline" className="text-muted-foreground">
-                                  Non-cotation
-                                </Badge>
-                              )}
+                              <div className="flex flex-col gap-2 ml-4">
+                                {/* View Conversation Button */}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setViewingThreadId(thread.id)}
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Conversation
+                                </Button>
+                                
+                                {/* Analyze Puzzle Button */}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setAnalyzingThreadId(thread.id)}
+                                  className="text-primary"
+                                >
+                                  <Brain className="h-4 w-4 mr-2" />
+                                  Analyser Puzzle
+                                </Button>
+                                
+                                {/* Create Tender Button - only show for complex requests (level >= 3) */}
+                                {complexity.level >= 3 && (
+                                  <CreateTenderFromEmailButton thread={thread} />
+                                )}
+                              </div>
                             </div>
-                            
-                            <p className="font-semibold">{thread.subject_normalized}</p>
-                            
-                            <div className="mt-2">
-                              <ThreadParticipantsSummary participants={thread.participants} />
-                            </div>
-                            
-                            <div className="text-xs text-muted-foreground mt-2">
-                              <Clock className="h-3 w-3 inline mr-1" />
-                              {thread.first_message_at && new Date(thread.first_message_at).toLocaleDateString('fr-FR')} 
-                              {' → '}
-                              {thread.last_message_at && new Date(thread.last_message_at).toLocaleDateString('fr-FR')}
-                            </div>
-                          </div>
-                          
-                          <div className="flex flex-col gap-2 ml-4">
-                            {/* View Conversation Button */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setViewingThreadId(thread.id)}
-                            >
-                              <MessageSquare className="h-4 w-4 mr-2" />
-                              Conversation
-                            </Button>
-                            
-                            {/* Analyze Puzzle Button */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setAnalyzingThreadId(thread.id)}
-                              className="text-primary"
-                            >
-                              <Brain className="h-4 w-4 mr-2" />
-                              Analyser Puzzle
-                            </Button>
-                            
-                            {/* Create Tender Button - only show for complex requests (level >= 3) */}
-                            {complexity.level >= 3 && (
-                              <CreateTenderFromEmailButton thread={thread} />
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                          </CardContent>
+                        </Card>
+                      );
+                    }}
+                  />
+                ))}
               </div>
             )}
           </TabsContent>
