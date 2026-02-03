@@ -14,7 +14,9 @@ import {
   ChevronDown,
   Anchor,
   Search,
-  Truck
+  Truck,
+  PlusCircle,
+  Route
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -45,6 +47,12 @@ const mainNavItems = [
     description: 'Cotations en attente'
   },
   { 
+    title: 'Nouvelle demande', 
+    url: '/intake', 
+    icon: PlusCircle,
+    description: 'Saisie manuelle'
+  },
+  { 
     title: 'Chat IA', 
     url: '/chat', 
     icon: MessageSquare,
@@ -65,7 +73,8 @@ const adminItems = [
   { title: 'Tenders', url: '/admin/tenders', icon: Briefcase },
   { title: 'Historique cotations', url: '/admin/quotation-history', icon: History },
   { title: 'Connaissances', url: '/admin/knowledge', icon: Brain },
-  { title: 'Rapports tarifs', url: '/admin/tariff-report', icon: TrendingUp },
+  { title: 'Rapports tarifs', url: '/admin/tariff-reports', icon: TrendingUp },
+  { title: 'Tarifs transport', url: '/admin/transport-rates', icon: Route },
   { title: 'Codes SH', url: '/admin/hs-codes', icon: Package },
   { title: 'Taux & Taxes', url: '/admin/tax-rates', icon: DollarSign },
   { title: 'Régimes douaniers', url: '/admin/customs-regimes', icon: FileText },
