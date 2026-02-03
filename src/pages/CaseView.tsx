@@ -26,6 +26,7 @@ import {
   type CaseFileResponse 
 } from "@/services/railwayApi";
 import { WORKFLOW_LABELS, TASK_STATUS_COLORS } from "@/features/quotation/constants";
+import { MainLayout } from "@/components/layout/MainLayout";
 
 const statusIcons: Record<string, React.ReactNode> = {
   queued: <Clock className="h-4 w-4 text-gray-500" />,
@@ -81,24 +82,28 @@ export default function CaseView() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      <MainLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
     );
   }
 
   if (error && !data) {
     return (
-      <div className="container mx-auto py-8 px-4 max-w-4xl">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-        <Button variant="outline" onClick={() => navigate("/intake")} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Retour
-        </Button>
-      </div>
+      <MainLayout>
+        <div className="container mx-auto py-8 px-4 max-w-4xl">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={() => navigate("/intake")} className="mt-4">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Retour
+          </Button>
+        </div>
+      </MainLayout>
     );
   }
 
@@ -107,7 +112,8 @@ export default function CaseView() {
   const { case: caseInfo, inputs, tasks, outputs, events } = data;
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-5xl">
+    <MainLayout>
+      <div className="container mx-auto py-8 px-4 max-w-5xl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -329,7 +335,8 @@ export default function CaseView() {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
-    </div>
+        </Tabs>
+      </div>
+    </MainLayout>
   );
 }
