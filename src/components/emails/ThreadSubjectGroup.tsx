@@ -22,6 +22,10 @@ interface ThreadSubjectGroupProps<T> {
   group: ThreadGroup<T>;
   /** Render function for individual threads */
   renderThread: (thread: T, index: number) => React.ReactNode;
+  /** Phase 8.6: Callback when group is expanded (optional) */
+  onGroupExpand?: () => void;
+  /** Phase 8.6: Callback when group is collapsed (optional) */
+  onGroupCollapse?: () => void;
 }
 
 /**
@@ -35,11 +39,32 @@ interface ThreadSubjectGroupProps<T> {
 export function ThreadSubjectGroup<T extends { id: string }>({
   group,
   renderThread,
+  onGroupExpand,
+  onGroupCollapse,
 }: ThreadSubjectGroupProps<T>) {
   // Determine default open state based on thread count
   // Must call hooks before any conditional returns
   const defaultOpen = group.threadCount <= 6;
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  // Phase 8.6: Track initial open state to avoid triggering on mount
+  const hasInitialized = React.useRef(false);
+  
+  // Phase 8.6: Handle open state change with tracking
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    
+    // Only track after initial render to avoid counting default open state
+    if (hasInitialized.current) {
+      if (open) {
+        onGroupExpand?.();
+      } else {
+        onGroupCollapse?.();
+      }
+    } else {
+      hasInitialized.current = true;
+    }
+  };
   
   // Single thread: render directly without grouping wrapper
   if (group.threadCount === 1) {
@@ -66,7 +91,7 @@ export function ThreadSubjectGroup<T extends { id: string }>({
   
   return (
     <TooltipProvider>
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
         {/* Group Header */}
         <div className="bg-muted/50 rounded-lg border border-border/60 mb-2">
           <CollapsibleTrigger asChild>
