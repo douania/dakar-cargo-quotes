@@ -62,6 +62,8 @@ import { QuotationPdfExport } from '@/components/QuotationPdfExport';
 import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
 // Phase 8.8: Clarification panel
 import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
+// Phase 9.4: Decision support panel
+import { DecisionSupportPanel } from '@/components/puzzle/DecisionSupportPanel';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -993,6 +995,14 @@ L'équipe SODATRA`;
                 setDetectedAmbiguities([]);
               }}
             />
+          </div>
+        )}
+
+        {/* Phase 9.4: DecisionSupportPanel - affiché si status autorise les décisions */}
+        {!quotationCompleted && quoteCase?.id && 
+         ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
+          <div className="mb-6">
+            <DecisionSupportPanel caseId={quoteCase.id} />
           </div>
         )}
 
