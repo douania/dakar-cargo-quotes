@@ -59,9 +59,9 @@ export function QuotationHeader({
   quoteCaseStatus,
   onRequestClarification,
 }: QuotationHeaderProps) {
-  // Phase 8.7: Gating logic
+  // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
-  const canGenerate = !isGenerating && currentDraft?.id && !hasBlockingGaps;
+  const canGenerate = !isGenerating && !!currentDraft?.id && !hasBlockingGaps && quoteCaseStatus !== undefined;
   
   // Garde-fou #1: Statut explicite si quoteCase null
   const statusInfo = quoteCaseStatus 
@@ -178,7 +178,10 @@ export function QuotationHeader({
               {!canGenerate && (
                 <TooltipContent>
                   {!currentDraft?.id && <p>Sauvegardez d'abord le brouillon</p>}
-                  {currentDraft?.id && hasBlockingGaps && (
+                  {currentDraft?.id && quoteCaseStatus === undefined && (
+                    <p>Analyse de qualification en cours...</p>
+                  )}
+                  {currentDraft?.id && quoteCaseStatus !== undefined && hasBlockingGaps && (
                     <p>Cotation bloquée : {blockingGapsCount} information{blockingGapsCount > 1 ? 's' : ''} manquante{blockingGapsCount > 1 ? 's' : ''}</p>
                   )}
                 </TooltipContent>
