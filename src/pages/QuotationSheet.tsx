@@ -64,6 +64,8 @@ import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
 import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
 // Phase 9.4: Decision support panel
 import { DecisionSupportPanel } from '@/components/puzzle/DecisionSupportPanel';
+// Phase 10.1: Pricing launch panel
+import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -1003,6 +1005,14 @@ L'équipe SODATRA`;
          ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
           <div className="mb-6">
             <DecisionSupportPanel caseId={quoteCase.id} />
+          </div>
+        )}
+
+        {/* Phase 10.1: PricingLaunchPanel - visible UNIQUEMENT si ACK_READY_FOR_PRICING */}
+        {!quotationCompleted && quoteCase?.id && 
+         quoteCase.status === 'ACK_READY_FOR_PRICING' && (
+          <div className="mb-6">
+            <PricingLaunchPanel caseId={quoteCase.id} />
           </div>
         )}
 
