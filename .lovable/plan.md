@@ -1,447 +1,191 @@
 
 
-# PLAN D'IMPLEMENTATION PHASE 10.1
+# PLAN D'IMPLEMENTATION PHASE 11
 
-## UI GATE "Lancer le pricing" (STRICT, EXPLICITE, SANS CALCUL)
-
----
-
-## 1. VERIFICATION DU CODEBASE
-
-### 1.1 Ressources confirmees existantes
-
-| Ressource | Chemin | Statut |
-|-----------|--------|--------|
-| Edge Function `run-pricing` | `supabase/functions/run-pricing/index.ts` | OK - PHASE 11 EXISTANTE |
-| Edge Function `ack-pricing-ready` | `supabase/functions/ack-pricing-ready/index.ts` | OK - GATE PHASE 10 |
-| Hook `useQuoteCaseData` | `src/hooks/useQuoteCaseData.ts` | OK - Lecture quote_case |
-| Page `QuotationSheet` | `src/pages/QuotationSheet.tsx` | OK - Integration cible |
-| Composant `DecisionSupportPanel` | `src/components/puzzle/DecisionSupportPanel.tsx` | OK - Pattern reference |
-
-### 1.2 Statut gate confirme
-
-```typescript
-// Dans src/integrations/supabase/types.ts (lignes 3199-3201, 3349-3351)
-quote_case_status: [
-  "DECISIONS_PENDING",
-  "DECISIONS_COMPLETE", 
-  "ACK_READY_FOR_PRICING"  // <-- GATE OUVERT = VISIBLE
-]
-```
-
-### 1.3 Integration actuelle DecisionSupportPanel (pattern a suivre)
-
-```typescript
-// QuotationSheet.tsx lignes 1001-1007
-{!quotationCompleted && quoteCase?.id && 
- ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
-  <div className="mb-6">
-    <DecisionSupportPanel caseId={quoteCase.id} />
-  </div>
-)}
-```
-
-### 1.4 Edge Function run-pricing confirmee
-
-- Statut requis actuel: `READY_TO_PRICE` (ligne 104)
-- Ownership check: `created_by` ou `assigned_to` (ligne 97)
-- Guard gaps bloquants: Oui (lignes 116-132)
-
-**Note importante**: `run-pricing` attend `READY_TO_PRICE`, pas `ACK_READY_FOR_PRICING`. 
-Ceci sera corrige dans Phase 11, mais pour Phase 10.1 l'UI appellera `run-pricing` et gerera l'erreur de statut gracieusement.
+## Modification run-pricing : ACK_READY_FOR_PRICING au lieu de READY_TO_PRICE
 
 ---
 
-## 2. ARCHITECTURE PHASE 10.1
+## 1. CONTEXTE
+
+La Phase 10 a introduit le statut `ACK_READY_FOR_PRICING` comme gate obligatoire avant le pricing.
+L'Edge Function `run-pricing` doit maintenant accepter ce nouveau statut.
+
+### Statut actuel (incorrect)
+
+| Ligne | Code actuel | Problème |
+|-------|-------------|----------|
+| 104 | `caseData.status !== "READY_TO_PRICE"` | Ancien statut |
+| 109 | `required_status: "READY_TO_PRICE"` | Message d'erreur incorrect |
+| 147-148 | `previous_value: "READY_TO_PRICE"` | Timeline incorrecte |
+| 161, 187, 216 | Rollback vers `"READY_TO_PRICE"` | Rollback vers mauvais statut |
+
+---
+
+## 2. MODIFICATIONS REQUISES
+
+### 2.1 Header de version (lignes 1-5)
 
 ```text
-+------------------------------------------------------------------+
-|                      QuotationSheet.tsx                          |
-|                                                                  |
-|  +------------------------------------------------------------+  |
-|  |  DecisionSupportPanel (Phase 9.4)                          |  |
-|  |  Visible si: DECISIONS_PENDING, DECISIONS_COMPLETE         |  |
-|  +------------------------------------------------------------+  |
-|                                                                  |
-|  +------------------------------------------------------------+  |
-|  |  PricingLaunchPanel (Phase 10.1) <-- NOUVEAU               |  |
-|  |  Visible si: ACK_READY_FOR_PRICING uniquement              |  |
-|  |                                                             |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |  |  Card (amber/warning accent)                          |  |  |
-|  |  |                                                        |  |  |
-|  |  |  Title: "Lancer le pricing"                           |  |  |
-|  |  |  Description: Decisions validees, pret pour calcul    |  |  |
-|  |  |                                                        |  |  |
-|  |  |  [Alert info: tracabilite]                            |  |  |
-|  |  |                                                        |  |  |
-|  |  |  [Button: Lancer le pricing]                          |  |  |
-|  |  |      |                                                 |  |  |
-|  |  |      v                                                 |  |  |
-|  |  |  AlertDialog de confirmation                          |  |  |
-|  |  |      |                                                 |  |  |
-|  |  |      v                                                 |  |  |
-|  |  |  Appel run-pricing Edge Function                      |  |  |
-|  |  +-------------------------------------------------------+  |  |
-|  +------------------------------------------------------------+  |
-|                                                                  |
-|  [Reste du formulaire...]                                        |
-+------------------------------------------------------------------+
+AVANT:
+/**
+ * Phase 7.0.4-fix: run-pricing
+ * ...
+ */
+
+APRES:
+/**
+ * Phase 11: run-pricing
+ * Executes deterministic pricing via quotation-engine
+ * CTO Update: Now requires ACK_READY_FOR_PRICING status (Phase 10 gate)
+ * CTO Fixes: Atomic run_number, Status rollback compensation, Blocking gaps guard
+ */
 ```
 
----
-
-## 3. LIVRABLES
-
-### 3.1 Fichier a creer
-
-| Fichier | Responsabilite |
-|---------|----------------|
-| `src/components/puzzle/PricingLaunchPanel.tsx` | Bouton explicite pour lancer le pricing |
-
-### 3.2 Fichier a modifier
-
-| Fichier | Modification |
-|---------|--------------|
-| `src/pages/QuotationSheet.tsx` | Importer et afficher PricingLaunchPanel |
-
----
-
-## 4. SPECIFICATION TECHNIQUE
-
-### 4.1 Interface Props
+### 2.2 Verification de statut (lignes 104-113)
 
 ```typescript
-interface PricingLaunchPanelProps {
-  caseId: string;
+AVANT:
+if (caseData.status !== "READY_TO_PRICE") {
+  return new Response(
+    JSON.stringify({ 
+      error: "Case not ready for pricing",
+      current_status: caseData.status,
+      required_status: "READY_TO_PRICE"
+    }),
+    { status: 400, ... }
+  );
+}
+
+APRES:
+if (caseData.status !== "ACK_READY_FOR_PRICING") {
+  return new Response(
+    JSON.stringify({ 
+      error: "Case not ready for pricing",
+      current_status: caseData.status,
+      required_status: "ACK_READY_FOR_PRICING"
+    }),
+    { status: 400, ... }
+  );
 }
 ```
 
-### 4.2 Structure du composant
+### 2.3 Timeline event transition (lignes 144-150)
 
 ```typescript
-// src/components/puzzle/PricingLaunchPanel.tsx
+AVANT:
+await serviceClient.from("case_timeline_events").insert({
+  case_id,
+  event_type: "status_changed",
+  previous_value: "READY_TO_PRICE",
+  new_value: "PRICING_RUNNING",
+  actor_type: "system",
+});
 
-// ============================================================================
-// Phase 10.1 — UI GATE "Lancer le pricing"
-// 
-// ⚠️ CTO RULES ABSOLUES:
-// ❌ AUCUN calcul de prix ici
-// ❌ AUCUNE logique metier
-// ❌ AUCUNE lecture des tables pricing
-// ❌ AUCUNE transition de statut (geree par run-pricing)
-// ❌ AUCUN auto-trigger
-// 
-// ✅ UI uniquement
-// ✅ Declenchement explicite Phase 11 (run-pricing)
-// ✅ Confirmation utilisateur obligatoire
-// ============================================================================
-
-import { useState } from 'react';
-import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+APRES:
+await serviceClient.from("case_timeline_events").insert({
+  case_id,
+  event_type: "status_changed",
+  previous_value: "ACK_READY_FOR_PRICING",
+  new_value: "PRICING_RUNNING",
+  actor_type: "system",
+});
 ```
 
-### 4.3 Etats internes
+### 2.4 Rollback status (lignes 159-163)
 
 ```typescript
-const [isLoading, setIsLoading] = useState(false);
-const [confirmOpen, setConfirmOpen] = useState(false);
-const [error, setError] = useState<string | null>(null);
+AVANT:
+await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "facts_load_failed");
+
+APRES:
+await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "facts_load_failed");
 ```
 
-### 4.4 Handler de lancement
+### 2.5 Rollback status RPC error (lignes 185-189)
 
 ```typescript
-const handleLaunchPricing = async () => {
-  setIsLoading(true);
-  setError(null);
-  
-  try {
-    // ❌ AUCUN calcul de prix ici
-    // ❌ AUCUNE logique metier
-    // ❌ AUCUNE lecture des tables pricing
-    // ❌ AUCUNE transition de statut
-    // ✅ Appel unique run-pricing
-    
-    const { data, error: fnError } = await supabase.functions.invoke('run-pricing', {
-      body: { case_id: caseId }
-    });
-    
-    if (fnError) throw fnError;
-    
-    toast.success(`Pricing lance - ${data.lines_count} lignes calculees`);
-    setConfirmOpen(false);
-    
-    // Pas de redirection automatique - l'UI se mettra a jour via le hook
-    
-  } catch (err: any) {
-    console.error('[PricingLaunchPanel] Error:', err);
-    
-    // Gestion des erreurs specifiques
-    const message = err.message || 'Erreur inconnue';
-    if (message.includes('not ready') || message.includes('status')) {
-      setError('Le dossier n\'est pas pret pour le pricing');
-    } else if (message.includes('Access denied')) {
-      setError('Vous n\'avez pas acces a ce dossier');
-    } else {
-      setError(message);
-    }
-    
-    toast.error('Erreur lors du lancement du pricing');
-  } finally {
-    setIsLoading(false);
-  }
-};
+AVANT:
+await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_number_failed");
+
+APRES:
+await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_number_failed");
+```
+
+### 2.6 Rollback status insert error (ligne 216)
+
+```typescript
+AVANT:
+await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_insert_failed");
+
+APRES:
+await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_insert_failed");
 ```
 
 ---
 
-## 5. STRUCTURE UI COMPLETE
+## 3. FICHIER A MODIFIER
 
-### 5.1 Card principale
+| Fichier | Modifications |
+|---------|---------------|
+| `supabase/functions/run-pricing/index.ts` | 6 modifications ciblées |
 
-```typescript
-<Card className="border-amber-200 bg-amber-50/30">
-  <CardHeader className="pb-3">
-    <div className="flex items-center gap-2">
-      <Calculator className="h-5 w-5 text-amber-600" />
-      <CardTitle className="text-base">Lancer le pricing</CardTitle>
-    </div>
-    <CardDescription>
-      Toutes les decisions sont validees. 
-      Vous pouvez maintenant lancer le calcul de prix.
-    </CardDescription>
-  </CardHeader>
-  
-  <CardContent className="space-y-4">
-    {/* Alert info tracabilite */}
-    <Alert className="border-blue-200 bg-blue-50">
-      <Info className="h-4 w-4 text-blue-600" />
-      <AlertDescription className="text-sm text-blue-800">
-        Cette action est tracee et auditee. 
-        Le calcul peut prendre plusieurs secondes.
-      </AlertDescription>
-    </Alert>
-    
-    {/* Erreur si presente */}
-    {error && (
-      <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    )}
-    
-    {/* Bouton principal */}
-    <Button
-      onClick={() => setConfirmOpen(true)}
-      disabled={isLoading}
-      className="w-full gap-2 bg-amber-600 hover:bg-amber-700"
-    >
-      {isLoading ? (
-        <>
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Calcul en cours...
-        </>
-      ) : (
-        <>
-          <Calculator className="h-4 w-4" />
-          Lancer le pricing
-        </>
-      )}
-    </Button>
-  </CardContent>
-</Card>
-```
+---
 
-### 5.2 AlertDialog de confirmation
+## 4. FLUX APRES MODIFICATION
 
-```typescript
-<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Confirmer le lancement du pricing ?</AlertDialogTitle>
-      <AlertDialogDescription asChild>
-        <div className="space-y-3">
-          <p>Cette action va declencher le moteur de pricing.</p>
-          
-          <ul className="list-disc list-inside text-sm space-y-1">
-            <li>Le calcul est base sur les decisions validees</li>
-            <li>L'operation est tracee et auditee</li>
-            <li>Le calcul peut prendre plusieurs secondes</li>
-          </ul>
-          
-          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-3">
-            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
-            <p className="text-sm text-amber-800">
-              Une fois lance, le pricing ne peut pas etre annule.
-            </p>
-          </div>
-        </div>
-      </AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel disabled={isLoading}>Annuler</AlertDialogCancel>
-      <AlertDialogAction 
-        onClick={handleLaunchPricing}
-        disabled={isLoading}
-        className="bg-amber-600 hover:bg-amber-700"
-      >
-        {isLoading ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            Calcul...
-          </>
-        ) : (
-          'Confirmer'
-        )}
-      </AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+```text
+Phase 10 (ack-pricing-ready)
+         |
+         v
+quote_cases.status = ACK_READY_FOR_PRICING
+         |
+         v
+Phase 11 (run-pricing)
+         |
+         +-- Verification: status === ACK_READY_FOR_PRICING
+         |
+         +-- Transition: ACK_READY_FOR_PRICING -> PRICING_RUNNING
+         |
+         +-- [Si erreur] Rollback: -> ACK_READY_FOR_PRICING
+         |
+         +-- [Si succes] Transition: PRICING_RUNNING -> PRICED_DRAFT
 ```
 
 ---
 
-## 6. INTEGRATION QUOTATIONSHEET
-
-### 6.1 Import
-
-```typescript
-// Ligne ~67 apres DecisionSupportPanel
-// Phase 10.1: Pricing launch panel
-import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
-```
-
-### 6.2 Condition d'affichage (STRICTE)
-
-```typescript
-// Apres DecisionSupportPanel (ligne ~1007)
-{/* Phase 10.1: PricingLaunchPanel - visible UNIQUEMENT si ACK_READY_FOR_PRICING */}
-{!quotationCompleted && quoteCase?.id && 
- quoteCase.status === 'ACK_READY_FOR_PRICING' && (
-  <div className="mb-6">
-    <PricingLaunchPanel caseId={quoteCase.id} />
-  </div>
-)}
-```
-
----
-
-## 7. REGLES CTO STRICTES
-
-### 7.1 Interdits absolus (commentaires dans le code)
-
-```typescript
-// ============================================================================
-// Phase 10.1 — UI GATE "Lancer le pricing"
-// 
-// ⚠️ CTO RULES ABSOLUES:
-// ❌ AUCUN calcul de prix ici
-// ❌ AUCUNE logique metier
-// ❌ AUCUNE lecture des tables pricing
-// ❌ AUCUNE transition de statut (geree par run-pricing)
-// ❌ AUCUN auto-trigger
-// 
-// ✅ UI uniquement
-// ✅ Declenchement explicite Phase 11 (run-pricing)
-// ✅ Confirmation utilisateur obligatoire
-// ============================================================================
-```
-
-### 7.2 Condition d'affichage stricte
-
-```typescript
-// GATE unique autorise
-quoteCase.status === 'ACK_READY_FOR_PRICING'
-
-// JAMAIS:
-// - status !== 'ACK_READY_FOR_PRICING' → Panel NON visible
-// - Aucun affichage conditionnel autre
-```
-
----
-
-## 8. TESTS UI OBLIGATOIRES
-
-| Test | Resultat attendu |
-|------|------------------|
-| status != ACK_READY_FOR_PRICING | Panel NON visible |
-| status = ACK_READY_FOR_PRICING | Panel visible |
-| Clic bouton | AlertDialog s'ouvre |
-| Confirmer | 1 appel run-pricing |
-| Double clic | Bouton disabled (isLoading) |
-| Refresh page | Bouton toujours visible (si statut inchange) |
-| Aucune navigation auto | OK |
-| Erreur API | Message affiche, pas de crash |
-
----
-
-## 9. GESTION DES ERREURS
-
-| Scenario | Comportement |
-|----------|--------------|
-| run-pricing retourne 400 (statut invalide) | Afficher "Le dossier n'est pas pret" |
-| run-pricing retourne 403 (acces refuse) | Afficher "Acces refuse" |
-| run-pricing retourne 500 (erreur serveur) | Afficher message d'erreur |
-| Succes | Toast + UI mise a jour via hook |
-
----
-
-## 10. SEQUENCE D'IMPLEMENTATION
-
-1. **Creer `src/components/puzzle/PricingLaunchPanel.tsx`**
-   - Header avec regles CTO
-   - Props interface
-   - Etats internes
-   - Handler handleLaunchPricing
-   - Card UI
-   - AlertDialog confirmation
-
-2. **Modifier `src/pages/QuotationSheet.tsx`**
-   - Import PricingLaunchPanel
-   - Condition d'affichage stricte
-   - Placement apres DecisionSupportPanel
-
----
-
-## 11. CONFORMITE CTO
+## 5. CONFORMITE CTO
 
 | Regle | Application |
 |-------|-------------|
-| Gate deja ouvert requis | ✅ ACK_READY_FOR_PRICING uniquement |
-| Action humaine explicite | ✅ Clic bouton obligatoire |
-| Confirmation obligatoire | ✅ AlertDialog |
-| Aucun calcul | ✅ Appel run-pricing uniquement |
-| Aucun auto-flow | ✅ Pas de navigation auto |
-| UI uniquement | ✅ Pas de logique metier |
-| Phase 11 appelee explicitement | ✅ supabase.functions.invoke('run-pricing') |
+| Gate Phase 10 requis | ACK_READY_FOR_PRICING obligatoire |
+| Timeline coherente | previous_value correct |
+| Rollback coherent | Retour vers ACK_READY_FOR_PRICING |
+| Pas de breaking change | Workflow preserve |
+| Audit trail | Events timeline corrects |
 
 ---
 
-## 12. CE QUI N'EST PAS DANS CETTE PHASE
+## 6. TESTS POST-MODIFICATION
 
-| Element | Phase |
-|---------|-------|
-| Correction statut run-pricing (READY_TO_PRICE → ACK_READY_FOR_PRICING) | Phase 11 |
-| Affichage des resultats pricing | Phase 11+ |
-| Generation PDF apres pricing | Phase 12 |
+| Test | Resultat attendu |
+|------|------------------|
+| Appel avec status DECISIONS_COMPLETE | 400 - required ACK_READY_FOR_PRICING |
+| Appel avec status ACK_READY_FOR_PRICING | 200 - Pricing execute |
+| Erreur facts_load | Rollback vers ACK_READY_FOR_PRICING |
+| Timeline event | previous_value = ACK_READY_FOR_PRICING |
 
 ---
 
-**Ce plan est pret pour validation CTO et implementation.**
+## 7. CE QUI NE CHANGE PAS
+
+- Logique de pricing (quotation-engine)
+- Guard gaps bloquants
+- Atomic run_number RPC
+- Compensation sur erreur
+- Transition finale vers PRICED_DRAFT
+
+---
+
+**Modification simple, ciblée, sans impact structurel.**
 
