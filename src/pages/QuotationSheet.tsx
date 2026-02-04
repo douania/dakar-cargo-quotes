@@ -234,7 +234,11 @@ export default function QuotationSheet() {
    * GARDE-FOU CTO #3: Langage questionnant uniquement
    */
   const handleRequestClarification = useCallback(async () => {
-    if (blockingGaps.length === 0 && !threadRef) return;
+    // Phase 8.8: Seul threadRef requis - permet l'analyse même sans gaps DB
+    if (!threadRef) {
+      toast.error('Aucun fil email associé');
+      return;
+    }
 
     setIsLoadingClarification(true);
     setClarificationDraft(null);
@@ -280,7 +284,7 @@ L'équipe SODATRA`;
     } finally {
       setIsLoadingClarification(false);
     }
-  }, [blockingGaps, projectContext.requesting_party, threadRef]);
+  }, [projectContext.requesting_party, threadRef, blockingGaps]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
@@ -955,6 +959,7 @@ L'équipe SODATRA`;
           blockingGapsCount={blockingGaps.length}
           quoteCaseStatus={quoteCase?.status}
           onRequestClarification={handleRequestClarification}
+          isLoadingClarification={isLoadingClarification}
         />
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}
