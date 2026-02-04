@@ -119,3 +119,6 @@ verify_jwt = true
 
 [functions.generate-case-outputs]
 verify_jwt = true
+
+[functions.qualify-quotation-minimal]
+verify_jwt = false
