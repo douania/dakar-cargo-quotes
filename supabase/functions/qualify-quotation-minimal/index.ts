@@ -42,7 +42,7 @@ interface QualifyMinimalResult {
     body_en: string;
   };
   completeness_score: number;
-  can_proceed: boolean;
+  can_proceed: false; // CTO: Pricing is NEVER allowed in Phase 8.8
 }
 
 // Prompt IA strict - GARDE-FOU #3 intégré
@@ -127,6 +127,9 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // ⚠️ CTO RULE: NO supabase.from(...).insert/update/delete ALLOWED HERE
+    // This function is READ-ONLY: emails + quote_cases + quote_gaps SELECT only
 
     // Récupérer les emails du thread (LECTURE SEULE)
     const { data: emails, error: emailsError } = await supabase
@@ -264,9 +267,12 @@ Best regards,
 SODATRA Team`,
         },
         completeness_score: existingGaps.length === 0 ? 1.0 : Math.max(0, 1 - (existingGaps.length * 0.15)),
-        can_proceed: existingGaps.length === 0,
+        can_proceed: false, // CTO: ALWAYS false in Phase 8.8 regardless of completeness
       };
     }
+
+    // CTO RULE: Force can_proceed to false - Phase 8.8 is qualification only, NOT pricing
+    result.can_proceed = false;
 
     // GARDE-FOU #1: On ne persiste RIEN, on retourne juste le payload
     return new Response(
