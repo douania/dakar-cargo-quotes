@@ -1,100 +1,88 @@
 
 
-# Phase 8.7 Ajustements CTO — Verrouillage Final
+# Phase 8.7b — Correction Critère "Demandes à traiter"
 
-## Contexte
+## Objectif
 
-Deux ajustements mineurs obligatoires demandés par le CTO pour finaliser Phase 8.7 :
+Corriger la logique du Dashboard pour que seuls les emails avec un brouillon **envoyé** (`status === 'sent'`) soient considérés comme traités.
 
-1. **Garde-fou #1 étendu** : Bloquer "Générer" si l'analyse quote_case n'est pas encore chargée
-2. **UX explicite** : Afficher un loader pendant le chargement de l'analyse
-
-Ces ajustements ne modifient aucune logique métier — ils renforcent la gouvernance visuelle.
-
----
-
-## Ajustement 1 : Gating Étendu du Bouton "Générer"
-
-### Fichier
-`src/features/quotation/components/QuotationHeader.tsx`
-
-### Modification
-
-**Ligne 64** — Ajouter `quoteCaseStatus !== undefined` à la condition :
-
-| Avant | Après |
-|-------|-------|
-| `const canGenerate = !isGenerating && currentDraft?.id && !hasBlockingGaps;` | `const canGenerate = !isGenerating && !!currentDraft?.id && !hasBlockingGaps && quoteCaseStatus !== undefined;` |
-
-### Logique
-
-```
-canGenerate = 
-  !isGenerating              // pas en cours de génération
-  && !!currentDraft?.id      // brouillon sauvegardé
-  && !hasBlockingGaps        // pas de gaps bloquants
-  && quoteCaseStatus !== undefined  // NOUVEAU: analyse disponible
-```
-
-### Tooltip Supplémentaire
-
-Ajouter un cas dans le tooltip pour expliquer le blocage si `quoteCaseStatus === undefined` :
-
-```
-{quoteCaseStatus === undefined && currentDraft?.id && (
-  <p>Analyse de qualification en cours...</p>
-)}
-```
+**Règle métier :**
+- Brouillon `draft` = reste visible dans "Demandes à traiter"
+- Brouillon `sent` = disparaît de "Demandes à traiter"
 
 ---
 
-## Ajustement 2 : Loader Pendant Chargement Quote Case
+## Diagnostic
 
-### Fichier
-`src/pages/QuotationSheet.tsx`
+| État actuel | Problème |
+|-------------|----------|
+| Ligne 77-82 : Query `email_drafts` sans filtre `status` | Tout brouillon = traité |
+| Ligne 86 : `processedEmailIds.has(email.id)` | Ignore l'état réel du dossier |
 
-### Modification
-
-**Lignes 917-926** — Ajouter un bloc loader explicite :
-
-| Avant | Après |
-|-------|-------|
-| Condition : `!isLoadingQuoteCase && (blockingGaps.length > 0 \|\| quoteCase)` | Ajouter un bloc séparé pour `isLoadingQuoteCase` |
-
-### Code à Ajouter (avant BlockingGapsPanel)
-
-```text
-{/* Phase 8.7: Loader pendant chargement quote_case */}
-{!quotationCompleted && isLoadingQuoteCase && (
-  <div className="mb-6 text-sm text-muted-foreground flex items-center gap-2">
-    <Loader2 className="h-4 w-4 animate-spin" />
-    Analyse de qualification en cours…
-  </div>
-)}
-```
-
-### Position dans le DOM
-
-```
-<QuotationHeader ... />
-
-{/* NOUVEAU: Loader explicite */}
-{!quotationCompleted && isLoadingQuoteCase && (
-  <div className="mb-6 ...">...</div>
-)}
-
-{/* BlockingGapsPanel existant */}
-{!quotationCompleted && !isLoadingQuoteCase && ...}
-```
+**Conséquence directe :** L'email ShareLogistics avec brouillon non envoyé a disparu.
 
 ---
 
-## Fichiers Modifiés
+## Modification
 
-| Fichier | Modification | Lignes |
-|---------|--------------|--------|
-| `src/features/quotation/components/QuotationHeader.tsx` | Condition `canGenerate` + tooltip | L64, L179-182 |
-| `src/pages/QuotationSheet.tsx` | Loader pendant chargement | L917-918 (insertion) |
+### Fichier : `src/pages/Dashboard.tsx`
+
+### Changement 1 : Filtrer sur `status = 'sent'` (lignes 76-82)
+
+**Avant :**
+```typescript
+// Get draft count for processed emails
+const { data: drafts } = await supabase
+  .from('email_drafts')
+  .select('original_email_id')
+  .not('original_email_id', 'is', null);
+```
+
+**Après :**
+```typescript
+// Get SENT drafts only - un brouillon non envoyé n'est PAS traité
+const { data: sentDrafts } = await supabase
+  .from('email_drafts')
+  .select('original_email_id')
+  .eq('status', 'sent')
+  .not('original_email_id', 'is', null);
+```
+
+### Changement 2 : Renommer la variable pour clarté (ligne 82)
+
+**Avant :**
+```typescript
+const processedEmailIds = new Set(drafts?.map(d => d.original_email_id) || []);
+```
+
+**Après :**
+```typescript
+const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
+```
+
+### Changement 3 : Utiliser le bon set dans le filtre (ligne 86)
+
+**Avant :**
+```typescript
+.filter(email => !processedEmailIds.has(email.id))
+```
+
+**Après :**
+```typescript
+.filter(email => !sentEmailIds.has(email.id))
+```
+
+### Changement 4 : Mettre à jour les stats (ligne 107)
+
+**Avant :**
+```typescript
+processed: processedEmailIds.size,
+```
+
+**Après :**
+```typescript
+processed: sentEmailIds.size,
+```
 
 ---
 
@@ -102,32 +90,30 @@ Ajouter un cas dans le tooltip pour expliquer le blocage si `quoteCaseStatus ===
 
 | Aspect | Évaluation |
 |--------|------------|
-| Risque | Nul — ajout de conditions défensives |
-| UX | Amélioré — plus de silence système |
-| Performance | Aucun impact |
+| Risque | Nul — modification d'une condition de filtre |
+| UX | Aligné avec Phase 8.7 — cohérence workflow |
+| Performance | Identique (même requête, un filtre en plus) |
 | Backend | Aucun changement |
 
 ---
 
 ## Résultat Attendu
 
-### Scénario 1 : Quote Case Non Encore Chargé
+| Scénario | "Demandes à traiter" |
+|----------|----------------------|
+| Email ShareLogistics + draft `draft` | **Visible** |
+| Email avec draft `sent` | Masqué |
+| Email sans draft | **Visible** |
 
-- Loader visible : "Analyse de qualification en cours…"
-- Bouton "Générer" : **Désactivé**
-- Tooltip : "Analyse de qualification en cours..."
-- Badge header : "Dossier non analysé"
+L'email `bijl.dik@sharelogistics.com` réapparaîtra immédiatement dans la liste.
 
-### Scénario 2 : Quote Case Chargé avec Gaps
+---
 
-- BlockingGapsPanel visible avec liste des gaps
-- Bouton "Générer" : **Désactivé**
-- Tooltip : "Cotation bloquée : X informations manquantes"
-- Bouton "Demander clarification" : Visible
+## Statistiques mises à jour
 
-### Scénario 3 : Quote Case Chargé sans Gaps
-
-- BlockingGapsPanel : Message positif "Dossier prêt"
-- Bouton "Générer" : **Activé**
-- Workflow normal
+| Carte Stats | Signification |
+|-------------|---------------|
+| "En attente" | Emails quotation sans brouillon envoyé |
+| "Traitées" | Emails avec brouillon `sent` |
+| "Brouillons" | Inchangé (compte les drafts en cours) |
 
