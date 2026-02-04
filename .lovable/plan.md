@@ -1,119 +1,97 @@
+# Phase 8.8 — Qualification Assistée Minimale
 
+## Statut : ✅ IMPLÉMENTÉE
 
-# Phase 8.7b — Correction Critère "Demandes à traiter"
+## Objectif CTO
 
-## Objectif
-
-Corriger la logique du Dashboard pour que seuls les emails avec un brouillon **envoyé** (`status === 'sent'`) soient considérés comme traités.
-
-**Règle métier :**
-- Brouillon `draft` = reste visible dans "Demandes à traiter"
-- Brouillon `sent` = disparaît de "Demandes à traiter"
-
----
-
-## Diagnostic
-
-| État actuel | Problème |
-|-------------|----------|
-| Ligne 77-82 : Query `email_drafts` sans filtre `status` | Tout brouillon = traité |
-| Ligne 86 : `processedEmailIds.has(email.id)` | Ignore l'état réel du dossier |
-
-**Conséquence directe :** L'email ShareLogistics avec brouillon non envoyé a disparu.
+Une phase de **qualification minimale** qui :
+- ✅ Analyse l'email et détecte les incohérences/ambiguïtés
+- ✅ Génère un draft de clarification structuré (sans chiffres)
+- ✅ Détecte explicitement : temporary import, multi-destinations, services demandés
+- ❌ NE fait PAS de suggestions HS/régime
+- ❌ NE calcule AUCUN prix
 
 ---
 
-## Modification
+## Garde-fous CTO Implémentés
 
-### Fichier : `src/pages/Dashboard.tsx`
+### 🔒 Garde-fou #1 — Edge Function STATEless et NON persistante
 
-### Changement 1 : Filtrer sur `status = 'sent'` (lignes 76-82)
+`qualify-quotation-minimal` :
+- ❌ Ne crée aucune ligne DB
+- ❌ Ne modifie aucun quote_fact
+- ❌ Ne modifie aucun quote_gap
+- ✅ Retourne uniquement un payload éphémère pour l'UI
 
-**Avant :**
-```typescript
-// Get draft count for processed emails
-const { data: drafts } = await supabase
-  .from('email_drafts')
-  .select('original_email_id')
-  .not('original_email_id', 'is', null);
-```
+### 🔒 Garde-fou #2 — Cotation reste IMPOSSIBLE techniquement
 
-**Après :**
-```typescript
-// Get SENT drafts only - un brouillon non envoyé n'est PAS traité
-const { data: sentDrafts } = await supabase
-  .from('email_drafts')
-  .select('original_email_id')
-  .eq('status', 'sent')
-  .not('original_email_id', 'is', null);
-```
+- Le bouton "Générer la réponse" reste bloqué si `blocking_gaps.length > 0`
+- Le bouton reste bloqué si `quoteCaseStatus !== READY_TO_PRICE`
+- La clarification ne débloque rien automatiquement
 
-### Changement 2 : Renommer la variable pour clarté (ligne 82)
+### 🔒 Garde-fou #3 — Langage questionnant, jamais suggestif
 
-**Avant :**
-```typescript
-const processedEmailIds = new Set(drafts?.map(d => d.original_email_id) || []);
-```
+Dans le prompt et les drafts :
+- ❌ Pas de "Le régime le plus adapté est…"
+- ❌ Pas de "Nous recommandons…"
+- ✅ Uniquement "Merci de préciser…" / "Pouvez-vous confirmer…"
 
-**Après :**
-```typescript
-const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
-```
+---
 
-### Changement 3 : Utiliser le bon set dans le filtre (ligne 86)
+## Fichiers Créés
 
-**Avant :**
-```typescript
-.filter(email => !processedEmailIds.has(email.id))
-```
+| Fichier | Description |
+|---------|-------------|
+| `supabase/functions/qualify-quotation-minimal/index.ts` | Edge function stateless de qualification |
+| `src/components/puzzle/ClarificationPanel.tsx` | UI affichage draft + ambiguïtés |
 
-**Après :**
-```typescript
-.filter(email => !sentEmailIds.has(email.id))
-```
+---
 
-### Changement 4 : Mettre à jour les stats (ligne 107)
+## Fichiers Modifiés
 
-**Avant :**
-```typescript
-processed: processedEmailIds.size,
-```
+| Fichier | Modification |
+|---------|--------------|
+| `src/pages/QuotationSheet.tsx` | Intégration appel async + ClarificationPanel |
+| `supabase/config.toml` | Ajout qualify-quotation-minimal |
 
-**Après :**
-```typescript
-processed: sentEmailIds.size,
+---
+
+## Flux Utilisateur Phase 8.8
+
+```text
+1. Opérateur ouvre un dossier avec gaps bloquants
+2. BlockingGapsPanel affiche "Cotation incomplète - X éléments bloquants"
+3. Clic "Demander clarification" → appel edge function
+4. Edge function analyse l'email et détecte ambiguïtés
+5. ClarificationPanel s'affiche avec :
+   - Ambiguïtés détectées (temporary import, multi-destinations, etc.)
+   - Draft email bilingue FR/EN
+6. Opérateur révise et copie le draft
+7. L'opérateur envoie via son client email (pas d'envoi automatique)
 ```
 
 ---
 
-## Impact
+## Ce qui est EXPLICITEMENT REPORTÉ en Phase 9
 
-| Aspect | Évaluation |
-|--------|------------|
-| Risque | Nul — modification d'une condition de filtre |
-| UX | Aligné avec Phase 8.7 — cohérence workflow |
-| Performance | Identique (même requête, un filtre en plus) |
-| Backend | Aucun changement |
-
----
-
-## Résultat Attendu
-
-| Scénario | "Demandes à traiter" |
-|----------|----------------------|
-| Email ShareLogistics + draft `draft` | **Visible** |
-| Email avec draft `sent` | Masqué |
-| Email sans draft | **Visible** |
-
-L'email `bijl.dik@sharelogistics.com` réapparaîtra immédiatement dans la liste.
+| Fonctionnalité | Phase |
+|----------------|-------|
+| Sélection HS codes via IA | Phase 9 |
+| Sélection régimes douaniers | Phase 9 |
+| UI DecisionSupportPanel complet | Phase 9 |
+| Scénarios multi-destinations automatisés | Phase 9 |
+| Scores de pertinence complexes | Phase 9 |
+| Calcul ou suggestion de droits & taxes | Phase 9 |
+| Persistance des choix opérateur | Phase 9 |
 
 ---
 
-## Statistiques mises à jour
+## Tests Manuels
 
-| Carte Stats | Signification |
-|-------------|---------------|
-| "En attente" | Emails quotation sans brouillon envoyé |
-| "Traitées" | Emails avec brouillon `sent` |
-| "Brouillons" | Inchangé (compte les drafts en cours) |
-
+Pour tester Phase 8.8 :
+1. Ouvrir un dossier avec gaps bloquants
+2. Cliquer sur "Demander clarification"
+3. Vérifier que le ClarificationPanel s'affiche
+4. Vérifier que le draft contient des questions claires
+5. Vérifier qu'aucun prix ou suggestion technique n'apparaît
+6. Vérifier que le bouton "Générer la réponse" reste bloqué

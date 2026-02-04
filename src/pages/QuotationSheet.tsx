@@ -60,6 +60,8 @@ import { QuotationExcelExport } from '@/components/QuotationExcelExport';
 import { QuotationPdfExport } from '@/components/QuotationPdfExport';
 // Phase 8.7: Blocking gaps panel
 import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
+// Phase 8.8: Clarification panel
+import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -210,20 +212,58 @@ export default function QuotationSheet() {
   const threadRef = threadEmails[0]?.thread_ref || null;
   const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(threadRef ?? undefined);
 
-  // Phase 8.8: Brouillon de clarification (frontend-only)
-  const [clarificationDraft, setClarificationDraft] = useState<string | null>(null);
+  // Phase 8.8: État clarification enrichi
+  const [clarificationDraft, setClarificationDraft] = useState<{
+    subject_fr?: string;
+    subject_en?: string;
+    body_fr: string;
+    body_en?: string;
+  } | null>(null);
+  const [detectedAmbiguities, setDetectedAmbiguities] = useState<Array<{
+    type: string;
+    excerpt: string;
+    question_fr: string;
+    question_en?: string;
+  }>>([]);
+  const [isLoadingClarification, setIsLoadingClarification] = useState(false);
 
   /**
-   * Phase 8.8: Générer un brouillon de clarification frontend-only
-   * Garde-fou #2: NE doit PAS envoyer, seulement générer le texte
+   * Phase 8.8: Générer un brouillon de clarification via edge function
+   * GARDE-FOU CTO #1: Edge function STATEless - aucune persistance DB
+   * GARDE-FOU CTO #2: NE doit PAS envoyer, seulement générer le texte
+   * GARDE-FOU CTO #3: Langage questionnant uniquement
    */
-  const handleRequestClarification = useCallback(() => {
-    if (blockingGaps.length === 0) return;
+  const handleRequestClarification = useCallback(async () => {
+    if (blockingGaps.length === 0 && !threadRef) return;
 
-    const clientName = projectContext.requesting_party || 'Client';
-    const questions = blockingGaps.map((g, i) => `${i + 1}. ${g.question_fr || g.gap_key}`).join('\n');
-    
-    const draft = `Bonjour${clientName ? ` ${clientName}` : ''},
+    setIsLoadingClarification(true);
+    setClarificationDraft(null);
+    setDetectedAmbiguities([]);
+
+    try {
+      // Appel edge function Phase 8.8
+      const response = await supabase.functions.invoke('qualify-quotation-minimal', {
+        body: { thread_id: threadRef }
+      });
+
+      if (response.error) throw response.error;
+
+      const result = response.data;
+      
+      // Stocker les résultats
+      setClarificationDraft(result.clarification_draft);
+      setDetectedAmbiguities(result.detected_ambiguities || []);
+      setGeneratedResponse(result.clarification_draft?.body_fr || '');
+      
+      toast.info(`${result.questions?.length || 0} questions générées - Révisez avant envoi`);
+    } catch (err) {
+      console.error('Error calling qualify-quotation-minimal:', err);
+      
+      // Fallback frontend-only si edge function échoue
+      const clientName = projectContext.requesting_party || 'Client';
+      const questions = blockingGaps.map((g, i) => `${i + 1}. ${g.question_fr || g.gap_key}`).join('\n');
+      
+      const fallbackBody = `Bonjour${clientName ? ` ${clientName}` : ''},
 
 Merci pour votre demande de cotation. Afin de vous fournir une offre précise et adaptée à vos besoins, nous aurions besoin des informations suivantes :
 
@@ -234,10 +274,13 @@ Nous restons à votre disposition pour tout complément d'information.
 Cordialement,
 L'équipe SODATRA`;
 
-    setClarificationDraft(draft);
-    setGeneratedResponse(draft);
-    toast.info('Brouillon de clarification généré - à réviser avant envoi');
-  }, [blockingGaps, projectContext.requesting_party]);
+      setClarificationDraft({ body_fr: fallbackBody });
+      setGeneratedResponse(fallbackBody);
+      toast.warning('Mode dégradé - Questions basiques générées');
+    } finally {
+      setIsLoadingClarification(false);
+    }
+  }, [blockingGaps, projectContext.requesting_party, threadRef]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
@@ -929,6 +972,21 @@ L'équipe SODATRA`;
               quoteCaseStatus={quoteCase?.status || null}
               blockingGaps={blockingGaps}
               isLoading={isLoadingQuoteCase}
+            />
+          </div>
+        )}
+
+        {/* Phase 8.8: ClarificationPanel - affiché si draft généré */}
+        {!quotationCompleted && (clarificationDraft || isLoadingClarification) && (
+          <div className="mb-6">
+            <ClarificationPanel
+              draft={clarificationDraft}
+              ambiguities={detectedAmbiguities}
+              isLoading={isLoadingClarification}
+              onClose={() => {
+                setClarificationDraft(null);
+                setDetectedAmbiguities([]);
+              }}
             />
           </div>
         )}
