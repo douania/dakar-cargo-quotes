@@ -58,6 +58,8 @@ import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
 import { QuotationExcelExport } from '@/components/QuotationExcelExport';
 import { QuotationPdfExport } from '@/components/QuotationPdfExport';
+// Phase 8.7: Blocking gaps panel
+import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -76,6 +78,8 @@ import { QuotationTotalsCard } from '@/features/quotation/components/QuotationTo
 import { ServiceLinesForm } from '@/features/quotation/components/ServiceLinesForm';
 // Phase 6D.1: Preview du devis généré
 import { QuotationPreview } from '@/features/quotation/components/QuotationPreview';
+// Phase 8.7: Hook quote_case
+import { useQuoteCaseData } from '@/hooks/useQuoteCaseData';
 // Constantes depuis le fichier centralisé
 import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
 
@@ -201,6 +205,39 @@ export default function QuotationSheet() {
 
   // Phase 6D.1: Snapshot généré
   const [generatedSnapshot, setGeneratedSnapshot] = useState<GeneratedSnapshot | null>(null);
+
+  // Phase 8.7: Récupérer le thread_ref pour le quote_case
+  const threadRef = threadEmails[0]?.thread_ref || null;
+  const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(threadRef ?? undefined);
+
+  // Phase 8.8: Brouillon de clarification (frontend-only)
+  const [clarificationDraft, setClarificationDraft] = useState<string | null>(null);
+
+  /**
+   * Phase 8.8: Générer un brouillon de clarification frontend-only
+   * Garde-fou #2: NE doit PAS envoyer, seulement générer le texte
+   */
+  const handleRequestClarification = useCallback(() => {
+    if (blockingGaps.length === 0) return;
+
+    const clientName = projectContext.requesting_party || 'Client';
+    const questions = blockingGaps.map((g, i) => `${i + 1}. ${g.question_fr || g.gap_key}`).join('\n');
+    
+    const draft = `Bonjour${clientName ? ` ${clientName}` : ''},
+
+Merci pour votre demande de cotation. Afin de vous fournir une offre précise et adaptée à vos besoins, nous aurions besoin des informations suivantes :
+
+${questions}
+
+Nous restons à votre disposition pour tout complément d'information.
+
+Cordialement,
+L'équipe SODATRA`;
+
+    setClarificationDraft(draft);
+    setGeneratedResponse(draft);
+    toast.info('Brouillon de clarification généré - à réviser avant envoi');
+  }, [blockingGaps, projectContext.requesting_party]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
@@ -860,7 +897,7 @@ export default function QuotationSheet() {
   return (
     <MainLayout>
       <div className="container mx-auto px-4 py-6 max-w-7xl">
-        {/* Header */}
+        {/* Header - Phase 8.7: Props gating ajoutés */}
         <QuotationHeader
           isNewQuotation={isNewQuotation}
           quotationCompleted={quotationCompleted}
@@ -872,7 +909,21 @@ export default function QuotationSheet() {
           currentDraft={currentDraft}
           onSaveDraft={handleSaveDraft}
           isSaving={isSaving}
+          blockingGapsCount={blockingGaps.length}
+          quoteCaseStatus={quoteCase?.status}
+          onRequestClarification={handleRequestClarification}
         />
+
+        {/* Phase 8.7: BlockingGapsPanel - affiché juste après le header */}
+        {!quotationCompleted && !isLoadingQuoteCase && (blockingGaps.length > 0 || quoteCase) && (
+          <div className="mb-6">
+            <BlockingGapsPanel
+              quoteCaseStatus={quoteCase?.status || null}
+              blockingGaps={blockingGaps}
+              isLoading={isLoadingQuoteCase}
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Main Form */}
