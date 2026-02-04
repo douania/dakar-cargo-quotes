@@ -129,13 +129,13 @@ serve(async (req) => {
 
     switch (action) {
       case 'get_all': {
-        // Fetch all email-related data
-        const [configsRes, emailsRes, draftsRes, attachmentsRes, threadsRes] = await Promise.all([
+        // OPTIMIZED: Fetch only configs and counts to reduce memory usage
+        // Emails/threads are paginated separately via get_emails_paginated
+        const [configsRes, emailCountRes, draftCountRes, threadCountRes] = await Promise.all([
           supabase.from('email_configs').select('*').order('created_at', { ascending: false }),
-          supabase.from('emails').select('*').order('sent_at', { ascending: false }).limit(100),
-          supabase.from('email_drafts').select('*').order('created_at', { ascending: false }),
-          supabase.from('email_attachments').select('email_id'),
-          supabase.from('email_threads').select('*').order('last_message_at', { ascending: false }).limit(50)
+          supabase.from('emails').select('id', { count: 'exact', head: true }),
+          supabase.from('email_drafts').select('id', { count: 'exact', head: true }),
+          supabase.from('email_threads').select('id', { count: 'exact', head: true })
         ]);
 
         // Mask passwords in configs
@@ -148,10 +148,70 @@ serve(async (req) => {
           JSON.stringify({
             success: true,
             configs,
-            emails: emailsRes.data || [],
-            drafts: draftsRes.data || [],
-            attachments: attachmentsRes.data || [],
-            threads: threadsRes.data || []
+            counts: {
+              emails: emailCountRes.count || 0,
+              drafts: draftCountRes.count || 0,
+              threads: threadCountRes.count || 0
+            },
+            // Return empty arrays for backward compatibility - clients should use get_emails_paginated
+            emails: [],
+            drafts: [],
+            attachments: [],
+            threads: []
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case 'get_emails_paginated': {
+        // Paginated email fetching to avoid memory issues
+        const page = data?.page || 0;
+        const pageSize = Math.min(data?.pageSize || 50, 100); // Max 100 per page
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data: emails, error, count } = await supabase
+          .from('emails')
+          .select('id, from_address, subject, sent_at, is_quotation_request, thread_ref', { count: 'exact' })
+          .order('sent_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            emails: emails || [],
+            totalCount: count || 0,
+            page,
+            pageSize
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      case 'get_threads_paginated': {
+        // Paginated thread fetching
+        const page = data?.page || 0;
+        const pageSize = Math.min(data?.pageSize || 30, 50); // Max 50 per page
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data: threads, error, count } = await supabase
+          .from('email_threads')
+          .select('id, subject_normalized, email_count, last_message_at, is_quotation_thread, client_email, our_role', { count: 'exact' })
+          .order('last_message_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            threads: threads || [],
+            totalCount: count || 0,
+            page,
+            pageSize
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
