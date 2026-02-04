@@ -1,97 +1,155 @@
-# Phase 8.8 — Qualification Assistée Minimale
 
-## Statut : ✅ IMPLÉMENTÉE
+# Corrections CTO Phase 8.8 — Merge Final
 
-## Objectif CTO
+## Contexte
 
-Une phase de **qualification minimale** qui :
-- ✅ Analyse l'email et détecte les incohérences/ambiguïtés
-- ✅ Génère un draft de clarification structuré (sans chiffres)
-- ✅ Détecte explicitement : temporary import, multi-destinations, services demandés
-- ❌ NE fait PAS de suggestions HS/régime
-- ❌ NE calcule AUCUN prix
+Le CTO a validé Phase 8.8 sur le fond mais exige 4 corrections techniques et de gouvernance avant le merge définitif. Ces corrections sécurisent l'implémentation sans en modifier l'architecture.
 
 ---
 
-## Garde-fous CTO Implémentés
+## Correction #1 — `verify_jwt = true` (CRITIQUE)
 
-### 🔒 Garde-fou #1 — Edge Function STATEless et NON persistante
-
-`qualify-quotation-minimal` :
-- ❌ Ne crée aucune ligne DB
-- ❌ Ne modifie aucun quote_fact
-- ❌ Ne modifie aucun quote_gap
-- ✅ Retourne uniquement un payload éphémère pour l'UI
-
-### 🔒 Garde-fou #2 — Cotation reste IMPOSSIBLE techniquement
-
-- Le bouton "Générer la réponse" reste bloqué si `blocking_gaps.length > 0`
-- Le bouton reste bloqué si `quoteCaseStatus !== READY_TO_PRICE`
-- La clarification ne débloque rien automatiquement
-
-### 🔒 Garde-fou #3 — Langage questionnant, jamais suggestif
-
-Dans le prompt et les drafts :
-- ❌ Pas de "Le régime le plus adapté est…"
-- ❌ Pas de "Nous recommandons…"
-- ✅ Uniquement "Merci de préciser…" / "Pouvez-vous confirmer…"
-
----
-
-## Fichiers Créés
-
-| Fichier | Description |
-|---------|-------------|
-| `supabase/functions/qualify-quotation-minimal/index.ts` | Edge function stateless de qualification |
-| `src/components/puzzle/ClarificationPanel.tsx` | UI affichage draft + ambiguïtés |
-
----
-
-## Fichiers Modifiés
-
-| Fichier | Modification |
-|---------|--------------|
-| `src/pages/QuotationSheet.tsx` | Intégration appel async + ClarificationPanel |
-| `supabase/config.toml` | Ajout qualify-quotation-minimal |
-
----
-
-## Flux Utilisateur Phase 8.8
-
-```text
-1. Opérateur ouvre un dossier avec gaps bloquants
-2. BlockingGapsPanel affiche "Cotation incomplète - X éléments bloquants"
-3. Clic "Demander clarification" → appel edge function
-4. Edge function analyse l'email et détecte ambiguïtés
-5. ClarificationPanel s'affiche avec :
-   - Ambiguïtés détectées (temporary import, multi-destinations, etc.)
-   - Draft email bilingue FR/EN
-6. Opérateur révise et copie le draft
-7. L'opérateur envoie via son client email (pas d'envoi automatique)
+### Problème Identifié
+Dans `supabase/config.toml` ligne 124 :
+```toml
+[functions.qualify-quotation-minimal]
+verify_jwt = false
 ```
 
+### Risque
+- N'importe qui peut appeler l'IA avec un `thread_id` arbitraire
+- Faille de confidentialité grave (accès aux emails clients)
+
+### Correction
+Modifier `supabase/config.toml` ligne 124 :
+```toml
+[functions.qualify-quotation-minimal]
+verify_jwt = true
+```
+
+### Fichier
+`supabase/config.toml` — ligne 124
+
 ---
 
-## Ce qui est EXPLICITEMENT REPORTÉ en Phase 9
+## Correction #2 — Garde-fou "NO SIDE EFFECT" explicite
 
-| Fonctionnalité | Phase |
-|----------------|-------|
-| Sélection HS codes via IA | Phase 9 |
-| Sélection régimes douaniers | Phase 9 |
-| UI DecisionSupportPanel complet | Phase 9 |
-| Scénarios multi-destinations automatisés | Phase 9 |
-| Scores de pertinence complexes | Phase 9 |
-| Calcul ou suggestion de droits & taxes | Phase 9 |
-| Persistance des choix opérateur | Phase 9 |
+### Problème Identifié
+Le commentaire en tête de fichier mentionne la règle mais il n'y a pas de garde-fou contractuel explicite dans le code.
+
+### Correction
+Ajouter un commentaire CTO explicite après la création du client Supabase (ligne 129) :
+
+```typescript
+// ⚠️ CTO RULE: NO supabase.from(...).insert/update/delete ALLOWED HERE
+// This function is READ-ONLY: emails + quote_cases + quote_gaps SELECT only
+```
+
+### Fichier
+`supabase/functions/qualify-quotation-minimal/index.ts` — après ligne 129
 
 ---
 
-## Tests Manuels
+## Correction #3 — `can_proceed` forcé à `false`
 
-Pour tester Phase 8.8 :
-1. Ouvrir un dossier avec gaps bloquants
-2. Cliquer sur "Demander clarification"
-3. Vérifier que le ClarificationPanel s'affiche
-4. Vérifier que le draft contient des questions claires
-5. Vérifier qu'aucun prix ou suggestion technique n'apparaît
-6. Vérifier que le bouton "Générer la réponse" reste bloqué
+### Problème Identifié
+L'interface `QualifyMinimalResult` (ligne 45) contient :
+```typescript
+can_proceed: boolean;
+```
+
+Dans le fallback (ligne 267), il est calculé dynamiquement :
+```typescript
+can_proceed: existingGaps.length === 0,
+```
+
+### Risque
+Un développeur Phase 9 pourrait utiliser ce champ pour débloquer automatiquement une cotation.
+
+### Correction
+1. Modifier l'interface pour documenter la contrainte (ligne 45) :
+```typescript
+can_proceed: false; // CTO: Pricing is NEVER allowed in Phase 8.8
+```
+
+2. Forcer à `false` dans le fallback (ligne 267) :
+```typescript
+can_proceed: false, // CTO: ALWAYS false in Phase 8.8 regardless of completeness
+```
+
+3. Ajouter une validation avant le return final pour écraser toute valeur IA :
+```typescript
+// CTO RULE: Force can_proceed to false - Phase 8.8 is qualification only, NOT pricing
+result.can_proceed = false;
+```
+
+### Fichier
+`supabase/functions/qualify-quotation-minimal/index.ts` — lignes 45, 267, et avant ligne 272
+
+---
+
+## Correction #4 — ClarificationPanel 100% lecture seule
+
+### Analyse du Composant Actuel
+
+**Actions présentes :**
+| Action | Type | Backend Mutation |
+|--------|------|------------------|
+| `handleCopy` | Clipboard API | ❌ Non |
+| `onClose` | Callback UI | ❌ Non |
+| `setLanguage` | État local | ❌ Non |
+| `setShowAmbiguities` | État local | ❌ Non |
+
+**Verdict : Le composant est DÉJÀ 100% lecture seule.** Aucun appel Supabase, aucune mutation.
+
+### Correction
+Ajouter un commentaire CTO explicite en tête de fichier pour verrouiller contractuellement :
+
+```typescript
+/**
+ * Phase 8.8 — Panneau de clarification léger
+ * 
+ * CTO RULE: This panel NEVER triggers any backend mutation
+ * ❌ No supabase calls
+ * ❌ No status changes
+ * ❌ No email sending
+ * ✅ Copy to clipboard only (manual operator action)
+ * 
+ * ...
+ */
+```
+
+### Fichier
+`src/components/puzzle/ClarificationPanel.tsx` — lignes 1-9
+
+---
+
+## Résumé des Modifications
+
+| Fichier | Modification | Lignes |
+|---------|--------------|--------|
+| `supabase/config.toml` | `verify_jwt = true` | 124 |
+| `qualify-quotation-minimal/index.ts` | Commentaire NO WRITE | après 129 |
+| `qualify-quotation-minimal/index.ts` | `can_proceed` forcé false | 45, 267, avant 272 |
+| `ClarificationPanel.tsx` | Commentaire CTO read-only | 1-9 |
+
+---
+
+## Impact
+
+- **Sécurité** : JWT vérifié, accès emails protégé
+- **Intégrité** : Aucune écriture DB possible
+- **Gouvernance** : Pas de déblocage automatique pricing
+- **Traçabilité** : Commentaires CTO pour audits futurs
+
+---
+
+## Résultat Attendu
+
+Après ces 4 corrections, Phase 8.8 sera :
+- ✅ Sécurisée (JWT obligatoire)
+- ✅ Stateless (aucune écriture)
+- ✅ Non-décisionnelle (`can_proceed` toujours false)
+- ✅ UI passive (copie manuelle uniquement)
+
+Phase 8.8 pourra alors être considérée comme **clôturée et stable**.
