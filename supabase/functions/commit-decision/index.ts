@@ -182,16 +182,19 @@ serve(async (req) => {
     // -------------------------------------------------------------------------
     const proposalBatchId = crypto.randomUUID();
     
+    // CTO RULE: Snapshot timestamps are SERVER-SIDE only (no frontend trust)
+    const now = new Date().toISOString();
+    
     const { data: proposal, error: proposalError } = await serviceClient
       .from('decision_proposals')
       .insert({
         case_id,
         decision_type,
         proposal_batch_id: proposalBatchId,
-        options_json: proposal_json,
-        generated_at: proposal_json.generation_timestamp || new Date().toISOString(),
-        generated_by: proposal_json.generation_model || 'ai',
-        committed_at: new Date().toISOString(),
+        options_json: proposal_json, // Frontend metadata (model, timestamp) stays in JSON
+        generated_at: now,
+        generated_by: 'ai',
+        committed_at: now,
         committed_by: userId
       })
       .select('id')
@@ -210,13 +213,17 @@ serve(async (req) => {
     // -------------------------------------------------------------------------
     // 5. SUPERSESSION (if existing decision for this decision_type)
     // -------------------------------------------------------------------------
-    const { data: existingDecision } = await serviceClient
+    const { data: existingDecision, error: existingError } = await serviceClient
       .from('operator_decisions')
       .select('id')
       .eq('case_id', case_id)
       .eq('decision_type', decision_type)
       .eq('is_final', true)
-      .single();
+      .maybeSingle();
+
+    if (existingError) {
+      console.warn('[commit-decision] Failed to check existing decision:', existingError);
+    }
 
     // -------------------------------------------------------------------------
     // 6. INSERT DÉCISION HUMAINE (operator_decisions)
