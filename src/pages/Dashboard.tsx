@@ -73,17 +73,18 @@ export default function Dashboard() {
         }
       });
 
-      // Get draft count for processed emails
-      const { data: drafts } = await supabase
+      // Get SENT drafts only - un brouillon non envoyé n'est PAS traité
+      const { data: sentDrafts } = await supabase
         .from('email_drafts')
         .select('original_email_id')
+        .eq('status', 'sent')
         .not('original_email_id', 'is', null);
 
-      const processedEmailIds = new Set(drafts?.map(d => d.original_email_id) || []);
+      const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
-      // Enrich emails with attachment count and filter out processed ones
+      // Enrich emails with attachment count and filter out SENT ones only
       const pendingRequests = (emails || [])
-        .filter(email => !processedEmailIds.has(email.id))
+        .filter(email => !sentEmailIds.has(email.id))
         .map(email => ({
           ...email,
           attachmentCount: attachmentCounts[email.id] || 0,
@@ -104,7 +105,7 @@ export default function Dashboard() {
 
       setStats({
         pending: pendingRequests.length,
-        processed: processedEmailIds.size,
+        processed: sentEmailIds.size,
         drafts: draftCount || 0,
       });
     } catch (error) {
