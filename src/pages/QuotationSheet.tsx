@@ -914,6 +914,14 @@ L'équipe SODATRA`;
           onRequestClarification={handleRequestClarification}
         />
 
+        {/* Phase 8.7: Loader pendant chargement quote_case */}
+        {!quotationCompleted && isLoadingQuoteCase && (
+          <div className="mb-6 text-sm text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Analyse de qualification en cours…
+          </div>
+        )}
+
         {/* Phase 8.7: BlockingGapsPanel - affiché juste après le header */}
         {!quotationCompleted && !isLoadingQuoteCase && (blockingGaps.length > 0 || quoteCase) && (
           <div className="mb-6">
