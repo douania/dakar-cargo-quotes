@@ -28,6 +28,8 @@ interface QuotationHeaderProps {
   blockingGapsCount?: number;
   quoteCaseStatus?: string | null;
   onRequestClarification?: () => void;
+  // Phase 8.8: Loading state pour analyse IA
+  isLoadingClarification?: boolean;
 }
 
 // Labels humains pour les statuts (partagés avec BlockingGapsPanel)
@@ -58,6 +60,7 @@ export function QuotationHeader({
   blockingGapsCount = 0,
   quoteCaseStatus,
   onRequestClarification,
+  isLoadingClarification = false,
 }: QuotationHeaderProps) {
   // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
@@ -146,14 +149,21 @@ export function QuotationHeader({
             </Button>
           )}
           
-          {/* Phase 8.7: CTA "Demander clarification" si bloqué */}
-          {hasBlockingGaps && onRequestClarification && (
+          {/* Phase 8.8: CTA "Analyser la demande" - toujours visible si callback défini */}
+          {onRequestClarification && (
             <Button 
-              variant="secondary"
+              variant={hasBlockingGaps ? "secondary" : "outline"}
               onClick={onRequestClarification}
+              disabled={isLoadingClarification}
             >
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              Demander clarification
+              {isLoadingClarification ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : hasBlockingGaps ? (
+                <AlertTriangle className="h-4 w-4 mr-2" />
+              ) : (
+                <HelpCircle className="h-4 w-4 mr-2" />
+              )}
+              {hasBlockingGaps ? 'Demander clarification' : 'Analyser la demande'}
             </Button>
           )}
           
