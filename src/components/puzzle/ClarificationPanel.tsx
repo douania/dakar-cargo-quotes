@@ -1,6 +1,12 @@
 /**
  * Phase 8.8 — Panneau de clarification léger
  * 
+ * CTO RULE: This panel NEVER triggers any backend mutation
+ * ❌ No supabase calls
+ * ❌ No status changes
+ * ❌ No email sending
+ * ✅ Copy to clipboard only (manual operator action)
+ * 
  * Affiche le draft de clarification généré + ambiguïtés détectées
  * UI simple: lecture + copie uniquement
  * 
