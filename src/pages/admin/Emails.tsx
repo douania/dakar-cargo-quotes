@@ -149,74 +149,124 @@ export default function Emails() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('email-admin', {
+      // OPTIMIZED: Split into separate calls to avoid memory overflow
+      // 1. Get configs and counts (lightweight)
+      const { data: configData, error: configError } = await supabase.functions.invoke('email-admin', {
         body: { action: 'get_all' }
       });
 
-      if (error) throw error;
+      if (configError) throw configError;
 
-      if (data?.success) {
-        setConfigs(data.configs || []);
-        setEmails(data.emails || []);
-        setDrafts(data.drafts || []);
-        setThreads(data.threads || []);
-        
-        const counts: Record<string, number> = {};
-        const details: Record<string, { types: string[], filenames: string[] }> = {};
-        
-        // Store all attachments for stats
-        setAllAttachments(data.attachments || []);
-        
-        (data.attachments || []).forEach((att: any) => {
-          if (att.email_id) {
-            counts[att.email_id] = (counts[att.email_id] || 0) + 1;
-            
-            if (!details[att.email_id]) {
-              details[att.email_id] = { types: [], filenames: [] };
+      if (configData?.success) {
+        setConfigs(configData.configs || []);
+        // Counts are now available in configData.counts
+      }
+
+      // 2. Get paginated threads
+      const { data: threadData, error: threadError } = await supabase.functions.invoke('email-admin', {
+        body: { action: 'get_threads_paginated', data: { page: 0, pageSize: 50 } }
+      });
+
+      if (!threadError && threadData?.success) {
+        setThreads(threadData.threads || []);
+      }
+
+      // 3. Get drafts directly from Supabase (lightweight)
+      const { data: draftsData } = await supabase
+        .from('email_drafts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      setDrafts(draftsData || []);
+
+      // 4. Get emails for the current threads
+      const threadIds = (threadData?.threads || []).map((t: any) => t.id);
+      if (threadIds.length > 0) {
+        const { data: emailsData } = await supabase
+          .from('emails')
+          .select('*')
+          .in('thread_ref', threadIds)
+          .order('sent_at', { ascending: false })
+          .limit(300);
+        setEmails((emailsData || []) as Email[]);
+
+        // 5. Get attachments for these emails only
+        const emailIds = (emailsData || []).map((e: any) => e.id);
+        if (emailIds.length > 0) {
+          const { data: attachmentsData } = await supabase
+            .from('email_attachments')
+            .select('id, email_id, filename, content_type, is_analyzed, storage_path')
+            .in('email_id', emailIds);
+          
+          const attachments = attachmentsData || [];
+          setAllAttachments(attachments);
+          
+          const counts: Record<string, number> = {};
+          const details: Record<string, { types: string[], filenames: string[] }> = {};
+          
+          attachments.forEach((att: any) => {
+            if (att.email_id) {
+              counts[att.email_id] = (counts[att.email_id] || 0) + 1;
+              
+              if (!details[att.email_id]) {
+                details[att.email_id] = { types: [], filenames: [] };
+              }
+              
+              const filename = att.filename || '';
+              const ext = filename.split('.').pop()?.toLowerCase() || '';
+              let fileType = 'DOC';
+              
+              if (['pdf'].includes(ext)) fileType = 'PDF';
+              else if (['xlsx', 'xls'].includes(ext)) fileType = 'Excel';
+              else if (['docx', 'doc'].includes(ext)) fileType = 'Word';
+              else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'Image';
+              else if (['csv'].includes(ext)) fileType = 'CSV';
+              else if (['txt'].includes(ext)) fileType = 'TXT';
+              else if (['zip', 'rar', '7z'].includes(ext)) fileType = 'Archive';
+              
+              if (!details[att.email_id].types.includes(fileType)) {
+                details[att.email_id].types.push(fileType);
+              }
+              details[att.email_id].filenames.push(filename);
             }
-            
-            // Determine file type from filename or content_type
-            const filename = att.filename || '';
-            const ext = filename.split('.').pop()?.toLowerCase() || '';
-            let fileType = 'DOC';
-            
-            if (['pdf'].includes(ext)) fileType = 'PDF';
-            else if (['xlsx', 'xls'].includes(ext)) fileType = 'Excel';
-            else if (['docx', 'doc'].includes(ext)) fileType = 'Word';
-            else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'Image';
-            else if (['csv'].includes(ext)) fileType = 'CSV';
-            else if (['txt'].includes(ext)) fileType = 'TXT';
-            else if (['zip', 'rar', '7z'].includes(ext)) fileType = 'Archive';
-            
-            if (!details[att.email_id].types.includes(fileType)) {
-              details[att.email_id].types.push(fileType);
-            }
-            details[att.email_id].filenames.push(filename);
-          }
-        });
-        
-        setAttachmentCounts(counts);
-        setAttachmentDetails(details);
-        
-        // Filter unanalyzed attachments (exclude temporary files)
-        const TEMP_FILE_PATTERNS = [
-          /^~\$/,           // Word temp files
-          /^~WRD/,          // Word recovery
-          /^~WRL/,          // Word lock
-          /\.tmp$/i,        // Temp files
-          /^Thumbs\.db$/i,  // Windows thumbnails
-          /^\.DS_Store$/,   // Mac files
-        ];
-        
-        const isTemporaryFile = (filename: string) => 
-          TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
-        
-        const unanalyzed = (data.attachments || []).filter((att: any) => 
-          !att.is_analyzed && 
-          !isTemporaryFile(att.filename) &&
-          att.storage_path // Has valid storage path
-        );
-        setUnanalyzedAttachments(unanalyzed);
+          });
+          
+          setAttachmentCounts(counts);
+          setAttachmentDetails(details);
+          
+          // Filter unanalyzed attachments
+          const TEMP_FILE_PATTERNS = [
+            /^~\$/,
+            /^~WRD/,
+            /^~WRL/,
+            /\.tmp$/i,
+            /^Thumbs\.db$/i,
+            /^\.DS_Store$/,
+          ];
+          
+          const isTemporaryFile = (filename: string) => 
+            TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
+          
+          const unanalyzed = attachments.filter((att: any) => 
+            !att.is_analyzed && 
+            !isTemporaryFile(att.filename) &&
+            att.storage_path
+          );
+          setUnanalyzedAttachments(unanalyzed);
+        } else {
+          setEmails([]);
+          setAllAttachments([]);
+          setAttachmentCounts({});
+          setAttachmentDetails({});
+          setUnanalyzedAttachments([]);
+        }
+      } else {
+        setEmails([]);
+        setThreads([]);
+        setAllAttachments([]);
+        setAttachmentCounts({});
+        setAttachmentDetails({});
+        setUnanalyzedAttachments([]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
