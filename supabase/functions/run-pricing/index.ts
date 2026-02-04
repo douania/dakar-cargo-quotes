@@ -1,6 +1,7 @@
 /**
- * Phase 7.0.4-fix: run-pricing
+ * Phase 11: run-pricing
  * Executes deterministic pricing via quotation-engine
+ * CTO Update: Now requires ACK_READY_FOR_PRICING status (Phase 10 gate)
  * CTO Fixes: Atomic run_number, Status rollback compensation, Blocking gaps guard
  */
 
@@ -101,12 +102,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (caseData.status !== "READY_TO_PRICE") {
+    if (caseData.status !== "ACK_READY_FOR_PRICING") {
       return new Response(
         JSON.stringify({ 
           error: "Case not ready for pricing",
           current_status: caseData.status,
-          required_status: "READY_TO_PRICE"
+          required_status: "ACK_READY_FOR_PRICING"
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -144,7 +145,7 @@ Deno.serve(async (req) => {
     await serviceClient.from("case_timeline_events").insert({
       case_id,
       event_type: "status_changed",
-      previous_value: "READY_TO_PRICE",
+      previous_value: "ACK_READY_FOR_PRICING",
       new_value: "PRICING_RUNNING",
       actor_type: "system",
     });
@@ -158,7 +159,7 @@ Deno.serve(async (req) => {
 
     if (factsError) {
       // CTO FIX: Rollback status on error
-      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "facts_load_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "facts_load_failed");
       throw new Error(`Failed to load facts: ${factsError.message}`);
     }
 
@@ -184,7 +185,7 @@ Deno.serve(async (req) => {
 
     if (rpcError || runNumber === null) {
       // CTO FIX: Rollback status on error
-      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_number_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_number_failed");
       throw new Error(`Failed to get run number: ${rpcError?.message || "null result"}`);
     }
 
@@ -213,7 +214,7 @@ Deno.serve(async (req) => {
       pricingRun = runData;
     } catch (insertError: any) {
       // CTO FIX: Rollback status if run creation fails
-      await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_insert_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_insert_failed");
       
       await serviceClient.from("case_timeline_events").insert({
         case_id,
