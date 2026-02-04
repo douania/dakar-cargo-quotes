@@ -125,3 +125,6 @@ verify_jwt = true
 
 [functions.suggest-decisions]
 verify_jwt = true
+
+[functions.commit-decision]
+verify_jwt = true
