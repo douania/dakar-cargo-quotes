@@ -1,7 +1,8 @@
 
-# PLAN D'IMPLÉMENTATION PHASE 9.4
 
-## UI DecisionSupportPanel (Aide a la decision humaine)
+# PLAN D'IMPLEMENTATION PHASE 10.1
+
+## UI GATE "Lancer le pricing" (STRICT, EXPLICITE, SANS CALCUL)
 
 ---
 
@@ -11,94 +12,80 @@
 
 | Ressource | Chemin | Statut |
 |-----------|--------|--------|
-| Edge Function `suggest-decisions` | `supabase/functions/suggest-decisions/index.ts` | OK - STATELESS |
-| Edge Function `commit-decision` | `supabase/functions/commit-decision/index.ts` | OK - SEUL WRITE POINT |
-| Hook `useQuoteCaseData` | `src/hooks/useQuoteCaseData.ts` | OK - Lecture quote_case + gaps |
+| Edge Function `run-pricing` | `supabase/functions/run-pricing/index.ts` | OK - PHASE 11 EXISTANTE |
+| Edge Function `ack-pricing-ready` | `supabase/functions/ack-pricing-ready/index.ts` | OK - GATE PHASE 10 |
+| Hook `useQuoteCaseData` | `src/hooks/useQuoteCaseData.ts` | OK - Lecture quote_case |
 | Page `QuotationSheet` | `src/pages/QuotationSheet.tsx` | OK - Integration cible |
-| Composant `BlockingGapsPanel` | `src/components/puzzle/BlockingGapsPanel.tsx` | OK - Pattern existant |
-| Composant `ClarificationPanel` | `src/components/puzzle/ClarificationPanel.tsx` | OK - Pattern existant |
+| Composant `DecisionSupportPanel` | `src/components/puzzle/DecisionSupportPanel.tsx` | OK - Pattern reference |
 
-### 1.2 Composants UI existants a reutiliser
+### 1.2 Statut gate confirme
 
-- `Card`, `CardHeader`, `CardContent`, `CardTitle`, `CardDescription`
-- `Button` (variants: default, outline, ghost)
-- `Badge` (variants: default, secondary, outline, destructive)
-- `RadioGroup`, `RadioGroupItem`
-- `AlertDialog` + sous-composants (confirmation)
-- `Textarea`, `Input`, `Label`
-- `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent`
-- `Loader2`, `CheckCircle`, `AlertTriangle` (icones)
-
-### 1.3 Contrats API confirmes
-
-**suggest-decisions (INPUT)**:
 ```typescript
-{ case_id: string; decision_types?: DecisionType[] }
+// Dans src/integrations/supabase/types.ts (lignes 3199-3201, 3349-3351)
+quote_case_status: [
+  "DECISIONS_PENDING",
+  "DECISIONS_COMPLETE", 
+  "ACK_READY_FOR_PRICING"  // <-- GATE OUVERT = VISIBLE
+]
 ```
 
-**suggest-decisions (OUTPUT)**:
+### 1.3 Integration actuelle DecisionSupportPanel (pattern a suivre)
+
 ```typescript
-{ 
-  proposals: DecisionProposal[]; 
-  missing_info: string[]; 
-  can_proceed: false 
-}
+// QuotationSheet.tsx lignes 1001-1007
+{!quotationCompleted && quoteCase?.id && 
+ ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
+  <div className="mb-6">
+    <DecisionSupportPanel caseId={quoteCase.id} />
+  </div>
+)}
 ```
 
-**commit-decision (INPUT)**:
-```typescript
-{
-  case_id: string;
-  decision_type: DecisionType;
-  proposal_json: { options: any[]; source_fact_ids: string[] };
-  selected_key: string;
-  override_value?: string;
-  override_reason?: string;
-}
-```
+### 1.4 Edge Function run-pricing confirmee
 
-**commit-decision (OUTPUT)**:
-```typescript
-{ decision_id: string; remaining_decisions: number; all_complete: boolean }
-```
+- Statut requis actuel: `READY_TO_PRICE` (ligne 104)
+- Ownership check: `created_by` ou `assigned_to` (ligne 97)
+- Guard gaps bloquants: Oui (lignes 116-132)
+
+**Note importante**: `run-pricing` attend `READY_TO_PRICE`, pas `ACK_READY_FOR_PRICING`. 
+Ceci sera corrige dans Phase 11, mais pour Phase 10.1 l'UI appellera `run-pricing` et gerera l'erreur de statut gracieusement.
 
 ---
 
-## 2. ARCHITECTURE DES COMPOSANTS
+## 2. ARCHITECTURE PHASE 10.1
 
 ```text
 +------------------------------------------------------------------+
 |                      QuotationSheet.tsx                          |
 |                                                                  |
 |  +------------------------------------------------------------+  |
-|  |  BlockingGapsPanel (Phase 8.7)                             |  |
+|  |  DecisionSupportPanel (Phase 9.4)                          |  |
+|  |  Visible si: DECISIONS_PENDING, DECISIONS_COMPLETE         |  |
 |  +------------------------------------------------------------+  |
 |                                                                  |
 |  +------------------------------------------------------------+  |
-|  |  ClarificationPanel (Phase 8.8)                            |  |
+|  |  PricingLaunchPanel (Phase 10.1) <-- NOUVEAU               |  |
+|  |  Visible si: ACK_READY_FOR_PRICING uniquement              |  |
+|  |                                                             |  |
+|  |  +-------------------------------------------------------+  |  |
+|  |  |  Card (amber/warning accent)                          |  |  |
+|  |  |                                                        |  |  |
+|  |  |  Title: "Lancer le pricing"                           |  |  |
+|  |  |  Description: Decisions validees, pret pour calcul    |  |  |
+|  |  |                                                        |  |  |
+|  |  |  [Alert info: tracabilite]                            |  |  |
+|  |  |                                                        |  |  |
+|  |  |  [Button: Lancer le pricing]                          |  |  |
+|  |  |      |                                                 |  |  |
+|  |  |      v                                                 |  |  |
+|  |  |  AlertDialog de confirmation                          |  |  |
+|  |  |      |                                                 |  |  |
+|  |  |      v                                                 |  |  |
+|  |  |  Appel run-pricing Edge Function                      |  |  |
+|  |  +-------------------------------------------------------+  |  |
 |  +------------------------------------------------------------+  |
 |                                                                  |
-|  +------------------------------------------------------------+  |
-|  |  DecisionSupportPanel (Phase 9.4) <-- NOUVEAU              |  |
-|  |                                                             |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |  |  [Generer les options de decision]  <-- Bouton manuel |  |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |                                                             |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |  |  DecisionProgressIndicator <-- NOUVEAU                |  |  |
-|  |  |  Decisions validees: 3 / 5                            |  |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |                                                             |  |
-|  |  +-------------------------------------------------------+  |  |
-|  |  |  DecisionTypeSection x 5                              |  |  |
-|  |  |  - Regime douanier                                    |  |  |
-|  |  |  - Routage                                            |  |  |
-|  |  |  - Services                                           |  |  |
-|  |  |  - Incoterm                                           |  |  |
-|  |  |  - Conteneur                                          |  |  |
-|  |  +-------------------------------------------------------+  |  |
-|  +------------------------------------------------------------+  |
+|  [Reste du formulaire...]                                        |
 +------------------------------------------------------------------+
 ```
 
@@ -106,291 +93,329 @@
 
 ## 3. LIVRABLES
 
-### 3.1 Fichiers a creer
+### 3.1 Fichier a creer
 
 | Fichier | Responsabilite |
 |---------|----------------|
-| `src/components/puzzle/DecisionSupportPanel.tsx` | Panneau principal aide a la decision |
-| `src/components/puzzle/DecisionProgressIndicator.tsx` | Indicateur avancement 0-5 |
-| `src/hooks/useDecisionSupport.ts` | Hook orchestration appels API |
+| `src/components/puzzle/PricingLaunchPanel.tsx` | Bouton explicite pour lancer le pricing |
 
-### 3.2 Fichiers a modifier
+### 3.2 Fichier a modifier
 
 | Fichier | Modification |
 |---------|--------------|
-| `src/pages/QuotationSheet.tsx` | Integrer DecisionSupportPanel apres ClarificationPanel |
+| `src/pages/QuotationSheet.tsx` | Importer et afficher PricingLaunchPanel |
 
 ---
 
 ## 4. SPECIFICATION TECHNIQUE
 
-### 4.1 Hook `useDecisionSupport.ts`
+### 4.1 Interface Props
 
 ```typescript
-// src/hooks/useDecisionSupport.ts
-
-interface DecisionOption {
-  key: string;
-  label_fr: string;
-  label_en: string;
-  justification_fr: string;
-  justification_en: string;
-  pros: string[];
-  cons: string[];
-  confidence_level: 'low' | 'medium' | 'high';
-  is_recommended: boolean;
+interface PricingLaunchPanelProps {
+  caseId: string;
 }
+```
 
-interface DecisionProposal {
-  decision_type: DecisionType;
-  options: DecisionOption[];
-  source_fact_ids: string[];
-}
+### 4.2 Structure du composant
 
-type DecisionType = 'regime' | 'routing' | 'services' | 'incoterm' | 'container';
+```typescript
+// src/components/puzzle/PricingLaunchPanel.tsx
 
-interface LocalDecisionState {
-  selectedKey: string | null;
-  overrideValue: string | null;
-  overrideReason: string | null;
-  isCommitted: boolean;
-  committedAt: string | null;
-}
+// ============================================================================
+// Phase 10.1 — UI GATE "Lancer le pricing"
+// 
+// ⚠️ CTO RULES ABSOLUES:
+// ❌ AUCUN calcul de prix ici
+// ❌ AUCUNE logique metier
+// ❌ AUCUNE lecture des tables pricing
+// ❌ AUCUNE transition de statut (geree par run-pricing)
+// ❌ AUCUN auto-trigger
+// 
+// ✅ UI uniquement
+// ✅ Declenchement explicite Phase 11 (run-pricing)
+// ✅ Confirmation utilisateur obligatoire
+// ============================================================================
 
-interface UseDecisionSupportReturn {
-  // Donnees
-  proposals: DecisionProposal[];
-  missingInfo: string[];
-  isLoading: boolean;
-  isCommitting: boolean;
-  error: string | null;
+import { useState } from 'react';
+import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+```
+
+### 4.3 Etats internes
+
+```typescript
+const [isLoading, setIsLoading] = useState(false);
+const [confirmOpen, setConfirmOpen] = useState(false);
+const [error, setError] = useState<string | null>(null);
+```
+
+### 4.4 Handler de lancement
+
+```typescript
+const handleLaunchPricing = async () => {
+  setIsLoading(true);
+  setError(null);
   
-  // Etat local par decision_type
-  localState: Record<DecisionType, LocalDecisionState>;
-  
-  // Actions
-  generateOptions: () => Promise<void>;
-  selectOption: (type: DecisionType, key: string) => void;
-  setOverride: (type: DecisionType, value: string, reason: string) => void;
-  commitDecision: (type: DecisionType) => Promise<CommitResult>;
-  
-  // Statistiques
-  committedCount: number;
-  remainingCount: number;
-  allComplete: boolean;
-}
-```
-
-**Regles du hook**:
-- Aucune logique metier
-- Orchestration pure des appels Edge Functions
-- Etat local pour selections (pas de write DB direct)
-- Utilise `supabase.functions.invoke()`
-
-### 4.2 Composant `DecisionProgressIndicator.tsx`
-
-```typescript
-// src/components/puzzle/DecisionProgressIndicator.tsx
-
-interface Props {
-  decisions: {
-    type: DecisionType;
-    label: string;
-    isCommitted: boolean;
-  }[];
-}
-
-// Affiche:
-// Decisions validees: 3 / 5
-// - Regime       [check]
-// - Routage      [check] 
-// - Services     [pending]
-// - Incoterm     [pending]
-// - Conteneur    [check]
-
-// REGLES CTO:
-// - Aucun bouton "continuer"
-// - Aucun changement de statut
-// - Lecture pure
-```
-
-### 4.3 Composant `DecisionSupportPanel.tsx`
-
-Structure interne:
-```text
-DecisionSupportPanel
-|
-+-- Bouton "Generer les options" (manuel)
-|
-+-- DecisionProgressIndicator (lecture)
-|
-+-- Pour chaque DecisionProposal:
-    |
-    +-- Card avec titre du type
-    |
-    +-- RadioGroup (choix exclusif)
-    |   |
-    |   +-- Pour chaque option:
-    |       +-- RadioGroupItem
-    |       +-- Label + Badge "Recommande" (si is_recommended)
-    |       +-- Justification (collapsed)
-    |       +-- Pros/Cons (collapsed)
-    |       +-- Badge confiance
-    |
-    +-- Option "Autre choix" avec champ libre
-    |   +-- Si selectionne: champ justification OBLIGATOIRE
-    |
-    +-- Bouton "Valider ce choix"
-    |   +-- Disabled si aucune selection
-    |   +-- Disabled si override sans reason
-    |
-    +-- AlertDialog de confirmation
-        +-- Resume du choix
-        +-- Avertissement tracabilite
-        +-- [Annuler] [Confirmer]
-```
-
----
-
-## 5. REGLES CTO STRICTES
-
-### 5.1 Interdits absolus (verifies dans le code)
-
-```typescript
-// JAMAIS dans DecisionSupportPanel.tsx:
-supabase.from(...).insert(...)
-supabase.from(...).update(...)
-supabase.from(...).delete(...)
-
-// JAMAIS d'auto-selection:
-const [selectedKey, setSelectedKey] = useState(null); // OK
-const [selectedKey, setSelectedKey] = useState(options[0]?.key); // INTERDIT
-
-// JAMAIS de bouton auto:
-onClick={() => navigate('/pricing')} // INTERDIT
-```
-
-### 5.2 Pattern de confirmation obligatoire
-
-```typescript
-// Sequence obligatoire pour commit:
-// 1. Selection humaine (RadioGroup)
-// 2. Clic "Valider ce choix"
-// 3. AlertDialog s'ouvre
-// 4. Clic "Confirmer" dans AlertDialog
-// 5. Appel commit-decision
-// 6. UI mise a jour
-
-// JAMAIS de commit sans confirmation dialog
-```
-
-### 5.3 Override avec justification
-
-```typescript
-// Si override_value !== null:
-if (!overrideReason || overrideReason.trim() === '') {
-  // Bouton "Valider" = DISABLED
-  // Message: "Justification obligatoire pour un choix personnalise"
-}
-```
-
----
-
-## 6. CONDITIONS D'AFFICHAGE
-
-Le DecisionSupportPanel sera visible UNIQUEMENT si:
-```typescript
-const showDecisionSupport = 
-  !quotationCompleted && 
-  quoteCase?.status && 
-  ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status);
-```
-
-Position dans QuotationSheet:
-1. BlockingGapsPanel (Phase 8.7)
-2. ClarificationPanel (Phase 8.8)
-3. **DecisionSupportPanel (Phase 9.4)** <-- ICI
-4. Reste du formulaire...
-
----
-
-## 7. LABELS FRANCAIS
-
-```typescript
-const DECISION_TYPE_LABELS: Record<DecisionType, { label: string; icon: LucideIcon }> = {
-  regime: { label: 'Regime douanier', icon: FileText },
-  routing: { label: 'Itineraire logistique', icon: MapPin },
-  services: { label: 'Perimetre de services', icon: Settings },
-  incoterm: { label: 'Incoterm', icon: FileSignature },
-  container: { label: 'Strategie conteneur', icon: Container },
-};
-
-const CONFIDENCE_LABELS: Record<string, { label: string; variant: string }> = {
-  low: { label: 'Faible confiance', variant: 'destructive' },
-  medium: { label: 'Confiance moyenne', variant: 'secondary' },
-  high: { label: 'Haute confiance', variant: 'default' },
+  try {
+    // ❌ AUCUN calcul de prix ici
+    // ❌ AUCUNE logique metier
+    // ❌ AUCUNE lecture des tables pricing
+    // ❌ AUCUNE transition de statut
+    // ✅ Appel unique run-pricing
+    
+    const { data, error: fnError } = await supabase.functions.invoke('run-pricing', {
+      body: { case_id: caseId }
+    });
+    
+    if (fnError) throw fnError;
+    
+    toast.success(`Pricing lance - ${data.lines_count} lignes calculees`);
+    setConfirmOpen(false);
+    
+    // Pas de redirection automatique - l'UI se mettra a jour via le hook
+    
+  } catch (err: any) {
+    console.error('[PricingLaunchPanel] Error:', err);
+    
+    // Gestion des erreurs specifiques
+    const message = err.message || 'Erreur inconnue';
+    if (message.includes('not ready') || message.includes('status')) {
+      setError('Le dossier n\'est pas pret pour le pricing');
+    } else if (message.includes('Access denied')) {
+      setError('Vous n\'avez pas acces a ce dossier');
+    } else {
+      setError(message);
+    }
+    
+    toast.error('Erreur lors du lancement du pricing');
+  } finally {
+    setIsLoading(false);
+  }
 };
 ```
 
 ---
 
-## 8. GESTION DES ERREURS
+## 5. STRUCTURE UI COMPLETE
+
+### 5.1 Card principale
 
 ```typescript
-// Erreur 409 (statut invalide)
-if (error.status === 409) {
-  toast.error("Le dossier n'est pas pret pour les decisions");
-}
+<Card className="border-amber-200 bg-amber-50/30">
+  <CardHeader className="pb-3">
+    <div className="flex items-center gap-2">
+      <Calculator className="h-5 w-5 text-amber-600" />
+      <CardTitle className="text-base">Lancer le pricing</CardTitle>
+    </div>
+    <CardDescription>
+      Toutes les decisions sont validees. 
+      Vous pouvez maintenant lancer le calcul de prix.
+    </CardDescription>
+  </CardHeader>
+  
+  <CardContent className="space-y-4">
+    {/* Alert info tracabilite */}
+    <Alert className="border-blue-200 bg-blue-50">
+      <Info className="h-4 w-4 text-blue-600" />
+      <AlertDescription className="text-sm text-blue-800">
+        Cette action est tracee et auditee. 
+        Le calcul peut prendre plusieurs secondes.
+      </AlertDescription>
+    </Alert>
+    
+    {/* Erreur si presente */}
+    {error && (
+      <Alert variant="destructive">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )}
+    
+    {/* Bouton principal */}
+    <Button
+      onClick={() => setConfirmOpen(true)}
+      disabled={isLoading}
+      className="w-full gap-2 bg-amber-600 hover:bg-amber-700"
+    >
+      {isLoading ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Calcul en cours...
+        </>
+      ) : (
+        <>
+          <Calculator className="h-4 w-4" />
+          Lancer le pricing
+        </>
+      )}
+    </Button>
+  </CardContent>
+</Card>
+```
 
-// Erreur 403 (ownership)
-if (error.status === 403) {
-  toast.error("Vous n'avez pas acces a ce dossier");
-}
+### 5.2 AlertDialog de confirmation
 
-// Erreur 400 (validation)
-if (error.status === 400) {
-  toast.error(error.message || "Donnees invalides");
-}
+```typescript
+<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Confirmer le lancement du pricing ?</AlertDialogTitle>
+      <AlertDialogDescription asChild>
+        <div className="space-y-3">
+          <p>Cette action va declencher le moteur de pricing.</p>
+          
+          <ul className="list-disc list-inside text-sm space-y-1">
+            <li>Le calcul est base sur les decisions validees</li>
+            <li>L'operation est tracee et auditee</li>
+            <li>Le calcul peut prendre plusieurs secondes</li>
+          </ul>
+          
+          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+            <p className="text-sm text-amber-800">
+              Une fois lance, le pricing ne peut pas etre annule.
+            </p>
+          </div>
+        </div>
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel disabled={isLoading}>Annuler</AlertDialogCancel>
+      <AlertDialogAction 
+        onClick={handleLaunchPricing}
+        disabled={isLoading}
+        className="bg-amber-600 hover:bg-amber-700"
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Calcul...
+          </>
+        ) : (
+          'Confirmer'
+        )}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
 ```
 
 ---
 
-## 9. TESTS UI A REUSSIR
+## 6. INTEGRATION QUOTATIONSHEET
 
-| Test | Verification |
-|------|--------------|
-| Impossible de valider sans selection | Bouton disabled |
-| Impossible de valider "Autre" sans justification | Bouton disabled + message |
-| Impossible de commit sans confirmation | AlertDialog obligatoire |
-| Chaque clic confirme = 1 appel commit-decision | Logs reseau |
-| Refresh page = decisions deja validees visibles | Persistance |
-| Aucune option masquee | Toutes visibles |
-| Aucun auto-flow vers pricing | Pas de navigation auto |
-| Badge "Recommande" ne change pas l'ordre | Ordre stable |
+### 6.1 Import
+
+```typescript
+// Ligne ~67 apres DecisionSupportPanel
+// Phase 10.1: Pricing launch panel
+import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
+```
+
+### 6.2 Condition d'affichage (STRICTE)
+
+```typescript
+// Apres DecisionSupportPanel (ligne ~1007)
+{/* Phase 10.1: PricingLaunchPanel - visible UNIQUEMENT si ACK_READY_FOR_PRICING */}
+{!quotationCompleted && quoteCase?.id && 
+ quoteCase.status === 'ACK_READY_FOR_PRICING' && (
+  <div className="mb-6">
+    <PricingLaunchPanel caseId={quoteCase.id} />
+  </div>
+)}
+```
+
+---
+
+## 7. REGLES CTO STRICTES
+
+### 7.1 Interdits absolus (commentaires dans le code)
+
+```typescript
+// ============================================================================
+// Phase 10.1 — UI GATE "Lancer le pricing"
+// 
+// ⚠️ CTO RULES ABSOLUES:
+// ❌ AUCUN calcul de prix ici
+// ❌ AUCUNE logique metier
+// ❌ AUCUNE lecture des tables pricing
+// ❌ AUCUNE transition de statut (geree par run-pricing)
+// ❌ AUCUN auto-trigger
+// 
+// ✅ UI uniquement
+// ✅ Declenchement explicite Phase 11 (run-pricing)
+// ✅ Confirmation utilisateur obligatoire
+// ============================================================================
+```
+
+### 7.2 Condition d'affichage stricte
+
+```typescript
+// GATE unique autorise
+quoteCase.status === 'ACK_READY_FOR_PRICING'
+
+// JAMAIS:
+// - status !== 'ACK_READY_FOR_PRICING' → Panel NON visible
+// - Aucun affichage conditionnel autre
+```
+
+---
+
+## 8. TESTS UI OBLIGATOIRES
+
+| Test | Resultat attendu |
+|------|------------------|
+| status != ACK_READY_FOR_PRICING | Panel NON visible |
+| status = ACK_READY_FOR_PRICING | Panel visible |
+| Clic bouton | AlertDialog s'ouvre |
+| Confirmer | 1 appel run-pricing |
+| Double clic | Bouton disabled (isLoading) |
+| Refresh page | Bouton toujours visible (si statut inchange) |
+| Aucune navigation auto | OK |
+| Erreur API | Message affiche, pas de crash |
+
+---
+
+## 9. GESTION DES ERREURS
+
+| Scenario | Comportement |
+|----------|--------------|
+| run-pricing retourne 400 (statut invalide) | Afficher "Le dossier n'est pas pret" |
+| run-pricing retourne 403 (acces refuse) | Afficher "Acces refuse" |
+| run-pricing retourne 500 (erreur serveur) | Afficher message d'erreur |
+| Succes | Toast + UI mise a jour via hook |
 
 ---
 
 ## 10. SEQUENCE D'IMPLEMENTATION
 
-1. **Creer `useDecisionSupport.ts`**
-   - Types
-   - Appels suggest-decisions / commit-decision
-   - Gestion etat local
+1. **Creer `src/components/puzzle/PricingLaunchPanel.tsx`**
+   - Header avec regles CTO
+   - Props interface
+   - Etats internes
+   - Handler handleLaunchPricing
+   - Card UI
+   - AlertDialog confirmation
 
-2. **Creer `DecisionProgressIndicator.tsx`**
-   - Composant simple lecture
-   - Affichage 0/5 -> 5/5
-
-3. **Creer `DecisionSupportPanel.tsx`**
-   - Structure complete
-   - Integration RadioGroup
-   - Integration AlertDialog
-   - Gestion override
-
-4. **Modifier `QuotationSheet.tsx`**
-   - Import DecisionSupportPanel
-   - Condition d'affichage
-   - Placement apres ClarificationPanel
+2. **Modifier `src/pages/QuotationSheet.tsx`**
+   - Import PricingLaunchPanel
+   - Condition d'affichage stricte
+   - Placement apres DecisionSupportPanel
 
 ---
 
@@ -398,14 +423,25 @@ if (error.status === 400) {
 
 | Regle | Application |
 |-------|-------------|
-| Aucune ecriture DB frontend | Appels Edge Functions uniquement |
-| Aucune auto-selection | useState(null) par defaut |
-| Aucun bouton auto | Pas de navigation |
-| Options toutes visibles | Pas de filtre |
-| Badge discret | Pas de reordonnancement |
-| Confirmation obligatoire | AlertDialog avant commit |
-| Justification override | Validation frontend + backend |
+| Gate deja ouvert requis | ✅ ACK_READY_FOR_PRICING uniquement |
+| Action humaine explicite | ✅ Clic bouton obligatoire |
+| Confirmation obligatoire | ✅ AlertDialog |
+| Aucun calcul | ✅ Appel run-pricing uniquement |
+| Aucun auto-flow | ✅ Pas de navigation auto |
+| UI uniquement | ✅ Pas de logique metier |
+| Phase 11 appelee explicitement | ✅ supabase.functions.invoke('run-pricing') |
+
+---
+
+## 12. CE QUI N'EST PAS DANS CETTE PHASE
+
+| Element | Phase |
+|---------|-------|
+| Correction statut run-pricing (READY_TO_PRICE → ACK_READY_FOR_PRICING) | Phase 11 |
+| Affichage des resultats pricing | Phase 11+ |
+| Generation PDF apres pricing | Phase 12 |
 
 ---
 
 **Ce plan est pret pour validation CTO et implementation.**
+
