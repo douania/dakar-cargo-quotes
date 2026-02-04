@@ -404,6 +404,53 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_proposals: {
+        Row: {
+          case_id: string
+          committed_at: string | null
+          committed_by: string | null
+          created_at: string
+          decision_type: Database["public"]["Enums"]["decision_type"]
+          generated_at: string
+          generated_by: string
+          id: string
+          options_json: Json
+          proposal_batch_id: string
+        }
+        Insert: {
+          case_id: string
+          committed_at?: string | null
+          committed_by?: string | null
+          created_at?: string
+          decision_type: Database["public"]["Enums"]["decision_type"]
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          options_json: Json
+          proposal_batch_id?: string
+        }
+        Update: {
+          case_id?: string
+          committed_at?: string | null
+          committed_by?: string | null
+          created_at?: string
+          decision_type?: Database["public"]["Enums"]["decision_type"]
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          options_json?: Json
+          proposal_batch_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_proposals_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       demurrage_rates: {
         Row: {
           carrier: string
@@ -1574,6 +1621,73 @@ export type Database = {
           unit?: string
         }
         Relationships: []
+      }
+      operator_decisions: {
+        Row: {
+          case_id: string
+          created_at: string
+          decided_at: string
+          decided_by: string
+          decision_type: Database["public"]["Enums"]["decision_type"]
+          id: string
+          is_final: boolean
+          override_reason: string | null
+          override_value: string | null
+          proposal_id: string
+          selected_key: string
+          superseded_by: string | null
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          decided_at?: string
+          decided_by: string
+          decision_type: Database["public"]["Enums"]["decision_type"]
+          id?: string
+          is_final?: boolean
+          override_reason?: string | null
+          override_value?: string | null
+          proposal_id: string
+          selected_key: string
+          superseded_by?: string | null
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          decided_at?: string
+          decided_by?: string
+          decision_type?: Database["public"]["Enums"]["decision_type"]
+          id?: string
+          is_final?: boolean
+          override_reason?: string | null
+          override_value?: string | null
+          proposal_id?: string
+          selected_key?: string
+          superseded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operator_decisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operator_decisions_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "decision_proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operator_decisions_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "operator_decisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       port_tariffs: {
         Row: {
@@ -3064,6 +3178,13 @@ export type Database = {
       }
     }
     Enums: {
+      confidence_level: "low" | "medium" | "high"
+      decision_type:
+        | "regime"
+        | "routing"
+        | "services"
+        | "incoterm"
+        | "container"
       quote_case_status:
         | "NEW_THREAD"
         | "RFQ_DETECTED"
@@ -3075,6 +3196,9 @@ export type Database = {
         | "HUMAN_REVIEW"
         | "SENT"
         | "ARCHIVED"
+        | "DECISIONS_PENDING"
+        | "DECISIONS_COMPLETE"
+        | "ACK_READY_FOR_PRICING"
       quote_request_type:
         | "SEA_FCL_IMPORT"
         | "SEA_LCL_IMPORT"
@@ -3209,6 +3333,8 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      confidence_level: ["low", "medium", "high"],
+      decision_type: ["regime", "routing", "services", "incoterm", "container"],
       quote_case_status: [
         "NEW_THREAD",
         "RFQ_DETECTED",
@@ -3220,6 +3346,9 @@ export const Constants = {
         "HUMAN_REVIEW",
         "SENT",
         "ARCHIVED",
+        "DECISIONS_PENDING",
+        "DECISIONS_COMPLETE",
+        "ACK_READY_FOR_PRICING",
       ],
       quote_request_type: [
         "SEA_FCL_IMPORT",
