@@ -1,20 +1,26 @@
 // ============================================================================
-// Phase 9.3 — commit-decision (SEUL POINT D'ÉCRITURE PHASE 9)
+// Phase 13 — commit-decision (SEUL POINT D'ÉCRITURE DÉCISIONS)
 // 
-// ⚠️ CTO RULE: ÉCRITURES AUTORISÉES UNIQUEMENT ICI
-// ✅ INSERT decision_proposals
-// ✅ INSERT operator_decisions  
-// ✅ UPDATE operator_decisions (supersession)
+// ⚠️ CTO RULES:
+// ✅ INSERT decision_proposals (sans committed_at initialement)
+// ✅ Appel RPC commit_decision_atomic (transactionnel)
+// ✅ UPDATE decision_proposals.committed_at après succès RPC
 // ✅ INSERT case_timeline_events
 // ✅ UPDATE quote_cases.status (→ DECISIONS_COMPLETE uniquement)
 // 
 // ❌ JAMAIS quote_facts
 // ❌ JAMAIS status → READY_TO_PRICE
+// 
+// CORRECTIONS CTO INTÉGRÉES:
+// 1. Idempotency key basée sur proposal_id (stable)
+// 2. Gaps gating transactionnel via RPC
+// 3. Hash canonique avec normalisation value_json
 // ============================================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { computeCanonicalHash } from "../_shared/canonical-hash.ts";
 
 // ============================================================================
 // TYPES
@@ -36,8 +42,20 @@ interface CommitDecisionRequest {
 
 interface CommitDecisionResponse {
   decision_id: string;
+  decision_version?: number;
   remaining_decisions: number;
   all_complete: boolean;
+  idempotent?: boolean;
+}
+
+interface RpcResult {
+  decision_id?: string;
+  decision_version?: number;
+  idempotent?: boolean;
+  superseded_id?: string | null;
+  status: 'created' | 'existing' | 'rejected';
+  error?: string;
+  blocking_count?: number;
 }
 
 // ============================================================================
@@ -88,7 +106,7 @@ serve(async (req) => {
 
     const userId = user.id;
 
-    // Service client for DB writes (bypasses RLS for supersession)
+    // Service client for DB writes (bypasses RLS for RPC call)
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // -------------------------------------------------------------------------
@@ -164,7 +182,7 @@ serve(async (req) => {
       );
     }
 
-    // CTO RULE: Status must be in allowed list (NO automatic transition)
+    // CTO RULE: Status must be in allowed list
     if (!ALLOWED_STATUSES.includes(quoteCase.status as typeof ALLOWED_STATUSES[number])) {
       console.warn(`[commit-decision] Refused: status=${quoteCase.status}, case=${case_id}`);
       return new Response(
@@ -178,11 +196,28 @@ serve(async (req) => {
     }
 
     // -------------------------------------------------------------------------
-    // 4. INSERT SNAPSHOT IA (decision_proposals) — IMMUTABLE
+    // 4. RÉCUPÉRER FACTS/GAPS POUR HASH FORENSIC (avec normalisation)
+    // -------------------------------------------------------------------------
+    const { data: currentFacts } = await serviceClient
+      .from('quote_facts')
+      .select('fact_key, value_text, value_number, value_json, value_date')
+      .eq('case_id', case_id)
+      .eq('is_current', true)
+      .order('fact_key');
+
+    const { data: currentGaps } = await serviceClient
+      .from('quote_gaps')
+      .select('gap_key, status, is_blocking')
+      .eq('case_id', case_id)
+      .order('gap_key');
+
+    const factsHash = await computeCanonicalHash(currentFacts || []);
+    const gapsHash = await computeCanonicalHash(currentGaps || []);
+
+    // -------------------------------------------------------------------------
+    // 5. INSERT PROPOSAL SANS committed_at (Garde-fou #2)
     // -------------------------------------------------------------------------
     const proposalBatchId = crypto.randomUUID();
-    
-    // CTO RULE: Snapshot timestamps are SERVER-SIDE only (no frontend trust)
     const now = new Date().toISOString();
     
     const { data: proposal, error: proposalError } = await serviceClient
@@ -191,11 +226,13 @@ serve(async (req) => {
         case_id,
         decision_type,
         proposal_batch_id: proposalBatchId,
-        options_json: proposal_json, // Frontend metadata (model, timestamp) stays in JSON
+        options_json: proposal_json,
         generated_at: now,
         generated_by: 'ai',
-        committed_at: now,
-        committed_by: userId
+        // committed_at: RETIRÉ (Garde-fou #2)
+        // committed_by: RETIRÉ (Garde-fou #2)
+        facts_hash: factsHash,
+        gaps_hash: gapsHash
       })
       .select('id')
       .single();
@@ -211,68 +248,104 @@ serve(async (req) => {
     const proposalId = proposal.id;
 
     // -------------------------------------------------------------------------
-    // 5. SUPERSESSION (if existing decision for this decision_type)
+    // 6. CALCULER IDEMPOTENCY KEY (Correction CTO #1 + Garde-fou #1)
+    // Basée sur proposal_id pour stabilité
     // -------------------------------------------------------------------------
-    const { data: existingDecision, error: existingError } = await serviceClient
-      .from('operator_decisions')
-      .select('id')
-      .eq('case_id', case_id)
-      .eq('decision_type', decision_type)
-      .eq('is_final', true)
-      .maybeSingle();
-
-    if (existingError) {
-      console.warn('[commit-decision] Failed to check existing decision:', existingError);
-    }
+    const idempotencyKey = await computeCanonicalHash({
+      case_id,
+      decision_type,
+      proposal_id: proposalId, // Stable après insertion
+      selected_key,
+      override_reason: override_reason || null
+    });
 
     // -------------------------------------------------------------------------
-    // 6. INSERT DÉCISION HUMAINE (operator_decisions)
+    // 7. APPELER RPC TRANSACTIONNELLE (Correction CTO #2)
     // -------------------------------------------------------------------------
-    const { data: newDecision, error: decisionError } = await serviceClient
-      .from('operator_decisions')
-      .insert({
-        case_id,
-        proposal_id: proposalId,
-        decision_type,
-        selected_key,
-        override_value: override_value || null,
-        override_reason: override_reason || null,
-        decided_by: userId,
-        decided_at: new Date().toISOString(),
-        is_final: true,
-        superseded_by: null
-      })
-      .select('id')
-      .single();
+    const { data: rpcResult, error: rpcError } = await serviceClient
+      .rpc('commit_decision_atomic', {
+        p_case_id: case_id,
+        p_decision_type: decision_type,
+        p_idempotency_key: idempotencyKey,
+        p_proposal_id: proposalId,
+        p_selected_key: selected_key,
+        p_override_value: override_value || null,
+        p_override_reason: override_reason || null,
+        p_facts_hash: factsHash,
+        p_gaps_hash: gapsHash,
+        p_user_id: userId
+      });
 
-    if (decisionError || !newDecision) {
-      console.error('[commit-decision] Failed to insert decision:', decisionError);
+    if (rpcError) {
+      console.error('[commit-decision] RPC error:', rpcError);
       return new Response(
-        JSON.stringify({ error: "Failed to save operator decision" }),
+        JSON.stringify({ error: "Transaction failed", details: rpcError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const decisionId = newDecision.id;
-
-    // Update old decision with supersession (non-blocking if fails)
-    if (existingDecision) {
-      const { error: supersessionError } = await serviceClient
-        .from('operator_decisions')
-        .update({ 
-          is_final: false, 
-          superseded_by: decisionId 
-        })
-        .eq('id', existingDecision.id);
-
-      if (supersessionError) {
-        console.warn('[commit-decision] Supersession update failed (non-blocking):', supersessionError);
-        // Continue anyway - the new decision is valid
-      }
-    }
+    const result = rpcResult as RpcResult;
 
     // -------------------------------------------------------------------------
-    // 7. INSERT TIMELINE EVENT (audit)
+    // 8. GÉRER LES RETOURS RPC
+    // -------------------------------------------------------------------------
+    
+    // Cas: Gaps bloquants ouverts (REJECTED)
+    if (result.status === 'rejected') {
+      console.warn(`[commit-decision] Rejected: ${result.blocking_count} blocking gaps open`);
+      // NE PAS marquer proposal comme committed (Garde-fou #2)
+      return new Response(
+        JSON.stringify({
+          error: "Gaps bloquants ouverts",
+          blocking_count: result.blocking_count,
+          require_override: true
+        }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Cas: Idempotent (decision existante)
+    if (result.idempotent) {
+      console.log(`[commit-decision] Idempotent return for decision_id=${result.decision_id}`);
+      
+      // Compter les décisions pour la réponse
+      const { data: finalDecisions } = await serviceClient
+        .from('operator_decisions')
+        .select('decision_type')
+        .eq('case_id', case_id)
+        .eq('is_final', true);
+
+      const completedTypes = new Set(finalDecisions?.map(d => d.decision_type) || []);
+      const remainingDecisions = ALL_DECISION_TYPES.filter(t => !completedTypes.has(t)).length;
+
+      return new Response(
+        JSON.stringify({
+          decision_id: result.decision_id,
+          idempotent: true,
+          remaining_decisions: remainingDecisions,
+          all_complete: remainingDecisions === 0
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Cas: Succès (CREATED) - marquer proposal comme committed (Garde-fou #2)
+    const { error: updateProposalError } = await serviceClient
+      .from('decision_proposals')
+      .update({ 
+        committed_at: now, 
+        committed_by: userId 
+      })
+      .eq('id', proposalId);
+
+    if (updateProposalError) {
+      console.warn('[commit-decision] Failed to update proposal committed_at (non-blocking):', updateProposalError);
+    }
+
+    const decisionId = result.decision_id!;
+
+    // -------------------------------------------------------------------------
+    // 9. INSERT TIMELINE EVENT (audit)
     // -------------------------------------------------------------------------
     const wasOverride = !!(override_value && override_value.trim() !== '');
     
@@ -288,14 +361,18 @@ serve(async (req) => {
           selected_key,
           was_override: wasOverride,
           proposal_id: proposalId,
-          decision_id: decisionId
+          decision_id: decisionId,
+          decision_version: result.decision_version,
+          facts_hash: factsHash,
+          gaps_hash: gapsHash,
+          superseded_id: result.superseded_id
         },
         new_value: selected_key,
-        previous_value: existingDecision ? 'superseded' : null
+        previous_value: result.superseded_id ? 'superseded' : null
       });
 
     // -------------------------------------------------------------------------
-    // 8. VÉRIFICATION COMPLÉTUDE (5/5)
+    // 10. VÉRIFICATION COMPLÉTUDE (5/5)
     // -------------------------------------------------------------------------
     const { data: finalDecisions } = await serviceClient
       .from('operator_decisions')
@@ -334,10 +411,11 @@ serve(async (req) => {
     }
 
     // -------------------------------------------------------------------------
-    // 9. RETURN RESPONSE
+    // 11. RETURN RESPONSE
     // -------------------------------------------------------------------------
     const response: CommitDecisionResponse = {
       decision_id: decisionId,
+      decision_version: result.decision_version,
       remaining_decisions: remainingDecisions,
       all_complete: allComplete
     };
