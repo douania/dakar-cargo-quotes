@@ -1,118 +1,217 @@
-# PLAN D'IMPLEMENTATION — HISTORIQUE PHASES
 
-## Phase 12 : IMPLÉMENTÉE ✅ + 4 PATCHS CTO ✅
+# Plan Minimal - Bouton "Démarrer l'analyse" pour Phase 12
 
-### Exploitation contrôlée des résultats Pricing + Versioning + PDF Draft
-
-**Date d'implémentation** : 2026-02-05
-**Patchs CTO appliqués** : 2026-02-05
+## Objectif
+Ajouter un trigger UI minimal pour appeler `ensure-quote-case` afin de créer des données réelles pour valider Phase 12.
 
 ---
 
-### 0. PATCHS CTO OBLIGATOIRES (APPLIQUÉS)
+## Corrections CTO appliquées
 
-| Patch | Problème | Solution |
-|-------|----------|----------|
-| #1 | UPDATE+INSERT non atomique | RPC `insert_quotation_version_atomic` avec advisory lock |
-| #2 | Insertion lines sans rollback | DELETE version si lines fail |
-| #3 | Snapshot mapping destructif | Ajout `raw_lines` pour audit forensic |
-| #4 | Validation pricing_run.case_id absente | Vérification explicite avant traitement |
-| BONUS | Sélection UI non atomique | RPC `select_quotation_version` pour UI |
+| Correction | Status |
+|------------|--------|
+| CTO #1 - threadRef canonique (pas `[0]`) | Appliquée via `stableThreadRef` |
+| CTO #2 - Anti double-clic + disabled + erreur exacte | Appliquée |
+| CTO #3 - Pas de PuzzleControlPanel.tsx | Respectée |
+| CTO #4 - DecisionSupportPanel non modifié | Respectée (commit-decision prouvé) |
+| CTO #5 - Remplacer `window.location.reload()` | Corrigée via `queryClient.invalidateQueries()` |
 
-### 1. RÉSUMÉ
+---
 
-Phase 12 transforme un résultat technique (`pricing_runs`) en un draft de devis versionné, auditable et exportable.
+## Modifications (2 fichiers uniquement)
 
-### 2. ENTITÉS CRÉÉES
+### Fichier 1 : `src/pages/QuotationSheet.tsx`
 
-| Table | Description |
-|-------|-------------|
-| `quotation_versions` | Snapshots immuables des devis depuis pricing_runs |
-| `quotation_version_lines` | Lignes tarifaires figées par version |
-
-### 3. AJUSTEMENTS CTO INTÉGRÉS
-
-| # | Ajustement | Implémentation |
-|---|------------|----------------|
-| 1 | RLS INSERT quotation_versions | `(created_by OR assigned_to)` via quote_cases |
-| 2 | RLS INSERT quotation_version_lines | Policy complète ajoutée |
-| 3 | 1 seul is_selected par case | Index unique partiel `uq_qv_selected_per_case` |
-| 4 | Version number atomique | RPC `get_next_quotation_version_number` avec `pg_advisory_xact_lock` |
-| 5 | Alignement statuts UI | Visible si status IN ('PRICED_DRAFT', 'HUMAN_REVIEW') |
-| 6 | PDF tracé dans quotation_documents | Colonne `quotation_version_id` ajoutée |
-
-### 4. EDGE FUNCTIONS CRÉÉES
-
-| Fonction | Rôle |
-|----------|------|
-| `generate-quotation-version` | Crée une version immuable depuis un pricing_run |
-| `export-quotation-version-pdf` | Génère un PDF DRAFT avec mention obligatoire |
-
-### 5. COMPOSANTS UI
-
-| Composant | Rôle |
-|-----------|------|
-| `PricingResultPanel.tsx` | Affiche résumé pricing + bouton création version |
-| `QuotationVersionCard.tsx` | Liste des versions + export PDF |
-| `usePricingResultData.ts` | Hook données pricing + versions |
-
-### 6. FLUX POST-PHASE 12
-
-```
-ACK_READY_FOR_PRICING
-        |
-        v (run-pricing)
-PRICING_RUNNING
-        |
-        v (success)
-PRICED_DRAFT
-        |
-        +-- UI: PricingResultPanel visible
-        +-- Bouton: Créer version v1
-        |
-        v (generate-quotation-version)
-        |
-quotation_versions.snapshot FIGÉ
-        |
-        +-- export-quotation-version-pdf
-        +-- quotation_documents.quotation_version_id
-        |
-        v (generate-case-outputs)
-HUMAN_REVIEW
-        |
-        +-- UI: Panels toujours visibles (ajustement #5)
+#### Modification 1.1 - Ajouter import React Query (après ligne 54)
+```typescript
+import { useQueryClient } from '@tanstack/react-query';
 ```
 
-### 7. CE QUI N'EST PAS DANS PHASE 12
+#### Modification 1.2 - Ajouter les states (après ligne 167)
+```typescript
+// CTO #1: thread_ref canonique - évite dépendance threadEmails[0]
+const [stableThreadRef, setStableThreadRef] = useState<string | null>(null);
 
-| Élément | Phase future |
-|---------|--------------|
-| Envoi email client | Phase 13 |
-| Validation commerciale | Phase 13 |
-| Signature électronique | Phase 14+ |
-| Facturation | Phase 15+ |
-| Édition manuelle lignes | Non prévu (immutabilité) |
+// CTO #2: Anti double-clic pour ensure-quote-case
+const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
+```
+
+#### Modification 1.3 - Déclarer queryClient (après ligne 213)
+```typescript
+// CTO #5: Invalidation React Query au lieu de reload
+const queryClient = useQueryClient();
+```
+
+#### Modification 1.4 - Remplacer threadRef fragile (lignes 219-220)
+Remplacer :
+```typescript
+const threadRef = threadEmails[0]?.thread_ref || null;
+const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(threadRef ?? undefined);
+```
+
+Par :
+```typescript
+// CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
+const threadRef = stableThreadRef;
+const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+```
+
+#### Modification 1.5 - Stocker stableThreadRef dans fetchThreadData (après ligne 372)
+Dans le bloc `if (emailData.thread_ref)` :
+```typescript
+setStableThreadRef(emailData.thread_ref);  // CTO: source canonique
+```
+
+#### Modification 1.6 - Ajouter handler handleStartAnalysis (après ligne 294)
+```typescript
+// ============================================================================
+// Phase 12 Validation - Trigger ensure-quote-case
+// CTO #2: Anti double-clic + idempotence + message d'erreur exact
+// CTO #5: Invalidation React Query (pas de reload)
+// ============================================================================
+const handleStartAnalysis = useCallback(async () => {
+  if (!stableThreadRef) {
+    toast.error('Fil email introuvable - impossible de créer le dossier');
+    return;
+  }
+  
+  if (isStartingAnalysis) return;
+  
+  setIsStartingAnalysis(true);
+  try {
+    const { data, error } = await supabase.functions.invoke('ensure-quote-case', {
+      body: { thread_id: stableThreadRef }
+    });
+    
+    if (error) throw error;
+    
+    if (data.is_new) {
+      toast.success(`Dossier créé : ${data.case_id.slice(0, 8)}...`);
+    } else {
+      toast.info(`Dossier existant : ${data.status}`);
+    }
+    
+    // CTO #5: Invalidation React Query au lieu de window.location.reload()
+    queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+    
+  } catch (err: unknown) {
+    console.error('[ensure-quote-case] Error:', err);
+    const message = err instanceof Error ? err.message : 'Erreur création du dossier';
+    toast.error(message);
+  } finally {
+    setIsStartingAnalysis(false);
+  }
+}, [stableThreadRef, isStartingAnalysis, queryClient]);
+```
+
+#### Modification 1.7 - Props QuotationHeader (vers ligne 970)
+Ajouter 3 props après `isLoadingClarification` :
+```typescript
+onStartAnalysis={handleStartAnalysis}
+isStartingAnalysis={isStartingAnalysis}
+hasQuoteCase={!!quoteCase}
+```
 
 ---
 
-## Phase 11 : IMPLÉMENTÉE ✅
+### Fichier 2 : `src/features/quotation/components/QuotationHeader.tsx`
 
-### Modification run-pricing : ACK_READY_FOR_PRICING
+#### Modification 2.1 - Import Plus (ligne 6)
+```typescript
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send, Save, HelpCircle, AlertTriangle, Plus } from 'lucide-react';
+```
 
-**Date d'implémentation** : 2026-02-05
+#### Modification 2.2 - Props interface (après ligne 32)
+```typescript
+// Phase 12: Trigger ensure-quote-case
+onStartAnalysis?: () => void;
+isStartingAnalysis?: boolean;
+hasQuoteCase?: boolean;
+```
 
-| Modification | Détail |
-|--------------|--------|
-| Gate statut | `ACK_READY_FOR_PRICING` requis (Phase 10) |
-| Timeline | `previous_value` = ACK_READY_FOR_PRICING |
-| Rollback | Retour vers ACK_READY_FOR_PRICING si erreur |
+#### Modification 2.3 - Déstructuration (vers ligne 64)
+Ajouter :
+```typescript
+onStartAnalysis,
+isStartingAnalysis = false,
+hasQuoteCase = false,
+```
+
+#### Modification 2.4 - Bouton conditionnel (après ligne 150, avant le bloc onRequestClarification)
+```typescript
+{/* Phase 12: Bouton "Démarrer l'analyse" si pas de quote_case */}
+{onStartAnalysis && !hasQuoteCase && (
+  <Button 
+    variant="secondary"
+    onClick={onStartAnalysis}
+    disabled={isStartingAnalysis}
+  >
+    {isStartingAnalysis ? (
+      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+    ) : (
+      <Plus className="h-4 w-4 mr-2" />
+    )}
+    Démarrer l'analyse
+  </Button>
+)}
+```
 
 ---
 
-## Phase 10.1 : IMPLÉMENTÉE ✅
+## Exclusions CTO
 
-### Gate manuel ACK_READY_FOR_PRICING
+| Élément | Action |
+|---------|--------|
+| PuzzleControlPanel.tsx | NON créé |
+| DecisionSupportPanel.tsx | NON modifié |
+| window.location.reload() | INTERDIT - remplacé par invalidateQueries |
+| Renommages | AUCUN |
+| Refactor structurel | AUCUN |
 
-- Edge function `ack-pricing-ready`
-- Bouton `PricingLaunchPanel`
-- Visible uniquement si `READY_TO_PRICE`
+---
+
+## Tests de non-régression
+
+### Test A - Idempotence start-analysis
+1. Cliquer "Démarrer l'analyse" → `Dossier créé : xxx`
+2. Re-cliquer immédiatement → aucune action (disabled)
+3. Après refresh, re-cliquer → `Dossier existant : NEW_THREAD` (pas d'erreur 500)
+
+### Test B - Visibilité panels par status
+| Status quote_case | Éléments visibles |
+|-------------------|-------------------|
+| `null` | Bouton "Démarrer l'analyse" + Badge "Dossier non analysé" |
+| `NEW_THREAD` | BlockingGapsPanel |
+| `PRICED_DRAFT` | PricingResultPanel + QuotationVersionCard |
+
+---
+
+## Séquence REAL FLOW Phase 12
+
+1. Naviguer vers `/quotation/3f4e845f-25d0-4d21-b0fb-a481fa97eeea`
+2. Cliquer "Démarrer l'analyse" → `ensure-quote-case`
+3. Cliquer "Analyser la demande" → `build-case-puzzle`
+4. Prendre les 5 décisions → `commit-decision`
+5. Valider pour pricing → `ack-pricing-ready`
+6. Lancer le pricing → `run-pricing`
+7. Créer version → `generate-quotation-version`
+8. Exécuter les 5 tests Phase 12
+
+---
+
+## Section technique
+
+### Import React Query requis
+Le fichier `QuotationSheet.tsx` n'utilise pas encore directement `@tanstack/react-query`. L'import sera ajouté à la ligne 55.
+
+### Pattern validé dans le codebase
+Le pattern `queryClient.invalidateQueries()` est déjà utilisé dans 8 autres fichiers admin (HsCodes, Tenders, Documents, etc.) avec la même syntaxe.
+
+### Résumé des modifications
+
+| Fichier | Lignes impactées | Ajouts |
+|---------|------------------|--------|
+| `QuotationSheet.tsx` | ~55, ~167, ~213, ~219-220, ~294, ~372, ~970 | 1 import, 2 states, 1 queryClient, 1 handler, 1 ligne fetchThreadData, 3 props |
+| `QuotationHeader.tsx` | ~6, ~32, ~64, ~150 | 1 import, 3 props, 1 bouton |
+
+**Total** : ~35 lignes ajoutées, 0 fichier créé, 0 renommage, 0 reload.
