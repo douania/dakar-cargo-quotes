@@ -215,7 +215,55 @@ serve(async (req) => {
     const gapsHash = await computeCanonicalHash(currentGaps || []);
 
     // -------------------------------------------------------------------------
-    // 5. INSERT PROPOSAL SANS committed_at (Garde-fou #2)
+    // 5. CALCULER IDEMPOTENCY KEY AVANT INSERT (payload stable - CTO FIX)
+    // Clé basée sur: case_id, decision_type, selected_key, override_reason, options_hash
+    // -------------------------------------------------------------------------
+    const optionsHash = await computeCanonicalHash(proposal_json?.options ?? []);
+    const idempotencyKey = await computeCanonicalHash({
+      case_id,
+      decision_type,
+      selected_key,
+      override_reason: override_reason ?? null,
+      options_hash: optionsHash
+    });
+
+    // -------------------------------------------------------------------------
+    // 6. VÉRIFIER IDEMPOTENCE AVANT INSERT PROPOSAL (évite proposals orphelines)
+    // -------------------------------------------------------------------------
+    const { data: existingDecision } = await serviceClient
+      .from('operator_decisions')
+      .select('id, decision_version')
+      .eq('case_id', case_id)
+      .eq('idempotency_key', idempotencyKey)
+      .maybeSingle();
+
+    if (existingDecision) {
+      // Retour idempotent SANS créer de proposal orpheline
+      console.log(`[commit-decision] Idempotent early return for decision_id=${existingDecision.id}`);
+      
+      const { data: finalDecisions } = await serviceClient
+        .from('operator_decisions')
+        .select('decision_type')
+        .eq('case_id', case_id)
+        .eq('is_final', true);
+
+      const completedTypes = new Set(finalDecisions?.map(d => d.decision_type) || []);
+      const remainingDecisions = ALL_DECISION_TYPES.filter(t => !completedTypes.has(t)).length;
+
+      return new Response(
+        JSON.stringify({
+          decision_id: existingDecision.id,
+          decision_version: existingDecision.decision_version,
+          idempotent: true,
+          remaining_decisions: remainingDecisions,
+          all_complete: remainingDecisions === 0
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. INSERT PROPOSAL SANS committed_at (seulement si décision nouvelle)
     // -------------------------------------------------------------------------
     const proposalBatchId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -229,8 +277,6 @@ serve(async (req) => {
         options_json: proposal_json,
         generated_at: now,
         generated_by: 'ai',
-        // committed_at: RETIRÉ (Garde-fou #2)
-        // committed_by: RETIRÉ (Garde-fou #2)
         facts_hash: factsHash,
         gaps_hash: gapsHash
       })
@@ -248,19 +294,7 @@ serve(async (req) => {
     const proposalId = proposal.id;
 
     // -------------------------------------------------------------------------
-    // 6. CALCULER IDEMPOTENCY KEY (Correction CTO #1 + Garde-fou #1)
-    // Basée sur proposal_id pour stabilité
-    // -------------------------------------------------------------------------
-    const idempotencyKey = await computeCanonicalHash({
-      case_id,
-      decision_type,
-      proposal_id: proposalId, // Stable après insertion
-      selected_key,
-      override_reason: override_reason || null
-    });
-
-    // -------------------------------------------------------------------------
-    // 7. APPELER RPC TRANSACTIONNELLE (Correction CTO #2)
+    // 8. APPELER RPC TRANSACTIONNELLE (avec clé stable)
     // -------------------------------------------------------------------------
     const { data: rpcResult, error: rpcError } = await serviceClient
       .rpc('commit_decision_atomic', {
