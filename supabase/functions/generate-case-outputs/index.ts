@@ -3,6 +3,7 @@
  * Generates draft email + PDF from pricing run
  * 
  * Phase 14: Runtime observability integration
+ * CTO CORRECTIONS: All returns use respondOk/respondError + logRuntimeEvent
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -10,7 +11,6 @@ import {
   getCorrelationId, 
   respondOk, 
   respondError, 
-  structuredLog, 
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
 
@@ -37,10 +37,24 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
   let userId: string | undefined;
 
+  // Service client créé tôt pour logging
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     // 1. Validate JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_MISSING_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return respondError({
         code: 'AUTH_MISSING_JWT',
         message: 'Unauthorized',
@@ -48,9 +62,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -59,6 +71,15 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
     if (userError || !userData?.user) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_INVALID_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return respondError({
         code: 'AUTH_INVALID_JWT',
         message: 'Invalid token',
@@ -67,16 +88,27 @@ Deno.serve(async (req) => {
     }
 
     userId = userData.user.id;
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
     const { case_id, pricing_run_id }: GenerateOutputsRequest = await req.json();
 
     if (!case_id) {
-      return new Response(
-        JSON.stringify({ error: "case_id is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'case_id' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'case_id is required',
+        correlationId,
+      });
     }
 
     // 3. Load case and verify ownership + status
@@ -87,28 +119,61 @@ Deno.serve(async (req) => {
       .single();
 
     if (caseError || !caseData) {
-      return new Response(
-        JSON.stringify({ error: "Case not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'load_case',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 404,
+        durationMs: Date.now() - startTime,
+        meta: { case_id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Case not found',
+        correlationId,
+      });
     }
 
     if (caseData.created_by !== userId && caseData.assigned_to !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Access denied" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'ownership',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'FORBIDDEN_OWNER',
+        httpStatus: 403,
+        durationMs: Date.now() - startTime,
+        meta: { case_id, owner: caseData.created_by },
+      });
+      return respondError({
+        code: 'FORBIDDEN_OWNER',
+        message: 'Access denied',
+        correlationId,
+      });
     }
 
     if (caseData.status !== "PRICED_DRAFT") {
-      return new Response(
-        JSON.stringify({ 
-          error: "Case not ready for output generation",
-          current_status: caseData.status,
-          required_status: "PRICED_DRAFT"
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'status_check',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { case_id, current_status: caseData.status },
+      });
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Case not ready for output generation',
+        correlationId,
+        meta: { current_status: caseData.status, required_status: 'PRICED_DRAFT' },
+      });
     }
 
     // 4. Load pricing run (latest or specified)
@@ -127,20 +192,44 @@ Deno.serve(async (req) => {
     const { data: pricingRuns, error: runError } = await pricingRunQuery;
 
     if (runError || !pricingRuns || pricingRuns.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No successful pricing run found" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'load_pricing_run',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { case_id, pricing_run_id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'No successful pricing run found',
+        correlationId,
+      });
     }
 
     const pricingRun = pricingRuns[0];
     const outputsJson = pricingRun.outputs_json;
 
     if (!outputsJson) {
-      return new Response(
-        JSON.stringify({ error: "Pricing run has no outputs" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-case-outputs',
+        op: 'validate_outputs',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { pricing_run_id: pricingRun.id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Pricing run has no outputs',
+        correlationId,
+      });
     }
 
     // 5. Load facts for additional context
@@ -291,7 +380,7 @@ Deno.serve(async (req) => {
       status: 'ok',
       httpStatus: 200,
       durationMs: Date.now() - startTime,
-      meta: { case_id, has_pdf: !!pdfUrl },
+      meta: { case_id, has_pdf: !!pdfUrl, pricing_run_id: pricingRun.id },
     });
 
     return respondOk({
@@ -305,11 +394,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("Error in generate-case-outputs:", error);
     
-    // Phase 14: Log error
-    const serviceClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // Phase 14: Log error (serviceClient déjà créé en haut)
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'generate-case-outputs',
@@ -326,7 +411,6 @@ Deno.serve(async (req) => {
       code: 'UNKNOWN',
       message: 'Internal server error',
       correlationId,
-      meta: { details: String(error) },
     });
   }
 });

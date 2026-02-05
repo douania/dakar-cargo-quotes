@@ -2717,68 +2717,81 @@ RAPPELS CRITIQUES:
 
     // SODATRA fees already calculated before AI call (see line ~1926)
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        draft: draft,
-        // Analysis fields
-        detected_language: aiExtracted.detected_language,
-        request_type: aiExtracted.request_type,
-        can_quote_now: aiExtracted.can_quote_now,
-        clarification_questions: parsedResponse.clarification_questions || aiExtracted.questions_to_ask,
-        detected_elements: aiExtracted.detected_elements,
-        // Extracted shipment data (AI-powered)
-        extracted_data: extractedData,
-        // Transport mode (KEY: AI-determined)
+    // Phase 14: Log success runtime event
+    await logRuntimeEvent(supabase, {
+      correlationId,
+      functionName: 'generate-response',
+      op: 'generate',
+      userId: undefined,
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startTime,
+      meta: { 
+        request_type: aiExtracted.request_type, 
         transport_mode: aiExtracted.transport_mode,
-        transport_mode_evidence: [aiExtracted.transport_mode_evidence],
-        // V5 Workflow: Analysis results
-        v5_analysis: {
-          coherence_audit: coherenceResult,
-          incoterm_analysis: incotermResult,
-          risk_analysis: riskResult,
-        },
-        // HS Code Suggestions (Proactive AI)
-        hs_suggestions: hsSuggestionsResult?.suggestions || [],
-        work_scope: hsSuggestionsResult?.work_scope || null,
-        required_documents: hsSuggestionsResult?.required_documents || [],
-        regulatory_notes: hsSuggestionsResult?.regulatory_notes || [],
-        services_requested: aiExtracted.services_requested || [],
-        // SODATRA fees suggestion
-        sodatra_fees: sodatraFeesSuggestion,
-        // Quotation engine structured output (NEW)
-        quotation_lines: quotationEngineResult?.lines || [],
-        quotation_totals: quotationEngineResult?.totals || null,
-        quotation_metadata: quotationEngineResult?.metadata || null,
-        quotation_warnings: quotationEngineResult?.warnings || [],
-        // Vigilance points
-        vigilance_points: [
-          ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
-          ...(incotermResult?.quotation_guidance?.vigilance_points_fr?.map((p: string) => ({ type: 'incoterm', message_fr: p })) || []),
-          ...(riskResult?.vigilance_points || []),
-        ],
-        provisions: riskResult?.provisions || null,
-        // Response structure
-        structured_response: {
-          greeting: parsedResponse.greeting,
-          body_short: parsedResponse.body_short,
-          delegation: parsedResponse.delegation,
-          closing: parsedResponse.closing,
-          signature: parsedResponse.signature
-        },
-        attachment_needed: parsedResponse.attachment_needed,
-        attachment_data: parsedResponse.attachment_data,
-        generated_attachment: attachmentResult?.attachment || null,
-        quotation_summary: parsedResponse.quotation_summary,
-        regulatory_analysis: parsedResponse.regulatory_analysis,
-        carrier_detected: aiExtracted.carrier || parsedResponse.carrier_detected,
-        response_template_used: parsedResponse.response_template_used,
-        two_step_response: parsedResponse.two_step_response,
-        confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
-        missing_info: parsedResponse.missing_info || aiExtracted.missing_info
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+        can_quote_now: aiExtracted.can_quote_now 
+      },
+    });
+
+    return respondOk({
+      success: true,
+      draft: draft,
+      // Analysis fields
+      detected_language: aiExtracted.detected_language,
+      request_type: aiExtracted.request_type,
+      can_quote_now: aiExtracted.can_quote_now,
+      clarification_questions: parsedResponse.clarification_questions || aiExtracted.questions_to_ask,
+      detected_elements: aiExtracted.detected_elements,
+      // Extracted shipment data (AI-powered)
+      extracted_data: extractedData,
+      // Transport mode (KEY: AI-determined)
+      transport_mode: aiExtracted.transport_mode,
+      transport_mode_evidence: [aiExtracted.transport_mode_evidence],
+      // V5 Workflow: Analysis results
+      v5_analysis: {
+        coherence_audit: coherenceResult,
+        incoterm_analysis: incotermResult,
+        risk_analysis: riskResult,
+      },
+      // HS Code Suggestions (Proactive AI)
+      hs_suggestions: hsSuggestionsResult?.suggestions || [],
+      work_scope: hsSuggestionsResult?.work_scope || null,
+      required_documents: hsSuggestionsResult?.required_documents || [],
+      regulatory_notes: hsSuggestionsResult?.regulatory_notes || [],
+      services_requested: aiExtracted.services_requested || [],
+      // SODATRA fees suggestion
+      sodatra_fees: sodatraFeesSuggestion,
+      // Quotation engine structured output (NEW)
+      quotation_lines: quotationEngineResult?.lines || [],
+      quotation_totals: quotationEngineResult?.totals || null,
+      quotation_metadata: quotationEngineResult?.metadata || null,
+      quotation_warnings: quotationEngineResult?.warnings || [],
+      // Vigilance points
+      vigilance_points: [
+        ...(coherenceResult?.alerts?.map((a: any) => ({ type: 'coherence', ...a })) || []),
+        ...(incotermResult?.quotation_guidance?.vigilance_points_fr?.map((p: string) => ({ type: 'incoterm', message_fr: p })) || []),
+        ...(riskResult?.vigilance_points || []),
+      ],
+      provisions: riskResult?.provisions || null,
+      // Response structure
+      structured_response: {
+        greeting: parsedResponse.greeting,
+        body_short: parsedResponse.body_short,
+        delegation: parsedResponse.delegation,
+        closing: parsedResponse.closing,
+        signature: parsedResponse.signature
+      },
+      attachment_needed: parsedResponse.attachment_needed,
+      attachment_data: parsedResponse.attachment_data,
+      generated_attachment: attachmentResult?.attachment || null,
+      quotation_summary: parsedResponse.quotation_summary,
+      regulatory_analysis: parsedResponse.regulatory_analysis,
+      carrier_detected: aiExtracted.carrier || parsedResponse.carrier_detected,
+      response_template_used: parsedResponse.response_template_used,
+      two_step_response: parsedResponse.two_step_response,
+      confidence: parsedResponse.quotation_summary?.confidence || parsedResponse.confidence,
+      missing_info: parsedResponse.missing_info || aiExtracted.missing_info
+    }, correlationId);
 
   } catch (error) {
     console.error("Expert response generation error:", error);
