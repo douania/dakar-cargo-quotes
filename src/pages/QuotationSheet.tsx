@@ -420,7 +420,10 @@ L'équipe SODATRA`;
       
       if (emailData.thread_ref) {
         threadEmailsList = await loadThreadEmailsByRef(emailData.thread_ref);
-        setStableThreadRef(emailData.thread_ref);  // CTO: source canonique
+        // CTO: Idempotence - ne set qu'une seule fois pour éviter race React Query
+        if (!stableThreadRef) {
+          setStableThreadRef(emailData.thread_ref);
+        }
       }
       
       // Fallback: try matching by normalized subject
