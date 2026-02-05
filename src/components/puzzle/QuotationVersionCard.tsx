@@ -6,6 +6,8 @@
  * - Read-only display of quotation_versions
  * - Human selects active version via explicit action
  * - PDF export writes to quotation_documents with traceability
+ * 
+ * PATCH BONUS: Sélection atomique via RPC select_quotation_version
  */
 
 import { useState } from 'react';
@@ -35,24 +37,17 @@ export function QuotationVersionCard({ caseId }: QuotationVersionCardProps) {
     return null;
   }
 
+  // PATCH BONUS: Sélection atomique via RPC
   const handleSelectVersion = async (versionId: string) => {
     setSelectingId(versionId);
     try {
-      // Deselect all versions first
-      const { error: deselectError } = await supabase
-        .from('quotation_versions')
-        .update({ is_selected: false })
-        .eq('case_id', caseId);
+      // Utiliser la RPC atomique pour sélection
+      const { error: rpcError } = await supabase.rpc('select_quotation_version', {
+        p_version_id: versionId,
+        p_case_id: caseId,
+      });
 
-      if (deselectError) throw deselectError;
-
-      // Select the chosen version
-      const { error: selectError } = await supabase
-        .from('quotation_versions')
-        .update({ is_selected: true })
-        .eq('id', versionId);
-
-      if (selectError) throw selectError;
+      if (rpcError) throw rpcError;
 
       toast.success('Version sélectionnée');
       await refetchVersions();

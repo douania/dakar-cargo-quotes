@@ -8,12 +8,19 @@
  * - Atomic version_number via RPC with advisory lock
  * - Snapshot is FROZEN (no recalculation)
  * - Timeline event for audit trail
+ * 
+ * PATCHS CTO Phase 12:
+ * - PATCH 1: Transaction atomique UPDATE+INSERT via RPC
+ * - PATCH 2: Rollback version si insertion lignes échoue
+ * - PATCH 3: Snapshot avec raw_lines pour audit forensic
+ * - PATCH 4: Validation stricte pricing_run.case_id
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
 // Snapshot structure for immutable storage
+// PATCH 3: Ajout raw_lines pour audit forensic
 interface VersionSnapshot {
   meta: {
     version_id: string;
@@ -34,6 +41,9 @@ interface VersionSnapshot {
     email: string | null;
     company: string | null;
   };
+  // PATCH 3: Données brutes originales pour audit
+  raw_lines: any[];
+  // Mapping flatten pour affichage UI/PDF
   lines: Array<{
     service_code: string;
     description: string | null;
@@ -134,6 +144,16 @@ Deno.serve(async (req) => {
       return errorResponse('No successful pricing run found', 404);
     }
 
+    // PATCH 4: Validation stricte - le pricing_run doit appartenir au case
+    if (pricingRun.case_id !== case_id) {
+      console.error('Pricing run case_id mismatch:', {
+        expected: case_id,
+        actual: pricingRun.case_id,
+        pricing_run_id: pricingRun.id,
+      });
+      return errorResponse('Pricing run does not belong to this case', 403);
+    }
+
     // Step 3: Get atomic version number via RPC
     const { data: versionNumber, error: rpcError } = await serviceClient
       .rpc('get_next_quotation_version_number', { p_case_id: case_id });
@@ -143,14 +163,7 @@ Deno.serve(async (req) => {
       return errorResponse('Failed to get version number', 500);
     }
 
-    // Step 4: Deselect all previous versions (ensure only one is_selected per case)
-    await serviceClient
-      .from('quotation_versions')
-      .update({ is_selected: false })
-      .eq('case_id', case_id)
-      .eq('is_selected', true);
-
-    // Step 5: Extract data for snapshot
+    // Step 4: Extract data for snapshot
     const inputs = pricingRun.inputs_json || {};
     const factsSnapshot = pricingRun.facts_snapshot || {};
     const tariffLines = pricingRun.tariff_lines || [];
@@ -160,6 +173,7 @@ Deno.serve(async (req) => {
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
+    // PATCH 3: Snapshot avec raw_lines pour audit forensic
     const snapshot: VersionSnapshot = {
       meta: {
         version_id: versionId,
@@ -180,6 +194,9 @@ Deno.serve(async (req) => {
         email: factsSnapshot.client_email || inputs.client_email || null,
         company: factsSnapshot.client_company || inputs.client_company || null,
       },
+      // PATCH 3: Données brutes originales non modifiées
+      raw_lines: tariffLines,
+      // Mapping flatten pour UI/PDF
       lines: tariffLines.map((line: any, idx: number) => ({
         service_code: line.service_code || line.charge_code || `LINE_${idx + 1}`,
         description: line.description || line.charge_name || null,
@@ -196,21 +213,16 @@ Deno.serve(async (req) => {
       sources: tariffSources,
     };
 
-    // Step 6: Insert quotation_versions record
-    const { data: versionRecord, error: insertError } = await serviceClient
-      .from('quotation_versions')
-      .insert({
-        id: versionId,
-        case_id,
-        pricing_run_id: pricingRun.id,
-        version_number: versionNumber,
-        status: 'draft',
-        is_selected: true,
-        snapshot,
-        created_by: user.id,
-      })
-      .select('id, version_number')
-      .single();
+    // PATCH 1: Step 5 + 6 COMBINED - Atomic deselect + insert via RPC
+    const { data: insertedId, error: insertError } = await serviceClient
+      .rpc('insert_quotation_version_atomic', {
+        p_id: versionId,
+        p_case_id: case_id,
+        p_pricing_run_id: pricingRun.id,
+        p_version_number: versionNumber,
+        p_snapshot: snapshot,
+        p_created_by: user.id,
+      });
 
     if (insertError) {
       console.error('Version insert error:', insertError);
@@ -235,9 +247,18 @@ Deno.serve(async (req) => {
         .from('quotation_version_lines')
         .insert(versionLines);
 
+      // PATCH 2: Rollback version si insertion lignes échoue
       if (linesError) {
         console.error('Version lines insert error:', linesError);
-        // Non-blocking - version is still created
+        
+        // Rollback: supprimer la version créée
+        await serviceClient
+          .from('quotation_versions')
+          .delete()
+          .eq('id', versionId);
+        
+        console.error(`[Phase 12] Rolled back version ${versionId} due to lines insert failure`);
+        return errorResponse(`Failed to create version lines: ${linesError.message}`, 500);
       }
     }
 
@@ -252,6 +273,7 @@ Deno.serve(async (req) => {
         pricing_run_number: pricingRun.run_number,
         total_ht: snapshot.totals.total_ht,
         lines_count: snapshot.lines.length,
+        has_raw_lines: snapshot.raw_lines.length > 0,
       },
       actor_type: 'user',
       actor_user_id: user.id,

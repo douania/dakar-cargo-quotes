@@ -3270,9 +3270,24 @@ export type Database = {
         Args: { p_case_id: string }
         Returns: number
       }
+      insert_quotation_version_atomic: {
+        Args: {
+          p_case_id: string
+          p_created_by: string
+          p_id: string
+          p_pricing_run_id: string
+          p_snapshot: Json
+          p_version_number: number
+        }
+        Returns: string
+      }
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
         Returns: string
+      }
+      select_quotation_version: {
+        Args: { p_case_id: string; p_version_id: string }
+        Returns: undefined
       }
       supersede_fact: {
         Args: {
