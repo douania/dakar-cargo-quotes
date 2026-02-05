@@ -21,6 +21,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { computeCanonicalHash } from "../_shared/canonical-hash.ts";
+import { 
+  getCorrelationId, 
+  respondOk, 
+  respondError, 
+  structuredLog, 
+  logRuntimeEvent,
+  getStatusFromErrorCode,
+  type ErrorCode 
+} from "../_shared/runtime.ts";
 
 // ============================================================================
 // TYPES
@@ -75,16 +84,23 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Phase 14: Correlation + timing
+  const correlationId = getCorrelationId(req);
+  const startTime = Date.now();
+  let userId: string | undefined;
+
   try {
     // -------------------------------------------------------------------------
     // 1. JWT VALIDATION (via Supabase client with user token)
     // -------------------------------------------------------------------------
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Authorization header required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const response = respondError({
+        code: 'AUTH_MISSING_JWT',
+        message: 'Authorization header required',
+        correlationId,
+      });
+      return response;
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -98,11 +114,14 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Invalid or expired token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return respondError({
+        code: 'AUTH_INVALID_JWT',
+        message: 'Invalid or expired token',
+        correlationId,
+      });
     }
+
+    userId = user.id;
 
     const userId = user.id;
 
@@ -454,16 +473,44 @@ serve(async (req) => {
       all_complete: allComplete
     };
 
-    return new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    // Phase 14: Log runtime event
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'commit-decision',
+      op: 'commit',
+      userId,
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startTime,
+      meta: { decision_type: type, decision_id: decisionId },
     });
+
+    return respondOk(response, correlationId);
 
   } catch (error) {
     console.error('[commit-decision] Unexpected error:', error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    
+    // Phase 14: Log error event
+    const serviceClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'commit-decision',
+      op: 'commit',
+      userId,
+      status: 'fatal_error',
+      errorCode: 'UNKNOWN',
+      httpStatus: 500,
+      durationMs: Date.now() - startTime,
+      meta: { error: String(error) },
+    });
+
+    return respondError({
+      code: 'UNKNOWN',
+      message: 'Internal server error',
+      correlationId,
+    });
   }
 });

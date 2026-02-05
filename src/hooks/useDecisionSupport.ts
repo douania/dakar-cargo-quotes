@@ -270,6 +270,7 @@ export function useDecisionSupport(caseId: string): UseDecisionSupportReturn {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTION: Commit une décision (appel commit-decision)
+  // Phase 14: Retry avec idempotence (MAX_RETRIES = 3)
   // ═══════════════════════════════════════════════════════════════════════════
   const commitDecision = useCallback(async (type: DecisionType): Promise<CommitResult | null> => {
     if (!canCommit(type)) {
@@ -287,72 +288,106 @@ export function useDecisionSupport(caseId: string): UseDecisionSupportReturn {
 
     setIsCommitting(type);
 
-    try {
-      const body: Record<string, unknown> = {
-        case_id: caseId,
-        decision_type: type,
-        proposal_json: {
-          options: proposal.options,
-          source_fact_ids: proposal.source_fact_ids,
-        },
-        selected_key: state.selectedKey === '__override__' 
-          ? 'custom_override' 
-          : state.selectedKey,
-      };
+    // Phase 14: Correlation ID + retry logic
+    const correlationId = crypto.randomUUID();
+    const MAX_RETRIES = 3;
+    let lastError: Error | null = null;
 
-      // Ajouter override si applicable
-      if (state.selectedKey === '__override__') {
-        body.override_value = state.overrideValue;
-        body.override_reason = state.overrideReason;
-      }
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const body: Record<string, unknown> = {
+          case_id: caseId,
+          decision_type: type,
+          proposal_json: {
+            options: proposal.options,
+            source_fact_ids: proposal.source_fact_ids,
+          },
+          selected_key: state.selectedKey === '__override__' 
+            ? 'custom_override' 
+            : state.selectedKey,
+        };
 
-      const { data, error: fnError } = await supabase.functions.invoke('commit-decision', {
-        body
-      });
-
-      if (fnError) throw fnError;
-
-      // Gestion des erreurs HTTP retournées par la fonction
-      if (data?.error) {
-        if (data.allowed_statuses) {
-          toast.error("Le dossier n'est pas prêt pour les décisions");
-        } else {
-          toast.error(data.error);
+        // Ajouter override si applicable
+        if (state.selectedKey === '__override__') {
+          body.override_value = state.overrideValue;
+          body.override_reason = state.overrideReason;
         }
-        return null;
-      }
 
-      // Succès: mettre à jour l'état local
-      const now = new Date().toISOString();
-      setLocalState(prev => ({
-        ...prev,
-        [type]: {
-          ...prev[type],
-          isCommitted: true,
-          committedAt: now,
+        const { data, error: fnError } = await supabase.functions.invoke('commit-decision', {
+          body,
+          headers: { 'x-correlation-id': correlationId }
+        });
+
+        if (fnError) throw fnError;
+
+        // Phase 14: Handle new response format
+        if (data?.ok === false) {
+          const apiError = data.error;
+          if (apiError?.retryable && attempt < MAX_RETRIES) {
+            // Wait with exponential backoff before retry
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          if (data.allowed_statuses || apiError?.code === 'CONFLICT_INVALID_STATE') {
+            toast.error("Le dossier n'est pas prêt pour les décisions");
+          } else {
+            toast.error(apiError?.message || 'Erreur validation');
+          }
+          setIsCommitting(null);
+          return null;
         }
-      }));
 
-      const result: CommitResult = {
-        decision_id: data.decision_id,
-        remaining_decisions: data.remaining_decisions,
-        all_complete: data.all_complete,
-      };
+        // Legacy format support + new format
+        if (data?.error && !data?.ok) {
+          if (data.allowed_statuses) {
+            toast.error("Le dossier n'est pas prêt pour les décisions");
+          } else {
+            toast.error(data.error);
+          }
+          setIsCommitting(null);
+          return null;
+        }
 
-      toast.success(`Décision "${DECISION_TYPE_LABELS[type].label}" validée`);
+        // Succès: mettre à jour l'état local
+        const now = new Date().toISOString();
+        setLocalState(prev => ({
+          ...prev,
+          [type]: {
+            ...prev[type],
+            isCommitted: true,
+            committedAt: now,
+          }
+        }));
 
-      if (result.all_complete) {
-        toast.info('Toutes les décisions sont complètes !');
+        // Extract data from new or legacy format
+        const responseData = data?.data || data;
+        const result: CommitResult = {
+          decision_id: responseData.decision_id,
+          remaining_decisions: responseData.remaining_decisions,
+          all_complete: responseData.all_complete,
+        };
+
+        toast.success(`Décision "${DECISION_TYPE_LABELS[type].label}" validée`);
+
+        if (result.all_complete) {
+          toast.info('Toutes les décisions sont complètes !');
+        }
+
+        setIsCommitting(null);
+        return result;
+      } catch (err) {
+        console.error(`[useDecisionSupport] Error committing decision (attempt ${attempt + 1}):`, err);
+        lastError = err instanceof Error ? err : new Error(String(err));
+        
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
       }
-
-      return result;
-    } catch (err) {
-      console.error('[useDecisionSupport] Error committing decision:', err);
-      toast.error('Erreur lors de la validation');
-      return null;
-    } finally {
-      setIsCommitting(null);
     }
+
+    toast.error('Erreur lors de la validation après plusieurs tentatives');
+    setIsCommitting(null);
+    return null;
   }, [caseId, canCommit, getValidationError, localState, proposals]);
 
   // ═══════════════════════════════════════════════════════════════════════════

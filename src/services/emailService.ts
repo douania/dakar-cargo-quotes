@@ -99,12 +99,22 @@ export async function generateEmailResponse(
   customInstructions?: string,
   expertStyle: ExpertStyle = 'auto'
 ) {
+  // Phase 14: Correlation header
+  const correlationId = crypto.randomUUID();
+  
   const { data, error } = await supabase.functions.invoke('generate-response', {
     body: { emailId, customInstructions, expertStyle },
+    headers: { 'x-correlation-id': correlationId }
   });
   
   if (error) throw error;
-  return data;
+  
+  // Phase 14: Handle new response format
+  if (data?.ok === false) {
+    throw new Error(data.error?.message || 'Generation failed');
+  }
+  
+  return data?.data || data;
 }
 
 export async function searchEmails(configId: string, searchType: string, query: string, limit = 50) {

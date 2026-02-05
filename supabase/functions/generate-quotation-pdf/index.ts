@@ -10,11 +10,19 @@
  * - verify_jwt = true (document officiel)
  * - Ownership vérifié (created_by)
  * - Status vérifié (doit être 'generated')
+ * 
+ * Phase 14: Runtime observability integration
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { 
+  getCorrelationId, 
+  respondOk, 
+  respondError as runtimeRespondError, 
+  logRuntimeEvent,
+} from "../_shared/runtime.ts";
 
 // Types alignés sur GeneratedSnapshot (Phase 6D.1)
 interface SnapshotMeta {
@@ -427,11 +435,20 @@ Deno.serve(async (req) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
   
+  // Phase 14: Correlation + timing
+  const correlationId = getCorrelationId(req);
+  const startTime = Date.now();
+  let userId: string | undefined;
+  
   try {
     // Auth validation (JWT vérifié par Supabase gateway + getUser)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return errorResponse('Unauthorized', 401);
+      return runtimeRespondError({
+        code: 'AUTH_MISSING_JWT',
+        message: 'Unauthorized',
+        correlationId,
+      });
     }
     
     const supabase = createClient(
@@ -442,8 +459,14 @@ Deno.serve(async (req) => {
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return errorResponse('Unauthorized', 401);
+      return runtimeRespondError({
+        code: 'AUTH_INVALID_JWT',
+        message: 'Unauthorized',
+        correlationId,
+      });
     }
+    
+    userId = user.id;
     
     // Parse body
     const { quotationId } = await req.json();
@@ -543,20 +566,62 @@ Deno.serve(async (req) => {
     
     if (signError) {
       console.error('Sign error:', signError);
-      return errorResponse('Failed to create signed URL', 500);
+      return runtimeRespondError({
+        code: 'UPSTREAM_DB_ERROR',
+        message: 'Failed to create signed URL',
+        correlationId,
+      });
     }
     
-    return jsonResponse({
+    // Phase 14: Log runtime event
+    const serviceClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-quotation-pdf',
+      op: 'generate',
+      userId,
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startTime,
+      meta: { quotationId, filePath },
+    });
+    
+    return respondOk({
       success: true,
       url: signedData.signedUrl,
       documentId: docRecord?.id,
       filePath,
       fileHash,
       fileSize,
-    });
+    }, correlationId);
     
   } catch (error) {
     console.error('Generate PDF error:', error);
-    return errorResponse(error instanceof Error ? error.message : 'Internal error', 500);
+    
+    // Phase 14: Log error
+    const serviceClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-quotation-pdf',
+      op: 'generate',
+      userId,
+      status: 'fatal_error',
+      errorCode: 'UNKNOWN',
+      httpStatus: 500,
+      durationMs: Date.now() - startTime,
+      meta: { error: String(error) },
+    });
+
+    return runtimeRespondError({
+      code: 'UNKNOWN',
+      message: error instanceof Error ? error.message : 'Internal error',
+      correlationId,
+    });
   }
 });

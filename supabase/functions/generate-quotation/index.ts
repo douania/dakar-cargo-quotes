@@ -3,13 +3,20 @@
  * Phase 6D.1 — Transition draft → generated avec snapshot figé
  * 
  * Conformité Phase 6C: Tous les changements de statut métier passent par Edge Function.
+ * Phase 14: Runtime observability integration
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { 
+  getCorrelationId, 
+  respondOk, 
+  respondError, 
+  logRuntimeEvent,
+} from "../_shared/runtime.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-correlation-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 serve(async (req) => {
@@ -18,14 +25,20 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Phase 14: Correlation + timing
+  const correlationId = getCorrelationId(req);
+  const startTime = Date.now();
+  let userId: string | undefined;
+
   try {
     // 1. Validation JWT
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return respondError({
+        code: 'AUTH_MISSING_JWT',
+        message: 'Missing authorization header',
+        correlationId,
+      });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -43,13 +56,14 @@ serve(async (req) => {
     
     if (authError || !user) {
       console.error('Auth error:', authError);
-      return new Response(
-        JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return respondError({
+        code: 'AUTH_INVALID_JWT',
+        message: 'Invalid or expired token',
+        correlationId,
+      });
     }
 
-    const userId = user.id;
+    userId = user.id;
 
     // 2. Parse body
     const { quotation_id, snapshot } = await req.json();
@@ -136,19 +150,45 @@ serve(async (req) => {
 
     console.log('Quotation generated successfully:', { quotation_id, version: updated.version });
 
-    return new Response(
-      JSON.stringify({ success: true, quotation: updated }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Phase 14: Log runtime event
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-quotation',
+      op: 'generate',
+      userId,
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startTime,
+      meta: { quotation_id, version: updated.version },
+    });
+
+    return respondOk({ success: true, quotation: updated }, correlationId);
 
   } catch (error) {
     console.error('generate-quotation error:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: 'Échec génération', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    
+    // Phase 14: Log error
+    const serviceClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-quotation',
+      op: 'generate',
+      userId,
+      status: 'fatal_error',
+      errorCode: 'UNKNOWN',
+      httpStatus: 500,
+      durationMs: Date.now() - startTime,
+      meta: { error: String(error) },
+    });
+
+    return respondError({
+      code: 'UNKNOWN',
+      message: 'Échec génération',
+      correlationId,
+      meta: { details: error instanceof Error ? error.message : 'Unknown error' },
+    });
   }
 });
