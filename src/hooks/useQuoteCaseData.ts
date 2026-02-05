@@ -32,6 +32,7 @@ export interface QuoteCaseWithGaps {
   quoteCase: QuoteCaseData | null;
   blockingGaps: BlockingGap[];
   allGaps: BlockingGap[];
+  factsCount: number;
   isLoading: boolean;
   error: Error | null;
 }
@@ -76,13 +77,32 @@ export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGap
     staleTime: 30000,
   });
 
+  // Phase 12 Fix CTO: Query le nombre de facts du quote_case
+  const { data: factsCount = 0, isLoading: isLoadingFacts } = useQuery({
+    queryKey: ['quote_facts_count', quoteCase?.id],
+    queryFn: async () => {
+      if (!quoteCase?.id) return 0;
+      
+      const { count, error } = await supabase
+        .from('quote_facts')
+        .select('id', { count: 'exact', head: true })
+        .eq('case_id', quoteCase.id);
+      
+      if (error) throw error;
+      return count || 0;
+    },
+    enabled: !!quoteCase?.id,
+    staleTime: 30000,
+  });
+
   const blockingGaps = (gaps || []).filter(g => g.is_blocking && g.status === 'open');
 
   return {
     quoteCase: quoteCase || null,
     blockingGaps,
     allGaps: gaps || [],
-    isLoading: isLoadingCase || isLoadingGaps,
+    factsCount,
+    isLoading: isLoadingCase || isLoadingGaps || isLoadingFacts,
     error: errorCase || errorGaps || null,
   };
 }

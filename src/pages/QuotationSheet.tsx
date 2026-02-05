@@ -231,7 +231,10 @@ export default function QuotationSheet() {
   // Phase 8.7: Récupérer le thread_ref pour le quote_case
   // CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
   const threadRef = stableThreadRef;
-  const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+  const { quoteCase, blockingGaps, factsCount, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+  
+  // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
+  const needsAnalysis = !quoteCase || factsCount === 0;
 
   // Phase 8.8: État clarification enrichi
   const [clarificationDraft, setClarificationDraft] = useState<{
@@ -1069,7 +1072,7 @@ L'équipe SODATRA`;
           isLoadingClarification={isLoadingClarification}
           onStartAnalysis={handleStartAnalysis}
           isStartingAnalysis={isStartingAnalysis}
-          hasQuoteCase={!!quoteCase}
+          needsAnalysis={needsAnalysis}
         />
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}

@@ -33,7 +33,7 @@ interface QuotationHeaderProps {
   // Phase 12: Trigger ensure-quote-case
   onStartAnalysis?: () => void;
   isStartingAnalysis?: boolean;
-  hasQuoteCase?: boolean;
+  needsAnalysis?: boolean;
 }
 
 // Labels humains pour les statuts (partagés avec BlockingGapsPanel)
@@ -67,7 +67,7 @@ export function QuotationHeader({
   isLoadingClarification = false,
   onStartAnalysis,
   isStartingAnalysis = false,
-  hasQuoteCase = false,
+  needsAnalysis = true,
 }: QuotationHeaderProps) {
   // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
@@ -156,8 +156,8 @@ export function QuotationHeader({
             </Button>
           )}
           
-          {/* Phase 12: Bouton "Démarrer l'analyse" si pas de quote_case */}
-          {onStartAnalysis && !hasQuoteCase && (
+          {/* Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts */}
+          {onStartAnalysis && needsAnalysis && (
             <Button 
               variant="secondary"
               onClick={onStartAnalysis}
