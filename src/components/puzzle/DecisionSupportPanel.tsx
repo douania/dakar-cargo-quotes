@@ -18,6 +18,7 @@
  */
 
 import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   FileText, 
   MapPin, 
@@ -31,8 +32,11 @@ import {
   ChevronDown,
   ChevronUp,
   Star,
-  Info
+  Info,
+  Unlock
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,6 +92,8 @@ interface Props {
 // ============================================================================
 
 export function DecisionSupportPanel({ caseId }: Props) {
+  const queryClient = useQueryClient();
+  
   const {
     proposals,
     missingInfo,
@@ -104,6 +110,21 @@ export function DecisionSupportPanel({ caseId }: Props) {
     getValidationError,
   } = useDecisionSupport(caseId);
 
+  // Fetch quote case status pour déterminer si on peut débloquer le pricing
+  const { data: quoteCase } = useQuery({
+    queryKey: ['quote-case-status', caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('quote_cases')
+        .select('status')
+        .eq('id', caseId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 5000, // Rafraîchir régulièrement pour détecter les changements
+  });
+
   // État pour le dialog de confirmation
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -112,6 +133,9 @@ export function DecisionSupportPanel({ caseId }: Props) {
 
   // État pour les sections collapsibles
   const [expandedTypes, setExpandedTypes] = useState<Set<DecisionType>>(new Set());
+
+  // État pour le déblocage du pricing
+  const [isUnlockingPricing, setIsUnlockingPricing] = useState(false);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // HANDLERS
@@ -139,6 +163,28 @@ export function DecisionSupportPanel({ caseId }: Props) {
       }
       return next;
     });
+  };
+
+  // Handler pour débloquer le pricing (Phase 13)
+  const handleUnlockPricing = async () => {
+    setIsUnlockingPricing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ack-pricing-ready', {
+        body: { case_id: caseId }
+      });
+      
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      
+      toast.success('Pricing débloqué - prêt pour le calcul');
+      queryClient.invalidateQueries({ queryKey: ['quote-case-status'] });
+      queryClient.invalidateQueries({ queryKey: ['quote-case'] });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+      toast.error(`Échec du déblocage: ${errorMessage}`);
+    } finally {
+      setIsUnlockingPricing(false);
+    }
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -554,6 +600,39 @@ export function DecisionSupportPanel({ caseId }: Props) {
           </CardContent>
         )}
       </Card>
+
+      {/* Bouton débloquer le pricing (Phase 13) */}
+      {quoteCase?.status === 'DECISIONS_COMPLETE' && (
+        <Card className="border-green-300 bg-green-50">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+                <div>
+                  <p className="font-medium text-green-900">
+                    Toutes les décisions sont validées (5/5)
+                  </p>
+                  <p className="text-sm text-green-700">
+                    Débloquez le calcul de prix pour continuer
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={handleUnlockPricing}
+                disabled={isUnlockingPricing}
+                className="gap-2 bg-green-600 hover:bg-green-700"
+              >
+                {isUnlockingPricing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Unlock className="h-4 w-4" />
+                )}
+                Débloquer le pricing
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Sections par type de décision */}
       {proposals

@@ -411,6 +411,8 @@ export type Database = {
           committed_by: string | null
           created_at: string
           decision_type: Database["public"]["Enums"]["decision_type"]
+          facts_hash: string | null
+          gaps_hash: string | null
           generated_at: string
           generated_by: string
           id: string
@@ -423,6 +425,8 @@ export type Database = {
           committed_by?: string | null
           created_at?: string
           decision_type: Database["public"]["Enums"]["decision_type"]
+          facts_hash?: string | null
+          gaps_hash?: string | null
           generated_at?: string
           generated_by?: string
           id?: string
@@ -435,6 +439,8 @@ export type Database = {
           committed_by?: string | null
           created_at?: string
           decision_type?: Database["public"]["Enums"]["decision_type"]
+          facts_hash?: string | null
+          gaps_hash?: string | null
           generated_at?: string
           generated_by?: string
           id?: string
@@ -1629,7 +1635,11 @@ export type Database = {
           decided_at: string
           decided_by: string
           decision_type: Database["public"]["Enums"]["decision_type"]
+          decision_version: number | null
+          facts_hash: string | null
+          gaps_hash: string | null
           id: string
+          idempotency_key: string | null
           is_final: boolean
           override_reason: string | null
           override_value: string | null
@@ -1643,7 +1653,11 @@ export type Database = {
           decided_at?: string
           decided_by: string
           decision_type: Database["public"]["Enums"]["decision_type"]
+          decision_version?: number | null
+          facts_hash?: string | null
+          gaps_hash?: string | null
           id?: string
+          idempotency_key?: string | null
           is_final?: boolean
           override_reason?: string | null
           override_value?: string | null
@@ -1657,7 +1671,11 @@ export type Database = {
           decided_at?: string
           decided_by?: string
           decision_type?: Database["public"]["Enums"]["decision_type"]
+          decision_version?: number | null
+          facts_hash?: string | null
+          gaps_hash?: string | null
           id?: string
+          idempotency_key?: string | null
           is_final?: boolean
           override_reason?: string | null
           override_value?: string | null
@@ -3260,6 +3278,21 @@ export type Database = {
           metric: string
           value: string
         }[]
+      }
+      commit_decision_atomic: {
+        Args: {
+          p_case_id: string
+          p_decision_type: string
+          p_facts_hash?: string
+          p_gaps_hash?: string
+          p_idempotency_key: string
+          p_override_reason?: string
+          p_override_value?: string
+          p_proposal_id: string
+          p_selected_key: string
+          p_user_id?: string
+        }
+        Returns: Json
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
       get_next_pricing_run_number: {
