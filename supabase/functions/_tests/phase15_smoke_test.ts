@@ -38,6 +38,12 @@ interface TestCase {
   body: unknown;
   requiresAuth: boolean;
   verifyRuntimeEvent?: boolean;
+  /** 
+   * If true, this function has verify_jwt=true in config.toml.
+   * AUTH tests for these functions will NOT expect runtime contract compliance
+   * (no correlation_id, no error.code) since Supabase Gateway rejects before code runs.
+   */
+  verifyJwtTrue?: boolean;
 }
 
 interface TestResult {
@@ -238,9 +244,10 @@ const TEST_CASES: TestCase[] = [
     scenario: 'AUTH',
     expectedOutcome: 'EXPECTED_ERROR',
     expectedStatuses: [401],
-    expectedErrorCodes: ['AUTH_MISSING_JWT'],
+    // No expectedErrorCodes - Gateway rejection, no runtime contract
     body: { case_id: FAKE_UUID },
     requiresAuth: false,
+    verifyJwtTrue: true, // Gateway-level auth
   },
   {
     function: 'commit-decision',
@@ -300,9 +307,10 @@ const TEST_CASES: TestCase[] = [
     scenario: 'AUTH',
     expectedOutcome: 'EXPECTED_ERROR',
     expectedStatuses: [401],
-    expectedErrorCodes: ['AUTH_MISSING_JWT'],
+    // No expectedErrorCodes - Gateway rejection, no runtime contract
     body: { case_id: FAKE_UUID },
     requiresAuth: false,
+    verifyJwtTrue: true, // Gateway-level auth
   },
   {
     function: 'generate-case-outputs',
@@ -362,9 +370,10 @@ const TEST_CASES: TestCase[] = [
     scenario: 'AUTH',
     expectedOutcome: 'EXPECTED_ERROR',
     expectedStatuses: [401],
-    expectedErrorCodes: ['AUTH_MISSING_JWT'],
+    // No expectedErrorCodes - Gateway rejection, no runtime contract
     body: { quotation_id: FAKE_UUID },
     requiresAuth: false,
+    verifyJwtTrue: true, // Gateway-level auth
   },
   {
     function: 'generate-quotation-pdf',
@@ -424,17 +433,28 @@ async function runTest(test: TestCase, token: string | null): Promise<TestResult
     // Check if status matches expected
     const statusMatches = test.expectedStatuses.includes(response.status);
     
-    // Check error code if expected
+    // Determine if we expect full runtime contract compliance
+    // For verify_jwt=true functions on AUTH scenario, Gateway rejects before code runs
+    const expectsRuntimeContract = !(test.verifyJwtTrue && test.scenario === 'AUTH');
+    
+    // Check error code if expected AND runtime contract applies
     let errorCodeMatches = true;
-    if (test.expectedErrorCodes && test.expectedErrorCodes.length > 0) {
+    if (expectsRuntimeContract && test.expectedErrorCodes && test.expectedErrorCodes.length > 0) {
       errorCodeMatches = test.expectedErrorCodes.includes(result.errorCode || '');
     }
     
-    // Check outcome
+    // Check outcome - for Gateway rejections, just check it's not ok:true
     const isOkResponse = response.json?.ok === true;
     const outcomeMatches = test.expectedOutcome === 'OK' ? isOkResponse : !isOkResponse;
     
-    result.pass = statusMatches && errorCodeMatches && outcomeMatches && !!hasValidCorrelationId;
+    // For Gateway-level AUTH, only require status match + not ok:true
+    // For all others, require full runtime contract (correlation_id, error.code)
+    if (expectsRuntimeContract) {
+      result.pass = statusMatches && errorCodeMatches && outcomeMatches && !!hasValidCorrelationId;
+    } else {
+      // Gateway-level rejection: just status + not successful
+      result.pass = statusMatches && !isOkResponse;
+    }
     
     // Verify runtime_event if required
     if (test.verifyRuntimeEvent && result.correlationId) {
@@ -445,7 +465,11 @@ async function runTest(test: TestCase, token: string | null): Promise<TestResult
     }
     
     if (!result.pass) {
-      result.error = `Status: ${statusMatches ? '✓' : `✗(got ${response.status})`}, ErrorCode: ${errorCodeMatches ? '✓' : `✗(got ${result.errorCode})`}, Outcome: ${outcomeMatches ? '✓' : '✗'}, CorrelationId: ${hasValidCorrelationId ? '✓' : '✗'}`;
+      if (expectsRuntimeContract) {
+        result.error = `Status: ${statusMatches ? '✓' : `✗(got ${response.status})`}, ErrorCode: ${errorCodeMatches ? '✓' : `✗(got ${result.errorCode})`}, Outcome: ${outcomeMatches ? '✓' : '✗'}, CorrelationId: ${hasValidCorrelationId ? '✓' : '✗'}`;
+      } else {
+        result.error = `Gateway AUTH: Status: ${statusMatches ? '✓' : `✗(got ${response.status})`}, NotOk: ${!isOkResponse ? '✓' : '✗'}`;
+      }
     }
     
   } catch (err) {
