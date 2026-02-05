@@ -3,9 +3,22 @@
  * 
  * Standardized error handling, correlation, structured logging, and rate limiting
  * for Edge Functions observability and resilience.
+ * 
+ * CTO CORRECTIONS INTÉGRÉES:
+ * - A1: respondOk<T> avec générique explicite
+ * - A2: JsonObject type alias pour Record<string, unknown>
+ * - A3: truncateMeta() appliqué dans respondError (pas de meta brut au client)
+ * - A4: TextEncoder pour mesure bytes réels
  */
 
 import { corsHeaders } from "./cors.ts";
+
+// ============================================================================
+// UTILITY TYPES (CTO FIX A2)
+// ============================================================================
+
+/** Type alias for JSON-safe objects - used throughout runtime */
+export type JsonObject = Record<string, unknown>;
 
 // ============================================================================
 // ERROR CODES TAXONOMY
@@ -49,7 +62,7 @@ export interface LogEntry {
   status?: RuntimeStatus;
   durationMs?: number;
   errorCode?: ErrorCode;
-  meta?: Record<string, unknown>;
+  meta?: JsonObject;
 }
 
 export interface RuntimeEventEntry {
@@ -61,14 +74,14 @@ export interface RuntimeEventEntry {
   errorCode?: ErrorCode;
   httpStatus: number;
   durationMs: number;
-  meta?: Record<string, unknown>;
+  meta?: JsonObject;
 }
 
 export interface ErrorResponseOpts {
   code: ErrorCode;
   message: string;
   correlationId: string;
-  meta?: Record<string, unknown>;
+  meta?: JsonObject;
 }
 
 export interface RateLimitResult {
@@ -120,24 +133,26 @@ export function respondOk<T>(data: T, correlationId: string): Response {
 
 /**
  * Create a standardized error response.
+ * CTO FIX A3: meta is truncated before being sent to client (security + size limit)
  */
 export function respondError(opts: ErrorResponseOpts): Response {
   const { code, message, correlationId, meta } = opts;
   const config = ERROR_CONFIG[code];
 
-  const body: Record<string, unknown> = {
+  // CTO FIX A3: Truncate meta to avoid PII/payload leak to client
+  const safeMeta = truncateMeta(meta);
+
+  const body: JsonObject = {
     ok: false,
     error: {
       code,
       message,
       retryable: config.retryable,
+      // Only include meta if present and has content
+      ...(safeMeta && Object.keys(safeMeta).length > 0 ? { meta: safeMeta } : {}),
     },
     correlation_id: correlationId,
   };
-
-  if (meta && Object.keys(meta).length > 0) {
-    body.error = { ...(body.error as Record<string, unknown>), meta };
-  }
 
   return new Response(JSON.stringify(body), {
     status: config.httpStatus,
@@ -178,19 +193,23 @@ export function structuredLog(entry: LogEntry): void {
 
 /**
  * Truncate meta to avoid PII/payload bloat (max 1KB).
+ * CTO FIX A4: Use TextEncoder for proper byte measurement (not character count)
  */
-function truncateMeta(meta?: Record<string, unknown>): Record<string, unknown> | undefined {
+function truncateMeta(meta?: JsonObject): JsonObject | undefined {
   if (!meta) return undefined;
 
   const serialized = JSON.stringify(meta);
-  if (serialized.length <= MAX_META_SIZE_BYTES) {
+  // CTO FIX A4: Measure actual bytes, not characters
+  const byteLength = new TextEncoder().encode(serialized).length;
+  
+  if (byteLength <= MAX_META_SIZE_BYTES) {
     return meta;
   }
 
   // Truncate and add marker
   return {
     _truncated: true,
-    _original_size: serialized.length,
+    _original_size_bytes: byteLength,
     preview: serialized.substring(0, 200),
   };
 }
