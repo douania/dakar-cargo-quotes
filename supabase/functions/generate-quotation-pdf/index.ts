@@ -439,11 +439,25 @@ Deno.serve(async (req) => {
   const correlationId = getCorrelationId(req);
   const startTime = Date.now();
   let userId: string | undefined;
+
+  // Service client créé tôt pour logging
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
   
   try {
     // Auth validation (JWT vérifié par Supabase gateway + getUser)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_MISSING_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return runtimeRespondError({
         code: 'AUTH_MISSING_JWT',
         message: 'Unauthorized',
@@ -451,14 +465,22 @@ Deno.serve(async (req) => {
       });
     }
     
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
     
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_INVALID_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return runtimeRespondError({
         code: 'AUTH_INVALID_JWT',
         message: 'Unauthorized',
@@ -471,7 +493,22 @@ Deno.serve(async (req) => {
     // Parse body
     const { quotationId } = await req.json();
     if (!quotationId) {
-      return errorResponse('quotationId is required', 400);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'quotationId' },
+      });
+      return runtimeRespondError({
+        code: 'VALIDATION_FAILED',
+        message: 'quotationId is required',
+        correlationId,
+      });
     }
     
     // Fetch quotation avec generated_snapshot (source unique Phase 6D.2)
@@ -489,24 +526,85 @@ Deno.serve(async (req) => {
     
     if (fetchError || !quotation) {
       console.error('Fetch error:', fetchError);
-      return errorResponse('Quotation not found', 404);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'load_quotation',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 404,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId },
+      });
+      return runtimeRespondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Quotation not found',
+        correlationId,
+      });
     }
     
     // Vérification ownership (règle CTO non négociable)
     if (quotation.created_by !== user.id) {
       console.error('Ownership violation:', { quotation_owner: quotation.created_by, requester: user.id });
-      return errorResponse('Non autorisé', 403);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'ownership',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'FORBIDDEN_OWNER',
+        httpStatus: 403,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId, owner: quotation.created_by },
+      });
+      return runtimeRespondError({
+        code: 'FORBIDDEN_OWNER',
+        message: 'Non autorisé',
+        correlationId,
+      });
     }
     
     // Vérification statut (PDF uniquement depuis snapshot validé)
     if (quotation.status !== 'generated') {
-      return errorResponse('Devis non généré - impossible de créer le PDF', 400);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'status_check',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId, current_status: quotation.status },
+      });
+      return runtimeRespondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Devis non généré - impossible de créer le PDF',
+        correlationId,
+        meta: { current_status: quotation.status },
+      });
     }
     
     // Vérification snapshot présent
     if (!quotation.generated_snapshot) {
       console.error('Missing snapshot for quotation:', quotationId);
-      return errorResponse('Snapshot manquant - régénérez le devis', 500);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'validate_snapshot',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'UPSTREAM_DB_ERROR',
+        httpStatus: 500,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId },
+      });
+      return runtimeRespondError({
+        code: 'UPSTREAM_DB_ERROR',
+        message: 'Snapshot manquant - régénérez le devis',
+        correlationId,
+      });
     }
     
     // Cast snapshot (JSONB → type)
@@ -534,7 +632,22 @@ Deno.serve(async (req) => {
     
     if (uploadError) {
       console.error('Upload error:', uploadError);
-      return errorResponse(`Storage upload failed: ${uploadError.message}`, 500);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'storage_upload',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'UPSTREAM_DB_ERROR',
+        httpStatus: 500,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId, error: uploadError.message },
+      });
+      return runtimeRespondError({
+        code: 'UPSTREAM_DB_ERROR',
+        message: `Storage upload failed: ${uploadError.message}`,
+        correlationId,
+      });
     }
     
     // Insérer trace dans quotation_documents
@@ -566,6 +679,17 @@ Deno.serve(async (req) => {
     
     if (signError) {
       console.error('Sign error:', signError);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation-pdf',
+        op: 'create_signed_url',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'UPSTREAM_DB_ERROR',
+        httpStatus: 500,
+        durationMs: Date.now() - startTime,
+        meta: { quotationId, filePath },
+      });
       return runtimeRespondError({
         code: 'UPSTREAM_DB_ERROR',
         message: 'Failed to create signed URL',
@@ -574,10 +698,6 @@ Deno.serve(async (req) => {
     }
     
     // Phase 14: Log runtime event
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'generate-quotation-pdf',
@@ -601,11 +721,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Generate PDF error:', error);
     
-    // Phase 14: Log error
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    // Phase 14: Log error (serviceClient déjà créé en haut)
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'generate-quotation-pdf',

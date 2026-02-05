@@ -13,11 +13,11 @@
 | RPC `upsert_rate_limit_bucket` | ✅ Sécurisée | ✅ REVOKE PUBLIC + GRANT service_role |
 | Triggers append-only | ✅ Actifs | ✅ search_path=public |
 | healthz endpoint | ✅ Déployé | ✅ Testé |
-| Patch commit-decision | ✅ CORRIGÉ | ✅ B1-B5 validés (100% runtime contract) |
-| Patch generate-response | 🔜 Prêt | En attente GO CTO |
-| Patch generate-case-outputs | 🔜 Prêt | En attente GO CTO |
-| Patch generate-quotation | 🔜 Prêt | En attente GO CTO |
-| Patch generate-quotation-pdf | 🔜 Prêt | En attente GO CTO |
+| Patch commit-decision | ✅ COMPLET | ✅ B1-B5 validés (100% runtime contract) |
+| Patch generate-response | ✅ COMPLET | ✅ respondOk + logRuntimeEvent succès |
+| Patch generate-case-outputs | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
+| Patch generate-quotation | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
+| Patch generate-quotation-pdf | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
 | UI useDecisionSupport (retry 3x) | ✅ Patché | ✅ Idempotent safe |
 | UI emailService (correlation) | ✅ Patché | ✅ MAX_RETRIES=1 |
 | UI QuotationPdfExport (retry 1x) | ✅ Patché | ✅ MAX_RETRIES=1 |
@@ -54,3 +54,4 @@
 | Tables | `REVOKE INSERT` (données conservées) |
 | Rate limit | Désactiver check dans helper |
 | UI retry | Revenir sans retry |
+

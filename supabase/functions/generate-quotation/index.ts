@@ -4,6 +4,7 @@
  * 
  * Conformité Phase 6C: Tous les changements de statut métier passent par Edge Function.
  * Phase 14: Runtime observability integration
+ * CTO CORRECTIONS: All returns use respondOk/respondError + logRuntimeEvent
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -30,10 +31,24 @@ serve(async (req) => {
   const startTime = Date.now();
   let userId: string | undefined;
 
+  // Service client créé tôt pour logging
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     // 1. Validation JWT
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_MISSING_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return respondError({
         code: 'AUTH_MISSING_JWT',
         message: 'Missing authorization header',
@@ -41,9 +56,7 @@ serve(async (req) => {
       });
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
     // Client with user's token for auth validation
     const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -56,6 +69,15 @@ serve(async (req) => {
     
     if (authError || !user) {
       console.error('Auth error:', authError);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_INVALID_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return respondError({
         code: 'AUTH_INVALID_JWT',
         message: 'Invalid or expired token',
@@ -70,29 +92,62 @@ serve(async (req) => {
 
     // 3. Validation stricte
     if (!quotation_id || typeof quotation_id !== 'string') {
-      return new Response(
-        JSON.stringify({ error: 'quotation_id requis (UUID existant)' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'quotation_id' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'quotation_id requis (UUID existant)',
+        correlationId,
+      });
     }
 
     if (!snapshot || !snapshot.meta || !snapshot.client) {
-      return new Response(
-        JSON.stringify({ error: 'Snapshot invalide' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'snapshot' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Snapshot invalide',
+        correlationId,
+      });
     }
 
     // Validate snapshot meta matches quotation_id
     if (snapshot.meta.quotation_id !== quotation_id) {
-      return new Response(
-        JSON.stringify({ error: 'Snapshot quotation_id mismatch' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { expected: quotation_id, received: snapshot.meta.quotation_id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Snapshot quotation_id mismatch',
+        correlationId,
+      });
     }
-
-    // 4. Service client (bypass RLS pour vérification + update)
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 5. Vérifier ownership + statut actuel
     const { data: existingDraft, error: fetchError } = await serviceClient
@@ -103,30 +158,64 @@ serve(async (req) => {
 
     if (fetchError || !existingDraft) {
       console.error('Fetch error:', fetchError);
-      return new Response(
-        JSON.stringify({ error: 'Devis introuvable' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'load_quotation',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 404,
+        durationMs: Date.now() - startTime,
+        meta: { quotation_id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Devis introuvable',
+        correlationId,
+      });
     }
 
     // 6. Contrôle ownership strict
     if (existingDraft.created_by !== userId) {
       console.error('Ownership check failed:', { created_by: existingDraft.created_by, userId });
-      return new Response(
-        JSON.stringify({ error: 'Non autorisé' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'ownership',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'FORBIDDEN_OWNER',
+        httpStatus: 403,
+        durationMs: Date.now() - startTime,
+        meta: { quotation_id, owner: existingDraft.created_by },
+      });
+      return respondError({
+        code: 'FORBIDDEN_OWNER',
+        message: 'Non autorisé',
+        correlationId,
+      });
     }
 
     // 7. Vérifier transition valide (seul draft → generated autorisé)
     if (existingDraft.status !== 'draft') {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Ce devis a déjà été généré', 
-          current_status: existingDraft.status 
-        }),
-        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-quotation',
+        op: 'status_check',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 409,
+        durationMs: Date.now() - startTime,
+        meta: { quotation_id, current_status: existingDraft.status },
+      });
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Ce devis a déjà été généré',
+        correlationId,
+        meta: { current_status: existingDraft.status },
+      });
     }
 
     // 8. UPDATE avec snapshot figé
@@ -167,11 +256,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('generate-quotation error:', error);
     
-    // Phase 14: Log error
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    // Phase 14: Log error (serviceClient déjà créé en haut)
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'generate-quotation',
@@ -188,7 +273,6 @@ serve(async (req) => {
       code: 'UNKNOWN',
       message: 'Échec génération',
       correlationId,
-      meta: { details: error instanceof Error ? error.message : 'Unknown error' },
     });
   }
 });
