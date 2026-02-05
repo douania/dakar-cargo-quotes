@@ -1968,6 +1968,7 @@ export type Database = {
           file_size: number | null
           id: string
           quotation_id: string
+          quotation_version_id: string | null
           root_quotation_id: string
           status: string
           version: number
@@ -1981,6 +1982,7 @@ export type Database = {
           file_size?: number | null
           id?: string
           quotation_id: string
+          quotation_version_id?: string | null
           root_quotation_id: string
           status: string
           version: number
@@ -1994,6 +1996,7 @@ export type Database = {
           file_size?: number | null
           id?: string
           quotation_id?: string
+          quotation_version_id?: string | null
           root_quotation_id?: string
           status?: string
           version?: number
@@ -2004,6 +2007,13 @@ export type Database = {
             columns: ["quotation_id"]
             isOneToOne: false
             referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotation_documents_quotation_version_id_fkey"
+            columns: ["quotation_version_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -2114,6 +2124,107 @@ export type Database = {
             columns: ["parent_quotation_id"]
             isOneToOne: false
             referencedRelation: "quotation_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quotation_version_lines: {
+        Row: {
+          amount: number
+          breakdown: Json | null
+          created_at: string
+          currency: string
+          description: string | null
+          id: string
+          line_order: number
+          quantity: number
+          quotation_version_id: string
+          service_code: string
+          unit_price: number
+        }
+        Insert: {
+          amount?: number
+          breakdown?: Json | null
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          line_order?: number
+          quantity?: number
+          quotation_version_id: string
+          service_code: string
+          unit_price?: number
+        }
+        Update: {
+          amount?: number
+          breakdown?: Json | null
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          line_order?: number
+          quantity?: number
+          quotation_version_id?: string
+          service_code?: string
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotation_version_lines_quotation_version_id_fkey"
+            columns: ["quotation_version_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quotation_versions: {
+        Row: {
+          case_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_selected: boolean
+          pricing_run_id: string
+          snapshot: Json
+          status: string
+          version_number: number
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_selected?: boolean
+          pricing_run_id: string
+          snapshot: Json
+          status?: string
+          version_number?: number
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_selected?: boolean
+          pricing_run_id?: string
+          snapshot?: Json
+          status?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotation_versions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotation_versions_pricing_run_id_fkey"
+            columns: ["pricing_run_id"]
+            isOneToOne: false
+            referencedRelation: "pricing_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -3152,6 +3263,10 @@ export type Database = {
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
       get_next_pricing_run_number: {
+        Args: { p_case_id: string }
+        Returns: number
+      }
+      get_next_quotation_version_number: {
         Args: { p_case_id: string }
         Returns: number
       }

@@ -66,6 +66,9 @@ import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
 import { DecisionSupportPanel } from '@/components/puzzle/DecisionSupportPanel';
 // Phase 10.1: Pricing launch panel
 import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
+// Phase 12: Pricing result + Version panels
+import { PricingResultPanel } from '@/components/puzzle/PricingResultPanel';
+import { QuotationVersionCard } from '@/components/puzzle/QuotationVersionCard';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -1013,6 +1016,15 @@ L'équipe SODATRA`;
          quoteCase.status === 'ACK_READY_FOR_PRICING' && (
           <div className="mb-6">
             <PricingLaunchPanel caseId={quoteCase.id} />
+          </div>
+        )}
+
+        {/* Phase 12: PricingResultPanel + QuotationVersionCard - visible si PRICED_DRAFT ou HUMAN_REVIEW */}
+        {!quotationCompleted && quoteCase?.id && 
+         ['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
+          <div className="mb-6 space-y-4">
+            <PricingResultPanel caseId={quoteCase.id} />
+            <QuotationVersionCard caseId={quoteCase.id} />
           </div>
         )}
 
