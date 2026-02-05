@@ -1,36 +1,45 @@
 # Phase 15 — Notes & Known Limitations
 
-## Phase 15.2 — Hardening generate-response (✅ COMPLETED)
+## Phase 15.3 — Auth Hardening generate-response (✅ COMPLETED)
 
 ### Objectif
-Éliminer le bug `Cannot read properties of null (reading 'body_text')` et garantir que toute entrée invalide retourne `VALIDATION_FAILED`, jamais `UNKNOWN`.
+Sécuriser `generate-response` pour exiger un JWT valide, alignement avec les autres fonctions (pattern auth-in-code).
 
 ### Corrections appliquées
 
-| Guard | Emplacement | Description |
-|-------|-------------|-------------|
-| Guard 1 | Ligne ~1271 | Rejette `{}` → `VALIDATION_FAILED` |
-| Guard 1b | Ligne ~1306 | Email non trouvé → `VALIDATION_FAILED` (via service role) |
-| Guard 2 | Ligne ~1651 | `body_text` null/invalide → `VALIDATION_FAILED` |
+| Élément | Description |
+|---------|-------------|
+| AUTH GUARD | Vérifie `Authorization` header → `AUTH_MISSING_JWT` (401) |
+| JWT Validation | `userClient.auth.getUser()` → `AUTH_INVALID_JWT` (401) |
+| JSON try/catch | Body non-JSON → `VALIDATION_FAILED` (400) |
+| userId propagé | Tous les `logRuntimeEvent` utilisent `userId` authentifié |
+| serviceClient tôt | Créé avant auth pour garantir logging forensic |
+| console.error minimal | Sans leak de détails auth |
 
-### Tests de validation Phase 15.2
+### Tests de validation Phase 15.3
 
-| Test | Body | HTTP | Error Code | Résultat |
-|------|------|------|------------|----------|
-| VALIDATION (vide) | `{}` | 400 | VALIDATION_FAILED | ✅ PASS |
-| VALIDATION (emailId invalide) | `{ "emailId": "uuid-inexistant" }` | 400 | VALIDATION_FAILED | ✅ PASS |
-| EXECUTION (nominal) | `{ "quotationData": {...} }` | 200 | ok: true | ✅ PASS |
+| Test | Body | JWT | HTTP | Error Code | Résultat |
+|------|------|-----|------|------------|----------|
+| AUTH (sans header) | `{}` | ❌ | 401 | AUTH_MISSING_JWT | ✅ |
+| AUTH (token invalide) | `{}` | ❌ invalide | 401 | AUTH_INVALID_JWT | ✅ |
+| JSON invalide | `not-json` | ✅ | 400 | VALIDATION_FAILED | ✅ |
+| VALIDATION (vide) | `{}` | ✅ | 400 | VALIDATION_FAILED | ✅ |
+| VALIDATION (emailId not-uuid) | `{ emailId: "not-a-uuid" }` | ✅ | 400 | VALIDATION_FAILED | ✅ |
+| VALIDATION (emailId inexistant) | `{ emailId: "uuid-inexistant" }` | ✅ | 400 | VALIDATION_FAILED | ✅ |
+| EXECUTION (nominal) | `{ quotationData: {...} }` | ✅ | 200 | ok: true | ✅ |
 
 ### Critères de clôture
 
 | Critère | État |
 |---------|------|
-| Plus de `UNKNOWN` sur generate-response | ✅ |
-| Inputs invalides → `VALIDATION_FAILED` | ✅ |
-| Runtime contract intact | ✅ |
-| Phase 15.1 rerunnable sans warning | ✅ |
+| `generate-response` refuse sans JWT | ✅ 401 AUTH_MISSING_JWT |
+| Toutes les fonctions alignées (auth en code) | ✅ |
+| Runtime contract uniforme sur 5 fonctions | ✅ |
+| Aucune erreur `UNKNOWN` | ✅ |
 
 ---
+
+## Phase 15.2 — Hardening generate-response (✅ COMPLETED)
 
 ## Phase 15.1 — Smoke Tests Runtime Contract
 
