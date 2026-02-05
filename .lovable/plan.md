@@ -1,12 +1,23 @@
 # PLAN D'IMPLEMENTATION — HISTORIQUE PHASES
 
-## Phase 12 : IMPLÉMENTÉE ✅
+## Phase 12 : IMPLÉMENTÉE ✅ + 4 PATCHS CTO ✅
 
 ### Exploitation contrôlée des résultats Pricing + Versioning + PDF Draft
 
 **Date d'implémentation** : 2026-02-05
+**Patchs CTO appliqués** : 2026-02-05
 
 ---
+
+### 0. PATCHS CTO OBLIGATOIRES (APPLIQUÉS)
+
+| Patch | Problème | Solution |
+|-------|----------|----------|
+| #1 | UPDATE+INSERT non atomique | RPC `insert_quotation_version_atomic` avec advisory lock |
+| #2 | Insertion lines sans rollback | DELETE version si lines fail |
+| #3 | Snapshot mapping destructif | Ajout `raw_lines` pour audit forensic |
+| #4 | Validation pricing_run.case_id absente | Vérification explicite avant traitement |
+| BONUS | Sélection UI non atomique | RPC `select_quotation_version` pour UI |
 
 ### 1. RÉSUMÉ
 
