@@ -1,191 +1,107 @@
+# PLAN D'IMPLEMENTATION — HISTORIQUE PHASES
 
+## Phase 12 : IMPLÉMENTÉE ✅
 
-# PLAN D'IMPLEMENTATION PHASE 11
+### Exploitation contrôlée des résultats Pricing + Versioning + PDF Draft
 
-## Modification run-pricing : ACK_READY_FOR_PRICING au lieu de READY_TO_PRICE
-
----
-
-## 1. CONTEXTE
-
-La Phase 10 a introduit le statut `ACK_READY_FOR_PRICING` comme gate obligatoire avant le pricing.
-L'Edge Function `run-pricing` doit maintenant accepter ce nouveau statut.
-
-### Statut actuel (incorrect)
-
-| Ligne | Code actuel | Problème |
-|-------|-------------|----------|
-| 104 | `caseData.status !== "READY_TO_PRICE"` | Ancien statut |
-| 109 | `required_status: "READY_TO_PRICE"` | Message d'erreur incorrect |
-| 147-148 | `previous_value: "READY_TO_PRICE"` | Timeline incorrecte |
-| 161, 187, 216 | Rollback vers `"READY_TO_PRICE"` | Rollback vers mauvais statut |
+**Date d'implémentation** : 2026-02-05
 
 ---
 
-## 2. MODIFICATIONS REQUISES
+### 1. RÉSUMÉ
 
-### 2.1 Header de version (lignes 1-5)
+Phase 12 transforme un résultat technique (`pricing_runs`) en un draft de devis versionné, auditable et exportable.
 
-```text
-AVANT:
-/**
- * Phase 7.0.4-fix: run-pricing
- * ...
- */
+### 2. ENTITÉS CRÉÉES
 
-APRES:
-/**
- * Phase 11: run-pricing
- * Executes deterministic pricing via quotation-engine
- * CTO Update: Now requires ACK_READY_FOR_PRICING status (Phase 10 gate)
- * CTO Fixes: Atomic run_number, Status rollback compensation, Blocking gaps guard
- */
-```
-
-### 2.2 Verification de statut (lignes 104-113)
-
-```typescript
-AVANT:
-if (caseData.status !== "READY_TO_PRICE") {
-  return new Response(
-    JSON.stringify({ 
-      error: "Case not ready for pricing",
-      current_status: caseData.status,
-      required_status: "READY_TO_PRICE"
-    }),
-    { status: 400, ... }
-  );
-}
-
-APRES:
-if (caseData.status !== "ACK_READY_FOR_PRICING") {
-  return new Response(
-    JSON.stringify({ 
-      error: "Case not ready for pricing",
-      current_status: caseData.status,
-      required_status: "ACK_READY_FOR_PRICING"
-    }),
-    { status: 400, ... }
-  );
-}
-```
-
-### 2.3 Timeline event transition (lignes 144-150)
-
-```typescript
-AVANT:
-await serviceClient.from("case_timeline_events").insert({
-  case_id,
-  event_type: "status_changed",
-  previous_value: "READY_TO_PRICE",
-  new_value: "PRICING_RUNNING",
-  actor_type: "system",
-});
-
-APRES:
-await serviceClient.from("case_timeline_events").insert({
-  case_id,
-  event_type: "status_changed",
-  previous_value: "ACK_READY_FOR_PRICING",
-  new_value: "PRICING_RUNNING",
-  actor_type: "system",
-});
-```
-
-### 2.4 Rollback status (lignes 159-163)
-
-```typescript
-AVANT:
-await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "facts_load_failed");
-
-APRES:
-await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "facts_load_failed");
-```
-
-### 2.5 Rollback status RPC error (lignes 185-189)
-
-```typescript
-AVANT:
-await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_number_failed");
-
-APRES:
-await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_number_failed");
-```
-
-### 2.6 Rollback status insert error (ligne 216)
-
-```typescript
-AVANT:
-await rollbackToPreviousStatus(serviceClient, case_id, "READY_TO_PRICE", "run_insert_failed");
-
-APRES:
-await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_insert_failed");
-```
-
----
-
-## 3. FICHIER A MODIFIER
-
-| Fichier | Modifications |
-|---------|---------------|
-| `supabase/functions/run-pricing/index.ts` | 6 modifications ciblées |
-
----
-
-## 4. FLUX APRES MODIFICATION
-
-```text
-Phase 10 (ack-pricing-ready)
-         |
-         v
-quote_cases.status = ACK_READY_FOR_PRICING
-         |
-         v
-Phase 11 (run-pricing)
-         |
-         +-- Verification: status === ACK_READY_FOR_PRICING
-         |
-         +-- Transition: ACK_READY_FOR_PRICING -> PRICING_RUNNING
-         |
-         +-- [Si erreur] Rollback: -> ACK_READY_FOR_PRICING
-         |
-         +-- [Si succes] Transition: PRICING_RUNNING -> PRICED_DRAFT
-```
-
----
-
-## 5. CONFORMITE CTO
-
-| Regle | Application |
+| Table | Description |
 |-------|-------------|
-| Gate Phase 10 requis | ACK_READY_FOR_PRICING obligatoire |
-| Timeline coherente | previous_value correct |
-| Rollback coherent | Retour vers ACK_READY_FOR_PRICING |
-| Pas de breaking change | Workflow preserve |
-| Audit trail | Events timeline corrects |
+| `quotation_versions` | Snapshots immuables des devis depuis pricing_runs |
+| `quotation_version_lines` | Lignes tarifaires figées par version |
+
+### 3. AJUSTEMENTS CTO INTÉGRÉS
+
+| # | Ajustement | Implémentation |
+|---|------------|----------------|
+| 1 | RLS INSERT quotation_versions | `(created_by OR assigned_to)` via quote_cases |
+| 2 | RLS INSERT quotation_version_lines | Policy complète ajoutée |
+| 3 | 1 seul is_selected par case | Index unique partiel `uq_qv_selected_per_case` |
+| 4 | Version number atomique | RPC `get_next_quotation_version_number` avec `pg_advisory_xact_lock` |
+| 5 | Alignement statuts UI | Visible si status IN ('PRICED_DRAFT', 'HUMAN_REVIEW') |
+| 6 | PDF tracé dans quotation_documents | Colonne `quotation_version_id` ajoutée |
+
+### 4. EDGE FUNCTIONS CRÉÉES
+
+| Fonction | Rôle |
+|----------|------|
+| `generate-quotation-version` | Crée une version immuable depuis un pricing_run |
+| `export-quotation-version-pdf` | Génère un PDF DRAFT avec mention obligatoire |
+
+### 5. COMPOSANTS UI
+
+| Composant | Rôle |
+|-----------|------|
+| `PricingResultPanel.tsx` | Affiche résumé pricing + bouton création version |
+| `QuotationVersionCard.tsx` | Liste des versions + export PDF |
+| `usePricingResultData.ts` | Hook données pricing + versions |
+
+### 6. FLUX POST-PHASE 12
+
+```
+ACK_READY_FOR_PRICING
+        |
+        v (run-pricing)
+PRICING_RUNNING
+        |
+        v (success)
+PRICED_DRAFT
+        |
+        +-- UI: PricingResultPanel visible
+        +-- Bouton: Créer version v1
+        |
+        v (generate-quotation-version)
+        |
+quotation_versions.snapshot FIGÉ
+        |
+        +-- export-quotation-version-pdf
+        +-- quotation_documents.quotation_version_id
+        |
+        v (generate-case-outputs)
+HUMAN_REVIEW
+        |
+        +-- UI: Panels toujours visibles (ajustement #5)
+```
+
+### 7. CE QUI N'EST PAS DANS PHASE 12
+
+| Élément | Phase future |
+|---------|--------------|
+| Envoi email client | Phase 13 |
+| Validation commerciale | Phase 13 |
+| Signature électronique | Phase 14+ |
+| Facturation | Phase 15+ |
+| Édition manuelle lignes | Non prévu (immutabilité) |
 
 ---
 
-## 6. TESTS POST-MODIFICATION
+## Phase 11 : IMPLÉMENTÉE ✅
 
-| Test | Resultat attendu |
-|------|------------------|
-| Appel avec status DECISIONS_COMPLETE | 400 - required ACK_READY_FOR_PRICING |
-| Appel avec status ACK_READY_FOR_PRICING | 200 - Pricing execute |
-| Erreur facts_load | Rollback vers ACK_READY_FOR_PRICING |
-| Timeline event | previous_value = ACK_READY_FOR_PRICING |
+### Modification run-pricing : ACK_READY_FOR_PRICING
 
----
+**Date d'implémentation** : 2026-02-05
 
-## 7. CE QUI NE CHANGE PAS
-
-- Logique de pricing (quotation-engine)
-- Guard gaps bloquants
-- Atomic run_number RPC
-- Compensation sur erreur
-- Transition finale vers PRICED_DRAFT
+| Modification | Détail |
+|--------------|--------|
+| Gate statut | `ACK_READY_FOR_PRICING` requis (Phase 10) |
+| Timeline | `previous_value` = ACK_READY_FOR_PRICING |
+| Rollback | Retour vers ACK_READY_FOR_PRICING si erreur |
 
 ---
 
-**Modification simple, ciblée, sans impact structurel.**
+## Phase 10.1 : IMPLÉMENTÉE ✅
 
+### Gate manuel ACK_READY_FOR_PRICING
+
+- Edge function `ack-pricing-ready`
+- Bouton `PricingLaunchPanel`
+- Visible uniquement si `READY_TO_PRICE`
