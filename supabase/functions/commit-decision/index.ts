@@ -11,10 +11,12 @@
 // ❌ JAMAIS quote_facts
 // ❌ JAMAIS status → READY_TO_PRICE
 // 
-// CORRECTIONS CTO INTÉGRÉES:
-// 1. Idempotency key basée sur proposal_id (stable)
-// 2. Gaps gating transactionnel via RPC
-// 3. Hash canonique avec normalisation value_json
+// CORRECTIONS CTO PHASE 14 INTÉGRÉES:
+// - B1: Tous les retours convertis en respondOk/respondError
+// - B2: logRuntimeEvent avant chaque return
+// - B3: Imports inutilisés retirés (structuredLog, getStatusFromErrorCode)
+// - B4: Variable `type` corrigée en `decision_type`
+// - B5: Double déclaration userId corrigée
 // ============================================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -25,9 +27,7 @@ import {
   getCorrelationId, 
   respondOk, 
   respondError, 
-  structuredLog, 
   logRuntimeEvent,
-  getStatusFromErrorCode,
   type ErrorCode 
 } from "../_shared/runtime.ts";
 
@@ -87,7 +87,15 @@ serve(async (req) => {
   // Phase 14: Correlation + timing
   const correlationId = getCorrelationId(req);
   const startTime = Date.now();
+  
+  // CTO FIX B5: userId déclaré une seule fois, assigné après auth
   let userId: string | undefined;
+  
+  // Service client créé tôt pour logging (utilisé partout)
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     // -------------------------------------------------------------------------
@@ -95,17 +103,21 @@ serve(async (req) => {
     // -------------------------------------------------------------------------
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      const response = respondError({
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_MISSING_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
+      return respondError({
         code: 'AUTH_MISSING_JWT',
         message: 'Authorization header required',
         correlationId,
       });
-      return response;
     }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // User client for auth validation
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -114,6 +126,15 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'auth',
+        status: 'fatal_error',
+        errorCode: 'AUTH_INVALID_JWT',
+        httpStatus: 401,
+        durationMs: Date.now() - startTime,
+      });
       return respondError({
         code: 'AUTH_INVALID_JWT',
         message: 'Invalid or expired token',
@@ -121,12 +142,8 @@ serve(async (req) => {
       });
     }
 
+    // CTO FIX B5: Assignation unique après validation
     userId = user.id;
-
-    const userId = user.id;
-
-    // Service client for DB writes (bypasses RLS for RPC call)
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // -------------------------------------------------------------------------
     // 2. INPUT VALIDATION
@@ -136,43 +153,100 @@ serve(async (req) => {
 
     // Required fields
     if (!case_id || typeof case_id !== 'string') {
-      return new Response(
-        JSON.stringify({ error: "case_id is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'case_id' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'case_id is required',
+        correlationId,
+      });
     }
 
     if (!decision_type || !ALL_DECISION_TYPES.includes(decision_type)) {
-      return new Response(
-        JSON.stringify({ 
-          error: "Invalid decision_type", 
-          allowed: ALL_DECISION_TYPES 
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'decision_type', value: decision_type },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: `Invalid decision_type. Allowed: ${ALL_DECISION_TYPES.join(', ')}`,
+        correlationId,
+      });
     }
 
     if (!proposal_json || !Array.isArray(proposal_json.options)) {
-      return new Response(
-        JSON.stringify({ error: "proposal_json with options array is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'proposal_json' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'proposal_json with options array is required',
+        correlationId,
+      });
     }
 
     if (!selected_key || typeof selected_key !== 'string') {
-      return new Response(
-        JSON.stringify({ error: "selected_key is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { field: 'selected_key' },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'selected_key is required',
+        correlationId,
+      });
     }
 
     // CTO RULE: Override requires reason
     if (override_value !== undefined && override_value !== null && override_value !== '') {
       if (!override_reason || override_reason.trim() === '') {
-        return new Response(
-          JSON.stringify({ error: "override_reason is required when override_value is set" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        await logRuntimeEvent(serviceClient, {
+          correlationId,
+          functionName: 'commit-decision',
+          op: 'validate',
+          userId,
+          status: 'fatal_error',
+          errorCode: 'VALIDATION_FAILED',
+          httpStatus: 400,
+          durationMs: Date.now() - startTime,
+          meta: { field: 'override_reason' },
+        });
+        return respondError({
+          code: 'VALIDATION_FAILED',
+          message: 'override_reason is required when override_value is set',
+          correlationId,
+        });
       }
     }
 
@@ -186,32 +260,65 @@ serve(async (req) => {
       .single();
 
     if (caseError || !quoteCase) {
-      return new Response(
-        JSON.stringify({ error: "Case not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'ownership',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 404,
+        durationMs: Date.now() - startTime,
+        meta: { case_id },
+      });
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Case not found',
+        correlationId,
+      });
     }
 
     // Ownership check
     if (quoteCase.created_by !== userId) {
       console.warn(`[commit-decision] Ownership denied: user=${userId}, owner=${quoteCase.created_by}, case=${case_id}`);
-      return new Response(
-        JSON.stringify({ error: "Access denied: not the case owner" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'ownership',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'FORBIDDEN_OWNER',
+        httpStatus: 403,
+        durationMs: Date.now() - startTime,
+        meta: { case_id, owner: quoteCase.created_by },
+      });
+      return respondError({
+        code: 'FORBIDDEN_OWNER',
+        message: 'Access denied: not the case owner',
+        correlationId,
+      });
     }
 
     // CTO RULE: Status must be in allowed list
     if (!ALLOWED_STATUSES.includes(quoteCase.status as typeof ALLOWED_STATUSES[number])) {
       console.warn(`[commit-decision] Refused: status=${quoteCase.status}, case=${case_id}`);
-      return new Response(
-        JSON.stringify({ 
-          error: "Case status does not allow decision commit",
-          current_status: quoteCase.status,
-          allowed_statuses: ALLOWED_STATUSES
-        }),
-        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'status_check',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 409,
+        durationMs: Date.now() - startTime,
+        meta: { case_id, current_status: quoteCase.status },
+      });
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: `Case status does not allow decision commit. Current: ${quoteCase.status}`,
+        correlationId,
+        meta: { allowed_statuses: ALLOWED_STATUSES },
+      });
     }
 
     // -------------------------------------------------------------------------
@@ -269,16 +376,26 @@ serve(async (req) => {
       const completedTypes = new Set(finalDecisions?.map(d => d.decision_type) || []);
       const remainingDecisions = ALL_DECISION_TYPES.filter(t => !completedTypes.has(t)).length;
 
-      return new Response(
-        JSON.stringify({
-          decision_id: existingDecision.id,
-          decision_version: existingDecision.decision_version,
-          idempotent: true,
-          remaining_decisions: remainingDecisions,
-          all_complete: remainingDecisions === 0
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const idempotentResponse: CommitDecisionResponse = {
+        decision_id: existingDecision.id,
+        decision_version: existingDecision.decision_version,
+        idempotent: true,
+        remaining_decisions: remainingDecisions,
+        all_complete: remainingDecisions === 0
+      };
+
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'idempotent_early_return',
+        userId,
+        status: 'ok',
+        httpStatus: 200,
+        durationMs: Date.now() - startTime,
+        meta: { decision_id: existingDecision.id, idempotent: true },
+      });
+
+      return respondOk(idempotentResponse, correlationId);
     }
 
     // -------------------------------------------------------------------------
@@ -304,10 +421,22 @@ serve(async (req) => {
 
     if (proposalError || !proposal) {
       console.error('[commit-decision] Failed to insert proposal:', proposalError);
-      return new Response(
-        JSON.stringify({ error: "Failed to save decision proposal" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'insert_proposal',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'UPSTREAM_DB_ERROR',
+        httpStatus: 500,
+        durationMs: Date.now() - startTime,
+        meta: { error: proposalError?.message },
+      });
+      return respondError({
+        code: 'UPSTREAM_DB_ERROR',
+        message: 'Failed to save decision proposal',
+        correlationId,
+      });
     }
 
     const proposalId = proposal.id;
@@ -331,33 +460,55 @@ serve(async (req) => {
 
     if (rpcError) {
       console.error('[commit-decision] RPC error:', rpcError);
-      return new Response(
-        JSON.stringify({ error: "Transaction failed", details: rpcError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'rpc_commit',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'UPSTREAM_DB_ERROR',
+        httpStatus: 500,
+        durationMs: Date.now() - startTime,
+        meta: { error: rpcError.message },
+      });
+      return respondError({
+        code: 'UPSTREAM_DB_ERROR',
+        message: 'Transaction failed',
+        correlationId,
+        meta: { details: rpcError.message },
+      });
     }
 
     const result = rpcResult as RpcResult;
 
     // -------------------------------------------------------------------------
-    // 8. GÉRER LES RETOURS RPC
+    // 9. GÉRER LES RETOURS RPC
     // -------------------------------------------------------------------------
     
     // Cas: Gaps bloquants ouverts (REJECTED)
     if (result.status === 'rejected') {
       console.warn(`[commit-decision] Rejected: ${result.blocking_count} blocking gaps open`);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'gaps_check',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 409,
+        durationMs: Date.now() - startTime,
+        meta: { blocking_count: result.blocking_count },
+      });
       // NE PAS marquer proposal comme committed (Garde-fou #2)
-      return new Response(
-        JSON.stringify({
-          error: "Gaps bloquants ouverts",
-          blocking_count: result.blocking_count,
-          require_override: true
-        }),
-        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Gaps bloquants ouverts',
+        correlationId,
+        meta: { blocking_count: result.blocking_count, require_override: true },
+      });
     }
 
-    // Cas: Idempotent (decision existante)
+    // Cas: Idempotent (decision existante via RPC)
     if (result.idempotent) {
       console.log(`[commit-decision] Idempotent return for decision_id=${result.decision_id}`);
       
@@ -371,15 +522,25 @@ serve(async (req) => {
       const completedTypes = new Set(finalDecisions?.map(d => d.decision_type) || []);
       const remainingDecisions = ALL_DECISION_TYPES.filter(t => !completedTypes.has(t)).length;
 
-      return new Response(
-        JSON.stringify({
-          decision_id: result.decision_id,
-          idempotent: true,
-          remaining_decisions: remainingDecisions,
-          all_complete: remainingDecisions === 0
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const rpcIdempotentResponse: CommitDecisionResponse = {
+        decision_id: result.decision_id!,
+        idempotent: true,
+        remaining_decisions: remainingDecisions,
+        all_complete: remainingDecisions === 0
+      };
+
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'commit-decision',
+        op: 'rpc_idempotent',
+        userId,
+        status: 'ok',
+        httpStatus: 200,
+        durationMs: Date.now() - startTime,
+        meta: { decision_id: result.decision_id, idempotent: true },
+      });
+
+      return respondOk(rpcIdempotentResponse, correlationId);
     }
 
     // Cas: Succès (CREATED) - marquer proposal comme committed (Garde-fou #2)
@@ -398,7 +559,7 @@ serve(async (req) => {
     const decisionId = result.decision_id!;
 
     // -------------------------------------------------------------------------
-    // 9. INSERT TIMELINE EVENT (audit)
+    // 10. INSERT TIMELINE EVENT (audit)
     // -------------------------------------------------------------------------
     const wasOverride = !!(override_value && override_value.trim() !== '');
     
@@ -425,7 +586,7 @@ serve(async (req) => {
       });
 
     // -------------------------------------------------------------------------
-    // 10. VÉRIFICATION COMPLÉTUDE (5/5)
+    // 11. VÉRIFICATION COMPLÉTUDE (5/5)
     // -------------------------------------------------------------------------
     const { data: finalDecisions } = await serviceClient
       .from('operator_decisions')
@@ -464,7 +625,7 @@ serve(async (req) => {
     }
 
     // -------------------------------------------------------------------------
-    // 11. RETURN RESPONSE
+    // 12. RETURN RESPONSE
     // -------------------------------------------------------------------------
     const response: CommitDecisionResponse = {
       decision_id: decisionId,
@@ -473,7 +634,7 @@ serve(async (req) => {
       all_complete: allComplete
     };
 
-    // Phase 14: Log runtime event
+    // Phase 14: Log runtime event (CTO FIX B4: decision_type, not type)
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'commit-decision',
@@ -482,7 +643,7 @@ serve(async (req) => {
       status: 'ok',
       httpStatus: 200,
       durationMs: Date.now() - startTime,
-      meta: { decision_type: type, decision_id: decisionId },
+      meta: { decision_type, decision_id: decisionId },
     });
 
     return respondOk(response, correlationId);
@@ -491,10 +652,6 @@ serve(async (req) => {
     console.error('[commit-decision] Unexpected error:', error);
     
     // Phase 14: Log error event
-    const serviceClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: 'commit-decision',
