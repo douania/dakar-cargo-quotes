@@ -2,10 +2,16 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CUSTOMS_CODE_REFERENCE, getLegalContextForRegime, analyzeRegimeAppropriateness } from "../_shared/customs-code-reference.ts";
 import { CTU_CODE_REFERENCE, isCTURelevant, getAllRelevantCTUContexts } from "../_shared/ctu-code-reference.ts";
+import { 
+  getCorrelationId, 
+  respondOk, 
+  respondError, 
+  logRuntimeEvent,
+} from "../_shared/runtime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",
 };
 
 // ============ SODATRA FEES CALCULATION ============
@@ -1244,6 +1250,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Phase 14: Correlation + timing
+  const correlationId = getCorrelationId(req);
+  const startTime = Date.now();
+
   try {
     const { emailId, customInstructions, expertStyle, quotationData } = await req.json();
     
@@ -1252,7 +1262,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'LOVABLE_API_KEY not configured',
+        correlationId,
+      });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -2768,9 +2782,28 @@ RAPPELS CRITIQUES:
 
   } catch (error) {
     console.error("Expert response generation error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Erreur de génération" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    
+    // Phase 14: Log error
+    const serviceClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-response',
+      op: 'generate',
+      userId: undefined,
+      status: 'fatal_error',
+      errorCode: 'UNKNOWN',
+      httpStatus: 500,
+      durationMs: Date.now() - startTime,
+      meta: { error: String(error) },
+    });
+
+    return respondError({
+      code: 'UNKNOWN',
+      message: error instanceof Error ? error.message : 'Erreur de génération',
+      correlationId,
+    });
   }
 });

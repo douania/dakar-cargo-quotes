@@ -2483,6 +2483,72 @@ export type Database = {
           },
         ]
       }
+      rate_limit_buckets: {
+        Row: {
+          function_name: string
+          id: string
+          request_count: number | null
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          function_name: string
+          id?: string
+          request_count?: number | null
+          user_id: string
+          window_start: string
+        }
+        Update: {
+          function_name?: string
+          id?: string
+          request_count?: number | null
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
+      runtime_events: {
+        Row: {
+          correlation_id: string | null
+          duration_ms: number | null
+          error_code: string | null
+          function_name: string
+          http_status: number | null
+          id: string
+          meta: Json | null
+          op: string | null
+          status: string | null
+          ts: string | null
+          user_id: string | null
+        }
+        Insert: {
+          correlation_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          function_name: string
+          http_status?: number | null
+          id?: string
+          meta?: Json | null
+          op?: string | null
+          status?: string | null
+          ts?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          correlation_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          function_name?: string
+          http_status?: number | null
+          id?: string
+          meta?: Json | null
+          op?: string | null
+          status?: string | null
+          ts?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       security_alerts: {
         Row: {
           affected_zones: string[] | null
@@ -3338,6 +3404,14 @@ export type Database = {
           p_value_text?: string
         }
         Returns: string
+      }
+      upsert_rate_limit_bucket: {
+        Args: {
+          p_function_name: string
+          p_user_id: string
+          p_window_start: string
+        }
+        Returns: number
       }
     }
     Enums: {

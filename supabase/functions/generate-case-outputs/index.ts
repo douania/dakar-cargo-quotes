@@ -1,14 +1,23 @@
 /**
  * Phase 7.0.5: generate-case-outputs
  * Generates draft email + PDF from pricing run
+ * 
+ * Phase 14: Runtime observability integration
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { 
+  getCorrelationId, 
+  respondOk, 
+  respondError, 
+  structuredLog, 
+  logRuntimeEvent,
+} from "../_shared/runtime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-correlation-id",
 };
 
 const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -23,14 +32,20 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Phase 14: Correlation + timing
+  const correlationId = getCorrelationId(req);
+  const startTime = Date.now();
+  let userId: string | undefined;
+
   try {
     // 1. Validate JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return respondError({
+        code: 'AUTH_MISSING_JWT',
+        message: 'Unauthorized',
+        correlationId,
+      });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -44,13 +59,14 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
     if (userError || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: "Invalid token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return respondError({
+        code: 'AUTH_INVALID_JWT',
+        message: 'Invalid token',
+        correlationId,
+      });
     }
 
-    const userId = userData.user.id;
+    userId = userData.user.id;
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
@@ -266,23 +282,52 @@ Deno.serve(async (req) => {
 
     console.log(`Generated outputs for case ${case_id}`);
 
-    return new Response(
-      JSON.stringify({
-        case_id,
-        new_status: "HUMAN_REVIEW",
-        draft_email: draftEmail,
-        pdf_url: pdfUrl,
-        pdf_document_id: pdfDocumentId,
-        pricing_run_id: pricingRun.id,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    // Phase 14: Log runtime event
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-case-outputs',
+      op: 'generate',
+      userId,
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startTime,
+      meta: { case_id, has_pdf: !!pdfUrl },
+    });
+
+    return respondOk({
+      case_id,
+      new_status: "HUMAN_REVIEW",
+      draft_email: draftEmail,
+      pdf_url: pdfUrl,
+      pdf_document_id: pdfDocumentId,
+      pricing_run_id: pricingRun.id,
+    }, correlationId);
   } catch (error) {
     console.error("Error in generate-case-outputs:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error", details: String(error) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    
+    // Phase 14: Log error
+    const serviceClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-case-outputs',
+      op: 'generate',
+      userId,
+      status: 'fatal_error',
+      errorCode: 'UNKNOWN',
+      httpStatus: 500,
+      durationMs: Date.now() - startTime,
+      meta: { error: String(error) },
+    });
+
+    return respondError({
+      code: 'UNKNOWN',
+      message: 'Internal server error',
+      correlationId,
+      meta: { details: String(error) },
+    });
   }
 });
 

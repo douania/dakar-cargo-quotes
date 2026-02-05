@@ -39,33 +39,60 @@ export function QuotationPdfExport({
     setIsExporting(true);
     setDownloadUrl(null);
 
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-quotation-pdf', {
-        body: { quotationId }
-      });
+    // Phase 14: Correlation header + limited retry (MAX_RETRIES = 1)
+    const correlationId = crypto.randomUUID();
+    const MAX_RETRIES = 1;
+    let lastError: Error | null = null;
 
-      if (error) throw error;
-
-      if (data?.success && data?.url) {
-        setDownloadUrl(data.url);
-        
-        // Ouvrir automatiquement
-        window.open(data.url, '_blank');
-        
-        toast.success(`PDF v${version} généré`, {
-          description: 'Document officiel',
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-quotation-pdf', {
+          body: { quotationId },
+          headers: { 'x-correlation-id': correlationId }
         });
-      } else {
-        throw new Error(data?.error || 'Échec de la génération PDF');
+
+        if (error) throw error;
+
+        // Phase 14: Handle new response format
+        if (data?.ok === false) {
+          const apiError = data.error;
+          if (apiError?.retryable && attempt < MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(apiError?.message || 'Échec de la génération PDF');
+        }
+
+        // Extract from new or legacy format
+        const responseData = data?.data || data;
+        if (responseData?.success && responseData?.url) {
+          setDownloadUrl(responseData.url);
+          
+          // Ouvrir automatiquement
+          window.open(responseData.url, '_blank');
+          
+          toast.success(`PDF v${version} généré`, {
+            description: 'Document officiel',
+          });
+          setIsExporting(false);
+          return;
+        } else {
+          throw new Error(responseData?.error || 'Échec de la génération PDF');
+        }
+      } catch (error) {
+        console.error('PDF export error:', error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
       }
-    } catch (error) {
-      console.error('PDF export error:', error);
-      toast.error('Erreur génération PDF', {
-        description: error instanceof Error ? error.message : 'Erreur inconnue',
-      });
-    } finally {
-      setIsExporting(false);
     }
+
+    toast.error('Erreur génération PDF', {
+      description: lastError?.message || 'Erreur inconnue',
+    });
+    setIsExporting(false);
   };
 
   // État après génération réussie
