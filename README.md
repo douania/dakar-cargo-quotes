@@ -104,3 +104,30 @@ Test files location: `src/**/__tests__/*.test.tsx`
 | RegulatoryInfoCard | `src/features/quotation/components/` | Phase 3B |
 | SuggestionsCard | `src/features/quotation/components/` | Phase 3B |
 | QuickActionsCard | `src/features/quotation/components/` | Phase 3B |
+
+---
+
+## Architecture Patterns
+
+### UI State vs Events (Phase 12)
+
+**Règle** : Les conditions d'affichage UI doivent dépendre de l'état métier vérifiable, jamais d'événements historiques.
+
+| Approche | Exemple | Robustesse |
+|----------|---------|------------|
+| Fragile | `bouton visible si case vient d'être créé` | Échoue au reload |
+| Robuste | `bouton visible si factsCount === 0` | Toujours cohérent |
+
+**Application Phase 12** :
+```typescript
+// Anti-pattern
+const showButton = !hasQuoteCase; // Dépend de l'existence, pas du besoin
+
+// Pattern correct
+const needsAnalysis = !quoteCase || factsCount === 0; // Dépend de l'état métier
+```
+
+**Checklist nouvelle feature** :
+- [ ] La condition UI peut-elle être recalculée après un reload ?
+- [ ] L'état est-il vérifiable en base de données ?
+- [ ] Le comportement est-il identique pour les données legacy ?
