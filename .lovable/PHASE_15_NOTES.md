@@ -1,5 +1,37 @@
 # Phase 15 — Notes & Known Limitations
 
+## Phase 15.2 — Hardening generate-response (✅ COMPLETED)
+
+### Objectif
+Éliminer le bug `Cannot read properties of null (reading 'body_text')` et garantir que toute entrée invalide retourne `VALIDATION_FAILED`, jamais `UNKNOWN`.
+
+### Corrections appliquées
+
+| Guard | Emplacement | Description |
+|-------|-------------|-------------|
+| Guard 1 | Ligne ~1271 | Rejette `{}` → `VALIDATION_FAILED` |
+| Guard 1b | Ligne ~1306 | Email non trouvé → `VALIDATION_FAILED` (via service role) |
+| Guard 2 | Ligne ~1651 | `body_text` null/invalide → `VALIDATION_FAILED` |
+
+### Tests de validation Phase 15.2
+
+| Test | Body | HTTP | Error Code | Résultat |
+|------|------|------|------------|----------|
+| VALIDATION (vide) | `{}` | 400 | VALIDATION_FAILED | ✅ PASS |
+| VALIDATION (emailId invalide) | `{ "emailId": "uuid-inexistant" }` | 400 | VALIDATION_FAILED | ✅ PASS |
+| EXECUTION (nominal) | `{ "quotationData": {...} }` | 200 | ok: true | ✅ PASS |
+
+### Critères de clôture
+
+| Critère | État |
+|---------|------|
+| Plus de `UNKNOWN` sur generate-response | ✅ |
+| Inputs invalides → `VALIDATION_FAILED` | ✅ |
+| Runtime contract intact | ✅ |
+| Phase 15.1 rerunnable sans warning | ✅ |
+
+---
+
 ## Phase 15.1 — Smoke Tests Runtime Contract
 
 ### Known Limitation: verify_jwt=true Functions
@@ -67,4 +99,4 @@ verify_jwt = false
 
 ---
 
-*Last updated: 2026-02-05 — Phase 15.1 CTO Validation*
+*Last updated: 2026-02-05 — Phase 15.2 COMPLETED*

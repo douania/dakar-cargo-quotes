@@ -1269,6 +1269,28 @@ serve(async (req) => {
       });
     }
 
+    // Phase 15.2 — Guard 1: Input validation (MANDATORY)
+    if (!emailId && !quotationData) {
+      const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-response',
+        op: 'validate',
+        userId: undefined,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { missing: ['emailId', 'quotationData'] },
+      });
+
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'emailId or quotationData is required',
+        correlationId,
+      });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // BUG #2 Fix: Rendre emailId optionnel pour cotation directe
@@ -1282,7 +1304,25 @@ serve(async (req) => {
         .single();
 
       if (emailError || !emailData) {
-        throw new Error("Email non trouvé");
+        // Phase 15.2 — Guard 1b: Email not found → structured VALIDATION_FAILED
+        const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+        await logRuntimeEvent(serviceClient, {
+          correlationId,
+          functionName: 'generate-response',
+          op: 'fetch_email',
+          userId: undefined,
+          status: 'fatal_error',
+          errorCode: 'VALIDATION_FAILED',
+          httpStatus: 400,
+          durationMs: Date.now() - startTime,
+          meta: { emailId, error: emailError?.message || 'not_found' },
+        });
+
+        return respondError({
+          code: 'VALIDATION_FAILED',
+          message: 'Email not found',
+          correlationId,
+        });
       }
       email = emailData;
     }
@@ -1628,10 +1668,33 @@ Réponds en JSON:
     }
 
     // ============ AI-POWERED EXTRACTION (REPLACES ALL REGEX) ============
+    // Phase 15.2 — Guard 2: Defensive guard for body_text (CTO-corrected)
+    const body_text = email?.body_text;
+    if (!quotationData && (!email || !body_text || typeof body_text !== 'string')) {
+      const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-response',
+        op: 'parse_email',
+        userId: undefined,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { reason: 'empty_or_null_body_text' },
+      });
+
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Email body is empty or invalid',
+        correlationId,
+      });
+    }
+
     console.log("=== STARTING AI EXTRACTION ===");
     const aiExtracted = await extractWithAI(
-      email.body_text || '',
-      email.subject || '',
+      body_text || '',
+      email?.subject || '',
       attachmentsText,
       LOVABLE_API_KEY
     );
