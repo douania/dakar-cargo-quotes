@@ -16,7 +16,7 @@
  * - PATCH 4: Validation stricte pricing_run.case_id
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
 // Snapshot structure for immutable storage
