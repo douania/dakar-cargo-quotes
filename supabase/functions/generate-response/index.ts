@@ -1254,12 +1254,99 @@ serve(async (req) => {
   const correlationId = getCorrelationId(req);
   const startTime = Date.now();
 
+  // Phase 15.3 — Environment variables (declared early for auth + logging)
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+
+  // Phase 15.3 — Service client created early for logging (pattern from generate-quotation)
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
+  // -----------------------------------------------------------------------------
+  // Phase 15.3 — AUTH GUARD (alignment with other functions)
+  // -----------------------------------------------------------------------------
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-response',
+      op: 'auth',
+      userId: undefined,
+      status: 'fatal_error',
+      errorCode: 'AUTH_MISSING_JWT',
+      httpStatus: 401,
+      durationMs: Date.now() - startTime,
+    });
+
+    return respondError({
+      code: 'AUTH_MISSING_JWT',
+      message: 'Authorization header required',
+      correlationId,
+    });
+  }
+
+  // Validate JWT via anon client (standard Supabase method)
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false },
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error: authError } = await userClient.auth.getUser();
+  if (authError || !user) {
+    // Phase 15.3 — CTO fix: minimal log without leaking auth details
+    console.error('[generate-response] Auth validation failed');
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: 'generate-response',
+      op: 'auth',
+      userId: undefined,
+      status: 'fatal_error',
+      errorCode: 'AUTH_INVALID_JWT',
+      httpStatus: 401,
+      durationMs: Date.now() - startTime,
+    });
+
+    return respondError({
+      code: 'AUTH_INVALID_JWT',
+      message: 'Invalid or expired token',
+      correlationId,
+    });
+  }
+
+  const userId = user.id;
+
   try {
-    const { emailId, customInstructions, expertStyle, quotationData } = await req.json();
-    
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    // Phase 15.3 — CTO fix: Parse body with try/catch to avoid UNKNOWN on invalid JSON
+    let body: Record<string, unknown> = {};
+    try {
+      body = await req.json();
+    } catch {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: 'generate-response',
+        op: 'validate',
+        userId,
+        status: 'fatal_error',
+        errorCode: 'VALIDATION_FAILED',
+        httpStatus: 400,
+        durationMs: Date.now() - startTime,
+        meta: { reason: 'invalid_json' },
+      });
+
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: 'Invalid JSON body',
+        correlationId,
+      });
+    }
+
+    const { emailId, customInstructions, expertStyle, quotationData } = body as {
+      emailId?: string;
+      customInstructions?: string;
+      expertStyle?: string;
+      quotationData?: Record<string, unknown>;
+    };
     
     if (!LOVABLE_API_KEY) {
       return respondError({
@@ -1271,12 +1358,11 @@ serve(async (req) => {
 
     // Phase 15.2 — Guard 1: Input validation (MANDATORY)
     if (!emailId && !quotationData) {
-      const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
       await logRuntimeEvent(serviceClient, {
         correlationId,
         functionName: 'generate-response',
         op: 'validate',
-        userId: undefined,
+        userId,
         status: 'fatal_error',
         errorCode: 'VALIDATION_FAILED',
         httpStatus: 400,
@@ -1291,7 +1377,8 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // Reuse serviceClient (no redundant client creation)
+    const supabase = serviceClient;
 
     // BUG #2 Fix: Rendre emailId optionnel pour cotation directe
     let email: any = null;
@@ -1305,12 +1392,11 @@ serve(async (req) => {
 
       if (emailError || !emailData) {
         // Phase 15.2 — Guard 1b: Email not found → structured VALIDATION_FAILED
-        const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
         await logRuntimeEvent(serviceClient, {
           correlationId,
           functionName: 'generate-response',
           op: 'fetch_email',
-          userId: undefined,
+          userId,
           status: 'fatal_error',
           errorCode: 'VALIDATION_FAILED',
           httpStatus: 400,
@@ -1668,15 +1754,14 @@ Réponds en JSON:
     }
 
     // ============ AI-POWERED EXTRACTION (REPLACES ALL REGEX) ============
-    // Phase 15.2 — Guard 2: Defensive guard for body_text (CTO-corrected)
+    // Phase 15.2 — Guard 2: Defensive guard for body_text (CTO-corrected, Phase 15.3: uses userId)
     const body_text = email?.body_text;
     if (!quotationData && (!email || !body_text || typeof body_text !== 'string')) {
-      const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
       await logRuntimeEvent(serviceClient, {
         correlationId,
         functionName: 'generate-response',
         op: 'parse_email',
-        userId: undefined,
+        userId,
         status: 'fatal_error',
         errorCode: 'VALIDATION_FAILED',
         httpStatus: 400,
