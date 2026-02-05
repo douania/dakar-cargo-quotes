@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
@@ -166,6 +167,12 @@ export default function QuotationSheet() {
   const [generatedResponse, setGeneratedResponse] = useState('');
   const [timelineExpanded, setTimelineExpanded] = useState(true);
   
+  // CTO #1: thread_ref canonique - évite dépendance threadEmails[0]
+  const [stableThreadRef, setStableThreadRef] = useState<string | null>(null);
+  
+  // CTO #2: Anti double-clic pour ensure-quote-case
+  const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
+  
   // Quotation status
   const [quotationCompleted, setQuotationCompleted] = useState(false);
   const [quotationOffers, setQuotationOffers] = useState<QuotationOffer[]>([]);
@@ -215,9 +222,13 @@ export default function QuotationSheet() {
   // Phase 6D.1: Snapshot généré
   const [generatedSnapshot, setGeneratedSnapshot] = useState<GeneratedSnapshot | null>(null);
 
+  // CTO #5: Invalidation React Query au lieu de reload
+  const queryClient = useQueryClient();
+
   // Phase 8.7: Récupérer le thread_ref pour le quote_case
-  const threadRef = threadEmails[0]?.thread_ref || null;
-  const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(threadRef ?? undefined);
+  // CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
+  const threadRef = stableThreadRef;
+  const { quoteCase, blockingGaps, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
 
   // Phase 8.8: État clarification enrichi
   const [clarificationDraft, setClarificationDraft] = useState<{
@@ -292,6 +303,45 @@ L'équipe SODATRA`;
       setIsLoadingClarification(false);
     }
   }, [projectContext.requesting_party, threadRef, blockingGaps]);
+
+  // ============================================================================
+  // Phase 12 Validation - Trigger ensure-quote-case
+  // CTO #2: Anti double-clic + idempotence + message d'erreur exact
+  // CTO #5: Invalidation React Query (pas de reload)
+  // ============================================================================
+  const handleStartAnalysis = useCallback(async () => {
+    if (!stableThreadRef) {
+      toast.error('Fil email introuvable - impossible de créer le dossier');
+      return;
+    }
+    
+    if (isStartingAnalysis) return;
+    
+    setIsStartingAnalysis(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ensure-quote-case', {
+        body: { thread_id: stableThreadRef }
+      });
+      
+      if (error) throw error;
+      
+      if (data.is_new) {
+        toast.success(`Dossier créé : ${data.case_id.slice(0, 8)}...`);
+      } else {
+        toast.info(`Dossier existant : ${data.status}`);
+      }
+      
+      // CTO #5: Invalidation React Query au lieu de window.location.reload()
+      queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+      
+    } catch (err: unknown) {
+      console.error('[ensure-quote-case] Error:', err);
+      const message = err instanceof Error ? err.message : 'Erreur création du dossier';
+      toast.error(message);
+    } finally {
+      setIsStartingAnalysis(false);
+    }
+  }, [stableThreadRef, isStartingAnalysis, queryClient]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
@@ -370,6 +420,7 @@ L'équipe SODATRA`;
       
       if (emailData.thread_ref) {
         threadEmailsList = await loadThreadEmailsByRef(emailData.thread_ref);
+        setStableThreadRef(emailData.thread_ref);  // CTO: source canonique
       }
       
       // Fallback: try matching by normalized subject
@@ -967,6 +1018,9 @@ L'équipe SODATRA`;
           quoteCaseStatus={quoteCase?.status}
           onRequestClarification={handleRequestClarification}
           isLoadingClarification={isLoadingClarification}
+          onStartAnalysis={handleStartAnalysis}
+          isStartingAnalysis={isStartingAnalysis}
+          hasQuoteCase={!!quoteCase}
         />
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}

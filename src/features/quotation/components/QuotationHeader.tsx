@@ -3,7 +3,7 @@
  * Phase 6D.x: Ajout bouton Sauvegarder le brouillon
  * Phase 8.7: Gating du bouton Générer si blocking gaps + CTA clarification
  */
-import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send, Save, HelpCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, MessageSquare, Loader2, Send, Save, HelpCircle, AlertTriangle, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -30,6 +30,10 @@ interface QuotationHeaderProps {
   onRequestClarification?: () => void;
   // Phase 8.8: Loading state pour analyse IA
   isLoadingClarification?: boolean;
+  // Phase 12: Trigger ensure-quote-case
+  onStartAnalysis?: () => void;
+  isStartingAnalysis?: boolean;
+  hasQuoteCase?: boolean;
 }
 
 // Labels humains pour les statuts (partagés avec BlockingGapsPanel)
@@ -61,6 +65,9 @@ export function QuotationHeader({
   quoteCaseStatus,
   onRequestClarification,
   isLoadingClarification = false,
+  onStartAnalysis,
+  isStartingAnalysis = false,
+  hasQuoteCase = false,
 }: QuotationHeaderProps) {
   // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
@@ -146,6 +153,22 @@ export function QuotationHeader({
                 <Save className="h-4 w-4 mr-2" />
               )}
               {currentDraft?.id ? 'Sauvegarder' : 'Sauvegarder le brouillon'}
+            </Button>
+          )}
+          
+          {/* Phase 12: Bouton "Démarrer l'analyse" si pas de quote_case */}
+          {onStartAnalysis && !hasQuoteCase && (
+            <Button 
+              variant="secondary"
+              onClick={onStartAnalysis}
+              disabled={isStartingAnalysis}
+            >
+              {isStartingAnalysis ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Démarrer l'analyse
             </Button>
           )}
           
