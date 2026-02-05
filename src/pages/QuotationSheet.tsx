@@ -173,6 +173,9 @@ export default function QuotationSheet() {
   // CTO #2: Anti double-clic pour ensure-quote-case
   const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
   
+  // CTO Phase 12: Anti double-clic pour build-case-puzzle
+  const [isBuildingPuzzle, setIsBuildingPuzzle] = useState(false);
+  
   // Quotation status
   const [quotationCompleted, setQuotationCompleted] = useState(false);
   const [quotationOffers, setQuotationOffers] = useState<QuotationOffer[]>([]);
@@ -305,9 +308,10 @@ L'équipe SODATRA`;
   }, [projectContext.requesting_party, threadRef, blockingGaps]);
 
   // ============================================================================
-  // Phase 12 Validation - Trigger ensure-quote-case
-  // CTO #2: Anti double-clic + idempotence + message d'erreur exact
-  // CTO #5: Invalidation React Query (pas de reload)
+  // Phase 12 Validation - Trigger ensure-quote-case + build-case-puzzle
+  // CTO: Vérification facts existants (pas is_new) pour idempotence
+  // CTO: Anti double-clic + rejouable si facts absents
+  // CTO: Invalidation React Query quote_facts, quote_gaps, quote-case
   // ============================================================================
   const handleStartAnalysis = useCallback(async () => {
     if (!stableThreadRef) {
@@ -315,24 +319,65 @@ L'équipe SODATRA`;
       return;
     }
     
-    if (isStartingAnalysis) return;
+    // Garde anti double-clic combinée
+    if (isStartingAnalysis || isBuildingPuzzle) return;
     
     setIsStartingAnalysis(true);
     try {
+      // Étape 1: Créer ou récupérer le quote_case
       const { data, error } = await supabase.functions.invoke('ensure-quote-case', {
         body: { thread_id: stableThreadRef }
       });
       
       if (error) throw error;
       
+      const caseId = data.case_id;
+      
       if (data.is_new) {
-        toast.success(`Dossier créé : ${data.case_id.slice(0, 8)}...`);
+        toast.success(`Dossier créé : ${caseId.slice(0, 8)}...`);
       } else {
         toast.info(`Dossier existant : ${data.status}`);
       }
       
-      // CTO #5: Invalidation React Query au lieu de window.location.reload()
+      // Invalider quote-case pour mise à jour UI immédiate
       queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+      
+      // Étape 2: Vérifier si facts existent déjà (CTO: pas is_new)
+      const { count: factsCount, error: countError } = await supabase
+        .from('quote_facts')
+        .select('id', { count: 'exact', head: true })
+        .eq('case_id', caseId);
+      
+      if (countError) {
+        console.warn('[facts-count] Error:', countError);
+      }
+      
+      // Étape 3: Lancer build-case-puzzle SEULEMENT si aucun fact
+      if (factsCount === 0) {
+        setIsBuildingPuzzle(true);
+        toast.info('Extraction des faits en cours...');
+        
+        const { data: puzzleData, error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
+          body: { case_id: caseId }
+        });
+        
+        if (puzzleError) {
+          console.error('[build-case-puzzle] Error:', puzzleError);
+          toast.warning('Extraction des faits partiellement échouée');
+        } else {
+          toast.success('Extraction des faits terminée');
+          console.log('[build-case-puzzle] Success:', puzzleData);
+        }
+        
+        // Invalider caches React Query pour faits et gaps
+        queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
+        queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
+        queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+        
+        setIsBuildingPuzzle(false);
+      } else {
+        console.log(`[build-case-puzzle] Skipped - ${factsCount} facts already exist`);
+      }
       
     } catch (err: unknown) {
       console.error('[ensure-quote-case] Error:', err);
@@ -340,8 +385,9 @@ L'équipe SODATRA`;
       toast.error(message);
     } finally {
       setIsStartingAnalysis(false);
+      setIsBuildingPuzzle(false);
     }
-  }, [stableThreadRef, isStartingAnalysis, queryClient]);
+  }, [stableThreadRef, isStartingAnalysis, isBuildingPuzzle, queryClient]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
