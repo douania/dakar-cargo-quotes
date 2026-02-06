@@ -24,9 +24,10 @@ import { usePricingResultData } from '@/hooks/usePricingResultData';
 
 interface PricingResultPanelProps {
   caseId: string;
+  isLocked?: boolean;
 }
 
-export function PricingResultPanel({ caseId }: PricingResultPanelProps) {
+export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId);
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
@@ -193,19 +194,28 @@ export function PricingResultPanel({ caseId }: PricingResultPanelProps) {
         )}
 
         {/* Version Creation Alert */}
-        <Alert variant="default" className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
-          <Lock className="h-4 w-4 text-amber-600" />
-          <AlertDescription className="text-amber-800 dark:text-amber-200">
-            <span className="font-medium">Création de version :</span> Cette action fige les données du pricing et crée une version immuable du devis (non modifiable).
-          </AlertDescription>
-        </Alert>
+        {isLocked ? (
+          <Alert variant="default" className="border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20">
+            <Info className="h-4 w-4 text-emerald-600" />
+            <AlertDescription className="text-emerald-800 dark:text-emerald-200">
+              <span className="font-medium">Devis envoyé</span> — La création de nouvelles versions est désactivée.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert variant="default" className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
+            <Lock className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800 dark:text-amber-200">
+              <span className="font-medium">Création de version :</span> Cette action fige les données du pricing et crée une version immuable du devis (non modifiable).
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Create Version Button with Confirmation */}
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogTrigger asChild>
             <Button 
               className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-              disabled={isCreating}
+              disabled={isCreating || isLocked}
             >
               {isCreating ? (
                 <>

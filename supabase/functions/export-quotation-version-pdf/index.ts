@@ -353,16 +353,18 @@ Deno.serve(async (req) => {
       return respondError({ code: 'VALIDATION_FAILED', message: 'Quote case not found', correlationId });
     }
 
-    if (caseData.status !== 'QUOTED_VERSIONED') {
+    // Phase 19B C3: Allow QUOTED_VERSIONED and SENT (SENT = read-only idempotent)
+    const ALLOWED_EXPORT_STATUSES = ['QUOTED_VERSIONED', 'SENT'];
+    if (!ALLOWED_EXPORT_STATUSES.includes(caseData.status)) {
       await logRuntimeEvent(serviceClient, {
         correlationId, functionName: FUNCTION_NAME, op: 'guard_fsm',
         userId, status: 'fatal_error', errorCode: 'CONFLICT_INVALID_STATE',
         httpStatus: 409, durationMs: Date.now() - t0,
-        meta: { current_status: caseData.status, required: 'QUOTED_VERSIONED' },
+        meta: { current_status: caseData.status, required: ALLOWED_EXPORT_STATUSES },
       });
       return respondError({
         code: 'CONFLICT_INVALID_STATE',
-        message: `Case status must be QUOTED_VERSIONED, got ${caseData.status}`,
+        message: `Case status must be one of ${ALLOWED_EXPORT_STATUSES.join(', ')}, got ${caseData.status}`,
         correlationId,
       });
     }
@@ -416,6 +418,20 @@ Deno.serve(async (req) => {
         url: existingSignedData?.signedUrl ?? null,
         idempotent: true,
       }, correlationId);
+    }
+
+    // Phase 19B C3-A: SENT without existing doc = cannot generate new PDF
+    if (caseData.status === 'SENT') {
+      await logRuntimeEvent(serviceClient, {
+        correlationId, functionName: FUNCTION_NAME, op: 'guard_sent_generation',
+        userId, status: 'fatal_error', errorCode: 'CONFLICT_INVALID_STATE',
+        httpStatus: 409, durationMs: Date.now() - t0,
+      });
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Cannot generate new PDF after sending',
+        correlationId,
+      });
     }
 
     // --- Generate PDF (pure projection) ---
