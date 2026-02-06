@@ -1985,9 +1985,9 @@ export type Database = {
           file_path: string
           file_size: number | null
           id: string
-          quotation_id: string
+          quotation_id: string | null
           quotation_version_id: string | null
-          root_quotation_id: string
+          root_quotation_id: string | null
           status: string
           version: number
         }
@@ -1999,9 +1999,9 @@ export type Database = {
           file_path: string
           file_size?: number | null
           id?: string
-          quotation_id: string
+          quotation_id?: string | null
           quotation_version_id?: string | null
-          root_quotation_id: string
+          root_quotation_id?: string | null
           status: string
           version: number
         }
@@ -2013,9 +2013,9 @@ export type Database = {
           file_path?: string
           file_size?: number | null
           id?: string
-          quotation_id?: string
+          quotation_id?: string | null
           quotation_version_id?: string | null
-          root_quotation_id?: string
+          root_quotation_id?: string | null
           status?: string
           version?: number
         }
