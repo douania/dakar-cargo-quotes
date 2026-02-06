@@ -239,7 +239,7 @@ Deno.serve(async (req) => {
     let tariffSources: any[] = [];
 
     try {
-      const engineRequest = {
+      const engineParams = {
         finalDestination: inputs.finalDestination,
         originPort: inputs.originPort,
         originAirport: inputs.originAirport,
@@ -249,7 +249,9 @@ Deno.serve(async (req) => {
         cargoVolume: inputs.cargoVolume,
         cargoValue: inputs.cargoValue,
         carrier: inputs.carrier,
-        requestType: caseData.request_type,
+        transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
+        cargoDescription: inputs.cargoDescription,
+        clientCompany: inputs.clientCompany,
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
@@ -259,7 +261,7 @@ Deno.serve(async (req) => {
           Authorization: `Bearer ${supabaseServiceKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(engineRequest),
+        body: JSON.stringify({ action: "generate", params: engineParams }),
       });
 
       if (!engineRes.ok) {
@@ -284,14 +286,8 @@ Deno.serve(async (req) => {
         })
         .eq("id", pricingRun.id);
 
-      // Transition case back to partial (engine failed, not setup)
-      await serviceClient
-        .from("quote_cases")
-        .update({ 
-          status: "FACTS_PARTIAL",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", case_id);
+      // Rollback case to ACK_READY_FOR_PRICING (engine failed, allow retry)
+      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "engine_failed");
 
       await serviceClient.from("case_timeline_events").insert({
         case_id,

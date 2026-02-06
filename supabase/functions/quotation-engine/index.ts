@@ -1556,6 +1556,7 @@ serve(async (req) => {
     switch (action) {
       case 'generate': {
         const request = params as QuotationRequest;
+        const earlyWarnings: string[] = [];
         
         // Validation minimale
         if (!request.finalDestination) {
@@ -1566,14 +1567,13 @@ serve(async (req) => {
         }
         
         if (!request.cargoValue || request.cargoValue <= 0) {
-          return new Response(
-            JSON.stringify({ success: false, error: 'Valeur marchandise requise' }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-          );
+          request.cargoValue = 1;
+          earlyWarnings.push('Valeur marchandise non spécifiée — calculs CAF/assurance approximatifs');
         }
         
         // Générer les lignes de cotation
-        const { lines, warnings } = await generateQuotationLines(supabase, request);
+        const { lines, warnings: engineWarnings } = await generateQuotationLines(supabase, request);
+        const warnings = [...earlyWarnings, ...engineWarnings];
         
         // Calculer les totaux
         const totals = {
