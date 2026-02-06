@@ -22,6 +22,7 @@ export interface IncotermRule {
   description: string;
 }
 
+/** @deprecated M1.3 — Source principale: table `incoterms_reference` en DB. Conservé comme fallback. */
 export const INCOTERMS_MATRIX: Record<string, IncotermRule> = {
   'EXW': {
     code: 'EXW',
@@ -157,6 +158,7 @@ export interface ZoneConfig {
   examples: string[];
 }
 
+/** @deprecated M1.3 — Source principale: table `delivery_zones` en DB. Conservé comme fallback. */
 export const DELIVERY_ZONES: Record<string, ZoneConfig> = {
   'DAKAR': {
     code: 'DAKAR',
@@ -425,6 +427,7 @@ export interface SodatraFeeResult {
   complexity: { factor: number; reasons: string[] };
 }
 
+/** @deprecated M1.3 — Source principale: table `sodatra_fee_rules` en DB. Conservé comme fallback. */
 export function calculateSodatraFees(params: SodatraFeeParams): SodatraFeeResult {
   // Facteur de complexité
   let complexityFactor = 1.0;

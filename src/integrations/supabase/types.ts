@@ -457,6 +457,51 @@ export type Database = {
           },
         ]
       }
+      delivery_zones: {
+        Row: {
+          additional_days: number | null
+          country: string
+          created_at: string | null
+          distance_from_port_km: number
+          example_cities: string[] | null
+          id: string
+          is_active: boolean | null
+          is_transit: boolean | null
+          multiplier: number
+          requires_special_permit: boolean | null
+          zone_code: string
+          zone_name: string
+        }
+        Insert: {
+          additional_days?: number | null
+          country?: string
+          created_at?: string | null
+          distance_from_port_km?: number
+          example_cities?: string[] | null
+          id?: string
+          is_active?: boolean | null
+          is_transit?: boolean | null
+          multiplier?: number
+          requires_special_permit?: boolean | null
+          zone_code: string
+          zone_name: string
+        }
+        Update: {
+          additional_days?: number | null
+          country?: string
+          created_at?: string | null
+          distance_from_port_km?: number
+          example_cities?: string[] | null
+          id?: string
+          is_active?: boolean | null
+          is_transit?: boolean | null
+          multiplier?: number
+          requires_special_permit?: boolean | null
+          zone_code?: string
+          zone_name?: string
+        }
+        Relationships: []
+      }
       demurrage_rates: {
         Row: {
           carrier: string
@@ -2611,6 +2656,66 @@ export type Database = {
           recommended_action?: string | null
           source_url?: string | null
           title?: string
+        }
+        Relationships: []
+      }
+      sodatra_fee_rules: {
+        Row: {
+          base_amount: number
+          calculation_method: string
+          complexity_factors: Json | null
+          created_at: string | null
+          currency: string
+          effective_date: string
+          expiry_date: string | null
+          fee_code: string
+          id: string
+          is_active: boolean | null
+          max_amount: number | null
+          min_amount: number | null
+          notes: string | null
+          rate_percent: number | null
+          source_document: string | null
+          transport_mode: string
+          value_factor: number | null
+        }
+        Insert: {
+          base_amount?: number
+          calculation_method: string
+          complexity_factors?: Json | null
+          created_at?: string | null
+          currency?: string
+          effective_date?: string
+          expiry_date?: string | null
+          fee_code: string
+          id?: string
+          is_active?: boolean | null
+          max_amount?: number | null
+          min_amount?: number | null
+          notes?: string | null
+          rate_percent?: number | null
+          source_document?: string | null
+          transport_mode?: string
+          value_factor?: number | null
+        }
+        Update: {
+          base_amount?: number
+          calculation_method?: string
+          complexity_factors?: Json | null
+          created_at?: string | null
+          currency?: string
+          effective_date?: string
+          expiry_date?: string | null
+          fee_code?: string
+          id?: string
+          is_active?: boolean | null
+          max_amount?: number | null
+          min_amount?: number | null
+          notes?: string | null
+          rate_percent?: number | null
+          source_document?: string | null
+          transport_mode?: string
+          value_factor?: number | null
         }
         Relationships: []
       }

@@ -11,10 +11,293 @@ import {
   calculateSodatraFees,
   calculateHistoricalMatchScore,
   SOURCE_CONFIDENCE,
+  type IncotermRule,
+  type ZoneConfig,
   type DataSourceType,
   type QuotationLineSource,
   type SodatraFeeParams,
 } from "../_shared/quotation-rules.ts";
+
+// =====================================================
+// DB-BACKED LOADERS (M1.3 — replace hardcoded rules)
+// =====================================================
+
+/** Load incoterms from DB, fallback to hardcoded INCOTERMS_MATRIX */
+async function loadIncotermsFromDB(supabase: any): Promise<Record<string, IncotermRule>> {
+  try {
+    const { data, error } = await supabase
+      .from('incoterms_reference')
+      .select('*')
+      .order('code');
+    
+    if (error || !data || data.length === 0) {
+      console.log('[M1.3] incoterms_reference query failed or empty, using hardcoded fallback');
+      return INCOTERMS_MATRIX;
+    }
+    
+    const matrix: Record<string, IncotermRule> = {};
+    for (const row of data) {
+      const cafMethod = (row.caf_calculation_method || '').toUpperCase();
+      const isFobBased = cafMethod.includes('FOB') || cafMethod.includes('F&I');
+      
+      matrix[row.code] = {
+        code: row.code,
+        group: row.group_name as 'E' | 'F' | 'C' | 'D',
+        sellerPays: {
+          origin: row.seller_pays_export_customs ?? true,
+          freight: row.seller_pays_transport ?? false,
+          insurance: row.seller_pays_insurance ?? false,
+          import: !row.buyer_pays_import_customs,
+          destination: row.seller_pays_unloading ?? false,
+        },
+        cafMethod: isFobBased ? 'FOB_PLUS_FREIGHT' : 'INVOICE_VALUE',
+        description: row.name_fr || row.name_en,
+      };
+    }
+    
+    console.log(`[M1.3] Loaded ${Object.keys(matrix).length} incoterms from DB`);
+    return matrix;
+  } catch (e) {
+    console.error('[M1.3] Error loading incoterms from DB:', e);
+    return INCOTERMS_MATRIX;
+  }
+}
+
+/** Load delivery zones from DB, fallback to hardcoded DELIVERY_ZONES */
+async function loadDeliveryZonesFromDB(supabase: any): Promise<Record<string, ZoneConfig>> {
+  try {
+    const { data, error } = await supabase
+      .from('delivery_zones')
+      .select('*')
+      .eq('is_active', true);
+    
+    if (error || !data || data.length === 0) {
+      console.log('[M1.3] delivery_zones query failed or empty, using hardcoded fallback');
+      return DELIVERY_ZONES;
+    }
+    
+    const zones: Record<string, ZoneConfig> = {};
+    for (const row of data) {
+      zones[row.zone_code] = {
+        code: row.zone_code,
+        name: row.zone_name,
+        multiplier: parseFloat(row.multiplier),
+        distanceKm: row.distance_from_port_km,
+        additionalDays: row.additional_days || 0,
+        requiresSpecialPermit: row.requires_special_permit || false,
+        examples: row.example_cities || [],
+      };
+    }
+    
+    console.log(`[M1.3] Loaded ${Object.keys(zones).length} delivery zones from DB`);
+    return zones;
+  } catch (e) {
+    console.error('[M1.3] Error loading delivery zones from DB:', e);
+    return DELIVERY_ZONES;
+  }
+}
+
+/** Identify zone using DB-loaded zones, with same matching logic as hardcoded version */
+function identifyZoneFromDB(destination: string, zones: Record<string, ZoneConfig>): ZoneConfig {
+  const destinationLower = destination.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  for (const [_code, zone] of Object.entries(zones)) {
+    if (destinationLower.includes(zone.name.toLowerCase())) {
+      return zone;
+    }
+    for (const example of zone.examples) {
+      if (destinationLower.includes(example.toLowerCase())) {
+        return zone;
+      }
+    }
+  }
+  
+  return zones['THIES_REGION'] || Object.values(zones)[0];
+}
+
+/** Load SODATRA fee rules from DB, compute fees */
+interface SodatraFeeFromDB {
+  dedouanement: number;
+  suivi: number;
+  ouvertureDossier: number;
+  documentation: number;
+  commission: number;
+  total: number;
+  complexity: { factor: number; reasons: string[] };
+  fromDB: boolean;
+}
+
+async function calculateSodatraFeesFromDB(
+  supabase: any,
+  params: SodatraFeeParams,
+  zone: ZoneConfig
+): Promise<SodatraFeeFromDB> {
+  try {
+    const { data: rules, error } = await supabase
+      .from('sodatra_fee_rules')
+      .select('*')
+      .eq('is_active', true)
+      .or(`transport_mode.eq.ALL,transport_mode.eq.${params.transportMode}`);
+    
+    if (error || !rules || rules.length === 0) {
+      console.log('[M1.3] sodatra_fee_rules empty, using hardcoded fallback');
+      const fallback = calculateSodatraFees(params);
+      return { ...fallback, fromDB: false };
+    }
+    
+    // Calculate complexity factor from DB rules
+    let complexityFactor = 1.0;
+    const complexityReasons: string[] = [];
+    
+    // Get complexity_factors from the DEDOUANEMENT rule (which has them)
+    const dedouanementRule = rules.find((r: any) => r.fee_code === 'DEDOUANEMENT');
+    if (dedouanementRule?.complexity_factors) {
+      const cf = dedouanementRule.complexity_factors;
+      if (params.isIMO && cf.imo) { complexityFactor += cf.imo; complexityReasons.push('Marchandise IMO'); }
+      if (params.isOOG && cf.oog) { complexityFactor += cf.oog; complexityReasons.push('Hors gabarit'); }
+      if (params.isTransit && cf.transit) { complexityFactor += cf.transit; complexityReasons.push('Transit'); }
+      if (params.isReefer && cf.reefer) { complexityFactor += cf.reefer; complexityReasons.push('Conteneur réfrigéré'); }
+    }
+    
+    if (zone.multiplier > 1.5) {
+      complexityFactor += (zone.multiplier - 1) * 0.3;
+      complexityReasons.push(`Zone éloignée: ${zone.name}`);
+    }
+    
+    const roundTo5k = (n: number) => Math.round(n / 5000) * 5000;
+    
+    // DEDOUANEMENT
+    let dedouanement = 75000;
+    if (dedouanementRule) {
+      const ratePercent = parseFloat(dedouanementRule.rate_percent) || 0.004;
+      const valueFactor = parseFloat(dedouanementRule.value_factor) || 0.6;
+      const minAmt = parseFloat(dedouanementRule.min_amount) || 75000;
+      const maxAmt = parseFloat(dedouanementRule.max_amount) || 500000;
+      
+      const valueBased = Math.min(Math.max(params.cargoValue * ratePercent, 100000), maxAmt);
+      dedouanement = Math.max(roundTo5k(valueBased * valueFactor * complexityFactor), minAmt);
+    }
+    
+    // SUIVI
+    let suivi = 35000;
+    const suiviRule = rules.find((r: any) => 
+      r.fee_code === 'SUIVI' || (r.fee_code === 'SUIVI_TONNE' && params.containerCount === 0)
+    );
+    if (suiviRule) {
+      if (suiviRule.calculation_method === 'PER_CONTAINER' && params.containerCount > 0) {
+        suivi = Math.max(roundTo5k(parseFloat(suiviRule.base_amount) * params.containerCount * complexityFactor), parseFloat(suiviRule.min_amount) || 35000);
+      } else if (suiviRule.calculation_method === 'PER_TONNE') {
+        suivi = Math.max(roundTo5k(parseFloat(suiviRule.base_amount) * params.weightTonnes * complexityFactor), parseFloat(suiviRule.min_amount) || 35000);
+      }
+    }
+    
+    // OUVERTURE_DOSSIER
+    let ouvertureDossier = 25000;
+    const dossierRule = rules.find((r: any) => r.fee_code === 'OUVERTURE_DOSSIER' && (r.transport_mode === params.transportMode || r.transport_mode === 'ALL'));
+    if (dossierRule) {
+      ouvertureDossier = parseFloat(dossierRule.base_amount);
+    }
+    
+    // DOCUMENTATION
+    let documentation = 15000;
+    const docRule = rules.find((r: any) => r.fee_code === 'DOCUMENTATION');
+    if (docRule) {
+      documentation = parseFloat(docRule.base_amount);
+    }
+    
+    // COMMISSION (calculated later in main flow from débours total)
+    const commission = 0;
+    
+    const total = dedouanement + suivi + ouvertureDossier + documentation;
+    
+    console.log(`[M1.3] SODATRA fees from DB: dedouanement=${dedouanement}, suivi=${suivi}, dossier=${ouvertureDossier}, docs=${documentation}`);
+    
+    return {
+      dedouanement,
+      suivi,
+      ouvertureDossier,
+      documentation,
+      commission,
+      total,
+      complexity: { factor: complexityFactor, reasons: complexityReasons },
+      fromDB: true,
+    };
+  } catch (e) {
+    console.error('[M1.3] Error loading sodatra_fee_rules:', e);
+    const fallback = calculateSodatraFees(params);
+    return { ...fallback, fromDB: false };
+  }
+}
+
+/** Fetch operational costs for exceptional transport (M1.3.4) */
+async function fetchExceptionalTransportCosts(
+  supabase: any,
+  exceptionalReasons: string[]
+): Promise<QuotationLine[]> {
+  const lines: QuotationLine[] = [];
+  
+  try {
+    const { data: costs } = await supabase
+      .from('operational_costs_senegal')
+      .select('*')
+      .eq('is_active', true)
+      .in('cost_type', ['fee', 'tax']);
+    
+    if (!costs || costs.length === 0) return lines;
+    
+    // Check if weight exceeded → escort + authorization
+    const hasWeightIssue = exceptionalReasons.some(r => r.toLowerCase().includes('poids'));
+    const hasSizeIssue = exceptionalReasons.some(r => r.toLowerCase().includes('largeur') || r.toLowerCase().includes('longueur') || r.toLowerCase().includes('hauteur'));
+    
+    if (hasWeightIssue || hasSizeIssue) {
+      // Find escort costs (FEE002-004)
+      const escortCosts = costs.filter((c: any) => c.cost_id.startsWith('FEE00') && c.cost_id !== 'FEE001' && c.cost_id !== 'FEE005');
+      if (escortCosts.length > 0) {
+        // Use 1st category by default
+        const escort = escortCosts[0];
+        lines.push({
+          id: `exceptional_escort_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Transport Exceptionnel',
+          description: escort.name_fr,
+          amount: null,
+          currency: 'FCFA',
+          source: {
+            type: 'TO_CONFIRM',
+            reference: escort.source || 'operational_costs_senegal',
+            confidence: 0.7,
+          },
+          notes: `Fourchette: ${escort.min_amount?.toLocaleString() || '?'} - ${escort.max_amount?.toLocaleString() || '?'} FCFA. ${escort.condition_text || ''}`,
+          isEditable: true,
+        });
+      }
+      
+      // Authorization
+      const authCost = costs.find((c: any) => c.cost_id === 'FEE005');
+      if (authCost) {
+        lines.push({
+          id: `exceptional_auth_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Transport Exceptionnel',
+          description: authCost.name_fr,
+          amount: null,
+          currency: 'FCFA',
+          source: {
+            type: 'TO_CONFIRM',
+            reference: authCost.source || 'operational_costs_senegal',
+            confidence: 0.7,
+          },
+          notes: `Fourchette: ${authCost.min_amount?.toLocaleString() || '?'} - ${authCost.max_amount?.toLocaleString() || '?'} FCFA. ${authCost.condition_text || ''}`,
+          isEditable: true,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('[M1.3] Error fetching exceptional transport costs:', e);
+  }
+  
+  return lines;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -769,13 +1052,21 @@ async function generateQuotationLines(
   const warnings: string[] = [];
   
   // =====================================================
+  // 0. LOAD DB-BACKED RULES (M1.3)
+  // =====================================================
+  const [dbIncoterms, dbZones] = await Promise.all([
+    loadIncotermsFromDB(supabase),
+    loadDeliveryZonesFromDB(supabase),
+  ]);
+  
+  // =====================================================
   // 1. DETERMINE CONTEXT
   // =====================================================
   
   const transitCountry = detectTransitCountry(request.finalDestination);
   const isTransit = request.isTransit || transitCountry !== null;
   const effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT';
-  const zone = identifyZone(request.finalDestination);
+  const zone = identifyZoneFromDB(request.finalDestination, dbZones);
   
   console.log(`Quotation context: isTransit=${isTransit}, transitCountry=${transitCountry}, operationType=${effectiveOperationType}`);
   
@@ -1334,7 +1625,7 @@ async function generateQuotationLines(
   }
   
   // =====================================================
-  // 8. BLOC HONORAIRES - SODATRA FEES
+  // 8. BLOC HONORAIRES - SODATRA FEES (M1.3: from sodatra_fee_rules DB)
   // =====================================================
   
   // Don't include SODATRA fees for transit/tender contexts
@@ -1355,7 +1646,8 @@ async function generateQuotationLines(
       isReefer: request.isReefer || false
     };
     
-    const sodatraFees = calculateSodatraFees(sodatraParams);
+    const sodatraFees = await calculateSodatraFeesFromDB(supabase, sodatraParams, zone);
+    const feeSourceRef = sodatraFees.fromDB ? 'sodatra_fee_rules (DB)' : 'Grille SODATRA (fallback)';
     
     lines.push({
       id: 'fee_clearance',
@@ -1366,7 +1658,7 @@ async function generateQuotationLines(
       currency: 'FCFA',
       source: {
         type: 'CALCULATED',
-        reference: 'Grille SODATRA',
+        reference: feeSourceRef,
         confidence: 0.9
       },
       notes: sodatraFees.complexity.reasons.length > 0 
@@ -1384,7 +1676,7 @@ async function generateQuotationLines(
       currency: 'FCFA',
       source: {
         type: 'CALCULATED',
-        reference: 'Grille SODATRA',
+        reference: feeSourceRef,
         confidence: 0.9
       },
       isEditable: true
@@ -1399,7 +1691,7 @@ async function generateQuotationLines(
       currency: 'FCFA',
       source: {
         type: 'CALCULATED',
-        reference: 'Grille SODATRA',
+        reference: feeSourceRef,
         confidence: 1.0
       },
       isEditable: false
@@ -1414,11 +1706,26 @@ async function generateQuotationLines(
       currency: 'FCFA',
       source: {
         type: 'CALCULATED',
-        reference: 'Grille SODATRA',
+        reference: feeSourceRef,
         confidence: 1.0
       },
       isEditable: false
     });
+  }
+  
+  // =====================================================
+  // 8d. TRANSPORT EXCEPTIONNEL (M1.3.4: from operational_costs_senegal)
+  // =====================================================
+  
+  {
+    const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
+    if (exceptional.isExceptional) {
+      const exceptionalLines = await fetchExceptionalTransportCosts(supabase, exceptional.reasons);
+      lines.push(...exceptionalLines);
+      for (const reason of exceptional.reasons) {
+        warnings.push(`⚠️ Transport exceptionnel: ${reason}`);
+      }
+    }
   }
   
   // =====================================================
@@ -1576,7 +1883,7 @@ async function generateQuotationLines(
   
   if (!isTransit) {
     // Calcul CAF
-    const incotermRule = INCOTERMS_MATRIX[request.incoterm?.toUpperCase() || 'CIF'];
+    const incotermRule = dbIncoterms[request.incoterm?.toUpperCase() || 'CIF'];
     const caf = calculateCAF({
       incoterm: request.incoterm || 'CIF',
       invoiceValue: request.cargoValue,
@@ -1733,9 +2040,11 @@ serve(async (req) => {
         totals.dap = totals.operationnel + totals.honoraires + totals.border + totals.terminal;
         totals.ddp = totals.dap + totals.debours;
         
-        // Métadonnées
-        const incotermRule = INCOTERMS_MATRIX[request.incoterm?.toUpperCase() || 'CIF'];
-        const zone = identifyZone(request.finalDestination);
+        // Métadonnées — use DB-backed rules for consistency
+        const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
+        const dbZonesMeta = await loadDeliveryZonesFromDB(supabase);
+        const incotermRule = dbIncotermsMeta[request.incoterm?.toUpperCase() || 'CIF'];
+        const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         const caf = calculateCAF({
