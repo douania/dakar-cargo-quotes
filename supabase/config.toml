@@ -131,3 +131,9 @@ verify_jwt = true
 
 [functions.ack-pricing-ready]
 verify_jwt = true
+
+[functions.generate-quotation-version]
+verify_jwt = true
+
+[functions.export-quotation-version-pdf]
+verify_jwt = true
