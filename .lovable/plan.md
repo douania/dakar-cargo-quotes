@@ -1,57 +1,68 @@
 
 
-## Plan Phase 14 FINAL — Observabilité & Résilience Edge Functions
+# Phase 16 — Patch d'etat minimal : READY_TO_PRICE -> DECISIONS_PENDING
 
-### ✅ IMPLÉMENTÉ (AUDIT CTO PASSÉ)
+## Etat verifie en base (lecture directe)
 
-| Composant | Statut | Audit CTO |
-|-----------|--------|-----------|
-| Patch CORS (`_shared/cors.ts`) | ✅ Déployé | ✅ x-correlation-id ajouté |
-| Helper `_shared/runtime.ts` | ✅ Corrigé | ✅ A1-A4 validés |
-| Table `runtime_events` (append-only) | ✅ Migrée | ✅ Triggers actifs |
-| Table `rate_limit_buckets` | ✅ Migrée | ✅ UPSERT atomique |
-| RPC `upsert_rate_limit_bucket` | ✅ Sécurisée | ✅ REVOKE PUBLIC + GRANT service_role |
-| Triggers append-only | ✅ Actifs | ✅ search_path=public |
-| healthz endpoint | ✅ Déployé | ✅ Testé |
-| Patch commit-decision | ✅ COMPLET | ✅ B1-B5 validés (100% runtime contract) |
-| Patch generate-response | ✅ COMPLET | ✅ respondOk + logRuntimeEvent succès |
-| Patch generate-case-outputs | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
-| Patch generate-quotation | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
-| Patch generate-quotation-pdf | ✅ COMPLET | ✅ Tous retours convertis + logRuntimeEvent |
-| UI useDecisionSupport (retry 3x) | ✅ Patché | ✅ Idempotent safe |
-| UI emailService (correlation) | ✅ Patché | ✅ MAX_RETRIES=1 |
-| UI QuotationPdfExport (retry 1x) | ✅ Patché | ✅ MAX_RETRIES=1 |
+| Element | Valeur |
+|---------|--------|
+| `quote_cases.status` | `READY_TO_PRICE` |
+| `puzzle_completeness` | 100% |
+| `case_timeline_events` | 21 evenements |
+| `operator_decisions` | 0 |
 
-### Corrections CTO intégrées (AUDIT 2)
+## Cause du blocage
 
-| Point | Problème | Correction |
-|-------|----------|------------|
-| **#1 RLS runtime_events** | Policy `TO service_role` inutile | `REVOKE ALL` + accès service role uniquement |
-| **#2 admin_select** | `auth.users.raw_user_meta_data` dangereux | Supprimé - lecture via service role uniquement |
-| **#3 UI Retry** | Retry sans garantie idempotence | `commit-decision` retry OK, autres `MAX_RETRIES=1` |
-| **#4 CORS** | `x-correlation-id` absent | Ajout dans `_shared/cors.ts` |
-| **#5 meta bornage** | Risque PII/payload énorme | Limite 1KB + TextEncoder (bytes réels) |
-| **#6 Append-only** | Convention, pas contrainte DB | Triggers BEFORE UPDATE/DELETE + search_path |
-| **#7 Rate limit race** | SELECT puis INSERT = race condition | UPSERT atomique RPC |
-| **A1** | respondOk sans générique | `respondOk<T>(data: T, ...)` |
-| **A2** | Record sans type | `JsonObject = Record<string, unknown>` |
-| **A3** | meta non borné dans respondError | `truncateMeta(meta)` appliqué |
-| **A4** | truncateMeta mesure caractères | `TextEncoder.encode().length` (bytes) |
-| **B1** | Retours hétérogènes | Tous convertis respondOk/respondError |
-| **B2** | Pas de runtime_events sur early returns | logRuntimeEvent avant chaque return |
-| **B3** | Imports inutilisés | Retirés (structuredLog, getStatusFromErrorCode) |
-| **B4** | Variable `type` undefined | Corrigé en `decision_type` |
-| **B5** | Double déclaration userId | Corrigé (assignation unique) |
-| **RPC Security** | EXECUTE accessible PUBLIC | REVOKE PUBLIC + GRANT service_role |
+`commit-decision` n'accepte que `DECISIONS_PENDING` ou `DECISIONS_COMPLETE`. Aucune Edge Function ne gere la transition `READY_TO_PRICE -> DECISIONS_PENDING`. C'est un trou dans la machine d'etats, documente pour correction future.
 
----
+## Action : Patch DB minimal (2 operations)
 
-### Rollback
+### Operation 1 — Transition de statut
 
-| Composant | Action |
-|-----------|--------|
-| Triggers append-only | `DROP TRIGGER` |
-| Tables | `REVOKE INSERT` (données conservées) |
-| Rate limit | Désactiver check dans helper |
-| UI retry | Revenir sans retry |
+```sql
+UPDATE quote_cases
+SET status = 'DECISIONS_PENDING'
+WHERE id = 'd14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1';
+```
+
+### Operation 2 — Event d'audit (tracabilite obligatoire)
+
+```sql
+INSERT INTO case_timeline_events (
+  case_id,
+  actor_type,
+  event_type,
+  previous_value,
+  new_value,
+  created_at
+)
+VALUES (
+  'd14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1',
+  'user',
+  'status_changed',
+  'READY_TO_PRICE',
+  'DECISIONS_PENDING',
+  now()
+);
+```
+
+### Verification post-patch
+
+- `quote_cases.status` = `DECISIONS_PENDING`
+- `case_timeline_events` count = 22
+- Aucun `commit-decision` lance
+
+## Ce qui est hors perimetre
+
+- Zero refactor de code
+- Zero modification d'Edge Function
+- Zero ajout de logique de transition
+
+## Etape suivante (apres confirmation patch)
+
+Lancement sequentiel de `commit-decision` x5 dans l'ordre : regime, routing, services, incoterm, container.
+
+## Section technique
+
+Le patch est applique via des operations SQL directes (INSERT/UPDATE sur donnees existantes). Les deux tables ciblees (`quote_cases` et `case_timeline_events`) ne necessitent pas de migration schema. L'`actor_type = 'user'` respecte la contrainte DB (les valeurs autorisees sont `user`, `system`, `ai`). Ce patch documente le trou architectural pour correction en phase ulterieure.
 
