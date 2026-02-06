@@ -1,21 +1,21 @@
 
 
-# Phase 16 -- Etape D.4 : Commit incoterm
+# Phase 16 -- Etape D.5 : Commit container
 
 ## Contexte
 
 - Case ID : `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
 - Status actuel : `DECISIONS_PENDING`
-- `operator_decisions` actuelles : 3 (regime + routing + services deja committes)
-- Objectif : committer la decision `incoterm` (4e sur 5)
+- `operator_decisions` actuelles : 4 (regime + routing + services + incoterm deja committes)
+- Objectif : committer la decision `container` (5e et derniere sur 5) -- dernier commit avant le gate pricing
 
 ## Actions a executer (sequentielles)
 
-### Action 1 -- Appel suggest-decisions (incoterm)
+### Action 1 -- Appel suggest-decisions (container)
 
 Appeler l'Edge Function `suggest-decisions` avec :
 - `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
-- `decision_types` = `["incoterm"]`
+- `decision_types` = `["container"]`
 
 Extraire du JSON retourne :
 - `decision_type`
@@ -26,9 +26,9 @@ Extraire du JSON retourne :
 
 Appeler l'Edge Function `commit-decision` avec :
 - `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
-- `decision_type` = `incoterm`
+- `decision_type` = `container`
 - `selected_key` = la cle de l'option recommandee (extraite a l'etape 1)
-- `proposal_json` = le JSON complet de la proposal incoterm
+- `proposal_json` = le JSON complet de la proposal container
 - `operator_notes` = null
 
 ### Action 3 -- Verification post-commit
@@ -41,16 +41,16 @@ Requetes SQL de verification :
 
 | Element | Valeur attendue |
 |---------|-----------------|
-| `operator_decisions` | 4 |
-| `quote_cases.status` | `DECISIONS_PENDING` |
+| `operator_decisions` | 5 |
+| `quote_cases.status` | `DECISIONS_COMPLETE` |
 | Commit response `ok` | `true` |
-| `remaining_decisions` | 1 |
+| `remaining_decisions` | 0 |
+| `all_complete` | `true` |
 
 ## Enchainement
 
-Des que D.4 est confirme, on lance immediatement D.5 (container) -- dernier commit avant le gate pricing.
+Des que D.5 est confirme avec `DECISIONS_COMPLETE`, on peut lancer le gate pricing via `ack-pricing-ready`.
 
 ## Section technique
 
-Meme pattern que D.1 a D.3 : `suggest-decisions` stateless (SELECT only), puis `commit-decision` via RPC `commit_decision_atomic` avec verrou transactionnel. Le champ `proposal_json` contient le snapshot complet de la proposal pour tracabilite forensique.
-
+Meme pattern que D.1 a D.4 : `suggest-decisions` stateless (SELECT only), puis `commit-decision` via RPC `commit_decision_atomic` avec verrou transactionnel. Le 5e commit declenche la transition automatique du status vers `DECISIONS_COMPLETE`.
