@@ -206,18 +206,22 @@ Deno.serve(async (req) => {
     }
 
     // 13. Timeline event (best-effort)
-    await serviceClient.from("case_timeline_events").insert({
-      case_id,
-      event_type: "quotation_sent",
-      new_value: "SENT",
-      actor_type: "human",
-      actor_user_id: user.id,
-      event_data: {
-        draft_id,
-        version_id,
-        sent_at: sentAt,
-      },
-    }).catch(() => {});
+    try {
+      await serviceClient.from("case_timeline_events").insert({
+        case_id,
+        event_type: "sent",
+        new_value: "SENT",
+        actor_type: "user",
+        actor_user_id: user.id,
+        event_data: {
+          draft_id,
+          version_id,
+          sent_at: sentAt,
+        },
+      });
+    } catch (_) {
+      // best-effort: do not fail the request
+    }
 
     // 14. Success
     const durationMs = Date.now() - t0;
