@@ -534,8 +534,8 @@ export function calculateHistoricalMatchScore(
   }
   
   // Score cargo type (max 25 points)
-  const criteriaCargoNorm = criteria.cargoType.toLowerCase();
-  const candidateCargoNorm = candidate.cargoType.toLowerCase();
+  const criteriaCargoNorm = (criteria.cargoType || '').toLowerCase();
+  const candidateCargoNorm = (candidate.cargoType || '').toLowerCase();
   
   if (criteriaCargoNorm === candidateCargoNorm) {
     breakdown.cargoType = 25;
