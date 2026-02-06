@@ -24,9 +24,10 @@ import { usePricingResultData, QuotationVersion } from '@/hooks/usePricingResult
 
 interface QuotationVersionCardProps {
   caseId: string;
+  isLocked?: boolean;
 }
 
-export function QuotationVersionCard({ caseId }: QuotationVersionCardProps) {
+export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVersionCardProps) {
   const { versions, refetchVersions } = usePricingResultData(caseId);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
@@ -169,8 +170,8 @@ export function QuotationVersionCard({ caseId }: QuotationVersionCardProps) {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      {/* Select button (if not already selected) */}
-                      {!version.is_selected && (
+                      {/* Select button (if not already selected and not locked) */}
+                      {!version.is_selected && !isLocked && (
                         <Button
                           variant="outline"
                           size="sm"

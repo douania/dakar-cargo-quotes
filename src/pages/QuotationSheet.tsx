@@ -70,6 +70,8 @@ import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
 // Phase 12: Pricing result + Version panels
 import { PricingResultPanel } from '@/components/puzzle/PricingResultPanel';
 import { QuotationVersionCard } from '@/components/puzzle/QuotationVersionCard';
+// Phase 19A: Send quotation panel
+import { SendQuotationPanel } from '@/components/puzzle/SendQuotationPanel';
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -1125,12 +1127,16 @@ L'équipe SODATRA`;
           </div>
         )}
 
-        {/* Phase 12: PricingResultPanel + QuotationVersionCard - visible si PRICED_DRAFT ou HUMAN_REVIEW */}
+        {/* Phase 12+19: PricingResultPanel + QuotationVersionCard + SendQuotationPanel */}
         {!quotationCompleted && quoteCase?.id && 
-         ['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
+         ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
           <div className="mb-6 space-y-4">
-            <PricingResultPanel caseId={quoteCase.id} />
-            <QuotationVersionCard caseId={quoteCase.id} />
+            <PricingResultPanel caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
+            <QuotationVersionCard caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
+            {/* Phase 19A C2-A: SendQuotationPanel strict FSM guard */}
+            {['QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
+              <SendQuotationPanel caseId={quoteCase.id} />
+            )}
           </div>
         )}
 
