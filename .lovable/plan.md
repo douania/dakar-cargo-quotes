@@ -1,51 +1,61 @@
 
 
+# PHASE M1.4.2 — Corrections critiques DATA
 
-# PHASE M1.3 — Migration des regles hardcodees vers la base de donnees (TERMINÉE)
+## Contexte verifie par audit DB
 
-## Objectif
-Migrer les regles metier hardcodees dans `quotation-rules.ts` vers des tables parametrables, sans modifier l'API ni l'UI.
+| Table | Constat |
+|-------|---------|
+| `carrier_billing_templates` | 57 lignes, toutes `source_documents = NULL` |
+| `port_tariffs` | 15 lignes `DP_WORLD` + 28 lignes `DPW` (pas de doublons) |
+| `tax_rates` | 7 taux actifs, TIN absent. `calculate-duties` lit deja `hs_codes.tin` |
 
-## Résumé d'implémentation
+---
 
-### Tables créées (2)
+## Tache 1 — source_documents (correction CTO appliquee)
 
-| Table | Records | Description |
-|-------|---------|-------------|
-| `sodatra_fee_rules` | 10 | Honoraires SODATRA (dédouanement, suivi, dossier, docs, commission) avec méthodes de calcul et facteurs de complexité |
-| `delivery_zones` | 12 | Zones de livraison SN + transit (Dakar à Gambie) avec multiplicateurs, distances, jours additionnels |
+Une seule migration SQL avec 3 UPDATEs :
 
-### Tables connectées (2)
+| Carrier | Nb lignes | source_documents |
+|---------|-----------|-----------------|
+| CMA_CGM | 9 | `{"TO_VERIFY"}` |
+| GENERIC | 6 | `{"TO_VERIFY"}` |
+| GRIMALDI | 6 | `{"TO_VERIFY"}` |
+| MAERSK | 6 | `{"TO_VERIFY"}` |
+| MSC | 9 | `{"TO_VERIFY"}` |
+| HAPAG_LLOYD | 14 | `{"hapag_lloyd_local_charges.pdf"}` |
+| ONE | 7 | `{"one_line_local_charges.pdf"}` |
 
-| Table | Records | Usage |
-|-------|---------|-------|
-| `incoterms_reference` | 11 | Remplace `INCOTERMS_MATRIX` hardcodé — chargement dynamique au démarrage |
-| `operational_costs_senegal` | 12 | Frais d'escorte et autorisations pour transport exceptionnel (>40T, hors gabarit) |
+Seuls les 2 fichiers reellement presents dans `public/data/tarifs/` sont references. Tout le reste est marque `TO_VERIFY`.
 
-### Correction appliquée
+## Tache 2 — Fusion DP_WORLD vers DPW
 
-Le plan initial contenait `rate_percent = 0.4` pour le dédouanement. Valeur corrigée à `0.004` (0,4% de la valeur CAF), conforme au code existant.
+Un seul UPDATE :
 
-### Fichiers modifiés
+```text
+UPDATE port_tariffs SET provider = 'DPW' WHERE provider = 'DP_WORLD'
+```
 
-| Fichier | Changement |
-|---------|-----------|
-| `supabase/functions/quotation-engine/index.ts` | +4 loaders DB (incoterms, zones, sodatra_fees, operational_costs) avec fallback gracieux |
-| `supabase/functions/_shared/quotation-rules.ts` | `INCOTERMS_MATRIX`, `DELIVERY_ZONES`, `calculateSodatraFees` marqués `@deprecated` |
+Resultat : 0 lignes DP_WORLD, 43 lignes DPW. Le moteur cherche deja `DPW` — aucun changement de code.
 
-### Tests de validation (tous OK)
+## Tache 3 — Ajout TIN dans tax_rates
 
-| Test | Résultat |
-|------|----------|
-| Cotation Dakar 40HC CIF 50M | ✅ Honoraires depuis `sodatra_fee_rules (DB)` — dédouanement 120k, suivi 35k, dossier 25k, docs 15k |
-| Cotation Tambacounda 20DV×2 FOB | ✅ Zone depuis `delivery_zones` — multiplicateur 2.2, complexité zone éloignée +0.36 |
-| Cotation Bamako 40HC CIF MSC + OOG (55T, 20m, 3m) | ✅ Incoterm CIF depuis DB, demurrage MSC (100-300 USD/jour), transport exceptionnel (escorte 150-250k, autorisation 75-150k) depuis `operational_costs_senegal` |
-| Zones DB chargées | ✅ 12 zones loaded from DB |
-| Incoterms DB chargés | ✅ 11 incoterms loaded from DB |
+Un INSERT :
 
-## Ce qui ne change PAS
+| code | name | rate | base_calculation | applies_to |
+|------|------|------|-----------------|------------|
+| TIN | Taxe d'Internalisation | 0 | CAF + DD + RS | Codes HS specifiques (5%, 10%, 15%) |
 
-- Aucune API modifiée
-- Aucune modification UI
-- Fallbacks hardcodés conservés (graceful degradation si DB indisponible)
-- Calculs normatifs M1.2 (neutralisation fallbacks, franchise, demurrage) intacts
+Le `rate = 0` est intentionnel : le taux reel est variable par code HS et deja lu depuis `hs_codes.tin` par `calculate-duties`. Cette ligne sert de reference documentaire.
+
+## Implementation technique
+
+Un seul fichier de migration SQL contenant les 3 operations (UPDATE + UPDATE + INSERT). Zero fichier de code modifie.
+
+## Verification post-execution
+
+3 requetes de controle :
+1. Verifier que chaque carrier a un `source_documents` non-NULL
+2. Verifier `COUNT(*) WHERE provider = 'DP_WORLD'` = 0
+3. Verifier `SELECT * FROM tax_rates WHERE code = 'TIN'` retourne 1 ligne
+
