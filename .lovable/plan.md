@@ -54,3 +54,4 @@ Des que D.5 est confirme avec `DECISIONS_COMPLETE`, on peut lancer le gate prici
 ## Section technique
 
 Meme pattern que D.1 a D.4 : `suggest-decisions` stateless (SELECT only), puis `commit-decision` via RPC `commit_decision_atomic` avec verrou transactionnel. Le 5e commit declenche la transition automatique du status vers `DECISIONS_COMPLETE`.
+
