@@ -1,21 +1,21 @@
 
 
-# Phase 16 -- Etape D.2 : Commit routing
+# Phase 16 -- Etape D.3 : Commit services
 
 ## Contexte
 
 - Case ID : `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
 - Status actuel : `DECISIONS_PENDING`
-- `operator_decisions` actuelles : 1 (regime deja committe)
-- Objectif : committer la decision `routing` (2e sur 5)
+- `operator_decisions` actuelles : 2 (regime + routing deja committes)
+- Objectif : committer la decision `services` (3e sur 5)
 
 ## Actions a executer (sequentielles)
 
-### Action 1 -- Appel suggest-decisions (routing)
+### Action 1 -- Appel suggest-decisions (services)
 
 Appeler l'Edge Function `suggest-decisions` avec :
 - `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
-- `decision_types` = `["routing"]`
+- `decision_types` = `["services"]`
 
 Extraire du JSON retourne :
 - `decision_type`
@@ -26,10 +26,12 @@ Extraire du JSON retourne :
 
 Appeler l'Edge Function `commit-decision` avec :
 - `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
-- `decision_type` = `routing`
+- `decision_type` = `services`
 - `selected_key` = la cle de l'option recommandee (extraite a l'etape 1)
-- `proposal_snapshot` = le JSON complet de la proposal routing
+- `proposal_json` = le JSON complet de la proposal services
 - `operator_notes` = null
+
+Note : le champ s'appelle `proposal_json` (et non `proposal_snapshot`), conformement au contrat de l'Edge Function `commit-decision` valide lors de D.2.
 
 ### Action 3 -- Verification post-commit
 
@@ -41,16 +43,16 @@ Requetes SQL de verification :
 
 | Element | Valeur attendue |
 |---------|-----------------|
-| `operator_decisions` | 2 |
+| `operator_decisions` | 3 |
 | `quote_cases.status` | `DECISIONS_PENDING` |
 | Commit response `ok` | `true` |
-| `remaining_decisions` | 3 |
+| `remaining_decisions` | 2 |
 
 ## Enchainement
 
-Des que D.2 est confirme, on lance immediatement D.3 (services).
+Des que D.3 est confirme, on lance immediatement D.4 (incoterm).
 
 ## Section technique
 
-Les appels utilisent le pattern d'authentification standard : JWT propage via header Authorization. `suggest-decisions` est stateless (SELECT only), `commit-decision` ecrit via la RPC `commit_decision_atomic` avec verrou transactionnel. Le `selected_key` est la valeur `key` de l'option `is_recommended: true` dans la reponse IA.
+Meme pattern que D.1 et D.2 : `suggest-decisions` stateless (SELECT only), puis `commit-decision` via RPC `commit_decision_atomic` avec verrou transactionnel. Le champ `proposal_json` contient le snapshot complet de la proposal pour tracabilite forensique.
 
