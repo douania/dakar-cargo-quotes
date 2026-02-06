@@ -3436,6 +3436,7 @@ export type Database = {
         | "DECISIONS_PENDING"
         | "DECISIONS_COMPLETE"
         | "ACK_READY_FOR_PRICING"
+        | "QUOTED_VERSIONED"
       quote_request_type:
         | "SEA_FCL_IMPORT"
         | "SEA_LCL_IMPORT"
@@ -3586,6 +3587,7 @@ export const Constants = {
         "DECISIONS_PENDING",
         "DECISIONS_COMPLETE",
         "ACK_READY_FOR_PRICING",
+        "QUOTED_VERSIONED",
       ],
       quote_request_type: [
         "SEA_FCL_IMPORT",

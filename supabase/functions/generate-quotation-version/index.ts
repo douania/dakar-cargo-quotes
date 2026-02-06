@@ -1,26 +1,34 @@
 /**
- * Phase 12: generate-quotation-version
- * Creates an immutable quotation version from a successful pricing run
- * 
- * CTO Rules:
- * - verify_jwt = true (human-triggered action)
- * - Requires status IN ('PRICED_DRAFT', 'HUMAN_REVIEW')
- * - Atomic version_number via RPC with advisory lock
- * - Snapshot is FROZEN (no recalculation)
- * - Timeline event for audit trail
- * 
- * PATCHS CTO Phase 12:
- * - PATCH 1: Transaction atomique UPDATE+INSERT via RPC
- * - PATCH 2: Rollback version si insertion lignes échoue
- * - PATCH 3: Snapshot avec raw_lines pour audit forensic
- * - PATCH 4: Validation stricte pricing_run.case_id
+ * Phase 12 + Phase 17B: generate-quotation-version
+ * Creates an immutable quotation version from a successful pricing run.
+ *
+ * Phase 17B compliance:
+ * - Runtime contract (Phase 14-15): respondOk/respondError, logRuntimeEvent, correlationId
+ * - FSM: PRICED_DRAFT|HUMAN_REVIEW → QUOTED_VERSIONED
+ * - Idempotence: (case_id, pricing_run_id) → no-op if version exists
+ * - Atomicity: Option 6A rollback (previousSelectedId)
+ * - verify_jwt = true (gateway-level 401 for missing JWT)
+ *
+ * Ajustement CTO:
+ * - A: idempotent hit returns real DB status (not hardcoded)
+ * - B: AUTH_MISSING_JWT unreachable (gateway), AUTH_INVALID_JWT kept for expired/invalid tokens
+ * - C: respondOk/respondError include CORS headers via runtime.ts
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { handleCors } from "../_shared/cors.ts";
+import {
+  getCorrelationId,
+  respondOk,
+  respondError,
+  logRuntimeEvent,
+  getStatusFromErrorCode,
+  type ErrorCode,
+} from "../_shared/runtime.ts";
+
+const FUNCTION_NAME = "generate-quotation-version";
 
 // Snapshot structure for immutable storage
-// PATCH 3: Ajout raw_lines pour audit forensic
 interface VersionSnapshot {
   meta: {
     version_id: string;
@@ -41,9 +49,7 @@ interface VersionSnapshot {
     email: string | null;
     company: string | null;
   };
-  // PATCH 3: Données brutes originales pour audit
   raw_lines: any[];
-  // Mapping flatten pour affichage UI/PDF
   lines: Array<{
     service_code: string;
     description: string | null;
@@ -60,120 +66,206 @@ interface VersionSnapshot {
   sources: any[];
 }
 
+// Helper: log + return error
+async function fail(
+  serviceClient: any,
+  code: ErrorCode,
+  message: string,
+  correlationId: string,
+  t0: number,
+  userId?: string,
+  meta?: Record<string, unknown>,
+): Promise<Response> {
+  const durationMs = Date.now() - t0;
+  await logRuntimeEvent(serviceClient, {
+    correlationId,
+    functionName: FUNCTION_NAME,
+    userId,
+    status: getStatusFromErrorCode(code),
+    errorCode: code,
+    httpStatus: code === "AUTH_INVALID_JWT" ? 401 : code === "FORBIDDEN_OWNER" ? 403 : code === "VALIDATION_FAILED" ? 400 : code === "CONFLICT_INVALID_STATE" ? 409 : 500,
+    durationMs,
+    meta,
+  });
+  return respondError({ code, message, correlationId, meta });
+}
+
 Deno.serve(async (req) => {
-  // CORS handling
+  // CORS preflight
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
+  const t0 = Date.now();
+  const correlationId = getCorrelationId(req);
+
+  // Service client (created early for logging even on auth failure)
+  const serviceClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  let userId: string | undefined;
+
   try {
-    // Auth validation
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return errorResponse('Unauthorized', 401);
+    // ── Auth ──────────────────────────────────────────────
+    // With verify_jwt=true, missing JWT is rejected at gateway level.
+    // This code handles invalid/expired tokens only (Ajustement B).
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      // Unreachable with verify_jwt=true, but kept as defensive guard
+      return await fail(serviceClient, "AUTH_INVALID_JWT", "Unauthorized", correlationId, t0);
     }
 
-    // User client for ownership check
     const userClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
     );
 
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
-      return errorResponse('Unauthorized', 401);
+      return await fail(serviceClient, "AUTH_INVALID_JWT", "Invalid or expired token", correlationId, t0);
     }
+    userId = user.id;
 
-    // Service client for privileged operations
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-
-    // Parse request body
+    // ── Parse body ───────────────────────────────────────
     const { case_id, pricing_run_id } = await req.json();
     if (!case_id) {
-      return errorResponse('case_id is required', 400);
+      return await fail(serviceClient, "VALIDATION_FAILED", "case_id is required", correlationId, t0, userId);
     }
 
-    // Step 1: Load quote_case and verify ownership + status
+    // ── Load case + ownership ────────────────────────────
     const { data: caseData, error: caseError } = await userClient
-      .from('quote_cases')
-      .select('id, status, created_by, assigned_to, thread_id')
-      .eq('id', case_id)
+      .from("quote_cases")
+      .select("id, status, created_by, assigned_to, thread_id")
+      .eq("id", case_id)
       .single();
 
     if (caseError || !caseData) {
-      console.error('Case load error:', caseError);
-      return errorResponse('Quote case not found', 404);
+      return await fail(serviceClient, "VALIDATION_FAILED", "Quote case not found", correlationId, t0, userId, { case_id });
     }
 
-    // Ownership check
     if (caseData.created_by !== user.id && caseData.assigned_to !== user.id) {
-      console.error('Ownership violation:', { case_owner: caseData.created_by, assigned: caseData.assigned_to, requester: user.id });
-      return errorResponse('Access denied', 403);
+      return await fail(serviceClient, "FORBIDDEN_OWNER", "Access denied", correlationId, t0, userId, { case_id });
     }
 
-    // CTO ADJUSTMENT #5: Status gate - must be PRICED_DRAFT or HUMAN_REVIEW
-    const allowedStatuses = ['PRICED_DRAFT', 'HUMAN_REVIEW'];
-    if (!allowedStatuses.includes(caseData.status)) {
-      return errorResponse(`Invalid case status. Expected: ${allowedStatuses.join(' or ')}, Got: ${caseData.status}`, 400);
+    // ── FSM guard (accepts QUOTED_VERSIONED for idempotence) ─
+    const creationStatuses = ["PRICED_DRAFT", "HUMAN_REVIEW"];
+    const idempotentStatuses = ["QUOTED_VERSIONED"];
+    const allAllowed = [...creationStatuses, ...idempotentStatuses];
+    if (!allAllowed.includes(caseData.status)) {
+      return await fail(
+        serviceClient,
+        "CONFLICT_INVALID_STATE",
+        `Invalid case status. Expected: ${allAllowed.join(" or ")}, Got: ${caseData.status}`,
+        correlationId, t0, userId, { case_id, current_status: caseData.status },
+      );
     }
 
-    // Step 2: Load pricing run (latest success if not specified)
+    // ── Load pricing run ─────────────────────────────────
     let pricingRunQuery = serviceClient
-      .from('pricing_runs')
-      .select('*')
-      .eq('case_id', case_id)
-      .eq('status', 'success')
-      .order('run_number', { ascending: false });
+      .from("pricing_runs")
+      .select("*")
+      .eq("case_id", case_id)
+      .eq("status", "success")
+      .order("run_number", { ascending: false });
 
     if (pricing_run_id) {
       pricingRunQuery = serviceClient
-        .from('pricing_runs')
-        .select('*')
-        .eq('id', pricing_run_id)
-        .eq('case_id', case_id)
-        .eq('status', 'success');
+        .from("pricing_runs")
+        .select("*")
+        .eq("id", pricing_run_id)
+        .eq("case_id", case_id)
+        .eq("status", "success");
     }
 
     const { data: pricingRun, error: runError } = await pricingRunQuery.limit(1).single();
-
     if (runError || !pricingRun) {
-      console.error('Pricing run load error:', runError);
-      return errorResponse('No successful pricing run found', 404);
+      return await fail(serviceClient, "VALIDATION_FAILED", "No successful pricing run found", correlationId, t0, userId, { case_id, pricing_run_id });
     }
 
-    // PATCH 4: Validation stricte - le pricing_run doit appartenir au case
     if (pricingRun.case_id !== case_id) {
-      console.error('Pricing run case_id mismatch:', {
-        expected: case_id,
-        actual: pricingRun.case_id,
-        pricing_run_id: pricingRun.id,
-      });
-      return errorResponse('Pricing run does not belong to this case', 403);
+      return await fail(serviceClient, "FORBIDDEN_OWNER", "Pricing run does not belong to this case", correlationId, t0, userId, { case_id, pricing_run_id: pricingRun.id });
     }
 
-    // Step 3: Get atomic version number via RPC
+    // ── Idempotence guard (Ajustement CTO #3 corrigé) ───
+    // Lookup ANY version for (case_id, pricing_run_id), selected or not
+    const { data: existingVersion } = await serviceClient
+      .from("quotation_versions")
+      .select("id, version_number, snapshot, is_selected")
+      .eq("case_id", case_id)
+      .eq("pricing_run_id", pricingRun.id)
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingVersion) {
+      const snap = existingVersion.snapshot as VersionSnapshot | null;
+
+      // Ajustement A: read real DB status, don't hardcode
+      const { data: caseNow } = await serviceClient
+        .from("quote_cases")
+        .select("status")
+        .eq("id", case_id)
+        .maybeSingle();
+      const statusAfter = (caseNow?.status as string) ?? caseData.status;
+
+      const durationMs = Date.now() - t0;
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: FUNCTION_NAME,
+        op: "idempotent_hit",
+        userId,
+        status: "ok",
+        httpStatus: 200,
+        durationMs,
+        meta: { version_id: existingVersion.id, version_number: existingVersion.version_number },
+      });
+
+      return respondOk(
+        {
+          case_id,
+          pricing_run_id: pricingRun.id,
+          version_id: existingVersion.id,
+          version_number: existingVersion.version_number,
+          lines_count: snap?.lines?.length ?? 0,
+          total_ht: snap?.totals?.total_ht ?? 0,
+          total_ttc: snap?.totals?.total_ttc ?? 0,
+          currency: snap?.totals?.currency ?? "XOF",
+          status_after: statusAfter,
+          idempotent: true,
+        },
+        correlationId,
+      );
+    }
+
+    // ── Option 6A: capture previous selected for rollback ─
+    const { data: prevSelected } = await serviceClient
+      .from("quotation_versions")
+      .select("id")
+      .eq("case_id", case_id)
+      .eq("is_selected", true)
+      .limit(1)
+      .maybeSingle();
+    const previousSelectedId: string | null = prevSelected?.id ?? null;
+
+    // ── Atomic version number ────────────────────────────
     const { data: versionNumber, error: rpcError } = await serviceClient
-      .rpc('get_next_quotation_version_number', { p_case_id: case_id });
+      .rpc("get_next_quotation_version_number", { p_case_id: case_id });
 
     if (rpcError || versionNumber === null) {
-      console.error('Version number RPC error:', rpcError);
-      return errorResponse('Failed to get version number', 500);
+      return await fail(serviceClient, "UPSTREAM_DB_ERROR", "Failed to get version number", correlationId, t0, userId, { rpc_error: rpcError?.message });
     }
 
-    // Step 4: Extract data for snapshot
+    // ── Build snapshot ───────────────────────────────────
     const inputs = pricingRun.inputs_json || {};
     const factsSnapshot = pricingRun.facts_snapshot || {};
     const tariffLines = pricingRun.tariff_lines || [];
     const tariffSources = pricingRun.tariff_sources || [];
 
-    // Build immutable snapshot
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // PATCH 3: Snapshot avec raw_lines pour audit forensic
     const snapshot: VersionSnapshot = {
       meta: {
         version_id: versionId,
@@ -194,28 +286,26 @@ Deno.serve(async (req) => {
         email: factsSnapshot.client_email || inputs.client_email || null,
         company: factsSnapshot.client_company || inputs.client_company || null,
       },
-      // PATCH 3: Données brutes originales non modifiées
       raw_lines: tariffLines,
-      // Mapping flatten pour UI/PDF
       lines: tariffLines.map((line: any, idx: number) => ({
         service_code: line.service_code || line.charge_code || `LINE_${idx + 1}`,
         description: line.description || line.charge_name || null,
         quantity: line.quantity || 1,
         unit_price: line.unit_price || line.rate || 0,
         amount: line.amount || line.total || 0,
-        currency: line.currency || 'XOF',
+        currency: line.currency || "XOF",
       })),
       totals: {
         total_ht: pricingRun.total_ht || 0,
         total_ttc: pricingRun.total_ttc || pricingRun.total_ht || 0,
-        currency: pricingRun.currency || 'XOF',
+        currency: pricingRun.currency || "XOF",
       },
       sources: tariffSources,
     };
 
-    // PATCH 1: Step 5 + 6 COMBINED - Atomic deselect + insert via RPC
-    const { data: insertedId, error: insertError } = await serviceClient
-      .rpc('insert_quotation_version_atomic', {
+    // ── Atomic insert (RPC deselects + inserts) ──────────
+    const { error: insertError } = await serviceClient
+      .rpc("insert_quotation_version_atomic", {
         p_id: versionId,
         p_case_id: case_id,
         p_pricing_run_id: pricingRun.id,
@@ -225,11 +315,10 @@ Deno.serve(async (req) => {
       });
 
     if (insertError) {
-      console.error('Version insert error:', insertError);
-      return errorResponse(`Failed to create version: ${insertError.message}`, 500);
+      return await fail(serviceClient, "UPSTREAM_DB_ERROR", `Failed to create version: ${insertError.message}`, correlationId, t0, userId, { case_id });
     }
 
-    // Step 7: Copy tariff lines to quotation_version_lines
+    // ── Insert version lines ─────────────────────────────
     const versionLines = snapshot.lines.map((line, idx) => ({
       quotation_version_id: versionId,
       line_order: idx,
@@ -244,28 +333,34 @@ Deno.serve(async (req) => {
 
     if (versionLines.length > 0) {
       const { error: linesError } = await serviceClient
-        .from('quotation_version_lines')
+        .from("quotation_version_lines")
         .insert(versionLines);
 
-      // PATCH 2: Rollback version si insertion lignes échoue
       if (linesError) {
-        console.error('Version lines insert error:', linesError);
-        
-        // Rollback: supprimer la version créée
-        await serviceClient
-          .from('quotation_versions')
-          .delete()
-          .eq('id', versionId);
-        
-        console.error(`[Phase 12] Rolled back version ${versionId} due to lines insert failure`);
-        return errorResponse(`Failed to create version lines: ${linesError.message}`, 500);
+        console.error(`[${FUNCTION_NAME}] Lines insert failed, rolling back version ${versionId}`);
+        // Rollback: delete orphan version
+        await serviceClient.from("quotation_versions").delete().eq("id", versionId);
+        // Option 6A: restore exact previous selected
+        if (previousSelectedId) {
+          await serviceClient
+            .from("quotation_versions")
+            .update({ is_selected: true })
+            .eq("id", previousSelectedId);
+        }
+        return await fail(serviceClient, "UPSTREAM_DB_ERROR", `Failed to create version lines: ${linesError.message}`, correlationId, t0, userId, { case_id, version_id: versionId });
       }
     }
 
-    // Step 8: Insert timeline event for audit trail
-    await serviceClient.from('case_timeline_events').insert({
+    // ── FSM: transition to QUOTED_VERSIONED ──────────────
+    await serviceClient
+      .from("quote_cases")
+      .update({ status: "QUOTED_VERSIONED", updated_at: now })
+      .eq("id", case_id);
+
+    // ── Timeline event (best-effort) ─────────────────────
+    await serviceClient.from("case_timeline_events").insert({
       case_id,
-      event_type: 'quotation_version_created',
+      event_type: "quotation_version_created",
       event_data: {
         version_id: versionId,
         version_number: versionNumber,
@@ -274,25 +369,52 @@ Deno.serve(async (req) => {
         total_ht: snapshot.totals.total_ht,
         lines_count: snapshot.lines.length,
         has_raw_lines: snapshot.raw_lines.length > 0,
+        status_after: "QUOTED_VERSIONED",
       },
-      actor_type: 'user',
+      actor_type: "user",
       actor_user_id: user.id,
     });
 
-    console.log(`[Phase 12] Created quotation version v${versionNumber} for case ${case_id}`);
-
-    return jsonResponse({
-      success: true,
-      version_id: versionId,
-      version_number: versionNumber,
-      lines_count: snapshot.lines.length,
-      total_ht: snapshot.totals.total_ht,
-      total_ttc: snapshot.totals.total_ttc,
-      currency: snapshot.totals.currency,
+    // ── Success ──────────────────────────────────────────
+    const durationMs = Date.now() - t0;
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: FUNCTION_NAME,
+      op: "create_version",
+      userId,
+      status: "ok",
+      httpStatus: 200,
+      durationMs,
+      meta: { version_id: versionId, version_number: versionNumber, lines_count: snapshot.lines.length },
     });
 
+    return respondOk(
+      {
+        case_id,
+        pricing_run_id: pricingRun.id,
+        version_id: versionId,
+        version_number: versionNumber,
+        lines_count: snapshot.lines.length,
+        total_ht: snapshot.totals.total_ht,
+        total_ttc: snapshot.totals.total_ttc,
+        currency: snapshot.totals.currency,
+        status_after: "QUOTED_VERSIONED",
+      },
+      correlationId,
+    );
   } catch (error) {
-    console.error('Generate version error:', error);
-    return errorResponse(error instanceof Error ? error.message : 'Internal error', 500);
+    const durationMs = Date.now() - t0;
+    const message = error instanceof Error ? error.message : "Internal error";
+    console.error(`[${FUNCTION_NAME}] Unhandled:`, error);
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: FUNCTION_NAME,
+      userId,
+      status: "fatal_error",
+      errorCode: "UNKNOWN",
+      httpStatus: 500,
+      durationMs,
+    });
+    return respondError({ code: "UNKNOWN", message, correlationId });
   }
 });
