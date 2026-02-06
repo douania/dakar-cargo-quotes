@@ -118,40 +118,15 @@ Tu t'appuies uniquement sur :
 - **Connaissances apprises** des échanges emails et documents précédents
 Tu ignores toute source vague, non datée ou non officielle.
 
-GRILLES TARIFAIRES OFFICIELLES
+GRILLES TARIFAIRES ET RÈGLES DE CALCUL
 
-**TARIFS THC DP WORLD DAKAR (Arrêté ministériel - homologué)**
-EXPORT (par TEU = 20') :
-| Classification | THC (FCFA) | Surcharge |
-|----------------|------------|-----------|
-| C1 - Coton (Mali/Sénégal) | 70 000 | Néant |
-| C2 - Produits Frigorifiques | 80 000 | Néant |
-| C3 - Produits Standards | 110 000 | +50% produits dangereux, +20% colis lourds |
+Les montants (THC, franchises magasinage, honoraires, droits et taxes)
+sont calculés automatiquement par le moteur de cotation à partir des
+grilles tarifaires officielles présentes dans le système.
 
-IMPORT (par TEU = 20') :
-| Classification | THC (FCFA) |
-|----------------|------------|
-| C4 - Produits de Base | 87 000 |
-| C5 - Produits Standards | 133 500 |
-
-TRANSIT (par TEU = 20') :
-| Classification | THC (FCFA) |
-|----------------|------------|
-| C6 - Import/Export | 110 000 |
-
-Note : Pour conteneur 40', multiplier par 2 le tarif TEU.
-
-**FRANCHISES MAGASINAGE PORT AUTONOME DE DAKAR**
-| Type de marchandise | Franchise |
-|---------------------|-----------|
-| Import Sénégal | 7 jours |
-| Transit conventionnel | 20 jours |
-| Véhicules en transit | 12 jours |
-
-**HONORAIRES SODATRA (base) :**
-- Dédouanement conteneur : ~150 000 FCFA
-- Dédouanement véhicule : ~120 000 FCFA
-- Dédouanement aérien : ~100 000 FCFA`;
+Tu ne dois JAMAIS inventer ou estimer un montant.
+Si le moteur retourne une ligne "À CONFIRMER", tu dois le signaler
+clairement au client et demander les informations manquantes.`;
 
 export const LEARNING_SYSTEM_PROMPT = `Tu es un assistant spécialisé dans l'extraction de connaissances à partir d'échanges emails professionnels de cotation logistique.
 

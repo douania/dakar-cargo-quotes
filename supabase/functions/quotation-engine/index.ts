@@ -875,25 +875,24 @@ async function generateQuotationLines(
         isEditable: false
       });
     } else {
-      // Fallback to standard THC rate
-      const standardRate = is40 ? 220000 : 110000;
+      // No normative THC found — flag for human confirmation
       lines.push({
         id: `thc_${container.type.toLowerCase()}_${lines.length}`,
         bloc: 'operationnel',
         category: 'Terminal (DPW)',
         description: `THC ${effectiveOperationType} ${container.type}`,
-        amount: standardRate * container.quantity,
+        amount: null,
         currency: 'FCFA',
         containerType: container.type,
         source: {
-          type: 'CALCULATED',
-          reference: 'Tarif standard DPW',
-          confidence: 0.8
+          type: 'TO_CONFIRM',
+          reference: 'THC non trouvé en base — aucune donnée normative',
+          confidence: 0
         },
-        notes: 'Tarif standard appliqué - vérifier avec DPW',
+        notes: 'Aucune donnée normative — confirmation humaine requise. Vérifier avec DPW.',
         isEditable: true
       });
-      warnings.push(`THC ${container.type} non trouvé - tarif standard appliqué`);
+      warnings.push(`THC ${container.type} non trouvé en base — à confirmer avec DPW`);
     }
     
     // Relevage for transit
@@ -1141,25 +1140,24 @@ async function generateQuotationLines(
             });
             warnings.push(`Transport Mali basé sur historique ${historicalMali.destination} - À confirmer`);
           } else {
-            // Ultimate fallback: estimate
-            const estimatedRate = 2600000; // Base Bamako rate
+            // No normative data — flag for human confirmation (no invented amount)
             lines.push({
               id: `transport_mali_est_${container.type.toLowerCase()}_${lines.length}`,
               bloc: 'operationnel',
               category: 'Transport Mali',
               description: `Transport ${container.type} → ${request.finalDestination}`,
-              amount: estimatedRate * container.quantity,
+              amount: null,
               currency: 'FCFA',
               containerType: container.type,
               source: {
                 type: 'TO_CONFIRM',
-                reference: 'Estimation Mali standard',
-                confidence: 0.4
+                reference: 'Aucune donnée normative — zone non référencée',
+                confidence: 0
               },
-              notes: `Estimation. Zone non trouvée dans la base. À confirmer avec transporteur.`,
+              notes: 'Aucune donnée normative — confirmation humaine requise. Contacter transporteur.',
               isEditable: true
             });
-            warnings.push(`Transport Mali estimé pour ${request.finalDestination} - Zone non référencée`);
+            warnings.push(`Transport Mali: aucune donnée normative pour ${request.finalDestination} — à confirmer`);
           }
         }
       }
@@ -1224,25 +1222,24 @@ async function generateQuotationLines(
               isEditable: true
             });
           } else {
-            // Estimation based on zone
-            const estimatedRate = 350000 * zone.multiplier;
+            // No normative data — flag for human confirmation (no invented amount)
             lines.push({
               id: `transport_${container.type.toLowerCase()}_${lines.length}`,
               bloc: 'operationnel',
               category: 'Transport',
               description: `Transport ${container.type} → ${request.finalDestination}`,
-              amount: Math.round(estimatedRate / 10000) * 10000 * container.quantity,
+              amount: null,
               currency: 'FCFA',
               containerType: container.type,
               source: {
                 type: 'TO_CONFIRM',
-                reference: `Estimation zone ${zone.name}`,
-                confidence: 0.3
+                reference: 'Aucune donnée normative — tarif non trouvé en base',
+                confidence: 0
               },
-              notes: `Estimation basée sur distance ${zone.distanceKm}km. À confirmer avec transporteur.`,
+              notes: 'Aucune donnée normative — confirmation humaine requise. Contacter transporteur.',
               isEditable: true
             });
-            warnings.push(`Transport ${container.type} estimé (zone ${zone.name}) - Tarif à confirmer`);
+            warnings.push(`Transport ${container.type}: aucune donnée normative pour ${request.finalDestination} — à confirmer`);
           }
         }
       }
@@ -1425,6 +1422,155 @@ async function generateQuotationLines(
   }
   
   // =====================================================
+  // 8b. FRANCHISE MAGASINAGE (warehouse_franchise + holidays_pad)
+  // =====================================================
+  
+  {
+    // Determine cargo_type for franchise lookup based on actual DB values (FCL, BREAKBULK, VEHICLE_*, etc.)
+    const cargoTypeUpper = (request.cargoType || '').toUpperCase();
+    let franchiseCargoType = 'FCL'; // default for containers
+    if (cargoTypeUpper.includes('VEHIC') || cargoTypeUpper.includes('RORO')) {
+      franchiseCargoType = 'VEHICLE';
+    } else if (cargoTypeUpper.includes('BREAK') || cargoTypeUpper.includes('CONVENT')) {
+      franchiseCargoType = 'BREAKBULK';
+    } else if (cargoTypeUpper.includes('VRAC') || cargoTypeUpper.includes('EMPTY')) {
+      franchiseCargoType = 'EMPTY';
+    }
+    
+    const containerTypeForFranchise = containers.length > 0 ? containers[0].type : null;
+    
+    let franchiseQuery = supabase
+      .from('warehouse_franchise')
+      .select('*')
+      .eq('is_active', true)
+      .ilike('cargo_type', `%${franchiseCargoType}%`);
+    
+    if (containerTypeForFranchise) {
+      const is40 = containerTypeForFranchise.toUpperCase().includes('40');
+      franchiseQuery = franchiseQuery.or(`container_type.is.null,container_type.ilike.%${is40 ? '40' : '20'}%`);
+    }
+    
+    const { data: franchiseData } = await franchiseQuery.limit(1);
+    
+    // Fetch holidays in the next 30 days
+    const today = new Date();
+    const in30Days = new Date(today);
+    in30Days.setDate(in30Days.getDate() + 30);
+    
+    const { data: holidays } = await supabase
+      .from('holidays_pad')
+      .select('holiday_date, name_fr')
+      .or(`holiday_date.gte.${today.toISOString().split('T')[0]},is_recurring.eq.true`)
+      .lte('holiday_date', in30Days.toISOString().split('T')[0]);
+    
+    const holidayCount = holidays?.length || 0;
+    const holidayNote = holidayCount > 0 
+      ? ` | ${holidayCount} jour(s) férié(s) PAD dans les 30j — franchise effective peut être réduite`
+      : '';
+    
+    if (franchiseData && franchiseData.length > 0) {
+      const franchise = franchiseData[0];
+      lines.push({
+        id: 'warehouse_franchise',
+        bloc: 'operationnel',
+        category: 'Magasinage',
+        description: `Franchise magasinage: ${franchise.free_days} jours (tarif: ${franchise.rate_per_day} ${franchise.rate_unit} après franchise)`,
+        amount: 0,
+        currency: 'FCFA',
+        source: {
+          type: 'OFFICIAL',
+          reference: franchise.source_document || `${franchise.provider} — Franchise ${franchiseCargoType}`,
+          confidence: 1.0
+        },
+        notes: `Franchise ${franchise.free_days}j ${franchise.cargo_type} — zone ${franchise.storage_zone || 'ordinaire'}${holidayNote}`,
+        isEditable: false
+      });
+    } else {
+      lines.push({
+        id: 'warehouse_franchise',
+        bloc: 'operationnel',
+        category: 'Magasinage',
+        description: 'Franchise magasinage',
+        amount: null,
+        currency: 'FCFA',
+        source: {
+          type: 'TO_CONFIRM',
+          reference: 'Aucune donnée de franchise en base',
+          confidence: 0
+        },
+        notes: `Aucune règle de franchise trouvée pour ${franchiseCargoType} — confirmation requise${holidayNote}`,
+        isEditable: true
+      });
+    }
+  }
+  
+  // =====================================================
+  // 8c. SURESTARIES (demurrage_rates)
+  // =====================================================
+  
+  if (request.cargoType?.toLowerCase().includes('conteneur') || containers.length > 0) {
+    const detectedCarrier = carrier?.toUpperCase() || null;
+    const containerTypeForDemurrage = containers.length > 0 ? containers[0].type : '20DV';
+    const is40Dem = containerTypeForDemurrage.toUpperCase().includes('40');
+    const demContainerFilter = is40Dem ? '40' : '20';
+    
+    let demurrageQuery = supabase
+      .from('demurrage_rates')
+      .select('*')
+      .eq('is_active', true)
+      .ilike('container_type', `%${demContainerFilter}%`);
+    
+    if (detectedCarrier) {
+      demurrageQuery = demurrageQuery.or(`carrier.ilike.%${detectedCarrier}%,carrier.eq.GENERIC`);
+    }
+    
+    const { data: demurrageData } = await demurrageQuery.order('carrier', { ascending: true }).limit(3);
+    
+    if (demurrageData && demurrageData.length > 0) {
+      // Prefer carrier-specific over GENERIC
+      const bestMatch = demurrageData.find(d => detectedCarrier && d.carrier.toUpperCase().includes(detectedCarrier)) || demurrageData[0];
+      
+      const paliers = [
+        `Jours 1-7: ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour`,
+        `Jours 8-14: ${bestMatch.day_8_14_rate} ${bestMatch.currency}/jour`,
+        `Jour 15+: ${bestMatch.day_15_plus_rate} ${bestMatch.currency}/jour`
+      ].join(' | ');
+      
+      lines.push({
+        id: 'demurrage_estimate',
+        bloc: 'operationnel',
+        category: 'Surestaries',
+        description: `Surestaries ${bestMatch.carrier} (franchise ${isTransit ? bestMatch.free_days_import : bestMatch.free_days_import}j, puis ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour)`,
+        amount: null,
+        currency: bestMatch.currency || 'USD',
+        source: {
+          type: 'TO_CONFIRM',
+          reference: bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`,
+          confidence: 0.8
+        },
+        notes: `Toujours à confirmer (dépend du temps réel). Paliers: ${paliers}`,
+        isEditable: true
+      });
+    } else {
+      lines.push({
+        id: 'demurrage_estimate',
+        bloc: 'operationnel',
+        category: 'Surestaries',
+        description: 'Surestaries armateur',
+        amount: null,
+        currency: 'USD',
+        source: {
+          type: 'TO_CONFIRM',
+          reference: 'Aucune donnée de surestaries en base',
+          confidence: 0
+        },
+        notes: 'Aucune donnée normative — contacter armateur pour grille de surestaries.',
+        isEditable: true
+      });
+    }
+  }
+  
+  // =====================================================
   // 9. BLOC DÉBOURS - DROITS ET TAXES (Only for non-transit)
   // =====================================================
   
@@ -1492,25 +1638,23 @@ async function generateQuotationLines(
         warnings.push(`Code HS ${request.hsCode} non trouvé - Droits à calculer manuellement`);
       }
     } else {
-      // Estimation générale basée sur catégorie 3 (20% DD)
-      const estimatedDuties = caf.cafValue * 0.45;
-      
+      // No HS code — no invented estimate, flag for human confirmation
       lines.push({
         id: 'duties_estimate',
         bloc: 'debours',
         category: 'Droits & Taxes',
-        description: 'Droits et taxes (estimation)',
-        amount: Math.round(estimatedDuties),
+        description: 'Droits et taxes douaniers',
+        amount: null,
         currency: 'FCFA',
         source: {
           type: 'TO_CONFIRM',
-          reference: 'Estimation générale - Code HS requis',
-          confidence: 0.4
+          reference: 'Aucune donnée normative — code HS requis',
+          confidence: 0
         },
-        notes: 'Estimation basée sur catégorie 3. Fournir code HS pour calcul exact.',
+        notes: 'Aucune donnée normative — fournir le code HS pour calcul exact des droits.',
         isEditable: true
       });
-      warnings.push('Code HS non fourni - Droits estimés à confirmer');
+      warnings.push('Code HS non fourni — droits et taxes à confirmer');
     }
     
     // Commission sur débours (5%)
