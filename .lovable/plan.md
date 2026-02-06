@@ -1,68 +1,56 @@
 
 
-# Phase 16 — Patch d'etat minimal : READY_TO_PRICE -> DECISIONS_PENDING
+# Phase 16 -- Etape D.2 : Commit routing
 
-## Etat verifie en base (lecture directe)
+## Contexte
 
-| Element | Valeur |
-|---------|--------|
-| `quote_cases.status` | `READY_TO_PRICE` |
-| `puzzle_completeness` | 100% |
-| `case_timeline_events` | 21 evenements |
-| `operator_decisions` | 0 |
+- Case ID : `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
+- Status actuel : `DECISIONS_PENDING`
+- `operator_decisions` actuelles : 1 (regime deja committe)
+- Objectif : committer la decision `routing` (2e sur 5)
 
-## Cause du blocage
+## Actions a executer (sequentielles)
 
-`commit-decision` n'accepte que `DECISIONS_PENDING` ou `DECISIONS_COMPLETE`. Aucune Edge Function ne gere la transition `READY_TO_PRICE -> DECISIONS_PENDING`. C'est un trou dans la machine d'etats, documente pour correction future.
+### Action 1 -- Appel suggest-decisions (routing)
 
-## Action : Patch DB minimal (2 operations)
+Appeler l'Edge Function `suggest-decisions` avec :
+- `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
+- `decision_types` = `["routing"]`
 
-### Operation 1 — Transition de statut
+Extraire du JSON retourne :
+- `decision_type`
+- `options[]` (toutes les options avec leurs `key`, `label_fr`, `confidence_level`, `is_recommended`)
+- L'option avec `is_recommended: true` = `selected_key`
 
-```sql
-UPDATE quote_cases
-SET status = 'DECISIONS_PENDING'
-WHERE id = 'd14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1';
-```
+### Action 2 -- Appel commit-decision
 
-### Operation 2 — Event d'audit (tracabilite obligatoire)
+Appeler l'Edge Function `commit-decision` avec :
+- `case_id` = `d14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1`
+- `decision_type` = `routing`
+- `selected_key` = la cle de l'option recommandee (extraite a l'etape 1)
+- `proposal_snapshot` = le JSON complet de la proposal routing
+- `operator_notes` = null
 
-```sql
-INSERT INTO case_timeline_events (
-  case_id,
-  actor_type,
-  event_type,
-  previous_value,
-  new_value,
-  created_at
-)
-VALUES (
-  'd14b1e46-eef7-48f1-9ff6-cf1d2d1b7da1',
-  'user',
-  'status_changed',
-  'READY_TO_PRICE',
-  'DECISIONS_PENDING',
-  now()
-);
-```
+### Action 3 -- Verification post-commit
 
-### Verification post-patch
+Requetes SQL de verification :
+- `SELECT status FROM quote_cases WHERE id = 'd14b1e46-...'`
+- `SELECT count(*) FROM operator_decisions WHERE case_id = 'd14b1e46-...'`
 
-- `quote_cases.status` = `DECISIONS_PENDING`
-- `case_timeline_events` count = 22
-- Aucun `commit-decision` lance
+### Resultats attendus
 
-## Ce qui est hors perimetre
+| Element | Valeur attendue |
+|---------|-----------------|
+| `operator_decisions` | 2 |
+| `quote_cases.status` | `DECISIONS_PENDING` |
+| Commit response `ok` | `true` |
+| `remaining_decisions` | 3 |
 
-- Zero refactor de code
-- Zero modification d'Edge Function
-- Zero ajout de logique de transition
+## Enchainement
 
-## Etape suivante (apres confirmation patch)
-
-Lancement sequentiel de `commit-decision` x5 dans l'ordre : regime, routing, services, incoterm, container.
+Des que D.2 est confirme, on lance immediatement D.3 (services).
 
 ## Section technique
 
-Le patch est applique via des operations SQL directes (INSERT/UPDATE sur donnees existantes). Les deux tables ciblees (`quote_cases` et `case_timeline_events`) ne necessitent pas de migration schema. L'`actor_type = 'user'` respecte la contrainte DB (les valeurs autorisees sont `user`, `system`, `ai`). Ce patch documente le trou architectural pour correction en phase ulterieure.
+Les appels utilisent le pattern d'authentification standard : JWT propage via header Authorization. `suggest-decisions` est stateless (SELECT only), `commit-decision` ecrit via la RPC `commit_decision_atomic` avec verrou transactionnel. Le `selected_key` est la valeur `key` de l'option `is_recommended: true` dans la reponse IA.
 
