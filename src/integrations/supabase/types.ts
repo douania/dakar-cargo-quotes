@@ -769,6 +769,13 @@ export type Database = {
             referencedRelation: "quotation_versions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "email_drafts_version_fk"
+            columns: ["quotation_version_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_versions"
+            referencedColumns: ["id"]
+          },
         ]
       }
       email_threads: {
