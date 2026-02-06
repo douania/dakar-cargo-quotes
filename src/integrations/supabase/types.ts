@@ -718,6 +718,7 @@ export type Database = {
           created_by: string | null
           id: string
           original_email_id: string | null
+          quotation_version_id: string | null
           sent_at: string | null
           status: string | null
           subject: string
@@ -732,6 +733,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           original_email_id?: string | null
+          quotation_version_id?: string | null
           sent_at?: string | null
           status?: string | null
           subject: string
@@ -746,6 +748,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           original_email_id?: string | null
+          quotation_version_id?: string | null
           sent_at?: string | null
           status?: string | null
           subject?: string
@@ -757,6 +760,13 @@ export type Database = {
             columns: ["original_email_id"]
             isOneToOne: false
             referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_drafts_quotation_version_id_fkey"
+            columns: ["quotation_version_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_versions"
             referencedColumns: ["id"]
           },
         ]

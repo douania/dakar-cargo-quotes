@@ -137,3 +137,6 @@ verify_jwt = true
 
 [functions.export-quotation-version-pdf]
 verify_jwt = true
+
+[functions.send-quotation]
+verify_jwt = false
