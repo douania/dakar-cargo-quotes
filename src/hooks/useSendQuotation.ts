@@ -83,7 +83,8 @@ export function useSendQuotation(caseId: string | undefined) {
     && ownerDraft.status !== 'sent'
     && caseStatus === 'QUOTED_VERSIONED';
 
-  const isSent = ownerDraft?.status === 'sent' || caseStatus === 'SENT';
+  const isSent = ownerDraft?.status === 'sent';
+  const isCaseSent = caseStatus === 'SENT';
   const sentAt = ownerDraft?.sent_at ?? null;
 
   const sendMutation = useMutation({
@@ -101,7 +102,9 @@ export function useSendQuotation(caseId: string | undefined) {
       });
 
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || 'Send failed');
+      if (!data?.ok) {
+        throw new Error(data?.error?.message || 'Send failed');
+      }
 
       return data;
     },
