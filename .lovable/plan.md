@@ -1,240 +1,151 @@
 
 
-# PHASE M1 — Base reglementaire normative : Rapport d'audit complet
+# PHASE M1.2 — Normalisation des regles metier critiques
+
+## Objectif
+Eliminer les fallbacks non normatifs, connecter les tables existantes, et supprimer les duplications prompt/code/DB. Zero refactor global, zero changement d'API, zero modification UI.
 
 ---
 
-## M1.1 — Inventaire des sources reglementaires
+## Tache M1.2.1 — Neutralisation des fallbacks non normatifs
 
-### A. Fichiers de reference (public/data/)
+**Fichier:** `supabase/functions/quotation-engine/index.ts`
 
-| Source | Type | Emplacement | Utilisee par | Statut |
-|--------|------|-------------|--------------|--------|
-| TEC_UEMOA_HS_Codes.csv | Nomenclature douaniere | `public/data/` | `import-hs-codes` | OK - 6132 codes importes |
-| TEC_UEMOA_HS_Taxes.csv | Taux de taxes par code HS | `public/data/` | `import-hs-codes` | OK |
-| nomenclature_douaniere.csv | Nomenclature | `public/data/` | `import-hs-codes` | OK |
-| TEC_UEMOA.pdf | Reference TEC officielle | `public/data/` | Documentation seulement | OK |
-| code_des_douanes_senegal_2014.pdf | Code des douanes | `public/data/` | Non parse automatiquement | Inactif |
-| CTU_Code_French_01.pdf | Code CTU (empotage) | `public/data/` | Reference `_shared/ctu-code-reference.ts` | OK |
-| DPW_TARIFS_2025_0001.pdf | Tarifs DPW 2025 | `public/data/tarifs/` | Upload tariff_documents | OK |
-| dpw_dakar_landside_tariff_2015.pdf | Tarifs DPW anciens | `public/data/tarifs/` | Archive | Obsolete |
-| hapag_lloyd_local_charges.pdf | Charges locales Hapag | `public/data/tarifs/` | Upload tariff_documents | OK |
-| one_line_local_charges.pdf | Charges locales ONE | `public/data/tarifs/` | Upload tariff_documents | OK |
+4 fallbacks a neutraliser :
 
-### B. Tables de donnees reglementaires (base de donnees)
+| Fallback | Ligne | Avant | Apres |
+|----------|-------|-------|-------|
+| THC fallback | ~L879 | `110000 / 220000` avec `type: 'CALCULATED'` | `amount: null`, `type: 'TO_CONFIRM'`, `reason: 'THC non trouve en base'` |
+| Transport Mali fallback | ~L1145 | `2600000` avec `type: 'TO_CONFIRM'` | `amount: null` (au lieu d'un montant invente) |
+| Transport local fallback | ~L1228 | `350000 * zone.multiplier` avec `type: 'TO_CONFIRM'` | `amount: null` |
+| Droits sans HS | ~L1496 | `cafValue * 0.45` avec `type: 'TO_CONFIRM'` | `amount: null` |
 
-| Table | Type | Nb enregistrements actifs | Utilisee par | Statut |
-|-------|------|--------------------------|--------------|--------|
-| `hs_codes` | Nomenclature + taux douaniers | 6 132 | `calculate-duties`, `hs-lookup`, `quotation-engine` | OK |
-| `tax_rates` | Taux de taxes centralises | 7 | `calculate-duties` | OK |
-| `customs_regimes` | 56 regimes douaniers SN | 319 (dont actifs) | `calculate-duties`, `suggest-regime` | OK |
-| `port_tariffs` | Tarifs portuaires officiels (DPW, PAD) | 79 | `quotation-engine` | OK |
-| `carrier_billing_templates` | Charges armateurs (MSC, Hapag, etc.) | 57 | `quotation-engine` | OK |
-| `border_clearing_rates` | Frais frontiere Mali | 6 | `quotation-engine` | OK |
-| `destination_terminal_rates` | Frais terminaux Mali (Kati, CMC) | 10 | `quotation-engine` | OK |
-| `local_transport_rates` | Tarifs transport local SN | 81 | `quotation-engine` | OK |
-| `transport_rate_formula` | Formules km Mali | 9 | `quotation-engine` | OK |
-| `mali_transport_zones` | Zones securite/distance Mali | 17 | `quotation-engine` | OK |
-| `demurrage_rates` | Surestaries armateurs | 29 | Non utilise par engine | Inactif |
-| `warehouse_franchise` | Franchise magasinage PAD | 16 | Non utilise par engine | Inactif |
-| `incoterms_reference` | Matrice Incoterms DB | 11 | Non utilise par engine | Doublon |
-| `container_specifications` | Specs conteneurs ISO | existe | Non utilise par engine | Inactif |
-| `imo_classes` | Classes IMO dangereuses | existe | `analyze-risks` | OK |
-| `holidays_pad` | Jours feries PAD | existe | Non utilise par engine | Inactif |
-| `tariff_documents` | Metadonnees docs tarifaires | existe | `admin/PortTariffs` | OK |
-| `learned_knowledge` | Tarifs historiques appris | 849 valides | `quotation-engine` (fallback) | OK |
-| `fuel_price_tracking` | Prix carburant Mali | existe | `quotation-engine` | OK |
-| `security_alerts` | Alertes securite Mali | existe | `quotation-engine` | OK |
-| `operational_costs_senegal` | Couts operationnels | existe | Non utilise | Inactif |
-
-### C. Regles codifiees dans le code source
-
-| Fichier | Type | Contenu |
-|---------|------|---------|
-| `_shared/quotation-rules.ts` | Regles metier pures | Matrice Incoterms ICC 2020, EVP conversion, Zones Senegal, Transport exceptionnel, CAF, Sodatra fees, Matching historique |
-| `_shared/prompts.ts` | Regles dans prompt IA | Grilles THC DPW (hardcoded dans texte), Franchises PAD, Honoraires SODATRA |
-| `_shared/customs-code-reference.ts` | Reference douanes | Regles douanieres codifiees |
-| `_shared/ctu-code-reference.ts` | Reference CTU | Regles empotage |
-| `quotation-engine/index.ts` | Moteur principal | Detection transit, THD categories, generation lignes |
-| `calculate-duties/index.ts` | Calcul droits | Pipeline complet DD -> TVA -> BIC |
-| `suggest-regime/index.ts` | Suggestion regime | Scoring par mots-cles et contexte |
+**Detail technique :**
+- Les 4 lignes gardent leur structure `QuotationLine` existante
+- `amount` passe a `null` (deja supporte par le type `amount: number | null`)
+- `source.type` = `'TO_CONFIRM'`
+- `source.confidence` = `0`
+- `notes` = message explicite ("Aucune donnee normative — confirmation humaine requise")
+- Le THC fallback (L879) change de `CALCULATED` a `TO_CONFIRM` et `amount: null`
 
 ---
 
-## M1.2 — Modelisation des regles metier : Rapport de couverture
+## Tache M1.2.2 — Connexion de warehouse_franchise
 
-### Regles BIEN modelisees (en tables, utilisees par le moteur)
+**Fichier:** `supabase/functions/quotation-engine/index.ts`
 
-| Regle metier | Source officielle | Table | Fonction | Statut |
-|--------------|-------------------|-------|----------|--------|
-| Droits de douane par code HS | TEC UEMOA | `hs_codes` | `calculate-duties` | OK |
-| 56 regimes douaniers + flags taxes | Code douanes SN | `customs_regimes` | `calculate-duties`, `suggest-regime` | OK |
-| Taux taxes centraux (RS, PCS, TVA...) | Douane SN | `tax_rates` | `calculate-duties` | OK |
-| THC DPW par type operation/conteneur | Arrete ministeriel DPW | `port_tariffs` | `quotation-engine` | OK |
-| Charges armateurs (Hapag, MSC, ONE) | Billing templates officiels | `carrier_billing_templates` | `quotation-engine` | OK |
-| Frais frontiere Mali (Kidira/Diboli) | Grille frontiere | `border_clearing_rates` | `quotation-engine` | OK |
-| Frais terminaux Mali (Kati, CMC) | Grille destination | `destination_terminal_rates` | `quotation-engine` | OK |
-| Tarifs transport local SN | Grille transporteurs | `local_transport_rates` | `quotation-engine` | OK |
-| Formules transport Mali (km) | Formules negociees | `transport_rate_formula` | `quotation-engine` | OK |
-| Zones Mali (distance, securite) | Cartographie | `mali_transport_zones` | `quotation-engine` | OK |
-| Classes IMO et surcharges | Code IMDG | `imo_classes` | `analyze-risks` | OK |
+Ajouter une nouvelle section apres le bloc "SODATRA FEES" (section 8) :
 
-### Regles HARDCODED dans le code (risque moyen a eleve)
+1. Requeter `warehouse_franchise` avec filtres :
+   - `is_active = true`
+   - `cargo_type` selon le type d'operation (import/transit/vehicule)
+   - `container_type` si applicable
+2. Generer une ligne informative `QuotationLine` :
+   - `bloc: 'operationnel'`
+   - `category: 'Magasinage'`
+   - `description: 'Franchise magasinage: X jours (tarif: Y FCFA/tonne/jour apres franchise)'`
+   - `amount: 0` (informatif — pas de surcout tant que franchise non depassee)
+   - `source.type: 'OFFICIAL'`
+3. Si aucune regle trouvee : ligne `TO_CONFIRM` avec `amount: null`
 
-| Regle metier | Valeur hardcodee | Emplacement | Source officielle | Risque | Action |
-|--------------|------------------|-------------|-------------------|--------|--------|
-| THC fallback 20' | 110 000 FCFA | `quotation-engine` L879 | Arrete DPW | **Moyen** | A modeliser en table |
-| THC fallback 40' | 220 000 FCFA | `quotation-engine` L879 | Arrete DPW | **Moyen** | A modeliser en table |
-| Transport Mali fallback | 2 600 000 FCFA | `quotation-engine` L1145 | Estimation non officielle | **Eleve** | A supprimer ou flaguer |
-| Transport local fallback | 350 000 x multiplicateur zone | `quotation-engine` L1228 | Estimation non officielle | **Eleve** | A supprimer ou flaguer |
-| Estimation droits sans HS | CAF x 0.45 (45%) | `quotation-engine` L1496 | Aucune | **Eleve** | A supprimer |
-| Fret estime (FOB sans fret fourni) | Valeur x 0.08 (8%) | `quotation-rules.ts` L388 | Convention douaniere | Moyen | Documenter ou table |
-| Assurance par defaut | 0.5% | `quotation-rules.ts` L371 | Convention douaniere | Faible | OK mais documenter |
-| Prix carburant defaut Mali | 820 FCFA/L | `quotation-engine` L279 | Aucune | Moyen | Table fuel_price existe deja |
-| Prix carburant defaut SN | 760 FCFA/L | `quotation-engine` L279 | Aucune | Moyen | Table fuel_price existe deja |
-| Honoraires dedouanement min | 75 000 FCFA | `quotation-rules.ts` L469 | Grille SODATRA interne | Moyen | A modeliser |
-| Honoraires suivi min | 35 000 FCFA | `quotation-rules.ts` L470 | Grille SODATRA interne | Moyen | A modeliser |
-| Ouverture dossier maritime | 25 000 FCFA | `quotation-rules.ts` L457 | Grille SODATRA interne | Moyen | A modeliser |
-| Ouverture dossier aerien | 20 000 FCFA | `quotation-rules.ts` L458 | Grille SODATRA interne | Moyen | A modeliser |
-| Ouverture dossier routier | 15 000 FCFA | `quotation-rules.ts` L458 | Grille SODATRA interne | Moyen | A modeliser |
-| Documentation fixe | 15 000 FCFA | `quotation-rules.ts` L461 | Grille SODATRA interne | Moyen | A modeliser |
-| Commission min | 25 000 FCFA | `quotation-rules.ts` L473 | Grille SODATRA interne | Moyen | A modeliser |
-| Suivi par conteneur | 35 000 FCFA/cnt | `quotation-rules.ts` L452 | Grille SODATRA interne | Moyen | A modeliser |
-| Suivi par tonne | 3 000 FCFA/t | `quotation-rules.ts` L453 | Grille SODATRA interne | Moyen | A modeliser |
-| Facteur complexite IMO | +30% | `quotation-rules.ts` L433 | Decision interne | Faible | Documenter |
-| Facteur complexite OOG | +25% | `quotation-rules.ts` L434 | Decision interne | Faible | Documenter |
-| Commission sur debours | 5% | `quotation-engine` L1527 | Grille SODATRA | Moyen | A modeliser |
-| Segregation IMO | 150 000 FCFA | `analyze-risks` L168 | Estimation | Moyen | A modeliser |
-| Escorte hors-gabarit | 250 000 FCFA | `analyze-risks` L180 | Estimation | Moyen | A modeliser |
-
-### Regles dans le prompt IA (duplication risquee)
-
-| Regle | Valeur dans prompt | Valeur en table/code | Coherence |
-|-------|-------------------|---------------------|-----------|
-| THC Export C1 (Coton) | 70 000 FCFA | port_tariffs | A verifier |
-| THC Export C2 (Frigo) | 80 000 FCFA | port_tariffs | A verifier |
-| THC Export C3 (Standard) | 110 000 FCFA | port_tariffs | A verifier |
-| THC Import C4 (Base) | 87 000 FCFA | port_tariffs | A verifier |
-| THC Import C5 (Standard) | 133 500 FCFA | port_tariffs | A verifier |
-| THC Transit C6 | 110 000 FCFA | port_tariffs | A verifier |
-| Franchise Import SN | 7 jours | warehouse_franchise (non utilise) | **Desynchro** |
-| Franchise Transit | 20 jours | warehouse_franchise (non utilise) | **Desynchro** |
-| Honoraires conteneur | ~150 000 FCFA | quotation-rules (75 000 min) | **Incoherent** |
-| Honoraires vehicule | ~120 000 FCFA | Nulle part | **Non modelise** |
-| Honoraires aerien | ~100 000 FCFA | Nulle part | **Non modelise** |
-
-### Tables existantes NON UTILISEES par le moteur
-
-| Table | Nb enregistrements | Usage prevu | Statut |
-|-------|-------------------|-------------|--------|
-| `demurrage_rates` | 29 | Surestaries armateurs | **Jamais interrogee par quotation-engine** |
-| `warehouse_franchise` | 16 | Franchise magasinage PAD | **Jamais interrogee par quotation-engine** |
-| `incoterms_reference` | 11 | Matrice Incoterms en DB | **Doublon avec INCOTERMS_MATRIX hardcodee** |
-| `holidays_pad` | existe | Jours feries pour calcul franchise | **Non connectee** |
-| `container_specifications` | existe | Specs ISO conteneurs | **Non connectee au moteur** |
-| `operational_costs_senegal` | existe | Couts operationnels | **Jamais utilisee** |
+**Tables utilisees :** `warehouse_franchise` (16 enregistrements existants)
 
 ---
 
-## M1.3 — Audit du moteur de cotation normative
+## Tache M1.2.3 — Connexion de demurrage_rates
 
-### Architecture du moteur
+**Fichier:** `supabase/functions/quotation-engine/index.ts`
 
-```text
-+------------------+     +---------------------+     +--------------------+
-| run-pricing      | --> | quotation-engine     | --> | QuotationResult    |
-| (orchestrateur)  |     | (calcul des lignes)  |     | {lines, totals,    |
-|                  |     |                      |     |  metadata, warnings}|
-| - Charge facts   |     | Utilise:             |     +--------------------+
-| - Build inputs   |     | - port_tariffs (DB)  |
-| - Appelle engine |     | - carrier_billing    |
-| - Stocke result  |     | - border_clearing    |
-+------------------+     | - transport_formula  |
-                          | - mali_zones (DB)    |
-                          | - local_transport    |
-                          | - learned_knowledge  |
-                          | - quotation-rules.ts |
-                          |   (hardcoded rules)  |
-                          +---------------------+
-                                    |
-                          +---------------------+
-                          | calculate-duties     |
-                          | (appele separement)  |
-                          | Utilise:             |
-                          | - hs_codes (DB)      |
-                          | - customs_regimes    |
-                          | - tax_rates (DB)     |
-                          +---------------------+
+Ajouter une section apres warehouse_franchise :
+
+1. Si `cargoType` = conteneur, requeter `demurrage_rates` :
+   - `is_active = true`
+   - `carrier` = armateur detecte (ou generique)
+   - `container_type` correspondant
+2. Generer une ligne `QuotationLine` :
+   - `bloc: 'operationnel'`
+   - `category: 'Surestaries'`
+   - `description: 'Surestaries armateur (franchise X jours, puis Y USD/jour)'`
+   - `amount: null` (toujours TO_CONFIRM car depend du temps reel)
+   - `source.type: 'TO_CONFIRM'`
+   - `notes` detaillant les paliers (jour 1-7, 8-14, 15+)
+3. Si aucune donnee : ligne `TO_CONFIRM` generique
+
+**Tables utilisees :** `demurrage_rates` (29 enregistrements existants)
+
+---
+
+## Tache M1.2.4 — Connexion de holidays_pad
+
+**Fichier:** `supabase/functions/quotation-engine/index.ts`
+
+Integration legere dans la section franchise (M1.2.2) :
+
+1. Au moment de generer la ligne franchise, requeter `holidays_pad` :
+   - `holiday_date` dans les 30 prochains jours (ou annee en cours pour `is_recurring`)
+2. Ajouter dans les `notes` de la ligne franchise : "X jours feries PAD dans les 30j — franchise effective peut etre reduite"
+3. Pas de modification du calcul de franchise lui-meme (reste informatif)
+
+**Tables utilisees :** `holidays_pad`
+
+---
+
+## Tache M1.2.5 — Suppression des duplications prompt
+
+**Fichier:** `supabase/functions/_shared/prompts.ts`
+
+Remplacer les lignes 121-154 (section "GRILLES TARIFAIRES OFFICIELLES" + "FRANCHISES MAGASINAGE" + "HONORAIRES SODATRA") par :
+
+```
+GRILLES TARIFAIRES ET RÈGLES DE CALCUL
+
+Les montants (THC, franchises magasinage, honoraires, droits et taxes)
+sont calculés automatiquement par le moteur de cotation à partir des
+grilles tarifaires officielles présentes dans le système.
+
+Tu ne dois JAMAIS inventer ou estimer un montant.
+Si le moteur retourne une ligne "À CONFIRMER", tu dois le signaler
+clairement au client et demander les informations manquantes.
 ```
 
-### Audit ligne par ligne
-
-| Composant | Source du calcul | Type | Risque |
-|-----------|-----------------|------|--------|
-| THC Import/Transit/Export | Table `port_tariffs` (DPW) | **Normatif** | OK |
-| THC fallback | Hardcode 110k/220k | **Hardcoded** | Moyen |
-| Redevance Variable PAD | Table `port_tariffs` (PAD) | **Normatif** | OK |
-| Port Tax PAD | Table `port_tariffs` (PAD) | **Normatif** | OK |
-| Relevage Transit | Table `port_tariffs` (DPW) | **Normatif** | OK |
-| Charges armateur transit | Table `carrier_billing_templates` | **Normatif** | OK |
-| THD/THO par categorie | Table `port_tariffs` + `determineTariffCategory()` | **Mixte** | Moyen - categories hardcodees |
-| Transport Mali (formule) | Table `transport_rate_formula` + `mali_transport_zones` | **Normatif** | OK |
-| Transport Mali (fallback) | Hardcode 2 600 000 | **Hardcoded** | **Eleve** |
-| Transport local SN | Table `local_transport_rates` | **Normatif** | OK |
-| Transport local (fallback) | Hardcode 350 000 x multiplicateur | **Hardcoded** | **Eleve** |
-| Surcharge carburant | Table `fuel_price_tracking` + defaut 820/760 | **Mixte** | Moyen |
-| Surcharge securite Mali | Table `mali_transport_zones.security_surcharge_percent` | **Normatif** | OK |
-| Frais frontiere Mali | Table `border_clearing_rates` | **Normatif** | OK |
-| Frais terminaux Mali | Table `destination_terminal_rates` | **Normatif** | OK |
-| Honoraires SODATRA (tous) | Hardcode dans `quotation-rules.ts` | **Hardcoded** | Moyen |
-| Commission sur debours | Hardcode 5% | **Hardcoded** | Moyen |
-| Droits douaniers (avec HS) | Table `hs_codes` + `tax_rates` + `customs_regimes` | **Normatif** | OK |
-| Droits douaniers (sans HS) | Hardcode CAF x 0.45 | **Hardcoded** | **Eleve** |
-| Calcul CAF | `quotation-rules.ts` (logique pure) | **Regle metier** | OK |
-| Matrice Incoterms | Hardcode `INCOTERMS_MATRIX` (malgre table `incoterms_reference` existante) | **Doublon** | Moyen |
-| Zones livraison SN | Hardcode `DELIVERY_ZONES` | **Hardcoded** | Moyen - devrait etre en table |
-| Detection transit | Hardcode `TRANSIT_COUNTRIES` + `MALI_CITIES` | **Hardcoded** | Faible - rarement change |
-| Seuils transport exceptionnel | Hardcode `TRANSPORT_THRESHOLDS` | **Regle metier** | Faible |
-| Surestaries armateurs | Table `demurrage_rates` existe mais **non utilisee** | **Non connecte** | **Eleve** |
-| Franchise magasinage | Table `warehouse_franchise` existe mais **non utilisee** | **Non connecte** | **Eleve** |
-| Jours feries PAD | Table `holidays_pad` existe mais **non connectee** | **Non connecte** | Moyen |
+Cela supprime :
+- Les 6 lignes THC chiffrees (C1 a C6)
+- Les 3 lignes de franchise chiffrees
+- Les 3 lignes d'honoraires chiffrees
 
 ---
 
-## Synthese : Trous a combler (priorisee)
+## Ordre d'execution
 
-### Priorite HAUTE (risque eleve - impact direct sur cotation)
+1. **M1.2.1** — Neutraliser les 4 fallbacks dans `quotation-engine/index.ts`
+2. **M1.2.2** — Ajouter section `warehouse_franchise` dans `quotation-engine/index.ts`
+3. **M1.2.4** — Integrer `holidays_pad` dans la section franchise (M1.2.2)
+4. **M1.2.3** — Ajouter section `demurrage_rates` dans `quotation-engine/index.ts`
+5. **M1.2.5** — Nettoyer `prompts.ts`
+6. **Deployer** la edge function `quotation-engine`
+7. **Tester** via appels directs a la edge function
 
-1. **Fallbacks d'estimation non normatifs** : THC (110k/220k), Transport Mali (2.6M), Transport local (350k x mult), Droits sans HS (45%) -- ces valeurs inventees ne devraient JAMAIS apparaitre sans etre clairement marquees. Action : les marquer systematiquement TO_CONFIRM (deja fait) et auditer que le front les affiche en rouge.
+## Fichiers modifies (2 seulement)
 
-2. **Tables existantes non connectees au moteur** : `demurrage_rates` (29 records), `warehouse_franchise` (16 records), `holidays_pad` -- ces donnees officielles existent mais le moteur ne les utilise pas du tout.
+| Fichier | Nature du changement |
+|---------|---------------------|
+| `supabase/functions/quotation-engine/index.ts` | Neutraliser 4 fallbacks + ajouter 3 sections (franchise, demurrage, holidays) |
+| `supabase/functions/_shared/prompts.ts` | Supprimer valeurs chiffrees L121-154 |
 
-3. **Duplication prompt vs code vs DB** : La matrice Incoterms existe 3 fois (prompt, `INCOTERMS_MATRIX` hardcoded, table `incoterms_reference`). Les THC sont dans le prompt ET en table. Risque de desynchronisation.
+## Tests de validation
 
-### Priorite MOYENNE (risque moyen - maintenabilite)
+Apres deploiement, appeler `quotation-engine` via curl avec :
 
-4. **Honoraires SODATRA entierement hardcodes** : 8+ valeurs fixes dans `quotation-rules.ts`. Action : creer une table `sodatra_fee_rules` parametrable.
+1. **Sans HS code** : verifier ligne droits avec `amount: null` et `TO_CONFIRM`
+2. **Conteneur import Dakar** : verifier ligne franchise depuis `warehouse_franchise`
+3. **Armateur connu (MSC)** : verifier ligne demurrage `TO_CONFIRM` avec paliers
+4. **Mali sans zone** : verifier transport avec `amount: null` et `TO_CONFIRM`
+5. **Prompt** : verifier absence de THC, franchises, honoraires chiffres
 
-5. **Zones de livraison SN hardcodees** : `DELIVERY_ZONES` avec multiplicateurs. Action : migrer vers une table `delivery_zones` (similaire a `mali_transport_zones`).
+## Ce qui ne change PAS
 
-6. **`incoterms_reference` inutilisee** : La table DB existe (11 records) mais le moteur utilise le hardcode. Action : migrer le moteur vers la table.
-
-7. **`determineTariffCategory()` hardcoded** : Le mapping cargo description -> categorie T01-T14 est fait par regex. Action : modeliser en table de correspondance.
-
-### Priorite BASSE (documentation)
-
-8. **Conventions douanieres implicites** : Fret 8%, assurance 0.5% sont des conventions SN connues mais non documentees dans le systeme.
-
-9. **Facteurs de complexite SODATRA** : +30% IMO, +25% OOG, etc. -- decisions internes, a documenter.
-
----
-
-## Critere de fin Phase M1
-
-| Critere | Statut |
-|---------|--------|
-| Liste complete des sources reglementaires | **FAIT** (10 fichiers, 21 tables, 7 fichiers de regles) |
-| Cartographie des regles metier | **FAIT** (11 normatives, 18+ hardcodees, 3 non connectees) |
-| Audit du moteur de pricing | **FAIT** (27 composants audites, sources classifiees) |
-| Liste claire des trous a combler | **FAIT** (3 haute priorite, 4 moyenne, 2 basse) |
+- Aucune API modifiee (meme interface `QuotationRequest` / `QuotationResult`)
+- Aucune table DB creee ou modifiee
+- Aucun fichier UI touche
+- Les calculs normatifs existants (THC officiel, transport Mali avec formule, droits avec HS) restent identiques
 
