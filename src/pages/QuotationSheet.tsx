@@ -314,6 +314,7 @@ export default function QuotationSheet() {
         queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
         queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
         queryClient.invalidateQueries({ queryKey: ['quote-case', threadRef] });
+        setFactsApplied(false); // M3.6-fix2: force overlay re-run
 
         // ═══ Étape 2: Vérifier les gaps bloquants restants ═══
         const { data: remainingGaps } = await supabase
@@ -444,6 +445,7 @@ L'équipe SODATRA`;
         queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
         queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
         queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+        setFactsApplied(false); // M3.6-fix2: force overlay re-run
         
         setIsBuildingPuzzle(false);
       } else {
@@ -485,6 +487,7 @@ L'équipe SODATRA`;
       queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
       queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
       queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+      setFactsApplied(false); // M3.6-fix2: force overlay re-run
     } catch (err) {
       console.error('[force-reanalyze]', err);
       toast.error('Erreur re-analyse');
