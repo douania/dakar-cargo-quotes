@@ -1,55 +1,48 @@
 
 
-# Correctif M3.6-fix : Debloquer l'injection de service.package
+# Correctif M3.6-fix2 : L'overlay ne re-execute pas apres l'analyse
 
 ## Probleme identifie
 
-La contrainte CHECK `quote_facts_fact_category_check` sur la table `quote_facts` n'autorise que 7 categories :
+Les faits sont correctement en base de donnees (`service.package = DAP_PROJECT_IMPORT` confirme dans `quote_facts`). Cependant, l'overlay qui lit ces faits et pre-remplit les services ne s'execute qu'une seule fois grace au flag `factsApplied`.
+
+Chronologie du bug :
 
 ```text
-cargo, routing, timing, pricing, documents, contacts, other
+1. Page charge -> overlay execute avec les anciens facts (pas de service.package) -> factsApplied = true
+2. Utilisateur clique "Analyser la demande"
+3. build-case-puzzle injecte service.package = DAP_PROJECT_IMPORT
+4. React Query invalide le cache, quoteFacts se met a jour
+5. MAIS factsApplied est deja "true" -> l'overlay ne re-execute jamais
+6. Les services restent vides
 ```
-
-Le moteur M3.5.1 tente d'injecter des faits avec les categories `service` et `regulatory`, qui sont rejetees avec l'erreur :
-
-```text
-new row for relation "quote_facts" violates check constraint "quote_facts_fact_category_check"
-```
-
-Resultat : `service.package = DAP_PROJECT_IMPORT` n'est jamais persiste, donc l'overlay M3.6 ne trouve rien a injecter.
 
 ## Solution
 
-**Migration SQL** : Modifier la contrainte CHECK pour ajouter les categories manquantes `service` et `regulatory`.
+### Fichier unique : `src/pages/QuotationSheet.tsx`
 
-```text
-ALTER TABLE quote_facts DROP CONSTRAINT quote_facts_fact_category_check;
-ALTER TABLE quote_facts ADD CONSTRAINT quote_facts_fact_category_check
-  CHECK (fact_category = ANY (ARRAY[
-    'cargo', 'routing', 'timing', 'pricing',
-    'documents', 'contacts', 'other',
-    'service', 'regulatory'
-  ]));
-```
+Dans les deux handlers qui re-executent `build-case-puzzle` :
 
-## Impact
+**1. `handleRequestClarification`** (ligne ~314, apres `queryClient.invalidateQueries`) :
+- Ajouter `setFactsApplied(false)` pour forcer le re-passage de l'overlay avec les nouveaux facts
 
-| Element | Impact |
-|---|---|
-| Edge functions | Aucun changement de code |
-| Frontend | Aucun changement de code |
-| Donnees existantes | Aucun impact (ajout de valeurs, pas de suppression) |
-| RLS | Aucun impact |
+**2. `handleStartAnalysis`** (ligne ~443, apres `queryClient.invalidateQueries` dans le bloc factsCount === 0) :
+- Ajouter `setFactsApplied(false)` pour le meme effet
+
+**3. `handleForceReanalyze`** (si present, meme logique) :
+- Ajouter `setFactsApplied(false)` apres l'invalidation du cache
+
+Cela permet a l'overlay de re-executer avec les facts mis a jour, y compris `service.package`, et d'injecter les services automatiquement.
+
+## Ce qui ne change pas
+
+Aucun autre fichier, aucune edge function, aucun schema DB, aucune RLS.
 
 ## Resultat attendu
 
-Apres cette migration :
-
-1. `build-case-puzzle` injecte `service.package = DAP_PROJECT_IMPORT` avec succes
-2. L'overlay M3.6 lit ce fait et pre-remplit les 5 lignes de service
-3. L'operateur voit les services automatiquement sans avoir a les ajouter
-
-## Verification
-
-Un simple re-clic sur "Analyser la demande" sur le cas Aboudi suffira a valider que les services apparaissent.
+1. Utilisateur clique "Analyser la demande"
+2. `build-case-puzzle` injecte `service.package = DAP_PROJECT_IMPORT`
+3. Cache invalide + `factsApplied` remis a `false`
+4. L'overlay re-execute, detecte le package, injecte les 5 lignes de service
+5. Badge "DAP PROJECT IMPORT" visible
 
