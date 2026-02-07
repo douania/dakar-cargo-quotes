@@ -35,7 +35,7 @@ interface QuotationRequest {
   subject: string;
   from_address: string;
   received_at: string;
-  body_text: string;
+  body_text?: string;
   extracted_data: ExtractedData | null;
   thread_id?: string;
   attachmentCount?: number;

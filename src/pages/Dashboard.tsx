@@ -33,8 +33,6 @@ interface QuotationRequest {
   subject: string;
   from_address: string;
   received_at: string;
-  body_text: string;
-  body_html?: string;
   extracted_data: any;
   thread_id?: string;
   attachmentCount?: number;
@@ -55,6 +53,8 @@ export default function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'completeness'>('date');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<QuotationRequest[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const fetchData = async () => {
     setFetchError(null);
@@ -63,7 +63,7 @@ export default function Dashboard() {
       const { data: emails, error: emailsError } = await withTimeout(
         supabase
           .from('emails')
-          .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
+          .select('id, subject, from_address, received_at, extracted_data, thread_id')
           .eq('is_quotation_request', true)
           .order('received_at', { ascending: false })
           .limit(100)
@@ -142,13 +142,66 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
+  // Server-side search with debounce
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const q = searchQuery.trim();
+        const { data, error } = await withTimeout(
+          supabase
+            .from('emails')
+            .select('id, subject, from_address, received_at, extracted_data, thread_id')
+            .eq('is_quotation_request', true)
+            .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
+            .order('received_at', { ascending: false })
+            .limit(50)
+        );
+        if (error) throw error;
+
+        // Get attachment counts for search results
+        const ids = (data || []).map(e => e.id);
+        const { data: atts } = ids.length > 0
+          ? await supabase.from('email_attachments').select('email_id').in('email_id', ids)
+          : { data: [] };
+        const attCounts: Record<string, number> = {};
+        atts?.forEach(a => { if (a.email_id) attCounts[a.email_id] = (attCounts[a.email_id] || 0) + 1; });
+
+        // Filter out already-sent
+        const { data: sentDrafts } = await supabase
+          .from('email_drafts')
+          .select('original_email_id')
+          .eq('status', 'sent')
+          .not('original_email_id', 'is', null);
+        const sentIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
+
+        setSearchResults(
+          (data || [])
+            .filter(e => !sentIds.has(e.id))
+            .map(e => ({ ...e, attachmentCount: attCounts[e.id] || 0 }))
+        );
+      } catch (err) {
+        console.error('Search error:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const handleRefresh = () => {
     setIsRefreshing(true);
     fetchData();
   };
 
   const handleProcess = (emailId: string) => {
-    // Navigate to the quotation sheet with the email context
     navigate(`/quotation/${emailId}`);
   };
 
@@ -156,19 +209,10 @@ export default function Dashboard() {
     navigate('/quotation/new');
   };
 
-  // Filter then sort requests
-  const filteredRequests = requests.filter(r => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      r.subject?.toLowerCase().includes(q) ||
-      r.from_address?.toLowerCase().includes(q) ||
-      r.body_text?.toLowerCase().includes(q) ||
-      r.body_html?.toLowerCase().includes(q)
-    );
-  });
+  // Use search results when searching, otherwise use all requests
+  const displayRequests = searchResults !== null ? searchResults : requests;
 
-  const sortedRequests = [...filteredRequests].sort((a, b) => {
+  const sortedRequests = [...displayRequests].sort((a, b) => {
     if (sortBy === 'date') {
       return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
     }
@@ -293,8 +337,9 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              {isSearching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
               <Input
-                placeholder="Rechercher par nom, sujet..."
+                placeholder="Rechercher par nom, sujet, contenu..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-[250px] pl-8"
