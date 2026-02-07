@@ -28,6 +28,7 @@ interface ServiceLinesFormProps {
   addServiceLine: (template?: ServiceTemplate) => void;
   updateServiceLine: (id: string, updates: Partial<ServiceLine>) => void;
   removeServiceLine: (id: string) => void;
+  detectedPackage?: string;
 }
 
 export function ServiceLinesForm({
@@ -35,15 +36,23 @@ export function ServiceLinesForm({
   addServiceLine,
   updateServiceLine,
   removeServiceLine,
+  detectedPackage,
 }: ServiceLinesFormProps) {
   return (
     <Card className="border-border/50 bg-gradient-card">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-primary" />
-            Services à coter ({serviceLines.length})
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-primary" />
+              Services à coter ({serviceLines.length})
+            </CardTitle>
+            {detectedPackage && (
+              <Badge variant="secondary" className="text-xs">
+                {detectedPackage.replace(/_/g, ' ')}
+              </Badge>
+            )}
+          </div>
           <Select onValueChange={(v) => {
             const template = serviceTemplates.find(t => t.service === v);
             if (template) addServiceLine(template);

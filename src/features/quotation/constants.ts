@@ -25,7 +25,24 @@ export const serviceTemplates = [
   { service: 'PORT_CHARGES', description: 'Frais de port Dakar', unit: 'tonne' },
   { service: 'TRUCKING', description: 'Transport routier vers site', unit: 'voyage' },
   { service: 'CUSTOMS', description: 'Dédouanement', unit: 'déclaration' },
+  { service: 'PORT_DAKAR_HANDLING', description: 'Frais port Dakar', unit: 'tonne' },
+  { service: 'CUSTOMS_DAKAR', description: 'Dédouanement Dakar', unit: 'déclaration' },
+  { service: 'CUSTOMS_EXPORT', description: 'Dédouanement export', unit: 'déclaration' },
+  { service: 'BORDER_FEES', description: 'Frais frontière', unit: 'forfait' },
+  { service: 'AGENCY', description: 'Frais agence', unit: 'forfait' },
+  { service: 'SURVEY', description: 'Survey port + site', unit: 'forfait' },
 ];
+
+/**
+ * Mapping package métier → services à injecter automatiquement
+ * Utilisé par l'overlay M3.6 pour pré-remplir les lignes de service
+ */
+export const SERVICE_PACKAGES: Record<string, string[]> = {
+  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
+  EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
+  BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
+};
 
 /**
  * Domaines internes de l'entreprise

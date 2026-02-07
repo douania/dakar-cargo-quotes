@@ -93,7 +93,7 @@ import { QuotationPreview } from '@/features/quotation/components/QuotationPrevi
 // Phase 8.7: Hook quote_case
 import { useQuoteCaseData } from '@/hooks/useQuoteCaseData';
 // Constantes depuis le fichier centralisé
-import { containerTypes, incoterms, serviceTemplates } from '@/features/quotation/constants';
+import { containerTypes, incoterms, serviceTemplates, SERVICE_PACKAGES } from '@/features/quotation/constants';
 
 // Types depuis le fichier centralisé
 import type { 
@@ -615,8 +615,36 @@ L'équipe SODATRA`;
       }
     }
 
+    // ── M3.6: Auto-populate service lines from service.package ──
+    const packageFact = factsMap.get('service.package');
+    if (packageFact?.value_text && serviceLines.length === 0) {
+      const packageKey = packageFact.value_text;
+      const serviceKeys = SERVICE_PACKAGES[packageKey];
+      if (serviceKeys) {
+        const autoLines: ServiceLine[] = [];
+        for (const key of serviceKeys) {
+          const template = serviceTemplates.find(t => t.service === key);
+          if (template) {
+            autoLines.push({
+              id: crypto.randomUUID(),
+              service: template.service,
+              description: template.description,
+              unit: template.unit,
+              quantity: 1,
+              rate: undefined,
+              currency: 'FCFA',
+              source: 'ai_assumption',
+            });
+          }
+        }
+        if (autoLines.length > 0) {
+          setServiceLines(autoLines);
+        }
+      }
+    }
+
     setFactsApplied(true);
-  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines]);
+  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, serviceLines, setServiceLines]);
 
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
@@ -1512,6 +1540,7 @@ L'équipe SODATRA`;
                   addServiceLine={addServiceLine}
                   updateServiceLine={updateServiceLine}
                   removeServiceLine={removeServiceLine}
+                  detectedPackage={quoteFacts?.find(f => f.fact_key === 'service.package')?.value_text ?? undefined}
                 />
 
                 {/* Récapitulatif Totaux - Phase 5B */}
