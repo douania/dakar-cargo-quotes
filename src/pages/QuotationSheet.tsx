@@ -106,8 +106,13 @@ import type {
   Suggestion, 
   Alert, 
   QuotationOffer, 
-  RegulatoryInfo 
+  RegulatoryInfo,
+  HistoricalSuggestionLine,
 } from '@/features/quotation/types';
+
+// Phase M3.2: Historical suggestions
+import { useHistoricalSuggestions } from '@/features/quotation/hooks/useHistoricalSuggestions';
+import { HistoricalSuggestionsCard } from '@/features/quotation/components/HistoricalSuggestionsCard';
 
 // Utilitaires de parsing
 import { 
@@ -238,6 +243,23 @@ export default function QuotationSheet() {
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
 
+  // Phase M3.2: Historical suggestions from pricing_runs.engine_response
+  const { suggestions: historicalSuggestions } = useHistoricalSuggestions(quoteCase?.id);
+
+  const handleAddHistoricalSuggestion = useCallback((line: HistoricalSuggestionLine) => {
+    const newLine: ServiceLine = {
+      id: crypto.randomUUID(),
+      service: line.category,
+      description: line.description,
+      unit: 'forfait',
+      quantity: 1,
+      rate: line.suggested_amount,
+      currency: line.currency || 'FCFA',
+      source: 'historical',
+    };
+    setServiceLines(prev => [...prev, newLine]);
+    toast.info(`Suggestion "${line.description}" ajoutée`);
+  }, [setServiceLines]);
   // Phase 8.8: État clarification enrichi
   const [clarificationDraft, setClarificationDraft] = useState<{
     subject_fr?: string;
@@ -1132,6 +1154,13 @@ L'équipe SODATRA`;
          ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
           <div className="mb-6 space-y-4">
             <PricingResultPanel caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
+            {/* Phase M3.2: Historical suggestions */}
+            {historicalSuggestions && (
+              <HistoricalSuggestionsCard
+                suggestions={historicalSuggestions}
+                onAddSuggestion={handleAddHistoricalSuggestion}
+              />
+            )}
             <QuotationVersionCard caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
             {/* Phase 19A C2-A: SendQuotationPanel strict FSM guard */}
             {['QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (

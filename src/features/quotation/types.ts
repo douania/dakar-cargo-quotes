@@ -25,6 +25,22 @@ export interface ServiceLine {
   quantity: number;
   rate?: number;
   currency: string;
+  source?: 'manual' | 'historical';
+}
+
+export interface HistoricalSuggestionLine {
+  bloc: string;
+  category: string;
+  description: string;
+  suggested_amount: number;
+  currency: string;
+  confidence: number;
+  based_on: number;
+}
+
+export interface HistoricalSuggestions {
+  suggested_lines: HistoricalSuggestionLine[];
+  based_on_quotations: number;
 }
 
 export interface ProjectContext {
