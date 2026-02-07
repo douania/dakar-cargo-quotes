@@ -1,47 +1,79 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+
+export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'timeout';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
-  isLoading: boolean;
+  isLoading: boolean; // compat: true ssi 'loading'
+  authStatus: AuthStatus;
   signOut: () => Promise<void>;
+  retryAuth: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const AUTH_TIMEOUT_MS = 10_000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
+
+  const fetchSession = useCallback(() => {
+    setAuthStatus('loading');
+
+    const timer = setTimeout(() => {
+      // Only transition to timeout if still loading
+      setAuthStatus((prev) => (prev === 'loading' ? 'timeout' : prev));
+    }, AUTH_TIMEOUT_MS);
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      clearTimeout(timer);
+      setSession(s);
+      setAuthStatus(s ? 'authenticated' : 'unauthenticated');
+    }).catch(() => {
+      clearTimeout(timer);
+      setAuthStatus('timeout');
+    });
+
+    return timer;
+  }, []);
 
   useEffect(() => {
-    // 1. Setup listener FIRST (before getSession) - pattern Supabase recommandé
+    // 1. Setup listener FIRST (pattern Supabase recommandé)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setIsLoading(false);
+      (_event, s) => {
+        setSession(s);
+        setAuthStatus(s ? 'authenticated' : 'unauthenticated');
       }
     );
 
-    // 2. Then get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setIsLoading(false);
-    });
+    // 2. Then get initial session with timeout
+    const timer = fetchSession();
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      clearTimeout(timer);
+      subscription.unsubscribe();
+    };
+  }, [fetchSession]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
+  const retryAuth = useCallback(() => {
+    fetchSession();
+  }, [fetchSession]);
+
   const value: AuthContextType = {
     session,
     user: session?.user ?? null,
-    isLoading,
+    isLoading: authStatus === 'loading',
+    authStatus,
     signOut,
+    retryAuth,
   };
 
   return (

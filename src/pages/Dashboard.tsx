@@ -12,8 +12,10 @@ import {
   Clock,
   FileText,
   TrendingUp,
-  Filter
+  Filter,
+  WifiOff
 } from 'lucide-react';
+import { withTimeout } from '@/lib/fetchWithRetry';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { QuotationRequestCard } from '@/components/QuotationRequestCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,24 +49,30 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({ pending: 0, processed: 0, drafts: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'completeness'>('date');
 
   const fetchData = async () => {
+    setFetchError(null);
     try {
-      // Fetch quotation requests (emails marked as quotation that haven't been processed)
-      const { data: emails, error: emailsError } = await supabase
-        .from('emails')
-        .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
-        .eq('is_quotation_request', true)
-        .order('received_at', { ascending: false })
-        .limit(50);
+      // Fetch quotation requests with timeout
+      const { data: emails, error: emailsError } = await withTimeout(
+        supabase
+          .from('emails')
+          .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
+          .eq('is_quotation_request', true)
+          .order('received_at', { ascending: false })
+          .limit(50)
+      );
 
       if (emailsError) throw emailsError;
 
       // Get attachment counts
-      const { data: attachments } = await supabase
-        .from('email_attachments')
-        .select('email_id');
+      const { data: attachments } = await withTimeout(
+        supabase
+          .from('email_attachments')
+          .select('email_id')
+      );
 
       const attachmentCounts: Record<string, number> = {};
       attachments?.forEach(att => {
@@ -73,16 +81,17 @@ export default function Dashboard() {
         }
       });
 
-      // Get SENT drafts only - un brouillon non envoyé n'est PAS traité
-      const { data: sentDrafts } = await supabase
-        .from('email_drafts')
-        .select('original_email_id')
-        .eq('status', 'sent')
-        .not('original_email_id', 'is', null);
+      // Get SENT drafts only
+      const { data: sentDrafts } = await withTimeout(
+        supabase
+          .from('email_drafts')
+          .select('original_email_id')
+          .eq('status', 'sent')
+          .not('original_email_id', 'is', null)
+      );
 
       const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
-      // Enrich emails with attachment count and filter out SENT ones only
       const pendingRequests = (emails || [])
         .filter(email => !sentEmailIds.has(email.id))
         .map(email => ({
@@ -93,24 +102,32 @@ export default function Dashboard() {
       setRequests(pendingRequests);
 
       // Calculate stats
-      const { count: quotationCount } = await supabase
-        .from('emails')
-        .select('id', { count: 'exact' })
-        .eq('is_quotation_request', true);
+      const { count: quotationCount } = await withTimeout(
+        supabase
+          .from('emails')
+          .select('id', { count: 'exact' })
+          .eq('is_quotation_request', true)
+      );
 
-      const { count: draftCount } = await supabase
-        .from('email_drafts')
-        .select('id', { count: 'exact' })
-        .eq('status', 'draft');
+      const { count: draftCount } = await withTimeout(
+        supabase
+          .from('email_drafts')
+          .select('id', { count: 'exact' })
+          .eq('status', 'draft')
+      );
 
       setStats({
         pending: pendingRequests.length,
         processed: sentEmailIds.size,
         drafts: draftCount || 0,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching data:', error);
-      toast.error('Erreur de chargement des données');
+      const msg = error?.message?.includes('timeout')
+        ? 'Connexion lente — le serveur ne répond pas'
+        : 'Erreur de chargement des données';
+      setFetchError(msg);
+      // Don't clear existing data on error
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -162,6 +179,27 @@ export default function Dashboard() {
   return (
     <MainLayout>
       <div className="container mx-auto px-4 py-6 max-w-6xl">
+        {/* Error banner */}
+        {fetchError && (
+          <Card className="border-destructive/50 bg-destructive/5 mb-6">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <WifiOff className="h-5 w-5 text-destructive" />
+                  <div>
+                    <p className="font-medium text-destructive">{fetchError}</p>
+                    <p className="text-sm text-muted-foreground">Les données affichées peuvent ne pas être à jour.</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  Réessayer
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

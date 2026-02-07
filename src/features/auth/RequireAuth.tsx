@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw, WifiOff } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useAuth } from './AuthProvider';
 
 interface RequireAuthProps {
@@ -7,11 +8,11 @@ interface RequireAuthProps {
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
-  const { session, isLoading } = useAuth();
+  const { authStatus, retryAuth } = useAuth();
   const location = useLocation();
 
-  // Loading state - écran minimal thème Maritime
-  if (isLoading) {
+  // Loading state — max 10s then switches to timeout
+  if (authStatus === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -22,11 +23,30 @@ export function RequireAuth({ children }: RequireAuthProps) {
     );
   }
 
-  // Non authentifié - redirect vers /login avec state pour retour
-  if (!session) {
+  // Timeout — never redirect to login
+  if (authStatus === 'timeout') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <WifiOff className="h-10 w-10 text-destructive" />
+          <h2 className="text-lg font-semibold">Connexion lente</h2>
+          <p className="text-sm text-muted-foreground">
+            Le serveur met du temps à répondre. Vérification en cours…
+          </p>
+          <Button onClick={retryAuth} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Réessayer
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated — the ONLY case that redirects to login
+  if (authStatus === 'unauthenticated') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Authentifié - afficher le contenu protégé
+  // Authenticated
   return <>{children}</>;
 }
