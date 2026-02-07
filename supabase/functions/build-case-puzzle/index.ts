@@ -274,7 +274,7 @@ async function applyAssumptionRules(
   // Step 1: Load existing facts
   const { data: facts } = await serviceClient
     .from('quote_facts')
-    .select('fact_key, value_text, value_number, source_type')
+    .select('fact_key, value_text, value_number, value_json, source_type')
     .eq('case_id', caseId)
     .eq('is_current', true);
 
@@ -282,7 +282,7 @@ async function applyAssumptionRules(
   if (facts) {
     for (const f of facts) {
       factMap.set(f.fact_key, {
-        value: f.value_text || String(f.value_number || ''),
+        value: f.value_text || (f.value_json ? JSON.stringify(f.value_json) : '') || String(f.value_number || ''),
         source: f.source_type,
       });
     }

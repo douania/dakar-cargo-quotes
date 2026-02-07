@@ -282,7 +282,6 @@ export default function QuotationSheet() {
    * GARDE-FOU CTO #3: Langage questionnant uniquement
    */
   const handleRequestClarification = useCallback(async () => {
-    // Phase 8.8: Seul threadRef requis - permet l'analyse même sans gaps DB
     if (!threadRef) {
       toast.error('Aucun fil email associé');
       return;
@@ -293,7 +292,49 @@ export default function QuotationSheet() {
     setDetectedAmbiguities([]);
 
     try {
-      // Appel edge function Phase 8.8
+      // ═══ Étape 1: Lancer build-case-puzzle (M3.5.1 hypotheses) ═══
+      const caseId = quoteCase?.id;
+      if (caseId) {
+        toast.info('Analyse du dossier (hypothèses M3.5.1)...');
+        const { data: puzzleData, error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
+          body: { case_id: caseId }
+        });
+
+        if (puzzleError) {
+          console.warn('[build-case-puzzle] Error during clarification flow:', puzzleError);
+        } else {
+          const flowType = puzzleData?.assumption_result?.flowType || 'UNKNOWN';
+          console.log('[build-case-puzzle] flowType:', flowType, 'facts_added:', puzzleData?.facts_added);
+          if (flowType !== 'UNKNOWN') {
+            toast.success(`Flow détecté: ${flowType}`);
+          }
+        }
+
+        // Invalider les caches pour récupérer les gaps mis à jour
+        queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
+        queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
+        queryClient.invalidateQueries({ queryKey: ['quote-case', threadRef] });
+
+        // ═══ Étape 2: Vérifier les gaps bloquants restants ═══
+        const { data: remainingGaps } = await supabase
+          .from('quote_gaps')
+          .select('id')
+          .eq('case_id', caseId)
+          .eq('status', 'open')
+          .eq('is_blocking', true);
+
+        const remainingCount = remainingGaps?.length || 0;
+
+        if (remainingCount === 0) {
+          toast.success('Dossier complet — prêt pour les décisions');
+          setIsLoadingClarification(false);
+          return;
+        }
+
+        toast.info(`${remainingCount} lacune(s) bloquante(s) restante(s) — génération des questions...`);
+      }
+
+      // ═══ Étape 3: Appel qualify-quotation-minimal si gaps restants ═══
       const response = await supabase.functions.invoke('qualify-quotation-minimal', {
         body: { thread_id: threadRef }
       });
@@ -301,20 +342,17 @@ export default function QuotationSheet() {
       if (response.error) throw response.error;
 
       const result = response.data;
-      
-      // Stocker les résultats
       setClarificationDraft(result.clarification_draft);
       setDetectedAmbiguities(result.detected_ambiguities || []);
       setGeneratedResponse(result.clarification_draft?.body_fr || '');
-      
-      toast.info(`${result.questions?.length || 0} questions générées - Révisez avant envoi`);
+      toast.info(`${result.questions?.length || 0} questions générées — révisez avant envoi`);
     } catch (err) {
-      console.error('Error calling qualify-quotation-minimal:', err);
-      
-      // Fallback frontend-only si edge function échoue
+      console.error('Error in handleRequestClarification:', err);
+
+      // Fallback frontend-only
       const clientName = projectContext.requesting_party || 'Client';
       const questions = blockingGaps.map((g, i) => `${i + 1}. ${g.question_fr || g.gap_key}`).join('\n');
-      
+
       const fallbackBody = `Bonjour${clientName ? ` ${clientName}` : ''},
 
 Merci pour votre demande de cotation. Afin de vous fournir une offre précise et adaptée à vos besoins, nous aurions besoin des informations suivantes :
@@ -328,11 +366,11 @@ L'équipe SODATRA`;
 
       setClarificationDraft({ body_fr: fallbackBody });
       setGeneratedResponse(fallbackBody);
-      toast.warning('Mode dégradé - Questions basiques générées');
+      toast.warning('Mode dégradé — questions basiques générées');
     } finally {
       setIsLoadingClarification(false);
     }
-  }, [projectContext.requesting_party, threadRef, blockingGaps]);
+  }, [projectContext.requesting_party, threadRef, blockingGaps, quoteCase?.id, queryClient]);
 
   // ============================================================================
   // Phase 12 Validation - Trigger ensure-quote-case + build-case-puzzle
@@ -1230,21 +1268,7 @@ L'équipe SODATRA`;
               blockingGaps={blockingGaps}
               isLoading={isLoadingQuoteCase}
             />
-            {quoteCase?.id && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleForceReanalyze}
-                disabled={isBuildingPuzzle}
-                className="text-xs"
-              >
-                {isBuildingPuzzle ? (
-                  <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Re-analyse…</>
-                ) : (
-                  '🔄 Re-analyser le dossier'
-                )}
-              </Button>
-            )}
+            {/* Bouton Re-analyser supprimé — intégré dans "Analyser la demande" */}
           </div>
         )}
 
