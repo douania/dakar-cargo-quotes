@@ -726,37 +726,55 @@ async function findSimilarHistoricalMaliTransport(
 }
 
 // =====================================================
-// THD CATEGORY DETERMINATION
+// THD CATEGORY DETERMINATION (M1.4.3 — DB-backed)
 // =====================================================
-function determineTariffCategory(cargoDescription: string): string {
+interface TariffCategoryRule {
+  category_code: string;
+  category_name: string;
+  match_patterns: string[];
+  priority: number;
+  carrier: string;
+}
+
+async function loadTariffCategoryRules(supabase: any): Promise<TariffCategoryRule[]> {
+  const { data, error } = await supabase
+    .from('tariff_category_rules')
+    .select('category_code, category_name, match_patterns, priority, carrier')
+    .eq('is_active', true)
+    .order('priority', { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    console.warn('tariff_category_rules: DB vide ou erreur, fallback regex');
+    return [];
+  }
+  return data;
+}
+
+function determineTariffCategory(
+  cargoDescription: string,
+  rules: TariffCategoryRule[]
+): string {
+  // DB-backed matching (M1.4.3)
+  if (rules.length > 0) {
+    const desc = cargoDescription.toLowerCase();
+    for (const rule of rules) {
+      if (rule.match_patterns.length === 0) continue; // default rule (T02)
+      const matched = rule.match_patterns.some(p => desc.includes(p.toLowerCase()));
+      if (matched) return rule.category_code;
+    }
+    // Return default rule if exists
+    const defaultRule = rules.find(r => r.match_patterns.length === 0);
+    if (defaultRule) return defaultRule.category_code;
+  }
+
+  // @deprecated M1.4.3 — fallback regex (graceful degradation)
   const desc = cargoDescription.toLowerCase();
-  
-  // T09 - Véhicules, Tracteurs, Machines, Équipements de transport
-  if (desc.match(/power plant|generator|transformer|vehicle|truck|tractor|machine|equipment|genset|engine/)) {
-    return 'T09';
-  }
-  // T01 - Boissons, Produits chimiques, Équipements
-  if (desc.match(/drink|beverage|chemical|accessory|part|pump|valve/)) {
-    return 'T01';
-  }
-  // T05 - Céréales, Ciment, Engrais
-  if (desc.match(/cereal|wheat|rice|cement|fertilizer|flour/)) {
-    return 'T05';
-  }
-  // T14 - Produits métallurgiques
-  if (desc.match(/steel|iron|metal|metallurg|pipe|tube|beam/)) {
-    return 'T14';
-  }
-  // T07 - Textiles, Matériaux de construction
-  if (desc.match(/textile|fabric|building material|cotton|tile|brick/)) {
-    return 'T07';
-  }
-  // T12 - Produits divers
-  if (desc.match(/mixed|general|various|divers/)) {
-    return 'T12';
-  }
-  
-  // Défaut: T02 (catégorie générale moyenne)
+  if (desc.match(/power plant|generator|transformer|vehicle|truck|tractor|machine|equipment|genset|engine/)) return 'T09';
+  if (desc.match(/drink|beverage|chemical|accessory|part|pump|valve/)) return 'T01';
+  if (desc.match(/cereal|wheat|rice|cement|fertilizer|flour/)) return 'T05';
+  if (desc.match(/steel|iron|metal|metallurg|pipe|tube|beam/)) return 'T14';
+  if (desc.match(/textile|fabric|building material|cotton|tile|brick/)) return 'T07';
+  if (desc.match(/mixed|general|various|divers/)) return 'T12';
   return 'T02';
 }
 
@@ -1054,9 +1072,10 @@ async function generateQuotationLines(
   // =====================================================
   // 0. LOAD DB-BACKED RULES (M1.3)
   // =====================================================
-  const [dbIncoterms, dbZones] = await Promise.all([
+  const [dbIncoterms, dbZones, tariffCategoryRules] = await Promise.all([
     loadIncotermsFromDB(supabase),
     loadDeliveryZonesFromDB(supabase),
+    loadTariffCategoryRules(supabase),
   ]);
   
   // =====================================================

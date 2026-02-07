@@ -2755,6 +2755,45 @@ export type Database = {
         }
         Relationships: []
       }
+      tariff_category_rules: {
+        Row: {
+          carrier: string | null
+          category_code: string
+          category_name: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          match_patterns: string[]
+          notes: string | null
+          priority: number
+          source_document: string
+        }
+        Insert: {
+          carrier?: string | null
+          category_code: string
+          category_name: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          match_patterns?: string[]
+          notes?: string | null
+          priority?: number
+          source_document: string
+        }
+        Update: {
+          carrier?: string | null
+          category_code?: string
+          category_name?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          match_patterns?: string[]
+          notes?: string | null
+          priority?: number
+          source_document?: string
+        }
+        Relationships: []
+      }
       tariff_documents: {
         Row: {
           created_at: string | null
