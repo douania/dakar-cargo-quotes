@@ -25,7 +25,7 @@ export interface ServiceLine {
   quantity: number;
   rate?: number;
   currency: string;
-  source?: 'manual' | 'historical';
+  source?: 'manual' | 'historical' | 'ai_assumption';
 }
 
 export interface HistoricalSuggestionLine {
