@@ -106,40 +106,40 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.generate-quotation-pdf]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ensure-quote-case]
-verify_jwt = true
+verify_jwt = false
 
 [functions.build-case-puzzle]
-verify_jwt = true
+verify_jwt = false
 
 [functions.run-pricing]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-case-outputs]
-verify_jwt = true
+verify_jwt = false
 
 [functions.qualify-quotation-minimal]
-verify_jwt = true
+verify_jwt = false
 
 [functions.suggest-decisions]
-verify_jwt = true
+verify_jwt = false
 
 [functions.commit-decision]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ack-pricing-ready]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-quotation-version]
-verify_jwt = true
+verify_jwt = false
 
 [functions.export-quotation-version-pdf]
-verify_jwt = true
+verify_jwt = false
 
 [functions.send-quotation]
-verify_jwt = true
+verify_jwt = false
 
 [functions.import-historical-quotation]
 verify_jwt = false
