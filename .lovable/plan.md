@@ -1,74 +1,78 @@
 
 
-# Phase DASHBOARD-SEARCH-V2 — Recherche serveur pour les demandes
+# Correction de la recherche "usmani" -- Cause racine identifiee
 
-## Diagnostic approfondi
+## Le vrai probleme
 
-L'email "usmani" existe en base, est marque `is_quotation_request = true`, contient "usmani" dans `body_text` ET `body_html`, et se situe dans le top 100 par date. La requete Supabase retourne bien un statut 200.
+Apres investigation approfondie des requetes reseau, le probleme est maintenant clair :
 
-Le probleme reel : **la reponse de la requete est trop volumineuse**. Avec 100 emails contenant chacun `body_text` (~70 Ko) et `body_html` (~100 Ko), la reponse atteint environ **17 Mo**. Cela cause probablement :
-- Un timeout du `withTimeout()` avant que toutes les donnees soient recues
-- Ou une troncature silencieuse des champs texte volumineux
+L'utilisateur tape "usmani" dans la **barre de recherche globale de la sidebar** (le composant `KnowledgeSearch`, accessible via Cmd+K). Ce composant cherche dans la table `learned_knowledge` via l'edge function `data-admin` -- il ne cherche **pas** dans les emails. Le resultat `[]` est donc normal.
 
-## Solution : double approche
+Le champ de recherche qu'on a ajoute au Dashboard (celui avec l'icone loupe dans la zone des filtres) fait bien la bonne requete `.ilike()` sur les emails, mais ce n'est pas celui que l'utilisateur utilise.
 
-### 1. Ne plus charger body_text/body_html dans la requete de liste
+**Preuve** : les logs reseau montrent un appel `POST data-admin` avec `{"action":"search","data":{"query":"usmani"}}` qui retourne `{"success":true,"results":[]}`. Aucune requete directe vers la table `emails` avec `or=` n'a ete faite.
 
-La liste du Dashboard n'affiche jamais le contenu du body. Ces champs sont charges inutilement et alourdissent la reponse.
+## Solution
 
-**Fichier** : `src/pages/Dashboard.tsx`
+Modifier le composant `KnowledgeSearch` pour qu'il cherche aussi dans les **emails** (en plus des connaissances), afin que la recherche globale renvoie des resultats pertinents quel que soit le champ utilise.
 
-Retirer `body_text` et `body_html` du `.select()` initial :
+### Modifications
 
-```text
-Avant :  .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
-Apres :  .select('id, subject, from_address, received_at, extracted_data, thread_id')
+**Fichier 1** : `src/components/KnowledgeSearch.tsx`
+
+- Ajouter une requete parallele sur la table `emails` avec `.or().ilike()` sur `subject`, `from_address`, `body_text`, `body_html`
+- Afficher les resultats emails dans un groupe separe ("Emails") avec une icone Mail
+- Au clic sur un resultat email, naviguer vers `/quotation/{emailId}`
+
+**Fichier 2** : `supabase/functions/data-admin/index.ts`
+
+- Ajouter un nouveau case `search_emails` dans le switch, ou bien etendre le case `search` existant pour inclure aussi une recherche dans la table `emails`
+- La recherche cote edge function (avec service role) contourne les RLS et garantit l'acces aux donnees
+
+### Detail technique
+
+#### Option retenue : etendre le case `search` de data-admin
+
+Dans `data-admin/index.ts`, le case `search` (ligne 203) sera modifie pour chercher aussi dans `emails` :
+
+```
+case 'search': {
+  // ... recherche existante dans learned_knowledge ...
+
+  // NOUVEAU : recherche parallele dans emails
+  const { data: emailResults } = await supabase
+    .from('emails')
+    .select('id, subject, from_address, received_at, is_quotation_request')
+    .eq('is_quotation_request', true)
+    .or(`subject.ilike.${searchQuery},from_address.ilike.${searchQuery},body_text.ilike.${searchQuery},body_html.ilike.${searchQuery}`)
+    .order('received_at', { ascending: false })
+    .limit(10);
+
+  return { results, emails: emailResults || [] };
+}
 ```
 
-### 2. Recherche serveur-side via ilike quand un terme est saisi
+#### Dans KnowledgeSearch.tsx
 
-Quand `searchQuery` n'est pas vide, effectuer une **seconde requete** filtree cote serveur avec `.or()` sur `subject`, `from_address`, `body_text` et `body_html` :
-
-```text
-supabase
-  .from('emails')
-  .select('id, subject, from_address, received_at, extracted_data, thread_id')
-  .eq('is_quotation_request', true)
-  .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
-  .order('received_at', { ascending: false })
-  .limit(50)
-```
-
-### 3. Debounce de la recherche
-
-Ajouter un debounce de 400ms pour eviter de lancer une requete a chaque frappe.
-
-### Detail des modifications
-
-**Fichier unique** : `src/pages/Dashboard.tsx`
-
-1. Retirer `body_text` et `body_html` du select principal (alleger la reponse de ~17 Mo a ~500 Ko)
-2. Retirer `body_text` et `body_html` de l'interface `QuotationRequest` (plus necessaires)
-3. Ajouter un etat `searchResults` et `isSearching` pour la recherche serveur
-4. Ajouter un `useEffect` avec debounce qui lance une requete serveur quand `searchQuery` change
-5. Afficher `searchResults` au lieu de `filteredRequests` quand une recherche est active
-6. Garder le filtre client-side sur `subject` et `from_address` pour le filtrage instantane sur ces champs visibles
+- Ajouter un type `EmailSearchResult` pour les resultats email
+- Recuperer `data?.emails` en plus de `data?.results`
+- Ajouter un `CommandGroup` "Emails" qui affiche les resultats email
+- Au clic, naviguer vers `/quotation/{email.id}`
 
 ### Comportement attendu
 
-| Action | Comportement |
-|---|---|
-| Page chargee sans recherche | Affiche les 100 derniers emails (leger, sans body) |
-| Saisie dans le champ recherche | Apres 400ms, requete serveur avec ilike sur 4 champs |
-| Resultats trouves | Affiche les emails correspondants |
-| Effacement du champ | Retour a la liste complete |
+| Composant | Avant | Apres |
+|---|---|---|
+| Sidebar (Cmd+K) | Cherche uniquement dans learned_knowledge | Cherche dans learned_knowledge ET emails |
+| Dashboard search | Cherche dans emails via ilike (fonctionne deja) | Inchange |
+| Resultat "usmani" | 0 resultats | 1 email trouve (AB26065 // JEDDAH TO SENEGAL) |
 
 ### Impact
 
 | Element | Valeur |
 |---|---|
-| Fichier modifie | `src/pages/Dashboard.tsx` uniquement |
-| Taille reponse initiale | ~17 Mo vers ~500 Ko |
+| Fichiers modifies | 2 (`KnowledgeSearch.tsx` + `data-admin/index.ts`) |
 | Migration DB | Aucune |
-| Edge Functions | Aucune |
-| Risque | Tres faible — les requetes ilike sont nativement supportees par PostgREST |
+| Risque | Faible -- ajout d'une requete parallele sans modifier l'existant |
+| Performance | La requete ilike sur emails est legere (select sans body, limit 10) |
+
