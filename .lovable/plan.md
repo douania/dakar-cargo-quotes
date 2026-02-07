@@ -1,55 +1,62 @@
 
-# Phase FIX-EMAIL-500 — Correction du crash email-admin
 
-## Cause racine identifiee
+# Phase DASHBOARD-SEARCH — Ajout de la recherche sur "Demandes a traiter"
 
-La base de donnees cloud subit des timeouts intermittents (erreur PostgREST `PGRST002`). Quand `get_threads_paginated` est appele pendant un de ces timeouts :
+## Diagnostic
 
-1. Ligne 200-206 : la requete Supabase echoue, `error` est un objet PostgREST `{code, details, hint, message}`
-2. Ligne 206 : `throw error` lance cet objet
-3. Ligne 1122 : `error instanceof Error` retourne `false` car c'est un objet plain, PAS une instance de `Error`
-4. Resultat : le catch retourne `"Erreur inconnue"` au lieu du vrai message
+L'email de "Bilal Usmani" (sujet: AB26065 // JEDDAH TO SENEGAL) existe bien en base, est marque `is_quotation_request = true`, et n'a pas de brouillon envoye. Il devrait donc apparaitre dans la liste du Dashboard.
 
-## Correction (1 seul fichier, 1 seul bloc)
+Le probleme : **la page "Demandes a traiter" n'a aucun champ de recherche textuelle**. Elle affiche les 50 derniers emails de type cotation tries par date ou completude, sans possibilite de filtrer par nom, sujet ou expediteur. La recherche globale (palette de commandes) ne cherche que dans les routes/commandes de l'application, pas dans le contenu des emails.
 
-Fichier : `supabase/functions/email-admin/index.ts`
+Si l'email n'apparait pas visuellement, c'est probablement parce qu'il est au-dela de la limite de 50 resultats (`LIMIT 50` dans la requete).
 
-### Modification au catch global (lignes 1117-1126)
+## Solution proposee
 
-Remplacer la logique de serialisation d'erreur pour couvrir les 3 cas possibles :
+Ajouter un champ de recherche textuelle dans le Dashboard qui filtre cote client parmi les emails deja charges, ET qui augmente la couverture de la requete.
 
-```text
-Avant :
-  error instanceof Error ? error.message : "Erreur inconnue"
+### Modifications (1 seul fichier)
 
-Apres :
-  error instanceof Error
-    ? error.message
-    : typeof error === 'object' && error !== null && 'message' in error
-      ? (error as any).message
-      : String(error)
-```
+**Fichier** : `src/pages/Dashboard.tsx`
 
-Cela couvrira :
-- Les `Error` JavaScript natifs
-- Les objets PostgREST `{code, message, details, hint}`
-- Tout autre type d'erreur inattendu
+1. **Ajouter un etat `searchQuery`** pour stocker le texte de recherche
+2. **Ajouter un champ `Input`** avec une icone de recherche a cote du selecteur de tri existant
+3. **Filtrer `sortedRequests`** en appliquant un filtre textuel sur `subject`, `from_address` et `body_text` (insensible a la casse)
+4. **Augmenter la limite** de 50 a 100 pour couvrir plus d'emails
 
-### Ajout de log detaille
-
-Ajouter au `console.error` existant le code PostgREST si present, pour faciliter le diagnostic futur :
+### Detail technique
 
 ```text
-console.error("Email admin error:", JSON.stringify(error));
+Nouveau state :
+  const [searchQuery, setSearchQuery] = useState('');
+
+Filtre applique avant le tri :
+  const filteredRequests = sortedRequests.filter(r => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      r.subject?.toLowerCase().includes(q) ||
+      r.from_address?.toLowerCase().includes(q) ||
+      r.body_text?.toLowerCase().includes(q)
+    );
+  });
+
+Champ de recherche dans la zone Filter & Sort :
+  <Input
+    placeholder="Rechercher par nom, sujet..."
+    value={searchQuery}
+    onChange={e => setSearchQuery(e.target.value)}
+    className="w-[250px]"
+  />
+  (avec icone Search de lucide-react)
 ```
 
-## Resume
+### Impact
 
-| Element | Avant | Apres |
-|---|---|---|
-| Message erreur | "Erreur inconnue" | Message reel (ex: "Could not query the database...") |
-| Log serveur | Objet brut | JSON serialise complet |
-| Fichiers modifies | 0 | 1 seul (`email-admin/index.ts`) |
-| Lignes modifiees | 0 | 3 lignes dans le catch |
-| Migration DB | Aucune | Aucune |
-| Autres fonctions | Aucune | Aucune |
+| Element | Valeur |
+|---|---|
+| Fichier modifie | `src/pages/Dashboard.tsx` uniquement |
+| Lignes ajoutees | ~15 lignes |
+| Migration DB | Aucune |
+| Edge Functions | Aucune modification |
+| Risque | Aucun — filtrage purement cote client |
+
