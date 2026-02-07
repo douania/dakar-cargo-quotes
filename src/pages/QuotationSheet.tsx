@@ -422,6 +422,39 @@ L'équipe SODATRA`;
     }
   }, [stableThreadRef, isStartingAnalysis, isBuildingPuzzle, queryClient]);
 
+  // M3.5.1: Force re-analyze (re-run build-case-puzzle even if facts exist)
+  const handleForceReanalyze = useCallback(async () => {
+    const caseId = quoteCase?.id;
+    if (!caseId || isBuildingPuzzle) return;
+    
+    setIsBuildingPuzzle(true);
+    toast.info('Re-analyse en cours (M3.5.1)...');
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('build-case-puzzle', {
+        body: { case_id: caseId }
+      });
+      
+      if (error) {
+        const isPartial = data?.facts_added > 0;
+        toast[isPartial ? 'info' : 'warning'](
+          isPartial ? `Re-analyse partielle: ${data.facts_added} faits` : 'Re-analyse échouée'
+        );
+      } else {
+        toast.success(`Re-analyse terminée: ${data?.facts_added || 0} faits, flow: ${data?.assumption_result?.flowType || '?'}`);
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['quote_gaps', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['quote-case', stableThreadRef] });
+    } catch (err) {
+      console.error('[force-reanalyze]', err);
+      toast.error('Erreur re-analyse');
+    } finally {
+      setIsBuildingPuzzle(false);
+    }
+  }, [quoteCase?.id, isBuildingPuzzle, queryClient, stableThreadRef]);
+
   // ═══════════════════════════════════════════════════════════════════
   // Quotation Engine — Phase 4F.5 + Performance Fix (useMemo)
   // Mapping UI → Domain puis calcul des totaux — MEMOIZED
@@ -1189,14 +1222,29 @@ L'équipe SODATRA`;
           </div>
         )}
 
-        {/* Phase 8.7: BlockingGapsPanel - affiché juste après le header */}
+        {/* Phase 8.7: BlockingGapsPanel + Re-analyze button */}
         {!quotationCompleted && !isLoadingQuoteCase && (blockingGaps.length > 0 || quoteCase) && (
-          <div className="mb-6">
+          <div className="mb-6 space-y-2">
             <BlockingGapsPanel
               quoteCaseStatus={quoteCase?.status || null}
               blockingGaps={blockingGaps}
               isLoading={isLoadingQuoteCase}
             />
+            {quoteCase?.id && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceReanalyze}
+                disabled={isBuildingPuzzle}
+                className="text-xs"
+              >
+                {isBuildingPuzzle ? (
+                  <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Re-analyse…</>
+                ) : (
+                  '🔄 Re-analyser le dossier'
+                )}
+              </Button>
+            )}
           </div>
         )}
 
