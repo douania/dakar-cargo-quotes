@@ -146,76 +146,127 @@ export default function Emails() {
     loadData();
   }, []);
 
+  // Helper: invoke with timeout + 1 retry
+  const invokeWithRetry = async (
+    fnName: string,
+    body: Record<string, unknown>,
+    timeoutMs = 15000
+  ): Promise<{ data: any; error: any }> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+        const result = await supabase.functions.invoke(fnName, {
+          body,
+          // @ts-ignore – AbortSignal accepted at runtime
+          signal: controller.signal,
+        });
+
+        clearTimeout(timer);
+        return result;
+      } catch (err: any) {
+        if (attempt === 0 && (err?.name === 'AbortError' || err?.message?.includes('timeout') || err?.message?.includes('closed'))) {
+          console.warn(`[loadData] ${fnName} attempt 1 timeout, retrying…`);
+          toast.info('Serveur temporairement lent, nouvelle tentative…');
+          continue;
+        }
+        return { data: null, error: err };
+      }
+    }
+    return { data: null, error: new Error('Timeout persistant') };
+  };
+
   const loadData = async () => {
     setLoading(true);
+    let configsOk = false;
+    let loadedThreadIds: string[] = [];
+
+    // ── 1. Configs (with retry) ──────────────────────────────────
     try {
-      // OPTIMIZED: Split into separate calls to avoid memory overflow
-      // 1. Get configs and counts (lightweight)
-      const { data: configData, error: configError } = await supabase.functions.invoke('email-admin', {
-        body: { action: 'get_all' }
-      });
+      const { data: configData, error: configError } = await invokeWithRetry('email-admin', { action: 'get_all' });
 
       if (configError) throw configError;
 
       if (configData?.success) {
         setConfigs(configData.configs || []);
-        // Counts are now available in configData.counts
+        configsOk = true;
       }
+    } catch (err) {
+      console.error('[loadData] configs failed:', err);
+      // Keep previous configs – don't reset
+      toast.error('Impossible de charger les configurations (connexion lente)');
+    }
 
-      // 2. Get paginated threads
-      const { data: threadData, error: threadError } = await supabase.functions.invoke('email-admin', {
-        body: { action: 'get_threads_paginated', data: { page: 0, pageSize: 50 } }
+    // ── 2. Threads (independent) ─────────────────────────────────
+    try {
+      const { data: threadData, error: threadError } = await invokeWithRetry('email-admin', {
+        action: 'get_threads_paginated',
+        data: { page: 0, pageSize: 50 },
       });
 
       if (!threadError && threadData?.success) {
         setThreads(threadData.threads || []);
+        loadedThreadIds = (threadData.threads || []).map((t: any) => t.id);
+      } else if (threadError) {
+        console.warn('[loadData] threads failed, keeping previous data');
       }
+    } catch (err) {
+      console.error('[loadData] threads failed:', err);
+      if (configsOk) {
+        toast.info('Configuration trouvée mais emails en cours de chargement…');
+      }
+    }
 
-      // 3. Get drafts directly from Supabase (lightweight)
+    // ── 3. Drafts (direct DB, lightweight) ───────────────────────
+    try {
       const { data: draftsData } = await supabase
         .from('email_drafts')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
-      setDrafts(draftsData || []);
+      if (draftsData) setDrafts(draftsData);
+    } catch (err) {
+      console.warn('[loadData] drafts failed, keeping previous data');
+    }
 
-      // 4. Get emails for the current threads
-      const threadIds = (threadData?.threads || []).map((t: any) => t.id);
-      if (threadIds.length > 0) {
+    // ── 4. Emails + Attachments (depends on threads) ─────────────
+    if (loadedThreadIds.length > 0) {
+      try {
         const { data: emailsData } = await supabase
           .from('emails')
           .select('*')
-          .in('thread_ref', threadIds)
+          .in('thread_ref', loadedThreadIds)
           .order('sent_at', { ascending: false })
           .limit(300);
-        setEmails((emailsData || []) as Email[]);
+        if (emailsData) setEmails(emailsData as Email[]);
 
-        // 5. Get attachments for these emails only
+        // Attachments
         const emailIds = (emailsData || []).map((e: any) => e.id);
         if (emailIds.length > 0) {
           const { data: attachmentsData } = await supabase
             .from('email_attachments')
             .select('id, email_id, filename, content_type, is_analyzed, storage_path')
             .in('email_id', emailIds);
-          
+
           const attachments = attachmentsData || [];
           setAllAttachments(attachments);
-          
+
           const counts: Record<string, number> = {};
           const details: Record<string, { types: string[], filenames: string[] }> = {};
-          
+
           attachments.forEach((att: any) => {
             if (att.email_id) {
               counts[att.email_id] = (counts[att.email_id] || 0) + 1;
-              
+
               if (!details[att.email_id]) {
                 details[att.email_id] = { types: [], filenames: [] };
               }
-              
+
               const filename = att.filename || '';
               const ext = filename.split('.').pop()?.toLowerCase() || '';
               let fileType = 'DOC';
-              
+
               if (['pdf'].includes(ext)) fileType = 'PDF';
               else if (['xlsx', 'xls'].includes(ext)) fileType = 'Excel';
               else if (['docx', 'doc'].includes(ext)) fileType = 'Word';
@@ -223,18 +274,17 @@ export default function Emails() {
               else if (['csv'].includes(ext)) fileType = 'CSV';
               else if (['txt'].includes(ext)) fileType = 'TXT';
               else if (['zip', 'rar', '7z'].includes(ext)) fileType = 'Archive';
-              
+
               if (!details[att.email_id].types.includes(fileType)) {
                 details[att.email_id].types.push(fileType);
               }
               details[att.email_id].filenames.push(filename);
             }
           });
-          
+
           setAttachmentCounts(counts);
           setAttachmentDetails(details);
-          
-          // Filter unanalyzed attachments
+
           const TEMP_FILE_PATTERNS = [
             /^~\$/,
             /^~WRD/,
@@ -243,35 +293,23 @@ export default function Emails() {
             /^Thumbs\.db$/i,
             /^\.DS_Store$/,
           ];
-          
-          const isTemporaryFile = (filename: string) => 
+
+          const isTemporaryFile = (filename: string) =>
             TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
-          
-          const unanalyzed = attachments.filter((att: any) => 
-            !att.is_analyzed && 
+
+          const unanalyzed = attachments.filter((att: any) =>
+            !att.is_analyzed &&
             !isTemporaryFile(att.filename) &&
             att.storage_path
           );
           setUnanalyzedAttachments(unanalyzed);
-        } else {
-          setEmails([]);
-          setAllAttachments([]);
-          setAttachmentCounts({});
-          setAttachmentDetails({});
-          setUnanalyzedAttachments([]);
         }
-      } else {
-        setEmails([]);
-        setThreads([]);
-        setAllAttachments([]);
-        setAttachmentCounts({});
-        setAttachmentDetails({});
-        setUnanalyzedAttachments([]);
+      } catch (err) {
+        console.warn('[loadData] emails/attachments failed, keeping previous data');
       }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      toast.error('Erreur de chargement');
     }
+    // Note: if loadedThreadIds is empty but we had previous data, we keep it (no reset)
+
     setLoading(false);
     setSelectedEmailIds(new Set());
   };
