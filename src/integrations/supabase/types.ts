@@ -2004,6 +2004,8 @@ export type Database = {
           scope: string
           service_key: string
           source: string
+          status: string | null
+          tariff_document_id: string | null
           unit: string
           updated_at: string | null
           value: number
@@ -2028,6 +2030,8 @@ export type Database = {
           scope: string
           service_key: string
           source: string
+          status?: string | null
+          tariff_document_id?: string | null
           unit?: string
           updated_at?: string | null
           value: number
@@ -2052,13 +2056,23 @@ export type Database = {
           scope?: string
           service_key?: string
           source?: string
+          status?: string | null
+          tariff_document_id?: string | null
           unit?: string
           updated_at?: string | null
           value?: number
           weight_max_kg?: number | null
           weight_min_kg?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pricing_rate_cards_tariff_document_id_fkey"
+            columns: ["tariff_document_id"]
+            isOneToOne: false
+            referencedRelation: "tariff_documents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pricing_runs: {
         Row: {
@@ -2950,6 +2964,36 @@ export type Database = {
         }
         Relationships: []
       }
+      service_quantity_rules: {
+        Row: {
+          created_at: string | null
+          default_unit: string
+          id: string
+          notes: string | null
+          quantity_basis: string
+          requires_fact_key: string | null
+          service_key: string
+        }
+        Insert: {
+          created_at?: string | null
+          default_unit: string
+          id?: string
+          notes?: string | null
+          quantity_basis: string
+          requires_fact_key?: string | null
+          service_key: string
+        }
+        Update: {
+          created_at?: string | null
+          default_unit?: string
+          id?: string
+          notes?: string | null
+          quantity_basis?: string
+          requires_fact_key?: string | null
+          service_key?: string
+        }
+        Relationships: []
+      }
       sodatra_fee_rules: {
         Row: {
           base_amount: number
@@ -3124,6 +3168,39 @@ export type Database = {
           provider?: string
           storage_path?: string | null
           version?: string | null
+        }
+        Relationships: []
+      }
+      tariff_resolution_log: {
+        Row: {
+          gold_document: string | null
+          id: string
+          justification: string
+          resolution_type: string
+          resolved_at: string | null
+          resolved_by: string | null
+          tariff_id: string
+          tariff_table: string
+        }
+        Insert: {
+          gold_document?: string | null
+          id?: string
+          justification: string
+          resolution_type: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          tariff_id: string
+          tariff_table: string
+        }
+        Update: {
+          gold_document?: string | null
+          id?: string
+          justification?: string
+          resolution_type?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          tariff_id?: string
+          tariff_table?: string
         }
         Relationships: []
       }
@@ -3580,6 +3657,39 @@ export type Database = {
           unit?: string
           vehicle_type?: string | null
           zone?: string
+        }
+        Relationships: []
+      }
+      unit_conversions: {
+        Row: {
+          conversion_type: string
+          created_at: string | null
+          effective_date: string | null
+          factor: number
+          id: string
+          key: string
+          notes: string | null
+          source_document: string | null
+        }
+        Insert: {
+          conversion_type: string
+          created_at?: string | null
+          effective_date?: string | null
+          factor: number
+          id?: string
+          key: string
+          notes?: string | null
+          source_document?: string | null
+        }
+        Update: {
+          conversion_type?: string
+          created_at?: string | null
+          effective_date?: string | null
+          factor?: number
+          id?: string
+          key?: string
+          notes?: string | null
+          source_document?: string | null
         }
         Relationships: []
       }
