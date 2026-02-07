@@ -125,6 +125,167 @@ interface ExtractedFact {
   isAssumption?: boolean;
 }
 
+// --- M3.4: Attachment-to-fact deterministic mapping ---
+const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: string; valueType: 'text' | 'number' }> = {
+  'Port_of_Loading': { factKey: 'routing.origin_port', category: 'routing', valueType: 'text' },
+  'Port_of_Discharge': { factKey: 'routing.destination_port', category: 'routing', valueType: 'text' },
+  'Description_of_Goods': { factKey: 'cargo.description', category: 'cargo', valueType: 'text' },
+  'Consignment_Description': { factKey: 'cargo.description', category: 'cargo', valueType: 'text' },
+  'Gross_Weight': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'HS_Code': { factKey: 'cargo.hs_code', category: 'cargo', valueType: 'text' },
+  'Vessel': { factKey: 'transport.vessel', category: 'transport', valueType: 'text' },
+  'B_L_No': { factKey: 'transport.bl_number', category: 'transport', valueType: 'text' },
+  'Carrier': { factKey: 'transport.carrier', category: 'transport', valueType: 'text' },
+  'Temperature_Setting': { factKey: 'cargo.temperature', category: 'cargo', valueType: 'text' },
+  'Consignee': { factKey: 'contacts.consignee', category: 'contacts', valueType: 'text' },
+  'Shipper': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
+  'Number_and_Kind_of_Packages': { factKey: 'cargo.containers', category: 'cargo', valueType: 'text' },
+  'Container_Nos': { factKey: 'cargo.container_numbers', category: 'cargo', valueType: 'text' },
+};
+
+function normalizeExtractedKey(key: string): string {
+  // Remove _Page_N suffix and _BL_ infix variants
+  return key.replace(/_Page_\d+$/, '').replace(/_BL_/, '_').replace(/_Page$/, '');
+}
+
+function parseWeight(raw: string): number | null {
+  // "5,000 KG" -> 5000, "12.5 T" -> 12500
+  const cleaned = raw.replace(/,/g, '').trim();
+  const match = cleaned.match(/([\d.]+)\s*(kg|kgs|t|tons|tonnes)?/i);
+  if (!match) return null;
+  let value = parseFloat(match[1]);
+  if (isNaN(value)) return null;
+  const unit = (match[2] || 'kg').toLowerCase();
+  if (unit === 't' || unit === 'tons' || unit === 'tonnes') value *= 1000;
+  return value;
+}
+
+async function injectAttachmentFacts(
+  caseId: string,
+  serviceClient: any,
+  emailIds: string[]
+): Promise<{ added: number; updated: number; skipped: number }> {
+  const result = { added: 0, updated: 0, skipped: 0 };
+
+  if (!emailIds || emailIds.length === 0) return result;
+
+  // 1. Load attachments with extracted_data
+  const { data: attachments } = await serviceClient
+    .from('email_attachments')
+    .select('id, email_id, filename, extracted_data')
+    .in('email_id', emailIds)
+    .not('extracted_data', 'is', null);
+
+  if (!attachments || attachments.length === 0) return result;
+
+  // 2. CTO Adjustment #1: Read existing facts from DB (not from LLM output)
+  const { data: existingFacts } = await serviceClient
+    .from('quote_facts')
+    .select('fact_key, source_type')
+    .eq('case_id', caseId)
+    .eq('is_current', true);
+
+  const factSourceMap = new Map<string, string>();
+  if (existingFacts) {
+    for (const f of existingFacts) {
+      factSourceMap.set(f.fact_key, f.source_type);
+    }
+  }
+
+  // Track which fact_keys we've already injected in this pass (first occurrence wins)
+  const injectedKeys = new Set<string>();
+
+  for (const attachment of attachments) {
+    const extractedInfo = (attachment.extracted_data as any)?.extracted_info;
+    if (!extractedInfo || typeof extractedInfo !== 'object') continue;
+
+    for (const [rawKey, rawValue] of Object.entries(extractedInfo)) {
+      if (rawValue == null || rawValue === '') continue;
+
+      const normalizedKey = normalizeExtractedKey(rawKey);
+      const mapping = ATTACHMENT_FACT_MAPPING[normalizedKey];
+      if (!mapping) continue;
+
+      // First occurrence wins for same fact_key
+      if (injectedKeys.has(mapping.factKey)) continue;
+
+      // Source priority: operator > attachment_extracted > ai
+      const existingSource = factSourceMap.get(mapping.factKey);
+      if (existingSource === 'operator') {
+        result.skipped++;
+        injectedKeys.add(mapping.factKey);
+        continue;
+      }
+      if (existingSource === 'attachment_extracted') {
+        result.skipped++;
+        injectedKeys.add(mapping.factKey);
+        continue;
+      }
+
+      // Prepare value
+      let valueText: string | null = null;
+      let valueNumber: number | null = null;
+
+      if (mapping.valueType === 'number') {
+        valueNumber = parseWeight(String(rawValue));
+        if (valueNumber === null) {
+          // CTO Adjustment #3: store raw text, no complex parsing
+          valueText = String(rawValue);
+        }
+      } else {
+        // CTO Adjustment #3: always store raw text for containers etc.
+        valueText = String(rawValue);
+      }
+
+      // Call supersede_fact RPC
+      const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
+        p_case_id: caseId,
+        p_fact_key: mapping.factKey,
+        p_fact_category: mapping.category,
+        p_value_text: valueText,
+        p_value_number: valueNumber,
+        p_value_json: null,
+        p_value_date: null,
+        p_source_type: 'attachment_extracted',
+        p_source_email_id: attachment.email_id || null,
+        p_source_attachment_id: attachment.id,
+        p_source_excerpt: `[${attachment.filename}] ${rawKey}: ${String(rawValue).substring(0, 200)}`,
+        p_confidence: 0.95, // CTO Adjustment #2: 0.95 not 1.0
+      });
+
+      if (rpcError) {
+        console.error(`[M3.4] Failed to inject fact ${mapping.factKey} from ${attachment.filename}:`, rpcError);
+        continue;
+      }
+
+      // Timeline logging
+      await serviceClient.from('case_timeline_events').insert({
+        case_id: caseId,
+        event_type: 'fact_injected_from_attachment',
+        event_data: {
+          fact_key: mapping.factKey,
+          attachment_id: attachment.id,
+          filename: attachment.filename,
+          source_field: rawKey,
+        },
+        actor_type: 'system',
+      });
+
+      if (existingSource) {
+        result.updated++;
+      } else {
+        result.added++;
+      }
+
+      injectedKeys.add(mapping.factKey);
+      factSourceMap.set(mapping.factKey, 'attachment_extracted');
+    }
+  }
+
+  console.log(`[M3.4] Attachment facts: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped`);
+  return result;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -371,8 +532,15 @@ Deno.serve(async (req) => {
         const isCritical = mandatoryFactsForType.includes(fact.key);
         factErrors.push({ key: fact.key, error: String(factError), isCritical });
         console.error(`Unexpected error processing fact ${fact.key}:`, factError);
-      }
     }
+    }
+
+    // --- M3.4: Inject deterministic facts from attachments ---
+    const attachmentFactsResult = await injectAttachmentFacts(
+      case_id, serviceClient, emailIds
+    );
+    factsAdded += attachmentFactsResult.added;
+    factsUpdated += attachmentFactsResult.updated;
 
     // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
     if (factErrors.length > 0) {
@@ -553,7 +721,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Built puzzle for case ${case_id}: ${factsAdded} added, ${factsUpdated} updated, ${factsSkipped} skipped, ${gapsIdentified} gaps`);
+    console.log(`Built puzzle for case ${case_id}: ${factsAdded} added (incl. attachment), ${factsUpdated} updated, ${factsSkipped} skipped, ${gapsIdentified} gaps`);
 
     return new Response(
       JSON.stringify({
@@ -562,6 +730,7 @@ Deno.serve(async (req) => {
         request_type: detectedType,
         facts_added: factsAdded,
         facts_updated: factsUpdated,
+        attachment_facts: attachmentFactsResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
         ready_to_price: newStatus === "READY_TO_PRICE",
