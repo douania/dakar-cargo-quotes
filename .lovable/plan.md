@@ -57,6 +57,79 @@
 | CUSTOMS_DAKAR | 1 | DECL |
 | AGENCY | 1 | FORFAIT |
 
+---
+
+# Phase A1 — Détection aérien + extraction cargo ✅ TERMINÉE
+
+## Corrections CTO P0 intégrées
+
+| Ref | Correction | Impact |
+|---|---|---|
+| P0-1 | `detectRequestType()` default = `UNKNOWN` au lieu de `SEA_FCL_IMPORT` | Évite forçage maritime sur cas ambigus |
+| P0-2 | Breakbulk patterns vérifiés AVANT "container fact" | Évite faux FCL sur dimensions breakbulk |
+| P0-3 | `MANDATORY_FACTS.AIR_IMPORT` : retiré `cargo.description` (assumable) | Réduit questions inutiles |
+| P0-A | Container fact strict : doit avoir items avec quantity > 0 | Évite faux SEA sur fact vide |
+| P0-B | IATA context : aussi "from XXX to YYY" (case-insensitive) | Couverture patterns fréquents |
+| P0-C | Dimensions regex accepte × (multiplication unicode) | Parsing robuste |
+
+## Résumé des opérations
+
+### 1. Migration SQL
+- `service_quantity_rules` : ajout AIR_HANDLING et AIR_FREIGHT avec `quantity_basis='KG'` (UPSERT)
+
+### 2. Edge Function `build-case-puzzle`
+- **detectRequestType()** refactorisé :
+  1. AIR explicite en priorité (by air, air cargo, awb, etc.)
+  2. Maritime sur indices forts (conteneurs, BL, vessel, POL/POD)
+  3. Breakbulk AVANT container fact
+  4. Container fact strict (quantity > 0)
+  5. IATA codes avec contexte
+  6. Default → UNKNOWN + question transport mode
+- **extractFactsBasic()** enrichi :
+  - weight_kg, volume_cbm, pieces_count, dimensions, description
+  - Parsing nombre robuste (espaces, virgules, formats EU/US)
+  - Chargeable weight déterministe : max(gross_kg, cbm×167) + audit IATA_167
+- **Incoterm** : priorité TERM:/Incoterm: puis dernier match libre (plus break au premier)
+- **ASSUMPTION_RULES** : ajout AIR_IMPORT → package AIR_IMPORT_DAP
+- **AIR_IMPORT_BLOCKING_GAPS** : destination_city, weight_kg, pieces_count, client_email
+- **MANDATORY_FACTS.AIR_IMPORT** : réduit (sans cargo.description, cargo.value, routing.incoterm)
+- **UNKNOWN** : injecte 1 question ciblée "Confirmez le mode de transport"
+
+### 3. Edge Function `price-service-lines`
+- Whitelist : +AIR_HANDLING, +AIR_FREIGHT
+- Unit aliases : +kg/KG
+- **computeQuantity()** : nouveau basis KG
+  - Si poids manquant → quantity_used=null → skip pricing (source=missing_quantity)
+- **buildPricingContext()** : priorise cargo.chargeable_weight_kg > cargo.weight_kg
+
+### 4. Frontend constants.ts
+- Templates : +AIR_HANDLING, +AIR_FREIGHT
+- Package : +AIR_IMPORT_DAP
+
+### 5. Frontend parsing.ts (UX only)
+- parseSubject() : détecte et retire "by AIR/SEA/TRUCK" de la destination
+- parseEmailBody() : extraction légère poids/volume/pièces/dimensions pour preview
+
+## Résultat attendu
+
+| Champ | Avant (bug) | Après A1 |
+|---|---|---|
+| request_type | SEA_FCL_IMPORT | AIR_IMPORT |
+| Incoterm | EXW (faux) | DAP |
+| Poids | non extrait | 3234 kg |
+| Volume | non extrait | 3 cbm |
+| Pièces | non extrait | 6 |
+| Chargeable weight | inexistant | 3234 kg |
+| Services | DTHC, Trucking, Empty Return | AIR_HANDLING, CUSTOMS_DAKAR, TRUCKING, AGENCY |
+| Questions | 9+ | 0-2 |
+
+## Ce qui n'a PAS changé
+- `PORT_COUNTRY_MAP` intact (routing, pas détection mode)
+- `detectFlowType()` intact (fallback AIR dans applyAssumptionRules)
+- Moteur maritime T3 (EVP, COUNT, TONNE) intact
+- Schéma quote_cases / quote_facts non modifié
+- pricing_rate_cards non touchés
+
 ## Prochaines phases
 - **R2** : Gouvernance documentaire (rattacher tarifs → documents, tariff_resolution_log étendu)
 - **R3** : Sourcing 2026 (DPW, PAD, Hapag-Lloyd, AIBD)

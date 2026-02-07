@@ -1,7 +1,8 @@
 /**
- * Phase 7.0.3-fix: build-case-puzzle
+ * Phase A1: build-case-puzzle
  * Analyzes thread emails/attachments and populates facts/gaps
  * CTO Fix: Uses atomic supersede_fact RPC for fact updates
+ * A1: AIR detection priority, cargo extraction, chargeable weight, incoterm fix
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -24,13 +25,9 @@ const MANDATORY_FACTS: Record<string, string[]> = {
     "contacts.client_email",
   ],
   AIR_IMPORT: [
-    "routing.origin_airport",
     "routing.destination_city",
-    "routing.incoterm",
-    "cargo.description",
     "cargo.weight_kg",
     "cargo.pieces_count",
-    "cargo.value",
     "contacts.client_email",
   ],
 };
@@ -40,6 +37,14 @@ const SEA_FCL_BLOCKING_GAPS = new Set([
   "routing.destination_city",
   "cargo.description",
   "cargo.containers",
+  "contacts.client_email",
+]);
+
+// A1: AIR_IMPORT blocking gaps (CTO P0-3: reduced set)
+const AIR_IMPORT_BLOCKING_GAPS = new Set([
+  "routing.destination_city",
+  "cargo.weight_kg",
+  "cargo.pieces_count",
   "contacts.client_email",
 ]);
 
@@ -105,6 +110,12 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
     priority: "medium",
     category: "cargo",
   },
+  "routing.transport_mode": {
+    fr: "Quel mode de transport ? (Air / Maritime / Route)",
+    en: "Which transport mode? (Air / Sea / Road)",
+    priority: "critical",
+    category: "routing",
+  },
 };
 
 interface BuildPuzzleRequest {
@@ -160,6 +171,11 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   ],
   IMPORT_PROJECT_DAP: [
     { key: 'service.package', value: 'DAP_PROJECT_IMPORT', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+  // A1: AIR_IMPORT assumptions
+  AIR_IMPORT: [
+    { key: 'service.package', value: 'AIR_IMPORT_DAP', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
 };
@@ -267,7 +283,8 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
 async function applyAssumptionRules(
   caseId: string,
   serviceClient: any,
-  emailIds: string[]
+  emailIds: string[],
+  requestType?: string
 ): Promise<{ added: number; skipped: number; flowType: string }> {
   const result = { added: 0, skipped: 0, flowType: 'UNKNOWN' };
 
@@ -306,6 +323,11 @@ async function applyAssumptionRules(
     }
   }
 
+  // A1: If flowType is UNKNOWN but requestType is AIR_IMPORT, force AIR_IMPORT for assumptions
+  if (flowType === 'UNKNOWN' && requestType === 'AIR_IMPORT') {
+    flowType = 'AIR_IMPORT';
+  }
+
   result.flowType = flowType;
 
   if (flowType === 'UNKNOWN' || !ASSUMPTION_RULES[flowType]) {
@@ -337,7 +359,7 @@ async function applyAssumptionRules(
     const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
       p_case_id: caseId,
       p_fact_key: rule.key,
-      p_fact_category: rule.key.split('.')[0], // e.g. 'service' from 'service.package'
+      p_fact_category: rule.key.split('.')[0],
       p_value_text: rule.value,
       p_value_number: null,
       p_value_json: null,
@@ -391,6 +413,34 @@ function parseWeight(raw: string): number | null {
   const unit = (match[2] || 'kg').toLowerCase();
   if (unit === 't' || unit === 'tons' || unit === 'tonnes') value *= 1000;
   return value;
+}
+
+// A1: Robust number parser for cargo extraction
+function parseRobustNumber(raw: string): number | null {
+  // Remove spaces: "3 234" -> "3234"
+  let cleaned = raw.replace(/\s/g, '');
+  // Handle European format: "3.234,5" -> "3234.5"
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+      // European: 3.234,5
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      // US: 3,234.5
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  } else if (cleaned.includes(',')) {
+    // Could be "3,234" (thousands) or "3,5" (decimal)
+    const parts = cleaned.split(',');
+    if (parts.length === 2 && parts[1].length === 3) {
+      // Thousands separator: "3,234"
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      // Decimal: "3,5"
+      cleaned = cleaned.replace(',', '.');
+    }
+  }
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
 }
 
 async function injectAttachmentFacts(
@@ -462,11 +512,9 @@ async function injectAttachmentFacts(
       if (mapping.valueType === 'number') {
         valueNumber = parseWeight(String(rawValue));
         if (valueNumber === null) {
-          // CTO Adjustment #3: store raw text, no complex parsing
           valueText = String(rawValue);
         }
       } else {
-        // CTO Adjustment #3: always store raw text for containers etc.
         valueText = String(rawValue);
       }
 
@@ -483,7 +531,7 @@ async function injectAttachmentFacts(
         p_source_email_id: attachment.email_id || null,
         p_source_attachment_id: attachment.id,
         p_source_excerpt: `[${attachment.filename}] ${rawKey}: ${String(rawValue).substring(0, 200)}`,
-        p_confidence: 0.95, // CTO Adjustment #2: 0.95 not 1.0
+        p_confidence: 0.95,
       });
 
       if (rpcError) {
@@ -633,11 +681,10 @@ Deno.serve(async (req) => {
       lovableApiKey
     );
 
-    // 8. Detect request type from content
+    // 8. Detect request type from content (A1: AIR priority)
     const detectedType = detectRequestType(threadContext, extractedFacts);
 
     // 9. Store facts using ATOMIC RPC supersede_fact
-    // CTO FIX Phase 7.0.3: Fail fast + error tracking + skip identical values
     let factsAdded = 0;
     let factsUpdated = 0;
     let factsSkipped = 0;
@@ -660,14 +707,12 @@ Deno.serve(async (req) => {
         const factValue = getFactValue(fact);
 
         if (existingFact) {
-          // CTO FIX: Skip if value is identical (avoid unnecessary writes)
           const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
           if (JSON.stringify(existingValue) === JSON.stringify(factValue)) {
             factsSkipped++;
-            continue; // No change, skip
+            continue;
           }
 
-          // Values differ - supersede
           const { data: newFactId, error: supersedeError } = await serviceClient.rpc('supersede_fact', {
             p_case_id: case_id,
             p_fact_key: fact.key,
@@ -687,7 +732,6 @@ Deno.serve(async (req) => {
             const isCritical = mandatoryFactsForType.includes(fact.key);
             factErrors.push({ key: fact.key, error: supersedeError.message, isCritical });
             
-            // CTO FIX: Log error to timeline for observability
             await serviceClient.from("case_timeline_events").insert({
               case_id,
               event_type: "fact_insert_failed",
@@ -714,7 +758,6 @@ Deno.serve(async (req) => {
             actor_type: "ai",
           });
         } else {
-          // Insert new fact via RPC
           const { data: newFactId, error: insertError } = await serviceClient.rpc('supersede_fact', {
             p_case_id: case_id,
             p_fact_key: fact.key,
@@ -734,7 +777,6 @@ Deno.serve(async (req) => {
             const isCritical = mandatoryFactsForType.includes(fact.key);
             factErrors.push({ key: fact.key, error: insertError.message, isCritical });
             
-            // CTO FIX: Log error to timeline for observability
             await serviceClient.from("case_timeline_events").insert({
               case_id,
               event_type: "fact_insert_failed",
@@ -776,7 +818,8 @@ Deno.serve(async (req) => {
     factsUpdated += attachmentFactsResult.updated;
 
     // --- M3.5.1: Apply hypothesis engine (after M3.4, before gap detection) ---
-    const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds);
+    // A1: Pass requestType so AIR_IMPORT assumptions can be applied
+    const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds, detectedType);
     factsAdded += assumptionResult.added;
 
     // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
@@ -784,7 +827,6 @@ Deno.serve(async (req) => {
       const criticalErrors = factErrors.filter(e => e.isCritical);
       console.error(`${factErrors.length} fact errors for case ${case_id} (${criticalErrors.length} critical):`, factErrors);
       
-      // Force status to FACTS_PARTIAL - cannot proceed to pricing with failed facts
       await serviceClient
         .from("quote_cases")
         .update({
@@ -816,6 +858,31 @@ Deno.serve(async (req) => {
     
     let gapsIdentified = 0;
 
+    // A1: For UNKNOWN request type, add a transport mode gap
+    if (detectedType === "UNKNOWN") {
+      const { data: existingModeGap } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", "routing.transport_mode")
+        .eq("status", "open")
+        .single();
+
+      if (!existingModeGap) {
+        const modeGapInfo = GAP_QUESTIONS["routing.transport_mode"];
+        await serviceClient.from("quote_gaps").insert({
+          case_id,
+          gap_key: "routing.transport_mode",
+          gap_category: "routing",
+          question_fr: modeGapInfo.fr,
+          question_en: modeGapInfo.en,
+          priority: "critical",
+          is_blocking: true,
+        });
+        gapsIdentified++;
+      }
+    }
+
     for (const requiredKey of mandatoryFacts) {
       const hasFact = extractedKeys.includes(requiredKey);
       const hasAssumption = extractedFacts.find((f) => f.key === requiredKey && f.isAssumption);
@@ -838,10 +905,12 @@ Deno.serve(async (req) => {
             category: requiredKey.split(".")[0],
           };
 
-          // Contextual blocking: for SEA_FCL, only specific gaps are blocking
+          // A1: Contextual blocking per request type
           let isBlocking: boolean;
           if (detectedType === "SEA_FCL_IMPORT") {
             isBlocking = SEA_FCL_BLOCKING_GAPS.has(requiredKey);
+          } else if (detectedType === "AIR_IMPORT") {
+            isBlocking = AIR_IMPORT_BLOCKING_GAPS.has(requiredKey);
           } else {
             isBlocking = gapInfo.priority === "critical" || gapInfo.priority === "high";
           }
@@ -921,7 +990,6 @@ Deno.serve(async (req) => {
     // 12. Determine new status (only if not frozen - Phase C protection)
     let newStatus = caseData.status;
     
-    // Re-use isFrozenCase from earlier check (line 189)
     if (!isFrozenCase) {
       if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
         newStatus = "READY_TO_PRICE";
@@ -1096,23 +1164,46 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
       confidence: 1.0,
     });
 
-    // Basic text extraction patterns
-    const body = (firstEmail.body_text || "").toLowerCase();
+    const body = firstEmail.body_text || "";
+    const bodyLower = body.toLowerCase();
     
-    // Incoterm detection
-    const incoterms = ["exw", "fob", "cfr", "cif", "dap", "ddp", "fca", "cpt", "cip", "dat", "dpu"];
-    for (const term of incoterms) {
-      if (body.includes(term)) {
+    // A1: Incoterm detection - priority TERM:/Incoterm: then last free match
+    const incoterms = ["EXW", "FOB", "CFR", "CIF", "DAP", "DDP", "FCA", "CPT", "CIP", "DAT", "DPU"];
+    
+    // Priority 1: Structured patterns (TERM: DAP, Incoterm: DAP)
+    const structuredIncotermMatch = body.match(/(?:TERM|Incoterm)\s*[:=]\s*(EXW|FOB|CFR|CIF|DAP|DDP|FCA|CPT|CIP|DAT|DPU)/i);
+    if (structuredIncotermMatch) {
+      facts.push({
+        key: "routing.incoterm",
+        category: "routing",
+        value: structuredIncotermMatch[1].toUpperCase(),
+        valueType: "text",
+        sourceType: "email_body",
+        sourceEmailId: firstEmail.id,
+        sourceExcerpt: structuredIncotermMatch[0],
+        confidence: 0.9,
+      });
+    } else {
+      // Priority 2: Last free match in body (not first!)
+      let lastMatch: string | null = null;
+      for (const term of incoterms) {
+        // Use word boundary to avoid false matches
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
+        let m;
+        while ((m = regex.exec(body)) !== null) {
+          lastMatch = term;
+        }
+      }
+      if (lastMatch) {
         facts.push({
           key: "routing.incoterm",
           category: "routing",
-          value: term.toUpperCase(),
+          value: lastMatch.toUpperCase(),
           valueType: "text",
           sourceType: "email_body",
           sourceEmailId: firstEmail.id,
-          confidence: 0.7,
+          confidence: 0.6,
         });
-        break;
       }
     }
 
@@ -1136,57 +1227,197 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
         confidence: 0.8,
       });
     }
+
+    // A1: Extract cargo.weight_kg
+    const weightMatch = body.match(/(\d[\d\s,.']*)\s*kg\b/i);
+    if (weightMatch) {
+      const weight = parseRobustNumber(weightMatch[1]);
+      if (weight && weight > 0) {
+        facts.push({
+          key: "cargo.weight_kg",
+          category: "cargo",
+          value: weight,
+          valueType: "number",
+          sourceType: "email_body",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: weightMatch[0],
+          confidence: 0.85,
+        });
+      }
+    }
+
+    // A1: Extract cargo.volume_cbm
+    const volumeMatch = body.match(/(\d[\d,.]*)\s*cbm\b/i);
+    if (volumeMatch) {
+      const volume = parseRobustNumber(volumeMatch[1]);
+      if (volume && volume > 0) {
+        facts.push({
+          key: "cargo.volume_cbm",
+          category: "cargo",
+          value: volume,
+          valueType: "number",
+          sourceType: "email_body",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: volumeMatch[0],
+          confidence: 0.85,
+        });
+      }
+    }
+
+    // A1: Extract cargo.pieces_count
+    const piecesMatch = body.match(/(\d+)\s*(?:crates?|pieces?|pcs|colis|cartons?|pkgs?|packages?)\b/i);
+    if (piecesMatch) {
+      const pieces = parseInt(piecesMatch[1], 10);
+      if (pieces > 0) {
+        facts.push({
+          key: "cargo.pieces_count",
+          category: "cargo",
+          value: pieces,
+          valueType: "number",
+          sourceType: "email_body",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: piecesMatch[0],
+          confidence: 0.85,
+        });
+      }
+    }
+
+    // A1: Extract cargo.dimensions (value_text)
+    const dimMatch = body.match(/(\d+)\s*[*x×]\s*(\d+)\s*[*x×]\s*(\d+)\s*(?:cm|mm)?/i);
+    if (dimMatch) {
+      facts.push({
+        key: "cargo.dimensions",
+        category: "cargo",
+        value: dimMatch[0],
+        valueType: "text",
+        sourceType: "email_body",
+        sourceEmailId: firstEmail.id,
+        sourceExcerpt: dimMatch[0],
+        confidence: 0.8,
+      });
+    }
+
+    // A1: Extract cargo.description
+    const descMatch = body.match(/(?:commodity|nature|goods|marchandise)\s*[:=]\s*(.+)/i);
+    if (descMatch) {
+      const desc = descMatch[1].trim().substring(0, 200);
+      if (desc.length > 2) {
+        facts.push({
+          key: "cargo.description",
+          category: "cargo",
+          value: desc,
+          valueType: "text",
+          sourceType: "email_body",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: descMatch[0].substring(0, 200),
+          confidence: 0.75,
+        });
+      }
+    }
+
+    // A1: Calculate cargo.chargeable_weight_kg deterministically
+    const weightFact = facts.find(f => f.key === "cargo.weight_kg");
+    const volumeFact = facts.find(f => f.key === "cargo.volume_cbm");
+    if (weightFact || volumeFact) {
+      const grossKg = typeof weightFact?.value === 'number' ? weightFact.value : 0;
+      const volCbm = typeof volumeFact?.value === 'number' ? volumeFact.value : 0;
+      const volWeight = Math.round(volCbm * 167);
+      const chargeableKg = Math.max(grossKg, volWeight);
+      
+      if (chargeableKg > 0) {
+        facts.push({
+          key: "cargo.chargeable_weight_kg",
+          category: "cargo",
+          value: chargeableKg,
+          valueType: "number",
+          sourceType: "deterministic_calc",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: `gross=${grossKg}; vol=${volCbm}; volWeight=${volWeight}; rule=IATA_167; chargeable=${chargeableKg}`,
+          confidence: 0.95,
+        });
+
+        // A1: Audit fact for chargeable weight rule
+        facts.push({
+          key: "cargo.chargeable_weight_rule",
+          category: "cargo",
+          value: "IATA_167",
+          valueType: "text",
+          sourceType: "deterministic_calc",
+          sourceEmailId: firstEmail.id,
+          sourceExcerpt: `Chargeable weight = max(gross_kg, cbm*167) = max(${grossKg}, ${volWeight}) = ${chargeableKg}`,
+          confidence: 0.95,
+        });
+      }
+    }
   }
 
   return facts;
 }
 
+// A1: Refactored detectRequestType with CTO corrections
 function detectRequestType(context: string, facts: ExtractedFact[]): string {
   const lowerContext = context.toLowerCase();
 
-  // MARITIME indicators checked FIRST (more specific patterns before generic ones)
+  // Step 1: Explicit AIR mode (absolute priority) - P1-1: case-insensitive, comprehensive
+  const airPatterns = [
+    "by air", "via air", "par avion", "air cargo", "air shipment",
+    "awb", "air waybill", "airfreight", "air freight",
+  ];
+  if (airPatterns.some(p => lowerContext.includes(p))) {
+    console.log(`[A1] detectRequestType: AIR_IMPORT (explicit air pattern)`);
+    return "AIR_IMPORT";
+  }
+
+  // Step 2: Maritime on strong indicators ONLY (not on city/port names)
   const maritimePatterns = [
     "container", "fcl",
     "40ft", "20ft", "40'", "20'", "40 ft", "20 ft",
     "40hc", "40dv", "20dv", "40fr", "40ot", "40rf", "20rf",
-    "vessel", "shipping", "sea freight", "seafreight",
+    "vessel", "sea freight", "seafreight",
     "bill of lading", "b/l", "bl ",
+    "pol", "pod", "cy/cfs", "cfs", 
   ];
-  
-  // Known maritime port names (common origins)
-  const maritimePorts = [
-    "jeddah", "shanghai", "ningbo", "shenzhen", "guangzhou",
-    "istanbul", "mumbai", "chennai", "dubai", "jebel ali",
-    "hamburg", "antwerp", "rotterdam", "le havre", "marseille",
-    "genoa", "barcelona", "singapore", "busan", "yokohama",
-  ];
-
-  const hasMaritimePattern = maritimePatterns.some(p => lowerContext.includes(p));
-  const hasMaritimePort = maritimePorts.some(p => lowerContext.includes(p));
-  const hasContainerFact = facts.some(f => f.key === "cargo.containers");
-
-  if (hasMaritimePattern || hasMaritimePort || hasContainerFact) {
+  if (maritimePatterns.some(p => lowerContext.includes(p))) {
+    console.log(`[A1] detectRequestType: SEA_FCL_IMPORT (strong maritime pattern)`);
     return "SEA_FCL_IMPORT";
   }
 
-  // AIR indicators (checked after maritime)
-  if (lowerContext.includes("air freight") || 
-      lowerContext.includes("airfreight") ||
-      lowerContext.includes("awb") ||
-      lowerContext.includes("air waybill") ||
-      facts.some(f => f.key === "routing.origin_airport")) {
-    return "AIR_IMPORT";
-  }
-
-  // Breakbulk indicators
-  if (lowerContext.includes("breakbulk") ||
-      lowerContext.includes("project cargo") ||
-      lowerContext.includes("heavy lift")) {
+  // Step 3: Breakbulk BEFORE container fact (P0-2)
+  const breakbulkPatterns = ["breakbulk", "break bulk", "project cargo", "heavy lift"];
+  if (breakbulkPatterns.some(p => lowerContext.includes(p))) {
+    console.log(`[A1] detectRequestType: SEA_BREAKBULK_IMPORT (breakbulk pattern)`);
     return "SEA_BREAKBULK_IMPORT";
   }
 
-  // Default
-  return "SEA_FCL_IMPORT";
+  // Step 4: Container fact (P0-A: strict check - must have items with quantity > 0)
+  const containerFact = facts.find(f => f.key === "cargo.containers");
+  if (containerFact) {
+    const containers = Array.isArray(containerFact.value) ? containerFact.value : [];
+    const hasValidContainers = containers.some((c: any) => c && (c.quantity || 0) > 0);
+    if (hasValidContainers) {
+      console.log(`[A1] detectRequestType: SEA_FCL_IMPORT (container fact with valid items)`);
+      return "SEA_FCL_IMPORT";
+    }
+  }
+
+  // Step 5: IATA codes with context (P0-B: also match "from XXX to YYY")
+  const iataContextRegex = /([A-Z]{3})\s*(?:TO|-|>)\s*([A-Z]{3})/;
+  const iataFromToRegex = /from\s+([A-Z]{3})\s+to\s+([A-Z]{3})/i;
+  if (iataContextRegex.test(context) || iataFromToRegex.test(context)) {
+    // Only classify as AIR if no maritime indicators already detected
+    console.log(`[A1] detectRequestType: AIR_IMPORT (IATA code context)`);
+    return "AIR_IMPORT";
+  }
+
+  // Step 6: Airport fact
+  if (facts.some(f => f.key === "routing.origin_airport")) {
+    console.log(`[A1] detectRequestType: AIR_IMPORT (airport fact)`);
+    return "AIR_IMPORT";
+  }
+
+  // Step 7: Default = UNKNOWN (P0-1: NOT SEA_FCL_IMPORT)
+  console.log(`[A1] detectRequestType: UNKNOWN (no explicit mode detected)`);
+  return "UNKNOWN";
 }
 
 function getFactValue(fact: ExtractedFact): string | number | object {
