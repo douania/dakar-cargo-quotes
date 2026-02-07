@@ -1,10 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 // ============ TYPES ============
 
@@ -35,7 +31,6 @@ interface ThreadGroup {
 // marked by Outlook but containing valid quotation requests
 
 const SPAM_INDICATORS_HARD = [
-  // These are always spam, regardless of content
   'notification de credit', 'notification de débit', 'notification de crédit',
   'new login from', 'nouvelle connexion', 'connexion depuis',
   'holiday operating hours', 'membership updates',
@@ -48,7 +43,6 @@ const SPAM_INDICATORS_HARD = [
   'delivery status notification', 'undeliverable',
   'meeting reminder', 'calendar invitation',
   'bank transfer', 'virement bancaire', 'relevé de compte',
-  // Marketing/Promotions
   'invitation', 'conference', 'webinar', 'summit', 'meet global',
   'bouquet', 'offre spéciale', 'special offer', 'promo ',
   'black friday', 'soldes', 'flash sale', 'limited time',
@@ -56,7 +50,6 @@ const SPAM_INDICATORS_HARD = [
   'say it with', 'parfait', 'official invitation'
 ];
 
-// Clean Outlook spam prefix from subject
 function cleanSpamPrefix(subject: string): string {
   return (subject || '')
     .replace(/^Spam:\**,?\s*/i, '')
@@ -65,7 +58,6 @@ function cleanSpamPrefix(subject: string): string {
     .trim();
 }
 
-// Additional sender domains to always exclude
 const EXCLUDED_DOMAINS = [
   'linkedin.com', 'facebook.com', 'twitter.com', 'newsletter',
   'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
@@ -75,27 +67,22 @@ const EXCLUDED_DOMAINS = [
 const MARKETING_TLDS = ['shop', 'vip', 'store', 'promo', 'deals', 'sale'];
 
 function isSpam(subject: string, fromAddress?: string): boolean {
-  // Clean spam prefix first - the presence of "Spam:" alone doesn't mean it's spam
   const cleanedSubject = cleanSpamPrefix(subject);
   const subjectLower = cleanedSubject.toLowerCase();
   const fromLower = (fromAddress || '').toLowerCase();
   
-  // Reject invalid senders
   if (!fromAddress || fromLower.trim() === '' || fromLower === 'unknown@unknown.com') {
     return true;
   }
   
-  // Check hard spam indicators (these are always spam)
   if (SPAM_INDICATORS_HARD.some(spam => subjectLower.includes(spam))) {
     return true;
   }
   
-  // Check sender domain
   if (EXCLUDED_DOMAINS.some(domain => fromLower.includes(domain))) {
     return true;
   }
   
-  // Check marketing TLDs
   const senderDomain = extractDomain(fromLower);
   if (MARKETING_TLDS.some(tld => senderDomain.endsWith(tld))) {
     return true;
@@ -107,18 +94,14 @@ function isSpam(subject: string, fromAddress?: string): boolean {
 // ============ QUOTATION DETECTION ============
 
 const QUOTATION_KEYWORDS = [
-  // French
   'cotation', 'devis', 'offre de prix', 'proposition commerciale',
   'demande de prix', 'tarif', 'tarification', 'estimation',
-  // English
   'quotation', 'quote', 'rate request', 'rfq', 'freight inquiry',
   'pricing request', 'cost estimate', 'rate inquiry', 'tender',
-  // Logistics specific
   'fret', 'freight', 'shipping', 'transport', 'logistics',
   'container', 'conteneur', 'breakbulk', 'roro', 'fcl', 'lcl',
   'port of loading', 'port of discharge', 'pol', 'pod',
   'incoterm', 'fob', 'cif', 'cfr', 'exw', 'dap', 'ddp',
-  // Project/Mission keywords
   'minusca', 'minusma', 'unmiss', 'monusco', 'un mission',
   'peacekeeping', 'humanitarian', 'project cargo'
 ];
@@ -126,7 +109,6 @@ const QUOTATION_KEYWORDS = [
 function isQuotationRelated(email: Email): boolean {
   const fromLower = (email.from_address || '').toLowerCase();
   
-  // Reject invalid senders
   if (!email.from_address || fromLower.trim() === '' || fromLower === 'unknown@unknown.com') {
     return false;
   }
@@ -135,7 +117,6 @@ function isQuotationRelated(email: Email): boolean {
   const bodyLower = (email.body_text || '').substring(0, 3000).toLowerCase();
   const combined = `${subjectLower} ${bodyLower}`;
   
-  // Check for quotation keywords - need at least 2 for confidence
   const keywordMatches = QUOTATION_KEYWORDS.filter(kw => combined.includes(kw));
   
   return keywordMatches.length >= 2;
@@ -144,10 +125,8 @@ function isQuotationRelated(email: Email): boolean {
 // ============ SUBJECT NORMALIZATION ============
 
 function normalizeSubject(subject: string): string {
-  // 1. Clean spam prefix first
   let cleaned = cleanSpamPrefix(subject);
   
-  // 2. Remove reply/forward prefixes (loop)
   let prev = '';
   while (prev !== cleaned) {
     prev = cleaned;
@@ -162,15 +141,10 @@ function normalizeSubject(subject: string): string {
 // ============ PROJECT NAME EXTRACTION ============
 
 const PROJECT_PATTERNS = [
-  // UN Missions
   /\b(MINUSCA|MINUSMA|UNMISS|MONUSCO|MINURSO|UNFICYP|UNDOF|UNIFIL|UNMIK)\b/i,
-  // Events
   /Youth\s+Olympic\s+Games\s+\d{4}/i,
-  // Reference numbers
   /\b(RAL\d+|REF[:\s]\s*\w+|RFPS[:\s]\s*\w+|RFQ[:\s]\s*\w+)/i,
-  // Project names with indicators
   /(?:Projet|Project|Tender|AO)[:\s]\s*([^,.\n]+)/i,
-  // Demobilization/Rotation patterns
   /\b(Demobilisation|Demobilization|Rotation|Repatriation|Battalion)\s+\w+/i,
 ];
 
@@ -190,7 +164,6 @@ function extractProjectName(subject: string, bodyText: string): string | null {
 // ============ THREAD GROUPING LOGIC ============
 
 function extractThreadReference(email: Email): string | null {
-  // Use thread_id if available (from IMAP References header)
   if (email.thread_id && !email.thread_id.includes('@imported')) {
     return email.thread_id;
   }
@@ -199,9 +172,7 @@ function extractThreadReference(email: Email): string | null {
 
 function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
   const threadGroups = new Map<string, ThreadGroup>();
-  const emailToThreadKey = new Map<string, string>();
   
-  // Sort emails by date (oldest first)
   const sortedEmails = [...emails].sort(
     (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   );
@@ -209,10 +180,8 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
   for (const email of sortedEmails) {
     let threadKey: string | null = null;
     
-    // 1. Try to group by thread_id (References header)
     const threadRef = extractThreadReference(email);
     if (threadRef) {
-      // Check if we already have a group with this thread reference
       for (const [key, group] of threadGroups) {
         const hasMatchingRef = group.emails.some(e => 
           extractThreadReference(e) === threadRef || e.message_id === threadRef
@@ -224,7 +193,6 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       }
     }
     
-    // 2. Try to group by project name
     if (!threadKey) {
       const projectName = extractProjectName(email.subject || '', email.body_text || '');
       if (projectName) {
@@ -238,10 +206,9 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       }
     }
     
-    // 3. Try to group by normalized subject + similar participants within 7 days
     if (!threadKey) {
       const normalizedSubj = normalizeSubject(email.subject || '');
-      if (normalizedSubj.length > 10) { // Avoid grouping very short subjects
+      if (normalizedSubj.length > 10) {
         const emailDate = new Date(email.sent_at);
         const emailParticipants = new Set([
           email.from_address.toLowerCase(),
@@ -250,14 +217,11 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
         ]);
         
         for (const [key, group] of threadGroups) {
-          // Check subject similarity
           if (group.normalizedSubject !== normalizedSubj) continue;
           
-          // Check time proximity (within 7 days)
           const timeDiff = Math.abs(emailDate.getTime() - group.lastMessageAt.getTime());
           if (timeDiff > 7 * 24 * 60 * 60 * 1000) continue;
           
-          // Check participant overlap
           const groupParticipants = new Set<string>();
           for (const e of group.emails) {
             groupParticipants.add(e.from_address.toLowerCase());
@@ -274,9 +238,8 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       }
     }
     
-    // 4. Create new thread group if no match found
     if (!threadKey) {
-      threadKey = email.id; // Use email ID as thread key
+      threadKey = email.id;
       threadGroups.set(threadKey, {
         emails: [],
         normalizedSubject: normalizeSubject(email.subject || ''),
@@ -286,21 +249,16 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       });
     }
     
-    // Add email to group
     const group = threadGroups.get(threadKey)!;
     group.emails.push(email);
     
-    // Update group dates
     const emailDate = new Date(email.sent_at);
     if (emailDate < group.firstMessageAt) group.firstMessageAt = emailDate;
     if (emailDate > group.lastMessageAt) group.lastMessageAt = emailDate;
     
-    // Update project name if found
     if (!group.projectName) {
       group.projectName = extractProjectName(email.subject || '', email.body_text || '');
     }
-    
-    emailToThreadKey.set(email.id, threadKey);
   }
   
   return threadGroups;
@@ -333,7 +291,6 @@ async function analyzeThreadRoles(
   supabase: any,
   emails: Email[]
 ): Promise<ThreadRoles> {
-  // Get known contacts
   const { data: knownContacts } = await supabase
     .from('known_business_contacts')
     .select('*')
@@ -341,7 +298,6 @@ async function analyzeThreadRoles(
   
   const contacts = knownContacts || [];
   
-  // Collect all participants
   const participantsSet = new Set<string>();
   const roleMap = new Map<string, string>();
   
@@ -357,7 +313,6 @@ async function analyzeThreadRoles(
       if (cleaned && cleaned.includes('@')) {
         participantsSet.add(cleaned);
         
-        // Check if known contact
         const domain = extractDomain(cleaned);
         for (const contact of contacts) {
           if (domain.includes(contact.domain_pattern) || cleaned.includes(contact.domain_pattern)) {
@@ -369,7 +324,6 @@ async function analyzeThreadRoles(
     }
   }
   
-  // Identify roles
   let clientEmail: string | null = null;
   let partnerEmail: string | null = null;
   
@@ -379,7 +333,6 @@ async function analyzeThreadRoles(
     }
   }
   
-  // Find client (first non-internal, non-partner sender)
   const sortedEmails = [...emails].sort(
     (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   );
@@ -396,11 +349,9 @@ async function analyzeThreadRoles(
     }
   }
   
-  // Determine our role
   let ourRole: 'direct_quote' | 'assist_partner' = 'direct_quote';
   
   if (partnerEmail) {
-    // Check if client contacted SODATRA directly
     const clientContactedSodatraDirectly = sortedEmails.some(email => {
       const senderEmail = email.from_address.toLowerCase();
       if (senderEmail !== clientEmail) return false;
@@ -429,12 +380,16 @@ async function analyzeThreadRoles(
 
 // ============ MAIN HANDLER ============
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
   
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
