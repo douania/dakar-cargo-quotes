@@ -69,7 +69,8 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { data: userData, error: userError } = await userClient.auth.getUser();
+    const token = authHeader.replace("Bearer ", "");
+    const { data: userData, error: userError } = await userClient.auth.getUser(token);
     if (userError || !userData?.user) {
       await logRuntimeEvent(serviceClient, {
         correlationId,
