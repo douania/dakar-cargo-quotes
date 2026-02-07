@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createSupabaseClient } from "../_shared/supabase.ts";
+import { logRuntimeEvent, getCorrelationId } from "../_shared/runtime.ts";
 import {
   INCOTERMS_MATRIX,
   EVP_CONVERSION,
@@ -297,6 +298,102 @@ async function fetchExceptionalTransportCosts(
   }
   
   return lines;
+}
+
+// =====================================================
+// M3.1 — HISTORICAL SUGGESTIONS (consultative only)
+// =====================================================
+
+const HISTORICAL_TIMEOUT_MS = 2000;
+const FN_NAME = 'quotation-engine';
+
+interface HistoricalSuggestions {
+  suggested_lines: Array<{
+    bloc: string;
+    category: string;
+    description: string;
+    suggested_amount: number;
+    currency: string;
+    confidence: number;
+    based_on: number;
+  }>;
+  based_on_quotations: number;
+}
+
+const EMPTY_SUGGESTIONS: HistoricalSuggestions = { suggested_lines: [], based_on_quotations: 0 };
+
+async function fetchHistoricalSuggestions(
+  supabaseUrl: string,
+  serviceKey: string,
+  request: QuotationRequest,
+  correlationId: string,
+  serviceClient: any,
+): Promise<HistoricalSuggestions> {
+  const startMs = Date.now();
+  try {
+    const transitCountry = detectTransitCountry(request.finalDestination);
+
+    const historicalInput = {
+      destination_country: transitCountry || "SN",
+      final_destination: request.finalDestination,
+      incoterm: request.incoterm,
+      transport_mode: request.transportMode,
+      cargo_description: request.cargoDescription,
+      total_weight_kg: (request.cargoWeight || 0) * 1000,
+      hs_code: request.hsCode,
+      carrier: request.carrier || request.shippingLine,
+      container_types: request.containers?.map(c => c.type) || (request.containerType ? [request.containerType] : undefined),
+      limit: 3,
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HISTORICAL_TIMEOUT_MS);
+
+    const resp = await fetch(`${supabaseUrl}/functions/v1/suggest-historical-lines`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify(historicalInput),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const json = await resp.json();
+    const result: HistoricalSuggestions = json.data ?? json ?? EMPTY_SUGGESTIONS;
+
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: FN_NAME,
+      op: 'historical_suggestions',
+      status: 'ok',
+      httpStatus: 200,
+      durationMs: Date.now() - startMs,
+      meta: {
+        suggestions_count: result.suggested_lines?.length ?? 0,
+        based_on_quotations: result.based_on_quotations ?? 0,
+      },
+    });
+
+    return result;
+  } catch (err) {
+    await logRuntimeEvent(serviceClient, {
+      correlationId,
+      functionName: FN_NAME,
+      op: 'historical_suggestions',
+      status: 'retryable_error',
+      errorCode: 'UPSTREAM_DB_ERROR',
+      httpStatus: 0,
+      durationMs: Date.now() - startMs,
+      meta: { error: String(err).substring(0, 200) },
+    });
+    return EMPTY_SUGGESTIONS;
+  }
 }
 
 const corsHeaders = {
@@ -2045,6 +2142,14 @@ serve(async (req) => {
         const { lines, warnings: engineWarnings } = await generateQuotationLines(supabase, request);
         const warnings = [...earlyWarnings, ...engineWarnings];
         
+        // M3.1 — Fetch historical suggestions (non-blocking, consultative)
+        const correlationId = getCorrelationId(req);
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const historicalSuggestions = await fetchHistoricalSuggestions(
+          supabaseUrl, serviceKey, request, correlationId, supabase
+        );
+
         // Calculer les totaux
         const totals = {
           operationnel: lines.filter(l => l.bloc === 'operationnel' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
@@ -2071,7 +2176,7 @@ serve(async (req) => {
           invoiceValue: request.cargoValue
         });
         
-        const result: QuotationResult = {
+        const result = {
           success: true,
           lines,
           totals,
@@ -2097,7 +2202,8 @@ serve(async (req) => {
             isTransit: transitCountry !== null,
             transitCountry: transitCountry || undefined
           },
-          warnings
+          warnings,
+          historical_suggestions: historicalSuggestions,
         };
         
         return new Response(
