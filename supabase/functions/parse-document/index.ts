@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
+import { requireUser } from "../_shared/auth.ts";
 
 const PDF_WORKER_SRC =
   "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
@@ -24,6 +25,10 @@ serve(async (req) => {
   }
 
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

@@ -14,6 +14,7 @@ import {
   respondError, 
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,53 +38,10 @@ serve(async (req) => {
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // 1. Validation JWT
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'generate-quotation',
-        op: 'auth',
-        status: 'fatal_error',
-        errorCode: 'AUTH_MISSING_JWT',
-        httpStatus: 401,
-        durationMs: Date.now() - startTime,
-      });
-      return respondError({
-        code: 'AUTH_MISSING_JWT',
-        message: 'Missing authorization header',
-        correlationId,
-      });
-    }
-
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    
-    // Client with user's token for auth validation
-    const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false },
-      global: { headers: { Authorization: authHeader } }
-    });
-    
-    // Validate JWT using getUser (méthode standard Supabase)
-    const { data: { user }, error: authError } = await anonClient.auth.getUser();
-    
-    if (authError || !user) {
-      console.error('Auth error:', authError);
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'generate-quotation',
-        op: 'auth',
-        status: 'fatal_error',
-        errorCode: 'AUTH_INVALID_JWT',
-        httpStatus: 401,
-        durationMs: Date.now() - startTime,
-      });
-      return respondError({
-        code: 'AUTH_INVALID_JWT',
-        message: 'Invalid or expired token',
-        correlationId,
-      });
-    }
+    // Phase S0: Unified auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
     userId = user.id;
 

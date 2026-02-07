@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -513,6 +514,10 @@ serve(async (req) => {
   let client: IMAPSearchClient | null = null;
 
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     // Increased default limit from 30 to 200 for better thread coverage
     const { configId, searchType, query, limit = 200, deepSearch = false, reconstructThread = false } = await req.json();
     
