@@ -1985,6 +1985,81 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_rate_cards: {
+        Row: {
+          confidence: number
+          container_type: string | null
+          corridor: string | null
+          created_at: string | null
+          currency: string
+          destination_country: string | null
+          destination_port: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          min_charge: number | null
+          notes: string | null
+          origin_country: string | null
+          origin_port: string | null
+          scope: string
+          service_key: string
+          source: string
+          unit: string
+          updated_at: string | null
+          value: number
+          weight_max_kg: number | null
+          weight_min_kg: number | null
+        }
+        Insert: {
+          confidence?: number
+          container_type?: string | null
+          corridor?: string | null
+          created_at?: string | null
+          currency?: string
+          destination_country?: string | null
+          destination_port?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          min_charge?: number | null
+          notes?: string | null
+          origin_country?: string | null
+          origin_port?: string | null
+          scope: string
+          service_key: string
+          source: string
+          unit?: string
+          updated_at?: string | null
+          value: number
+          weight_max_kg?: number | null
+          weight_min_kg?: number | null
+        }
+        Update: {
+          confidence?: number
+          container_type?: string | null
+          corridor?: string | null
+          created_at?: string | null
+          currency?: string
+          destination_country?: string | null
+          destination_port?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          min_charge?: number | null
+          notes?: string | null
+          origin_country?: string | null
+          origin_port?: string | null
+          scope?: string
+          service_key?: string
+          source?: string
+          unit?: string
+          updated_at?: string | null
+          value?: number
+          weight_max_kg?: number | null
+          weight_min_kg?: number | null
+        }
+        Relationships: []
+      }
       pricing_runs: {
         Row: {
           case_id: string
@@ -2700,6 +2775,63 @@ export type Database = {
             columns: ["resolved_by_fact_id"]
             isOneToOne: false
             referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_service_pricing: {
+        Row: {
+          case_id: string
+          confidence: number
+          created_at: string | null
+          currency: string
+          explanation: string | null
+          id: string
+          rate_card_id: string | null
+          service_key: string
+          service_line_id: string
+          source: string
+          suggested_rate: number | null
+        }
+        Insert: {
+          case_id: string
+          confidence?: number
+          created_at?: string | null
+          currency?: string
+          explanation?: string | null
+          id?: string
+          rate_card_id?: string | null
+          service_key: string
+          service_line_id: string
+          source: string
+          suggested_rate?: number | null
+        }
+        Update: {
+          case_id?: string
+          confidence?: number
+          created_at?: string | null
+          currency?: string
+          explanation?: string | null
+          id?: string
+          rate_card_id?: string | null
+          service_key?: string
+          service_line_id?: string
+          source?: string
+          suggested_rate?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_service_pricing_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_service_pricing_rate_card_id_fkey"
+            columns: ["rate_card_id"]
+            isOneToOne: false
+            referencedRelation: "pricing_rate_cards"
             referencedColumns: ["id"]
           },
         ]
