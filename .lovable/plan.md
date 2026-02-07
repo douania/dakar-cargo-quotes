@@ -1,68 +1,145 @@
 
 
-# Phase M3.3 — Correction des faux positifs de gaps bloquants
+# Phase M3.3.1 — Fact extraction debug + form population from quote_facts
 
-## Diagnostic confirme
+## Diagnostic
 
-L'analyse du code et de la base de donnees revele deux problemes distincts dans `build-case-puzzle/index.ts` :
+Investigation complete. Two distinct issues identified:
 
-### Probleme 1 : Detection du type de demande defaillante
+### Issue 1: "Extraction des faits partiellement echouee" toast (false alarm)
 
-La fonction `detectRequestType()` (ligne 722) ne reconnait pas "40FT" comme indicateur maritime. Elle cherche uniquement `container`, `fcl`, `40hc`, `20dv`. Le sujet "JEDDAH TO SENEGAL - 40FT CONTAINER" devrait etre detecte comme `SEA_FCL_IMPORT`, mais si l'IA n'extrait pas un fait `cargo.containers`, le fallback est `SEA_FCL_IMPORT` (correct), SAUF si un autre indicateur force `AIR_IMPORT` en premier.
+The toast fires at line 391-393 of `QuotationSheet.tsx`:
+```
+if (puzzleError) {
+  toast.warning('Extraction des faits partiellement échouée');
+}
+```
 
-La base montre que le `quote_case` cree a bien `request_type = AIR_IMPORT` avec statut `NEED_INFO`, ce qui provoque les 5 gaps incorrects issus de la liste `AIR_IMPORT` (airport, weight, pieces, value, incoterm).
+However, the `supabase.functions.invoke` method sets `error` when the HTTP response is non-2xx. The edge function returns status **207** (Multi-Status) when there are partial fact errors. But in reality, the current case has **zero errors** -- all 7 facts were successfully stored. The toast was from a previous invocation attempt.
 
-### Probleme 2 : Regles metier trop rigides meme pour SEA_FCL_IMPORT
+The real problem: on subsequent clicks of "Demarrer l'analyse", the function skips `build-case-puzzle` entirely (because `factsCount > 0` at line 383), so no new extraction happens. The toast is stale/misleading.
 
-Meme avec le bon type, certaines exigences sont inappropriees selon le contexte :
+**Fix**: Distinguish HTTP 207 from real errors. If the response has `facts_added > 0`, treat as partial success, not failure.
 
-| Gap | Probleme | Regle metier correcte |
-|---|---|---|
-| `routing.origin_airport` | Demande sur une importation maritime | Ne doit JAMAIS apparaitre pour SEA_* |
-| `routing.incoterm` | Le port d'origine est deja donne (Jeddah) | Utile mais pas bloquant — l'operateur peut coter sans, en faisant une hypothese DAP |
-| `cargo.weight_kg` | Vehicules en conteneurs 40FT | Pour du FCL, le poids n'impacte pas le cout du fret (c'est le conteneur qui est facture). Utile pour douane/transit uniquement |
-| `cargo.pieces_count` | Ce sont des vehicules | Non pertinent pour des vehicules — le nombre de conteneurs suffit |
-| `cargo.value` | Necessaire uniquement si dedouanement demande | Ne devrait etre bloquant que si le service douane est explicitement demande |
+### Issue 2: Form fields not populated (the REAL problem)
 
-## Solution proposee
+The form fields (Demandeur, Societe, Port de destination, Marchandises, etc.) are populated by `applyConsolidatedData()` which reads from **email text parsing** (`consolidateThreadData`). This is pattern-matching on email body text -- it does NOT read from `quote_facts`.
 
-### Fichier : `supabase/functions/build-case-puzzle/index.ts`
+Meanwhile, `quote_facts` contains correctly extracted data:
 
-**Changement A** — Enrichir `detectRequestType()` avec plus d'indicateurs maritimes :
-- Ajouter `40ft`, `20ft`, `40'`, `20'`, `40 ft`, `20 ft`, `40hc`, `40fr`, `40ot` aux patterns maritime
-- Ajouter `jeddah`, `port`, `vessel`, `shipping`, `sea freight` aux indicateurs
-- S'assurer que les indicateurs maritimes sont testes AVANT les indicateurs aeriens
-
-**Changement B** — Revoir `MANDATORY_FACTS` pour `SEA_FCL_IMPORT` :
-- Retirer `routing.incoterm` de la liste obligatoire SEA_FCL_IMPORT (le systeme peut coter avec hypothese DAP)
-- Ne PAS ajouter `cargo.weight_kg`, `cargo.pieces_count`, `cargo.value` (ils ne sont pas dans la liste actuelle SEA_FCL)
-
-**Changement C** — Revoir les priorites dans `GAP_QUESTIONS` :
-- `routing.incoterm` : passer de `critical` a `medium` (utile mais pas bloquant)
-- `cargo.weight_kg` : garder `high` pour air, mais marquer comme non-bloquant pour SEA_FCL
-- `cargo.value` : passer de `high` a `medium` (bloquant uniquement si dedouanement demande)
-- `cargo.pieces_count` : passer de `high` a `medium`
-
-**Changement D** — Rendre le calcul de `is_blocking` contextuel :
-- Actuellement : `is_blocking = priority === "critical" || priority === "high"` (ligne 436)
-- Apres : `is_blocking` depend du `request_type` detecte
-- Pour `SEA_FCL_IMPORT` : seuls `routing.destination_city`, `cargo.description`, `cargo.containers`, `contacts.client_email` sont bloquants
-- Pour `AIR_IMPORT` : garder la logique actuelle
-
-### Aucune modification UI
-
-Le `BlockingGapsPanel` et le `QuotationHeader` continueront de fonctionner identiquement — ils affichent simplement les gaps marques `is_blocking = true`. La correction est entierement dans la logique backend de classification.
-
-### Nettoyage des gaps existants
-
-Apres deploiement, il faudra relancer `build-case-puzzle` sur les cases existants (via "Demarrer l'analyse") pour regenerer les gaps avec les nouvelles regles.
-
-## Impact
-
-| Element | Valeur |
+| fact_key | value |
 |---|---|
-| Fichier modifie | `supabase/functions/build-case-puzzle/index.ts` uniquement |
-| Migration DB | Aucune |
-| Modification UI | Aucune |
-| Risque | Faible — les regles deviennent plus permissives, pas plus restrictives |
+| contacts.client_email | bilal@aboudisa.com |
+| contacts.client_company | ABOUDI Logistics Services Co. |
+| routing.origin_port | Dammam |
+| routing.destination_port | Dakar |
+| routing.destination_city | Bamako |
+| cargo.description | Fortuner (Vehicle), Pickup (Vehicle) |
+| cargo.containers | [{type: "40'", quantity: 2}] |
+
+But the form shows empty fields because `consolidateThreadData()` fails to parse this particular email's format (MIME-encoded, plain text with headers).
+
+**Fix**: After `applyConsolidatedData`, overlay any missing fields with data from `quote_facts` if a quote_case exists.
+
+## Solution
+
+### File 1: `src/pages/QuotationSheet.tsx`
+
+**Change A** -- Fix the 207 toast handling (lines 387-397):
+
+```text
+Before:
+  if (puzzleError) {
+    toast.warning('Extraction des faits partiellement échouée');
+  } else {
+    toast.success('...');
+  }
+
+After:
+  if (puzzleError) {
+    // Check if it's a 207 partial success (facts were added despite some errors)
+    const isPartialSuccess = puzzleData?.facts_added > 0;
+    if (isPartialSuccess) {
+      toast.info(`Extraction partielle: ${puzzleData.facts_added} faits extraits`);
+    } else {
+      toast.warning('Extraction des faits échouée');
+    }
+  } else {
+    toast.success(`Extraction terminée: ${puzzleData?.facts_added || 0} faits`);
+  }
+```
+
+**Change B** -- Add a new function `applyFactsToForm()` that reads `quote_facts` and fills empty form fields:
+
+After `applyConsolidatedData` completes (and after `useQuoteCaseData` returns data), overlay empty fields:
+
+```text
+function applyFactsToForm():
+  1. Query quote_facts for the case_id (via useQuoteCaseData or direct query)
+  2. For each fact_key, if the corresponding form field is still empty/default:
+     - contacts.client_email -> projectContext.requesting_party (extract name from email)
+     - contacts.client_company -> projectContext.requesting_company
+     - routing.destination_port -> destination
+     - routing.destination_city -> finalDestination
+     - routing.origin_port -> (not directly shown, but useful for context)
+     - cargo.description -> cargoLines[0].description
+     - cargo.containers -> cargoLines (create lines from container data)
+```
+
+### File 2: `src/hooks/useQuoteCaseData.ts`
+
+**Change C** -- Expose the facts array (currently only exposes `factsCount` and `blockingGaps`):
+
+Add a `facts` field to the return value so `QuotationSheet` can read the actual fact values.
+
+## Implementation detail
+
+The fact overlay will use a `useEffect` that watches `quoteCase` and `facts`:
+
+```text
+useEffect(() => {
+  if (!facts || facts.length === 0) return;
+
+  const factsMap = new Map(facts.map(f => [f.fact_key, f]));
+
+  // Only fill if form field is empty/default
+  if (!projectContext.requesting_party && factsMap.has('contacts.client_email')) {
+    // Extract name from email or use company
+    const company = factsMap.get('contacts.client_company')?.value_text;
+    if (company) setProjectContext(prev => ({...prev, requesting_company: company}));
+  }
+
+  if (destination === 'Dakar' && factsMap.has('routing.destination_port')) {
+    setDestination(factsMap.get('routing.destination_port').value_text);
+  }
+
+  if (!finalDestination && factsMap.has('routing.destination_city')) {
+    setFinalDestination(factsMap.get('routing.destination_city').value_text);
+  }
+
+  if (cargoLines.length === 0 && factsMap.has('cargo.containers')) {
+    const containers = factsMap.get('cargo.containers').value_json;
+    // Create cargo lines from container facts
+  }
+}, [facts]);
+```
+
+## Files modified
+
+| File | Change |
+|---|---|
+| `src/hooks/useQuoteCaseData.ts` | Expose `facts` array in return value |
+| `src/pages/QuotationSheet.tsx` | Fix 207 toast + add `applyFactsToForm` overlay |
+
+## What does NOT change
+
+- No edge function modifications
+- No database migration
+- No new tables
+- No UI component changes
+- The existing email text parsing continues to work as before; facts just fill any gaps it misses
+
+## Risk
+
+Low -- facts overlay only fills empty/default fields, never overwrites user input.
 
