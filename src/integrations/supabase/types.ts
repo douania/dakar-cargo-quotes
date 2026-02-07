@@ -1090,6 +1090,151 @@ export type Database = {
         }
         Relationships: []
       }
+      historical_quotation_lines: {
+        Row: {
+          amount: number | null
+          bloc: string | null
+          category: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string
+          quotation_id: string
+          source_type: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bloc?: string | null
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          quotation_id: string
+          source_type?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bloc?: string | null
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          quotation_id?: string
+          source_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historical_quotation_lines_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
+            referencedRelation: "historical_quotations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      historical_quotation_metadata: {
+        Row: {
+          carrier: string | null
+          container_count: number | null
+          container_types: string[] | null
+          created_at: string | null
+          hs_code: string | null
+          id: string
+          notes: string | null
+          quotation_id: string
+          special_flags: Json | null
+        }
+        Insert: {
+          carrier?: string | null
+          container_count?: number | null
+          container_types?: string[] | null
+          created_at?: string | null
+          hs_code?: string | null
+          id?: string
+          notes?: string | null
+          quotation_id: string
+          special_flags?: Json | null
+        }
+        Update: {
+          carrier?: string | null
+          container_count?: number | null
+          container_types?: string[] | null
+          created_at?: string | null
+          hs_code?: string | null
+          id?: string
+          notes?: string | null
+          quotation_id?: string
+          special_flags?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historical_quotation_metadata_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
+            referencedRelation: "historical_quotations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      historical_quotations: {
+        Row: {
+          cargo_description: string | null
+          client_name: string | null
+          created_at: string | null
+          currency: string | null
+          destination_country: string | null
+          final_destination: string | null
+          id: string
+          incoterm: string | null
+          is_transit: boolean | null
+          origin_country: string | null
+          source_reference: string | null
+          source_type: string
+          total_value: number | null
+          total_volume_cbm: number | null
+          total_weight_kg: number | null
+          transport_mode: string | null
+        }
+        Insert: {
+          cargo_description?: string | null
+          client_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          destination_country?: string | null
+          final_destination?: string | null
+          id?: string
+          incoterm?: string | null
+          is_transit?: boolean | null
+          origin_country?: string | null
+          source_reference?: string | null
+          source_type: string
+          total_value?: number | null
+          total_volume_cbm?: number | null
+          total_weight_kg?: number | null
+          transport_mode?: string | null
+        }
+        Update: {
+          cargo_description?: string | null
+          client_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          destination_country?: string | null
+          final_destination?: string | null
+          id?: string
+          incoterm?: string | null
+          is_transit?: boolean | null
+          origin_country?: string | null
+          source_reference?: string | null
+          source_type?: string
+          total_value?: number | null
+          total_volume_cbm?: number | null
+          total_weight_kg?: number | null
+          transport_mode?: string | null
+        }
+        Relationships: []
+      }
       holidays_pad: {
         Row: {
           created_at: string | null
@@ -3529,6 +3674,10 @@ export type Database = {
       get_next_quotation_version_number: {
         Args: { p_case_id: string }
         Returns: number
+      }
+      insert_historical_quotation_atomic: {
+        Args: { p_lines: Json; p_metadata?: Json; p_quotation: Json }
+        Returns: string
       }
       insert_quotation_version_atomic: {
         Args: {
