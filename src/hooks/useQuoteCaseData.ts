@@ -17,6 +17,16 @@ export interface BlockingGap {
   created_at: string;
 }
 
+export interface QuoteFact {
+  id: string;
+  fact_key: string;
+  value_text: string | null;
+  value_json: unknown;
+  source_email_id: string | null;
+  confidence: number | null;
+  created_at: string;
+}
+
 export interface QuoteCaseData {
   id: string;
   thread_id: string;
@@ -32,6 +42,7 @@ export interface QuoteCaseWithGaps {
   quoteCase: QuoteCaseData | null;
   blockingGaps: BlockingGap[];
   allGaps: BlockingGap[];
+  facts: QuoteFact[];
   factsCount: number;
   isLoading: boolean;
   error: Error | null;
@@ -77,31 +88,34 @@ export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGap
     staleTime: 30000,
   });
 
-  // Phase 12 Fix CTO: Query le nombre de facts du quote_case
-  const { data: factsCount = 0, isLoading: isLoadingFacts } = useQuery({
-    queryKey: ['quote_facts_count', quoteCase?.id],
+  // Phase M3.3.1: Query les facts complets du quote_case
+  const { data: facts, isLoading: isLoadingFacts } = useQuery({
+    queryKey: ['quote_facts', quoteCase?.id],
     queryFn: async () => {
-      if (!quoteCase?.id) return 0;
+      if (!quoteCase?.id) return [];
       
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from('quote_facts')
-        .select('id', { count: 'exact', head: true })
-        .eq('case_id', quoteCase.id);
+        .select('id, fact_key, value_text, value_json, source_email_id, confidence, created_at')
+        .eq('case_id', quoteCase.id)
+        .order('created_at', { ascending: true });
       
       if (error) throw error;
-      return count || 0;
+      return (data || []) as QuoteFact[];
     },
     enabled: !!quoteCase?.id,
     staleTime: 30000,
   });
 
   const blockingGaps = (gaps || []).filter(g => g.is_blocking && g.status === 'open');
+  const factsArray = facts || [];
 
   return {
     quoteCase: quoteCase || null,
     blockingGaps,
     allGaps: gaps || [],
-    factsCount,
+    facts: factsArray,
+    factsCount: factsArray.length,
     isLoading: isLoadingCase || isLoadingGaps || isLoadingFacts,
     error: errorCase || errorGaps || null,
   };
