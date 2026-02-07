@@ -159,11 +159,5 @@ verify_jwt = false
 [functions.price-service-lines]
 verify_jwt = false
 
-[functions.generate-quotation]
-verify_jwt = false
-
-[functions.generate-response]
-verify_jwt = false
-
 [functions.analyze-tender]
 verify_jwt = false

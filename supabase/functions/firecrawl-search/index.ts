@@ -1,11 +1,7 @@
 import { requireUser } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/runtime.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
