@@ -19,7 +19,6 @@ const MANDATORY_FACTS: Record<string, string[]> = {
   SEA_FCL_IMPORT: [
     "routing.origin_port",
     "routing.destination_city",
-    "routing.incoterm",
     "cargo.description",
     "cargo.containers",
     "contacts.client_email",
@@ -36,12 +35,20 @@ const MANDATORY_FACTS: Record<string, string[]> = {
   ],
 };
 
+// For SEA_FCL_IMPORT, only these gaps are truly blocking (contextual blocking)
+const SEA_FCL_BLOCKING_GAPS = new Set([
+  "routing.destination_city",
+  "cargo.description",
+  "cargo.containers",
+  "contacts.client_email",
+]);
+
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
   "routing.incoterm": {
     fr: "Quel Incoterm souhaitez-vous ? (FOB, CFR, CIF, DAP, DDP...)",
     en: "Which Incoterm do you prefer? (FOB, CFR, CIF, DAP, DDP...)",
-    priority: "critical",
+    priority: "medium",
     category: "routing",
   },
   "routing.destination_city": {
@@ -83,7 +90,7 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
   "cargo.value": {
     fr: "Valeur déclarée des marchandises et devise ?",
     en: "Declared value of goods and currency?",
-    priority: "high",
+    priority: "medium",
     category: "cargo",
   },
   "cargo.description": {
@@ -95,7 +102,7 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
   "cargo.pieces_count": {
     fr: "Combien de colis/pièces ?",
     en: "How many packages/pieces?",
-    priority: "high",
+    priority: "medium",
     category: "cargo",
   },
 };
@@ -426,6 +433,14 @@ Deno.serve(async (req) => {
             category: requiredKey.split(".")[0],
           };
 
+          // Contextual blocking: for SEA_FCL, only specific gaps are blocking
+          let isBlocking: boolean;
+          if (detectedType === "SEA_FCL_IMPORT") {
+            isBlocking = SEA_FCL_BLOCKING_GAPS.has(requiredKey);
+          } else {
+            isBlocking = gapInfo.priority === "critical" || gapInfo.priority === "high";
+          }
+
           await serviceClient.from("quote_gaps").insert({
             case_id,
             gap_key: requiredKey,
@@ -433,7 +448,7 @@ Deno.serve(async (req) => {
             question_fr: gapInfo.fr,
             question_en: gapInfo.en,
             priority: gapInfo.priority,
-            is_blocking: gapInfo.priority === "critical" || gapInfo.priority === "high",
+            is_blocking: isBlocking,
           });
 
           gapsIdentified++;
@@ -721,25 +736,42 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
 
 function detectRequestType(context: string, facts: ExtractedFact[]): string {
   const lowerContext = context.toLowerCase();
+
+  // MARITIME indicators checked FIRST (more specific patterns before generic ones)
+  const maritimePatterns = [
+    "container", "fcl",
+    "40ft", "20ft", "40'", "20'", "40 ft", "20 ft",
+    "40hc", "40dv", "20dv", "40fr", "40ot", "40rf", "20rf",
+    "vessel", "shipping", "sea freight", "seafreight",
+    "bill of lading", "b/l", "bl ",
+  ];
   
-  // Check for air indicators
+  // Known maritime port names (common origins)
+  const maritimePorts = [
+    "jeddah", "shanghai", "ningbo", "shenzhen", "guangzhou",
+    "istanbul", "mumbai", "chennai", "dubai", "jebel ali",
+    "hamburg", "antwerp", "rotterdam", "le havre", "marseille",
+    "genoa", "barcelona", "singapore", "busan", "yokohama",
+  ];
+
+  const hasMaritimePattern = maritimePatterns.some(p => lowerContext.includes(p));
+  const hasMaritimePort = maritimePorts.some(p => lowerContext.includes(p));
+  const hasContainerFact = facts.some(f => f.key === "cargo.containers");
+
+  if (hasMaritimePattern || hasMaritimePort || hasContainerFact) {
+    return "SEA_FCL_IMPORT";
+  }
+
+  // AIR indicators (checked after maritime)
   if (lowerContext.includes("air freight") || 
       lowerContext.includes("airfreight") ||
       lowerContext.includes("awb") ||
+      lowerContext.includes("air waybill") ||
       facts.some(f => f.key === "routing.origin_airport")) {
     return "AIR_IMPORT";
   }
 
-  // Check for container indicators
-  if (lowerContext.includes("container") ||
-      lowerContext.includes("fcl") ||
-      lowerContext.includes("40hc") ||
-      lowerContext.includes("20dv") ||
-      facts.some(f => f.key === "cargo.containers")) {
-    return "SEA_FCL_IMPORT";
-  }
-
-  // Check for breakbulk indicators
+  // Breakbulk indicators
   if (lowerContext.includes("breakbulk") ||
       lowerContext.includes("project cargo") ||
       lowerContext.includes("heavy lift")) {
