@@ -13,7 +13,8 @@ import {
   FileText,
   TrendingUp,
   Filter,
-  WifiOff
+  WifiOff,
+  Search
 } from 'lucide-react';
 import { withTimeout } from '@/lib/fetchWithRetry';
 import { MainLayout } from '@/components/layout/MainLayout';
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -51,6 +53,7 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'completeness'>('date');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = async () => {
     setFetchError(null);
@@ -62,7 +65,7 @@ export default function Dashboard() {
           .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
           .eq('is_quotation_request', true)
           .order('received_at', { ascending: false })
-          .limit(50)
+          .limit(100)
       );
 
       if (emailsError) throw emailsError;
@@ -152,12 +155,21 @@ export default function Dashboard() {
     navigate('/quotation/new');
   };
 
-  // Sort requests
-  const sortedRequests = [...requests].sort((a, b) => {
+  // Filter then sort requests
+  const filteredRequests = requests.filter(r => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      r.subject?.toLowerCase().includes(q) ||
+      r.from_address?.toLowerCase().includes(q) ||
+      r.body_text?.toLowerCase().includes(q)
+    );
+  });
+
+  const sortedRequests = [...filteredRequests].sort((a, b) => {
     if (sortBy === 'date') {
       return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
     }
-    // Sort by completeness (more complete first)
     const getCompleteness = (r: QuotationRequest) => {
       const data = r.extracted_data || {};
       const fields = ['cargo', 'origin', 'incoterm'];
@@ -271,21 +283,32 @@ export default function Dashboard() {
         </div>
 
         {/* Filter & Sort */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary" />
             Demandes de cotation
           </h2>
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'completeness')}>
-            <SelectTrigger className="w-[180px]">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Trier par" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="date">Date de réception</SelectItem>
-              <SelectItem value="completeness">Complétude</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher par nom, sujet..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-[250px] pl-8"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'completeness')}>
+              <SelectTrigger className="w-[180px]">
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Trier par" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Date de réception</SelectItem>
+                <SelectItem value="completeness">Complétude</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Requests List */}
