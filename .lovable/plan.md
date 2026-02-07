@@ -1,101 +1,55 @@
 
-# Phase RESILIENCE-GLOBALE — avec correction CTO Auth
+# Phase FIX-EMAIL-500 — Correction du crash email-admin
 
-## Contexte
+## Cause racine identifiee
 
-L'infrastructure cloud subit des timeouts de connexion intermittents. L'application n'a aucune protection contre ce type de degradation, ce qui cause un blocage complet (spinner infini) sur toutes les pages.
+La base de donnees cloud subit des timeouts intermittents (erreur PostgREST `PGRST002`). Quand `get_threads_paginated` est appele pendant un de ces timeouts :
 
-La correction CTO est integree : un timeout auth ne doit JAMAIS rediriger vers login.
+1. Ligne 200-206 : la requete Supabase echoue, `error` est un objet PostgREST `{code, details, hint, message}`
+2. Ligne 206 : `throw error` lance cet objet
+3. Ligne 1122 : `error instanceof Error` retourne `false` car c'est un objet plain, PAS une instance de `Error`
+4. Resultat : le catch retourne `"Erreur inconnue"` au lieu du vrai message
 
-## 1. Utilitaire central `src/lib/fetchWithRetry.ts` (nouveau fichier)
+## Correction (1 seul fichier, 1 seul bloc)
 
-Helper reutilisable avec :
-- `AbortController` + timeout configurable (defaut 15s)
-- 1 retry automatique sur timeout/connexion fermee
-- Toast informatif lors du retry
+Fichier : `supabase/functions/email-admin/index.ts`
 
-Sera utilise par Dashboard et Emails.
+### Modification au catch global (lignes 1117-1126)
 
-## 2. AuthProvider avec etat `timeout` (correction CTO integree)
-
-Fichier : `src/features/auth/AuthProvider.tsx`
-
-Modifications :
-- Ajouter un type `AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'timeout'`
-- Exposer `authStatus` dans le contexte (en plus de `isLoading` pour compatibilite)
-- Ajouter un timeout de 10 secondes sur `getSession()`
-- Si timeout : `authStatus = 'timeout'` (et NON `session = null`)
-- Ajouter une fonction `retryAuth()` pour relancer `getSession()`
-- `isLoading` reste `true` uniquement quand `authStatus === 'loading'`
+Remplacer la logique de serialisation d'erreur pour couvrir les 3 cas possibles :
 
 ```text
-Etats possibles :
-  loading         -> spinner (max 10s)
-  authenticated   -> acces normal
-  unauthenticated -> redirect login
-  timeout         -> message "connexion lente" + bouton retry
+Avant :
+  error instanceof Error ? error.message : "Erreur inconnue"
+
+Apres :
+  error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && 'message' in error
+      ? (error as any).message
+      : String(error)
 ```
 
-Interface du contexte mise a jour :
+Cela couvrira :
+- Les `Error` JavaScript natifs
+- Les objets PostgREST `{code, message, details, hint}`
+- Tout autre type d'erreur inattendu
+
+### Ajout de log detaille
+
+Ajouter au `console.error` existant le code PostgREST si present, pour faciliter le diagnostic futur :
+
 ```text
-AuthContextType {
-  session: Session | null
-  user: User | null
-  isLoading: boolean          // compat: true ssi 'loading'
-  authStatus: AuthStatus
-  signOut: () => Promise<void>
-  retryAuth: () => void
-}
+console.error("Email admin error:", JSON.stringify(error));
 ```
 
-## 3. RequireAuth avec gestion du timeout
+## Resume
 
-Fichier : `src/features/auth/RequireAuth.tsx`
-
-Modifications :
-- Lire `authStatus` et `retryAuth` depuis `useAuth()`
-- Si `authStatus === 'timeout'` : afficher message "Connexion lente. Verification en cours..." avec bouton "Reessayer"
-- Redirection vers `/login` UNIQUEMENT si `authStatus === 'unauthenticated'`
-- Jamais de redirect sur timeout
-
-## 4. Dashboard resilient
-
-Fichier : `src/pages/Dashboard.tsx`
-
-Modifications :
-- Importer `invokeWithRetry` depuis `src/lib/fetchWithRetry.ts` (pour les appels directs Supabase, wrapper similaire)
-- Ajouter un etat `error` avec message explicite et bouton "Reessayer"
-- Ne pas rester bloque sur spinner infini : apres 15s de timeout sur les requetes, afficher l'erreur
-- Conserver les donnees existantes si un refresh echoue (ne pas `setRequests([])`)
-
-## 5. Emails refactor vers utilitaire central
-
-Fichier : `src/pages/admin/Emails.tsx`
-
-Modifications :
-- Remplacer le `invokeWithRetry` local (lignes 150-178) par l'import depuis `src/lib/fetchWithRetry.ts`
-- Le reste du code `loadData` deja refactore reste identique
-
-## 6. Export mis a jour
-
-Fichier : `src/features/auth/index.ts`
-
-- Re-exporter le type `AuthStatus` pour usage externe si necessaire
-
-## Resume des fichiers
-
-| Fichier | Type | Modification |
+| Element | Avant | Apres |
 |---|---|---|
-| `src/lib/fetchWithRetry.ts` | Nouveau | Utilitaire central retry + timeout |
-| `src/features/auth/AuthProvider.tsx` | Modifie | AuthStatus 4 etats, timeout 10s, retryAuth() |
-| `src/features/auth/RequireAuth.tsx` | Modifie | Gestion timeout sans redirect |
-| `src/features/auth/index.ts` | Modifie | Export AuthStatus |
-| `src/pages/Dashboard.tsx` | Modifie | Etat erreur, bouton retry, conservation donnees |
-| `src/pages/admin/Emails.tsx` | Modifie | Import utilitaire central |
-
-## Perimetres preserves
-
-- Zero migration DB
-- Zero modification edge function
-- Logique metier inchangee
-- Compatibilite ascendante : `isLoading` reste disponible
+| Message erreur | "Erreur inconnue" | Message reel (ex: "Could not query the database...") |
+| Log serveur | Objet brut | JSON serialise complet |
+| Fichiers modifies | 0 | 1 seul (`email-admin/index.ts`) |
+| Lignes modifiees | 0 | 3 lignes dans le catch |
+| Migration DB | Aucune | Aucune |
+| Autres fonctions | Aucune | Aucune |
