@@ -1,78 +1,68 @@
 
 
-# Correction de la recherche "usmani" -- Cause racine identifiee
+# Phase M3.3 — Correction des faux positifs de gaps bloquants
 
-## Le vrai probleme
+## Diagnostic confirme
 
-Apres investigation approfondie des requetes reseau, le probleme est maintenant clair :
+L'analyse du code et de la base de donnees revele deux problemes distincts dans `build-case-puzzle/index.ts` :
 
-L'utilisateur tape "usmani" dans la **barre de recherche globale de la sidebar** (le composant `KnowledgeSearch`, accessible via Cmd+K). Ce composant cherche dans la table `learned_knowledge` via l'edge function `data-admin` -- il ne cherche **pas** dans les emails. Le resultat `[]` est donc normal.
+### Probleme 1 : Detection du type de demande defaillante
 
-Le champ de recherche qu'on a ajoute au Dashboard (celui avec l'icone loupe dans la zone des filtres) fait bien la bonne requete `.ilike()` sur les emails, mais ce n'est pas celui que l'utilisateur utilise.
+La fonction `detectRequestType()` (ligne 722) ne reconnait pas "40FT" comme indicateur maritime. Elle cherche uniquement `container`, `fcl`, `40hc`, `20dv`. Le sujet "JEDDAH TO SENEGAL - 40FT CONTAINER" devrait etre detecte comme `SEA_FCL_IMPORT`, mais si l'IA n'extrait pas un fait `cargo.containers`, le fallback est `SEA_FCL_IMPORT` (correct), SAUF si un autre indicateur force `AIR_IMPORT` en premier.
 
-**Preuve** : les logs reseau montrent un appel `POST data-admin` avec `{"action":"search","data":{"query":"usmani"}}` qui retourne `{"success":true,"results":[]}`. Aucune requete directe vers la table `emails` avec `or=` n'a ete faite.
+La base montre que le `quote_case` cree a bien `request_type = AIR_IMPORT` avec statut `NEED_INFO`, ce qui provoque les 5 gaps incorrects issus de la liste `AIR_IMPORT` (airport, weight, pieces, value, incoterm).
 
-## Solution
+### Probleme 2 : Regles metier trop rigides meme pour SEA_FCL_IMPORT
 
-Modifier le composant `KnowledgeSearch` pour qu'il cherche aussi dans les **emails** (en plus des connaissances), afin que la recherche globale renvoie des resultats pertinents quel que soit le champ utilise.
+Meme avec le bon type, certaines exigences sont inappropriees selon le contexte :
 
-### Modifications
-
-**Fichier 1** : `src/components/KnowledgeSearch.tsx`
-
-- Ajouter une requete parallele sur la table `emails` avec `.or().ilike()` sur `subject`, `from_address`, `body_text`, `body_html`
-- Afficher les resultats emails dans un groupe separe ("Emails") avec une icone Mail
-- Au clic sur un resultat email, naviguer vers `/quotation/{emailId}`
-
-**Fichier 2** : `supabase/functions/data-admin/index.ts`
-
-- Ajouter un nouveau case `search_emails` dans le switch, ou bien etendre le case `search` existant pour inclure aussi une recherche dans la table `emails`
-- La recherche cote edge function (avec service role) contourne les RLS et garantit l'acces aux donnees
-
-### Detail technique
-
-#### Option retenue : etendre le case `search` de data-admin
-
-Dans `data-admin/index.ts`, le case `search` (ligne 203) sera modifie pour chercher aussi dans `emails` :
-
-```
-case 'search': {
-  // ... recherche existante dans learned_knowledge ...
-
-  // NOUVEAU : recherche parallele dans emails
-  const { data: emailResults } = await supabase
-    .from('emails')
-    .select('id, subject, from_address, received_at, is_quotation_request')
-    .eq('is_quotation_request', true)
-    .or(`subject.ilike.${searchQuery},from_address.ilike.${searchQuery},body_text.ilike.${searchQuery},body_html.ilike.${searchQuery}`)
-    .order('received_at', { ascending: false })
-    .limit(10);
-
-  return { results, emails: emailResults || [] };
-}
-```
-
-#### Dans KnowledgeSearch.tsx
-
-- Ajouter un type `EmailSearchResult` pour les resultats email
-- Recuperer `data?.emails` en plus de `data?.results`
-- Ajouter un `CommandGroup` "Emails" qui affiche les resultats email
-- Au clic, naviguer vers `/quotation/{email.id}`
-
-### Comportement attendu
-
-| Composant | Avant | Apres |
+| Gap | Probleme | Regle metier correcte |
 |---|---|---|
-| Sidebar (Cmd+K) | Cherche uniquement dans learned_knowledge | Cherche dans learned_knowledge ET emails |
-| Dashboard search | Cherche dans emails via ilike (fonctionne deja) | Inchange |
-| Resultat "usmani" | 0 resultats | 1 email trouve (AB26065 // JEDDAH TO SENEGAL) |
+| `routing.origin_airport` | Demande sur une importation maritime | Ne doit JAMAIS apparaitre pour SEA_* |
+| `routing.incoterm` | Le port d'origine est deja donne (Jeddah) | Utile mais pas bloquant — l'operateur peut coter sans, en faisant une hypothese DAP |
+| `cargo.weight_kg` | Vehicules en conteneurs 40FT | Pour du FCL, le poids n'impacte pas le cout du fret (c'est le conteneur qui est facture). Utile pour douane/transit uniquement |
+| `cargo.pieces_count` | Ce sont des vehicules | Non pertinent pour des vehicules — le nombre de conteneurs suffit |
+| `cargo.value` | Necessaire uniquement si dedouanement demande | Ne devrait etre bloquant que si le service douane est explicitement demande |
 
-### Impact
+## Solution proposee
+
+### Fichier : `supabase/functions/build-case-puzzle/index.ts`
+
+**Changement A** — Enrichir `detectRequestType()` avec plus d'indicateurs maritimes :
+- Ajouter `40ft`, `20ft`, `40'`, `20'`, `40 ft`, `20 ft`, `40hc`, `40fr`, `40ot` aux patterns maritime
+- Ajouter `jeddah`, `port`, `vessel`, `shipping`, `sea freight` aux indicateurs
+- S'assurer que les indicateurs maritimes sont testes AVANT les indicateurs aeriens
+
+**Changement B** — Revoir `MANDATORY_FACTS` pour `SEA_FCL_IMPORT` :
+- Retirer `routing.incoterm` de la liste obligatoire SEA_FCL_IMPORT (le systeme peut coter avec hypothese DAP)
+- Ne PAS ajouter `cargo.weight_kg`, `cargo.pieces_count`, `cargo.value` (ils ne sont pas dans la liste actuelle SEA_FCL)
+
+**Changement C** — Revoir les priorites dans `GAP_QUESTIONS` :
+- `routing.incoterm` : passer de `critical` a `medium` (utile mais pas bloquant)
+- `cargo.weight_kg` : garder `high` pour air, mais marquer comme non-bloquant pour SEA_FCL
+- `cargo.value` : passer de `high` a `medium` (bloquant uniquement si dedouanement demande)
+- `cargo.pieces_count` : passer de `high` a `medium`
+
+**Changement D** — Rendre le calcul de `is_blocking` contextuel :
+- Actuellement : `is_blocking = priority === "critical" || priority === "high"` (ligne 436)
+- Apres : `is_blocking` depend du `request_type` detecte
+- Pour `SEA_FCL_IMPORT` : seuls `routing.destination_city`, `cargo.description`, `cargo.containers`, `contacts.client_email` sont bloquants
+- Pour `AIR_IMPORT` : garder la logique actuelle
+
+### Aucune modification UI
+
+Le `BlockingGapsPanel` et le `QuotationHeader` continueront de fonctionner identiquement — ils affichent simplement les gaps marques `is_blocking = true`. La correction est entierement dans la logique backend de classification.
+
+### Nettoyage des gaps existants
+
+Apres deploiement, il faudra relancer `build-case-puzzle` sur les cases existants (via "Demarrer l'analyse") pour regenerer les gaps avec les nouvelles regles.
+
+## Impact
 
 | Element | Valeur |
 |---|---|
-| Fichiers modifies | 2 (`KnowledgeSearch.tsx` + `data-admin/index.ts`) |
+| Fichier modifie | `supabase/functions/build-case-puzzle/index.ts` uniquement |
 | Migration DB | Aucune |
-| Risque | Faible -- ajout d'une requete parallele sans modifier l'existant |
-| Performance | La requete ilike sur emails est legere (select sans body, limit 10) |
+| Modification UI | Aucune |
+| Risque | Faible — les regles deviennent plus permissives, pas plus restrictives |
 
