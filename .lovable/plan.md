@@ -1,61 +1,149 @@
 
 
-# PHASE M1.4.2 — Corrections critiques DATA
+# PHASE M1.4.3 — Elimination des regles implicites (THD/THO regex)
 
-## Contexte verifie par audit DB
+## Constat apres analyse du code
 
-| Table | Constat |
-|-------|---------|
-| `carrier_billing_templates` | 57 lignes, toutes `source_documents = NULL` |
-| `port_tariffs` | 15 lignes `DP_WORLD` + 28 lignes `DPW` (pas de doublons) |
-| `tax_rates` | 7 taux actifs, TIN absent. `calculate-duties` lit deja `hs_codes.tin` |
+La fonction `determineTariffCategory()` (lignes 731-761) et `fetchCarrierTHD()` (lignes 876-894) sont actuellement definies mais **non appelees** dans `generateQuotationLines`. Ce sont des fonctions preparees pour le matching carrier-specific THD (Hapag-Lloyd categories T01-T14).
+
+Malgre leur statut de "code mort", elles contiennent 6 regles regex hardcodees qui seront activees a terme. L'objectif M1.4.3 reste pertinent : rendre ces regles table-driven **avant** qu'elles ne soient connectees.
 
 ---
 
-## Tache 1 — source_documents (correction CTO appliquee)
+## Etape 1 — Migration SQL
 
-Une seule migration SQL avec 3 UPDATEs :
-
-| Carrier | Nb lignes | source_documents |
-|---------|-----------|-----------------|
-| CMA_CGM | 9 | `{"TO_VERIFY"}` |
-| GENERIC | 6 | `{"TO_VERIFY"}` |
-| GRIMALDI | 6 | `{"TO_VERIFY"}` |
-| MAERSK | 6 | `{"TO_VERIFY"}` |
-| MSC | 9 | `{"TO_VERIFY"}` |
-| HAPAG_LLOYD | 14 | `{"hapag_lloyd_local_charges.pdf"}` |
-| ONE | 7 | `{"one_line_local_charges.pdf"}` |
-
-Seuls les 2 fichiers reellement presents dans `public/data/tarifs/` sont references. Tout le reste est marque `TO_VERIFY`.
-
-## Tache 2 — Fusion DP_WORLD vers DPW
-
-Un seul UPDATE :
+Creer la table `tariff_category_rules` et seeder 7 regles :
 
 ```text
-UPDATE port_tariffs SET provider = 'DPW' WHERE provider = 'DP_WORLD'
+tariff_category_rules
+  id              uuid PK default gen_random_uuid()
+  category_code   varchar NOT NULL
+  category_name   text NOT NULL
+  match_patterns  text[] NOT NULL
+  priority        integer NOT NULL default 10
+  carrier         varchar default 'ALL'
+  is_active       boolean default true
+  source_document varchar NOT NULL
+  notes           text
+  created_at      timestamptz default now()
 ```
 
-Resultat : 0 lignes DP_WORLD, 43 lignes DPW. Le moteur cherche deja `DPW` — aucun changement de code.
+RLS : SELECT public read (comme les autres tables de reference).
 
-## Tache 3 — Ajout TIN dans tax_rates
+### Seed (7 regles, bilingues FR+EN)
 
-Un INSERT :
+| category_code | category_name | priority | match_patterns (extrait) | source_document |
+|---------------|--------------|----------|--------------------------|-----------------|
+| T09 | Vehicules, Machines, Equipements | 10 | vehicle, truck, tractor, generator, transformer, vehicule, tracteur, generateur, transformateur | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T01 | Boissons, Chimie, Accessoires | 20 | drink, beverage, chemical, pump, valve, boisson, chimique, pompe | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T05 | Cereales, Ciment, Engrais | 30 | cereal, wheat, rice, cement, fertilizer, cereale, ble, riz, ciment, engrais | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T14 | Produits metallurgiques | 40 | steel, iron, metal, pipe, tube, beam, acier, fer, tuyau, poutre | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T07 | Textiles, Materiaux construction | 50 | textile, fabric, building, cotton, tile, tissu, coton, brique, carrelage | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T12 | Produits divers | 60 | mixed, general, various, divers, melange | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+| T02 | Categorie generale (defaut) | 999 | (tableau vide — applique si aucun match) | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
 
-| code | name | rate | base_calculation | applies_to |
-|------|------|------|-----------------|------------|
-| TIN | Taxe d'Internalisation | 0 | CAF + DD + RS | Codes HS specifiques (5%, 10%, 15%) |
+---
 
-Le `rate = 0` est intentionnel : le taux reel est variable par code HS et deja lu depuis `hs_codes.tin` par `calculate-duties`. Cette ligne sert de reference documentaire.
+## Etape 2 — Modification du moteur (chirurgicale)
 
-## Implementation technique
+Fichier : `supabase/functions/quotation-engine/index.ts`
 
-Un seul fichier de migration SQL contenant les 3 operations (UPDATE + UPDATE + INSERT). Zero fichier de code modifie.
+### 2a. Ajouter la fonction de chargement (dans le bloc des loaders existants)
+
+```typescript
+interface TariffCategoryRule {
+  category_code: string;
+  category_name: string;
+  match_patterns: string[];
+  priority: number;
+  carrier: string;
+}
+
+async function loadTariffCategoryRules(supabase: any): Promise<TariffCategoryRule[]> {
+  const { data, error } = await supabase
+    .from('tariff_category_rules')
+    .select('category_code, category_name, match_patterns, priority, carrier')
+    .eq('is_active', true)
+    .order('priority', { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    console.warn('tariff_category_rules: DB vide ou erreur, fallback regex');
+    return [];
+  }
+  return data;
+}
+```
+
+### 2b. Remplacer `determineTariffCategory` (signature synchrone conservee)
+
+Correction CTO appliquee : la fonction reste synchrone, les regles sont pre-chargees.
+
+```typescript
+function determineTariffCategory(
+  cargoDescription: string,
+  rules: TariffCategoryRule[]
+): string {
+  // DB-backed matching (M1.4.3)
+  if (rules.length > 0) {
+    const desc = cargoDescription.toLowerCase();
+    for (const rule of rules) {
+      if (rule.match_patterns.length === 0) continue; // default rule
+      const matched = rule.match_patterns.some(p => desc.includes(p.toLowerCase()));
+      if (matched) return rule.category_code;
+    }
+    // Return default rule if exists
+    const defaultRule = rules.find(r => r.match_patterns.length === 0);
+    if (defaultRule) return defaultRule.category_code;
+  }
+
+  // @deprecated M1.4.3 — fallback regex (graceful degradation)
+  const desc = cargoDescription.toLowerCase();
+  if (desc.match(/power plant|generator|transformer|vehicle|truck|.../)) return 'T09';
+  // ... existing regex blocks preserved as fallback ...
+  return 'T02';
+}
+```
+
+### 2c. Pre-charger les regles dans `generateQuotationLines`
+
+Ajouter le chargement dans le bloc existant "0. LOAD DB-BACKED RULES" (ligne 1057) :
+
+```typescript
+const [dbIncoterms, dbZones, tariffCategoryRules] = await Promise.all([
+  loadIncotermsFromDB(supabase),
+  loadDeliveryZonesFromDB(supabase),
+  loadTariffCategoryRules(supabase),
+]);
+```
+
+Les appels futurs a `determineTariffCategory` utiliseront `tariffCategoryRules` en parametre. Puisque la fonction n'est pas encore appelee dans le flux principal, cela n'a pas d'impact fonctionnel immediat mais prepare le terrain.
+
+---
+
+## Fichiers modifies
+
+| Fichier | Changement |
+|---------|-----------|
+| Migration SQL (nouveau) | Creer table `tariff_category_rules` + seed 7 regles + RLS |
+| `supabase/functions/quotation-engine/index.ts` | Ajouter loader, modifier signature `determineTariffCategory`, pre-charger dans `generateQuotationLines` |
+
+## Fichiers NON modifies
+
+- Aucun fichier UI
+- Aucun changement d'API
+- `_shared/quotation-rules.ts` : pas touche
 
 ## Verification post-execution
 
-3 requetes de controle :
-1. Verifier que chaque carrier a un `source_documents` non-NULL
-2. Verifier `COUNT(*) WHERE provider = 'DP_WORLD'` = 0
-3. Verifier `SELECT * FROM tax_rates WHERE code = 'TIN'` retourne 1 ligne
+1. Requete DB : 7 regles presentes dans `tariff_category_rules`, toutes avec `source_document` non-NULL
+2. Deploiement du moteur : aucune erreur
+3. Appel moteur standard : resultat identique (la fonction n'est pas encore dans le chemin d'execution principal)
+
+## Critere de fin M1.4.3
+
+- Table `tariff_category_rules` creee et seedee avec 7 regles bilingues
+- `determineTariffCategory()` lit les regles en parametre (signature synchrone)
+- Regex conserves comme fallback `@deprecated`
+- Pre-chargement integre dans le flux principal
+- Zero changement d'API, zero changement UI
 
