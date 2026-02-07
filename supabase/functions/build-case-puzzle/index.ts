@@ -143,6 +143,184 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'Container_Nos': { factKey: 'cargo.container_numbers', category: 'cargo', valueType: 'text' },
 };
 
+// --- M3.5.1: Assumption rules by flow type ---
+const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confidence: number }>> = {
+  TRANSIT_GAMBIA: [
+    { key: 'service.package', value: 'TRANSIT_GAMBIA_ALL_IN', confidence: 0.7 },
+    { key: 'pricing.currency', value: 'USD', confidence: 0.7 },
+    { key: 'border.fee_expected', value: 'true', confidence: 0.6 },
+  ],
+  EXPORT_SENEGAL: [
+    { key: 'service.package', value: 'EXPORT_SENEGAL', confidence: 0.6 },
+    { key: 'tax.vat_rate', value: '0.18', confidence: 0.6 },
+  ],
+  BREAKBULK_PROJECT: [
+    { key: 'service.package', value: 'BREAKBULK_PROJECT', confidence: 0.7 },
+    { key: 'survey.required', value: 'true', confidence: 0.6 },
+  ],
+  IMPORT_PROJECT_DAP: [
+    { key: 'service.package', value: 'DAP_PROJECT_IMPORT', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+};
+
+// Sources that cannot be overwritten by assumptions
+const ASSUMPTION_PROTECTED_SOURCES = new Set(['operator', 'attachment_extracted', 'ai_extraction']);
+
+function detectFlowType(factMap: Map<string, { value: string; source: string }>): string {
+  const destCountry = factMap.get('routing.destination_country')?.value?.toUpperCase() || '';
+  const finalDest = factMap.get('routing.final_destination')?.value?.toUpperCase() || '';
+  const originCountry = factMap.get('routing.origin_country')?.value?.toUpperCase() || '';
+  // CTO Adjustment #1: Also check origin_port for export detection
+  const originPort = factMap.get('routing.origin_port')?.value?.toUpperCase() || '';
+  const weightKg = parseFloat(factMap.get('cargo.weight_kg')?.value || '0') || 0;
+  const cargoDesc = factMap.get('cargo.description')?.value?.toLowerCase() || '';
+  const servicePackage = factMap.get('service.package')?.value || '';
+
+  // Rule 1: Transit Gambia
+  if (destCountry === 'GM' || finalDest.includes('BANJUL')) {
+    return 'TRANSIT_GAMBIA';
+  }
+
+  // Rule 2: Export Senegal (CTO Adj #1: also trigger on origin_port = DKR/Dakar)
+  const isOriginSN = originCountry === 'SN' || originPort.includes('DKR') || originPort.includes('DAKAR');
+  if (isOriginSN && destCountry && destCountry !== 'SN') {
+    return 'EXPORT_SENEGAL';
+  }
+
+  // Rule 3: Breakbulk project
+  const breakbulkKeywords = ['transformer', 'crane', 'heavy', 'breakbulk'];
+  if (weightKg > 30000 || breakbulkKeywords.some(kw => cargoDesc.includes(kw))) {
+    return 'BREAKBULK_PROJECT';
+  }
+
+  // Rule 4: Import project DAP (CTO Adj #2: require attachment or weight > 5000)
+  if (destCountry === 'SN' && !servicePackage) {
+    // Check if there are attachments or significant cargo weight
+    const hasWeight = weightKg > 5000;
+    if (hasWeight) {
+      return 'IMPORT_PROJECT_DAP';
+    }
+    // Attachment check is done in applyAssumptionRules where we have serviceClient access
+    // We use a flag to indicate "needs attachment check"
+    return 'IMPORT_PROJECT_DAP_PENDING';
+  }
+
+  return 'UNKNOWN';
+}
+
+async function applyAssumptionRules(
+  caseId: string,
+  serviceClient: any,
+  emailIds: string[]
+): Promise<{ added: number; skipped: number; flowType: string }> {
+  const result = { added: 0, skipped: 0, flowType: 'UNKNOWN' };
+
+  // Step 1: Load existing facts
+  const { data: facts } = await serviceClient
+    .from('quote_facts')
+    .select('fact_key, value_text, value_number, source_type')
+    .eq('case_id', caseId)
+    .eq('is_current', true);
+
+  const factMap = new Map<string, { value: string; source: string }>();
+  if (facts) {
+    for (const f of facts) {
+      factMap.set(f.fact_key, {
+        value: f.value_text || String(f.value_number || ''),
+        source: f.source_type,
+      });
+    }
+  }
+
+  // Step 2: Detect flow type
+  let flowType = detectFlowType(factMap);
+
+  // CTO Adjustment #2: For IMPORT_PROJECT_DAP_PENDING, check attachments
+  if (flowType === 'IMPORT_PROJECT_DAP_PENDING') {
+    const { count } = await serviceClient
+      .from('email_attachments')
+      .select('id', { count: 'exact', head: true })
+      .in('email_id', emailIds)
+      .not('extracted_data', 'is', null);
+
+    if (count && count > 0) {
+      flowType = 'IMPORT_PROJECT_DAP';
+    } else {
+      flowType = 'UNKNOWN';
+    }
+  }
+
+  result.flowType = flowType;
+
+  if (flowType === 'UNKNOWN' || !ASSUMPTION_RULES[flowType]) {
+    console.log(`[M3.5.1] Flow type: ${flowType} — no assumptions to apply`);
+    return result;
+  }
+
+  console.log(`[M3.5.1] Detected flow type: ${flowType}`);
+
+  // Step 3: Apply rules
+  const rules = ASSUMPTION_RULES[flowType];
+
+  for (const rule of rules) {
+    const existing = factMap.get(rule.key);
+
+    // Hierarchy check: never overwrite protected sources
+    if (existing && ASSUMPTION_PROTECTED_SOURCES.has(existing.source)) {
+      result.skipped++;
+      continue;
+    }
+
+    // Don't re-inject if already an ai_assumption with same value
+    if (existing?.source === 'ai_assumption' && existing.value === rule.value) {
+      result.skipped++;
+      continue;
+    }
+
+    // Inject via supersede_fact RPC
+    const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
+      p_case_id: caseId,
+      p_fact_key: rule.key,
+      p_fact_category: rule.key.split('.')[0], // e.g. 'service' from 'service.package'
+      p_value_text: rule.value,
+      p_value_number: null,
+      p_value_json: null,
+      p_value_date: null,
+      p_source_type: 'ai_assumption',
+      p_source_email_id: null,
+      p_source_attachment_id: null,
+      p_source_excerpt: `[M3.5.1] Auto-assumption for flow ${flowType}: ${rule.key} = ${rule.value}`,
+      p_confidence: rule.confidence,
+    });
+
+    if (rpcError) {
+      console.error(`[M3.5.1] Failed to inject assumption ${rule.key}:`, rpcError);
+      continue;
+    }
+
+    // Timeline event
+    await serviceClient.from('case_timeline_events').insert({
+      case_id: caseId,
+      event_type: 'assumption_applied',
+      event_data: {
+        flow_type: flowType,
+        fact_key: rule.key,
+        value: rule.value,
+        confidence: rule.confidence,
+      },
+      actor_type: 'system',
+    });
+
+    result.added++;
+    // Update local map to prevent duplicate injection in same pass
+    factMap.set(rule.key, { value: rule.value, source: 'ai_assumption' });
+  }
+
+  console.log(`[M3.5.1] Assumptions: ${result.added} added, ${result.skipped} skipped (flow: ${flowType})`);
+  return result;
+}
+
 function normalizeExtractedKey(key: string): string {
   // Remove _Page_N suffix and _BL_ infix variants
   return key.replace(/_Page_\d+$/, '').replace(/_BL_/, '_').replace(/_Page$/, '');
@@ -541,6 +719,10 @@ Deno.serve(async (req) => {
     );
     factsAdded += attachmentFactsResult.added;
     factsUpdated += attachmentFactsResult.updated;
+
+    // --- M3.5.1: Apply hypothesis engine (after M3.4, before gap detection) ---
+    const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds);
+    factsAdded += assumptionResult.added;
 
     // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
     if (factErrors.length > 0) {
