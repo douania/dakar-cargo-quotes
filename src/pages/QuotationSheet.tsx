@@ -238,7 +238,7 @@ export default function QuotationSheet() {
   // Phase 8.7: Récupérer le thread_ref pour le quote_case
   // CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
   const threadRef = stableThreadRef;
-  const { quoteCase, blockingGaps, factsCount, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+  const { quoteCase, blockingGaps, facts: quoteFacts, factsCount, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
   
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
@@ -390,9 +390,15 @@ L'équipe SODATRA`;
         
         if (puzzleError) {
           console.error('[build-case-puzzle] Error:', puzzleError);
-          toast.warning('Extraction des faits partiellement échouée');
+          // Phase M3.3.1: Distinguish 207 partial success from real errors
+          const isPartialSuccess = puzzleData?.facts_added > 0;
+          if (isPartialSuccess) {
+            toast.info(`Extraction partielle: ${puzzleData.facts_added} faits extraits`);
+          } else {
+            toast.warning('Extraction des faits échouée');
+          }
         } else {
-          toast.success('Extraction des faits terminée');
+          toast.success(`Extraction terminée: ${puzzleData?.facts_added || 0} faits`);
           console.log('[build-case-puzzle] Success:', puzzleData);
         }
         
@@ -464,6 +470,82 @@ L'équipe SODATRA`;
       loadSnapshot();
     }
   }, [currentDraft?.status, currentDraft?.id]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase M3.3.1: Overlay quote_facts onto empty form fields
+  // Runs AFTER applyConsolidatedData — only fills gaps left by email parsing
+  // ═══════════════════════════════════════════════════════════════════
+  const [factsApplied, setFactsApplied] = useState(false);
+  
+  useEffect(() => {
+    if (factsApplied || !quoteFacts || quoteFacts.length === 0) return;
+    // Wait for thread data to be loaded first
+    if (isLoading) return;
+
+    const factsMap = new Map(quoteFacts.map(f => [f.fact_key, f]));
+
+    // Project context: company
+    const companyFact = factsMap.get('contacts.client_company');
+    if (companyFact?.value_text && !projectContext.requesting_company) {
+      setProjectContext(prev => ({ ...prev, requesting_company: companyFact.value_text! }));
+    }
+
+    // Project context: requesting party (from email or company)
+    const emailFact = factsMap.get('contacts.client_email');
+    if (emailFact?.value_text && !projectContext.requesting_party) {
+      // Extract name from email (before @)
+      const name = emailFact.value_text.split('@')[0]
+        .replace(/[._-]/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+      setProjectContext(prev => ({ ...prev, requesting_party: name }));
+    }
+
+    // Destination port
+    const destPortFact = factsMap.get('routing.destination_port');
+    if (destPortFact?.value_text && destination === 'Dakar') {
+      setDestination(destPortFact.value_text);
+    }
+
+    // Final destination
+    const destCityFact = factsMap.get('routing.destination_city');
+    if (destCityFact?.value_text && !finalDestination) {
+      setFinalDestination(destCityFact.value_text);
+    }
+
+    // Cargo lines from facts (only if no lines exist yet)
+    if (cargoLines.length === 0) {
+      const newLines: CargoLine[] = [];
+      
+      const containersFact = factsMap.get('cargo.containers');
+      if (containersFact?.value_json) {
+        const containers = containersFact.value_json as Array<{ type: string; quantity: number }>;
+        if (Array.isArray(containers)) {
+          for (const c of containers) {
+            // Normalize container type: "40'" -> "40HC", "20'" -> "20DV"
+            let containerType = c.type.replace(/['\s]/g, '').toUpperCase();
+            if (containerType === '40') containerType = '40HC';
+            if (containerType === '20') containerType = '20DV';
+            
+            newLines.push({
+              id: crypto.randomUUID(),
+              description: factsMap.get('cargo.description')?.value_text || '',
+              origin: factsMap.get('routing.origin_port')?.value_text || '',
+              cargo_type: 'container',
+              container_type: containerType,
+              container_count: c.quantity || 1,
+              coc_soc: 'COC',
+            });
+          }
+        }
+      }
+      
+      if (newLines.length > 0) {
+        setCargoLines(newLines);
+      }
+    }
+
+    setFactsApplied(true);
+  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines]);
 
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
