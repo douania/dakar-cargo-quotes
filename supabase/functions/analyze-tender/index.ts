@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -71,6 +72,10 @@ serve(async (req) => {
   }
 
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const { attachmentId, documentText, emailId, createProject } = await req.json();
     
     console.log('[analyze-tender] Starting analysis', { attachmentId, emailId, hasText: !!documentText });

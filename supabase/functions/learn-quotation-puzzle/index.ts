@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -299,9 +300,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Phase S0: Auth guard (replaces getUserIdFromRequest — no more anonymous mode)
+  const authResult = await requireUser(req);
+  if (authResult instanceof Response) return authResult;
+  const { user: authUser } = authResult;
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
   if (!lovableApiKey) {
@@ -314,8 +319,8 @@ serve(async (req) => {
     const body = await req.json();
     const { threadId, emailId, mode = "sync", job_id, forceRefresh = false, phases = null } = body;
 
-    // Get user ID for ownership
-    const userId = await getUserIdFromRequest(req, supabaseUrl, supabaseAnonKey);
+    // User ID from auth guard (no more null/anonymous)
+    const userId = authUser.id as string;
 
     // ============================================
     // MODE: START - Create job and launch worker

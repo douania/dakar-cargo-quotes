@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { requireUser } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/runtime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -151,16 +153,29 @@ serve(async (req) => {
   }
 
   try {
-    const { messages } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    // Phase S0: Auth guard + rate limiting
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Rate limit: 30 req/min
+    const rateCheck = await checkRateLimit(supabase, auth.user.id as string, 'chat');
+    if (!rateCheck.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded", retryAfterMs: rateCheck.retryAfterMs }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { messages } = await req.json();
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log("Received chat request with", messages.length, "messages");
 

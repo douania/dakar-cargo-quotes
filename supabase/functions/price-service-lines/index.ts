@@ -28,6 +28,7 @@ import {
   structuredLog,
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 const FUNCTION_NAME = "price-service-lines";
 
@@ -454,24 +455,18 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
 
   try {
-    // ═══ Auth: JWT validation ═══
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return respondError({ code: "AUTH_MISSING_JWT", message: "Missing authorization", correlationId });
-    }
+    // ═══ Phase S0: Unified auth guard ═══
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const jwtClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: `Bearer ${auth.token}` } },
     });
-
-    const { data: { user }, error: authError } = await jwtClient.auth.getUser();
-    if (authError || !user) {
-      return respondError({ code: "AUTH_INVALID_JWT", message: "Invalid token", correlationId });
-    }
 
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 

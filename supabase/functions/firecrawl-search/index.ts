@@ -1,3 +1,7 @@
+import { requireUser } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/runtime.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -9,6 +13,19 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Phase S0: Auth guard + rate limiting
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
+    const serviceClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const rateCheck = await checkRateLimit(serviceClient, auth.user.id as string, 'firecrawl-search');
+    if (!rateCheck.allowed) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Rate limit exceeded" }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { query, options } = await req.json();
 
     if (!query) {
