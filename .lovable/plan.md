@@ -1,66 +1,74 @@
 
 
-# Phase DASHBOARD-SEARCH-FIX — Recherche dans body_html
+# Phase DASHBOARD-SEARCH-V2 — Recherche serveur pour les demandes
 
-## Cause racine
+## Diagnostic approfondi
 
-Le mot "Usmani" se trouve uniquement dans le champ `body_html` (signature email), pas dans `body_text`, `subject` ni `from_address`. Le Dashboard ne filtre actuellement que sur ces 3 champs, ce qui rend l'email invisible a la recherche.
+L'email "usmani" existe en base, est marque `is_quotation_request = true`, contient "usmani" dans `body_text` ET `body_html`, et se situe dans le top 100 par date. La requete Supabase retourne bien un statut 200.
 
-Le module "Gestion emails" fonctionne car il utilise la Edge Function `search-emails` qui interroge le contenu HTML cote serveur.
+Le probleme reel : **la reponse de la requete est trop volumineuse**. Avec 100 emails contenant chacun `body_text` (~70 Ko) et `body_html` (~100 Ko), la reponse atteint environ **17 Mo**. Cela cause probablement :
+- Un timeout du `withTimeout()` avant que toutes les donnees soient recues
+- Ou une troncature silencieuse des champs texte volumineux
 
-## Solution
+## Solution : double approche
 
-Modifier le Dashboard pour :
+### 1. Ne plus charger body_text/body_html dans la requete de liste
 
-1. **Charger `body_html` dans la requete Supabase** (ajouter ce champ au `select`)
-2. **Inclure `body_html` dans le filtre de recherche** client-side
-
-## Modifications (1 seul fichier)
+La liste du Dashboard n'affiche jamais le contenu du body. Ces champs sont charges inutilement et alourdissent la reponse.
 
 **Fichier** : `src/pages/Dashboard.tsx`
 
-### Changement 1 — Requete Supabase (ligne 65)
-
-Ajouter `body_html` au select :
+Retirer `body_text` et `body_html` du `.select()` initial :
 
 ```text
-Avant :  .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
-Apres :  .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
+Avant :  .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
+Apres :  .select('id, subject, from_address, received_at, extracted_data, thread_id')
 ```
 
-### Changement 2 — Interface QuotationRequest (ligne 38)
+### 2. Recherche serveur-side via ilike quand un terme est saisi
 
-Ajouter le champ optionnel :
+Quand `searchQuery` n'est pas vide, effectuer une **seconde requete** filtree cote serveur avec `.or()` sur `subject`, `from_address`, `body_text` et `body_html` :
 
 ```text
-body_html?: string;
+supabase
+  .from('emails')
+  .select('id, subject, from_address, received_at, extracted_data, thread_id')
+  .eq('is_quotation_request', true)
+  .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
+  .order('received_at', { ascending: false })
+  .limit(50)
 ```
 
-### Changement 3 — Filtre de recherche (lignes 158-164)
+### 3. Debounce de la recherche
 
-Ajouter `body_html` au filtre :
+Ajouter un debounce de 400ms pour eviter de lancer une requete a chaque frappe.
 
-```text
-Avant :
-  r.subject?.toLowerCase().includes(q) ||
-  r.from_address?.toLowerCase().includes(q) ||
-  r.body_text?.toLowerCase().includes(q)
+### Detail des modifications
 
-Apres :
-  r.subject?.toLowerCase().includes(q) ||
-  r.from_address?.toLowerCase().includes(q) ||
-  r.body_text?.toLowerCase().includes(q) ||
-  r.body_html?.toLowerCase().includes(q)
-```
+**Fichier unique** : `src/pages/Dashboard.tsx`
 
-## Resume
+1. Retirer `body_text` et `body_html` du select principal (alleger la reponse de ~17 Mo a ~500 Ko)
+2. Retirer `body_text` et `body_html` de l'interface `QuotationRequest` (plus necessaires)
+3. Ajouter un etat `searchResults` et `isSearching` pour la recherche serveur
+4. Ajouter un `useEffect` avec debounce qui lance une requete serveur quand `searchQuery` change
+5. Afficher `searchResults` au lieu de `filteredRequests` quand une recherche est active
+6. Garder le filtre client-side sur `subject` et `from_address` pour le filtrage instantane sur ces champs visibles
+
+### Comportement attendu
+
+| Action | Comportement |
+|---|---|
+| Page chargee sans recherche | Affiche les 100 derniers emails (leger, sans body) |
+| Saisie dans le champ recherche | Apres 400ms, requete serveur avec ilike sur 4 champs |
+| Resultats trouves | Affiche les emails correspondants |
+| Effacement du champ | Retour a la liste complete |
+
+### Impact
 
 | Element | Valeur |
 |---|---|
 | Fichier modifie | `src/pages/Dashboard.tsx` uniquement |
-| Lignes modifiees | 3 |
+| Taille reponse initiale | ~17 Mo vers ~500 Ko |
 | Migration DB | Aucune |
 | Edge Functions | Aucune |
-| Cause | "Usmani" present dans `body_html` uniquement (signature email) |
-| Risque | Minimal — `body_html` peut etre volumineux, mais le filtre est local et le nombre d'emails est limite a 100 |
-
+| Risque | Tres faible — les requetes ilike sont nativement supportees par PostgREST |
