@@ -34,6 +34,7 @@ interface QuotationRequest {
   from_address: string;
   received_at: string;
   body_text: string;
+  body_html?: string;
   extracted_data: any;
   thread_id?: string;
   attachmentCount?: number;
@@ -62,7 +63,7 @@ export default function Dashboard() {
       const { data: emails, error: emailsError } = await withTimeout(
         supabase
           .from('emails')
-          .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
+          .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
           .eq('is_quotation_request', true)
           .order('received_at', { ascending: false })
           .limit(100)
@@ -162,7 +163,8 @@ export default function Dashboard() {
     return (
       r.subject?.toLowerCase().includes(q) ||
       r.from_address?.toLowerCase().includes(q) ||
-      r.body_text?.toLowerCase().includes(q)
+      r.body_text?.toLowerCase().includes(q) ||
+      r.body_html?.toLowerCase().includes(q)
     );
   });
 
