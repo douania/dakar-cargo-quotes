@@ -143,3 +143,6 @@ verify_jwt = true
 
 [functions.import-historical-quotation]
 verify_jwt = false
+
+[functions.find-similar-quotations]
+verify_jwt = false
