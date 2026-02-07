@@ -1,145 +1,102 @@
 
 
-# Phase M3.3.1 — Fact extraction debug + form population from quote_facts
+# Correctif M3.5.1 — Deux bugs identifes
 
 ## Diagnostic
 
-Investigation complete. Two distinct issues identified:
+Le `PORT_COUNTRY_MAP` fonctionne correctement (les logs montrent `destCountry=SN, originCountry=SA`). Mais le flow reste `UNKNOWN` pour deux raisons distinctes.
 
-### Issue 1: "Extraction des faits partiellement echouee" toast (false alarm)
+### Bug 1 : `hasContainers` toujours `false`
 
-The toast fires at line 391-393 of `QuotationSheet.tsx`:
+Le fait `cargo.containers` est stocke avec :
+- `value_text = null`
+- `value_json = [{quantity: 2, type: "40'"}]`
+
+Mais le code qui construit la `factMap` (ligne 285) fait :
+
+```text
+value: f.value_text || String(f.value_number || '')
 ```
-if (puzzleError) {
-  toast.warning('Extraction des faits partiellement échouée');
-}
+
+Resultat : `value = ""` (chaine vide), donc `!!factMap.get('cargo.containers')?.value` = `false`.
+
+**Correction** : dans la construction de la factMap, si `value_text` est null et `value_json` existe, utiliser `JSON.stringify(value_json)` comme valeur.
+
+Ligne concernee dans `build-case-puzzle/index.ts` (~ligne 285) :
+
+```text
+// Avant
+value: f.value_text || String(f.value_number || '')
+
+// Apres
+value: f.value_text || (f.value_json ? JSON.stringify(f.value_json) : '') || String(f.value_number || '')
 ```
 
-However, the `supabase.functions.invoke` method sets `error` when the HTTP response is non-2xx. The edge function returns status **207** (Multi-Status) when there are partial fact errors. But in reality, the current case has **zero errors** -- all 7 facts were successfully stored. The toast was from a previous invocation attempt.
+Cela rendra `hasContainers = true` pour ce cas.
 
-The real problem: on subsequent clicks of "Demarrer l'analyse", the function skips `build-case-puzzle` entirely (because `factsCount > 0` at line 383), so no new extraction happens. The toast is stale/misleading.
+### Bug 2 : "Analyser la demande" n'appelle pas `build-case-puzzle`
 
-**Fix**: Distinguish HTTP 207 from real errors. If the response has `facts_added > 0`, treat as partial success, not failure.
+Le bouton "Analyser la demande" dans `QuotationHeader` appelle la fonction `qualify-quotation-minimal`. Cette fonction est un module **stateless de Phase 8.8** qui genere des questions de clarification pour le client. Elle ne connait pas et n'utilise pas le moteur d'hypotheses M3.5.1.
 
-### Issue 2: Form fields not populated (the REAL problem)
+Le bouton "Re-analyser le dossier" (ajoute recemment) appelle bien `build-case-puzzle`, mais il est petit et peu visible.
 
-The form fields (Demandeur, Societe, Port de destination, Marchandises, etc.) are populated by `applyConsolidatedData()` which reads from **email text parsing** (`consolidateThreadData`). This is pattern-matching on email body text -- it does NOT read from `quote_facts`.
+**Correction** : le flux "Analyser la demande" doit d'abord lancer `build-case-puzzle` (qui injecte les assumptions M3.5.1), puis seulement si des gaps bloquants subsistent, appeler `qualify-quotation-minimal` pour generer les questions.
 
-Meanwhile, `quote_facts` contains correctly extracted data:
+### Flux corrige
 
-| fact_key | value |
+```text
+Bouton "Analyser la demande" clique
+       |
+       v
+1. Appel build-case-puzzle (extraction + M3.4 + M3.5.1)
+       |
+       v
+2. Verifier les gaps bloquants restants
+       |
+       +-- gaps bloquants > 0 --> Appel qualify-quotation-minimal --> questions client
+       |
+       +-- gaps bloquants = 0 --> Toast "Dossier complet, pret pour decisions"
+```
+
+## Modifications
+
+### Fichier 1 : `supabase/functions/build-case-puzzle/index.ts`
+
+**Changement unique** : Ligne ~285, corriger la construction de la factMap pour inclure `value_json`.
+
+### Fichier 2 : `src/pages/QuotationSheet.tsx`
+
+**Changement** : Dans la fonction `handleRequestClarification` (qui est passee au bouton "Analyser la demande"), ajouter un appel a `build-case-puzzle` en amont de `qualify-quotation-minimal`. Enchainer les deux etapes :
+
+1. Lancer `build-case-puzzle` avec le `thread_id` et `case_id`
+2. Verifier si des gaps bloquants restent
+3. Seulement si oui, lancer `qualify-quotation-minimal`
+4. Si non, afficher un toast de succes
+
+### Fichier 3 : Suppression du bouton "Re-analyser" separe
+
+Le bouton "Re-analyser le dossier" devient inutile car "Analyser la demande" fera desormais les deux etapes. Il sera supprime pour eviter la confusion.
+
+## Ce qui ne change pas
+
+| Element | Impact |
 |---|---|
-| contacts.client_email | bilal@aboudisa.com |
-| contacts.client_company | ABOUDI Logistics Services Co. |
-| routing.origin_port | Dammam |
-| routing.destination_port | Dakar |
-| routing.destination_city | Bamako |
-| cargo.description | Fortuner (Vehicle), Pickup (Vehicle) |
-| cargo.containers | [{type: "40'", quantity: 2}] |
+| Edge function `build-case-puzzle` | Correctif mineur (1 ligne) |
+| Edge function `qualify-quotation-minimal` | Aucun |
+| Pricing engine | Aucun |
+| Schema DB | Aucun |
+| Hierarchie des sources | Inchangee |
+| RLS | Aucun |
 
-But the form shows empty fields because `consolidateThreadData()` fails to parse this particular email's format (MIME-encoded, plain text with headers).
+## Resultat attendu apres correctif
 
-**Fix**: After `applyConsolidatedData`, overlay any missing fields with data from `quote_facts` if a quote_case exists.
+Pour le cas Aboudi (Dammam vers Dakar, 2x 40' conteneurs, vehicules) :
 
-## Solution
-
-### File 1: `src/pages/QuotationSheet.tsx`
-
-**Change A** -- Fix the 207 toast handling (lines 387-397):
-
-```text
-Before:
-  if (puzzleError) {
-    toast.warning('Extraction des faits partiellement échouée');
-  } else {
-    toast.success('...');
-  }
-
-After:
-  if (puzzleError) {
-    // Check if it's a 207 partial success (facts were added despite some errors)
-    const isPartialSuccess = puzzleData?.facts_added > 0;
-    if (isPartialSuccess) {
-      toast.info(`Extraction partielle: ${puzzleData.facts_added} faits extraits`);
-    } else {
-      toast.warning('Extraction des faits échouée');
-    }
-  } else {
-    toast.success(`Extraction terminée: ${puzzleData?.facts_added || 0} faits`);
-  }
-```
-
-**Change B** -- Add a new function `applyFactsToForm()` that reads `quote_facts` and fills empty form fields:
-
-After `applyConsolidatedData` completes (and after `useQuoteCaseData` returns data), overlay empty fields:
-
-```text
-function applyFactsToForm():
-  1. Query quote_facts for the case_id (via useQuoteCaseData or direct query)
-  2. For each fact_key, if the corresponding form field is still empty/default:
-     - contacts.client_email -> projectContext.requesting_party (extract name from email)
-     - contacts.client_company -> projectContext.requesting_company
-     - routing.destination_port -> destination
-     - routing.destination_city -> finalDestination
-     - routing.origin_port -> (not directly shown, but useful for context)
-     - cargo.description -> cargoLines[0].description
-     - cargo.containers -> cargoLines (create lines from container data)
-```
-
-### File 2: `src/hooks/useQuoteCaseData.ts`
-
-**Change C** -- Expose the facts array (currently only exposes `factsCount` and `blockingGaps`):
-
-Add a `facts` field to the return value so `QuotationSheet` can read the actual fact values.
-
-## Implementation detail
-
-The fact overlay will use a `useEffect` that watches `quoteCase` and `facts`:
-
-```text
-useEffect(() => {
-  if (!facts || facts.length === 0) return;
-
-  const factsMap = new Map(facts.map(f => [f.fact_key, f]));
-
-  // Only fill if form field is empty/default
-  if (!projectContext.requesting_party && factsMap.has('contacts.client_email')) {
-    // Extract name from email or use company
-    const company = factsMap.get('contacts.client_company')?.value_text;
-    if (company) setProjectContext(prev => ({...prev, requesting_company: company}));
-  }
-
-  if (destination === 'Dakar' && factsMap.has('routing.destination_port')) {
-    setDestination(factsMap.get('routing.destination_port').value_text);
-  }
-
-  if (!finalDestination && factsMap.has('routing.destination_city')) {
-    setFinalDestination(factsMap.get('routing.destination_city').value_text);
-  }
-
-  if (cargoLines.length === 0 && factsMap.has('cargo.containers')) {
-    const containers = factsMap.get('cargo.containers').value_json;
-    // Create cargo lines from container facts
-  }
-}, [facts]);
-```
-
-## Files modified
-
-| File | Change |
-|---|---|
-| `src/hooks/useQuoteCaseData.ts` | Expose `facts` array in return value |
-| `src/pages/QuotationSheet.tsx` | Fix 207 toast + add `applyFactsToForm` overlay |
-
-## What does NOT change
-
-- No edge function modifications
-- No database migration
-- No new tables
-- No UI component changes
-- The existing email text parsing continues to work as before; facts just fill any gaps it misses
-
-## Risk
-
-Low -- facts overlay only fills empty/default fields, never overwrites user input.
+1. Clic sur "Analyser la demande"
+2. `build-case-puzzle` s'execute
+3. `detectFlowType` : destCountry=SN, hasContainers=true --> `IMPORT_PROJECT_DAP`
+4. Assumptions injectees : `service.package = DAP_PROJECT_IMPORT`, `regulatory.dpi_expected = true`
+5. Gaps reduits grace aux assumptions
+6. Si gaps restants : questions de clarification generees
+7. Si aucun gap : toast "Dossier complet"
 
