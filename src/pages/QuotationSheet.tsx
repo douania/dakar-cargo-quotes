@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -551,10 +551,17 @@ L'équipe SODATRA`;
   // ═══════════════════════════════════════════════════════════════════
   const [factsApplied, setFactsApplied] = useState(false);
   
+  // M3.7 P0-3: Guard anti-boucle pricing — clé = caseId + overlayRun counter
+  const pricingGuardRef = useRef<string | null>(null);
+  const overlayRunCounterRef = useRef(0);
+  
   useEffect(() => {
     if (factsApplied || !quoteFacts || quoteFacts.length === 0) return;
     // Wait for thread data to be loaded first
     if (isLoading) return;
+
+    // Increment overlay run counter on each overlay execution
+    overlayRunCounterRef.current += 1;
 
     const factsMap = new Map(quoteFacts.map(f => [f.fact_key, f]));
 
@@ -642,12 +649,76 @@ L'équipe SODATRA`;
         }
         if (autoLines.length > 0) {
           setServiceLines(autoLines);
+          
+          // ── M3.7: Auto-pricing after service injection ──
+          const caseId = quoteCase?.id;
+          const guardKey = `${caseId}:${overlayRunCounterRef.current}`;
+          if (caseId && pricingGuardRef.current !== guardKey) {
+            pricingGuardRef.current = guardKey;
+            // Async, non-blocking pricing call
+            callPriceServiceLines(caseId, autoLines).catch((err) => {
+              console.warn('[M3.7] Auto-pricing failed (non-blocking):', err);
+            });
+          }
         }
       }
     }
 
     setFactsApplied(true);
-  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, serviceLines, setServiceLines]);
+  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, serviceLines, setServiceLines, quoteCase?.id]);
+  
+  // ── M3.7: Price service lines edge function call ──
+  const callPriceServiceLines = useCallback(async (caseId: string, lines: ServiceLine[]) => {
+    const unpricedLines = lines.filter(l => l.rate === undefined || l.rate === null);
+    if (unpricedLines.length === 0) return;
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('price-service-lines', {
+        body: {
+          case_id: caseId,
+          service_lines: unpricedLines.map(l => ({
+            id: l.id,
+            service: l.service,
+            unit: l.unit,
+            quantity: l.quantity,
+            currency: l.currency,
+          })),
+        },
+      });
+      
+      if (error) {
+        console.warn('[M3.7] price-service-lines error:', error);
+        return;
+      }
+      
+      const result = data?.data || data;
+      const pricedLines = result?.priced_lines || [];
+      let pricedCount = 0;
+      
+      for (const pl of pricedLines) {
+        if (pl.rate !== null && pl.rate !== undefined) {
+          updateServiceLine(pl.id, { 
+            rate: pl.rate, 
+            currency: pl.currency === 'XOF' ? 'FCFA' : pl.currency,
+          });
+          pricedCount++;
+        }
+      }
+      
+      const totalLines = pricedLines.length;
+      const missingCount = totalLines - pricedCount;
+      
+      if (pricedCount > 0 && missingCount === 0) {
+        toast.success(`${pricedCount}/${totalLines} services pricés automatiquement`);
+      } else if (pricedCount > 0) {
+        toast.info(`${pricedCount}/${totalLines} services pricés — ${missingCount} à compléter`);
+      } else if (totalLines > 0) {
+        toast.warning(`Aucun service pricé automatiquement — ${totalLines} à compléter`);
+      }
+    } catch (err) {
+      console.warn('[M3.7] Auto-pricing exception (non-blocking):', err);
+    }
+  }, [updateServiceLine]);
 
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching

@@ -31,6 +31,7 @@ export const serviceTemplates = [
   { service: 'BORDER_FEES', description: 'Frais frontière', unit: 'forfait' },
   { service: 'AGENCY', description: 'Frais agence', unit: 'forfait' },
   { service: 'SURVEY', description: 'Survey port + site', unit: 'forfait' },
+  { service: 'CUSTOMS_BAMAKO', description: 'Dédouanement Bamako', unit: 'déclaration' },
 ];
 
 /**
