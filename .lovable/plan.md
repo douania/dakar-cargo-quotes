@@ -1,149 +1,122 @@
 
+# Phase M2.1 — Import historique reel des cotations (corrections CTO appliquees)
 
-# PHASE M1.4.3 — Elimination des regles implicites (THD/THO regex)
+## Corrections CTO integrees
 
-## Constat apres analyse du code
+### Correction 1 — Securite Edge Function
 
-La fonction `determineTariffCategory()` (lignes 731-761) et `fetchCarrierTHD()` (lignes 876-894) sont actuellement definies mais **non appelees** dans `generateQuotationLines`. Ce sont des fonctions preparees pour le matching carrier-specific THD (Hapag-Lloyd categories T01-T14).
+`verify_jwt = true` dans config.toml. La fonction valide le JWT via `getUser()` (meme pattern que `commit-decision`). Seul un utilisateur authentifie peut appeler la fonction. Pas de `verify_jwt = false`.
 
-Malgre leur statut de "code mort", elles contiennent 6 regles regex hardcodees qui seront activees a terme. L'objectif M1.4.3 reste pertinent : rendre ces regles table-driven **avant** qu'elles ne soient connectees.
+### Correction 2 — Transaction atomique via RPC SQL
+
+L'insertion des 3 tables se fait via une fonction RPC `insert_historical_quotation_atomic` qui execute tout dans une seule transaction PostgreSQL. Si une insertion echoue, tout est rollback automatiquement.
 
 ---
 
 ## Etape 1 — Migration SQL
 
-Creer la table `tariff_category_rules` et seeder 7 regles :
+### 1a. Tables (identiques au plan initial)
+
+- `historical_quotations` : cotation principale (source, client, route, cargo, valeur)
+- `historical_quotation_lines` : lignes tarifaires avec FK CASCADE
+- `historical_quotation_metadata` : metadonnees avec FK CASCADE
+
+### 1b. RLS
+
+- RLS active sur les 3 tables
+- SELECT : public read (`true`)
+- INSERT/UPDATE/DELETE : aucune policy client (service role uniquement)
+
+### 1c. Fonction RPC transactionnelle
 
 ```text
-tariff_category_rules
-  id              uuid PK default gen_random_uuid()
-  category_code   varchar NOT NULL
-  category_name   text NOT NULL
-  match_patterns  text[] NOT NULL
-  priority        integer NOT NULL default 10
-  carrier         varchar default 'ALL'
-  is_active       boolean default true
-  source_document varchar NOT NULL
-  notes           text
-  created_at      timestamptz default now()
+insert_historical_quotation_atomic(
+  p_quotation jsonb,
+  p_lines jsonb,
+  p_metadata jsonb
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
 ```
 
-RLS : SELECT public read (comme les autres tables de reference).
+Logique :
+1. INSERT dans `historical_quotations` -> recupere `v_quotation_id`
+2. Pour chaque element de `p_lines` : INSERT dans `historical_quotation_lines` avec `quotation_id = v_quotation_id`
+3. Si `p_metadata` est non-null : INSERT dans `historical_quotation_metadata` avec `quotation_id = v_quotation_id`
+4. Si erreur a n'importe quelle etape : rollback automatique (comportement natif PL/pgSQL)
+5. RETURN `v_quotation_id`
 
-### Seed (7 regles, bilingues FR+EN)
-
-| category_code | category_name | priority | match_patterns (extrait) | source_document |
-|---------------|--------------|----------|--------------------------|-----------------|
-| T09 | Vehicules, Machines, Equipements | 10 | vehicle, truck, tractor, generator, transformer, vehicule, tracteur, generateur, transformateur | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T01 | Boissons, Chimie, Accessoires | 20 | drink, beverage, chemical, pump, valve, boisson, chimique, pompe | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T05 | Cereales, Ciment, Engrais | 30 | cereal, wheat, rice, cement, fertilizer, cereale, ble, riz, ciment, engrais | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T14 | Produits metallurgiques | 40 | steel, iron, metal, pipe, tube, beam, acier, fer, tuyau, poutre | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T07 | Textiles, Materiaux construction | 50 | textile, fabric, building, cotton, tile, tissu, coton, brique, carrelage | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T12 | Produits divers | 60 | mixed, general, various, divers, melange | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
-| T02 | Categorie generale (defaut) | 999 | (tableau vide — applique si aucun match) | Hapag-Lloyd tariff classification rules -- TO_VERIFY |
+Acces : `REVOKE ALL ON FUNCTION ... FROM PUBLIC; GRANT EXECUTE ON FUNCTION ... TO service_role;`
 
 ---
 
-## Etape 2 — Modification du moteur (chirurgicale)
+## Etape 2 — Edge Function
 
-Fichier : `supabase/functions/quotation-engine/index.ts`
+Fichier : `supabase/functions/import-historical-quotation/index.ts`
 
-### 2a. Ajouter la fonction de chargement (dans le bloc des loaders existants)
-
-```typescript
-interface TariffCategoryRule {
-  category_code: string;
-  category_name: string;
-  match_patterns: string[];
-  priority: number;
-  carrier: string;
-}
-
-async function loadTariffCategoryRules(supabase: any): Promise<TariffCategoryRule[]> {
-  const { data, error } = await supabase
-    .from('tariff_category_rules')
-    .select('category_code, category_name, match_patterns, priority, carrier')
-    .eq('is_active', true)
-    .order('priority', { ascending: true });
-
-  if (error || !data || data.length === 0) {
-    console.warn('tariff_category_rules: DB vide ou erreur, fallback regex');
-    return [];
-  }
-  return data;
-}
+Config.toml :
+```text
+[functions.import-historical-quotation]
+verify_jwt = true
 ```
 
-### 2b. Remplacer `determineTariffCategory` (signature synchrone conservee)
+Pattern d'authentification (identique a `commit-decision`) :
+1. Extraire `Authorization` header
+2. Creer `userClient` avec le token
+3. Appeler `getUser()` pour valider le JWT
+4. Utiliser `serviceClient` (service_role) pour appeler la RPC
 
-Correction CTO appliquee : la fonction reste synchrone, les regles sont pre-chargees.
+Logique :
+1. Valider le JWT (AUTH_MISSING_JWT / AUTH_INVALID_JWT si echec)
+2. Valider l'entree (VALIDATION_FAILED si `source_type` ou `destination_country` manquant)
+3. Appeler la RPC `insert_historical_quotation_atomic` via `serviceClient.rpc(...)`
+4. Retourner `respondOk` avec l'ID et le nombre de lignes
+5. `logRuntimeEvent` avant chaque return
 
-```typescript
-function determineTariffCategory(
-  cargoDescription: string,
-  rules: TariffCategoryRule[]
-): string {
-  // DB-backed matching (M1.4.3)
-  if (rules.length > 0) {
-    const desc = cargoDescription.toLowerCase();
-    for (const rule of rules) {
-      if (rule.match_patterns.length === 0) continue; // default rule
-      const matched = rule.match_patterns.some(p => desc.includes(p.toLowerCase()));
-      if (matched) return rule.category_code;
-    }
-    // Return default rule if exists
-    const defaultRule = rules.find(r => r.match_patterns.length === 0);
-    if (defaultRule) return defaultRule.category_code;
-  }
-
-  // @deprecated M1.4.3 — fallback regex (graceful degradation)
-  const desc = cargoDescription.toLowerCase();
-  if (desc.match(/power plant|generator|transformer|vehicle|truck|.../)) return 'T09';
-  // ... existing regex blocks preserved as fallback ...
-  return 'T02';
-}
-```
-
-### 2c. Pre-charger les regles dans `generateQuotationLines`
-
-Ajouter le chargement dans le bloc existant "0. LOAD DB-BACKED RULES" (ligne 1057) :
-
-```typescript
-const [dbIncoterms, dbZones, tariffCategoryRules] = await Promise.all([
-  loadIncotermsFromDB(supabase),
-  loadDeliveryZonesFromDB(supabase),
-  loadTariffCategoryRules(supabase),
-]);
-```
-
-Les appels futurs a `determineTariffCategory` utiliseront `tariffCategoryRules` en parametre. Puisque la fonction n'est pas encore appelee dans le flux principal, cela n'a pas d'impact fonctionnel immediat mais prepare le terrain.
+Runtime Contract respecte : correlationId, respondOk/respondError, logRuntimeEvent, taxonomie d'erreurs standard.
 
 ---
 
-## Fichiers modifies
+## Etape 3 — Test
 
-| Fichier | Changement |
-|---------|-----------|
-| Migration SQL (nouveau) | Creer table `tariff_category_rules` + seed 7 regles + RLS |
-| `supabase/functions/quotation-engine/index.ts` | Ajouter loader, modifier signature `determineTariffCategory`, pre-charger dans `generateQuotationLines` |
+Appel via curl avec JWT valide + JSON de test :
+```text
+{
+  "quotation": { "source_type": "manual", "client_name": "Test Client", ... },
+  "lines": [{ "bloc": "debours", "category": "THC", "amount": 110000, ... }],
+  "metadata": { "hs_code": "870899", "carrier": "MSC", ... }
+}
+```
+
+Verifications :
+1. Insertion OK (3 tables)
+2. FK coherentes
+3. Suppression cascade
+4. Rejet si JWT absent (401)
+5. Rejet si champs obligatoires manquants (400)
+
+---
+
+## Fichiers crees/modifies
+
+| Fichier | Action |
+|---------|--------|
+| Migration SQL | 3 tables + RLS + RPC `insert_historical_quotation_atomic` |
+| `supabase/functions/import-historical-quotation/index.ts` | Nouveau |
+| `supabase/config.toml` | Ajout `[functions.import-historical-quotation] verify_jwt = true` |
 
 ## Fichiers NON modifies
 
-- Aucun fichier UI
-- Aucun changement d'API
-- `_shared/quotation-rules.ts` : pas touche
+- Zero fichier UI
+- Zero modification moteur quotation-engine
+- Zero modification API existante
 
 ## Verification post-execution
 
-1. Requete DB : 7 regles presentes dans `tariff_category_rules`, toutes avec `source_document` non-NULL
-2. Deploiement du moteur : aucune erreur
-3. Appel moteur standard : resultat identique (la fonction n'est pas encore dans le chemin d'execution principal)
-
-## Critere de fin M1.4.3
-
-- Table `tariff_category_rules` creee et seedee avec 7 regles bilingues
-- `determineTariffCategory()` lit les regles en parametre (signature synchrone)
-- Regex conserves comme fallback `@deprecated`
-- Pre-chargement integre dans le flux principal
-- Zero changement d'API, zero changement UI
-
+1. 3 tables creees avec RLS active
+2. RPC `insert_historical_quotation_atomic` presente, acces restreint a `service_role`
+3. Edge Function deployee sans erreur
+4. Test curl avec JWT : insertion transactionnelle OK
+5. Test curl sans JWT : rejet 401
+6. Test cascade : suppression quotation supprime lines + metadata
