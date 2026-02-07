@@ -36,6 +36,14 @@ interface SearchResult {
   data: Record<string, unknown>;
 }
 
+interface EmailSearchResult {
+  id: string;
+  subject: string | null;
+  from_address: string;
+  received_at: string | null;
+  is_quotation_request: boolean | null;
+}
+
 const categoryConfig: Record<string, { icon: React.ElementType; label: string; color: string }> = {
   tarif: { icon: DollarSign, label: 'Tarifs', color: 'text-green-600' },
   contact: { icon: Users, label: 'Contacts', color: 'text-blue-600' },
@@ -55,6 +63,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [emailResults, setEmailResults] = useState<EmailSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
 
@@ -86,9 +95,11 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
 
         if (error) throw error;
         setResults(data?.results || []);
+        setEmailResults(data?.emails || []);
       } catch (err) {
         console.error('Search error:', err);
         setResults([]);
+        setEmailResults([]);
       } finally {
         setIsSearching(false);
       }
@@ -104,6 +115,12 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
     setOpen(false);
     setQuery('');
   }, [onSelectResult]);
+
+  const handleSelectEmail = useCallback((email: EmailSearchResult) => {
+    navigate(`/quotation/${email.id}`);
+    setOpen(false);
+    setQuery('');
+  }, [navigate]);
 
   const handleViewAll = useCallback(() => {
     navigate('/admin/knowledge');
@@ -155,7 +172,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
 
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandInput 
-          placeholder="Rechercher contacts, tarifs, conditions..." 
+          placeholder="Rechercher contacts, tarifs, emails..." 
           value={query}
           onValueChange={setQuery}
         />
@@ -166,7 +183,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
             </div>
           )}
           
-          {!isSearching && query.length >= 2 && results.length === 0 && (
+          {!isSearching && query.length >= 2 && results.length === 0 && emailResults.length === 0 && (
             <CommandEmpty>Aucun résultat pour "{query}"</CommandEmpty>
           )}
 
@@ -235,7 +252,41 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
             );
           })}
 
-          {results.length > 0 && (
+          {emailResults.length > 0 && (
+            <>
+              {results.length > 0 && <CommandSeparator />}
+              <CommandGroup heading="Emails">
+                {emailResults.map((email) => (
+                  <CommandItem
+                    key={email.id}
+                    value={`${email.subject || ''} ${email.from_address}`}
+                    onSelect={() => handleSelectEmail(email)}
+                    className="flex items-center justify-between cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Mail className="h-4 w-4 shrink-0 text-primary" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">
+                          {email.subject || '(sans sujet)'}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {email.from_address}
+                          {email.received_at && ` · ${new Date(email.received_at).toLocaleDateString('fr-FR')}`}
+                        </p>
+                      </div>
+                    </div>
+                    {email.is_quotation_request && (
+                      <Badge variant="secondary" className="text-xs shrink-0 ml-2">
+                        Demande
+                      </Badge>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+
+          {(results.length > 0 || emailResults.length > 0) && (
             <>
               <CommandSeparator />
               <CommandGroup>
