@@ -33,7 +33,9 @@ const EXCLUDED_SENDERS = [
   'google.com', 'accounts.google',
   'microsoft.com', 'office365',
   'zoom.us', 'teams.microsoft',
-  'dropbox.com', 'wetransfer.com'
+  'dropbox.com', 'wetransfer.com',
+  // TLD marketing
+  '.shop', '.vip', '.store', '.promo', '.deals', '.sale'
 ];
 
 // Sujets à exclure (notifications bancaires, LinkedIn, etc.)
@@ -62,7 +64,13 @@ const EXCLUDED_SUBJECTS = [
   'verify your email', 'vérifiez votre email',
   'account security', 'sécurité du compte',
   // Autres
-  'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique'
+  'out of office', 'absence du bureau', 'automatic reply', 'réponse automatique',
+  // Marketing/Promotions
+  'invitation', 'conference', 'webinar', 'summit', 'meet global',
+  'bouquet', 'offre spéciale', 'special offer', 'promo ',
+  'black friday', 'soldes', 'flash sale', 'limited time',
+  'your daily', 'daily digest', 'weekly report',
+  'say it with', 'parfait', 'official invitation'
 ];
 
 // Clean Outlook spam prefix from subject (these are often false positives)
@@ -107,6 +115,13 @@ const QUOTATION_KEYWORDS = [
 
 function isQuotationRelated(from: string, subject: string, body: string): boolean {
   const fromLower = from.toLowerCase();
+  
+  // 0. REJETER les expéditeurs invalides
+  if (!from || fromLower.trim() === '' || fromLower === 'unknown@unknown.com') {
+    console.log(`Email excluded - invalid sender: ${from}`);
+    return false;
+  }
+  
   // Clean spam prefix before checking - "Spam:" alone is not an exclusion indicator
   const cleanedSubject = cleanSpamPrefix(subject);
   const subjectLower = cleanedSubject.toLowerCase();
@@ -118,21 +133,28 @@ function isQuotationRelated(from: string, subject: string, body: string): boolea
     return false;
   }
   
+  // 1b. EXCLURE si TLD marketing
+  const senderDomain = extractDomain(from);
+  if (['.shop', '.vip', '.store', '.promo', '.deals', '.sale'].some(tld => senderDomain.endsWith(tld.substring(1)))) {
+    console.log(`Email excluded - marketing TLD: ${from}`);
+    return false;
+  }
+  
   // 2. EXCLURE si sujet (nettoyé) dans la liste noire
   if (EXCLUDED_SUBJECTS.some(subj => subjectLower.includes(subj.toLowerCase()))) {
     console.log(`Email excluded - subject blacklisted: ${cleanedSubject}`);
     return false;
   }
   
-  // 3. INCLURE si mots-clés positifs trouvés dans sujet ou corps
+  // 3. INCLURE si au moins 2 mots-clés positifs trouvés (seuil strict)
   const text = `${subjectLower} ${bodyLower}`;
-  const hasKeyword = QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+  const matchCount = QUOTATION_KEYWORDS.filter(kw => text.includes(kw.toLowerCase())).length;
   
-  if (hasKeyword) {
-    console.log(`Email included - quotation keyword found in: ${cleanedSubject}`);
+  if (matchCount >= 2) {
+    console.log(`Email included - ${matchCount} quotation keywords found in: ${cleanedSubject}`);
   }
   
-  return hasKeyword;
+  return matchCount >= 2;
 }
 
 function extractThreadId(messageId: string, references: string): string {

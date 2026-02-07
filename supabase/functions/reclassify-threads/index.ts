@@ -47,7 +47,13 @@ const SPAM_INDICATORS_HARD = [
   'out of office', 'absence du bureau', 'automatic reply',
   'delivery status notification', 'undeliverable',
   'meeting reminder', 'calendar invitation',
-  'bank transfer', 'virement bancaire', 'relevé de compte'
+  'bank transfer', 'virement bancaire', 'relevé de compte',
+  // Marketing/Promotions
+  'invitation', 'conference', 'webinar', 'summit', 'meet global',
+  'bouquet', 'offre spéciale', 'special offer', 'promo ',
+  'black friday', 'soldes', 'flash sale', 'limited time',
+  'your daily', 'daily digest', 'weekly report',
+  'say it with', 'parfait', 'official invitation'
 ];
 
 // Clean Outlook spam prefix from subject
@@ -66,11 +72,18 @@ const EXCLUDED_DOMAINS = [
   'support@', 'info@', 'notification@', 'alert@'
 ];
 
+const MARKETING_TLDS = ['shop', 'vip', 'store', 'promo', 'deals', 'sale'];
+
 function isSpam(subject: string, fromAddress?: string): boolean {
   // Clean spam prefix first - the presence of "Spam:" alone doesn't mean it's spam
   const cleanedSubject = cleanSpamPrefix(subject);
   const subjectLower = cleanedSubject.toLowerCase();
   const fromLower = (fromAddress || '').toLowerCase();
+  
+  // Reject invalid senders
+  if (!fromAddress || fromLower.trim() === '' || fromLower === 'unknown@unknown.com') {
+    return true;
+  }
   
   // Check hard spam indicators (these are always spam)
   if (SPAM_INDICATORS_HARD.some(spam => subjectLower.includes(spam))) {
@@ -79,6 +92,12 @@ function isSpam(subject: string, fromAddress?: string): boolean {
   
   // Check sender domain
   if (EXCLUDED_DOMAINS.some(domain => fromLower.includes(domain))) {
+    return true;
+  }
+  
+  // Check marketing TLDs
+  const senderDomain = extractDomain(fromLower);
+  if (MARKETING_TLDS.some(tld => senderDomain.endsWith(tld))) {
     return true;
   }
   
@@ -105,17 +124,20 @@ const QUOTATION_KEYWORDS = [
 ];
 
 function isQuotationRelated(email: Email): boolean {
-  const subjectLower = (email.subject || '').toLowerCase();
+  const fromLower = (email.from_address || '').toLowerCase();
+  
+  // Reject invalid senders
+  if (!email.from_address || fromLower.trim() === '' || fromLower === 'unknown@unknown.com') {
+    return false;
+  }
+  
+  const subjectLower = cleanSpamPrefix(email.subject || '').toLowerCase();
   const bodyLower = (email.body_text || '').substring(0, 3000).toLowerCase();
   const combined = `${subjectLower} ${bodyLower}`;
   
-  // Already marked as quotation request
-  if (email.is_quotation_request) return true;
-  
-  // Check for quotation keywords
+  // Check for quotation keywords - need at least 2 for confidence
   const keywordMatches = QUOTATION_KEYWORDS.filter(kw => combined.includes(kw));
   
-  // Need at least 2 keyword matches for confidence
   return keywordMatches.length >= 2;
 }
 
