@@ -140,3 +140,6 @@ verify_jwt = true
 
 [functions.send-quotation]
 verify_jwt = true
+
+[functions.import-historical-quotation]
+verify_jwt = false
