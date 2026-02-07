@@ -1,48 +1,41 @@
 
+# Phase R1 — Stabilisation base tarifaire ✅ TERMINÉE
 
-# Correctif M3.6-fix2 : L'overlay ne re-execute pas apres l'analyse
+## Résumé des opérations effectuées
 
-## Probleme identifie
+### 1. Tables de gouvernance créées (migration)
+- `unit_conversions` — 12 lignes (avec aliases CTO : 20, 40, 20GP, 40HC-OT, 40FR, 20RF, 40RF)
+- `service_quantity_rules` — 12 lignes (DTHC, TRUCKING, EMPTY_RETURN, CUSTOMS_*, AGENCY, PORT_DAKAR_HANDLING, BORDER_FEES, SURVEY, DISCHARGE, PORT_CHARGES)
+- `tariff_resolution_log` — 8 résolutions tracées (resolved_by = system_r1)
+- `pricing_rate_cards` — colonnes ajoutées : `tariff_document_id`, `status`
 
-Les faits sont correctement en base de donnees (`service.package = DAP_PROJECT_IMPORT` confirme dans `quote_facts`). Cependant, l'overlay qui lit ces faits et pre-remplit les services ne s'execute qu'une seule fois grace au flag `factsApplied`.
+### 2. Nettoyage DPW
+- **8 doublons/conflits THC désactivés** (is_active=false)
+- Source gold élue : "Arrêté DPW 2025"
+- Lignes exclusives PDF conservées (Standard 40'=232.5k, Vide=75k, Transbordement=75k)
+- 2 conflits résolus : Reefer Import (170.5k Arrêté vs 115k PDF), Reefer Export (170.5k vs 90k)
 
-Chronologie du bug :
+### 3. Classification RORO corrigée
+- 11 lignes mises à jour avec tranches poids dans `classification`
+- Ex: vehicle_heavy → vehicle_heavy_10000_20000kg
 
-```text
-1. Page charge -> overlay execute avec les anciens facts (pas de service.package) -> factsApplied = true
-2. Utilisateur clique "Analyser la demande"
-3. build-case-puzzle injecte service.package = DAP_PROJECT_IMPORT
-4. React Query invalide le cache, quoteFacts se met a jour
-5. MAIS factsApplied est deja "true" -> l'overlay ne re-execute jamais
-6. Les services restent vides
-```
+### 4. pricing_rate_cards marqués
+- 34 lignes → status='to_confirm', effective_from='2025-01-01'
 
-## Solution
+### 5. Document 2015 désactivé
+- dpw_dakar_landside_tariff_2015.pdf → is_current=false
 
-### Fichier unique : `src/pages/QuotationSheet.tsx`
+## Vérification finale
+| Métrique | Valeur |
+|---|---|
+| unit_conversions | 12 lignes |
+| service_quantity_rules | 12 lignes |
+| tariff_resolution_log | 8 résolutions |
+| THC DPW actifs | 16 lignes (sans doublons) |
+| Tarifs désactivés | 8 |
+| Rate cards to_confirm | 34 |
 
-Dans les deux handlers qui re-executent `build-case-puzzle` :
-
-**1. `handleRequestClarification`** (ligne ~314, apres `queryClient.invalidateQueries`) :
-- Ajouter `setFactsApplied(false)` pour forcer le re-passage de l'overlay avec les nouveaux facts
-
-**2. `handleStartAnalysis`** (ligne ~443, apres `queryClient.invalidateQueries` dans le bloc factsCount === 0) :
-- Ajouter `setFactsApplied(false)` pour le meme effet
-
-**3. `handleForceReanalyze`** (si present, meme logique) :
-- Ajouter `setFactsApplied(false)` apres l'invalidation du cache
-
-Cela permet a l'overlay de re-executer avec les facts mis a jour, y compris `service.package`, et d'injecter les services automatiquement.
-
-## Ce qui ne change pas
-
-Aucun autre fichier, aucune edge function, aucun schema DB, aucune RLS.
-
-## Resultat attendu
-
-1. Utilisateur clique "Analyser la demande"
-2. `build-case-puzzle` injecte `service.package = DAP_PROJECT_IMPORT`
-3. Cache invalide + `factsApplied` remis a `false`
-4. L'overlay re-execute, detecte le package, injecte les 5 lignes de service
-5. Badge "DAP PROJECT IMPORT" visible
-
+## Prochaines phases
+- **R2** : Gouvernance documentaire (rattacher tarifs → documents, tariff_resolution_log étendu)
+- **R3** : Sourcing 2026 (DPW, PAD, Hapag-Lloyd, AIBD)
+- **T3** : Branchement moteur M3.7 sur unit_conversions + service_quantity_rules
