@@ -1,135 +1,166 @@
 
-# Phase R1 — Stabilisation base tarifaire ✅ TERMINÉE
 
-## Résumé des opérations effectuées
+# Phase S0 -- Securisation Edge Functions (P0 Hotfix) -- FINAL VALIDE
 
-### 1. Tables de gouvernance créées (migration)
-- `unit_conversions` — 12 lignes (avec aliases CTO : 20, 40, 20GP, 40HC-OT, 40FR, 20RF, 40RF)
-- `service_quantity_rules` — 12 lignes (DTHC, TRUCKING, EMPTY_RETURN, CUSTOMS_*, AGENCY, PORT_DAKAR_HANDLING, BORDER_FEES, SURVEY, DISCHARGE, PORT_CHARGES)
-- `tariff_resolution_log` — 8 résolutions tracées (resolved_by = system_r1)
-- `pricing_rate_cards` — colonnes ajoutées : `tariff_document_id`, `status`
+## Corrections CTO integrees
 
-### 2. Nettoyage DPW
-- **8 doublons/conflits THC désactivés** (is_active=false)
-- Source gold élue : "Arrêté DPW 2025"
-- Lignes exclusives PDF conservées (Standard 40'=232.5k, Vide=75k, Transbordement=75k)
-- 2 conflits résolus : Reefer Import (170.5k Arrêté vs 115k PDF), Reefer Export (170.5k vs 90k)
+### Correction #1 -- Ordre d'execution
+S0-4 (unifier les 4 fonctions faussement securisees) remonte AVANT les lots P0-A a P0-D. Ces fonctions critiques (pricing, draft, generation) ne doivent pas rester en etat "auth ambigu" pendant que les lots INSECURE sont patches.
 
-### 3. Classification RORO corrigée
-- 11 lignes mises à jour avec tranches poids dans `classification`
-- Ex: vehicle_heavy → vehicle_heavy_10000_20000kg
+### Correction #2 -- config.toml : exception formelle Phase S0
+Modification minimale de `supabase/config.toml` strictement pour declarer `quotation-engine` en `verify_jwt = false`, car le signing ES256 de Lovable Cloud rend `verify_jwt = true` non fonctionnel. Cette modification est une condition d'appel, pas un refactor. Actee comme exception Phase S0.
 
-### 4. pricing_rate_cards marqués
-- 34 lignes → status='to_confirm', effective_from='2025-01-01'
-
-### 5. Document 2015 désactivé
-- dpw_dakar_landside_tariff_2015.pdf → is_current=false
+### Correction #3 -- requireUser : client anon standard + token explicite
+`requireUser` cree un client anon **standard** (sans passer le header Authorization au constructeur). La source de verite est le `token` passe explicitement a `auth.getUser(token)`. Cela reduit la surface d'erreur "header vs token" dans le contexte ES256.
 
 ---
 
-# Phase T3 — Branchement moteur quantités ✅ TERMINÉE
+## Fichier cree : `supabase/functions/_shared/auth.ts`
 
-## Résumé des opérations effectuées
+### `requireUser(req)`
+1. Extrait `Authorization: Bearer <token>` du header
+2. Si absent : retourne Response 401 + corsHeaders + `{ error: "Missing authorization header" }`
+3. Cree un client anon **standard** (sans header Authorization)
+4. Appelle `auth.getUser(token)` avec token explicite
+5. Si erreur ou pas de user : retourne Response 401 + corsHeaders + `{ error: "Invalid or expired token" }`
+6. Retourne `{ user, token }`
 
-### 1. Migration SQL
-- `quote_service_pricing` : colonnes `quantity_used` (numeric) et `unit_used` (text) ajoutées
-
-### 2. Edge Function `price-service-lines` refactorisée
-- **computeQuantity()** : calcul déterministe basé sur `service_quantity_rules` + `unit_conversions`
-  - EVP : somme facteurs × quantités depuis cargo.containers
-  - COUNT : logique CTO-T3 (TRUCKING = conteneurs ≥40' ; autres = physiques)
-  - TONNE : cargo.weight_kg / 1000
-  - FLAT : 1
-- **Sécurités** : containers absent → qty=1, weight_kg ≤ 0 → qty=1
-- **Fallback port_tariffs** pour DTHC quand aucun pricing_rate_cards ne match
-- **Audit enrichi** : quantity_used + unit_used écrits dans quote_service_pricing
-- Tables chargées en parallèle (Promise.all)
-
-### 3. Patch frontend QuotationSheet.tsx
-- `updateServiceLine` reçoit désormais `quantity` et `unit` depuis la réponse edge
-
-### 4. Résultat attendu (cas 2×40HC Import DAP Bamako)
-| Service | quantity_used | unit_used |
-|---|---|---|
-| DTHC | 4 | EVP |
-| TRUCKING | 2 | VOYAGE |
-| EMPTY_RETURN | 2 | EVP |
-| CUSTOMS_DAKAR | 1 | DECL |
-| AGENCY | 1 | FORFAIT |
+### `requireAdmin(req)`
+1. Appelle `requireUser(req)` -- si Response, retourner directement
+2. Charge `ADMIN_EMAIL_ALLOWLIST` depuis `Deno.env.get()`
+3. Parse (split virgule, trim, lowercase)
+4. Si `user.email` absent de la liste : retourne Response 403 + corsHeaders + `{ error: "Forbidden: admin access required" }`
+5. Retourne `{ user, token }`
 
 ---
 
-# Phase A1 — Détection aérien + extraction cargo ✅ TERMINÉE
+## Fonctions a patcher (38 total)
 
-## Corrections CTO P0 intégrées
+### 4 fonctions faussement securisees (S0-4, executees en premier)
 
-| Ref | Correction | Impact |
+| Fonction | Correction |
+|---|---|
+| price-service-lines | Remplacer auth inline par `requireUser(req)` |
+| create-quotation-draft | Remplacer auth inline par `requireUser(req)` |
+| generate-quotation | Remplacer auth inline par `requireUser(req)` |
+| generate-response | Remplacer auth inline par `requireUser(req)` |
+
+### Lot P0-A -- Admin / Email / Data (7 fonctions)
+
+| Fonction | Guard |
+|---|---|
+| email-admin | `requireAdmin` -- service-role APRES guard |
+| data-admin | `requireAdmin` -- service-role APRES guard |
+| sync-emails | `requireUser` |
+| search-emails | `requireUser` |
+| import-thread | `requireUser` |
+| force-download-attachment | `requireUser` |
+| analyze-attachments | `requireUser` |
+
+### Lot P0-B -- IA / Scraping (5 fonctions)
+
+| Fonction | Guard | Rate limit |
 |---|---|---|
-| P0-1 | `detectRequestType()` default = `UNKNOWN` au lieu de `SEA_FCL_IMPORT` | Évite forçage maritime sur cas ambigus |
-| P0-2 | Breakbulk patterns vérifiés AVANT "container fact" | Évite faux FCL sur dimensions breakbulk |
-| P0-3 | `MANDATORY_FACTS.AIR_IMPORT` : retiré `cargo.description` (assumable) | Réduit questions inutiles |
-| P0-A | Container fact strict : doit avoir items avec quantity > 0 | Évite faux SEA sur fact vide |
-| P0-B | IATA context : aussi "from XXX to YYY" (case-insensitive) | Couverture patterns fréquents |
-| P0-C | Dimensions regex accepte × (multiplication unicode) | Parsing robuste |
+| chat | `requireUser` | 30 req/min |
+| firecrawl-search | `requireUser` | 20 req/min |
+| firecrawl-scrape | `requireUser` | 20 req/min |
+| firecrawl-map | `requireUser` | 20 req/min |
+| market-surveillance | `requireUser` | -- |
 
-## Résumé des opérations
+### Lot P0-C -- Documents / Learning (8 fonctions)
 
-### 1. Migration SQL
-- `service_quantity_rules` : ajout AIR_HANDLING et AIR_FREIGHT avec `quantity_basis='KG'` (UPSERT)
+| Fonction | Guard |
+|---|---|
+| parse-document | `requireUser` |
+| analyze-document | `requireUser` |
+| learn-from-content | `requireUser` |
+| extract-pdf-descriptions | `requireUser` |
+| learn-from-expert | `requireUser` |
+| learn-from-contact | `requireUser` |
+| learn-quotation-puzzle | `requireUser` (supprime mode anonyme null) |
+| analyze-tender | `requireUser` |
 
-### 2. Edge Function `build-case-puzzle`
-- **detectRequestType()** refactorisé :
-  1. AIR explicite en priorité (by air, air cargo, awb, etc.)
-  2. Maritime sur indices forts (conteneurs, BL, vessel, POL/POD)
-  3. Breakbulk AVANT container fact
-  4. Container fact strict (quantity > 0)
-  5. IATA codes avec contexte
-  6. Default → UNKNOWN + question transport mode
-- **extractFactsBasic()** enrichi :
-  - weight_kg, volume_cbm, pieces_count, dimensions, description
-  - Parsing nombre robuste (espaces, virgules, formats EU/US)
-  - Chargeable weight déterministe : max(gross_kg, cbm×167) + audit IATA_167
-- **Incoterm** : priorité TERM:/Incoterm: puis dernier match libre (plus break au premier)
-- **ASSUMPTION_RULES** : ajout AIR_IMPORT → package AIR_IMPORT_DAP
-- **AIR_IMPORT_BLOCKING_GAPS** : destination_city, weight_kg, pieces_count, client_email
-- **MANDATORY_FACTS.AIR_IMPORT** : réduit (sans cargo.description, cargo.value, routing.incoterm)
-- **UNKNOWN** : injecte 1 question ciblée "Confirmez le mode de transport"
+### Lot P0-D -- Calcul / Generation (15 fonctions)
 
-### 3. Edge Function `price-service-lines`
-- Whitelist : +AIR_HANDLING, +AIR_FREIGHT
-- Unit aliases : +kg/KG
-- **computeQuantity()** : nouveau basis KG
-  - Si poids manquant → quantity_used=null → skip pricing (source=missing_quantity)
-- **buildPricingContext()** : priorise cargo.chargeable_weight_kg > cargo.weight_kg
+| Fonction | Guard |
+|---|---|
+| import-hs-codes | `requireUser` |
+| hs-lookup | `requireUser` |
+| calculate-duties | `requireUser` |
+| suggest-regime | `requireUser` |
+| analyze-pricing-patterns | `requireUser` |
+| audit-coherence | `requireUser` |
+| arbitrage-incoterm | `requireUser` |
+| analyze-risks | `requireUser` |
+| generate-quotation-attachment | `requireUser` |
+| suggest-hs-codes | `requireUser` |
+| parse-packing-list | `requireUser` |
+| truck-optimization-proxy | `requireUser` |
+| reclassify-threads | `requireUser` |
+| generate-excel-quotation | `requireUser` |
+| quotation-engine | `requireUser` |
 
-### 4. Frontend constants.ts
-- Templates : +AIR_HANDLING, +AIR_FREIGHT
-- Package : +AIR_IMPORT_DAP
+---
 
-### 5. Frontend parsing.ts (UX only)
-- parseSubject() : détecte et retire "by AIR/SEA/TRUCK" de la destination
-- parseEmailBody() : extraction légère poids/volume/pièces/dimensions pour preview
+## Rate limiting
 
-## Résultat attendu
+Ajout dans `DEFAULT_RATE_LIMITS` de `_shared/runtime.ts` :
 
-| Champ | Avant (bug) | Après A1 |
+```text
+'chat': { limit: 30, windowSeconds: 60 }
+'firecrawl-search': { limit: 20, windowSeconds: 60 }
+'firecrawl-scrape': { limit: 20, windowSeconds: 60 }
+'firecrawl-map': { limit: 20, windowSeconds: 60 }
+```
+
+Cle de bucket : `user.id` + `functionName` + fenetre 60s (deja gere par `upsert_rate_limit_bucket`).
+
+---
+
+## Ordre d'execution final
+
+1. Demander le secret `ADMIN_EMAIL_ALLOWLIST`
+2. Creer `supabase/functions/_shared/auth.ts`
+3. Ajouter `quotation-engine` dans `config.toml` (exception S0)
+4. Mettre a jour `DEFAULT_RATE_LIMITS` dans `_shared/runtime.ts`
+5. **S0-4 : Unifier les 4 fonctions faussement securisees**
+6. Lot P0-A (7 fonctions admin/email)
+7. Lot P0-B (5 fonctions IA/scraping + rate limit)
+8. Lot P0-C (8 fonctions documents/learning)
+9. Lot P0-D (15 fonctions calcul/generation)
+10. Deployer toutes les fonctions modifiees
+
+## Ce qui ne change pas
+
+- Aucune logique metier
+- Aucun schema DB
+- Les 15 fonctions deja securisees ne sont pas touchees
+- `healthz` reste public
+
+## Bilan
+
+- 1 secret : `ADMIN_EMAIL_ALLOWLIST`
+- 1 fichier cree : `_shared/auth.ts`
+- 1 fichier modifie : `config.toml` (exception S0)
+- 1 fichier modifie : `_shared/runtime.ts` (rate limits)
+- 38 fichiers patches (guard en debut de handler)
+- Total : **41 fichiers**
+
+## Tests de validation
+
+| Test | Appel | Attendu |
 |---|---|---|
-| request_type | SEA_FCL_IMPORT | AIR_IMPORT |
-| Incoterm | EXW (faux) | DAP |
-| Poids | non extrait | 3234 kg |
-| Volume | non extrait | 3 cbm |
-| Pièces | non extrait | 6 |
-| Chargeable weight | inexistant | 3234 kg |
-| Services | DTHC, Trucking, Empty Return | AIR_HANDLING, CUSTOMS_DAKAR, TRUCKING, AGENCY |
-| Questions | 9+ | 0-2 |
+| Sans JWT | `chat` | 401 |
+| Sans JWT | `email-admin` | 401 |
+| Sans JWT | `build-case-puzzle` | 401 (deja secure) |
+| Sans JWT | `search-emails` | 401 |
+| Sans JWT | `quotation-engine` | 401 |
+| JWT user normal | `build-case-puzzle` | 200 |
+| JWT user normal | `email-admin` | 403 |
+| JWT user normal | `chat` | 200 |
+| JWT user normal | `price-service-lines` | 200 |
+| JWT admin | `email-admin` | 200 |
+| JWT admin | `data-admin` | 200 |
+| Rate limit | `chat` x31 en 1min | 429 |
+| Rate limit | `firecrawl-search` x21 en 1min | 429 |
 
-## Ce qui n'a PAS changé
-- `PORT_COUNTRY_MAP` intact (routing, pas détection mode)
-- `detectFlowType()` intact (fallback AIR dans applyAssumptionRules)
-- Moteur maritime T3 (EVP, COUNT, TONNE) intact
-- Schéma quote_cases / quote_facts non modifié
-- pricing_rate_cards non touchés
-
-## Prochaines phases
-- **R2** : Gouvernance documentaire (rattacher tarifs → documents, tariff_resolution_log étendu)
-- **R3** : Sourcing 2026 (DPW, PAD, Hapag-Lloyd, AIBD)
