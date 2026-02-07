@@ -1,10 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 interface HsCodeSuggestion {
   item: string;
@@ -28,39 +24,32 @@ interface SuggestHsCodesRequest {
 
 // List of common cargo items with known HS codes for quick matching
 const COMMON_ITEMS_HS_MAP: Record<string, { hs_prefix: string; keywords: string[] }> = {
-  // Vehicles
   "vehicles_cars": { hs_prefix: "8703", keywords: ["car", "voiture", "sedan", "suv", "pick-up", "pickup", "vehicle", "vehicule", "automobile"] },
   "vehicles_trucks": { hs_prefix: "8704", keywords: ["truck", "camion", "lorry", "cargo vehicle"] },
-  // Auto parts
   "auto_parts": { hs_prefix: "8708", keywords: ["spare parts", "pièces détachées", "auto parts", "car parts", "pièces auto"] },
-  // Tires
   "tires": { hs_prefix: "4011", keywords: ["tire", "tyre", "pneu", "pneumatique"] },
-  // Paper products
   "tissue_paper": { hs_prefix: "4818", keywords: ["tissue", "mouchoir", "paper towel", "toilet paper", "napkin", "serviette"] },
-  // Food items
   "rice": { hs_prefix: "1006", keywords: ["rice", "riz"] },
   "sugar": { hs_prefix: "1701", keywords: ["sugar", "sucre"] },
   "flour": { hs_prefix: "1101", keywords: ["flour", "farine"] },
-  // Electronics
   "phones": { hs_prefix: "8517", keywords: ["phone", "telephone", "mobile", "smartphone"] },
   "computers": { hs_prefix: "8471", keywords: ["computer", "ordinateur", "laptop", "pc"] },
-  // Machinery
   "machinery": { hs_prefix: "8479", keywords: ["machine", "machinery", "equipment", "équipement"] },
-  // Textiles
   "clothing": { hs_prefix: "6203", keywords: ["clothing", "vêtement", "clothes", "garment"] },
-  // Furniture
   "furniture": { hs_prefix: "9403", keywords: ["furniture", "meuble", "table", "chair", "chaise"] },
-  // Construction
   "cement": { hs_prefix: "2523", keywords: ["cement", "ciment"] },
   "steel": { hs_prefix: "7208", keywords: ["steel", "acier", "iron", "fer"] },
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
     const { cargo_description, destination, context }: SuggestHsCodesRequest = await req.json();
 
     if (!cargo_description || cargo_description.trim().length < 3) {

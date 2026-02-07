@@ -1,10 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
 
 const PRICING_ANALYSIS_PROMPT = `Tu es un expert en analyse de structures de prix et cotations logistiques maritimes.
 
@@ -67,12 +63,16 @@ RÉPONSE ATTENDUE (JSON):
   "notes": "Observations supplémentaires"
 }`;
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const { expertEmail, forceReanalyze } = await req.json();
     
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

@@ -1,4 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase.ts";
 import { logRuntimeEvent, getCorrelationId } from "../_shared/runtime.ts";
 import {
@@ -396,10 +397,7 @@ async function fetchHistoricalSuggestions(
   }
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// corsHeaders imported from _shared/cors.ts
 
 // =====================================================
 // TYPES
@@ -2109,12 +2107,16 @@ async function generateQuotationLines(
 // =====================================================
 // HANDLER PRINCIPAL
 // =====================================================
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
   
   try {
+    // Phase S0: Auth guard
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
+
     const supabase = createSupabaseClient();
     const body = await req.json();
     
