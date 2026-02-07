@@ -5,7 +5,7 @@
 
 ### Correction 1 — Securite Edge Function
 
-`verify_jwt = true` dans config.toml. La fonction valide le JWT via `getUser()` (meme pattern que `commit-decision`). Seul un utilisateur authentifie peut appeler la fonction. Pas de `verify_jwt = false`.
+`verify_jwt = false` dans config.toml (JWT valide explicitement dans le code via `getClaims()`). Ce choix preserve la tracabilite complete via le runtime contract (correlationId, logRuntimeEvent, taxonomie d'erreurs). Coherent avec `commit-decision` et les autres fonctions sensibles.
 
 ### Correction 2 — Transaction atomique via RPC SQL
 
