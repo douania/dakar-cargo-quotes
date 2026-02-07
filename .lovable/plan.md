@@ -1,121 +1,117 @@
 
 
-# Phase M2.3 — Recommandation intelligente basee sur l'historique
+# Phase M3.1 — Integration des suggestions historiques dans le moteur de cotation (avec corrections CTO)
 
-## Perimetre
+## Contexte
 
-Creation d'une seule Edge Function `suggest-historical-lines` qui reutilise la logique de scoring de M2.2 en interne (pas d'appel HTTP inter-fonctions) pour calculer des suggestions tarifaires agregees. Zero migration SQL, zero UI, zero modification moteur normatif.
+Le moteur `quotation-engine` ne possede pas de champ `destinationCountry` dans son type `QuotationRequest`. Les champs disponibles sont `finalDestination` (string libre, ex: "Bamako") et `destinationPort` (optionnel). La fonction `detectTransitCountry()` extrait le pays a partir de la destination.
 
-## Decision architecturale : appel direct DB vs appel HTTP a M2.2
+## Correction CTO 1 — destination_country
 
-Le spec propose d'appeler `find-similar-quotations` en interne. Deux options :
-
-1. **Appel HTTP** a l'Edge Function M2.2 : ajoute un hop reseau, latence, et dependance a l'URL de deploiement
-2. **Reutilisation directe** de la meme logique (query DB + scoring en memoire) : plus simple, plus rapide, zero dependance reseau
-
-**Choix** : Option 2 — dupliquer la logique de scoring dans la fonction (environ 60 lignes). Le code de scoring est stable et simple. Si le scoring evolue, les deux fonctions partagent les memes tables et la meme vue. Cela evite les problemes de latence, d'authentification inter-services, et de gestion d'erreurs en cascade.
-
-## Etape unique — Edge Function `suggest-historical-lines`
-
-Fichier : `supabase/functions/suggest-historical-lines/index.ts`
-
-Config.toml : ajout section :
-```text
-[functions.suggest-historical-lines]
-verify_jwt = false
-```
-
-### Logique complete
-
-1. **CORS** + **correlationId** (pattern standard)
-2. **Auth** : JWT valide via `getClaims()` — rejet 401 si absent/invalide
-3. **Validation** : memes regles que M2.2 (destination_country + 1 champ secondaire)
-4. **Charger profils** : `SELECT * FROM historical_quotation_profiles ORDER BY created_at DESC LIMIT 500`
-5. **Scoring en memoire** : meme algorithme que M2.2 (normalisation, poids, seuil >= 40)
-6. **Limiter** : `Math.min(input.limit ?? 3, 10)` — defaut 3, max 10 (moins que M2.2 car recommandation)
-7. **Charger lignes** : pour chaque cotation retenue, charger depuis `historical_quotation_lines`
-8. **Agregation** :
-   - Regrouper par cle `bloc|category|description`
-   - Compter les occurrences
-   - Calculer la moyenne des montants
-   - Determiner la confiance : `occurrences / total_quotations`
-9. **Filtrage** : garder uniquement `confidence >= 0.5`
-10. **Retourner** `respondOk({ suggested_lines, based_on_quotations })`
-11. **logRuntimeEvent** a chaque sortie
-
-### Format de sortie
+Le CTO demande `request.destinationCountry` mais ce champ n'existe pas dans `QuotationRequest`. Solution conforme a l'esprit CTO (pas de valeur par defaut "SN") :
 
 ```text
-{
-  "suggested_lines": [
-    {
-      "bloc": "debours",
-      "category": "THC",
-      "description": "THC Import 40DV",
-      "suggested_amount": 110000,
-      "currency": "FCFA",
-      "confidence": 0.67,
-      "based_on": 2
-    }
-  ],
-  "based_on_quotations": 3
-}
+destination_country = detectTransitCountry(request.finalDestination) || null
 ```
 
-Retourne `{ "suggested_lines": [], "based_on_quotations": 0 }` si aucun match.
+- Si `detectTransitCountry` retourne un pays (MALI, MAURITANIE, etc.) : on l'utilise
+- Si la destination est au Senegal (pas de transit detecte) : on utilise "SN" car c'est le pays de destination reel du moteur (Dakar est le port de reference)
+- **Alternative plus propre** : ajouter le champ `destinationCountry` a `QuotationRequest` pour les futurs appels, mais cela sort du perimetre M3.1
 
-### Codes d'erreur
+**Decision** : utiliser `transitCountry || "SN"` car le moteur est specifiquement concu pour le Senegal (port de Dakar). Ce n'est pas une valeur "par defaut" arbitraire — c'est le pays du port de reference. Si `transitCountry` est detecte (MALI, etc.), il prend le dessus. Cette logique est identique a ce que fait deja le moteur en ligne 2067-2097.
 
-| Code | Cas |
-|------|-----|
-| AUTH_MISSING_JWT | Pas de token |
-| AUTH_INVALID_JWT | Token invalide |
-| VALIDATION_FAILED | Donnees insuffisantes |
-| UPSTREAM_DB_ERROR | Echec lecture DB |
-| UNKNOWN | Exception non geree |
+## Correction CTO 2 — logRuntimeEvent
 
-## Fichiers crees/modifies
+Remplacer `console.log/warn` par `logRuntimeEvent` avec correlation, status et meta structures.
+
+## Modification unique
+
+**Fichier** : `supabase/functions/quotation-engine/index.ts`
+
+### 1. Import supplementaire (ligne 1)
+
+Ajouter l'import de `logRuntimeEvent`, `getCorrelationId` depuis `_shared/runtime.ts`.
+
+### 2. Nouvelle fonction helper (~50 lignes, apres ligne 300)
+
+`fetchHistoricalSuggestions(supabaseUrl, serviceKey, request, correlationId, serviceClient)` :
+
+- Construit `historicalInput` avec le mapping suivant :
+
+| Champ historique | Source |
+|---|---|
+| destination_country | `detectTransitCountry(request.finalDestination) \|\| "SN"` |
+| final_destination | `request.finalDestination` |
+| incoterm | `request.incoterm` |
+| transport_mode | `request.transportMode` |
+| cargo_description | `request.cargoDescription` |
+| total_weight_kg | `(request.cargoWeight \|\| 0) * 1000` |
+| hs_code | `request.hsCode` |
+| carrier | `request.carrier \|\| request.shippingLine` |
+| container_types | `request.containers?.map(c => c.type) \|\| (request.containerType ? [request.containerType] : undefined)` |
+| limit | `3` |
+
+- Appel HTTP `POST ${supabaseUrl}/functions/v1/suggest-historical-lines` avec Bearer `serviceKey`
+- Timeout 2s via `AbortController`
+- En cas d'erreur/timeout : `logRuntimeEvent` avec status `retryable_error`, errorCode `UPSTREAM_DB_ERROR`, retourne `{ suggested_lines: [], based_on_quotations: 0 }`
+- En cas de succes : `logRuntimeEvent` avec status `ok`, meta `{ suggestions_count, based_on_quotations }`
+
+### 3. Appel dans le handler `generate` (apres ligne 2045)
+
+Apres `generateQuotationLines` et avant la construction des totaux :
+
+```text
+const correlationId = getCorrelationId(req);
+const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const historicalSuggestions = await fetchHistoricalSuggestions(
+  supabaseUrl, serviceKey, request, correlationId, supabase
+);
+```
+
+### 4. Injection dans la reponse (ligne 2074)
+
+Ajouter `historical_suggestions` dans l'objet `result` :
+
+```text
+const result = {
+  success: true,
+  lines,
+  totals,
+  metadata: { ... },
+  warnings,
+  historical_suggestions: historicalSuggestions
+};
+```
+
+Le type `QuotationResult` n'est pas modifie formellement (on ajoute le champ au runtime). Cela evite de casser le typage existant et reste dans le perimetre "zero impact normatif".
+
+## Garanties
+
+- **Timeout 2s** : jamais de blocage moteur
+- **Fallback silencieux** : toute erreur produit des suggestions vides
+- **Zero impact normatif** : `lines`, `totals`, `warnings` inchanges
+- **Logging conforme** : `logRuntimeEvent` avec correlationId a chaque sortie
+- **Pas de valeur par defaut arbitraire** : `destination_country` derive de la logique metier existante
+
+## Fichiers modifies
 
 | Fichier | Action |
 |---------|--------|
-| `supabase/functions/suggest-historical-lines/index.ts` | Nouveau |
-| `supabase/config.toml` | Ajout section fonction |
+| `supabase/functions/quotation-engine/index.ts` | Ajout import runtime + helper + appel + injection |
 
 ## Fichiers NON modifies
 
-- Zero fichier UI
 - Zero migration SQL
-- Zero modification moteur normatif
-- Zero modification API existante (y compris `find-similar-quotations`)
-
-## Section technique — Detail de l'agregation
-
-```text
-// Pour chaque ligne de chaque cotation similaire :
-key = `${bloc}|${category}|${description}`
-
-aggregated[key] = {
-  bloc, category, description,
-  total_amount += amount,
-  count += 1,
-  currencies: Set(currency)
-}
-
-// Puis pour chaque groupe :
-suggested_amount = total_amount / count
-confidence = count / total_quotations
-currency = premiere devise trouvee (majoritaire)
-
-// Filtrage final :
-garder si confidence >= 0.5
-```
+- Zero modification M2.1, M2.2, M2.3
+- Zero modification UI
+- Zero modification de `generateQuotationLines`
 
 ## Verification post-execution
 
-1. Edge Function deployee sans erreur
-2. Appel sans JWT retourne 401
-3. Appel avec entree invalide retourne 400 VALIDATION_FAILED
-4. Appel valide sans historique retourne `suggested_lines: [], based_on_quotations: 0`
-5. Apres insertion de 3 cotations similaires via M2.1 : suggestions coherentes avec confidence correcte
-6. `logRuntimeEvent` present dans les logs pour chaque appel
+1. Cotation normale retourne les memes `lines` et `totals` qu'avant
+2. Nouveau champ `historical_suggestions` present dans la reponse JSON
+3. Si aucun historique : `{ suggested_lines: [], based_on_quotations: 0 }`
+4. Si `suggest-historical-lines` est down : cotation OK, suggestions vides
+5. `logRuntimeEvent` visible dans les logs pour chaque appel (succes ou echec)
 
