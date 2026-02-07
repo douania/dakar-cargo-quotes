@@ -1129,6 +1129,13 @@ export type Database = {
             foreignKeyName: "historical_quotation_lines_quotation_id_fkey"
             columns: ["quotation_id"]
             isOneToOne: false
+            referencedRelation: "historical_quotation_profiles"
+            referencedColumns: ["quotation_id"]
+          },
+          {
+            foreignKeyName: "historical_quotation_lines_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
             referencedRelation: "historical_quotations"
             referencedColumns: ["id"]
           },
@@ -1169,6 +1176,13 @@ export type Database = {
           special_flags?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "historical_quotation_metadata_quotation_id_fkey"
+            columns: ["quotation_id"]
+            isOneToOne: false
+            referencedRelation: "historical_quotation_profiles"
+            referencedColumns: ["quotation_id"]
+          },
           {
             foreignKeyName: "historical_quotation_metadata_quotation_id_fkey"
             columns: ["quotation_id"]
@@ -3601,6 +3615,24 @@ export type Database = {
       }
     }
     Views: {
+      historical_quotation_profiles: {
+        Row: {
+          cargo_description: string | null
+          carrier: string | null
+          container_count: number | null
+          container_types: string[] | null
+          created_at: string | null
+          destination_country: string | null
+          final_destination: string | null
+          hs_code: string | null
+          incoterm: string | null
+          origin_country: string | null
+          quotation_id: string | null
+          total_weight_kg: number | null
+          transport_mode: string | null
+        }
+        Relationships: []
+      }
       v_quotation_documents_safe: {
         Row: {
           created_at: string | null
