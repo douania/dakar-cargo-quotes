@@ -2801,11 +2801,13 @@ export type Database = {
           currency: string
           explanation: string | null
           id: string
+          quantity_used: number | null
           rate_card_id: string | null
           service_key: string
           service_line_id: string
           source: string
           suggested_rate: number | null
+          unit_used: string | null
         }
         Insert: {
           case_id: string
@@ -2814,11 +2816,13 @@ export type Database = {
           currency?: string
           explanation?: string | null
           id?: string
+          quantity_used?: number | null
           rate_card_id?: string | null
           service_key: string
           service_line_id: string
           source: string
           suggested_rate?: number | null
+          unit_used?: string | null
         }
         Update: {
           case_id?: string
@@ -2827,11 +2831,13 @@ export type Database = {
           currency?: string
           explanation?: string | null
           id?: string
+          quantity_used?: number | null
           rate_card_id?: string | null
           service_key?: string
           service_line_id?: string
           source?: string
           suggested_rate?: number | null
+          unit_used?: string | null
         }
         Relationships: [
           {

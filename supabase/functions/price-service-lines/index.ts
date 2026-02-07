@@ -1,11 +1,14 @@
 /**
- * M3.7 — price-service-lines
+ * M3.7 — price-service-lines (Phase T3)
  * 
  * Deterministic pricing lookup for auto-injected service lines.
  * NO LLM — pure rate card matching with progressive fallback.
  * 
+ * T3: Quantity computed from service_quantity_rules + unit_conversions tables
+ * T3: Fallback to port_tariffs for DTHC when no rate card match
+ * 
  * P0-1: Canonical service_key with whitelist
- * P0-2: Deterministic quantity (no silent assumption for per-unit)
+ * P0-2: Deterministic quantity via DB rules (no silent assumption)
  * P0-4: Idempotent audit via upsert (case_id, service_line_id)
  * P0-5: Ignores any rate from client, validates quantity/currency
  * P0-6: JWT client for RLS reads, service_role for pricing + audit
@@ -13,6 +16,7 @@
  * P1-B: Date filtering on rate cards
  * P1-C: Unit normalization + mismatch detection
  * CTO-1: Currency normalization (FCFA → XOF canonical)
+ * CTO-T3: COUNT depends on service_key (TRUCKING ≥40' rule)
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -71,7 +75,7 @@ interface ServiceLineInput {
 }
 
 interface PricingContext {
-  scope: string; // import | export | transit
+  scope: string;
   container_type: string | null;
   container_count: number | null;
   corridor: string | null;
@@ -79,6 +83,8 @@ interface PricingContext {
   destination_port: string | null;
   origin_country: string | null;
   destination_country: string | null;
+  containers: Array<{ type: string; quantity: number }>;
+  weight_kg: number | null;
 }
 
 interface PricedLine {
@@ -88,8 +94,333 @@ interface PricedLine {
   source: string;
   confidence: number;
   explanation: string;
-  quantity_assumed?: boolean;
+  quantity_used: number;
+  unit_used: string;
+  rule_id: string | null;
+  conversion_used?: string;
 }
+
+interface QuantityRule {
+  id: string;
+  service_key: string;
+  quantity_basis: string;
+  default_unit: string;
+  requires_fact_key: string | null;
+  notes: string | null;
+}
+
+interface UnitConversion {
+  key: string;
+  factor: number;
+}
+
+interface RateCardRow {
+  id: string;
+  service_key: string;
+  scope: string;
+  currency: string;
+  unit: string;
+  value: number;
+  source: string;
+  confidence: number;
+  container_type: string | null;
+  corridor: string | null;
+  origin_port: string | null;
+  destination_port: string | null;
+  origin_country: string | null;
+  destination_country: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  min_charge: number | null;
+  notes: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// T3: COMPUTE QUANTITY FROM DB RULES
+// CTO-T3: COUNT depends on service_key
+// ═══════════════════════════════════════════════════════════════
+
+function computeQuantity(
+  serviceKey: string,
+  rule: QuantityRule | undefined,
+  ctx: PricingContext,
+  evpConversions: Map<string, number>,
+): { quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string } {
+
+  if (!rule) {
+    // No rule found — use input quantity as-is
+    return { quantity_used: 1, unit_used: "FORFAIT", rule_id: null, conversion_used: "no_rule" };
+  }
+
+  const basis = rule.quantity_basis;
+
+  if (basis === "EVP") {
+    // Sum EVP factors for each container in cargo.containers
+    if (ctx.containers.length === 0) {
+      return { quantity_used: 1, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "missing_containers_default_1" };
+    }
+    let totalEvp = 0;
+    const details: string[] = [];
+    for (const c of ctx.containers) {
+      const key = normalizeContainerKey(c.type);
+      const factor = evpConversions.get(key) ?? evpConversions.get(key.replace(/['\s]/g, "").toUpperCase()) ?? null;
+      if (factor !== null) {
+        totalEvp += factor * c.quantity;
+        details.push(`${c.quantity}×${key}(${factor})`);
+      } else {
+        // Unknown container type — assume factor 1
+        totalEvp += c.quantity;
+        details.push(`${c.quantity}×${key}(?=1)`);
+      }
+    }
+    return {
+      quantity_used: totalEvp,
+      unit_used: rule.default_unit,
+      rule_id: rule.id,
+      conversion_used: details.join("+"),
+    };
+  }
+
+  if (basis === "COUNT") {
+    if (ctx.containers.length === 0) {
+      return { quantity_used: 1, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "missing_containers_default_1" };
+    }
+
+    // CTO-T3: TRUCKING counts containers ≥40' only
+    if (serviceKey === "TRUCKING") {
+      let count40plus = 0;
+      let has20Only = true;
+      for (const c of ctx.containers) {
+        const key = normalizeContainerKey(c.type);
+        const size = extractContainerSize(key);
+        if (size >= 40) {
+          count40plus += c.quantity;
+          has20Only = false;
+        }
+      }
+      // If only 20DV containers, 1 voyage minimum
+      const qty = has20Only ? Math.max(1, ctx.containers.reduce((s, c) => s + c.quantity, 0)) : count40plus;
+      return {
+        quantity_used: qty,
+        unit_used: rule.default_unit,
+        rule_id: rule.id,
+        conversion_used: has20Only ? "20DV_only_count" : `count_gte40=${count40plus}`,
+      };
+    }
+
+    // Other COUNT services: sum physical containers
+    const total = ctx.containers.reduce((s, c) => s + c.quantity, 0);
+    return {
+      quantity_used: total,
+      unit_used: rule.default_unit,
+      rule_id: rule.id,
+      conversion_used: `count_physical=${total}`,
+    };
+  }
+
+  if (basis === "TONNE") {
+    const weightKg = ctx.weight_kg;
+    if (!weightKg || weightKg <= 0) {
+      return { quantity_used: 1, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "missing_weight_default_1" };
+    }
+    const tonnes = Math.ceil(weightKg / 1000);
+    return {
+      quantity_used: tonnes,
+      unit_used: rule.default_unit,
+      rule_id: rule.id,
+      conversion_used: `${weightKg}kg/${1000}=${tonnes}t`,
+    };
+  }
+
+  // FLAT or unknown
+  return { quantity_used: 1, unit_used: rule.default_unit || "FORFAIT", rule_id: rule.id, conversion_used: "flat" };
+}
+
+function normalizeContainerKey(raw: string): string {
+  let ct = raw.replace(/['\s]/g, "").toUpperCase();
+  if (ct === "40") ct = "40HC";
+  if (ct === "20") ct = "20DV";
+  if (ct === "20GP") ct = "20DV";
+  return ct;
+}
+
+function extractContainerSize(key: string): number {
+  const m = key.match(/^(\d+)/);
+  return m ? parseInt(m[1], 10) : 20;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRICING CONTEXT FROM FACTS
+// ═══════════════════════════════════════════════════════════════
+
+function buildPricingContext(
+  factsMap: Map<string, { value_text: string | null; value_json: unknown; value_number: number | null }>
+): PricingContext {
+  const flowType = factsMap.get("service.flow_type")?.value_text || "";
+  let scope = "import";
+  if (/EXPORT/i.test(flowType)) scope = "export";
+  else if (/TRANSIT/i.test(flowType)) scope = "transit";
+
+  let containerType: string | null = null;
+  let containerCount: number | null = null;
+  const containers: Array<{ type: string; quantity: number }> = [];
+
+  const containersFact = factsMap.get("cargo.containers");
+  if (containersFact?.value_json && Array.isArray(containersFact.value_json)) {
+    const raw = containersFact.value_json as Array<{ type: string; quantity: number }>;
+    for (const c of raw) {
+      containers.push({ type: c.type, quantity: c.quantity || 1 });
+    }
+    if (containers.length > 0) {
+      containerType = normalizeContainerKey(containers[0].type);
+      containerCount = containers.reduce((sum, c) => sum + (c.quantity || 1), 0);
+    }
+  }
+
+  const destCity = factsMap.get("routing.destination_city")?.value_text?.toUpperCase() || "";
+  const destCountry = factsMap.get("routing.destination_country")?.value_text?.toUpperCase() || "";
+  let corridor: string | null = null;
+  if (destCity.includes("BAMAKO") || destCountry.includes("MALI")) corridor = "DAKAR_BAMAKO";
+  else if (destCity.includes("BANJUL") || destCountry.includes("GAMBI")) corridor = "DAKAR_BANJUL";
+
+  const originPort = factsMap.get("routing.origin_port")?.value_text || null;
+  const destPort = factsMap.get("routing.destination_port")?.value_text || null;
+  const originCountry = factsMap.get("routing.origin_country")?.value_text || null;
+  const destCountryVal = factsMap.get("routing.destination_country")?.value_text || null;
+
+  const weightKg = factsMap.get("cargo.weight_kg")?.value_number || null;
+
+  return {
+    scope,
+    container_type: containerType,
+    container_count: containerCount,
+    corridor,
+    origin_port: originPort,
+    destination_port: destPort,
+    origin_country: originCountry,
+    destination_country: destCountryVal,
+    containers,
+    weight_kg: weightKg,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RATE CARD MATCHING — P1-A DETERMINISTIC SCORING
+// ═══════════════════════════════════════════════════════════════
+
+function findBestRateCard(
+  allCards: RateCardRow[],
+  serviceKey: string,
+  ctx: PricingContext,
+  lineUnit: string,
+  lineCurrency: string
+): { card: RateCardRow; score: number; explanation: string } | null {
+  const candidates = allCards.filter((c) => c.service_key === serviceKey);
+  if (candidates.length === 0) return null;
+
+  let bestCard: RateCardRow | null = null;
+  let bestScore = -1;
+  let bestExplanation = "";
+
+  for (const card of candidates) {
+    let score = 40;
+    const matchParts: string[] = [serviceKey];
+
+    const cardUnit = normalizeUnit(card.unit);
+    if (cardUnit !== lineUnit) continue;
+
+    if (card.scope === ctx.scope) {
+      score += 20;
+      matchParts.push(ctx.scope);
+    } else {
+      continue;
+    }
+
+    if (ctx.container_type && card.container_type) {
+      if (card.container_type === ctx.container_type) {
+        score += 20;
+        matchParts.push(ctx.container_type);
+      } else {
+        score -= 10;
+      }
+    }
+
+    if (ctx.corridor && card.corridor) {
+      if (card.corridor === ctx.corridor) {
+        score += 20;
+        matchParts.push(card.corridor);
+      } else {
+        score -= 5;
+      }
+    }
+
+    const cardCurrency = normalizeCurrency(card.currency) || card.currency;
+    if (cardCurrency === lineCurrency) {
+      score += 5;
+    }
+
+    score += Math.round(card.confidence * 5);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCard = card;
+      bestExplanation = `match: ${matchParts.join("+")}, score=${score}, rate_card=${card.id.slice(0, 8)}`;
+    }
+  }
+
+  if (!bestCard || bestScore < 40) return null;
+  return { card: bestCard, score: bestScore, explanation: bestExplanation };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// T3: FALLBACK PORT_TARIFFS FOR DTHC
+// ═══════════════════════════════════════════════════════════════
+
+async function findPortTariffFallback(
+  serviceClient: ReturnType<typeof createClient>,
+  serviceKey: string,
+  ctx: PricingContext,
+): Promise<{ rate: number; currency: string; source: string; confidence: number; explanation: string } | null> {
+  // Only DTHC triggers port_tariffs fallback
+  if (serviceKey !== "DTHC") return null;
+
+  const today = new Date().toISOString().split("T")[0];
+  const operationType = ctx.scope === "export" ? "Export" : "Import";
+
+  const { data, error } = await serviceClient
+    .from("port_tariffs")
+    .select("*")
+    .eq("provider", "DPW")
+    .ilike("category", "%THC%")
+    .eq("is_active", true)
+    .eq("operation_type", operationType)
+    .lte("effective_date", today)
+    .order("effective_date", { ascending: false })
+    .limit(5);
+
+  if (error || !data || data.length === 0) return null;
+
+  // Pick best match by container type/classification
+  let bestRow = data[0];
+  if (ctx.container_type) {
+    const ctMatch = data.find((r) =>
+      r.classification?.toUpperCase().includes(ctx.container_type!.replace(/[^0-9A-Z]/g, ""))
+    );
+    if (ctMatch) bestRow = ctMatch;
+  }
+
+  return {
+    rate: bestRow.amount,
+    currency: normalizeCurrency(bestRow.currency || "XOF") || "XOF",
+    source: `port_tariffs:${bestRow.provider}:${bestRow.id.slice(0, 8)}`,
+    confidence: 0.85,
+    explanation: `fallback port_tariffs DPW THC ${operationType} ${bestRow.classification || ""}, effective=${bestRow.effective_date}`,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN HANDLER
+// ═══════════════════════════════════════════════════════════════
 
 Deno.serve(async (req) => {
   const corsResp = handleCors(req);
@@ -109,7 +440,6 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // P0-6: JWT client for RLS reads
     const jwtClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -119,7 +449,6 @@ Deno.serve(async (req) => {
       return respondError({ code: "AUTH_INVALID_JWT", message: "Invalid token", correlationId });
     }
 
-    // P0-6: Service role client for pricing lookups + audit writes
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // ═══ Parse & validate input ═══
@@ -159,10 +488,35 @@ Deno.serve(async (req) => {
       .eq("case_id", case_id)
       .eq("is_current", true);
 
-    const factsMap = new Map((facts || []).map((f: { fact_key: string; value_text: string | null; value_json: unknown; value_number: number | null }) => [f.fact_key, f]));
+    const factsMap = new Map(
+      (facts || []).map((f: { fact_key: string; value_text: string | null; value_json: unknown; value_number: number | null }) => [f.fact_key, f])
+    );
 
-    // ═══ Build pricing context from facts ═══
     const pricingCtx = buildPricingContext(factsMap);
+
+    // ═══ T3: Load service_quantity_rules + unit_conversions ═══
+    const [rulesResult, conversionsResult, rateCardsResult] = await Promise.all([
+      serviceClient.from("service_quantity_rules").select("*"),
+      serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
+      serviceClient
+        .from("pricing_rate_cards")
+        .select("*")
+        .or("effective_from.is.null,effective_from.lte." + new Date().toISOString().split("T")[0])
+        .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]),
+    ]);
+
+    const quantityRules = new Map(
+      (rulesResult.data || []).map((r: QuantityRule) => [r.service_key, r])
+    );
+    const evpConversions = new Map(
+      (conversionsResult.data || []).map((c: UnitConversion) => [c.key, c.factor])
+    );
+    const allCards: RateCardRow[] = rateCardsResult.data || [];
+
+    if (rateCardsResult.error) {
+      structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
+      return respondError({ code: "UPSTREAM_DB_ERROR", message: "Failed to load rate cards", correlationId });
+    }
 
     structuredLog({
       level: "info",
@@ -175,41 +529,26 @@ Deno.serve(async (req) => {
         scope: pricingCtx.scope,
         corridor: pricingCtx.corridor,
         container_type: pricingCtx.container_type,
+        containers: pricingCtx.containers,
         lines_count: service_lines.length,
+        rules_loaded: quantityRules.size,
+        evp_conversions_loaded: evpConversions.size,
       },
     });
-
-    // ═══ Load all active rate cards (service role — public table) ═══
-    const { data: rateCards, error: rcError } = await serviceClient
-      .from("pricing_rate_cards")
-      .select("*")
-      .or("effective_from.is.null,effective_from.lte." + new Date().toISOString().split("T")[0])
-      .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]);
-
-    if (rcError) {
-      structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
-      return respondError({ code: "UPSTREAM_DB_ERROR", message: "Failed to load rate cards", correlationId });
-    }
-
-    const allCards = rateCards || [];
 
     // ═══ Price each line ═══
     const pricedLines: PricedLine[] = [];
     const missing: string[] = [];
 
     for (const line of service_lines) {
-      // P0-5: Validate each line
       const serviceKey = line.service;
       if (!VALID_SERVICE_KEYS.has(serviceKey)) {
         structuredLog({ level: "warn", service: FUNCTION_NAME, op: "unknown_service_key", correlationId, meta: { service_key: serviceKey } });
         missing.push(serviceKey);
         pricedLines.push({
-          id: line.id,
-          rate: null,
-          currency: "XOF",
-          source: "unknown_service",
-          confidence: 0,
-          explanation: `Service key "${serviceKey}" not in whitelist`,
+          id: line.id, rate: null, currency: "XOF", source: "unknown_service",
+          confidence: 0, explanation: `Service key "${serviceKey}" not in whitelist`,
+          quantity_used: line.quantity, unit_used: line.unit, rule_id: null,
         });
         continue;
       }
@@ -217,12 +556,9 @@ Deno.serve(async (req) => {
       const currency = normalizeCurrency(line.currency);
       if (!currency) {
         pricedLines.push({
-          id: line.id,
-          rate: null,
-          currency: line.currency,
-          source: "invalid_currency",
-          confidence: 0,
-          explanation: `Currency "${line.currency}" not recognized`,
+          id: line.id, rate: null, currency: line.currency, source: "invalid_currency",
+          confidence: 0, explanation: `Currency "${line.currency}" not recognized`,
+          quantity_used: line.quantity, unit_used: line.unit, rule_id: null,
         });
         missing.push(serviceKey);
         continue;
@@ -232,39 +568,18 @@ Deno.serve(async (req) => {
       const quantity = line.quantity;
       if (typeof quantity !== "number" || quantity < 0 || quantity > 10000) {
         pricedLines.push({
-          id: line.id,
-          rate: null,
-          currency,
-          source: "invalid_quantity",
-          confidence: 0,
-          explanation: `Quantity ${quantity} out of bounds [0, 10000]`,
+          id: line.id, rate: null, currency, source: "invalid_quantity",
+          confidence: 0, explanation: `Quantity ${quantity} out of bounds [0, 10000]`,
+          quantity_used: line.quantity, unit_used: line.unit, rule_id: null,
         });
         missing.push(serviceKey);
         continue;
       }
 
-      // P0-2: Determine effective quantity for per-unit services
-      const lineUnit = normalizeUnit(line.unit);
-      let effectiveQuantity = quantity;
-      let quantityAssumed = false;
-
-      if (lineUnit === "EVP" && quantity <= 1 && pricingCtx.container_count && pricingCtx.container_count > 1) {
-        // Use container count from facts for EVP-based services
-        effectiveQuantity = pricingCtx.container_count;
-        quantityAssumed = true;
-      } else if (lineUnit === "EVP" && quantity <= 1 && !pricingCtx.container_count) {
-        // P0-2 CTO: Cannot assume quantity for per-container — missing_quantity
-        pricedLines.push({
-          id: line.id,
-          rate: null,
-          currency,
-          source: "missing_quantity",
-          confidence: 0,
-          explanation: `Unit is EVP but container count unknown — operator must set quantity`,
-        });
-        missing.push(serviceKey);
-        continue;
-      }
+      // ═══ T3: Compute quantity from DB rules ═══
+      const rule = quantityRules.get(serviceKey);
+      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions);
+      const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
       // ═══ P1-A: Progressive matching with scoring ═══
       const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency);
@@ -277,18 +592,38 @@ Deno.serve(async (req) => {
           source: match.card.source,
           confidence: match.score / 100,
           explanation: match.explanation,
-          quantity_assumed: quantityAssumed,
+          quantity_used: computed.quantity_used,
+          unit_used: computed.unit_used,
+          rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
         });
       } else {
-        pricedLines.push({
-          id: line.id,
-          rate: null,
-          currency,
-          source: "no_match",
-          confidence: 0,
-          explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
-        });
-        missing.push(serviceKey);
+        // T3: Fallback port_tariffs for DTHC
+        const fallback = await findPortTariffFallback(serviceClient, serviceKey, pricingCtx);
+        if (fallback) {
+          pricedLines.push({
+            id: line.id,
+            rate: fallback.rate,
+            currency: fallback.currency,
+            source: fallback.source,
+            confidence: fallback.confidence,
+            explanation: fallback.explanation,
+            quantity_used: computed.quantity_used,
+            unit_used: computed.unit_used,
+            rule_id: computed.rule_id,
+            conversion_used: computed.conversion_used,
+          });
+        } else {
+          pricedLines.push({
+            id: line.id, rate: null, currency, source: "no_match",
+            confidence: 0, explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
+            quantity_used: computed.quantity_used,
+            unit_used: computed.unit_used,
+            rule_id: computed.rule_id,
+            conversion_used: computed.conversion_used,
+          });
+          missing.push(serviceKey);
+        }
       }
     }
 
@@ -302,6 +637,8 @@ Deno.serve(async (req) => {
       source: pl.source,
       confidence: pl.confidence,
       explanation: pl.explanation,
+      quantity_used: pl.quantity_used,
+      unit_used: pl.unit_used,
     }));
 
     if (auditRows.length > 0) {
@@ -353,158 +690,3 @@ Deno.serve(async (req) => {
     return respondError({ code: "UNKNOWN", message: "Internal error", correlationId });
   }
 });
-
-// ═══════════════════════════════════════════════════════════════
-// PRICING CONTEXT FROM FACTS
-// ═══════════════════════════════════════════════════════════════
-
-function buildPricingContext(
-  factsMap: Map<string, { value_text: string | null; value_json: unknown; value_number: number | null }>
-): PricingContext {
-  // Derive scope from flow type
-  const flowType = factsMap.get("service.flow_type")?.value_text || "";
-  let scope = "import";
-  if (/EXPORT/i.test(flowType)) scope = "export";
-  else if (/TRANSIT/i.test(flowType)) scope = "transit";
-
-  // Container type
-  let containerType: string | null = null;
-  let containerCount: number | null = null;
-  const containersFact = factsMap.get("cargo.containers");
-  if (containersFact?.value_json && Array.isArray(containersFact.value_json)) {
-    const containers = containersFact.value_json as Array<{ type: string; quantity: number }>;
-    if (containers.length > 0) {
-      // Use the first/primary container type, normalize
-      let ct = containers[0].type.replace(/['\s]/g, "").toUpperCase();
-      if (ct === "40") ct = "40HC";
-      if (ct === "20") ct = "20DV";
-      containerType = ct;
-      containerCount = containers.reduce((sum, c) => sum + (c.quantity || 1), 0);
-    }
-  }
-
-  // Corridor detection
-  const destCity = factsMap.get("routing.destination_city")?.value_text?.toUpperCase() || "";
-  const destCountry = factsMap.get("routing.destination_country")?.value_text?.toUpperCase() || "";
-  let corridor: string | null = null;
-  if (destCity.includes("BAMAKO") || destCountry.includes("MALI")) corridor = "DAKAR_BAMAKO";
-  else if (destCity.includes("BANJUL") || destCountry.includes("GAMBI")) corridor = "DAKAR_BANJUL";
-
-  // Ports & countries
-  const originPort = factsMap.get("routing.origin_port")?.value_text || null;
-  const destPort = factsMap.get("routing.destination_port")?.value_text || null;
-  const originCountry = factsMap.get("routing.origin_country")?.value_text || null;
-  const destCountryVal = factsMap.get("routing.destination_country")?.value_text || null;
-
-  return {
-    scope,
-    container_type: containerType,
-    container_count: containerCount,
-    corridor,
-    origin_port: originPort,
-    destination_port: destPort,
-    origin_country: originCountry,
-    destination_country: destCountryVal,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// RATE CARD MATCHING — P1-A DETERMINISTIC SCORING
-// ═══════════════════════════════════════════════════════════════
-
-interface RateCardRow {
-  id: string;
-  service_key: string;
-  scope: string;
-  currency: string;
-  unit: string;
-  value: number;
-  source: string;
-  confidence: number;
-  container_type: string | null;
-  corridor: string | null;
-  origin_port: string | null;
-  destination_port: string | null;
-  origin_country: string | null;
-  destination_country: string | null;
-  effective_from: string | null;
-  effective_to: string | null;
-  min_charge: number | null;
-  notes: string | null;
-}
-
-function findBestRateCard(
-  allCards: RateCardRow[],
-  serviceKey: string,
-  ctx: PricingContext,
-  lineUnit: string,
-  lineCurrency: string
-): { card: RateCardRow; score: number; explanation: string } | null {
-  // Filter: must match service_key
-  const candidates = allCards.filter((c) => c.service_key === serviceKey);
-  if (candidates.length === 0) return null;
-
-  let bestCard: RateCardRow | null = null;
-  let bestScore = -1;
-  let bestExplanation = "";
-
-  for (const card of candidates) {
-    let score = 40; // Base: service_key match only
-    const matchParts: string[] = [serviceKey];
-
-    // P1-C: Unit check
-    const cardUnit = normalizeUnit(card.unit);
-    if (cardUnit !== lineUnit) {
-      continue; // Skip — unit_mismatch (don't even score)
-    }
-
-    // Scope match
-    if (card.scope === ctx.scope) {
-      score += 20;
-      matchParts.push(ctx.scope);
-    } else {
-      continue; // Scope mismatch = skip entirely
-    }
-
-    // Container type match
-    if (ctx.container_type && card.container_type) {
-      if (card.container_type === ctx.container_type) {
-        score += 20;
-        matchParts.push(ctx.container_type);
-      } else {
-        score -= 10; // Wrong container type penalty
-      }
-    }
-
-    // Corridor match
-    if (ctx.corridor && card.corridor) {
-      if (card.corridor === ctx.corridor) {
-        score += 20;
-        matchParts.push(card.corridor);
-      } else {
-        score -= 5; // Wrong corridor penalty
-      }
-    } else if (ctx.corridor && !card.corridor) {
-      // Generic card (no corridor specified) — acceptable but lower score
-    }
-
-    // Currency match (prefer same currency)
-    const cardCurrency = normalizeCurrency(card.currency) || card.currency;
-    if (cardCurrency === lineCurrency) {
-      score += 5;
-    }
-
-    // Card confidence boost
-    score += Math.round(card.confidence * 5);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestCard = card;
-      bestExplanation = `match: ${matchParts.join("+")}, score=${score}, rate_card=${card.id.slice(0, 8)}`;
-    }
-  }
-
-  if (!bestCard || bestScore < 40) return null;
-
-  return { card: bestCard, score: bestScore, explanation: bestExplanation };
-}

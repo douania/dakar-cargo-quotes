@@ -700,6 +700,8 @@ L'équipe SODATRA`;
           updateServiceLine(pl.id, { 
             rate: pl.rate, 
             currency: pl.currency === 'XOF' ? 'FCFA' : pl.currency,
+            ...(pl.quantity_used !== undefined && { quantity: pl.quantity_used }),
+            ...(pl.unit_used !== undefined && { unit: pl.unit_used }),
           });
           pricedCount++;
         }

@@ -25,17 +25,38 @@
 ### 5. Document 2015 désactivé
 - dpw_dakar_landside_tariff_2015.pdf → is_current=false
 
-## Vérification finale
-| Métrique | Valeur |
-|---|---|
-| unit_conversions | 12 lignes |
-| service_quantity_rules | 12 lignes |
-| tariff_resolution_log | 8 résolutions |
-| THC DPW actifs | 16 lignes (sans doublons) |
-| Tarifs désactivés | 8 |
-| Rate cards to_confirm | 34 |
+---
+
+# Phase T3 — Branchement moteur quantités ✅ TERMINÉE
+
+## Résumé des opérations effectuées
+
+### 1. Migration SQL
+- `quote_service_pricing` : colonnes `quantity_used` (numeric) et `unit_used` (text) ajoutées
+
+### 2. Edge Function `price-service-lines` refactorisée
+- **computeQuantity()** : calcul déterministe basé sur `service_quantity_rules` + `unit_conversions`
+  - EVP : somme facteurs × quantités depuis cargo.containers
+  - COUNT : logique CTO-T3 (TRUCKING = conteneurs ≥40' ; autres = physiques)
+  - TONNE : cargo.weight_kg / 1000
+  - FLAT : 1
+- **Sécurités** : containers absent → qty=1, weight_kg ≤ 0 → qty=1
+- **Fallback port_tariffs** pour DTHC quand aucun pricing_rate_cards ne match
+- **Audit enrichi** : quantity_used + unit_used écrits dans quote_service_pricing
+- Tables chargées en parallèle (Promise.all)
+
+### 3. Patch frontend QuotationSheet.tsx
+- `updateServiceLine` reçoit désormais `quantity` et `unit` depuis la réponse edge
+
+### 4. Résultat attendu (cas 2×40HC Import DAP Bamako)
+| Service | quantity_used | unit_used |
+|---|---|---|
+| DTHC | 4 | EVP |
+| TRUCKING | 2 | VOYAGE |
+| EMPTY_RETURN | 2 | EVP |
+| CUSTOMS_DAKAR | 1 | DECL |
+| AGENCY | 1 | FORFAIT |
 
 ## Prochaines phases
 - **R2** : Gouvernance documentaire (rattacher tarifs → documents, tariff_resolution_log étendu)
 - **R3** : Sourcing 2026 (DPW, PAD, Hapag-Lloyd, AIBD)
-- **T3** : Branchement moteur M3.7 sur unit_conversions + service_quantity_rules
