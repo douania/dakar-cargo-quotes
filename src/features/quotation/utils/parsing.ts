@@ -82,10 +82,27 @@ export const parseSubject = (subject: string | null): Partial<ConsolidatedData> 
     cargoTypes: [],
     containerTypes: [],
     origins: [],
+    specialRequirements: [],
   };
   
   const subjectUpper = subject.toUpperCase();
   const subjectLower = subject.toLowerCase();
+  
+  // A1: Detect and strip transport mode from subject
+  const modePatterns = [
+    { regex: /\b(?:by\s+air|via\s+air|par\s+avion|air\s+cargo|air\s+shipment)\b/i, mode: 'AIR' },
+    { regex: /\b(?:by\s+sea|via\s+sea|par\s+mer|sea\s+freight|seafreight)\b/i, mode: 'SEA' },
+    { regex: /\b(?:by\s+truck|by\s+road|par\s+route)\b/i, mode: 'ROAD' },
+  ];
+  
+  let cleanedSubject = subject;
+  for (const { regex, mode } of modePatterns) {
+    if (regex.test(subject)) {
+      result.specialRequirements?.push(`Transport: ${mode}`);
+      cleanedSubject = cleanedSubject.replace(regex, '').trim();
+      break;
+    }
+  }
   
   // Extract incoterm
   for (const inc of incoterms) {
@@ -95,7 +112,7 @@ export const parseSubject = (subject: string | null): Partial<ConsolidatedData> 
     }
   }
   
-  // Extract destination from subject
+  // Extract destination from cleaned subject (without "by AIR" etc.)
   const destinationPatterns = [
     /(?:DAP|DDP|CIF|CFR|FOB|FCA)\s+([A-Z][A-Z\s-]+)/i,
     /(?:to|vers|pour)\s+([A-Z][A-Z\s-]+)/i,
@@ -103,7 +120,7 @@ export const parseSubject = (subject: string | null): Partial<ConsolidatedData> 
   ];
   
   for (const pattern of destinationPatterns) {
-    const match = subject.match(pattern);
+    const match = cleanedSubject.match(pattern);
     if (match) {
       const dest = match[1].trim().replace(/\s+/g, ' ');
       if (dest.length > 2 && dest.length < 50) {
@@ -152,6 +169,7 @@ export const parseEmailBody = (body: string | null): Partial<ConsolidatedData> =
   
   // === NEW: Multi-container extraction with quantities ===
   // Pattern: "09 X 40' HC", "2 x 20DV", "1 X 40' open top", etc.
+  // P0-C: Accept × in dimension/container patterns
   const containerPatterns = [
     // "09 X 40' HC" or "9 x 40HC"
     /(\d+)\s*[xX×]\s*(\d{2})'?\s*(HC|DV|OT|FR|RF|GP|DC)/gi,
@@ -222,6 +240,32 @@ export const parseEmailBody = (body: string | null): Partial<ConsolidatedData> =
   }
   if (bodyLower.includes('empty return') || bodyLower.includes('retour vide')) {
     result.specialRequirements?.push('Retour conteneur vide');
+  }
+  
+  // A1: Lightweight cargo preview extraction (UX only, not source of truth)
+  // Weight
+  const weightMatch = body.match(/(\d[\d\s,.']*)\s*kg\b/i);
+  if (weightMatch) {
+    const cleaned = weightMatch[1].replace(/\s/g, '').replace(/,/g, '');
+    const weight = parseFloat(cleaned);
+    if (weight > 0) {
+      result.specialRequirements?.push(`Poids: ${weight} kg`);
+    }
+  }
+  // Volume
+  const volumeMatch = body.match(/(\d[\d,.]*)\s*cbm\b/i);
+  if (volumeMatch) {
+    result.specialRequirements?.push(`Volume: ${volumeMatch[1]} cbm`);
+  }
+  // Pieces
+  const piecesMatch = body.match(/(\d+)\s*(?:crates?|pieces?|pcs|colis|cartons?|pkgs?|packages?)\b/i);
+  if (piecesMatch) {
+    result.specialRequirements?.push(`Colis: ${piecesMatch[1]}`);
+  }
+  // Dimensions (P0-C: accept ×)
+  const dimMatch = body.match(/(\d+)\s*[*x×]\s*(\d+)\s*[*x×]\s*(\d+)\s*(?:cm|mm)?/i);
+  if (dimMatch) {
+    result.specialRequirements?.push(`Dimensions: ${dimMatch[0]}`);
   }
   
   // Check for location patterns for project site

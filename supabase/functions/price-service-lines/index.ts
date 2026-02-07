@@ -37,6 +37,7 @@ const VALID_SERVICE_KEYS = new Set([
   "PORT_CHARGES", "TRUCKING", "CUSTOMS", "PORT_DAKAR_HANDLING",
   "CUSTOMS_DAKAR", "CUSTOMS_EXPORT", "BORDER_FEES", "AGENCY",
   "SURVEY", "CUSTOMS_BAMAKO", "TRANSIT_DOCS",
+  "AIR_HANDLING", "AIR_FREIGHT",
 ]);
 
 // ═══ CTO-1: Currency normalization ═══
@@ -59,6 +60,7 @@ const UNIT_ALIASES: Record<string, string> = {
   déclaration: "DECL", declaration: "DECL", decl: "DECL", DECL: "DECL",
   voyage: "VOYAGE", VOYAGE: "VOYAGE",
   forfait: "FORFAIT", FORFAIT: "FORFAIT",
+  kg: "KG", KG: "KG",
 };
 
 function normalizeUnit(raw: string): string {
@@ -232,6 +234,25 @@ function computeQuantity(
     };
   }
 
+  // A1: KG basis for air freight (P0-3 CTO: null if missing, no pricing)
+  if (basis === "KG") {
+    const chargeableKg = ctx.weight_kg;
+    if (!chargeableKg || chargeableKg <= 0) {
+      return {
+        quantity_used: null as any,
+        unit_used: rule.default_unit,
+        rule_id: rule.id,
+        conversion_used: "missing_weight_no_pricing",
+      };
+    }
+    return {
+      quantity_used: chargeableKg,
+      unit_used: rule.default_unit,
+      rule_id: rule.id,
+      conversion_used: `chargeable=${chargeableKg}kg`,
+    };
+  }
+
   // FLAT or unknown
   return { quantity_used: 1, unit_used: rule.default_unit || "FORFAIT", rule_id: rule.id, conversion_used: "flat" };
 }
@@ -288,7 +309,10 @@ function buildPricingContext(
   const originCountry = factsMap.get("routing.origin_country")?.value_text || null;
   const destCountryVal = factsMap.get("routing.destination_country")?.value_text || null;
 
-  const weightKg = factsMap.get("cargo.weight_kg")?.value_number || null;
+  // A1: Prioritize chargeable_weight_kg for air freight
+  const chargeableWeight = factsMap.get("cargo.chargeable_weight_kg")?.value_number;
+  const rawWeight = factsMap.get("cargo.weight_kg")?.value_number;
+  const weightKg = chargeableWeight ?? rawWeight ?? null;
 
   return {
     scope,
@@ -580,6 +604,18 @@ Deno.serve(async (req) => {
       const rule = quantityRules.get(serviceKey);
       const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
+
+      // A1: If quantity_used is null (missing weight for KG basis), skip pricing
+      if (computed.quantity_used === null || computed.quantity_used === undefined) {
+        pricedLines.push({
+          id: line.id, rate: null, currency, source: "missing_quantity",
+          confidence: 0, explanation: `Cannot price ${serviceKey}: ${computed.conversion_used}`,
+          quantity_used: 0, unit_used: computed.unit_used, rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
+        });
+        missing.push(serviceKey);
+        continue;
+      }
 
       // ═══ P1-A: Progressive matching with scoring ═══
       const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency);

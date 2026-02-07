@@ -32,6 +32,8 @@ export const serviceTemplates = [
   { service: 'AGENCY', description: 'Frais agence', unit: 'forfait' },
   { service: 'SURVEY', description: 'Survey port + site', unit: 'forfait' },
   { service: 'CUSTOMS_BAMAKO', description: 'Dédouanement Bamako', unit: 'déclaration' },
+  { service: 'AIR_HANDLING', description: 'Manutention aéroportuaire', unit: 'kg' },
+  { service: 'AIR_FREIGHT', description: 'Fret aérien', unit: 'kg' },
 ];
 
 /**
@@ -43,6 +45,7 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
   EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
   BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
+  AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
 };
 
 /**
