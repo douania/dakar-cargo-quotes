@@ -1115,11 +1115,16 @@ serve(async (req) => {
     }
 
   } catch (error) {
-    console.error("Email admin error:", error);
+    console.error("Email admin error:", JSON.stringify(error));
+    const errorMessage = error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null && 'message' in error
+        ? (error as any).message
+        : String(error);
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error instanceof Error ? error.message : "Erreur inconnue" 
+        error: errorMessage 
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
