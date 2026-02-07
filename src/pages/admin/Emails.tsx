@@ -33,6 +33,7 @@ import { ThreadSubjectGroup } from '@/components/emails/ThreadSubjectGroup';
 import { useUiUsageTracker } from '@/hooks/useUiUsageTracker';
 import { ThreadStructureIndicators } from '@/components/emails/ThreadStructureIndicators';
 import { UiSessionSummary } from '@/components/emails/UiSessionSummary';
+import { invokeWithRetry } from '@/lib/fetchWithRetry';
 
 interface EmailConfig {
   id: string;
@@ -146,36 +147,7 @@ export default function Emails() {
     loadData();
   }, []);
 
-  // Helper: invoke with timeout + 1 retry
-  const invokeWithRetry = async (
-    fnName: string,
-    body: Record<string, unknown>,
-    timeoutMs = 15000
-  ): Promise<{ data: any; error: any }> => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-        const result = await supabase.functions.invoke(fnName, {
-          body,
-          // @ts-ignore – AbortSignal accepted at runtime
-          signal: controller.signal,
-        });
-
-        clearTimeout(timer);
-        return result;
-      } catch (err: any) {
-        if (attempt === 0 && (err?.name === 'AbortError' || err?.message?.includes('timeout') || err?.message?.includes('closed'))) {
-          console.warn(`[loadData] ${fnName} attempt 1 timeout, retrying…`);
-          toast.info('Serveur temporairement lent, nouvelle tentative…');
-          continue;
-        }
-        return { data: null, error: err };
-      }
-    }
-    return { data: null, error: new Error('Timeout persistant') };
-  };
+  // invokeWithRetry imported from '@/lib/fetchWithRetry'
 
   const loadData = async () => {
     setLoading(true);
