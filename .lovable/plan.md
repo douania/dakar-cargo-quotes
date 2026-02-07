@@ -1,62 +1,66 @@
 
 
-# Phase DASHBOARD-SEARCH — Ajout de la recherche sur "Demandes a traiter"
+# Phase DASHBOARD-SEARCH-FIX — Recherche dans body_html
 
-## Diagnostic
+## Cause racine
 
-L'email de "Bilal Usmani" (sujet: AB26065 // JEDDAH TO SENEGAL) existe bien en base, est marque `is_quotation_request = true`, et n'a pas de brouillon envoye. Il devrait donc apparaitre dans la liste du Dashboard.
+Le mot "Usmani" se trouve uniquement dans le champ `body_html` (signature email), pas dans `body_text`, `subject` ni `from_address`. Le Dashboard ne filtre actuellement que sur ces 3 champs, ce qui rend l'email invisible a la recherche.
 
-Le probleme : **la page "Demandes a traiter" n'a aucun champ de recherche textuelle**. Elle affiche les 50 derniers emails de type cotation tries par date ou completude, sans possibilite de filtrer par nom, sujet ou expediteur. La recherche globale (palette de commandes) ne cherche que dans les routes/commandes de l'application, pas dans le contenu des emails.
+Le module "Gestion emails" fonctionne car il utilise la Edge Function `search-emails` qui interroge le contenu HTML cote serveur.
 
-Si l'email n'apparait pas visuellement, c'est probablement parce qu'il est au-dela de la limite de 50 resultats (`LIMIT 50` dans la requete).
+## Solution
 
-## Solution proposee
+Modifier le Dashboard pour :
 
-Ajouter un champ de recherche textuelle dans le Dashboard qui filtre cote client parmi les emails deja charges, ET qui augmente la couverture de la requete.
+1. **Charger `body_html` dans la requete Supabase** (ajouter ce champ au `select`)
+2. **Inclure `body_html` dans le filtre de recherche** client-side
 
-### Modifications (1 seul fichier)
+## Modifications (1 seul fichier)
 
 **Fichier** : `src/pages/Dashboard.tsx`
 
-1. **Ajouter un etat `searchQuery`** pour stocker le texte de recherche
-2. **Ajouter un champ `Input`** avec une icone de recherche a cote du selecteur de tri existant
-3. **Filtrer `sortedRequests`** en appliquant un filtre textuel sur `subject`, `from_address` et `body_text` (insensible a la casse)
-4. **Augmenter la limite** de 50 a 100 pour couvrir plus d'emails
+### Changement 1 — Requete Supabase (ligne 65)
 
-### Detail technique
+Ajouter `body_html` au select :
 
 ```text
-Nouveau state :
-  const [searchQuery, setSearchQuery] = useState('');
-
-Filtre applique avant le tri :
-  const filteredRequests = sortedRequests.filter(r => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      r.subject?.toLowerCase().includes(q) ||
-      r.from_address?.toLowerCase().includes(q) ||
-      r.body_text?.toLowerCase().includes(q)
-    );
-  });
-
-Champ de recherche dans la zone Filter & Sort :
-  <Input
-    placeholder="Rechercher par nom, sujet..."
-    value={searchQuery}
-    onChange={e => setSearchQuery(e.target.value)}
-    className="w-[250px]"
-  />
-  (avec icone Search de lucide-react)
+Avant :  .select('id, subject, from_address, received_at, body_text, extracted_data, thread_id')
+Apres :  .select('id, subject, from_address, received_at, body_text, body_html, extracted_data, thread_id')
 ```
 
-### Impact
+### Changement 2 — Interface QuotationRequest (ligne 38)
+
+Ajouter le champ optionnel :
+
+```text
+body_html?: string;
+```
+
+### Changement 3 — Filtre de recherche (lignes 158-164)
+
+Ajouter `body_html` au filtre :
+
+```text
+Avant :
+  r.subject?.toLowerCase().includes(q) ||
+  r.from_address?.toLowerCase().includes(q) ||
+  r.body_text?.toLowerCase().includes(q)
+
+Apres :
+  r.subject?.toLowerCase().includes(q) ||
+  r.from_address?.toLowerCase().includes(q) ||
+  r.body_text?.toLowerCase().includes(q) ||
+  r.body_html?.toLowerCase().includes(q)
+```
+
+## Resume
 
 | Element | Valeur |
 |---|---|
 | Fichier modifie | `src/pages/Dashboard.tsx` uniquement |
-| Lignes ajoutees | ~15 lignes |
+| Lignes modifiees | 3 |
 | Migration DB | Aucune |
-| Edge Functions | Aucune modification |
-| Risque | Aucun — filtrage purement cote client |
+| Edge Functions | Aucune |
+| Cause | "Usmani" present dans `body_html` uniquement (signature email) |
+| Risque | Minimal — `body_html` peut etre volumineux, mais le filtre est local et le nombre d'emails est limite a 100 |
 
