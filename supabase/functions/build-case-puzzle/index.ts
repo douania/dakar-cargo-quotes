@@ -167,22 +167,80 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
 // Sources that cannot be overwritten by assumptions
 const ASSUMPTION_PROTECTED_SOURCES = new Set(['operator', 'attachment_extracted', 'ai_extraction']);
 
+// --- M3.5.1 Fix: PORT_COUNTRY_MAP for country resolution from ports/cities ---
+const PORT_COUNTRY_MAP: Record<string, string> = {
+  'DAKAR': 'SN', 'DKR': 'SN',
+  'BANJUL': 'GM', 'BJL': 'GM',
+  'ABIDJAN': 'CI', 'ABJ': 'CI',
+  'CONAKRY': 'GN', 'CKY': 'GN',
+  'BAMAKO': 'ML', 'BKO': 'ML',
+  'TEMA': 'GH', 'LOME': 'TG', 'LFW': 'TG',
+  'COTONOU': 'BJ', 'LAGOS': 'NG', 'APAPA': 'NG',
+  'NOUAKCHOTT': 'MR', 'OUAGADOUGOU': 'BF', 'NIAMEY': 'NE',
+  'DAMMAM': 'SA', 'JEDDAH': 'SA', 'JED': 'SA', 'RIYADH': 'SA',
+  'SHANGHAI': 'CN', 'NINGBO': 'CN', 'SHENZHEN': 'CN', 'QINGDAO': 'CN',
+  'LE HAVRE': 'FR', 'MARSEILLE': 'FR', 'FOS': 'FR',
+  'ANVERS': 'BE', 'ANTWERP': 'BE',
+  'ISTANBUL': 'TR', 'MERSIN': 'TR',
+  'MUMBAI': 'IN', 'NHAVA SHEVA': 'IN',
+  'DUBAI': 'AE', 'JEBEL ALI': 'AE',
+  'HAMBURG': 'DE', 'ROTTERDAM': 'NL',
+};
+
+function resolveCountry(
+  factMap: Map<string, { value: string; source: string }>,
+  countryKey: string,
+  portKey: string,
+  cityKey?: string
+): string {
+  // 1. Direct country fact
+  const direct = factMap.get(countryKey)?.value?.toUpperCase() || '';
+  if (direct) return direct;
+
+  // 2. Resolve from port
+  const port = factMap.get(portKey)?.value?.toUpperCase() || '';
+  if (port) {
+    const mapped = PORT_COUNTRY_MAP[port];
+    if (mapped) return mapped;
+    // Try partial match for multi-word ports
+    for (const [portName, code] of Object.entries(PORT_COUNTRY_MAP)) {
+      if (port.includes(portName)) return code;
+    }
+  }
+
+  // 3. Resolve from city
+  if (cityKey) {
+    const city = factMap.get(cityKey)?.value?.toUpperCase() || '';
+    if (city) {
+      const mapped = PORT_COUNTRY_MAP[city];
+      if (mapped) return mapped;
+      for (const [name, code] of Object.entries(PORT_COUNTRY_MAP)) {
+        if (city.includes(name)) return code;
+      }
+    }
+  }
+
+  return '';
+}
+
 function detectFlowType(factMap: Map<string, { value: string; source: string }>): string {
-  const destCountry = factMap.get('routing.destination_country')?.value?.toUpperCase() || '';
+  const destCountry = resolveCountry(factMap, 'routing.destination_country', 'routing.destination_port', 'routing.destination_city');
+  const originCountry = resolveCountry(factMap, 'routing.origin_country', 'routing.origin_port');
   const finalDest = factMap.get('routing.final_destination')?.value?.toUpperCase() || '';
-  const originCountry = factMap.get('routing.origin_country')?.value?.toUpperCase() || '';
-  // CTO Adjustment #1: Also check origin_port for export detection
   const originPort = factMap.get('routing.origin_port')?.value?.toUpperCase() || '';
   const weightKg = parseFloat(factMap.get('cargo.weight_kg')?.value || '0') || 0;
   const cargoDesc = factMap.get('cargo.description')?.value?.toLowerCase() || '';
   const servicePackage = factMap.get('service.package')?.value || '';
+  const hasContainers = !!factMap.get('cargo.containers')?.value;
+
+  console.log(`[M3.5.1] detectFlowType: destCountry=${destCountry}, originCountry=${originCountry}, finalDest=${finalDest}, weightKg=${weightKg}, hasContainers=${hasContainers}`);
 
   // Rule 1: Transit Gambia
   if (destCountry === 'GM' || finalDest.includes('BANJUL')) {
     return 'TRANSIT_GAMBIA';
   }
 
-  // Rule 2: Export Senegal (CTO Adj #1: also trigger on origin_port = DKR/Dakar)
+  // Rule 2: Export Senegal
   const isOriginSN = originCountry === 'SN' || originPort.includes('DKR') || originPort.includes('DAKAR');
   if (isOriginSN && destCountry && destCountry !== 'SN') {
     return 'EXPORT_SENEGAL';
@@ -194,15 +252,12 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
     return 'BREAKBULK_PROJECT';
   }
 
-  // Rule 4: Import project DAP (CTO Adj #2: require attachment or weight > 5000)
+  // Rule 4: Import project DAP (+ cargo.containers as project indicator)
   if (destCountry === 'SN' && !servicePackage) {
-    // Check if there are attachments or significant cargo weight
     const hasWeight = weightKg > 5000;
-    if (hasWeight) {
+    if (hasWeight || hasContainers) {
       return 'IMPORT_PROJECT_DAP';
     }
-    // Attachment check is done in applyAssumptionRules where we have serviceClient access
-    // We use a flag to indicate "needs attachment check"
     return 'IMPORT_PROJECT_DAP_PENDING';
   }
 
@@ -913,6 +968,7 @@ Deno.serve(async (req) => {
         facts_added: factsAdded,
         facts_updated: factsUpdated,
         attachment_facts: attachmentFactsResult,
+        assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
         ready_to_price: newStatus === "READY_TO_PRICE",
