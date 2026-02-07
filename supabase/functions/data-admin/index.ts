@@ -224,12 +224,25 @@ serve(async (req) => {
           dbQuery = dbQuery.in('category', categories);
         }
 
-        const { data: results, error } = await dbQuery;
+        // Run knowledge search and email search in parallel
+        const [knowledgeResult, emailResult] = await Promise.all([
+          dbQuery,
+          supabase
+            .from('emails')
+            .select('id, subject, from_address, received_at, is_quotation_request')
+            .or(`subject.ilike.${searchQuery},from_address.ilike.${searchQuery},body_text.ilike.${searchQuery},body_html.ilike.${searchQuery}`)
+            .order('received_at', { ascending: false })
+            .limit(10)
+        ]);
 
-        if (error) throw error;
+        if (knowledgeResult.error) throw knowledgeResult.error;
 
         return new Response(
-          JSON.stringify({ success: true, results: results || [] }),
+          JSON.stringify({ 
+            success: true, 
+            results: knowledgeResult.data || [],
+            emails: emailResult.data || []
+          }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
