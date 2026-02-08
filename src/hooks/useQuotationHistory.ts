@@ -60,7 +60,7 @@ const modeCategory = (mode: string | undefined | null): string | null => {
   if (!mode) return null;
   const m = mode.toUpperCase();
   if (m.includes('AIR')) return 'AIR';
-  if (m.includes('SEA') || m.includes('FCL') || m.includes('LCL')) return 'SEA';
+  if (m.includes('SEA') || m.includes('FCL') || m.includes('LCL') || m.includes('CONTAINER') || m.includes('BREAKBULK') || m.includes('BREAK')) return 'SEA';
   if (m.includes('ROAD') || m.includes('TRUCK')) return 'ROAD';
   return null;
 };
