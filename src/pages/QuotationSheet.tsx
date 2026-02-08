@@ -115,6 +115,7 @@ import { useHistoricalSuggestions } from '@/features/quotation/hooks/useHistoric
 import { HistoricalSuggestionsCard } from '@/features/quotation/components/HistoricalSuggestionsCard';
 
 // Utilitaires de parsing
+import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { 
   decodeBase64Content,
   isInternalEmail,
@@ -1770,11 +1771,7 @@ L'équipe SODATRA`;
                   <Separator />
                   <ScrollArea className="h-[250px]">
                     <p className="text-xs whitespace-pre-wrap text-muted-foreground">
-                      {(() => {
-                        const decoded = decodeBase64Content(selectedEmail.body_text);
-                        return decoded.substring(0, 2000) || 'Aucun contenu texte';
-                      })()}
-                      {selectedEmail.body_text && selectedEmail.body_text.length > 2000 && '...'}
+                      {extractPlainTextFromMime(selectedEmail.body_text || '') || 'Aucun contenu texte'}
                     </p>
                   </ScrollArea>
                 </CardContent>
