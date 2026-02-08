@@ -1,94 +1,54 @@
 
 
-# Phase P1 -- Email Display Fix
+# Phase P1 -- CTO-Validated MIME Normalization Fix
 
 ## Problem
 
-The "Email original" section (and ThreadConversationView) displays raw MIME multi-part content (base64 blocks, image data, multipart headers) instead of readable text. The existing `decodeBase64Content()` in `src/features/quotation/utils/parsing.ts` only handles pure base64 strings, not MIME-structured emails.
+The `body_text` in the database has zero `\n` characters (503K chars on a single line). The existing parser correctly splits by boundary but then fails to find the header/body separator (`\n\n`), causing every MIME part to be skipped. Result: raw MIME noise displayed to the user.
 
-## Solution
+## Fix (single file, 3 lines added)
 
-Port the `extractPlainTextFromMime` helper (already working in the edge function) to a shared frontend module, then replace the inadequate `decodeBase64Content` calls in display components.
+**File: `src/lib/email/extractPlainTextFromMime.ts`**
 
-## Files to Create
+Insert a normalization block between line 7 (`if (!rawBody) return "";`) and line 9 (`const boundaryMatch = ...`).
 
-### `src/lib/email/extractPlainTextFromMime.ts`
+### Exact diff
 
-Exact copy of the deterministic helper from `supabase/functions/build-case-puzzle/index.ts` (lines 10-97), adapted for browser (atob is native). Same logic:
-1. No MIME boundary? Return rawBody.slice(0, 4000)
-2. Split by boundary, parse headers
-3. Skip image/* parts
-4. Decode base64 (try/catch) or quoted-printable for text/plain
-5. Fallback to stripped HTML
-6. Global .slice(0, 4000) guard
+```diff
+ export function extractPlainTextFromMime(rawBody: string): string {
+   if (!rawBody) return "";
 
-## Files to Modify
-
-### 1. `src/pages/QuotationSheet.tsx` -- lines 1772-1778
-
-Current:
-```typescript
-const decoded = decodeBase64Content(selectedEmail.body_text);
-return decoded.substring(0, 2000) || 'Aucun contenu texte';
++  // Normalize space-separated MIME: restore newlines only in MIME header contexts
++  rawBody = rawBody
++    // Restore newline before Content-Type only after boundary declarations
++    .replace(/(boundary="[^"]+")\s+(Content-Type:)/gi, '$1\n$2')
++    // Restore newline before encoding headers
++    .replace(/\s+(Content-Transfer-Encoding:)/gi, '\n$1')
++    // Restore header/body split after encoding declaration
++    .replace(/Content-Transfer-Encoding:\s*(base64|quoted-printable)\s+/gi,
++      'Content-Transfer-Encoding: $1\n\n');
++
+   // 1. No MIME boundary -> return truncated raw
+   const boundaryMatch = rawBody.match(/boundary="?([^"\s;]+)"?/i);
 ```
 
-Replace with:
-```typescript
-const decoded = extractPlainTextFromMime(selectedEmail.body_text || '');
-return decoded || 'Aucun contenu texte';
-```
+### What stays untouched
 
-(The helper already truncates to 4000 chars, no need for substring(0, 2000).)
+- All existing parsing logic (boundary split, header detection, base64 decode)
+- `try/catch` around every `atob()` call
+- `.slice(0, 4000)` global guard
+- All fallbacks (plainText > htmlText > raw truncated)
+- No other files modified
 
-Add import at top of file:
-```typescript
-import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
-```
+## Why this is safer than the original proposal
 
-### 2. `src/components/ThreadConversationView.tsx` -- line 187
+| Original regex | Risk | CTO-corrected regex | Risk |
+|---|---|---|---|
+| `/ (Content-Type:)/gi` | Matches inside body text | `/(boundary="[^"]+")\s+(Content-Type:)/gi` | Only after boundary declaration |
+| `/(base64\|quoted-printable) /gi` | Matches "base64" in normal prose | `/Content-Transfer-Encoding:\s*(base64\|quoted-printable)\s+/gi` | Only in CTE header context |
+| `/ (Content-Transfer-Encoding:)/gi` | Broad match | `/\s+(Content-Transfer-Encoding:)/gi` | Slightly narrower, acceptable |
 
-Current:
-```typescript
-{email.body_text?.slice(0, 500) || '(Aucun contenu texte)'}
-```
+## Expected result
 
-Replace with:
-```typescript
-{extractPlainTextFromMime(email.body_text || '').slice(0, 500) || '(Aucun contenu texte)'}
-```
-
-Add import at top of file.
-
-### 3. `src/pages/admin/Emails.tsx` -- lines 1286, 1322, 1449
-
-Three display points that show raw body_text. Apply the same helper for consistency:
-- Line 1286: `extractPlainTextFromMime(email.body_text || '').substring(0, 150)`
-- Line 1322: `extractPlainTextFromMime(email.body_text || '').substring(0, 300)`
-- Line 1449: `extractPlainTextFromMime(selectedEmail.body_text || '')`
-
-## What Does NOT Change
-
-- No edge function modifications
-- No database schema changes
-- No migration SQL
-- No AI prompt changes
-- No auth/security changes
-- No quote_facts / quote_cases logic
-- No pricing logic
-- `decodeBase64Content` remains in parsing.ts (used elsewhere for non-display purposes)
-
-## Expected Result
-
-In the "Email original" section of `/quotation/[id]`, the user sees:
-```
-Dear team,
-Nice day,
-Here is an enquiry from AIO (Shanghai)...
-Pieces: 6 crates
-Volume: 3 cbm
-Weight: 3234 kg
-Term: DAP
-```
-
-Instead of raw MIME/base64 noise.
+"Email original" section displays clean decoded text instead of raw MIME/base64 blocks.
 
