@@ -723,6 +723,28 @@ L'équipe SODATRA`;
     }
   }, [updateServiceLine]);
 
+  // ── Phase S1.3: Re-price when AIR mode detected ──
+  // Deterministic: reset ai_assumption rates and re-trigger backend pricing
+  const airModeRepricedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!quoteCase?.request_type?.includes('AIR') || !quoteCase.id || serviceLines.length === 0) return;
+    // Guard: only run once per case
+    if (airModeRepricedRef.current === quoteCase.id) return;
+    // Only if there are ai_assumption lines with rates (from initial wrong pricing)
+    const hasStaleRates = serviceLines.some(l => l.source === 'ai_assumption' && l.rate !== undefined && l.rate !== null);
+    if (!hasStaleRates) return;
+    
+    airModeRepricedRef.current = quoteCase.id;
+    // Reset rates for ai_assumption lines, then re-price
+    const resetLines = serviceLines.map(l =>
+      l.source === 'ai_assumption' ? { ...l, rate: undefined } : l
+    );
+    setServiceLines(resetLines);
+    callPriceServiceLines(quoteCase.id, resetLines).catch(err => {
+      console.warn('[S1.3] AIR mode re-pricing failed:', err);
+    });
+  }, [quoteCase?.request_type, quoteCase?.id, serviceLines, setServiceLines, callPriceServiceLines]);
+
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
