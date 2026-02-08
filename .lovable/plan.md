@@ -1,90 +1,94 @@
 
 
-# Fix: MIME Body Pre-Processing in build-case-puzzle
+# Phase P1 -- Email Display Fix
 
-## Context
+## Problem
 
-The aiocargo email body contains raw MIME multi-part data (base64-encoded text, HTML, and PNG images). This raw blob is sent directly to the AI, causing hallucinated extractions (39 containers, EXW instead of DAP). The 403 ownership issue has been resolved separately.
+The "Email original" section (and ThreadConversationView) displays raw MIME multi-part content (base64 blocks, image data, multipart headers) instead of readable text. The existing `decodeBase64Content()` in `src/features/quotation/utils/parsing.ts` only handles pure base64 strings, not MIME-structured emails.
 
-## Changes (single file)
+## Solution
 
-**File: `supabase/functions/build-case-puzzle/index.ts`**
+Port the `extractPlainTextFromMime` helper (already working in the edge function) to a shared frontend module, then replace the inadequate `decodeBase64Content` calls in display components.
 
-### 1. Add `extractPlainTextFromMime(rawBody: string): string` helper
+## Files to Create
 
-Insert before the main handler. Logic:
+### `src/lib/email/extractPlainTextFromMime.ts`
 
-```text
-1. If no MIME boundary detected (no "boundary=" in body), return rawBody.slice(0, 4000)
-2. Split body by boundary
-3. For each part:
-   a. Parse Content-Type and Content-Transfer-Encoding headers
-   b. Skip image/* parts entirely
-   c. For text/plain + base64:
-      try { decoded = atob(content); } catch { decoded = ""; }
-   d. For text/plain + quoted-printable: decode =XX sequences
-   e. For text/html: strip tags, decode &amp; entities
-4. Return first successful text/plain decode
-5. Fallback: return stripped HTML part
-6. Final fallback: return rawBody (non-MIME) truncated
-7. ALWAYS: return result.slice(0, 4000)   <-- global guard
-```
+Exact copy of the deterministic helper from `supabase/functions/build-case-puzzle/index.ts` (lines 10-97), adapted for browser (atob is native). Same logic:
+1. No MIME boundary? Return rawBody.slice(0, 4000)
+2. Split by boundary, parse headers
+3. Skip image/* parts
+4. Decode base64 (try/catch) or quoted-printable for text/plain
+5. Fallback to stripped HTML
+6. Global .slice(0, 4000) guard
 
-CTO corrections integrated:
-- `try/catch` around every `atob()` call (Correction 1)
-- `.slice(0, 4000)` on the final return value regardless of parsing path (Correction 2)
+## Files to Modify
 
-### 2. Apply helper at line 668 (threadContext construction)
+### 1. `src/pages/QuotationSheet.tsx` -- lines 1772-1778
 
-Replace:
+Current:
 ```typescript
-`${e.body_text || ""}`
+const decoded = decodeBase64Content(selectedEmail.body_text);
+return decoded.substring(0, 2000) || 'Aucun contenu texte';
 ```
-With:
+
+Replace with:
 ```typescript
-`${extractPlainTextFromMime(e.body_text || "")}`
+const decoded = extractPlainTextFromMime(selectedEmail.body_text || '');
+return decoded || 'Aucun contenu texte';
 ```
 
-### 3. Apply helper at line 1168 (extractFactsBasic fallback)
+(The helper already truncates to 4000 chars, no need for substring(0, 2000).)
 
-Replace:
+Add import at top of file:
 ```typescript
-const body = firstEmail.body_text || "";
+import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 ```
-With:
+
+### 2. `src/components/ThreadConversationView.tsx` -- line 187
+
+Current:
 ```typescript
-const body = extractPlainTextFromMime(firstEmail.body_text || "");
+{email.body_text?.slice(0, 500) || '(Aucun contenu texte)'}
 ```
 
-### 4. Purge corrupted facts and reset case
+Replace with:
+```typescript
+{extractPlainTextFromMime(email.body_text || '').slice(0, 500) || '(Aucun contenu texte)'}
+```
 
-SQL operations after deployment:
-- Delete corrupted `quote_facts` rows for case `bfeaa70f-2f98-4e45-b00b-20ec8dc94801`
-- Reset `quote_cases.status` to allow re-analysis
+Add import at top of file.
 
-## What does NOT change
+### 3. `src/pages/admin/Emails.tsx` -- lines 1286, 1322, 1449
 
-- No AI prompt modifications
-- No schema changes
-- No fact storage logic changes (supersede_fact RPC untouched)
-- No security/auth changes
-- No other edge functions touched
+Three display points that show raw body_text. Apply the same helper for consistency:
+- Line 1286: `extractPlainTextFromMime(email.body_text || '').substring(0, 150)`
+- Line 1322: `extractPlainTextFromMime(email.body_text || '').substring(0, 300)`
+- Line 1449: `extractPlainTextFromMime(selectedEmail.body_text || '')`
 
-## Expected result after re-analysis
+## What Does NOT Change
 
-| Fact | Before (hallucinated) | After (correct) |
-|---|---|---|
-| routing.incoterm | EXW | DAP |
-| routing.transport_mode | (maritime implied) | AIR |
-| cargo.weight_kg | missing | 3234 |
-| cargo.pieces_count | missing | 6 |
-| cargo.volume_cbm | missing | 3 |
-| cargo.containers | 39 entries / 7000+ units | none (AIR cargo) |
+- No edge function modifications
+- No database schema changes
+- No migration SQL
+- No AI prompt changes
+- No auth/security changes
+- No quote_facts / quote_cases logic
+- No pricing logic
+- `decodeBase64Content` remains in parsing.ts (used elsewhere for non-display purposes)
 
-## Validation
+## Expected Result
 
-1. Deploy the updated function
-2. Purge corrupted facts for case `bfeaa70f`
-3. Re-trigger "Analyser la demande" on the aiocargo quotation
-4. Verify facts match expected values above
+In the "Email original" section of `/quotation/[id]`, the user sees:
+```
+Dear team,
+Nice day,
+Here is an enquiry from AIO (Shanghai)...
+Pieces: 6 crates
+Volume: 3 cbm
+Weight: 3234 kg
+Term: DAP
+```
+
+Instead of raw MIME/base64 noise.
 
