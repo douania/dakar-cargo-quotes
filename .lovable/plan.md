@@ -1,67 +1,117 @@
 
 
-# Fix Phase S1 — Câblage du transportMode manquant
+# Fix Phase S1.1 — Filtrage transport mode sur les tarifs knowledge base
 
 ## Diagnostic
 
-Les filtres d'exclusion Phase S1 sont correctement codés mais **jamais activés** :
+Le `SimilarQuotationsPanel` utilise deux sources de donnees independantes :
 
-1. `QuotationSheet.tsx` ligne 1792 : `SimilarQuotationsPanel` est rendu **sans** la prop `transportMode`
-2. Consequence : `useSimilarQuotations` recoit `transportMode = undefined`, donc `inputModeCategory = null`, donc aucun filtrage
+1. `useSimilarQuotations` (quotation_history) -- filtre Phase S1 actif, fonctionne correctement
+2. `useTariffSuggestions` (learned_knowledge via data-admin/search_tariffs) -- **aucun filtre transport mode**
 
-Le transport mode est disponible dans la page via `cargoLines[0].cargo_type` qui contient des valeurs comme `container`, `breakbulk`, ou `air_cargo`. De plus, les services injectés contiennent des prefixes comme `AIR_IMPORT_DAP`, `SEA_FCL_IMPORT`, etc. qui encodent le mode.
+La deuxieme source remonte des tarifs breakbulk/projet lourd (ex: transport routier 3.5M FCFA pour un transformateur 60t) qui sont affiches comme suggestions pour un envoi aerien de 3.2t. C'est la source du resultat errone persistant.
 
-## Correction (1 fichier, 1 ligne)
+## Correction en 3 points
 
-**Fichier : `src/pages/QuotationSheet.tsx`** — ligne ~1792
+### 1. Passer `transportMode` a `useTariffSuggestions`
 
-Ajouter la prop `transportMode` au rendu de `SimilarQuotationsPanel` :
+**Fichier : `src/components/SimilarQuotationsPanel.tsx`** (ligne 64)
 
+Actuellement :
 ```typescript
-<SimilarQuotationsPanel
-  destination={finalDestination || destination}
-  cargoType={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
-  clientCompany={projectContext.requesting_company}
-  transportMode={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
-  requestedServices={serviceLines.map(s => s.service).filter(Boolean)}
-  onApplyTariff={...}
-/>
+const { data: knowledgeTariffs } = useTariffSuggestions(destination, cargoType);
 ```
 
-Ici `cargoLines[0].cargo_type` contient `air_cargo` / `container` / `breakbulk` ce qui alimente le `modeCategory` :
-- `air_cargo` -> pas de match AIR (le helper cherche "AIR" en majuscule, mais `cargo_type` est `air_cargo` en minuscule)
-
-### Sous-correction necessaire dans `modeCategory` (useQuotationHistory.ts)
-
-Le helper `modeCategory` dans le hook frontend doit aussi reconaitre `air_cargo` et `container` :
-
+Apres :
 ```typescript
-const modeCategory = (mode: string | undefined | null): string | null => {
-  if (!mode) return null;
-  const m = mode.toUpperCase();
-  if (m.includes('AIR')) return 'AIR';
-  if (m.includes('SEA') || m.includes('FCL') || m.includes('LCL') || m.includes('CONTAINER')) return 'SEA';
-  if (m.includes('ROAD') || m.includes('TRUCK')) return 'ROAD';
-  if (m.includes('BREAKBULK') || m.includes('BREAK')) return 'SEA'; // breakbulk is sea
-  return null;
-};
+const { data: knowledgeTariffs } = useTariffSuggestions(destination, cargoType, undefined, transportMode);
 ```
 
-Cela permettra :
-- `air_cargo` -> `.toUpperCase()` = `AIR_CARGO` -> includes `AIR` -> `'AIR'`  (deja OK)
-- `container` -> `.toUpperCase()` = `CONTAINER` -> includes `CONTAINER` -> `'SEA'` (NOUVEAU)
-- `breakbulk` -> `.toUpperCase()` = `BREAKBULK` -> includes `BREAKBULK` -> `'SEA'` (NOUVEAU)
+### 2. Ajouter le parametre `transportMode` au hook
 
-## Resume des modifications
+**Fichier : `src/hooks/useTariffSuggestions.ts`** (ligne 35-42)
+
+Ajouter un 4e parametre optionnel `transportMode` a la signature de `useTariffSuggestions` et le passer dans le body de l'appel edge function :
+
+```typescript
+export function useTariffSuggestions(
+  destination?: string,
+  cargoType?: string,
+  service?: string,
+  transportMode?: string  // NOUVEAU
+) {
+  return useQuery({
+    queryKey: ['tariff-suggestions', destination, cargoType, service, transportMode],
+    queryFn: async (): Promise<TariffSuggestion[]> => {
+      const { data, error } = await supabase.functions.invoke('data-admin', {
+        body: { 
+          action: 'search_tariffs', 
+          data: { destination, cargoType, service, transportMode } 
+        }
+      });
+      // ...reste inchange
+    },
+  });
+}
+```
+
+### 3. Filtrer cote serveur dans `data-admin`
+
+**Fichier : `supabase/functions/data-admin/index.ts`** (lignes 256-324)
+
+Dans le case `search_tariffs`, ajouter un filtre dur apres le scoring :
+
+```typescript
+case 'search_tariffs': {
+  const { destination, cargoType, service, transportMode } = data;
+  
+  // ... chargement learned_knowledge inchange ...
+  
+  // Phase S1.1: Helper de categorisation mode
+  const modeCategory = (mode: string | null | undefined): string | null => {
+    if (!mode) return null;
+    const m = mode.toLowerCase();
+    if (m.includes('air')) return 'AIR';
+    if (m.includes('sea') || m.includes('fcl') || m.includes('lcl') 
+        || m.includes('container') || m.includes('breakbulk')) return 'SEA';
+    if (m.includes('road') || m.includes('truck')) return 'ROAD';
+    return null;
+  };
+  
+  const inputMode = modeCategory(transportMode);
+  
+  for (const k of knowledge || []) {
+    const kData = k.data as Record<string, unknown>;
+    const kTransportType = kData.type_transport as string | undefined;
+    
+    // Phase S1.1: Hard exclusion par mode transport
+    if (inputMode) {
+      const kMode = modeCategory(kTransportType);
+      if (kMode && kMode !== inputMode) continue;
+    }
+    
+    // ... reste du scoring inchange ...
+  }
+}
+```
+
+## Resume des fichiers modifies
 
 | Fichier | Changement |
 |---------|-----------|
-| `src/pages/QuotationSheet.tsx` | Ajouter `transportMode={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}` au rendu SimilarQuotationsPanel |
-| `src/hooks/useQuotationHistory.ts` | Ajouter `CONTAINER` et `BREAKBULK` au helper `modeCategory` pour couvrir les valeurs `cargo_type` du frontend |
+| `src/hooks/useTariffSuggestions.ts` | Ajouter parametre `transportMode`, le passer dans le body |
+| `src/components/SimilarQuotationsPanel.tsx` | Passer `transportMode` a `useTariffSuggestions` |
+| `supabase/functions/data-admin/index.ts` | Filtrage dur par `modeCategory` dans `search_tariffs` |
 
 ## Resultat attendu
 
-Pour le cas aiocargo (air_cargo) :
-- `transportMode = "air_cargo"` -> `modeCategory = "AIR"`
-- Cotations historiques avec `cargo_type` = `container` -> `modeCategory = "SEA"` -> **exclues**
-- Plus de suggestion a 3.5M FCFA
+- Tarifs knowledge base breakbulk/projet lourd exclus pour un cas AIR
+- Seuls les tarifs dont `type_transport` est compatible (ou null) sont affiches
+- Si aucun tarif compatible n'existe, le panel affiche "Aucune reference historique" au lieu de suggestions erronees
+
+## Risque
+
+- Faible : filtre permissif si `type_transport` est null dans la knowledge base (pas de faux negatif)
+- Aucun impact sur les autres fonctionnalites
+- Aucune modification DB/schema/auth
+
