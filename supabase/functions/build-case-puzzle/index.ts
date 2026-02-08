@@ -4,8 +4,98 @@
  * CTO Fix: Uses atomic supersede_fact RPC for fact updates
  * A1: AIR detection priority, cargo extraction, chargeable weight, incoterm fix
  */
-
 import { createClient } from "jsr:@supabase/supabase-js@2";
+
+// --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
+function extractPlainTextFromMime(rawBody: string): string {
+  if (!rawBody) return "";
+
+  // 1. No MIME boundary → return truncated raw
+  const boundaryMatch = rawBody.match(/boundary="?([^"\s;]+)"?/i);
+  if (!boundaryMatch) {
+    return rawBody.slice(0, 4000);
+  }
+
+  const boundary = boundaryMatch[1];
+  const parts = rawBody.split(new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'));
+
+  let plainText = "";
+  let htmlText = "";
+
+  for (const part of parts) {
+    // Parse headers (first blank line separates headers from body)
+    const headerEnd = part.indexOf("\r\n\r\n");
+    const headerEnd2 = part.indexOf("\n\n");
+    const splitIdx = headerEnd !== -1 ? headerEnd : headerEnd2;
+    if (splitIdx === -1) continue;
+
+    const headers = part.slice(0, splitIdx).toLowerCase();
+    const content = part.slice(splitIdx).trim();
+
+    // Skip image/* parts entirely
+    if (headers.includes("content-type: image/") || headers.includes("content-type:image/")) {
+      continue;
+    }
+
+    const isBase64 = headers.includes("content-transfer-encoding: base64") ||
+                     headers.includes("content-transfer-encoding:base64");
+    const isQP = headers.includes("content-transfer-encoding: quoted-printable") ||
+                 headers.includes("content-transfer-encoding:quoted-printable");
+    const isPlain = headers.includes("content-type: text/plain") || headers.includes("content-type:text/plain");
+    const isHtml = headers.includes("content-type: text/html") || headers.includes("content-type:text/html");
+
+    if (isPlain) {
+      if (isBase64) {
+        try {
+          // Remove whitespace from base64 content before decoding
+          const cleaned = content.replace(/\s/g, "");
+          plainText = atob(cleaned);
+        } catch {
+          plainText = "";
+        }
+      } else if (isQP) {
+        plainText = content
+          .replace(/=\r?\n/g, "")
+          .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      } else {
+        plainText = content;
+      }
+    } else if (isHtml && !plainText) {
+      let decoded = content;
+      if (isBase64) {
+        try {
+          decoded = atob(content.replace(/\s/g, ""));
+        } catch {
+          decoded = "";
+        }
+      } else if (isQP) {
+        decoded = content
+          .replace(/=\r?\n/g, "")
+          .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      }
+      // Strip HTML tags and decode entities
+      htmlText = decoded
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    // If we got good plainText, no need to continue
+    if (plainText && plainText.length > 20) break;
+  }
+
+  // Priority: text/plain > stripped HTML > raw truncated
+  const result = plainText || htmlText || rawBody.slice(0, 4000);
+  return result.slice(0, 4000); // Global guard (CTO Correction 2)
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -665,7 +755,7 @@ Deno.serve(async (req) => {
 
     // 6. Build context for AI extraction
     const threadContext = emails
-      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${e.body_text || ""}`)
+      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
       .join("\n\n---\n\n");
 
     const attachmentContext = (attachments || [])
@@ -1165,7 +1255,7 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
       confidence: 1.0,
     });
 
-    const body = firstEmail.body_text || "";
+    const body = extractPlainTextFromMime(firstEmail.body_text || "");
     const bodyLower = body.toLowerCase();
     
     // A1: Incoterm detection - priority TERM:/Incoterm: then last free match
