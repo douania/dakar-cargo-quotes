@@ -1793,7 +1793,7 @@ L'équipe SODATRA`;
               destination={finalDestination || destination}
               cargoType={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
               clientCompany={projectContext.requesting_company}
-              transportMode={cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined}
+              transportMode={quoteCase?.request_type || (cargoLines.length > 0 ? cargoLines[0].cargo_type : undefined)}
               requestedServices={serviceLines.map(s => s.service).filter(Boolean)}
               onApplyTariff={(service, amount, currency) => {
                 const lineToUpdate = serviceLines.find(l => l.service === service);
