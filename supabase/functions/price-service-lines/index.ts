@@ -148,7 +148,8 @@ function computeQuantity(
   rule: QuantityRule | undefined,
   ctx: PricingContext,
   evpConversions: Map<string, number>,
-): { quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string } {
+  isAirMode: boolean = false,
+): { quantity_used: number | null; unit_used: string; rule_id: string | null; conversion_used?: string } {
 
   if (!rule) {
     // No rule found — use input quantity as-is
@@ -156,6 +157,16 @@ function computeQuantity(
   }
 
   const basis = rule.quantity_basis;
+
+  // Phase S1.3: Skip container-based quantity for AIR mode
+  if (isAirMode && (basis === "EVP" || basis === "COUNT")) {
+    return {
+      quantity_used: null,
+      unit_used: rule.default_unit,
+      rule_id: rule.id,
+      conversion_used: "air_mode_skip_container_basis",
+    };
+  }
 
   if (basis === "EVP") {
     // Sum EVP factors for each container in cargo.containers
@@ -338,7 +349,8 @@ function findBestRateCard(
   serviceKey: string,
   ctx: PricingContext,
   lineUnit: string,
-  lineCurrency: string
+  lineCurrency: string,
+  isAirMode: boolean = false,
 ): { card: RateCardRow; score: number; explanation: string } | null {
   const candidates = allCards.filter((c) => c.service_key === serviceKey);
   if (candidates.length === 0) return null;
@@ -348,6 +360,8 @@ function findBestRateCard(
   let bestExplanation = "";
 
   for (const card of candidates) {
+    // Phase S1.3: Exclure rate cards container pour mode AIR
+    if (isAirMode && card.container_type) continue;
     let score = 40;
     const matchParts: string[] = [serviceKey];
 
@@ -488,7 +502,7 @@ Deno.serve(async (req) => {
     // ═══ Ownership check via JWT client (RLS) ═══
     const { data: caseData, error: caseError } = await jwtClient
       .from("quote_cases")
-      .select("id, status")
+      .select("id, status, request_type")
       .eq("id", case_id)
       .single();
 
@@ -499,6 +513,10 @@ Deno.serve(async (req) => {
         correlationId,
       });
     }
+
+    // Phase S1.3: Derive transport mode from quote_case
+    const requestType = caseData?.request_type || "";
+    const isAirMode = /AIR/i.test(requestType);
 
     // ═══ Load facts for pricing context (JWT client, RLS) ═══
     const { data: facts } = await jwtClient
@@ -552,6 +570,8 @@ Deno.serve(async (req) => {
         lines_count: service_lines.length,
         rules_loaded: quantityRules.size,
         evp_conversions_loaded: evpConversions.size,
+        request_type: requestType,
+        is_air_mode: isAirMode,
       },
     });
 
@@ -597,7 +617,7 @@ Deno.serve(async (req) => {
 
       // ═══ T3: Compute quantity from DB rules ═══
       const rule = quantityRules.get(serviceKey);
-      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions);
+      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
       // A1: If quantity_used is null (missing weight for KG basis), skip pricing
@@ -613,7 +633,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ P1-A: Progressive matching with scoring ═══
-      const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency);
+      const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode);
 
       if (match) {
         pricedLines.push({
