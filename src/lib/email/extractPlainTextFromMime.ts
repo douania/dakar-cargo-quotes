@@ -6,6 +6,16 @@
 export function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
 
+  // Normalize space-separated MIME: restore newlines only in MIME header contexts
+  rawBody = rawBody
+    // Restore newline before Content-Type only after boundary declarations
+    .replace(/(boundary="[^"]+")\s+(Content-Type:)/gi, '$1\n$2')
+    // Restore newline before encoding headers
+    .replace(/\s+(Content-Transfer-Encoding:)/gi, '\n$1')
+    // Restore header/body split after encoding declaration
+    .replace(/Content-Transfer-Encoding:\s*(base64|quoted-printable)\s+/gi,
+      'Content-Transfer-Encoding: $1\n\n');
+
   // 1. No MIME boundary → return truncated raw
   const boundaryMatch = rawBody.match(/boundary="?([^"\s;]+)"?/i);
   if (!boundaryMatch) {
