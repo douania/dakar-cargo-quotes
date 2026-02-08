@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1283,7 +1284,7 @@ export default function Emails() {
                           </div>
                           <p className="font-semibold mt-1">{email.subject}</p>
                           <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
-                            {email.body_text?.substring(0, 150)}...
+                            {extractPlainTextFromMime(email.body_text || '').substring(0, 150)}...
                           </p>
                         </div>
 
@@ -1319,7 +1320,7 @@ export default function Emails() {
                       <span className="font-medium">{email.from_address}</span>
                       <p className="font-semibold mt-1">{email.subject}</p>
                       <p className="text-sm text-muted-foreground mt-2">
-                        {email.body_text?.substring(0, 300)}...
+                        {extractPlainTextFromMime(email.body_text || '').substring(0, 300)}...
                       </p>
                     </div>
                     <div className="flex flex-col gap-2">
@@ -1446,7 +1447,7 @@ export default function Emails() {
                   </div>
                   <div className="prose prose-sm max-w-none">
                     <pre className="whitespace-pre-wrap bg-muted p-4 rounded-lg text-sm">
-                      {selectedEmail.body_text}
+                      {extractPlainTextFromMime(selectedEmail.body_text || '')}
                     </pre>
                   </div>
                   

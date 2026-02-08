@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Paperclip, Star, User, Building, Briefcase } from 'lucide-react';
+import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { useThreadEmails, getSenderType, type SenderType } from '@/hooks/useThreadEmails';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -184,7 +185,7 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
 
                     {/* Body */}
                     <div className="text-sm whitespace-pre-wrap line-clamp-6">
-                      {email.body_text?.slice(0, 500) || '(Aucun contenu texte)'}
+                    {extractPlainTextFromMime(email.body_text || '').slice(0, 500) || '(Aucun contenu texte)'}
                       {(email.body_text?.length || 0) > 500 && '...'}
                     </div>
 
