@@ -144,6 +144,16 @@ function computeScore(input: SimilarityInput, profile: HistoricalProfile): numbe
   return score;
 }
 
+/** Categorize transport mode for hard filtering (Phase S1) */
+function modeCategory(mode: string | null | undefined): string | null {
+  const m = n(mode);
+  if (!m) return null;
+  if (m.includes('air')) return 'AIR';
+  if (m.includes('sea') || m.includes('fcl') || m.includes('lcl')) return 'SEA';
+  if (m.includes('road') || m.includes('truck')) return 'ROAD';
+  return null;
+}
+
 /** Build route string from profile */
 function buildRoute(profile: HistoricalProfile): string {
   const parts: string[] = [];
@@ -293,8 +303,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // 7. Score in memory
+    // 7. Hard exclusion + score in memory (Phase S1)
+    const inputMode = modeCategory(input.transport_mode);
+
     const scored = (profiles as HistoricalProfile[])
+      .filter((profile) => {
+        // Hard filter 1: transport mode must be compatible
+        if (inputMode) {
+          const profileMode = modeCategory(profile.transport_mode);
+          if (profileMode && profileMode !== inputMode) return false;
+        }
+        // Hard filter 2: weight ratio must be within 3x
+        const iw = input.total_weight_kg ?? 0;
+        const pw = profile.total_weight_kg ?? 0;
+        if (iw > 0 && pw > 0) {
+          const ratio = iw / pw;
+          if (ratio > 3 || ratio < 0.33) return false;
+        }
+        return true;
+      })
       .map((profile) => ({
         profile,
         score: computeScore(input, profile),

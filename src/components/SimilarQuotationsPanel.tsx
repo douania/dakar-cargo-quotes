@@ -37,6 +37,7 @@ interface SimilarQuotationsPanelProps {
   destination?: string;
   cargoType?: string;
   clientCompany?: string;
+  transportMode?: string;
   requestedServices?: string[];
   onApplyTariff?: (service: string, amount: number, currency: string) => void;
 }
@@ -45,6 +46,7 @@ export function SimilarQuotationsPanel({
   destination,
   cargoType,
   clientCompany,
+  transportMode,
   requestedServices = [],
   onApplyTariff,
 }: SimilarQuotationsPanelProps) {
@@ -54,7 +56,8 @@ export function SimilarQuotationsPanel({
   const { data: similarQuotations, isLoading: isLoadingQuotations } = useSimilarQuotations(
     destination,
     cargoType,
-    clientCompany
+    clientCompany,
+    transportMode
   );
   
   // Fallback to learned_knowledge tariffs
