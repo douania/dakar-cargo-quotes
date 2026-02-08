@@ -55,10 +55,21 @@ export function useQuotationHistory() {
   });
 }
 
+// --- Phase S1: Transport mode categorizer for hard exclusion ---
+const modeCategory = (mode: string | undefined | null): string | null => {
+  if (!mode) return null;
+  const m = mode.toUpperCase();
+  if (m.includes('AIR')) return 'AIR';
+  if (m.includes('SEA') || m.includes('FCL') || m.includes('LCL')) return 'SEA';
+  if (m.includes('ROAD') || m.includes('TRUCK')) return 'ROAD';
+  return null;
+};
+
 export function useSimilarQuotations(
   destination: string | undefined,
   cargoType: string | undefined,
-  clientCompany: string | undefined
+  clientCompany: string | undefined,
+  transportMode?: string
 ) {
   const { data: allQuotations } = useQuotationHistory();
   
@@ -72,7 +83,18 @@ export function useSimilarQuotations(
       const cargoLower = cargoType?.toLowerCase() || '';
       const clientLower = clientCompany?.toLowerCase() || '';
       
+      const inputModeCategory = modeCategory(transportMode);
+
       for (const quotation of allQuotations) {
+        // --- Phase S1: Hard exclusion filters ---
+        // Hard filter 1: incompatible transport mode -> skip
+        if (inputModeCategory) {
+          const quotModeCategory = modeCategory(quotation.cargo_type);
+          if (quotModeCategory && quotModeCategory !== inputModeCategory) {
+            continue;
+          }
+        }
+
         let score = 0;
         const matchReasons: string[] = [];
         
