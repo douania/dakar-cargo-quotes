@@ -63,7 +63,9 @@ export function SimilarQuotationsPanel({
   // Fallback to learned_knowledge tariffs
   const { data: knowledgeTariffs, isLoading: isLoadingKnowledge } = useTariffSuggestions(
     destination,
-    cargoType
+    cargoType,
+    undefined,
+    transportMode
   );
   
   const isLoading = isLoadingQuotations || isLoadingKnowledge;

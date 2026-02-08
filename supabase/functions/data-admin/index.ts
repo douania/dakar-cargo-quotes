@@ -254,9 +254,21 @@ serve(async (req) => {
 
       // NEW: Search tariffs specifically
       case 'search_tariffs': {
-        const { destination, cargoType, service } = data;
+        const { destination, cargoType, service, transportMode } = data;
         
-        console.log('Searching tariffs:', { destination, cargoType, service });
+        console.log('Searching tariffs:', { destination, cargoType, service, transportMode });
+
+        // Phase S1.1: Helper de categorisation mode transport
+        const modeCategory = (mode: string | null | undefined): string | null => {
+          if (!mode) return null;
+          const m = mode.toLowerCase();
+          if (m.includes('air')) return 'AIR';
+          if (m.includes('sea') || m.includes('fcl') || m.includes('lcl') 
+              || m.includes('container') || m.includes('breakbulk')) return 'SEA';
+          if (m.includes('road') || m.includes('truck')) return 'ROAD';
+          return null;
+        };
+        const inputMode = modeCategory(transportMode);
 
         // Get all tariff-related knowledge
         const { data: knowledge, error } = await supabase
@@ -282,6 +294,14 @@ serve(async (req) => {
 
         for (const k of knowledge || []) {
           const kData = k.data as Record<string, unknown>;
+
+          // Phase S1.1: Hard exclusion par mode transport
+          if (inputMode) {
+            const kTransportType = kData.type_transport as string | undefined;
+            const kMode = modeCategory(kTransportType);
+            if (kMode && kMode !== inputMode) continue;
+          }
+
           const kDestination = (kData.destination as string)?.toLowerCase() || '';
           const kCargoType = (kData.type_transport as string)?.toLowerCase() || '';
           const kService = (kData.service as string)?.toLowerCase() || k.name.toLowerCase();
