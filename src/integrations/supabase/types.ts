@@ -1985,6 +1985,90 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_customs_tiers: {
+        Row: {
+          active: boolean
+          basis: string
+          created_at: string
+          currency: string
+          id: string
+          max_price: number | null
+          max_value: number | null
+          max_weight_kg: number | null
+          min_price: number | null
+          min_value: number | null
+          min_weight_kg: number | null
+          mode: string
+          percent: number | null
+          price: number | null
+        }
+        Insert: {
+          active?: boolean
+          basis: string
+          created_at?: string
+          currency?: string
+          id?: string
+          max_price?: number | null
+          max_value?: number | null
+          max_weight_kg?: number | null
+          min_price?: number | null
+          min_value?: number | null
+          min_weight_kg?: number | null
+          mode: string
+          percent?: number | null
+          price?: number | null
+        }
+        Update: {
+          active?: boolean
+          basis?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          max_price?: number | null
+          max_value?: number | null
+          max_weight_kg?: number | null
+          min_price?: number | null
+          min_value?: number | null
+          min_weight_kg?: number | null
+          mode?: string
+          percent?: number | null
+          price?: number | null
+        }
+        Relationships: []
+      }
+      pricing_modifiers: {
+        Row: {
+          active: boolean
+          applies_to: string[] | null
+          created_at: string
+          id: string
+          label: string
+          modifier_code: string
+          type: string
+          value: number
+        }
+        Insert: {
+          active?: boolean
+          applies_to?: string[] | null
+          created_at?: string
+          id?: string
+          label: string
+          modifier_code: string
+          type: string
+          value: number
+        }
+        Update: {
+          active?: boolean
+          applies_to?: string[] | null
+          created_at?: string
+          id?: string
+          label?: string
+          modifier_code?: string
+          type?: string
+          value?: number
+        }
+        Relationships: []
+      }
       pricing_rate_cards: {
         Row: {
           confidence: number
@@ -2153,6 +2237,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pricing_service_catalogue: {
+        Row: {
+          active: boolean
+          base_price: number
+          created_at: string
+          currency: string
+          description: string | null
+          id: string
+          min_price: number
+          mode_scope: string | null
+          pricing_mode: string
+          service_code: string
+          service_name: string
+          unit_type: string
+        }
+        Insert: {
+          active?: boolean
+          base_price?: number
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          min_price?: number
+          mode_scope?: string | null
+          pricing_mode?: string
+          service_code: string
+          service_name: string
+          unit_type: string
+        }
+        Update: {
+          active?: boolean
+          base_price?: number
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          min_price?: number
+          mode_scope?: string | null
+          pricing_mode?: string
+          service_code?: string
+          service_name?: string
+          unit_type?: string
+        }
+        Relationships: []
       }
       puzzle_jobs: {
         Row: {
