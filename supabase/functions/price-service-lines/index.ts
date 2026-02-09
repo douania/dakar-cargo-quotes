@@ -486,10 +486,12 @@ Deno.serve(async (req) => {
 
     // ═══ Parse & validate input ═══
     const body = await req.json();
-    const { case_id, service_lines } = body as {
+    const { case_id, service_lines, active_modifiers } = body as {
       case_id: string;
       service_lines: ServiceLineInput[];
+      active_modifiers?: string[];
     };
+    const activeModifierCodes = new Set(active_modifiers || []);
 
     if (!case_id || !Array.isArray(service_lines) || service_lines.length === 0) {
       return respondError({
@@ -532,7 +534,7 @@ Deno.serve(async (req) => {
     const pricingCtx = buildPricingContext(factsMap);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       serviceClient
@@ -540,7 +542,17 @@ Deno.serve(async (req) => {
         .select("*")
         .or("effective_from.is.null,effective_from.lte." + new Date().toISOString().split("T")[0])
         .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]),
+      serviceClient.from("pricing_service_catalogue").select("*").eq("active", true),
+      serviceClient.from("pricing_modifiers").select("*").eq("active", true),
     ]);
+
+    // Phase PRICING V1: Build catalogue and modifiers maps
+    const catalogue = new Map(
+      (catalogueResult.data || []).map((c: any) => [c.service_code, c])
+    );
+    const allModifiers = (modifiersResult.data || []) as Array<{
+      modifier_code: string; label: string; type: string; value: number; applies_to: string[] | null;
+    }>;
 
     const quantityRules = new Map(
       (rulesResult.data || []).map((r: QuantityRule) => [r.service_key, r])
@@ -632,7 +644,64 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // ═══ P1-A: Progressive matching with scoring ═══
+      // ═══ Phase PRICING V1: Catalogue resolver (priority over rate cards) ═══
+      const catalogueEntry = catalogue.get(serviceKey);
+      const transportMode = isAirMode ? "AIR" : (pricingCtx.scope === "export" ? "SEA" : "SEA");
+      const scopeOk = !catalogueEntry?.mode_scope || catalogueEntry.mode_scope === transportMode;
+      // CTO R1: UNIT_RATE with base_price=0 → fallback; FIXED with 0 → accepted
+      const priceOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
+        ? catalogueEntry.base_price > 0
+        : true;
+      // CTO R2: UNIT_RATE needs valid quantity
+      const qtyOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
+        ? (computed.quantity_used != null && computed.quantity_used > 0)
+        : true;
+
+      if (catalogueEntry && scopeOk && priceOk && qtyOk) {
+        // Calculate lineTotal based on pricing_mode
+        let lineTotal = 0;
+        if (catalogueEntry.pricing_mode === "UNIT_RATE") {
+          lineTotal = catalogueEntry.base_price * (computed.quantity_used ?? 1);
+        } else {
+          // FIXED (or PERCENTAGE reserved for V2)
+          lineTotal = catalogueEntry.base_price;
+        }
+
+        // Apply active modifiers on lineTotal
+        const appliedMods: string[] = [];
+        for (const mod of allModifiers) {
+          if (!activeModifierCodes.has(mod.modifier_code)) continue;
+          if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+          if (mod.type === "FIXED") {
+            lineTotal += mod.value;
+            appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+          } else if (mod.type === "PERCENT") {
+            lineTotal *= (1 + mod.value / 100);
+            appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+          }
+        }
+
+        // Apply min_price LAST (CTO correction 2)
+        lineTotal = Math.max(lineTotal, catalogueEntry.min_price);
+        lineTotal = Math.round(lineTotal); // Round to integer for XOF
+
+        const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+        pricedLines.push({
+          id: line.id,
+          rate: lineTotal,
+          currency: catalogueEntry.currency || currency,
+          source: `catalogue_sodatra${modSuffix}`,
+          confidence: 0.95,
+          explanation: `catalogue:${serviceKey}, mode=${catalogueEntry.pricing_mode}, base=${catalogueEntry.base_price}, qty=${computed.quantity_used ?? 1}, modifiers=[${appliedMods.join(",")}], min_price=${catalogueEntry.min_price}, final=${lineTotal}`,
+          quantity_used: computed.quantity_used ?? 1,
+          unit_used: computed.unit_used,
+          rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
+        });
+        continue; // Skip rate card fallback
+      }
+
+      // ═══ P1-A: Progressive matching with scoring (fallback) ═══
       const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode);
 
       if (match) {

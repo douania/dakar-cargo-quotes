@@ -54,6 +54,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 import { SimilarQuotationsPanel } from '@/components/SimilarQuotationsPanel';
 import { LearnFromEmailPanel } from '@/components/LearnFromEmailPanel';
 import { HistoricalRateReminders } from '@/components/HistoricalRateReminders';
@@ -669,7 +670,8 @@ L'équipe SODATRA`;
   }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, serviceLines, setServiceLines, quoteCase?.id]);
   
   // ── M3.7: Price service lines edge function call ──
-  const callPriceServiceLines = useCallback(async (caseId: string, lines: ServiceLine[]) => {
+  // Phase PRICING V1: accepts optional modifiers parameter
+  const callPriceServiceLines = useCallback(async (caseId: string, lines: ServiceLine[], modifiers?: string[]) => {
     const unpricedLines = lines.filter(l => l.rate === undefined || l.rate === null);
     if (unpricedLines.length === 0) return;
     
@@ -684,6 +686,7 @@ L'équipe SODATRA`;
             quantity: l.quantity,
             currency: l.currency,
           })),
+          active_modifiers: modifiers || [],
         },
       });
       
@@ -728,22 +731,43 @@ L'équipe SODATRA`;
   const airModeRepricedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!quoteCase?.request_type?.includes('AIR') || !quoteCase.id || serviceLines.length === 0) return;
-    // Guard: only run once per case
     if (airModeRepricedRef.current === quoteCase.id) return;
-    // Only if there are ai_assumption lines with rates (from initial wrong pricing)
     const hasStaleRates = serviceLines.some(l => l.source === 'ai_assumption' && l.rate !== undefined && l.rate !== null);
     if (!hasStaleRates) return;
     
     airModeRepricedRef.current = quoteCase.id;
-    // Reset rates for ai_assumption lines, then re-price
     const resetLines = serviceLines.map(l =>
       l.source === 'ai_assumption' ? { ...l, rate: undefined } : l
     );
     setServiceLines(resetLines);
-    callPriceServiceLines(quoteCase.id, resetLines).catch(err => {
+    callPriceServiceLines(quoteCase.id, resetLines, pricingModifiers).catch(err => {
       console.warn('[S1.3] AIR mode re-pricing failed:', err);
     });
   }, [quoteCase?.request_type, quoteCase?.id, serviceLines, setServiceLines, callPriceServiceLines]);
+
+  // ── Phase PRICING V1: Pricing modifiers state + secure re-pricing ──
+  const [pricingModifiers, setPricingModifiers] = useState<string[]>([]);
+  const serviceLinesRef = useRef<ServiceLine[]>([]);
+  useEffect(() => { serviceLinesRef.current = serviceLines; }, [serviceLines]);
+
+  const modifiersRepricedRef = useRef<string>('');
+  useEffect(() => {
+    const key = [...pricingModifiers].sort().join(',');
+    if (key === modifiersRepricedRef.current) return;
+    if (!quoteCase?.id) return;
+
+    modifiersRepricedRef.current = key;
+    const lines = serviceLinesRef.current;
+    if (!lines?.length) return;
+
+    const resetLines = lines.map(l =>
+      l.source === 'ai_assumption' ? { ...l, rate: undefined } : l
+    );
+    setServiceLines(resetLines);
+    void callPriceServiceLines(quoteCase.id, resetLines, pricingModifiers).catch(err => {
+      console.warn('[PRICING_V1] Modifier re-pricing failed:', err);
+    });
+  }, [pricingModifiers, quoteCase?.id]);
 
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
@@ -1632,6 +1656,64 @@ L'équipe SODATRA`;
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Phase PRICING V1: Options tarifaires */}
+                {!quotationCompleted && serviceLines.length > 0 && (
+                  <Card className="border-border/50 bg-gradient-card">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        Options tarifaires
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm font-medium">Urgent (+25%)</Label>
+                          <p className="text-xs text-muted-foreground">Majoration pour traitement prioritaire</p>
+                        </div>
+                        <Switch
+                          checked={pricingModifiers.includes('URGENT')}
+                          onCheckedChange={(checked) => {
+                            setPricingModifiers(prev =>
+                              checked ? [...prev, 'URGENT'] : prev.filter(m => m !== 'URGENT')
+                            );
+                          }}
+                        />
+                      </div>
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm font-medium">Régularisation</Label>
+                          <p className="text-xs text-muted-foreground">Supplément post-livraison (+150 000 FCFA)</p>
+                        </div>
+                        <Switch
+                          checked={pricingModifiers.includes('REGULARISATION')}
+                          onCheckedChange={(checked) => {
+                            setPricingModifiers(prev =>
+                              checked ? [...prev, 'REGULARISATION'] : prev.filter(m => m !== 'REGULARISATION')
+                            );
+                          }}
+                        />
+                      </div>
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm font-medium">Client spécial (-10%)</Label>
+                          <p className="text-xs text-muted-foreground">Remise client premium / fidélité</p>
+                        </div>
+                        <Switch
+                          checked={pricingModifiers.includes('CLIENT_PREMIUM')}
+                          onCheckedChange={(checked) => {
+                            setPricingModifiers(prev =>
+                              checked ? [...prev, 'CLIENT_PREMIUM'] : prev.filter(m => m !== 'CLIENT_PREMIUM')
+                            );
+                          }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Services to Quote */}
                 <ServiceLinesForm
