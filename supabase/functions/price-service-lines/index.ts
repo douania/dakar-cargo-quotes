@@ -717,7 +717,67 @@ Deno.serve(async (req) => {
             continue; // Skip catalogue + rate card fallback
           }
         }
-        // No CAF or no tier found → fall through to catalogue V1 (natural fallback)
+        // No CAF or no tier found → fall through to WEIGHT resolver (V3.1)
+      }
+
+      // ═══ Phase PRICING V3.1: Customs WEIGHT tier resolver (only if CAF did NOT resolve) ═══
+      const cafResolved = serviceKey.startsWith("CUSTOMS_") && pricingCtx.caf_value && pricingCtx.caf_value > 0 &&
+        pricedLines.some(pl => pl.id === line.id && pl.source?.startsWith("customs_tier"));
+
+      if (serviceKey.startsWith("CUSTOMS_") && !cafResolved) {
+        const weight = pricingCtx.weight_kg;
+        const transportMode_v3 = isAirMode ? "AIR" : "SEA";
+
+        if (weight && weight > 0) {
+          const weightTier = customsTiers.find(t =>
+            t.mode === transportMode_v3 &&
+            t.basis === "WEIGHT" &&
+            weight >= (t.min_weight_kg ?? 0) &&
+            (t.max_weight_kg == null || weight < t.max_weight_kg)
+          );
+
+          if (weightTier) {
+            let lineTotal = weightTier.price ?? 0;
+            const rawTotal = lineTotal;
+
+            // Apply active modifiers FIRST (reuse V1 logic)
+            const appliedMods: string[] = [];
+            for (const mod of allModifiers) {
+              if (!activeModifierCodes.has(mod.modifier_code)) continue;
+              if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+              if (mod.type === "FIXED") {
+                lineTotal += mod.value;
+                appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+              } else if (mod.type === "PERCENT") {
+                lineTotal *= (1 + mod.value / 100);
+                appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+              }
+            }
+
+            // Apply min_price / max_price bounds LAST (final guardrails)
+            if (weightTier.min_price != null) lineTotal = Math.max(lineTotal, weightTier.min_price);
+            if (weightTier.max_price != null) lineTotal = Math.min(lineTotal, weightTier.max_price);
+
+            lineTotal = Math.round(lineTotal); // XOF integer
+
+            const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+            const tierRange = `${weightTier.min_weight_kg ?? 0}-${weightTier.max_weight_kg ?? "∞"}`;
+            pricedLines.push({
+              id: line.id,
+              rate: lineTotal,
+              currency: weightTier.currency || currency,
+              source: `customs_weight_tier${modSuffix}`,
+              confidence: 0.85,
+              explanation: `customs_weight_tier: mode=${transportMode_v3}, weight=${weight}, tier=${tierRange}, raw=${Math.round(rawTotal)}, min_price=${weightTier.min_price}, max_price=${weightTier.max_price}, modifiers=[${appliedMods.join(",")}], final=${lineTotal}`,
+              quantity_used: computed.quantity_used ?? 1,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+            continue; // Skip catalogue + rate card fallback
+          }
+        }
+        // No weight or no tier found → fall through to catalogue V1 (natural fallback)
       }
 
       // ═══ Phase PRICING V1: Catalogue resolver (priority over rate cards) ═══
