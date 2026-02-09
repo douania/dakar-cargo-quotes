@@ -726,25 +726,6 @@ L'équipe SODATRA`;
     }
   }, [updateServiceLine]);
 
-  // ── Phase S1.3: Re-price when AIR mode detected ──
-  // Deterministic: reset ai_assumption rates and re-trigger backend pricing
-  const airModeRepricedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!quoteCase?.request_type?.includes('AIR') || !quoteCase.id || serviceLines.length === 0) return;
-    if (airModeRepricedRef.current === quoteCase.id) return;
-    const hasStaleRates = serviceLines.some(l => l.source === 'ai_assumption' && l.rate !== undefined && l.rate !== null);
-    if (!hasStaleRates) return;
-    
-    airModeRepricedRef.current = quoteCase.id;
-    const resetLines = serviceLines.map(l =>
-      l.source === 'ai_assumption' ? { ...l, rate: undefined } : l
-    );
-    setServiceLines(resetLines);
-    callPriceServiceLines(quoteCase.id, resetLines, pricingModifiers).catch(err => {
-      console.warn('[S1.3] AIR mode re-pricing failed:', err);
-    });
-  }, [quoteCase?.request_type, quoteCase?.id, serviceLines, setServiceLines, callPriceServiceLines]);
-
   // ── Phase PRICING V1: Pricing modifiers state + secure re-pricing ──
   const [pricingModifiers, setPricingModifiers] = useState<string[]>([]);
   const serviceLinesRef = useRef<ServiceLine[]>([]);
@@ -768,6 +749,25 @@ L'équipe SODATRA`;
       console.warn('[PRICING_V1] Modifier re-pricing failed:', err);
     });
   }, [pricingModifiers, quoteCase?.id]);
+
+  // ── Phase S1.3: Re-price when AIR mode detected ──
+  // Deterministic: reset ai_assumption rates and re-trigger backend pricing
+  const airModeRepricedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!quoteCase?.request_type?.includes('AIR') || !quoteCase.id || serviceLines.length === 0) return;
+    if (airModeRepricedRef.current === quoteCase.id) return;
+    const hasStaleRates = serviceLines.some(l => l.source === 'ai_assumption' && l.rate !== undefined && l.rate !== null);
+    if (!hasStaleRates) return;
+    
+    airModeRepricedRef.current = quoteCase.id;
+    const resetLines = serviceLines.map(l =>
+      l.source === 'ai_assumption' ? { ...l, rate: undefined } : l
+    );
+    setServiceLines(resetLines);
+    callPriceServiceLines(quoteCase.id, resetLines, pricingModifiers).catch(err => {
+      console.warn('[S1.3] AIR mode re-pricing failed:', err);
+    });
+  }, [quoteCase?.request_type, quoteCase?.id, serviceLines, setServiceLines, callPriceServiceLines]);
 
   useEffect(() => {
     // Validate emailId is a valid UUID before fetching
