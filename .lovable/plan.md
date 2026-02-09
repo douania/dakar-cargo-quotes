@@ -1,61 +1,47 @@
 
+# Phase PRICING V2 — Paliers douaniers ✅ IMPLÉMENTÉ
 
-# Correctifs CTO bloquants -- Phase PRICING V1
+## Résumé
 
-## Diagnostic
+Customs tier resolver intégré dans `price-service-lines` pour services `CUSTOMS_*`, avec les 3 corrections CTO appliquées.
 
-Apres inspection du code reel, voici le statut de chaque point CTO :
+## Corrections CTO appliquées
 
-### Point 1 : Migration SQL / Seed
-**Statut : OK -- rien a corriger.**
-Les 5 services catalogue et 3 modifiers sont correctement presents en base avec les bonnes valeurs, CHECK constraints incluses. Le diff montre des "..." mais la migration executee est complete.
+| # | Correction | Implémentation |
+|---|---|---|
+| 1 | percent = taux réel + CHECK 0-20 | `caf * percent / 100`, constraint SQL `pricing_customs_tiers_percent_chk` |
+| 2 | max_value exclusif + range CHECK | `caf < tier.max_value`, constraint `pricing_customs_tiers_range_chk` |
+| 3 | CAF depuis fact canonique unique | `factsMap.get("cargo.caf_value")?.value_number` |
 
-### Point 2 : UI Switches
-**Statut : OK -- rien a corriger.**
-Les 3 Switch (lignes 1675-1712) sont complets avec `checked={pricingModifiers.includes(...)}` et `onCheckedChange` qui ajoute/retire correctement.
+## Migration SQL exécutée
 
-### Point 3 : Typage TS
-**Statut : OK -- deja type.**
-Ligne 749 : `useState<string[]>([])` et ligne 750 : `useRef<ServiceLine[]>([])`. Pas de `never[]`.
+- 4 CHECK constraints : mode, basis, percent (0-20), range (min < max)
+- 1 index : `idx_customs_tiers_lookup(mode, basis, min_value, max_value) WHERE active`
+- 6 seed tiers : 3 AIR/CAF + 3 SEA/CAF
 
-### Point 4 : Ordre des hooks -- BUG REEL A CORRIGER
-**Statut : BLOQUANT.**
+## Backend modifié
 
-Le `pricingModifiers` est declare a la ligne 749, mais reference a la ligne 743 dans le `useEffect` AIR re-pricing (lignes 732-746). Meme si JavaScript ne crashe pas ici (le callback s'execute apres le rendu), c'est une violation de l'ordre logique des hooks et un piege de maintenance.
+**Fichier** : `supabase/functions/price-service-lines/index.ts`
 
-## Correction a appliquer
+1. `PricingContext.caf_value` ajouté
+2. `buildPricingContext` extrait `cargo.caf_value` (value_number)
+3. `pricing_customs_tiers` chargé dans Promise.all
+4. Customs tier resolver inséré AVANT catalogue V1
 
-**Fichier** : `src/pages/QuotationSheet.tsx`
+## Cascade de résolution finale
 
-**Action** : Deplacer le bloc PRICING V1 (lignes 748-770) AVANT le bloc AIR re-pricing (lignes 730-746).
-
-Ordre final :
-
-```text
-1. [ligne ~730] -- Phase PRICING V1: state + refs
-   const [pricingModifiers, setPricingModifiers] = useState<string[]>([]);
-   const serviceLinesRef = useRef<ServiceLine[]>([]);
-   useEffect sync ref
-   const modifiersRepricedRef = useRef<string>('');
-   useEffect modifiers re-pricing
-
-2. [apres] -- AIR mode re-pricing (existant, lignes 730-746 actuelles)
-   const airModeRepricedRef = useRef(...)
-   useEffect AIR re-pricing (utilise pricingModifiers, desormais declare avant)
+```
+1. CUSTOMS_* + CAF > 0 + tier trouvé → customs_tier
+2. Catalogue SODATRA (V1, inchangé)
+3. Rate cards (fallback)
+4. Port tariffs (fallback DTHC)
+5. null
 ```
 
-Cela garantit que `pricingModifiers` est declare avant toute utilisation, et respecte l'ordre strict des hooks React.
+## Ce qui n'a pas changé
 
-## Fichiers modifies
-
-| Fichier | Changement |
-|---------|-----------|
-| `src/pages/QuotationSheet.tsx` | Reordonner : bloc PRICING V1 hooks avant bloc AIR re-pricing |
-
-## Ce qui ne change PAS
-
-- Aucune modification SQL
-- Aucune modification backend
-- Aucune modification de la logique UI (switches)
-- Aucun ajout/suppression de code, uniquement deplacement de lignes existantes
-
+- Catalogue SODATRA V1
+- Modifiers V1 (réutilisés dans customs tier)
+- Rate cards / port_tariffs
+- Frontend
+- Autres edge functions
