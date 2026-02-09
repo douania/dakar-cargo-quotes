@@ -681,11 +681,7 @@ Deno.serve(async (req) => {
 
             const rawTotal = lineTotal;
 
-            // Apply min_price / max_price bounds
-            if (tier.min_price != null) lineTotal = Math.max(lineTotal, tier.min_price);
-            if (tier.max_price != null) lineTotal = Math.min(lineTotal, tier.max_price);
-
-            // Apply active modifiers (reuse V1 logic)
+            // Apply active modifiers FIRST (reuse V1 logic)
             const appliedMods: string[] = [];
             for (const mod of allModifiers) {
               if (!activeModifierCodes.has(mod.modifier_code)) continue;
@@ -698,6 +694,10 @@ Deno.serve(async (req) => {
                 appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
               }
             }
+
+            // Apply min_price / max_price bounds LAST (final guardrails)
+            if (tier.min_price != null) lineTotal = Math.max(lineTotal, tier.min_price);
+            if (tier.max_price != null) lineTotal = Math.min(lineTotal, tier.max_price);
 
             lineTotal = Math.round(lineTotal); // XOF integer
 
