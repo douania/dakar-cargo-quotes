@@ -88,6 +88,7 @@ interface PricingContext {
   destination_country: string | null;
   containers: Array<{ type: string; quantity: number }>;
   weight_kg: number | null;
+  caf_value: number | null; // Phase PRICING V2: CAF value from canonical fact cargo.caf_value
 }
 
 interface PricedLine {
@@ -326,6 +327,9 @@ function buildPricingContext(
   const rawWeight = factsMap.get("cargo.weight_kg")?.value_number;
   const weightKg = chargeableWeight ?? rawWeight ?? null;
 
+  // Phase PRICING V2 — CTO correction 3: CAF from canonical fact only
+  const cafValue = factsMap.get("cargo.caf_value")?.value_number ?? null;
+
   return {
     scope,
     container_type: containerType,
@@ -337,6 +341,7 @@ function buildPricingContext(
     destination_country: destCountryVal,
     containers,
     weight_kg: weightKg,
+    caf_value: cafValue,
   };
 }
 
@@ -534,7 +539,7 @@ Deno.serve(async (req) => {
     const pricingCtx = buildPricingContext(factsMap);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       serviceClient
@@ -544,7 +549,18 @@ Deno.serve(async (req) => {
         .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]),
       serviceClient.from("pricing_service_catalogue").select("*").eq("active", true),
       serviceClient.from("pricing_modifiers").select("*").eq("active", true),
+      // Phase PRICING V2: Load customs duty tiers
+      serviceClient.from("pricing_customs_tiers").select("*").eq("active", true),
     ]);
+
+    // Phase PRICING V2: Customs tiers array
+    const customsTiers = (customsTiersResult.data || []) as Array<{
+      id: string; mode: string; basis: string;
+      min_value: number; max_value: number | null;
+      price: number | null; percent: number | null;
+      min_price: number | null; max_price: number | null;
+      currency: string;
+    }>;
 
     // Phase PRICING V1: Build catalogue and modifiers maps
     const catalogue = new Map(
@@ -642,6 +658,66 @@ Deno.serve(async (req) => {
         });
         missing.push(serviceKey);
         continue;
+      }
+
+      // ═══ Phase PRICING V2: Customs tier resolver (priority over catalogue for CUSTOMS_*) ═══
+      if (serviceKey.startsWith("CUSTOMS_")) {
+        const caf = pricingCtx.caf_value;
+        const transportMode_v2 = isAirMode ? "AIR" : "SEA";
+
+        if (caf && caf > 0) {
+          const tier = customsTiers.find(t =>
+            t.mode === transportMode_v2 &&
+            t.basis === "CAF" &&
+            caf >= t.min_value &&
+            (t.max_value == null || caf < t.max_value) // CTO correction 2: max exclusif
+          );
+
+          if (tier) {
+            // CTO correction 1: percent = taux réel, formule caf * percent / 100
+            let lineTotal = tier.percent != null
+              ? caf * tier.percent / 100
+              : (tier.price ?? 0);
+
+            const rawTotal = lineTotal;
+
+            // Apply min_price / max_price bounds
+            if (tier.min_price != null) lineTotal = Math.max(lineTotal, tier.min_price);
+            if (tier.max_price != null) lineTotal = Math.min(lineTotal, tier.max_price);
+
+            // Apply active modifiers (reuse V1 logic)
+            const appliedMods: string[] = [];
+            for (const mod of allModifiers) {
+              if (!activeModifierCodes.has(mod.modifier_code)) continue;
+              if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+              if (mod.type === "FIXED") {
+                lineTotal += mod.value;
+                appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+              } else if (mod.type === "PERCENT") {
+                lineTotal *= (1 + mod.value / 100);
+                appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+              }
+            }
+
+            lineTotal = Math.round(lineTotal); // XOF integer
+
+            const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+            pricedLines.push({
+              id: line.id,
+              rate: lineTotal,
+              currency: tier.currency || currency,
+              source: `customs_tier${modSuffix}`,
+              confidence: 0.90,
+              explanation: `customs_tier: mode=${transportMode_v2}, basis=CAF, caf=${caf}, percent=${tier.percent}, raw=${Math.round(rawTotal)}, min_price=${tier.min_price}, max_price=${tier.max_price}, modifiers=[${appliedMods.join(",")}], final=${lineTotal}`,
+              quantity_used: computed.quantity_used ?? 1,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+            continue; // Skip catalogue + rate card fallback
+          }
+        }
+        // No CAF or no tier found → fall through to catalogue V1 (natural fallback)
       }
 
       // ═══ Phase PRICING V1: Catalogue resolver (priority over rate cards) ═══
