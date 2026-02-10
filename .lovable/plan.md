@@ -1,107 +1,135 @@
 
 
-# Phase SET-CASE-FACT + Tests E2E B/C
+# Phase PRICING V3.3 -- Client Overrides PERCENTAGE (Correction CTO)
 
-## Resume
+## Principe
 
-Creation d'une edge function minimale `set-case-fact` qui encapsule le RPC `supersede_fact` existant, avec whitelist stricte de fact_keys. Puis execution sequentielle des tests E2E pour valider V3.2.
+Activer le mode `PERCENTAGE` dans le resolver `client_override` sans modifier aucun resolver existant. L'approche utilise une fonction interne `resolveWithoutClientOverride()` qui re-execute la cascade downstream pour obtenir le prix fallback, puis applique le pourcentage.
 
-## 1. Nouvelle Edge Function : `set-case-fact/index.ts`
+## Strategie technique (correction CTO appliquee)
 
-### Specification
+Le plan initial proposait de modifier chaque resolver pour stocker dans une variable `fallbackLine`. La correction CTO interdit cela. A la place :
 
-- **Auth** : `requireUser(req)` (pattern standard)
-- **Runtime** : `getCorrelationId`, `respondOk`, `respondError`, `logRuntimeEvent`
-- **Body** :
-  ```json
-  {
-    "case_id": "uuid",
-    "fact_key": "client.code",
-    "value_text": "AI0CARGO",
-    "value_number": null
-  }
-  ```
+1. Quand `pricing_mode === "PERCENTAGE"` est detecte dans le bloc client_override (ligne 710-712)
+2. On appelle une nouvelle fonction `resolveWithoutClientOverride()` qui execute la cascade (customs_tier CAF, customs_weight, catalogue, rate_card, port_tariff) avec les memes parametres
+3. Si un fallback est trouve, on applique : `fallback.rate * override.base_price / 100`, puis modifiers, puis min_price
+4. Si aucun fallback, la ligne tombe en `no_match` normalement
 
-### Logique
+## Modification unique : `supabase/functions/price-service-lines/index.ts`
 
-1. CORS preflight
-2. `requireUser(req)` -- auth obligatoire
-3. Validation body : `case_id` (uuid) + `fact_key` (string) requis
-4. **Whitelist stricte** :
-   ```text
-   ALLOWED_FACT_KEYS = {
-     "client.code",
-     "cargo.caf_value",
-     "cargo.weight_kg",
-     "cargo.chargeable_weight_kg"
-   }
-   ```
-   Tout autre key -> `VALIDATION_FAILED` (400)
-5. Detection automatique `fact_category` depuis le prefixe :
-   - `client.*` -> `contacts`
-   - `cargo.*` -> `cargo`
-   - fallback -> `other`
-6. Verification ownership du case via client JWT (RLS)
-7. Appel RPC `supersede_fact` avec :
-   - `p_source_type: 'operator'`
-   - `p_confidence: 1.0`
-   - `p_source_excerpt: '[set-case-fact] Manual injection by operator'`
-8. Log timeline event `fact_injected_manual`
-9. Retour `respondOk({ fact_id })` avec correlation_id
-10. `logRuntimeEvent` avant chaque retour
+### Changement 1 : Nouvelle fonction interne (~80 lignes)
 
-### Config
+Ajouter avant le `Deno.serve()` (vers ligne 470) une fonction :
 
-Ajout dans `supabase/config.toml` :
-```toml
-[functions.set-case-fact]
-verify_jwt = false
+```text
+async function resolveWithoutClientOverride(
+  serviceKey: string,
+  computed: { quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string },
+  pricingCtx: PricingContext,
+  isAirMode: boolean,
+  currency: string,
+  customsTiers: Array<...>,
+  catalogue: Map<...>,
+  allCards: RateCardRow[],
+  serviceClient: any,
+  allModifiers: Array<...>,
+  activeModifierCodes: Set<string>,
+): Promise<{ rate: number; source: string; confidence: number; explanation: string; quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string } | null>
 ```
 
-## 2. Fichiers modifies
+Cette fonction contient une copie read-only de la logique de cascade :
+- customs_tier CAF (lignes 756-813)
+- customs_weight_tier (lignes 815-873)
+- catalogue_sodatra (lignes 875-930)
+- rate_card match (lignes 932-947)
+- port_tariff fallback (lignes 948-963)
+
+**Difference critique** : cette fonction ne fait PAS de `pricedLines.push()` ni de `continue`. Elle retourne simplement le premier resultat trouve (rate, source, confidence, explanation) ou `null`.
+
+Les modifiers et min_price ne sont PAS appliques dans cette fonction -- ils seront appliques par le bloc PERCENTAGE appelant, car le calcul est : `fallback_rate * percent / 100` PUIS modifiers PUIS min_price.
+
+### Changement 2 : Activer PERCENTAGE dans le bloc client_override (lignes 710-713)
+
+Remplacer :
+
+```text
+} else {
+  // PERCENTAGE reserved for V3.3 — skip
+  skipOverride = true;
+}
+```
+
+Par :
+
+```text
+} else if (override.pricing_mode === "PERCENTAGE") {
+  // Phase V3.3: Percentage override — resolve fallback then apply %
+  const fallback = await resolveWithoutClientOverride(
+    serviceKey, computed, pricingCtx, isAirMode, currency,
+    customsTiers, catalogue, allCards, serviceClient,
+    allModifiers, activeModifierCodes
+  );
+
+  if (fallback) {
+    lineTotal = fallback.rate * override.base_price / 100;
+    // source will be set below with percentage suffix
+  } else {
+    skipOverride = true; // No fallback found, line falls to no_match
+  }
+} else {
+  skipOverride = true;
+}
+```
+
+### Changement 3 : Ajuster le source label (ligne 741)
+
+Dans le bloc `if (!skipOverride)`, modifier la construction du source pour distinguer PERCENTAGE :
+
+```text
+const isPercentage = override.pricing_mode === "PERCENTAGE";
+const modeLabel = isPercentage ? "client_override_percentage" : "client_override";
+const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+
+// In pricedLines.push:
+source: `${modeLabel}${modSuffix}`,
+explanation: isPercentage
+  ? `client_override_percentage: client=${pricingCtx.client_code}, base_fallback=${Math.round(lineTotal * 100 / override.base_price)}, percent=${override.base_price}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`
+  : `client_override: client=${pricingCtx.client_code}, ...existing...`,
+```
+
+## Ce qui ne change PAS
+
+- Resolvers customs_tier CAF (lignes 756-813) : zero modification
+- Resolver customs_weight_tier (lignes 815-873) : zero modification
+- Resolver catalogue_sodatra (lignes 875-930) : zero modification
+- Resolver rate_card (lignes 932-947) : zero modification
+- Resolver port_tariff (lignes 948-975) : zero modification
+- Aucune autre edge function
+- Aucune migration SQL
+- Aucune modification frontend
+
+## Fichiers modifies
 
 | Fichier | Changement |
 |---|---|
-| `supabase/functions/set-case-fact/index.ts` | Nouvelle edge function (~90 lignes) |
-| `supabase/config.toml` | Ajout entry `set-case-fact` |
+| `supabase/functions/price-service-lines/index.ts` | +1 fonction `resolveWithoutClientOverride` (~80 lignes), ~15 lignes modifiees dans le bloc client_override |
 
-## 3. Ce qui ne change PAS
+## Validation
 
-- `price-service-lines` (aucune modification)
-- `build-case-puzzle` (aucune modification)
-- `supersede_fact` RPC (deja en DB, inchange)
-- Frontend (aucune modification)
-- Tables existantes (aucune migration)
+| Test | Donnees | Resultat attendu |
+|---|---|---|
+| Override 80% | fallback customs_tier=250000, override PERCENTAGE base_price=80 | 200000 XOF, source=client_override_percentage |
+| Override 120% + URGENT | fallback=250000, 120%, URGENT +25% | 375000 XOF |
+| min_price protege | fallback=150000, 50%, min_price=120000 | 120000 XOF |
+| Pas de fallback | PERCENTAGE mais aucun resolver downstream ne matche | no_match (skipOverride=true) |
+| FIXED inchange | AI0CARGO FIXED 200000 | 200000 XOF (regression zero) |
 
-## 4. Execution des tests E2E apres deploiement
+## Risques
 
-### Etape 1 -- Test C (fallback customs_tier)
-
-1. Appeler `set-case-fact` :
-   ```json
-   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "fact_key": "cargo.caf_value", "value_number": 8000000 }
-   ```
-2. Appeler `price-service-lines` :
-   ```json
-   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "service_lines": [{ "service_code": "CUSTOMS_DAKAR", "quantity": 1 }] }
-   ```
-3. Resultat attendu : `rate=250000, source=customs_tier, confidence=0.90`
-
-### Etape 2 -- Test B (override AI0CARGO)
-
-1. Appeler `set-case-fact` :
-   ```json
-   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "fact_key": "client.code", "value_text": "AI0CARGO" }
-   ```
-2. Appeler `price-service-lines` (memes parametres)
-3. Resultat attendu : `rate=200000, source=client_override, confidence=1.0`
-
-## 5. Points CTO
-
-- **Whitelist const** : `ALLOWED_FACT_KEYS` en `Set` immutable, refuse tout key non liste
-- **Source `operator`** : priorite maximale dans la hierarchie des facts
-- **Confidence 1.0** : decision explicite operateur, pas d'incertitude
-- **Idempotence** : `supersede_fact` gere la supersession atomique (advisory lock)
-- **Timeline** : chaque injection est tracee dans `case_timeline_events`
-- **Runtime contract** : correlation_id + respondOk/respondError + logRuntimeEvent
+| Risque | Niveau | Mitigation |
+|---|---|---|
+| Regression FIXED/UNIT_RATE | Nul | Bloc inchange, seul le `else` est modifie |
+| Regression resolvers downstream | Nul | Aucune modification, copie read-only dans la fonction helper |
+| Double execution cascade | Faible | Seulement quand PERCENTAGE est actif (rare), lectures DB deja en cache memoire |
+| Performance | Negligeable | Les donnees (tiers, catalogue, cards) sont deja chargees en memoire, pas de requete DB supplementaire sauf port_tariff fallback |
 
