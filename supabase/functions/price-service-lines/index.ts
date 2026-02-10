@@ -90,6 +90,7 @@ interface PricingContext {
   weight_kg: number | null;
   caf_value: number | null; // Phase PRICING V2: CAF value from canonical fact cargo.caf_value
   client_code: string | null; // Phase PRICING V3.2: canonical fact client.code
+  destination_city: string | null; // Phase V4.1: for local_transport_rates matching
 }
 
 interface PricedLine {
@@ -334,6 +335,9 @@ function buildPricingContext(
   // Phase PRICING V3.2 — CTO Fix #3: canonical fact client.code (no heuristic)
   const clientCode = factsMap.get("client.code")?.value_text ?? null;
 
+  // Phase V4.1: Extract destination_city for transport rate matching
+  const destinationCity = factsMap.get("routing.destination_city")?.value_text || null;
+
   return {
     scope,
     container_type: containerType,
@@ -347,6 +351,7 @@ function buildPricingContext(
     weight_kg: weightKg,
     caf_value: cafValue,
     client_code: clientCode,
+    destination_city: destinationCity,
   };
 }
 
@@ -422,6 +427,103 @@ function findBestRateCard(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Phase V4.1: LOCAL TRANSPORT RATES RESOLVER
+// CTO Correction A: No fallback to first candidate if container unmatched → return null
+// CTO Correction B: Skip entirely in AIR mode → return null
+// ═══════════════════════════════════════════════════════════════
+
+interface LocalTransportRate {
+  origin: string;
+  destination: string;
+  container_type: string;
+  rate_amount: number;
+  rate_currency: string | null;
+  is_active: boolean;
+  validity_start: string | null;
+  validity_end: string | null;
+  provider: string | null;
+  cargo_category: string | null;
+}
+
+function findLocalTransportRate(
+  preloadedRates: LocalTransportRate[],
+  serviceKey: string,
+  pricingCtx: PricingContext,
+  isAirMode: boolean,
+): { rate: number; currency: string; source: string; confidence: number; explanation: string } | null {
+  // Only TRUCKING and ON_CARRIAGE use local transport rates
+  if (serviceKey !== "TRUCKING" && serviceKey !== "ON_CARRIAGE") return null;
+
+  // CTO Correction B: Transport routier conteneurisé n'existe pas en AIR
+  if (isAirMode) return null;
+
+  const destCity = pricingCtx.destination_city;
+  if (!destCity) return null;
+
+  const destNorm = destCity.toUpperCase().trim();
+
+  // Temporal filter
+  const today = new Date().toISOString().split("T")[0];
+  const validRates = preloadedRates.filter(r =>
+    r.is_active &&
+    (!r.validity_start || r.validity_start <= today) &&
+    (!r.validity_end || r.validity_end >= today)
+  );
+
+  // Destination matching: exact first, then partial (single match only)
+  let candidates = validRates.filter(r => r.destination.toUpperCase().trim() === destNorm);
+
+  if (candidates.length === 0) {
+    // Partial: destination DB contains the city OR city contains the destination DB
+    const partialMatches = validRates.filter(r => {
+      const rDest = r.destination.toUpperCase().trim();
+      return rDest.includes(destNorm) || destNorm.includes(rDest);
+    });
+    // CTO adjustment: ambiguous partial matches → null (multiple destinations matched)
+    // We keep all partial matches for the same destination string, then check uniqueness of destination
+    const uniqueDests = new Set(partialMatches.map(r => r.destination.toUpperCase().trim()));
+    if (uniqueDests.size === 1) {
+      candidates = partialMatches;
+    } else {
+      // Multiple distinct destinations matched → ambiguous, return null
+      return null;
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Container type matching with mapping
+  const ctxContainer = pricingCtx.container_type; // e.g. "20DV", "40DV", "40HC"
+  if (!ctxContainer) return null; // CTO Correction A: no container info → null
+
+  const containerSearchTerms: string[] = [];
+  const ctNorm = ctxContainer.toUpperCase();
+  if (ctNorm.startsWith("20")) {
+    containerSearchTerms.push("20'", "20' DRY", "20'DRY");
+  } else if (ctNorm.startsWith("40")) {
+    containerSearchTerms.push("40'", "40' DRY", "40'DRY");
+  } else if (ctNorm.includes("LOW") || ctNorm.includes("FLAT")) {
+    containerSearchTerms.push("LOW BED", "LOWBED");
+  }
+
+  const bestRate = candidates.find(r => {
+    const rct = r.container_type.toUpperCase().trim();
+    return containerSearchTerms.some(term => rct.includes(term));
+  });
+
+  // CTO Correction A: No container match → return null (no arbitrary fallback)
+  if (!bestRate) return null;
+
+  return {
+    rate: bestRate.rate_amount,
+    currency: bestRate.rate_currency || "XOF",
+    source: `local_transport_rate`,
+    confidence: 0.90,
+    explanation: `local_transport: dest=${bestRate.destination}, container=${bestRate.container_type}, provider=${bestRate.provider || "unknown"}, rate=${bestRate.rate_amount}`,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // T3: FALLBACK PORT_TARIFFS FOR DTHC
 // ═══════════════════════════════════════════════════════════════
 
@@ -490,6 +592,7 @@ async function resolveWithoutClientOverride(
   catalogue: Map<string, any>,
   allCards: RateCardRow[],
   serviceClient: ReturnType<typeof createClient>,
+  preloadedTransportRates: LocalTransportRate[] = [],
 ): Promise<{
   rate: number; source: string; confidence: number; explanation: string;
   quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string;
@@ -549,6 +652,17 @@ async function resolveWithoutClientOverride(
     return {
       rate, source: "catalogue_sodatra", confidence: 0.95,
       explanation: `fallback catalogue: ${serviceKey}, base=${catEntry.base_price}`,
+      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+    };
+  }
+
+  // 3.5 Phase V4.1: Local transport rates
+  const transportFb = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode);
+  if (transportFb) {
+    return {
+      rate: transportFb.rate, source: transportFb.source, confidence: transportFb.confidence,
+      explanation: `fallback ${transportFb.explanation}`,
       quantity_used: computed.quantity_used, unit_used: computed.unit_used,
       rule_id: computed.rule_id, conversion_used: computed.conversion_used,
     };
@@ -656,7 +770,7 @@ Deno.serve(async (req) => {
     const pricingCtx = buildPricingContext(factsMap);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       serviceClient
@@ -670,6 +784,8 @@ Deno.serve(async (req) => {
       serviceClient.from("pricing_customs_tiers").select("*").eq("active", true),
       // Phase PRICING V3.2: Load client overrides
       serviceClient.from("pricing_client_overrides").select("*").eq("active", true),
+      // Phase V4.1: Preload local transport rates (avoid N+1 queries)
+      serviceClient.from("local_transport_rates").select("*").eq("is_active", true),
     ]);
 
     // Phase PRICING V2: Customs tiers array
@@ -709,6 +825,8 @@ Deno.serve(async (req) => {
       (conversionsResult.data || []).map((c: UnitConversion) => [c.key, c.factor])
     );
     const allCards: RateCardRow[] = rateCardsResult.data || [];
+    // Phase V4.1: Preloaded transport rates for in-memory matching
+    const preloadedTransportRates = (transportRatesResult.data || []) as LocalTransportRate[];
 
     if (rateCardsResult.error) {
       structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
@@ -824,6 +942,7 @@ Deno.serve(async (req) => {
               const fallback = await resolveWithoutClientOverride(
                 serviceKey, computed, pricingCtx, isAirMode, currency,
                 customsTiers, catalogue, allCards, serviceClient,
+                preloadedTransportRates,
               );
 
               if (fallback) {
@@ -1054,6 +1173,42 @@ Deno.serve(async (req) => {
           conversion_used: computed.conversion_used,
         });
         continue; // Skip rate card fallback
+      }
+
+      // ═══ Phase V4.1: Local transport rate resolver (between catalogue and rate card) ═══
+      const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode);
+      if (transportFallback) {
+        let lineTotal = transportFallback.rate;
+
+        // Apply active modifiers
+        const appliedMods: string[] = [];
+        for (const mod of allModifiers) {
+          if (!activeModifierCodes.has(mod.modifier_code)) continue;
+          if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+          if (mod.type === "FIXED") {
+            lineTotal += mod.value;
+            appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+          } else if (mod.type === "PERCENT") {
+            lineTotal *= (1 + mod.value / 100);
+            appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+          }
+        }
+        lineTotal = Math.round(lineTotal);
+
+        const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+        pricedLines.push({
+          id: line.id,
+          rate: lineTotal,
+          currency: transportFallback.currency,
+          source: `local_transport_rate${modSuffix}`,
+          confidence: transportFallback.confidence,
+          explanation: transportFallback.explanation,
+          quantity_used: computed.quantity_used ?? 1,
+          unit_used: computed.unit_used,
+          rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
+        });
+        continue;
       }
 
       // ═══ P1-A: Progressive matching with scoring (fallback) ═══
