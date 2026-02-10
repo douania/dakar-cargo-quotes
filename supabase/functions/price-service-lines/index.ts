@@ -1320,3 +1320,5 @@ Deno.serve(async (req) => {
     return respondError({ code: "UNKNOWN", message: "Internal error", correlationId });
   }
 });
+
+export { findLocalTransportRate };
