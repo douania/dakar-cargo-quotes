@@ -1,49 +1,41 @@
 
 
-# Correction CTO -- Nettoyage export + tests
+# Phase V4.1.1 — Patches CTO appliqués
 
-## Contexte
+## Patch 1 — Guidage extraction destination (build-case-puzzle)
 
-L'export `findLocalTransportRate` et le fichier de test `transport_resolver_test.ts` doivent etre retires pour eviter des problemes de bundling Supabase. Les 4 tests ont deja passe avec succes -- le fichier de test n'est plus necessaire en production.
+**Fichier** : `supabase/functions/build-case-puzzle/index.ts`  
+**Ligne 1264** : Ajout règle 5 après règle 4, backtick fermant propre
 
-## Actions
+Règle ajoutée :
+- Extraction du nom de ville uniquement (pas d'adresse complète)
+- Gestion Google Plus Codes (PGQH+J2 Dakar → Dakar)
+- Gestion format "Door delivery: [Company], [City] [PostCode], [Country]"
+- Exclusion hôtels/resorts/adresses de rue
+- Ville reconnue obligatoire (Dakar, Kaolack, Mbour, etc.)
 
-### Action 1 -- Retirer l'export (1 ligne)
+## Patch 2 — normalizeContainerKey (price-service-lines)
 
-**Fichier** : `supabase/functions/price-service-lines/index.ts`
+**Fichier** : `supabase/functions/price-service-lines/index.ts`  
+**Lignes 275-282** : Fonction normalizeContainerKey
 
-Supprimer la ligne 1324 :
+Corrections appliquées :
+- Regex `^(\d{2})FT` pour supprimer suffixe "FT" (40FTHC → 40HC)
+- Nettoyage élargi : tirets et underscores inclus (`/['\s_-]/g`)
 
-```text
-export { findLocalTransportRate };
-```
+## Séquence validation E2E
 
-La fonction reste intacte et privee dans le fichier. Zero impact sur la logique de pricing.
-
-### Action 2 -- Supprimer le fichier de test
-
-**Fichier** : `supabase/functions/_tests/transport_resolver_test.ts`
-
-Suppression complete. Le fichier utilise deja une copie snapshot de la fonction (pas d'import depuis index.ts), donc aucune dependance croisee.
-
-### Action 3 -- Redeploiement
-
-Le deploiement de `price-service-lines` sera automatique apres les modifications.
+1. Redéployer `build-case-puzzle` et `price-service-lines`
+2. Re-lancer "Analyser la demande" sur le dossier
+3. Vérifier `quote_facts` : `fact_key='routing.destination_city'`, `is_current=true`, `value_text='Dakar'`
+4. Relancer pricing
+5. Vérifier TRUCKING : `source='local_transport_rate'`
 
 ## Impact
 
-| Element | Statut |
+| Élément | Modification |
 |---|---|
-| Logique pricing | Zero modification |
-| Cascade transport resolver | Intacte |
-| Corrections CTO A et B | Intactes |
-| Tests (deja passes 4/4) | Retires du bundle |
-| Frontend | Zero modification |
-
-## Fichiers modifies
-
-| Fichier | Action |
-|---|---|
-| `supabase/functions/price-service-lines/index.ts` | Supprimer ligne 1324 (`export`) |
-| `supabase/functions/_tests/transport_resolver_test.ts` | Supprimer le fichier |
-
+| build-case-puzzle prompt | +5 lignes (règle 5) |
+| normalizeContainerKey | +1 ligne regex, regex nettoyage élargi |
+| Logique pricing | Zéro changement |
+| Frontend | Zéro modification |
