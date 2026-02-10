@@ -1,66 +1,107 @@
 
-# Phase PRICING V3.2 — Client Overrides (contrats tarifaires) ✅ IMPLÉMENTÉ
 
-## Résumé
+# Phase SET-CASE-FACT + Tests E2E B/C
 
-Resolver CLIENT_OVERRIDE intégré dans `price-service-lines` en position prioritaire (avant CAF, WEIGHT, catalogue), avec les 4 corrections CTO appliquées.
+## Resume
 
-## Corrections CTO appliquées
+Creation d'une edge function minimale `set-case-fact` qui encapsule le RPC `supersede_fact` existant, avec whitelist stricte de fact_keys. Puis execution sequentielle des tests E2E pour valider V3.2.
 
-| # | Correction | Implémentation |
-|---|---|---|
-| 1 | Unicité active par couple | `CREATE UNIQUE INDEX uniq_client_override_active ON pricing_client_overrides(client_code, service_code, COALESCE(mode_scope,'*')) WHERE active = true` |
-| 2 | Cohérence dates | `CHECK (valid_from IS NULL OR valid_to IS NULL OR valid_from <= valid_to)` |
-| 3 | Fact canonique client.code | `factsMap.get("client.code")?.value_text ?? null` — pas d'heuristique, skip si absent |
-| 4 | UNIT_RATE skip si qty null/<=0 | `if (!computed.quantity_used || computed.quantity_used <= 0) skipOverride = true` → fallback cascade |
+## 1. Nouvelle Edge Function : `set-case-fact/index.ts`
 
-## Migration SQL exécutée
+### Specification
 
-- Table `pricing_client_overrides` avec contraintes mode_chk + date_chk
-- Unique partial index `uniq_client_override_active`
-- Lookup index `idx_client_overrides_lookup`
-- RLS : lecture authentifiée
-- Seed test : AI0CARGO / CUSTOMS_DAKAR / FIXED / 200 000 XOF
+- **Auth** : `requireUser(req)` (pattern standard)
+- **Runtime** : `getCorrelationId`, `respondOk`, `respondError`, `logRuntimeEvent`
+- **Body** :
+  ```json
+  {
+    "case_id": "uuid",
+    "fact_key": "client.code",
+    "value_text": "AI0CARGO",
+    "value_number": null
+  }
+  ```
 
-## Backend modifié
+### Logique
 
-**Fichier** : `supabase/functions/price-service-lines/index.ts`
+1. CORS preflight
+2. `requireUser(req)` -- auth obligatoire
+3. Validation body : `case_id` (uuid) + `fact_key` (string) requis
+4. **Whitelist stricte** :
+   ```text
+   ALLOWED_FACT_KEYS = {
+     "client.code",
+     "cargo.caf_value",
+     "cargo.weight_kg",
+     "cargo.chargeable_weight_kg"
+   }
+   ```
+   Tout autre key -> `VALIDATION_FAILED` (400)
+5. Detection automatique `fact_category` depuis le prefixe :
+   - `client.*` -> `contacts`
+   - `cargo.*` -> `cargo`
+   - fallback -> `other`
+6. Verification ownership du case via client JWT (RLS)
+7. Appel RPC `supersede_fact` avec :
+   - `p_source_type: 'operator'`
+   - `p_confidence: 1.0`
+   - `p_source_excerpt: '[set-case-fact] Manual injection by operator'`
+8. Log timeline event `fact_injected_manual`
+9. Retour `respondOk({ fact_id })` avec correlation_id
+10. `logRuntimeEvent` avant chaque retour
 
-1. `PricingContext` : ajout `client_code: string | null`
-2. `buildPricingContext` : extraction depuis `client.code` fact canonique
-3. `Promise.all` : +1 requête `pricing_client_overrides` (active=true)
-4. `clientOverrideMap` : index Map `client_code::service_code`
-5. Resolver client_override inséré AVANT customs CAF/WEIGHT
-6. Logique : scope check → date check → FIXED/UNIT_RATE → modifiers FIRST → min_price LAST → round → confidence=1.0
+### Config
 
-## Cascade de résolution finale (V3.2)
-
+Ajout dans `supabase/config.toml` :
+```toml
+[functions.set-case-fact]
+verify_jwt = false
 ```
-1. client_override (V3.2)          → confidence 1.0
-2. CUSTOMS_* + CAF + tier CAF      → customs_tier (V2)
-3. CUSTOMS_* + weight + tier WEIGHT → customs_weight_tier (V3.1)
-4. Catalogue SODATRA standard (V1)
-5. Rate cards historiques
-6. Port tariffs (DTHC)
-7. null
-```
 
-## Ce qui n'a pas changé
+## 2. Fichiers modifies
 
-- Resolver CAF V2 (inchangé)
-- Resolver WEIGHT V3.1 (inchangé)
-- Catalogue SODATRA V1 (inchangé)
-- Rate cards / port_tariffs (inchangés)
+| Fichier | Changement |
+|---|---|
+| `supabase/functions/set-case-fact/index.ts` | Nouvelle edge function (~90 lignes) |
+| `supabase/config.toml` | Ajout entry `set-case-fact` |
+
+## 3. Ce qui ne change PAS
+
+- `price-service-lines` (aucune modification)
+- `build-case-puzzle` (aucune modification)
+- `supersede_fact` RPC (deja en DB, inchange)
 - Frontend (aucune modification)
-- Autres edge functions (aucune modification)
+- Tables existantes (aucune migration)
 
-## Tests de validation attendus
+## 4. Execution des tests E2E apres deploiement
 
-| Test | Entrée | Résultat attendu |
-|---|---|---|
-| Override simple | client=AI0CARGO, CUSTOMS_DAKAR | 200 000 XOF, source=client_override, confidence=1.0 |
-| Override + URGENT | client=AI0CARGO + URGENT(+25%) | 250 000 XOF, source=client_override+modifiers |
-| Client normal | client=ACME, CUSTOMS_DAKAR | cascade CAF/WEIGHT/catalogue |
-| Service sans override | client=AI0CARGO, DTHC | cascade rate_card/port_tariff |
-| Override expiré | valid_to passé | cascade (override ignoré) |
-| UNIT_RATE qty=0 | qty null ou <=0 | cascade (skip override, CTO Fix #4) |
+### Etape 1 -- Test C (fallback customs_tier)
+
+1. Appeler `set-case-fact` :
+   ```json
+   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "fact_key": "cargo.caf_value", "value_number": 8000000 }
+   ```
+2. Appeler `price-service-lines` :
+   ```json
+   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "service_lines": [{ "service_code": "CUSTOMS_DAKAR", "quantity": 1 }] }
+   ```
+3. Resultat attendu : `rate=250000, source=customs_tier, confidence=0.90`
+
+### Etape 2 -- Test B (override AI0CARGO)
+
+1. Appeler `set-case-fact` :
+   ```json
+   { "case_id": "240167ed-8674-44e1-a27a-ff6ee75dce91", "fact_key": "client.code", "value_text": "AI0CARGO" }
+   ```
+2. Appeler `price-service-lines` (memes parametres)
+3. Resultat attendu : `rate=200000, source=client_override, confidence=1.0`
+
+## 5. Points CTO
+
+- **Whitelist const** : `ALLOWED_FACT_KEYS` en `Set` immutable, refuse tout key non liste
+- **Source `operator`** : priorite maximale dans la hierarchie des facts
+- **Confidence 1.0** : decision explicite operateur, pas d'incertitude
+- **Idempotence** : `supersede_fact` gere la supersession atomique (advisory lock)
+- **Timeline** : chaque injection est tracee dans `case_timeline_events`
+- **Runtime contract** : correlation_id + respondOk/respondError + logRuntimeEvent
+
