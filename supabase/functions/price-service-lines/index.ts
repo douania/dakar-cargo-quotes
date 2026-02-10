@@ -273,7 +273,8 @@ function computeQuantity(
 }
 
 function normalizeContainerKey(raw: string): string {
-  let ct = raw.replace(/['\s]/g, "").toUpperCase();
+  let ct = raw.replace(/['\s_-]/g, "").toUpperCase();
+  ct = ct.replace(/^(\d{2})FT/, "$1");   // "40FTHC" -> "40HC"
   if (ct === "40") ct = "40HC";
   if (ct === "20") ct = "20DV";
   if (ct === "20GP") ct = "20DV";

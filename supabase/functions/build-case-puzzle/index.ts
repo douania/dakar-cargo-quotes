@@ -1261,7 +1261,12 @@ CRITICAL RULES:
 1. Set isAssumption=true and confidence=0.4 for assumed values (e.g., destination_port=Dakar if not explicit)
 2. Only extract what is explicitly stated unless making a documented assumption
 3. For containers, always try to extract as JSON array
-4. Extract exact source excerpts for traceability`;
+4. Extract exact source excerpts for traceability
+5. For routing.destination_city: extract the CITY name, not the full address.
+   - If the address contains a Google Plus Code (e.g., "PGQH+J2 Dakar"), extract the city ("Dakar").
+   - If the address says "Door delivery: [Company], [City] [PostCode], [Country]", extract the city.
+   - Never use hotel names, beach resort names, or street addresses as destination_city.
+   - destination_city must be a recognized city or commune name (e.g., "Dakar", "Kaolack", "Mbour").`;
 
   const userPrompt = `Extract facts from this email thread:
 
