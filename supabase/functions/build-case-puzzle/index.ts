@@ -913,6 +913,82 @@ Deno.serve(async (req) => {
     const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds, detectedType);
     factsAdded += assumptionResult.added;
 
+    // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
+    try {
+      const { data: knownContacts } = await serviceClient
+        .from("known_business_contacts")
+        .select("domain_pattern, client_code, default_role")
+        .eq("is_active", true)
+        .not("client_code", "is", null);
+
+      if (knownContacts && knownContacts.length > 0) {
+        const requestEmail = emails.find((e: any) => e.is_quotation_request) || emails[0];
+        const senderDomain = requestEmail.from_address?.split("@")[1]?.toLowerCase();
+
+        if (senderDomain) {
+          // CTO Correction 2: suffix matching for subdomains
+          const matchedContact = knownContacts.find(
+            (c: any) => senderDomain.endsWith(c.domain_pattern.toLowerCase())
+          );
+
+          if (matchedContact?.client_code) {
+            // CTO Correction 1: maybeSingle() + manual override protection
+            const { data: existingClientCode } = await serviceClient
+              .from("quote_facts")
+              .select("id, source_type")
+              .eq("case_id", case_id)
+              .eq("fact_key", "client.code")
+              .eq("is_current", true)
+              .maybeSingle();
+
+            const isManual =
+              existingClientCode &&
+              existingClientCode.source_type === "manual_input";
+
+            if (!isManual) {
+              const { error: clientCodeError } = await serviceClient.rpc("supersede_fact", {
+                p_case_id: case_id,
+                p_fact_key: "client.code",
+                p_fact_category: "contacts",
+                p_value_text: matchedContact.client_code,
+                p_value_number: null,
+                p_value_json: null,
+                p_value_date: null,
+                p_source_type: "known_contact_match",
+                p_source_email_id: requestEmail.id,
+                p_source_attachment_id: null,
+                p_source_excerpt: `Auto-matched domain ${senderDomain} -> ${matchedContact.client_code}`,
+                p_confidence: 0.95,
+              });
+
+              if (clientCodeError) {
+                console.error(`[client.code] Failed to inject:`, clientCodeError);
+              } else {
+                factsAdded++;
+                console.log(`[client.code] Injected: ${matchedContact.client_code} (domain: ${senderDomain})`);
+
+                await serviceClient.from("case_timeline_events").insert({
+                  case_id,
+                  event_type: "fact_added",
+                  event_data: {
+                    fact_key: "client.code",
+                    value: matchedContact.client_code,
+                    matched_domain: senderDomain,
+                    source: "known_contact_match",
+                  },
+                  actor_type: "system",
+                });
+              }
+            } else {
+              console.log(`[client.code] Skipped: manual override exists (source_type=manual_input)`);
+            }
+          }
+        }
+      }
+    } catch (clientCodeErr) {
+      console.error(`[client.code] Unexpected error:`, clientCodeErr);
+    }
+
     // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
     if (factErrors.length > 0) {
       const criticalErrors = factErrors.filter(e => e.isCritical);
