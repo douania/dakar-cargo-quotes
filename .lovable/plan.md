@@ -1,48 +1,86 @@
 
 
+# Phase PRICING V4.1 — Tests E2E du Transport Resolver
 
-# Phase PRICING V4.1 — Transport Resolver (IMPLÉMENTÉ)
+## Objectif
 
-## Statut : ✅ IMPLÉMENTÉ avec corrections CTO
+4 tests unitaires ciblant la fonction `findLocalTransportRate` pour valider les corrections CTO et la logique de matching.
 
-## Modifications appliquées sur `supabase/functions/price-service-lines/index.ts`
+## Strategie
 
-### 1. PricingContext enrichi
-- Ajout `destination_city: string | null` (extrait de `routing.destination_city`)
+La fonction `findLocalTransportRate` est **pure** (aucun appel DB, travaille sur un tableau pre-charge). On peut la tester directement avec des donnees mockees reproduisant les enregistrements reels de `local_transport_rates`.
 
-### 2. Nouvelle fonction `findLocalTransportRate` (~95 lignes)
-- Scope : TRUCKING et ON_CARRIAGE uniquement
-- **CTO Correction B** : `if (isAirMode) return null;` — interdit en mode AIR
-- Matching destination : exact → partiel (single match only, ambiguïté → null)
-- Matching container : mapping 20DV→"20'", 40DV/40HC→"40'"
-- **CTO Correction A** : `if (!bestRate) return null;` — pas de fallback arbitraire
+## Fichier cree
 
-### 3. Preload dans Promise.all
-- `local_transport_rates` chargée une seule fois au démarrage (is_active=true)
+`supabase/functions/_tests/transport_resolver_test.ts`
 
-### 4. Cascade mise à jour
-```
-1. Client Override (FIXED/UNIT_RATE/PERCENTAGE)
-2. Customs Tier CAF
-3. Customs Tier Weight
-4. Catalogue SODATRA
-5. LOCAL TRANSPORT RATES ← NOUVEAU
-6. Rate Card
-7. Port Tariff (DTHC)
+## Donnees de test (basees sur les valeurs reelles en base)
+
+```text
+KAOLACK / 40' Dry  = 527,460 XOF (Aksa Energy)
+KAOLACK / 20' Dry  = 290,280 XOF
+THIES / POPONGUINE / 40' Dry = 248,980 XOF
+THIES / POPONGUINE / 20' Dry = 151,040 XOF
 ```
 
-### 5. resolveWithoutClientOverride mis à jour
-- Transport resolver ajouté entre catalogue (étape 3) et rate card (étape 4)
-- Garantit que les overrides PERCENTAGE sur TRUCKING utilisent le tarif transport comme base
+## Les 4 tests
 
-### 6. Attributs de sortie
-- `source: "local_transport_rate"` ou `"local_transport_rate+modifiers"`
-- `confidence: 0.90`
-- `explanation` inclut destination, container_type, provider, rate
+### Test 1 : Match exact
+- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = "40DV"`, `isAirMode = false`
+- **Expected** : `source = "local_transport_rate"`, `rate = 527460`, `confidence = 0.90`
 
-## Corrections CTO appliquées
-| Correction | Description |
-|---|---|
-| A | Pas de fallback premier candidat si container non matché → `return null` |
-| B | Resolver transport interdit en mode AIR → `return null` |
-| Ajust. | Match partiel interdit si plusieurs destinations distinctes → `return null` |
+### Test 2 : Partial unique
+- **Input** : `destination_city = "THIES"`, `serviceKey = "TRUCKING"`, `container_type = "20DV"`, `isAirMode = false`
+- **Expected** : `source = "local_transport_rate"`, `rate = 151040` (match partiel "THIES" dans "THIES / POPONGUINE")
+
+### Test 3 : AIR interdit (CTO Correction B)
+- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = "40DV"`, `isAirMode = true`
+- **Expected** : `null` (aucun prix retourne)
+
+### Test 4 : Container missing (CTO Correction A)
+- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = null`, `isAirMode = false`
+- **Expected** : `null` (fallback vers rate_card ou no_match)
+
+## Implementation technique
+
+Le test importe directement la fonction `findLocalTransportRate` depuis `price-service-lines/index.ts`. Si l'export n'est pas disponible (la fonction est actuellement privee), deux options :
+
+- **Option A (preferee)** : Exporter `findLocalTransportRate` depuis `index.ts` via un `export { findLocalTransportRate }` en fin de fichier. Cet export n'affecte pas le `Deno.serve` et permet le test direct.
+- **Option B** : Copier la fonction dans le fichier de test (snapshot). Moins maintenable mais zero modification sur le fichier source.
+
+On choisira l'option A (export) car elle garantit qu'on teste le code reel.
+
+## Structure du fichier test
+
+```text
+transport_resolver_test.ts
+  - Mock data (4 LocalTransportRate records reproduisant KAOLACK et THIES)
+  - Mock PricingContext factory
+  - Test 1: exact match KAOLACK + 40DV
+  - Test 2: partial match THIES + 20DV
+  - Test 3: AIR mode returns null
+  - Test 4: null container returns null
+```
+
+## Modifications
+
+| Fichier | Action | Lignes |
+|---|---|---|
+| `supabase/functions/price-service-lines/index.ts` | Ajouter `export { findLocalTransportRate }` en fin de fichier | +1 ligne |
+| `supabase/functions/_tests/transport_resolver_test.ts` | Creer (4 tests) | ~120 lignes |
+
+## Execution
+
+```text
+deno test --allow-net --allow-env --allow-read supabase/functions/_tests/transport_resolver_test.ts
+```
+
+Ou via l'outil de test integre Lovable.
+
+## Ce qui ne change PAS
+
+- Aucune logique metier modifiee
+- Aucune migration
+- Aucun changement frontend
+- La cascade de pricing reste identique
+
