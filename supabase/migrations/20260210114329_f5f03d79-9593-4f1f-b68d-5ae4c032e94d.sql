@@ -1,0 +1,1 @@
+ALTER TABLE public.known_business_contacts ADD COLUMN client_code TEXT;

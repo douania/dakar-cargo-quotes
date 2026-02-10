@@ -1482,6 +1482,7 @@ export type Database = {
       }
       known_business_contacts: {
         Row: {
+          client_code: string | null
           company_name: string
           country: string | null
           created_at: string | null
@@ -1493,6 +1494,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          client_code?: string | null
           company_name: string
           country?: string | null
           created_at?: string | null
@@ -1504,6 +1506,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          client_code?: string | null
           company_name?: string
           country?: string | null
           created_at?: string | null
