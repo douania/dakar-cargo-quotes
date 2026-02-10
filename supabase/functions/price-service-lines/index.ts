@@ -89,6 +89,7 @@ interface PricingContext {
   containers: Array<{ type: string; quantity: number }>;
   weight_kg: number | null;
   caf_value: number | null; // Phase PRICING V2: CAF value from canonical fact cargo.caf_value
+  client_code: string | null; // Phase PRICING V3.2: canonical fact client.code
 }
 
 interface PricedLine {
@@ -330,6 +331,9 @@ function buildPricingContext(
   // Phase PRICING V2 — CTO correction 3: CAF from canonical fact only
   const cafValue = factsMap.get("cargo.caf_value")?.value_number ?? null;
 
+  // Phase PRICING V3.2 — CTO Fix #3: canonical fact client.code (no heuristic)
+  const clientCode = factsMap.get("client.code")?.value_text ?? null;
+
   return {
     scope,
     container_type: containerType,
@@ -342,6 +346,7 @@ function buildPricingContext(
     containers,
     weight_kg: weightKg,
     caf_value: cafValue,
+    client_code: clientCode,
   };
 }
 
@@ -539,7 +544,7 @@ Deno.serve(async (req) => {
     const pricingCtx = buildPricingContext(factsMap);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       serviceClient
@@ -551,6 +556,8 @@ Deno.serve(async (req) => {
       serviceClient.from("pricing_modifiers").select("*").eq("active", true),
       // Phase PRICING V2: Load customs duty tiers
       serviceClient.from("pricing_customs_tiers").select("*").eq("active", true),
+      // Phase PRICING V3.2: Load client overrides
+      serviceClient.from("pricing_client_overrides").select("*").eq("active", true),
     ]);
 
     // Phase PRICING V2: Customs tiers array
@@ -561,6 +568,18 @@ Deno.serve(async (req) => {
       min_price: number | null; max_price: number | null;
       currency: string;
     }>;
+
+    // Phase PRICING V3.2: Client overrides index (CTO Fix #1: unique index guarantees 1 active per key)
+    const clientOverrides = (clientOverridesResult.data || []) as Array<{
+      id: string; client_code: string; service_code: string;
+      pricing_mode: string; base_price: number; min_price: number;
+      currency: string; mode_scope: string | null;
+      valid_from: string | null; valid_to: string | null;
+      description: string | null;
+    }>;
+    const clientOverrideMap = new Map(
+      clientOverrides.map((o) => [`${o.client_code}::${o.service_code}`, o])
+    );
 
     // Phase PRICING V1: Build catalogue and modifiers maps
     const catalogue = new Map(
@@ -658,6 +677,78 @@ Deno.serve(async (req) => {
         });
         missing.push(serviceKey);
         continue;
+      }
+
+      // ═══ Phase PRICING V3.2: Client override resolver (highest priority) ═══
+      if (pricingCtx.client_code) {
+        const overrideKey = `${pricingCtx.client_code}::${serviceKey}`;
+        const override = clientOverrideMap.get(overrideKey);
+
+        if (override) {
+          const transportMode_co = isAirMode ? "AIR" : "SEA";
+          const scopeMatch = !override.mode_scope || override.mode_scope === transportMode_co;
+
+          // CTO Fix #2: Temporal validity check
+          const today = new Date().toISOString().split("T")[0];
+          const dateValid = (!override.valid_from || override.valid_from <= today) &&
+                            (!override.valid_to || override.valid_to >= today);
+
+          if (scopeMatch && dateValid) {
+            let lineTotal = 0;
+            let skipOverride = false;
+
+            if (override.pricing_mode === "FIXED") {
+              lineTotal = override.base_price;
+            } else if (override.pricing_mode === "UNIT_RATE") {
+              // CTO Fix #4: Use computed.quantity_used, skip if null/<=0
+              if (!computed.quantity_used || computed.quantity_used <= 0) {
+                skipOverride = true;
+              } else {
+                lineTotal = override.base_price * computed.quantity_used;
+              }
+            } else {
+              // PERCENTAGE reserved for V3.3 — skip
+              skipOverride = true;
+            }
+
+            if (!skipOverride) {
+              const rawTotal = lineTotal;
+
+              // Apply active modifiers FIRST
+              const appliedMods: string[] = [];
+              for (const mod of allModifiers) {
+                if (!activeModifierCodes.has(mod.modifier_code)) continue;
+                if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+                if (mod.type === "FIXED") {
+                  lineTotal += mod.value;
+                  appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+                } else if (mod.type === "PERCENT") {
+                  lineTotal *= (1 + mod.value / 100);
+                  appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+                }
+              }
+
+              // Apply min_price LAST
+              lineTotal = Math.max(lineTotal, override.min_price);
+              lineTotal = Math.round(lineTotal); // XOF integer
+
+              const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+              pricedLines.push({
+                id: line.id,
+                rate: lineTotal,
+                currency: override.currency || currency,
+                source: `client_override${modSuffix}`,
+                confidence: 1.0,
+                explanation: `client_override: client=${pricingCtx.client_code}, service=${serviceKey}, mode=${override.pricing_mode}, base=${override.base_price}, qty=${computed.quantity_used ?? 1}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`,
+                quantity_used: computed.quantity_used ?? 1,
+                unit_used: computed.unit_used,
+                rule_id: computed.rule_id,
+                conversion_used: computed.conversion_used,
+              });
+              continue; // Skip all downstream resolvers
+            }
+          }
+        }
       }
 
       // ═══ Phase PRICING V2: Customs tier resolver (priority over catalogue for CUSTOMS_*) ═══

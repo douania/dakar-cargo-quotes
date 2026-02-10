@@ -1985,6 +1985,54 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_client_overrides: {
+        Row: {
+          active: boolean
+          base_price: number
+          client_code: string
+          created_at: string
+          currency: string
+          description: string | null
+          id: string
+          min_price: number
+          mode_scope: string | null
+          pricing_mode: string
+          service_code: string
+          valid_from: string | null
+          valid_to: string | null
+        }
+        Insert: {
+          active?: boolean
+          base_price?: number
+          client_code: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          min_price?: number
+          mode_scope?: string | null
+          pricing_mode?: string
+          service_code: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Update: {
+          active?: boolean
+          base_price?: number
+          client_code?: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          id?: string
+          min_price?: number
+          mode_scope?: string | null
+          pricing_mode?: string
+          service_code?: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
       pricing_customs_tiers: {
         Row: {
           active: boolean

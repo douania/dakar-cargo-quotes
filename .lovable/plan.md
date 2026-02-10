@@ -1,58 +1,66 @@
 
-# Phase PRICING V3.1 — Douane par poids (WEIGHT tiers) ✅ IMPLÉMENTÉ
+# Phase PRICING V3.2 — Client Overrides (contrats tarifaires) ✅ IMPLÉMENTÉ
 
 ## Résumé
 
-Resolver WEIGHT intégré dans `price-service-lines` pour services `CUSTOMS_*`, avec les 3 corrections CTO appliquées.
+Resolver CLIENT_OVERRIDE intégré dans `price-service-lines` en position prioritaire (avant CAF, WEIGHT, catalogue), avec les 4 corrections CTO appliquées.
 
 ## Corrections CTO appliquées
 
 | # | Correction | Implémentation |
 |---|---|---|
-| 1 | Contrainte weight_range_chk gère les NULL | `(min IS NULL AND max IS NULL) OR (min IS NOT NULL AND (max IS NULL OR min < max))` |
-| 2 | Garde anti-double résolution CAF+WEIGHT | `cafResolved` flag vérifie si pricedLines contient déjà un customs_tier pour cette ligne |
-| R1 | price NOT NULL pour WEIGHT tiers | Contrainte `pricing_customs_tiers_weight_price_chk` |
+| 1 | Unicité active par couple | `CREATE UNIQUE INDEX uniq_client_override_active ON pricing_client_overrides(client_code, service_code, COALESCE(mode_scope,'*')) WHERE active = true` |
+| 2 | Cohérence dates | `CHECK (valid_from IS NULL OR valid_to IS NULL OR valid_from <= valid_to)` |
+| 3 | Fact canonique client.code | `factsMap.get("client.code")?.value_text ?? null` — pas d'heuristique, skip si absent |
+| 4 | UNIT_RATE skip si qty null/<=0 | `if (!computed.quantity_used || computed.quantity_used <= 0) skipOverride = true` → fallback cascade |
 
 ## Migration SQL exécutée
 
-- 2 CHECK constraints : `weight_range_chk`, `weight_price_chk`
-- 6 seed tiers WEIGHT : 3 AIR (0-1t, 1-5t, 5t+) + 3 SEA (0-5t, 5-20t, 20t+)
+- Table `pricing_client_overrides` avec contraintes mode_chk + date_chk
+- Unique partial index `uniq_client_override_active`
+- Lookup index `idx_client_overrides_lookup`
+- RLS : lecture authentifiée
+- Seed test : AI0CARGO / CUSTOMS_DAKAR / FIXED / 200 000 XOF
 
 ## Backend modifié
 
 **Fichier** : `supabase/functions/price-service-lines/index.ts`
 
-1. `cafResolved` flag ajouté après bloc CAF (vérifie pricedLines)
-2. Bloc resolver WEIGHT inséré entre CAF et catalogue V1
-3. Logique : price fixe → modifiers → bounds → round
-4. Explanation enrichie avec `tier=min-max` (recommandation CTO R2)
+1. `PricingContext` : ajout `client_code: string | null`
+2. `buildPricingContext` : extraction depuis `client.code` fact canonique
+3. `Promise.all` : +1 requête `pricing_client_overrides` (active=true)
+4. `clientOverrideMap` : index Map `client_code::service_code`
+5. Resolver client_override inséré AVANT customs CAF/WEIGHT
+6. Logique : scope check → date check → FIXED/UNIT_RATE → modifiers FIRST → min_price LAST → round → confidence=1.0
 
-## Cascade de résolution finale (V3.1)
+## Cascade de résolution finale (V3.2)
 
 ```
-1. CUSTOMS_* + CAF > 0 + tier CAF trouvé     → customs_tier (V2)
-2. CUSTOMS_* + weight > 0 + tier WEIGHT trouvé → customs_weight_tier (V3.1)
-3. Catalogue SODATRA standard (V1)
-4. Rate cards historiques
-5. Port tariffs (DTHC)
-6. null
+1. client_override (V3.2)          → confidence 1.0
+2. CUSTOMS_* + CAF + tier CAF      → customs_tier (V2)
+3. CUSTOMS_* + weight + tier WEIGHT → customs_weight_tier (V3.1)
+4. Catalogue SODATRA standard (V1)
+5. Rate cards historiques
+6. Port tariffs (DTHC)
+7. null
 ```
 
 ## Ce qui n'a pas changé
 
 - Resolver CAF V2 (inchangé)
-- Catalogue SODATRA V1 (inchangé, reste fallback)
+- Resolver WEIGHT V3.1 (inchangé)
+- Catalogue SODATRA V1 (inchangé)
 - Rate cards / port_tariffs (inchangés)
 - Frontend (aucune modification)
 - Autres edge functions (aucune modification)
-- PricingContext (weight_kg existait déjà)
 
-## Tests de validation
+## Tests de validation attendus
 
-| Test | Entrée | Tier attendu | Résultat |
-|---|---|---|---|
-| AIR 500 kg | mode=AIR, weight=500, pas de CAF | AIR WEIGHT 0-1000 | 150 000 XOF |
-| AIR 3000 kg | mode=AIR, weight=3000, pas de CAF | AIR WEIGHT 1000-5000 | 300 000 XOF |
-| SEA 15000 kg | mode=SEA, weight=15000, pas de CAF | SEA WEIGHT 5000-20000 | 350 000 XOF |
-| CAF prioritaire | mode=SEA, weight=5000, CAF=8M | tier CAF (V2) | 250 000 XOF (CAF gagne) |
-| Ni CAF ni poids | mode=SEA, pas de weight, pas de CAF | fallback catalogue V1 | prix catalogue |
+| Test | Entrée | Résultat attendu |
+|---|---|---|
+| Override simple | client=AI0CARGO, CUSTOMS_DAKAR | 200 000 XOF, source=client_override, confidence=1.0 |
+| Override + URGENT | client=AI0CARGO + URGENT(+25%) | 250 000 XOF, source=client_override+modifiers |
+| Client normal | client=ACME, CUSTOMS_DAKAR | cascade CAF/WEIGHT/catalogue |
+| Service sans override | client=AI0CARGO, DTHC | cascade rate_card/port_tariff |
+| Override expiré | valid_to passé | cascade (override ignoré) |
+| UNIT_RATE qty=0 | qty null ou <=0 | cascade (skip override, CTO Fix #4) |
