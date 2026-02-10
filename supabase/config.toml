@@ -161,3 +161,6 @@ verify_jwt = false
 
 [functions.analyze-tender]
 verify_jwt = false
+
+[functions.set-case-fact]
+verify_jwt = false
