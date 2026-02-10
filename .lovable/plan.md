@@ -1,86 +1,49 @@
 
 
-# Phase PRICING V4.1 — Tests E2E du Transport Resolver
+# Correction CTO -- Nettoyage export + tests
 
-## Objectif
+## Contexte
 
-4 tests unitaires ciblant la fonction `findLocalTransportRate` pour valider les corrections CTO et la logique de matching.
+L'export `findLocalTransportRate` et le fichier de test `transport_resolver_test.ts` doivent etre retires pour eviter des problemes de bundling Supabase. Les 4 tests ont deja passe avec succes -- le fichier de test n'est plus necessaire en production.
 
-## Strategie
+## Actions
 
-La fonction `findLocalTransportRate` est **pure** (aucun appel DB, travaille sur un tableau pre-charge). On peut la tester directement avec des donnees mockees reproduisant les enregistrements reels de `local_transport_rates`.
+### Action 1 -- Retirer l'export (1 ligne)
 
-## Fichier cree
+**Fichier** : `supabase/functions/price-service-lines/index.ts`
 
-`supabase/functions/_tests/transport_resolver_test.ts`
-
-## Donnees de test (basees sur les valeurs reelles en base)
+Supprimer la ligne 1324 :
 
 ```text
-KAOLACK / 40' Dry  = 527,460 XOF (Aksa Energy)
-KAOLACK / 20' Dry  = 290,280 XOF
-THIES / POPONGUINE / 40' Dry = 248,980 XOF
-THIES / POPONGUINE / 20' Dry = 151,040 XOF
+export { findLocalTransportRate };
 ```
 
-## Les 4 tests
+La fonction reste intacte et privee dans le fichier. Zero impact sur la logique de pricing.
 
-### Test 1 : Match exact
-- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = "40DV"`, `isAirMode = false`
-- **Expected** : `source = "local_transport_rate"`, `rate = 527460`, `confidence = 0.90`
+### Action 2 -- Supprimer le fichier de test
 
-### Test 2 : Partial unique
-- **Input** : `destination_city = "THIES"`, `serviceKey = "TRUCKING"`, `container_type = "20DV"`, `isAirMode = false`
-- **Expected** : `source = "local_transport_rate"`, `rate = 151040` (match partiel "THIES" dans "THIES / POPONGUINE")
+**Fichier** : `supabase/functions/_tests/transport_resolver_test.ts`
 
-### Test 3 : AIR interdit (CTO Correction B)
-- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = "40DV"`, `isAirMode = true`
-- **Expected** : `null` (aucun prix retourne)
+Suppression complete. Le fichier utilise deja une copie snapshot de la fonction (pas d'import depuis index.ts), donc aucune dependance croisee.
 
-### Test 4 : Container missing (CTO Correction A)
-- **Input** : `destination_city = "KAOLACK"`, `serviceKey = "TRUCKING"`, `container_type = null`, `isAirMode = false`
-- **Expected** : `null` (fallback vers rate_card ou no_match)
+### Action 3 -- Redeploiement
 
-## Implementation technique
+Le deploiement de `price-service-lines` sera automatique apres les modifications.
 
-Le test importe directement la fonction `findLocalTransportRate` depuis `price-service-lines/index.ts`. Si l'export n'est pas disponible (la fonction est actuellement privee), deux options :
+## Impact
 
-- **Option A (preferee)** : Exporter `findLocalTransportRate` depuis `index.ts` via un `export { findLocalTransportRate }` en fin de fichier. Cet export n'affecte pas le `Deno.serve` et permet le test direct.
-- **Option B** : Copier la fonction dans le fichier de test (snapshot). Moins maintenable mais zero modification sur le fichier source.
+| Element | Statut |
+|---|---|
+| Logique pricing | Zero modification |
+| Cascade transport resolver | Intacte |
+| Corrections CTO A et B | Intactes |
+| Tests (deja passes 4/4) | Retires du bundle |
+| Frontend | Zero modification |
 
-On choisira l'option A (export) car elle garantit qu'on teste le code reel.
+## Fichiers modifies
 
-## Structure du fichier test
-
-```text
-transport_resolver_test.ts
-  - Mock data (4 LocalTransportRate records reproduisant KAOLACK et THIES)
-  - Mock PricingContext factory
-  - Test 1: exact match KAOLACK + 40DV
-  - Test 2: partial match THIES + 20DV
-  - Test 3: AIR mode returns null
-  - Test 4: null container returns null
-```
-
-## Modifications
-
-| Fichier | Action | Lignes |
-|---|---|---|
-| `supabase/functions/price-service-lines/index.ts` | Ajouter `export { findLocalTransportRate }` en fin de fichier | +1 ligne |
-| `supabase/functions/_tests/transport_resolver_test.ts` | Creer (4 tests) | ~120 lignes |
-
-## Execution
-
-```text
-deno test --allow-net --allow-env --allow-read supabase/functions/_tests/transport_resolver_test.ts
-```
-
-Ou via l'outil de test integre Lovable.
-
-## Ce qui ne change PAS
-
-- Aucune logique metier modifiee
-- Aucune migration
-- Aucun changement frontend
-- La cascade de pricing reste identique
+| Fichier | Action |
+|---|---|
+| `supabase/functions/price-service-lines/index.ts` | Supprimer ligne 1324 (`export`) |
+| `supabase/functions/_tests/transport_resolver_test.ts` | Supprimer le fichier |
 
