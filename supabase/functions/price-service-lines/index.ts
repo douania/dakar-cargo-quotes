@@ -468,6 +468,118 @@ async function findPortTariffFallback(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Phase V3.3: PERCENTAGE resolver helper (CTO correction)
+// Re-executes downstream cascade WITHOUT client_override to find fallback price.
+// Returns raw rate (no modifiers, no min_price) or null.
+// ═══════════════════════════════════════════════════════════════
+
+async function resolveWithoutClientOverride(
+  serviceKey: string,
+  computed: { quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string },
+  pricingCtx: PricingContext,
+  isAirMode: boolean,
+  currency: string,
+  customsTiers: Array<{
+    id: string; mode: string; basis: string;
+    min_value: number; max_value: number | null;
+    min_weight_kg?: number | null; max_weight_kg?: number | null;
+    price: number | null; percent: number | null;
+    min_price: number | null; max_price: number | null;
+    currency: string;
+  }>,
+  catalogue: Map<string, any>,
+  allCards: RateCardRow[],
+  serviceClient: ReturnType<typeof createClient>,
+): Promise<{
+  rate: number; source: string; confidence: number; explanation: string;
+  quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string;
+} | null> {
+
+  const transportMode = isAirMode ? "AIR" : "SEA";
+  const lineUnit = normalizeUnit(computed.unit_used);
+
+  // 1. Customs tier CAF
+  if (serviceKey.startsWith("CUSTOMS_")) {
+    const caf = pricingCtx.caf_value;
+    if (caf && caf > 0) {
+      const tier = customsTiers.find(t =>
+        t.mode === transportMode && t.basis === "CAF" &&
+        caf >= t.min_value && (t.max_value == null || caf < t.max_value)
+      );
+      if (tier) {
+        const rate = tier.percent != null ? caf * tier.percent / 100 : (tier.price ?? 0);
+        return {
+          rate, source: "customs_tier", confidence: 0.90,
+          explanation: `fallback customs_tier: CAF=${caf}, percent=${tier.percent}`,
+          quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+          rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+        };
+      }
+    }
+
+    // 2. Customs weight tier
+    const weight = pricingCtx.weight_kg;
+    if (weight && weight > 0) {
+      const wTier = customsTiers.find(t =>
+        t.mode === transportMode && t.basis === "WEIGHT" &&
+        weight >= (t.min_weight_kg ?? 0) && (t.max_weight_kg == null || weight < t.max_weight_kg)
+      );
+      if (wTier) {
+        return {
+          rate: wTier.price ?? 0, source: "customs_weight_tier", confidence: 0.85,
+          explanation: `fallback customs_weight_tier: weight=${weight}`,
+          quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+          rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+        };
+      }
+    }
+  }
+
+  // 3. Catalogue SODATRA
+  const catEntry = catalogue.get(serviceKey);
+  const catMode = isAirMode ? "AIR" : "SEA";
+  const scopeOk = !catEntry?.mode_scope || catEntry.mode_scope === catMode;
+  const priceOk = catEntry?.pricing_mode === "UNIT_RATE" ? catEntry.base_price > 0 : true;
+  const qtyOk = catEntry?.pricing_mode === "UNIT_RATE" ? (computed.quantity_used > 0) : true;
+
+  if (catEntry && scopeOk && priceOk && qtyOk) {
+    const rate = catEntry.pricing_mode === "UNIT_RATE"
+      ? catEntry.base_price * computed.quantity_used
+      : catEntry.base_price;
+    return {
+      rate, source: "catalogue_sodatra", confidence: 0.95,
+      explanation: `fallback catalogue: ${serviceKey}, base=${catEntry.base_price}`,
+      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+    };
+  }
+
+  // 4. Rate card
+  const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode);
+  if (match) {
+    return {
+      rate: match.card.value, source: match.card.source, confidence: match.score / 100,
+      explanation: `fallback rate_card: ${match.explanation}`,
+      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+    };
+  }
+
+  // 5. Port tariff
+  const ptFallback = await findPortTariffFallback(serviceClient, serviceKey, pricingCtx);
+  if (ptFallback) {
+    return {
+      rate: ptFallback.rate, source: ptFallback.source, confidence: ptFallback.confidence,
+      explanation: `fallback port_tariff: ${ptFallback.explanation}`,
+      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+    };
+  }
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════════════════════════
 
@@ -707,8 +819,19 @@ Deno.serve(async (req) => {
               } else {
                 lineTotal = override.base_price * computed.quantity_used;
               }
+            } else if (override.pricing_mode === "PERCENTAGE") {
+              // Phase V3.3: Percentage override — resolve fallback then apply %
+              const fallback = await resolveWithoutClientOverride(
+                serviceKey, computed, pricingCtx, isAirMode, currency,
+                customsTiers, catalogue, allCards, serviceClient,
+              );
+
+              if (fallback) {
+                lineTotal = fallback.rate * override.base_price / 100;
+              } else {
+                skipOverride = true; // No fallback found, line falls to no_match
+              }
             } else {
-              // PERCENTAGE reserved for V3.3 — skip
               skipOverride = true;
             }
 
@@ -733,14 +856,18 @@ Deno.serve(async (req) => {
               lineTotal = Math.max(lineTotal, override.min_price);
               lineTotal = Math.round(lineTotal); // XOF integer
 
+              const isPercentage = override.pricing_mode === "PERCENTAGE";
+              const modeLabel = isPercentage ? "client_override_percentage" : "client_override";
               const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
               pricedLines.push({
                 id: line.id,
                 rate: lineTotal,
                 currency: override.currency || currency,
-                source: `client_override${modSuffix}`,
+                source: `${modeLabel}${modSuffix}`,
                 confidence: 1.0,
-                explanation: `client_override: client=${pricingCtx.client_code}, service=${serviceKey}, mode=${override.pricing_mode}, base=${override.base_price}, qty=${computed.quantity_used ?? 1}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`,
+                explanation: isPercentage
+                  ? `client_override_percentage: client=${pricingCtx.client_code}, base_fallback=${Math.round(lineTotal * 100 / override.base_price)}, percent=${override.base_price}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`
+                  : `client_override: client=${pricingCtx.client_code}, service=${serviceKey}, mode=${override.pricing_mode}, base=${override.base_price}, qty=${computed.quantity_used ?? 1}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`,
                 quantity_used: computed.quantity_used ?? 1,
                 unit_used: computed.unit_used,
                 rule_id: computed.rule_id,
