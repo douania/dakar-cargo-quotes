@@ -577,8 +577,9 @@ Deno.serve(async (req) => {
       valid_from: string | null; valid_to: string | null;
       description: string | null;
     }>;
+    // CTO Fix: index by client_code::service_code::mode_scope for scoped vs generic lookup
     const clientOverrideMap = new Map(
-      clientOverrides.map((o) => [`${o.client_code}::${o.service_code}`, o])
+      clientOverrides.map((o) => [`${o.client_code}::${o.service_code}::${o.mode_scope ?? '*'}`, o])
     );
 
     // Phase PRICING V1: Build catalogue and modifiers maps
@@ -681,19 +682,19 @@ Deno.serve(async (req) => {
 
       // ═══ Phase PRICING V3.2: Client override resolver (highest priority) ═══
       if (pricingCtx.client_code) {
-        const overrideKey = `${pricingCtx.client_code}::${serviceKey}`;
-        const override = clientOverrideMap.get(overrideKey);
+        // CTO Fix: scoped lookup (AIR/SEA) then fallback to generic (*)
+        const transportMode_co = isAirMode ? "AIR" : "SEA";
+        const keyScoped = `${pricingCtx.client_code}::${serviceKey}::${transportMode_co}`;
+        const keyAny = `${pricingCtx.client_code}::${serviceKey}::*`;
+        const override = clientOverrideMap.get(keyScoped) ?? clientOverrideMap.get(keyAny);
 
         if (override) {
-          const transportMode_co = isAirMode ? "AIR" : "SEA";
-          const scopeMatch = !override.mode_scope || override.mode_scope === transportMode_co;
+          // CTO Fix #2: Stable UTC date string for temporal validity
+          const todayStr = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD' UTC
+          const dateValid = (!override.valid_from || override.valid_from <= todayStr) &&
+                            (!override.valid_to || override.valid_to >= todayStr);
 
-          // CTO Fix #2: Temporal validity check
-          const today = new Date().toISOString().split("T")[0];
-          const dateValid = (!override.valid_from || override.valid_from <= today) &&
-                            (!override.valid_to || override.valid_to >= today);
-
-          if (scopeMatch && dateValid) {
+          if (dateValid) {
             let lineTotal = 0;
             let skipOverride = false;
 
