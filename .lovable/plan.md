@@ -1,73 +1,71 @@
 
 
-# Phase V4.1.4b — Fix flow detection ignoring stale service.package
+# Phase V4.1.4c — Forcer la re-injection des services quand le package change
 
 ## Diagnostic
 
-Les logs montrent que le patch precedent fonctionne partiellement :
-- `hasContainers=true` (correct)
-- `detectFlowType` retourne `UNKNOWN` au lieu de `IMPORT_PROJECT_DAP`
+Le backend est **deja corrige** :
+- `detectFlowType` retourne `IMPORT_PROJECT_DAP` (confirme dans les logs)
+- `service.package = DAP_PROJECT_IMPORT` est le fact actif en base (is_current=true)
+- L'ancien `BREAKBULK_PROJECT` est bien desactive (is_current=false)
 
-**Cause racine** : Ligne 362 de `detectFlowType`, la condition `!servicePackage` bloque la regle 4 car `service.package = BREAKBULK_PROJECT` est deja persiste dans `quote_facts` (residue du run precedent bugge). La fonction charge les facts existants AVANT de re-detecter le flow, ce qui cree une dependance circulaire : le flow ne peut pas etre corrige car l'ancien `service.package` errone empeche la re-detection.
+**Le probleme est cote frontend** dans `QuotationSheet.tsx` ligne 632 :
 
+```typescript
+if (packageFact?.value_text && serviceLines.length === 0) {
 ```
-factMap contient : service.package = BREAKBULK_PROJECT (ai_assumption, confiance 0.70)
-  -> detectFlowType voit servicePackage = "BREAKBULK_PROJECT"
-  -> Rule 4: destCountry === 'SN' && !servicePackage => FALSE (car servicePackage n'est pas vide)
-  -> Retourne UNKNOWN
-  -> Pas d'assumptions appliquees
-  -> service.package reste BREAKBULK_PROJECT
-```
+
+Cette condition verifie `serviceLines.length === 0`. Comme les services breakbulk ont deja ete injectes lors du run precedent, la liste n'est pas vide, et les services DAP ne remplacent jamais les anciens. Le package change en base mais les lignes de services restent celles du breakbulk.
 
 ## Solution
 
-### Volet unique : Ignorer service.package dans detectFlowType
+### Volet unique : Detecter le changement de package et re-injecter
 
-`detectFlowType` est cense DETERMINER le flow type, pas le lire. Le fait `service.package` est un OUTPUT de cette detection, pas un INPUT. Il faut supprimer la lecture de `service.package` dans la condition.
+Modifier la condition ligne 632 pour aussi re-injecter quand le **package a change** par rapport aux services actuellement affiches :
 
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
-
-**Ligne 339** : Supprimer la lecture de `service.package` du factMap.
-
-**Ligne 362** : Retirer la condition `!servicePackage`.
-
-Avant :
 ```typescript
-const servicePackage = factMap.get('service.package')?.value || '';
-// ...
-if (destCountry === 'SN' && !servicePackage) {
+// Avant :
+if (packageFact?.value_text && serviceLines.length === 0) {
+
+// Apres :
+const currentServicesFromAI = serviceLines.every(s => s.source === 'ai_assumption');
+const packageChanged = packageFact?.value_text && 
+  SERVICE_PACKAGES[packageFact.value_text] && 
+  (serviceLines.length === 0 || (currentServicesFromAI && 
+    packageFact.value_text !== lastAppliedPackageRef.current));
+
+if (packageChanged) {
+  lastAppliedPackageRef.current = packageFact.value_text;
+  // ... injection des services (code existant)
+}
 ```
 
-Apres :
-```typescript
-// service.package is REMOVED from detectFlowType inputs — it's an OUTPUT, not an INPUT
-// ...
-if (destCountry === 'SN') {
-```
+**Logique** :
+1. Si aucun service n'existe (`length === 0`) : injecter (comme avant)
+2. Si tous les services existants viennent de l'IA (`source === 'ai_assumption'`) ET que le package a change : **remplacer** les services par ceux du nouveau package
+3. Si l'operateur a modifie/ajoute des services manuellement : ne pas ecraser (protection des edits manuels)
 
-### Nettoyage du fait errone
-
-Pas de migration SQL necessaire. Le fait `service.package = BREAKBULK_PROJECT` sera automatiquement remplace par `IMPORT_PROJECT_DAP` via le RPC `supersede_fact` lors du prochain run, car `ai_assumption` n'est pas une source protegee.
+Un `useRef` (`lastAppliedPackageRef`) evite les boucles de re-injection.
 
 ### Impact
 
 | Element | Modification |
 |---|---|
-| build-case-puzzle/detectFlowType | 2 lignes modifiees (suppression servicePackage) |
+| QuotationSheet.tsx | ~10 lignes (ref + condition + guard) |
 | Autres fichiers | Zero changement |
+| Edge functions | Zero modification |
 | Migration SQL | Aucune |
 
 ### Resultat attendu
 
-1. `detectFlowType` retourne `IMPORT_PROJECT_DAP` (destCountry=SN + hasContainers + weightKg > 5000)
-2. Les assumptions pour `IMPORT_PROJECT_DAP` sont appliquees (DTHC, Transport, Restitution vide, Douane)
-3. `service.package` est mis a jour de `BREAKBULK_PROJECT` a `IMPORT_PROJECT_DAP`
-4. Les services breakbulk (dechargement navire, survey) sont remplaces par les services conteneur
+1. Au rechargement de la page ou apres "Analyser la demande", le badge affiche `DAP PROJECT IMPORT`
+2. Les services affiches passent de breakbulk (Dechargement navire, Survey) a conteneur (DTHC, Transport, Restitution vide, Douane)
+3. Si l'operateur a manuellement edite des services, ils ne sont pas ecrases
 
 ### Validation
 
-1. Redeployer `build-case-puzzle`
-2. Relancer "Analyser la demande"
-3. Verifier dans les logs : `Detected flow type: IMPORT_PROJECT_DAP`
-4. Verifier que les services pre-remplis sont ceux du package DAP (pas breakbulk)
+1. Relancer "Analyser la demande" ou recharger la page
+2. Verifier que les services sont ceux du package DAP (pas breakbulk)
+3. Verifier que le badge affiche "DAP PROJECT IMPORT"
+4. Tester qu'apres une modification manuelle d'un service, le remplacement automatique ne se declenche plus
 
