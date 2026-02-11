@@ -336,7 +336,7 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
   const originPort = factMap.get('routing.origin_port')?.value?.toUpperCase() || '';
   const weightKg = parseFloat(factMap.get('cargo.weight_kg')?.value || '0') || 0;
   const cargoDesc = factMap.get('cargo.description')?.value?.toLowerCase() || '';
-  const servicePackage = factMap.get('service.package')?.value || '';
+  // service.package is an OUTPUT of detectFlowType, not an INPUT — never read it here
   const hasContainers = !!factMap.get('cargo.containers')?.value;
 
   console.log(`[M3.5.1] detectFlowType: destCountry=${destCountry}, originCountry=${originCountry}, finalDest=${finalDest}, weightKg=${weightKg}, hasContainers=${hasContainers}`);
@@ -359,7 +359,7 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
   }
 
   // Rule 4: Import project DAP (+ cargo.containers as project indicator)
-  if (destCountry === 'SN' && !servicePackage) {
+  if (destCountry === 'SN') {
     const hasWeight = weightKg > 5000;
     if (hasWeight || hasContainers) {
       return 'IMPORT_PROJECT_DAP';
