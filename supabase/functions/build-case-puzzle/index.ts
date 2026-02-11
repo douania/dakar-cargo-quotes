@@ -989,34 +989,39 @@ Deno.serve(async (req) => {
       console.error(`[client.code] Unexpected error:`, clientCodeErr);
     }
 
-    // CTO FIX Phase 7.0.3: Block READY_TO_PRICE if any fact errors occurred
+    // Phase V4.1.3: Only block on CRITICAL fact errors, not all errors
     if (factErrors.length > 0) {
       const criticalErrors = factErrors.filter(e => e.isCritical);
       console.error(`${factErrors.length} fact errors for case ${case_id} (${criticalErrors.length} critical):`, factErrors);
       
-      await serviceClient
-        .from("quote_cases")
-        .update({
-          status: "FACTS_PARTIAL",
-          last_activity_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", case_id);
+      // Only block progression for critical errors
+      if (criticalErrors.length > 0) {
+        await serviceClient
+          .from("quote_cases")
+          .update({
+            status: "FACTS_PARTIAL",
+            last_activity_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", case_id);
 
-      return new Response(
-        JSON.stringify({
-          case_id,
-          new_status: "FACTS_PARTIAL",
-          facts_added: factsAdded,
-          facts_updated: factsUpdated,
-          facts_skipped: factsSkipped,
-          fact_errors: factErrors,
-          critical_errors_count: criticalErrors.length,
-          ready_to_price: false,
-          error_summary: `${factErrors.length} facts failed to save (${criticalErrors.length} critical)`
-        }),
-        { status: 207, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+        return new Response(
+          JSON.stringify({
+            case_id,
+            new_status: "FACTS_PARTIAL",
+            facts_added: factsAdded,
+            facts_updated: factsUpdated,
+            facts_skipped: factsSkipped,
+            fact_errors: factErrors,
+            critical_errors_count: criticalErrors.length,
+            ready_to_price: false,
+            error_summary: `${criticalErrors.length} critical facts failed to save`
+          }),
+          { status: 207, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      // Non-critical errors: log warning and continue to gap analysis
+      console.warn(`[V4.1.3] ${factErrors.length} non-critical fact errors ignored, continuing to gap analysis`);
     }
 
     // 10. Identify gaps
