@@ -463,6 +463,19 @@ function findLocalTransportRate(
 
   const destNorm = destCity.toUpperCase().trim();
 
+  // Phase V4.1.2: City-to-zone mapping for destinations
+  // that use zone-based naming in local_transport_rates
+  const CITY_TO_ZONE: Record<string, string> = {
+    "DAKAR": "FORFAIT ZONE 1 <18 KM",
+    "GUEDIAWAYE": "FORFAIT ZONE 1 <18 KM",
+    "PIKINE": "FORFAIT ZONE 1 <18 KM",
+    "RUFISQUE": "FORFAIT ZONE 1 <18 KM",
+    "DIAMNIADIO": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
+    "SEIKHOTANE": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
+    "POUT": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
+  };
+  const resolvedDest = CITY_TO_ZONE[destNorm] || destNorm;
+
   // Temporal filter
   const today = new Date().toISOString().split("T")[0];
   const validRates = preloadedRates.filter(r =>
@@ -472,13 +485,13 @@ function findLocalTransportRate(
   );
 
   // Destination matching: exact first, then partial (single match only)
-  let candidates = validRates.filter(r => r.destination.toUpperCase().trim() === destNorm);
+  let candidates = validRates.filter(r => r.destination.toUpperCase().trim() === resolvedDest);
 
   if (candidates.length === 0) {
     // Partial: destination DB contains the city OR city contains the destination DB
     const partialMatches = validRates.filter(r => {
       const rDest = r.destination.toUpperCase().trim();
-      return rDest.includes(destNorm) || destNorm.includes(rDest);
+      return rDest.includes(resolvedDest) || resolvedDest.includes(rDest);
     });
     // CTO adjustment: ambiguous partial matches → null (multiple destinations matched)
     // We keep all partial matches for the same destination string, then check uniqueness of destination
