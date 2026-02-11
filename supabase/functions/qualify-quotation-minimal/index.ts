@@ -69,6 +69,13 @@ Tu NE décides RIEN. Tu DÉTECTES et QUESTIONNES.
 5. Poids/dimensions manquants ou "TBC" → demander les valeurs exactes
 6. Dates floues ("ASAP", "urgent", "dès que possible") → demander la date d'arrivée souhaitée
 
+== RÈGLES ANTI-FAUX-POSITIFS (PRIORITAIRES) ==
+1. Si un Incoterm (DAP, FOB, CIF, CFR, EXW, etc.) est présent dans les faits extraits ci-dessous, NE PAS générer d'ambiguïté "unclear_incoterm"
+2. Les dimensions de conteneurs standards (20DV, 40HC, 40FR, 40OT, etc.) sont connues ISO et NE nécessitent PAS de question. Ne demander les dimensions que pour du breakbulk ou du cargo hors-gabarit (OOG)
+3. Si un service.package est identifié dans les faits, NE PAS générer d'ambiguïté "service_scope"
+4. Si des conteneurs sont présents dans les faits, NE PAS demander le poids par conteneur sauf si explicitement marqué "TBC" ou "à confirmer"
+5. Ne JAMAIS questionner un fait déjà extrait avec une confiance >= 0.80
+
 == FORMAT DE SORTIE JSON ==
 {
   "detected_ambiguities": [
@@ -192,16 +199,25 @@ serve(async (req) => {
       .maybeSingle();
 
     let existingGaps: Array<{ gap_key: string; question_fr: string | null; gap_category: string }> = [];
+    let existingFacts: Array<{ fact_key: string; value_text: string | null; value_number: number | null; confidence: number }> = [];
     
     if (quoteCase?.id) {
-      const { data: gaps } = await supabase
-        .from('quote_gaps')
-        .select('gap_key, question_fr, gap_category')
-        .eq('case_id', quoteCase.id)
-        .eq('status', 'open')
-        .eq('is_blocking', true);
+      const [gapsResult, factsResult] = await Promise.all([
+        supabase
+          .from('quote_gaps')
+          .select('gap_key, question_fr, gap_category')
+          .eq('case_id', quoteCase.id)
+          .eq('status', 'open')
+          .eq('is_blocking', true),
+        supabase
+          .from('quote_facts')
+          .select('fact_key, value_text, value_number, confidence')
+          .eq('case_id', quoteCase.id)
+          .eq('is_current', true),
+      ]);
       
-      existingGaps = gaps || [];
+      existingGaps = gapsResult.data || [];
+      existingFacts = factsResult.data || [];
     }
 
     // Construire le contexte pour l'IA
@@ -232,10 +248,14 @@ ${bodyText}
       ? `\n\nLacunes déjà identifiées:\n${existingGaps.map(g => `- ${g.gap_category}: ${g.question_fr || g.gap_key}`).join('\n')}`
       : '';
 
+    const factsContext = existingFacts.length > 0
+      ? `\n\nFaits déjà extraits et confirmés (NE PAS re-questionner) :\n${existingFacts.map(f => `- ${f.fact_key}: ${f.value_text || f.value_number} (confiance: ${f.confidence})`).join('\n')}`
+      : '';
+
     // Appel IA
     const response = await callAI([
       { role: 'system', content: QUALIFICATION_PROMPT },
-      { role: 'user', content: `Analyse cette demande de cotation et génère les questions de clarification nécessaires.\n\n${emailContext}${gapsContext}` }
+      { role: 'user', content: `Analyse cette demande de cotation et génère les questions de clarification nécessaires.\n\n${emailContext}${gapsContext}${factsContext}` }
     ], {
       model: 'google/gemini-2.5-flash',
       temperature: 0.3,
