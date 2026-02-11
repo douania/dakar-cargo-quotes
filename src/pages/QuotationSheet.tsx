@@ -554,8 +554,9 @@ L'équipe SODATRA`;
   const [factsApplied, setFactsApplied] = useState(false);
   
   // M3.7 P0-3: Guard anti-boucle pricing — clé = caseId + overlayRun counter
-  const pricingGuardRef = useRef<string | null>(null);
-  const overlayRunCounterRef = useRef(0);
+   const pricingGuardRef = useRef<string | null>(null);
+   const overlayRunCounterRef = useRef(0);
+   const lastAppliedPackageRef = useRef<string | null>(null);
   
   useEffect(() => {
     if (factsApplied || !quoteFacts || quoteFacts.length === 0) return;
@@ -629,9 +630,16 @@ L'équipe SODATRA`;
 
     // ── M3.6: Auto-populate service lines from service.package ──
     const packageFact = factsMap.get('service.package');
-    if (packageFact?.value_text && serviceLines.length === 0) {
+    const currentServicesAllAI = serviceLines.length > 0 && serviceLines.every(s => s.source === 'ai_assumption');
+    const packageChanged = packageFact?.value_text &&
+      SERVICE_PACKAGES[packageFact.value_text] &&
+      (serviceLines.length === 0 || (currentServicesAllAI &&
+        packageFact.value_text !== lastAppliedPackageRef.current));
+
+    if (packageChanged) {
+      lastAppliedPackageRef.current = packageFact.value_text;
       const packageKey = packageFact.value_text;
-      const serviceKeys = SERVICE_PACKAGES[packageKey];
+      const serviceKeys = SERVICE_PACKAGES[packageKey]!;
       if (serviceKeys) {
         const autoLines: ServiceLine[] = [];
         for (const key of serviceKeys) {
