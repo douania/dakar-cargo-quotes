@@ -352,9 +352,9 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
     return 'EXPORT_SENEGAL';
   }
 
-  // Rule 3: Breakbulk project
+  // Rule 3: Breakbulk project (only if NO containers detected — FCL with heavy cargo is NOT breakbulk)
   const breakbulkKeywords = ['transformer', 'crane', 'heavy', 'breakbulk'];
-  if (weightKg > 30000 || breakbulkKeywords.some(kw => cargoDesc.includes(kw))) {
+  if (!hasContainers && (weightKg > 30000 || breakbulkKeywords.some(kw => cargoDesc.includes(kw)))) {
     return 'BREAKBULK_PROJECT';
   }
 
