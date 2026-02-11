@@ -1,84 +1,78 @@
 
 
-# Phase V4.1.2 — Resolver transport : mapping zone pour Dakar
+# Phase V4.1.3 — Debloquer la transition READY_TO_PRICE
 
 ## Diagnostic
 
-Le patch V4.1.1 fonctionne : `routing.destination_city = "DAKAR"` est correctement extrait (confidence 1.00).
+Le dossier `4f2baa5b` reste bloque en `FACTS_PARTIAL` malgre 0 blocking gaps et 8 facts valides.
 
-Le probleme est en aval : le resolver `findLocalTransportRate` ne trouve pas "DAKAR" dans `local_transport_rates` car la table utilise des noms de zones, pas des noms de villes.
+**Cause racine** : dans `build-case-puzzle` (ligne 992-1019), le code fait un `return` premature des qu'il y a **un seul** `factError`, meme non-critique. Deux facts echouent a cause de categories invalides :
 
-**Destinations existantes dans la table** :
-```text
-BAMBEY / TAYBA, BIGNONA, CAP SKIRING, Chaux, DAGANA / MAKA,
-DIOURBEL, FORFAIT ZONE 1 <18 km, FORFAIT ZONE 2 SEIKHOTANE ET POUT,
-JOAL, KAFFRINE, KAOLACK, KEBEMER / FATICK, LOUGA / TOUBA, MBACKE,
-MBOUR, MECKHE, NIORO / Saint Louis, PODOR, RICHARD TOLL, SOKONE,
-TAMBACOUNDA, THIAYES, THIES / POPONGUINE, TIVAOUANE, ZIGUINCHOR...
+- `carrier.name` avec categorie `carrier` (pas dans la liste autorisee)
+- `survey.required` avec categorie `survey` (pas dans la liste autorisee)
+
+Categories autorisees actuellement : `cargo`, `routing`, `timing`, `pricing`, `documents`, `contacts`, `other`, `service`, `regulatory`.
+
+Ces erreurs sont marquees `isCritical: false`, mais le code bloque quand meme la progression du dossier et retourne `FACTS_PARTIAL` sans jamais atteindre la logique de gap-checking et de transition de statut.
+
+## Solution en deux volets
+
+### Volet 1 : Migration base de donnees
+
+Ajouter les categories manquantes au check constraint `quote_facts_fact_category_check` :
+
+```sql
+ALTER TABLE quote_facts DROP CONSTRAINT quote_facts_fact_category_check;
+ALTER TABLE quote_facts ADD CONSTRAINT quote_facts_fact_category_check
+  CHECK (fact_category IN (
+    'cargo', 'routing', 'timing', 'pricing', 'documents',
+    'contacts', 'other', 'service', 'regulatory',
+    'carrier', 'survey'
+  ));
 ```
 
-Pas de "DAKAR" explicite. La livraison Dakar correspond a **"FORFAIT ZONE 1 <18 km"**.
+Cela permet a `carrier.name` et `survey.required` d'etre inseres sans erreur.
 
-## Solution proposee
+### Volet 2 : Patch build-case-puzzle (securite)
 
-Patch chirurgical dans `findLocalTransportRate` : ajouter un mapping ville-vers-zone **avant** le matching par destination.
+Modifier la logique de blocage (lignes 992-1019) pour ne bloquer que sur les erreurs **critiques**, pas les erreurs non-critiques :
 
-### Modification unique
-
-**Fichier** : `supabase/functions/price-service-lines/index.ts`
-**Fonction** : `findLocalTransportRate` (ligne ~464)
-
-Apres `const destNorm = destCity.toUpperCase().trim();`, inserer un mapping de villes connues vers les destinations de la table :
-
+**Avant** (comportement actuel) :
 ```typescript
-// Phase V4.1.2: City-to-zone mapping for destinations
-// that use zone-based naming in local_transport_rates
-const CITY_TO_ZONE: Record<string, string> = {
-  "DAKAR": "FORFAIT ZONE 1 <18 KM",
-  "GUEDIAWAYE": "FORFAIT ZONE 1 <18 KM",
-  "PIKINE": "FORFAIT ZONE 1 <18 KM",
-  "RUFISQUE": "FORFAIT ZONE 1 <18 KM",
-  "DIAMNIADIO": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-  "SEIKHOTANE": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-  "POUT": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-};
-
-const resolvedDest = CITY_TO_ZONE[destNorm] || destNorm;
+if (factErrors.length > 0) {
+  // ... early return FACTS_PARTIAL (TOUJOURS)
+}
 ```
 
-Puis remplacer `destNorm` par `resolvedDest` dans le matching exact et partiel (lignes 475 et 481).
+**Apres** (comportement corrige) :
+```typescript
+if (factErrors.length > 0) {
+  const criticalErrors = factErrors.filter(e => e.isCritical);
+  console.error(`${factErrors.length} fact errors ...`);
+
+  // Only block on CRITICAL errors, not all errors
+  if (criticalErrors.length > 0) {
+    // ... early return FACTS_PARTIAL
+  }
+  // Non-critical errors: log and continue to gap analysis
+}
+```
 
 ### Impact
 
 | Element | Modification |
 |---|---|
-| findLocalTransportRate | +15 lignes (mapping + variable) |
-| Logique de matching existante | 2 lignes changees (destNorm vers resolvedDest) |
-| Autres resolvers | Zero changement |
+| Migration SQL | 1 migration (drop + recreate constraint) |
+| build-case-puzzle | ~5 lignes modifiees (condition if) |
+| Autres fichiers | Zero changement |
 | Frontend | Zero modification |
-| build-case-puzzle | Zero changement |
-
-### Cas couverts apres patch
-
-| destination_city extraite | Zone resolue | Rate attendu |
-|---|---|---|
-| DAKAR | FORFAIT ZONE 1 <18 KM | Tarif zone 1 |
-| DIAMNIADIO | FORFAIT ZONE 2, SEIKHOTANE ET POUT | Tarif zone 2 |
-| MBOUR | MBOUR (match direct) | Tarif Mbour |
-| KAOLACK | KAOLACK (match direct) | Tarif Kaolack |
-
-### Risque technique
-
-| Risque | Niveau | Commentaire |
-|---|---|---|
-| Mapping incomplet | Faible | Extensible, fallback = matching existant |
-| Regression sur villes hors-map | Nul | Le code existant reste inchange (OR fallback) |
-| Conflit avec matching partiel | Nul | Le mapping est applique AVANT le matching |
 
 ### Validation E2E
 
-1. Redeployer `price-service-lines`
-2. Relancer le pricing sur le dossier `4f2baa5b`
-3. Verifier que TRUCKING resout via `local_transport_rate` avec le tarif "FORFAIT ZONE 1"
-4. Verifier le montant (devrait etre le tarif zone 1 pour 40' x2, pas 3 500 000)
+1. Appliquer la migration (ajout categories `carrier`, `survey`)
+2. Redeployer `build-case-puzzle`
+3. Relancer "Analyser la demande" sur le dossier `4f2baa5b`
+4. Verifier que le statut passe a `READY_TO_PRICE`
+5. Continuer le workflow : valider decisions, debloquer pricing, lancer pricing
+6. Verifier que le patch V4.1.2 (city-to-zone) resout le tarif transport
 
