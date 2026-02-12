@@ -1,88 +1,116 @@
 
-Objectif: faire en sorte que l’UI ne “voit” plus l’ancien `service.package = BREAKBULK_PROJECT` (superseded) et qu’elle synchronise réellement les services affichés avec le package courant (`DAP_PROJECT_IMPORT`), de manière idempotente après refresh et sans écraser les edits opérateur.
 
-## Diagnostic (preuves)
-1) Côté backend et base, c’est déjà correct:
-- Pour le case `4f2baa5b-...`, le fact **courant** est `service.package = DAP_PROJECT_IMPORT` (is_current = true).
-- L’ancien `service.package = BREAKBULK_PROJECT` est bien `is_current = false`.
+# Phase V4.1.4e — Extraire la synchro package/services du useEffect bloqué
 
-2) Côté frontend, on charge et on affiche encore des faits “historiques”:
-- La requête UI charge `quote_facts` **sans filtre `is_current`**, donc on reçoit **les 2** lignes `service.package` (BREAKBULK puis DAP).
-- Dans `QuotationSheet.tsx`, le badge passe `detectedPackage={quoteFacts?.find(...)}`
-  - `find()` retourne le **premier** match (donc BREAKBULK) car les faits sont triés `created_at.asc`.
+## Diagnostic final (preuve irréfutable)
 
-Résultat: l’UI peut afficher “Breakbulk” même quand le package courant est DAP.
+Le problème N'EST PI le filtre `is_current` (celui-ci est correct dans le code). Le problème est le **flag `factsApplied`** :
 
-3) Synchronisation services potentiellement non déterministe:
-- L’auto-injection de services est dans un gros `useEffect` “overlay facts” piloté par `factsApplied`.
-- Si des services Breakbulk ont déjà été injectés dans la session avant correction, et que le ré-overlay ne se rejoue pas au bon moment, l’écran peut rester “bloqué” sur l’ancien set de services.
+```
+Ligne 562: if (factsApplied || !quoteFacts || ...) return;
+Ligne 677: setFactsApplied(true);
+```
 
-## Correctif proposé (Phase V4.1.4d)
-### A) Ne charger que les faits courants (source de vérité UI)
-Fichier: `src/hooks/useQuoteCaseData.ts`
-- Modifier la query `quote_facts` pour filtrer `is_current = true`.
-- (Optionnel mais recommandé) Ajouter `source_type` et `is_current` au select pour debug/évolutivité.
+Sequence reelle :
+1. Premier chargement : `factsApplied=false` -> useEffect s'execute -> injecte services BREAKBULK -> `factsApplied=true`
+2. Re-analyse lancee -> backend corrige `service.package` en `DAP_PROJECT_IMPORT`
+3. React Query invalide et re-fetch `quote_facts` avec les bons faits
+4. useEffect se re-evalue mais `factsApplied=true` -> **RETURN IMMEDIAT** -> services jamais mis a jour
 
-Effets:
-- `quoteFacts` ne contiendra plus le vieux `BREAKBULK_PROJECT`.
-- Le badge, les panels et toute logique `.find()` ou “premier match” ne pourront plus se tromper.
+Le filtre `is_current=true` est necessaire mais pas suffisant : il empeche le mauvais affichage du badge, mais la synchro des services est bloquee par le guard `factsApplied`.
 
-### B) Corriger l’affichage du package détecté (robustesse)
-Fichier: `src/pages/QuotationSheet.tsx`
-- Remplacer l’usage de `quoteFacts.find(f => f.fact_key === 'service.package')` par une valeur “latest/current” fiable:
-  - soit via le filtre `is_current=true` (A) => `find()` redevient OK
-  - soit via un helper `getLatestFact(quoteFacts, 'service.package')` (si on garde l’historique pour une autre raison)
+## Solution : Separer la synchro package du useEffect principal
 
-### C) Rendre la synchro “package → services” réellement idempotente
-Fichier: `src/pages/QuotationSheet.tsx`
-- Extraire l’injection de services dans un `useEffect` dédié qui dépend explicitement de:
-  - `currentServicePackage` (fact courant `service.package`)
-  - `serviceLines`
-  - `quoteCase?.id`
-- Logique:
-  1) Si pas de package courant, ne rien faire.
-  2) Si `SERVICE_PACKAGES[currentPackage]` existe:
-     - Si `serviceLines` est vide => injecter.
-     - Si `serviceLines` correspond manifestement à un autre package (ex: set de services typiques Breakbulk) ET que l’opérateur n’a pas “touché” les services dans la session => remplacer.
-     - Sinon => ne pas écraser.
+### Volet A : Extraire la synchro services dans un useEffect dedie
 
-#### Protection des edits opérateur (promesse de la phase 4c)
-Problème actuel: modifier une ligne via l’UI ne change pas `source` vers `manual`, donc on ne peut pas protéger correctement.
-Solution:
-- Introduire un `servicesTouchedRef` (et/ou un wrapper) pour marquer “touched by user” dès que l’opérateur:
-  - ajoute/supprime une ligne
-  - édite une ligne dans `ServiceLinesForm`
-- Passer à `ServiceLinesForm` des handlers “UI” qui:
-  - marquent `servicesTouchedRef.current = true`
-  - et, si nécessaire, convertissent `source` en `'manual'` (uniquement pour les edits UI)
-- Garder `updateServiceLine` “raw” pour les mises à jour automatiques (pricing) afin de ne pas passer en manuel quand l’IA renseigne le tarif.
+Fichier : `src/pages/QuotationSheet.tsx`
 
-### D) (Optionnel mais utile) Bouton de resynchronisation forcée
-Si `servicesTouchedRef.current === true` et qu’il y a mismatch package/services:
-- Afficher une action non destructive: “Synchroniser les services avec le package détecté” (toast avec bouton, ou petit bouton dans la carte Services).
-- Ça évite de bloquer l’utilisateur tout en respectant la sécurité (pas d’écrasement silencieux).
+Deplacer le bloc "M3.6: Auto-populate service lines" (lignes 632-675) dans un useEffect **separe** qui ne depend PAS de `factsApplied` :
 
-## Fichiers impactés
-- `src/hooks/useQuoteCaseData.ts` (filtre `is_current=true` pour facts)
-- `src/pages/QuotationSheet.tsx` (affichage package + synchro reactive + protection edits)
-- (Optionnel) pas besoin de toucher aux fonctions backend / ni au schéma.
+```typescript
+// useEffect dedie pour synchro package -> services
+// Reactif au changement de package, independant du flag factsApplied
+useEffect(() => {
+  if (!quoteFacts || quoteFacts.length === 0) return;
+  
+  const packageFact = quoteFacts.find(f => f.fact_key === 'service.package');
+  if (!packageFact?.value_text) return;
+  
+  const packageKey = packageFact.value_text;
+  if (!SERVICE_PACKAGES[packageKey]) return;
+  
+  // Deja applique ce package -> skip
+  if (packageKey === lastAppliedPackageRef.current) return;
+  
+  // Protection edits manuels : ne remplacer que si tous sont AI
+  const allAI = serviceLines.length === 0 || 
+    serviceLines.every(s => s.source === 'ai_assumption');
+  if (!allAI) return;
+  
+  // Injecter les services du nouveau package
+  lastAppliedPackageRef.current = packageKey;
+  const serviceKeys = SERVICE_PACKAGES[packageKey];
+  const autoLines: ServiceLine[] = serviceKeys.map(key => {
+    const template = serviceTemplates.find(t => t.service === key);
+    return {
+      id: crypto.randomUUID(),
+      service: template?.service || key,
+      description: template?.description || key,
+      unit: template?.unit || 'forfait',
+      quantity: 1,
+      rate: undefined,
+      currency: 'FCFA',
+      source: 'ai_assumption' as const,
+    };
+  }).filter(Boolean);
+  
+  if (autoLines.length > 0) {
+    setServiceLines(autoLines);
+    // Auto-pricing
+    const caseId = quoteCase?.id;
+    if (caseId) {
+      callPriceServiceLines(caseId, autoLines).catch(err => {
+        console.warn('[M3.7] Auto-pricing failed:', err);
+      });
+    }
+  }
+}, [quoteFacts, serviceLines, quoteCase?.id]);
+```
 
-## Validation (checklist)
-1) Ouvrir `/quotation/c627ed62-...`
-2) Vérifier que le badge “package” affiche `DAP PROJECT IMPORT` (et plus Breakbulk).
-3) Vérifier que la liste des services injectés est:
-   - `DTHC`, `Transport`, `Restitution vide`, `Dédouanement Dakar`, etc.
-   - et que `Déchargement navire / Survey` disparaissent.
-4) Tester le cas “opérateur édite un service”:
-   - Modifier une ligne (description/qty)
-   - Relancer re-analyse
-   - Vérifier que l’app n’écrase pas automatiquement sans action explicite (ou qu’elle propose un bouton “Synchroniser” selon l’option D).
+### Volet B : Retirer le bloc package du useEffect principal
 
-## Risques / Trade-offs
-- Filtrer `is_current=true` simplifie énormément et évite les faux affichages, mais retire l’historique “pour UI”. Si on veut afficher l’historique plus tard, on fera une requête dédiée “audit”.
-- La protection des edits est indispensable: sans marquage “manual/touched”, tout mécanisme de remplacement automatique finira par écraser un ajustement opérateur.
+Dans le useEffect principal (ligne 561-678), supprimer les lignes 632-675 (le bloc `M3.6`) car elles sont maintenant dans le useEffect dedie.
 
-## Résultat attendu
-- L’UI devient cohérente avec l’état métier courant en base (pattern “state-based UI”, idempotent au refresh).
-- Plus d’affichage Breakbulk causé par un fact superseded.
-- Services toujours alignés avec `service.package` courant, tout en protégeant les edits manuels.
+Le useEffect principal garde uniquement : company, email, destination, cargo lines.
+
+### Volet C : Initialiser lastAppliedPackageRef au chargement
+
+Pour eviter un re-inject inutile au premier chargement quand les services sont deja corrects, initialiser le ref dans le useEffect principal :
+
+```typescript
+// Dans le useEffect principal, apres injection initiale :
+const pkgFact = factsMap.get('service.package');
+if (pkgFact?.value_text) {
+  lastAppliedPackageRef.current = pkgFact.value_text;
+}
+```
+
+## Fichiers impactes
+
+| Fichier | Modification |
+|---|---|
+| `src/pages/QuotationSheet.tsx` | Extraction du bloc M3.6 dans un useEffect dedie (~40 lignes deplacees + 5 lignes ajoutees) |
+
+Aucun autre fichier modifie. Aucune migration SQL. Aucune edge function.
+
+## Resultat attendu
+
+1. Au premier chargement : comportement inchange (injection des services du package detecte)
+2. Apres re-analyse qui change le package : les services sont REMPLACES automatiquement
+3. Si l'operateur a edite manuellement un service : pas d'ecrasement (guard `allAI`)
+4. Idempotent : recharger la page donne le meme resultat
+
+## Risques
+
+- Risque de double-injection si les deux useEffect courent en parallele au premier rendu -> mitige par `lastAppliedPackageRef` qui empeche le deuxieme useEffect de re-injecter le meme package
+- Le `staleTime: 30000` de React Query peut retarder la mise a jour de 30s maximum apres invalidation -> acceptable pour ce cas d'usage
