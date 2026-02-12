@@ -157,22 +157,16 @@ export function ServiceLinesForm({
                   </Button>
                 </div>
                 {sourceLabel && (
-                  <div className="flex items-center gap-1.5 pl-3">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1 cursor-help">
-                            <Info className="h-2.5 w-2.5" />
-                            {sourceLabel}
-                          </Badge>
-                        </TooltipTrigger>
-                        {line.explanation && (
-                          <TooltipContent side="bottom" className="max-w-xs text-xs">
-                            {line.explanation}
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    </TooltipProvider>
+                  <div className="flex items-center gap-1.5 pl-3 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1">
+                      <Info className="h-2.5 w-2.5" />
+                      {sourceLabel}
+                    </Badge>
+                    {line.explanation && (
+                      <span className="text-[11px] text-muted-foreground">
+                        — {line.explanation}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
