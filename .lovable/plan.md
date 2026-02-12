@@ -1,96 +1,94 @@
 
 
-# Phase V4.1.6b — Corriger la contrainte CHECK sur quote_service_pricing.source
+# Phase V4.1.7c — Afficher l'explication tarifaire de maniere visible (pas seulement au survol)
 
 ## Diagnostic
 
-La table `quote_service_pricing` a une contrainte CHECK qui n'autorise que 4 valeurs :
-- `internal`, `official`, `historical`, `fallback`
+Le backend genere correctement les explications lisibles (Phase V4.1.7 + V4.1.7b). Le frontend les recoit et les stocke dans `line.explanation`. **Mais** l'affichage actuel repose uniquement sur un **tooltip au survol** d'un badge de 10px de haut :
 
-Or le pricing engine ecrit des valeurs comme :
-- `business_rule` (nouvelle regle EMPTY_RETURN)
-- `catalogue_sodatra`
-- `local_transport_rate`
-- `customs_tier`
-- `customs_weight_tier`
-- `client_override`
-- `no_match`
-- `missing_quantity`
-- `port_tariffs:DPW:...`
+```
+<Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1 cursor-help">
+  <Info className="h-2.5 w-2.5" />
+  {sourceLabel}
+</Badge>
+```
 
-Toutes ces ecritures echouent silencieusement (le code catch l'erreur et log un warning `audit_write_failed`). Ce n'est pas bloquant pour le pricing lui-meme (les tarifs sont retournes au frontend), mais l'audit trail est perdu.
+Le tooltip ne s'affiche que si l'utilisateur survole exactement ce minuscule badge. C'est pourquoi l'utilisateur dit "il n'y a pas de lien" — l'explication est techniquement la mais **invisible en pratique**.
 
 ## Solution
 
-### Etape 1 : Migration SQL — Elargir la contrainte CHECK
+Afficher l'explication directement sous le badge, en texte visible, sans besoin de survol.
 
-Supprimer l'ancienne contrainte et la remplacer par une version elargie qui couvre toutes les sources utilisees par le pricing engine :
+### Fichier unique : `src/features/quotation/components/ServiceLinesForm.tsx`
 
-```sql
-ALTER TABLE quote_service_pricing
-  DROP CONSTRAINT quote_service_pricing_source_check;
+### Modification (lignes 159-176)
 
-ALTER TABLE quote_service_pricing
-  ADD CONSTRAINT quote_service_pricing_source_check
-  CHECK (source IN (
-    'internal',
-    'official',
-    'historical',
-    'fallback',
-    'business_rule',
-    'catalogue_sodatra',
-    'local_transport_rate',
-    'customs_tier',
-    'customs_weight_tier',
-    'client_override',
-    'no_match',
-    'missing_quantity',
-    'port_tariffs'
-  ));
+Remplacer le bloc actuel qui n'affiche que le badge + tooltip par un affichage ou :
+- Le badge source reste visible (identique)
+- L'explication s'affiche en texte a cote du badge, toujours visible
+- Le tooltip est conserve pour compatibilite mais n'est plus le seul moyen de voir l'info
+
+Avant :
+```
+{sourceLabel && (
+  <div className="flex items-center gap-1.5 pl-3">
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge ...>{sourceLabel}</Badge>
+        </TooltipTrigger>
+        {line.explanation && (
+          <TooltipContent ...>{line.explanation}</TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
+  </div>
+)}
 ```
 
-Note : pour les sources prefixees comme `port_tariffs:DPW:THC`, on peut soit :
-- Stocker uniquement `port_tariffs` dans la colonne source et le detail dans une colonne metadata/explanation
-- Ou remplacer la contrainte CHECK par un pattern regex (moins propre)
-
-Recommandation : **Stocker la valeur canonique** (`port_tariffs`) et garder le detail dans `explanation`.
-
-### Etape 2 : Adapter l'edge function pour les sources prefixees
-
-Fichier : `supabase/functions/price-service-lines/index.ts`
-
-Dans la section d'ecriture audit (la ou `quote_service_pricing` est insere), normaliser la source avant insertion :
-
-```typescript
-// Normaliser la source pour la contrainte CHECK
-function normalizeSourceForAudit(source: string): string {
-  if (source.startsWith('port_tariffs')) return 'port_tariffs';
-  if (source.startsWith('rate_card')) return 'internal';
-  return source;
-}
+Apres :
 ```
-
-### Etape 3 : Deployer l'edge function mise a jour
-
-Redeployer `price-service-lines` pour que la regle `EMPTY_RETURN` et la normalisation source soient actives.
-
-## Fichiers impactes
-
-| Fichier | Modification |
-|---|---|
-| Migration SQL | DROP + ADD CONSTRAINT (2 lignes) |
-| `supabase/functions/price-service-lines/index.ts` | Normalisation source avant audit write (~5 lignes) |
+{sourceLabel && (
+  <div className="flex items-center gap-1.5 pl-3 flex-wrap">
+    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1">
+      <Info className="h-2.5 w-2.5" />
+      {sourceLabel}
+    </Badge>
+    {line.explanation && (
+      <span className="text-[11px] text-muted-foreground">
+        — {line.explanation}
+      </span>
+    )}
+  </div>
+)}
+```
 
 ## Resultat attendu
 
-1. L'audit trail s'ecrit correctement pour toutes les sources
-2. Le warning `audit_write_failed` disparait des logs
-3. La regle EMPTY_RETURN = 0 fonctionne et est tracee en base
-4. Relancer le pricing donne les bons resultats
+Chaque ligne de service affiche :
 
-## Validation
+```
+Frais port Dakar
+  [Catalogue SODATRA] — Catalogue SODATRA : 15 000 x 38 t = 570 000 FCFA
+```
 
-1. Relancer le pricing sur le dossier c627ed62
-2. Verifier dans les logs edge function : pas de warning `audit_write_failed`
-3. Verifier dans la table `quote_service_pricing` que les lignes sont inserees avec les bonnes sources
-4. Verifier dans l'UI que "Retour conteneur vide" = 0 FCFA
+```
+Transport routier
+  [Transport local] — Transport local (Dakar) : 123 900 FCFA/voyage
+```
+
+```
+Retour conteneur vide
+  [Regle metier] — EMPTY_RETURN: Obligation contractuelle, retour a vide = 0 FCFA
+```
+
+## Impact
+
+| Element | Detail |
+|---|---|
+| Fichier modifie | `src/features/quotation/components/ServiceLinesForm.tsx` |
+| Lignes changees | ~8 lignes (bloc 159-176) |
+| Migration SQL | Aucune |
+| Edge function | Aucune modification |
+| Risque regression | Nul (affichage uniquement) |
+
