@@ -628,54 +628,64 @@ L'équipe SODATRA`;
       }
     }
 
-    // ── M3.6: Auto-populate service lines from service.package ──
-    const packageFact = factsMap.get('service.package');
-    const currentServicesAllAI = serviceLines.length > 0 && serviceLines.every(s => s.source === 'ai_assumption');
-    const packageChanged = packageFact?.value_text &&
-      SERVICE_PACKAGES[packageFact.value_text] &&
-      (serviceLines.length === 0 || (currentServicesAllAI &&
-        packageFact.value_text !== lastAppliedPackageRef.current));
-
-    if (packageChanged) {
-      lastAppliedPackageRef.current = packageFact.value_text;
-      const packageKey = packageFact.value_text;
-      const serviceKeys = SERVICE_PACKAGES[packageKey]!;
-      if (serviceKeys) {
-        const autoLines: ServiceLine[] = [];
-        for (const key of serviceKeys) {
-          const template = serviceTemplates.find(t => t.service === key);
-          if (template) {
-            autoLines.push({
-              id: crypto.randomUUID(),
-              service: template.service,
-              description: template.description,
-              unit: template.unit,
-              quantity: 1,
-              rate: undefined,
-              currency: 'FCFA',
-              source: 'ai_assumption',
-            });
-          }
-        }
-        if (autoLines.length > 0) {
-          setServiceLines(autoLines);
-          
-          // ── M3.7: Auto-pricing after service injection ──
-          const caseId = quoteCase?.id;
-          const guardKey = `${caseId}:${overlayRunCounterRef.current}`;
-          if (caseId && pricingGuardRef.current !== guardKey) {
-            pricingGuardRef.current = guardKey;
-            // Async, non-blocking pricing call
-            callPriceServiceLines(caseId, autoLines).catch((err) => {
-              console.warn('[M3.7] Auto-pricing failed (non-blocking):', err);
-            });
-          }
-        }
-      }
+    // Volet C: Initialiser lastAppliedPackageRef au chargement
+    const pkgFact = factsMap.get('service.package');
+    if (pkgFact?.value_text) {
+      lastAppliedPackageRef.current = pkgFact.value_text;
     }
 
     setFactsApplied(true);
-  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, serviceLines, setServiceLines, quoteCase?.id]);
+  }, [quoteFacts, isLoading, factsApplied, projectContext, destination, finalDestination, cargoLines, setServiceLines, quoteCase?.id]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase V4.1.4e: useEffect dédié synchro package → services
+  // Réactif au changement de package, indépendant du flag factsApplied
+  // ═══════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!quoteFacts || quoteFacts.length === 0) return;
+
+    const packageFact = quoteFacts.find(f => f.fact_key === 'service.package');
+    if (!packageFact?.value_text) return;
+
+    const packageKey = packageFact.value_text;
+    if (!SERVICE_PACKAGES[packageKey]) return;
+
+    // Déjà appliqué ce package → skip
+    if (packageKey === lastAppliedPackageRef.current) return;
+
+    // Protection edits manuels : ne remplacer que si tous sont AI
+    const allAI = serviceLines.length === 0 ||
+      serviceLines.every(s => s.source === 'ai_assumption');
+    if (!allAI) return;
+
+    // Injecter les services du nouveau package
+    lastAppliedPackageRef.current = packageKey;
+    const serviceKeys = SERVICE_PACKAGES[packageKey];
+    const autoLines: ServiceLine[] = serviceKeys.map(key => {
+      const template = serviceTemplates.find(t => t.service === key);
+      return {
+        id: crypto.randomUUID(),
+        service: template?.service || key,
+        description: template?.description || key,
+        unit: template?.unit || 'forfait',
+        quantity: 1,
+        rate: undefined,
+        currency: 'FCFA',
+        source: 'ai_assumption' as const,
+      };
+    }).filter(Boolean);
+
+    if (autoLines.length > 0) {
+      setServiceLines(autoLines);
+      // Auto-pricing
+      const caseId = quoteCase?.id;
+      if (caseId) {
+        callPriceServiceLines(caseId, autoLines).catch(err => {
+          console.warn('[M3.7] Auto-pricing failed:', err);
+        });
+      }
+    }
+  }, [quoteFacts, serviceLines, quoteCase?.id]);
   
   // ── M3.7: Price service lines edge function call ──
   // Phase PRICING V1: accepts optional modifiers parameter
