@@ -1,97 +1,96 @@
 
 
-# Phase V4.1.5 — Corriger le parsing de cargo.containers dans le pricing engine
+# Phase V4.1.6b — Corriger la contrainte CHECK sur quote_service_pricing.source
 
 ## Diagnostic
 
-Les deux problemes signales (transport a 3 500 000 FCFA pour Dakar + 1 EVP au lieu de 4) ont une **cause unique** :
+La table `quote_service_pricing` a une contrainte CHECK qui n'autorise que 4 valeurs :
+- `internal`, `official`, `historical`, `fallback`
 
-Le fait `cargo.containers` est stocke en base comme une **chaine JSON doublement encodee** :
-```
-jsonb_typeof(value_json) = 'string'
-valeur: "\"[{\\\"type\\\": \\\"40HC\\\", \\\"quantity\\\": 2}]\""
-```
+Or le pricing engine ecrit des valeurs comme :
+- `business_rule` (nouvelle regle EMPTY_RETURN)
+- `catalogue_sodatra`
+- `local_transport_rate`
+- `customs_tier`
+- `customs_weight_tier`
+- `client_override`
+- `no_match`
+- `missing_quantity`
+- `port_tariffs:DPW:...`
 
-Au lieu d'etre un vrai tableau JSONB `[{"type": "40HC", "quantity": 2}]`, c'est un **string contenant du JSON**. Du coup :
-- `Array.isArray(containersFact.value_json)` retourne `false`
-- L'array `containers` reste vide dans le `PricingContext`
-- `container_type` est `null`, `container_count` est `null`
-
-### Consequences en cascade :
-
-| Probleme | Cause |
-|---|---|
-| Transport a 3 500 000 FCFA | Le resolver local transport (zone Dakar = 123 900 FCFA) renvoie `null` car `container_type` est null (ligne 511). Le fallback rate card matche Dakar-Kedougou 40HC a 3 500 000. |
-| 1 EVP au lieu de 4 | `computeQuantity` avec `containers.length === 0` retourne `quantity_used = 1` (missing_containers_default_1) |
-| DTHC a 250 000 au lieu de 500 000 | Meme probleme : 1 EVP au lieu de 4 (2x40HC = 4 EVP) |
+Toutes ces ecritures echouent silencieusement (le code catch l'erreur et log un warning `audit_write_failed`). Ce n'est pas bloquant pour le pricing lui-meme (les tarifs sont retournes au frontend), mais l'audit trail est perdu.
 
 ## Solution
 
-### Volet A : Robustifier `buildPricingContext` (edge function)
+### Etape 1 : Migration SQL — Elargir la contrainte CHECK
+
+Supprimer l'ancienne contrainte et la remplacer par une version elargie qui couvre toutes les sources utilisees par le pricing engine :
+
+```sql
+ALTER TABLE quote_service_pricing
+  DROP CONSTRAINT quote_service_pricing_source_check;
+
+ALTER TABLE quote_service_pricing
+  ADD CONSTRAINT quote_service_pricing_source_check
+  CHECK (source IN (
+    'internal',
+    'official',
+    'historical',
+    'fallback',
+    'business_rule',
+    'catalogue_sodatra',
+    'local_transport_rate',
+    'customs_tier',
+    'customs_weight_tier',
+    'client_override',
+    'no_match',
+    'missing_quantity',
+    'port_tariffs'
+  ));
+```
+
+Note : pour les sources prefixees comme `port_tariffs:DPW:THC`, on peut soit :
+- Stocker uniquement `port_tariffs` dans la colonne source et le detail dans une colonne metadata/explanation
+- Ou remplacer la contrainte CHECK par un pattern regex (moins propre)
+
+Recommandation : **Stocker la valeur canonique** (`port_tariffs`) et garder le detail dans `explanation`.
+
+### Etape 2 : Adapter l'edge function pour les sources prefixees
 
 Fichier : `supabase/functions/price-service-lines/index.ts`
 
-Dans `buildPricingContext` (ligne 305), ajouter un `JSON.parse` de secours quand `value_json` est un string :
+Dans la section d'ecriture audit (la ou `quote_service_pricing` est insere), normaliser la source avant insertion :
 
 ```typescript
-const containersFact = factsMap.get("cargo.containers");
-let containersRaw = containersFact?.value_json;
-
-// Robustesse: si value_json est un string JSON (double-encodage), le parser
-if (typeof containersRaw === "string") {
-  try {
-    containersRaw = JSON.parse(containersRaw);
-  } catch {
-    containersRaw = null;
-  }
-}
-
-if (containersRaw && Array.isArray(containersRaw)) {
-  // ... code existant inchange
+// Normaliser la source pour la contrainte CHECK
+function normalizeSourceForAudit(source: string): string {
+  if (source.startsWith('port_tariffs')) return 'port_tariffs';
+  if (source.startsWith('rate_card')) return 'internal';
+  return source;
 }
 ```
 
-### Volet B : Corriger la source du double-encodage (edge function build-case-puzzle)
+### Etape 3 : Deployer l'edge function mise a jour
 
-Fichier : `supabase/functions/build-case-puzzle/index.ts`
-
-Trouver l'endroit ou `cargo.containers` est ecrit dans `quote_facts` et s'assurer que `value_json` est un objet JS, pas un `JSON.stringify(...)` d'un objet deja serialise.
-
-Typiquement le bug vient de :
-```typescript
-// BUG: value_json recoit une string au lieu d'un objet
-value_json: JSON.stringify([{type: "40HC", quantity: 2}])
-// CORRECT: passer l'objet directement, Supabase gere la serialisation JSONB
-value_json: [{type: "40HC", quantity: 2}]
-```
-
-### Volet C : Corriger le fait existant en base (one-shot)
-
-Via une migration ou une requete manuelle, corriger le fait `cargo.containers` du case concerne pour que les tests soient immediats sans re-analyser le dossier.
+Redeployer `price-service-lines` pour que la regle `EMPTY_RETURN` et la normalisation source soient actives.
 
 ## Fichiers impactes
 
 | Fichier | Modification |
 |---|---|
-| `supabase/functions/price-service-lines/index.ts` | ~8 lignes dans `buildPricingContext` (parse defensif) |
-| `supabase/functions/build-case-puzzle/index.ts` | Corriger l'ecriture de `value_json` (eviter double-encodage) |
-
-Aucune modification frontend. Aucune migration SQL de schema.
+| Migration SQL | DROP + ADD CONSTRAINT (2 lignes) |
+| `supabase/functions/price-service-lines/index.ts` | Normalisation source avant audit write (~5 lignes) |
 
 ## Resultat attendu
 
-Apres correction + re-pricing :
-- `containers = [{"type": "40HC", "quantity": 2}]`
-- `container_type = "40HC"`, `container_count = 2`
-- EVP = 2 x 2 = 4
-- DTHC = 250 000 x 4 = 1 000 000 FCFA (ou selon catalogue)
-- Transport = 123 900 FCFA (zone 1 Dakar, 40' Dry) x 2 voyages
-- Restitution vide = tarif x 4 EVP
+1. L'audit trail s'ecrit correctement pour toutes les sources
+2. Le warning `audit_write_failed` disparait des logs
+3. La regle EMPTY_RETURN = 0 fonctionne et est tracee en base
+4. Relancer le pricing donne les bons resultats
 
 ## Validation
 
-1. Recharger la page de cotation `c627ed62-...`
-2. Verifier que DTHC affiche quantity = 4 EVP
-3. Verifier que Transport affiche un tarif Dakar zone 1 (~123 900 par voyage, pas 3 500 000)
-4. Verifier que Restitution vide affiche quantity = 4 EVP
-
+1. Relancer le pricing sur le dossier c627ed62
+2. Verifier dans les logs edge function : pas de warning `audit_write_failed`
+3. Verifier dans la table `quote_service_pricing` que les lignes sont inserees avec les bonnes sources
+4. Verifier dans l'UI que "Retour conteneur vide" = 0 FCFA
