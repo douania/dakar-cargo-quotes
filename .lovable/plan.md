@@ -1,116 +1,97 @@
 
 
-# Phase V4.1.4e — Extraire la synchro package/services du useEffect bloqué
+# Phase V4.1.5 — Corriger le parsing de cargo.containers dans le pricing engine
 
-## Diagnostic final (preuve irréfutable)
+## Diagnostic
 
-Le problème N'EST PI le filtre `is_current` (celui-ci est correct dans le code). Le problème est le **flag `factsApplied`** :
+Les deux problemes signales (transport a 3 500 000 FCFA pour Dakar + 1 EVP au lieu de 4) ont une **cause unique** :
 
+Le fait `cargo.containers` est stocke en base comme une **chaine JSON doublement encodee** :
 ```
-Ligne 562: if (factsApplied || !quoteFacts || ...) return;
-Ligne 677: setFactsApplied(true);
+jsonb_typeof(value_json) = 'string'
+valeur: "\"[{\\\"type\\\": \\\"40HC\\\", \\\"quantity\\\": 2}]\""
 ```
 
-Sequence reelle :
-1. Premier chargement : `factsApplied=false` -> useEffect s'execute -> injecte services BREAKBULK -> `factsApplied=true`
-2. Re-analyse lancee -> backend corrige `service.package` en `DAP_PROJECT_IMPORT`
-3. React Query invalide et re-fetch `quote_facts` avec les bons faits
-4. useEffect se re-evalue mais `factsApplied=true` -> **RETURN IMMEDIAT** -> services jamais mis a jour
+Au lieu d'etre un vrai tableau JSONB `[{"type": "40HC", "quantity": 2}]`, c'est un **string contenant du JSON**. Du coup :
+- `Array.isArray(containersFact.value_json)` retourne `false`
+- L'array `containers` reste vide dans le `PricingContext`
+- `container_type` est `null`, `container_count` est `null`
 
-Le filtre `is_current=true` est necessaire mais pas suffisant : il empeche le mauvais affichage du badge, mais la synchro des services est bloquee par le guard `factsApplied`.
+### Consequences en cascade :
 
-## Solution : Separer la synchro package du useEffect principal
+| Probleme | Cause |
+|---|---|
+| Transport a 3 500 000 FCFA | Le resolver local transport (zone Dakar = 123 900 FCFA) renvoie `null` car `container_type` est null (ligne 511). Le fallback rate card matche Dakar-Kedougou 40HC a 3 500 000. |
+| 1 EVP au lieu de 4 | `computeQuantity` avec `containers.length === 0` retourne `quantity_used = 1` (missing_containers_default_1) |
+| DTHC a 250 000 au lieu de 500 000 | Meme probleme : 1 EVP au lieu de 4 (2x40HC = 4 EVP) |
 
-### Volet A : Extraire la synchro services dans un useEffect dedie
+## Solution
 
-Fichier : `src/pages/QuotationSheet.tsx`
+### Volet A : Robustifier `buildPricingContext` (edge function)
 
-Deplacer le bloc "M3.6: Auto-populate service lines" (lignes 632-675) dans un useEffect **separe** qui ne depend PAS de `factsApplied` :
+Fichier : `supabase/functions/price-service-lines/index.ts`
+
+Dans `buildPricingContext` (ligne 305), ajouter un `JSON.parse` de secours quand `value_json` est un string :
 
 ```typescript
-// useEffect dedie pour synchro package -> services
-// Reactif au changement de package, independant du flag factsApplied
-useEffect(() => {
-  if (!quoteFacts || quoteFacts.length === 0) return;
-  
-  const packageFact = quoteFacts.find(f => f.fact_key === 'service.package');
-  if (!packageFact?.value_text) return;
-  
-  const packageKey = packageFact.value_text;
-  if (!SERVICE_PACKAGES[packageKey]) return;
-  
-  // Deja applique ce package -> skip
-  if (packageKey === lastAppliedPackageRef.current) return;
-  
-  // Protection edits manuels : ne remplacer que si tous sont AI
-  const allAI = serviceLines.length === 0 || 
-    serviceLines.every(s => s.source === 'ai_assumption');
-  if (!allAI) return;
-  
-  // Injecter les services du nouveau package
-  lastAppliedPackageRef.current = packageKey;
-  const serviceKeys = SERVICE_PACKAGES[packageKey];
-  const autoLines: ServiceLine[] = serviceKeys.map(key => {
-    const template = serviceTemplates.find(t => t.service === key);
-    return {
-      id: crypto.randomUUID(),
-      service: template?.service || key,
-      description: template?.description || key,
-      unit: template?.unit || 'forfait',
-      quantity: 1,
-      rate: undefined,
-      currency: 'FCFA',
-      source: 'ai_assumption' as const,
-    };
-  }).filter(Boolean);
-  
-  if (autoLines.length > 0) {
-    setServiceLines(autoLines);
-    // Auto-pricing
-    const caseId = quoteCase?.id;
-    if (caseId) {
-      callPriceServiceLines(caseId, autoLines).catch(err => {
-        console.warn('[M3.7] Auto-pricing failed:', err);
-      });
-    }
+const containersFact = factsMap.get("cargo.containers");
+let containersRaw = containersFact?.value_json;
+
+// Robustesse: si value_json est un string JSON (double-encodage), le parser
+if (typeof containersRaw === "string") {
+  try {
+    containersRaw = JSON.parse(containersRaw);
+  } catch {
+    containersRaw = null;
   }
-}, [quoteFacts, serviceLines, quoteCase?.id]);
-```
+}
 
-### Volet B : Retirer le bloc package du useEffect principal
-
-Dans le useEffect principal (ligne 561-678), supprimer les lignes 632-675 (le bloc `M3.6`) car elles sont maintenant dans le useEffect dedie.
-
-Le useEffect principal garde uniquement : company, email, destination, cargo lines.
-
-### Volet C : Initialiser lastAppliedPackageRef au chargement
-
-Pour eviter un re-inject inutile au premier chargement quand les services sont deja corrects, initialiser le ref dans le useEffect principal :
-
-```typescript
-// Dans le useEffect principal, apres injection initiale :
-const pkgFact = factsMap.get('service.package');
-if (pkgFact?.value_text) {
-  lastAppliedPackageRef.current = pkgFact.value_text;
+if (containersRaw && Array.isArray(containersRaw)) {
+  // ... code existant inchange
 }
 ```
+
+### Volet B : Corriger la source du double-encodage (edge function build-case-puzzle)
+
+Fichier : `supabase/functions/build-case-puzzle/index.ts`
+
+Trouver l'endroit ou `cargo.containers` est ecrit dans `quote_facts` et s'assurer que `value_json` est un objet JS, pas un `JSON.stringify(...)` d'un objet deja serialise.
+
+Typiquement le bug vient de :
+```typescript
+// BUG: value_json recoit une string au lieu d'un objet
+value_json: JSON.stringify([{type: "40HC", quantity: 2}])
+// CORRECT: passer l'objet directement, Supabase gere la serialisation JSONB
+value_json: [{type: "40HC", quantity: 2}]
+```
+
+### Volet C : Corriger le fait existant en base (one-shot)
+
+Via une migration ou une requete manuelle, corriger le fait `cargo.containers` du case concerne pour que les tests soient immediats sans re-analyser le dossier.
 
 ## Fichiers impactes
 
 | Fichier | Modification |
 |---|---|
-| `src/pages/QuotationSheet.tsx` | Extraction du bloc M3.6 dans un useEffect dedie (~40 lignes deplacees + 5 lignes ajoutees) |
+| `supabase/functions/price-service-lines/index.ts` | ~8 lignes dans `buildPricingContext` (parse defensif) |
+| `supabase/functions/build-case-puzzle/index.ts` | Corriger l'ecriture de `value_json` (eviter double-encodage) |
 
-Aucun autre fichier modifie. Aucune migration SQL. Aucune edge function.
+Aucune modification frontend. Aucune migration SQL de schema.
 
 ## Resultat attendu
 
-1. Au premier chargement : comportement inchange (injection des services du package detecte)
-2. Apres re-analyse qui change le package : les services sont REMPLACES automatiquement
-3. Si l'operateur a edite manuellement un service : pas d'ecrasement (guard `allAI`)
-4. Idempotent : recharger la page donne le meme resultat
+Apres correction + re-pricing :
+- `containers = [{"type": "40HC", "quantity": 2}]`
+- `container_type = "40HC"`, `container_count = 2`
+- EVP = 2 x 2 = 4
+- DTHC = 250 000 x 4 = 1 000 000 FCFA (ou selon catalogue)
+- Transport = 123 900 FCFA (zone 1 Dakar, 40' Dry) x 2 voyages
+- Restitution vide = tarif x 4 EVP
 
-## Risques
+## Validation
 
-- Risque de double-injection si les deux useEffect courent en parallele au premier rendu -> mitige par `lastAppliedPackageRef` qui empeche le deuxieme useEffect de re-injecter le meme package
-- Le `staleTime: 30000` de React Query peut retarder la mise a jour de 30s maximum apres invalidation -> acceptable pour ce cas d'usage
+1. Recharger la page de cotation `c627ed62-...`
+2. Verifier que DTHC affiche quantity = 4 EVP
+3. Verifier que Transport affiche un tarif Dakar zone 1 (~123 900 par voyage, pas 3 500 000)
+4. Verifier que Restitution vide affiche quantity = 4 EVP
+
