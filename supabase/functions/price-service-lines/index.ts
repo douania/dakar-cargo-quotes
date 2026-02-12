@@ -1302,7 +1302,88 @@ Deno.serve(async (req) => {
     function normalizeSourceForAudit(source: string): string {
       if (source.startsWith("port_tariffs")) return "port_tariffs";
       if (source.startsWith("rate_card")) return "internal";
-      return source;
+      // Strip "+modifiers" suffix for CHECK constraint
+      const base = source.replace(/\+modifiers$/, "");
+      if (["client_override", "client_override_percentage", "catalogue_sodatra",
+           "local_transport_rate", "customs_tier", "customs_weight_tier",
+           "business_rule", "no_match", "missing_quantity",
+           "internal", "official", "historical", "fallback"].includes(base)) {
+        return base.replace("_percentage", ""); // client_override_percentage → client_override
+      }
+      return base;
+    }
+
+    // ═══ V4.1.7: Human-readable explanation for operator UI ═══
+    function humanExplanation(pl: PricedLine): string {
+      const fmt = (n: number) => n.toLocaleString("fr-FR");
+      const src = pl.source.replace(/\+modifiers$/, "");
+      const rate = pl.rate ?? 0;
+
+      if (src === "business_rule") {
+        // Already human-readable (e.g. "EMPTY_RETURN: Obligation contractuelle...")
+        return pl.explanation;
+      }
+      if (src === "catalogue_sodatra") {
+        // Parse base_price and qty from technical explanation
+        const baseMatch = pl.explanation.match(/base=(\d+)/);
+        const qtyMatch = pl.explanation.match(/qty=([\d.]+)/);
+        const modeMatch = pl.explanation.match(/mode=(\w+)/);
+        const base = baseMatch ? parseInt(baseMatch[1]) : rate;
+        const qty = qtyMatch ? parseFloat(qtyMatch[1]) : pl.quantity_used;
+        if (modeMatch?.[1] === "UNIT_RATE" && base > 0) {
+          return `Catalogue SODATRA : ${fmt(base)} × ${qty} ${pl.unit_used || ""} = ${fmt(rate)} FCFA`;
+        }
+        return `Catalogue SODATRA : forfait ${fmt(rate)} FCFA`;
+      }
+      if (src === "local_transport_rate") {
+        const destMatch = pl.explanation.match(/dest=([^,]+)/);
+        const dest = destMatch?.[1] || "";
+        return `Transport local${dest ? ` (${dest})` : ""} : ${fmt(rate)} FCFA/voyage`;
+      }
+      if (src === "customs_tier") {
+        const pctMatch = pl.explanation.match(/percent=([\d.]+)/);
+        const cafMatch = pl.explanation.match(/caf=([\d.]+)/);
+        const pct = pctMatch ? parseFloat(pctMatch[1]) : null;
+        const caf = cafMatch ? parseFloat(cafMatch[1]) : null;
+        if (pct != null && caf != null) {
+          return `Barème douane CAF : ${pct}% de ${fmt(caf)} = ${fmt(rate)} FCFA`;
+        }
+        return `Barème douane CAF : ${fmt(rate)} FCFA`;
+      }
+      if (src === "customs_weight_tier") {
+        const tierMatch = pl.explanation.match(/tier=([\d∞.-]+)/);
+        const weightMatch = pl.explanation.match(/weight=([\d.]+)/);
+        const tierRange = tierMatch?.[1] || "?";
+        const weight = weightMatch ? `${fmt(parseFloat(weightMatch[1]))} kg` : "";
+        return `Barème douane poids${weight ? ` (${weight})` : ""} : tranche ${tierRange} kg, forfait ${fmt(rate)} FCFA`;
+      }
+      if (src === "client_override" || src === "client_override_percentage") {
+        const clientMatch = pl.explanation.match(/client=([^,]+)/);
+        const client = clientMatch?.[1] || "";
+        return `Tarif contractuel${client ? ` client ${client}` : ""} : ${fmt(rate)} FCFA`;
+      }
+      if (src === "no_match") {
+        return "Aucun tarif trouvé — à confirmer";
+      }
+      if (src === "missing_quantity") {
+        return "Quantité manquante — tarification impossible";
+      }
+      // port_tariffs, rate_card, or other fallbacks
+      if (pl.source.startsWith("port_tariffs")) {
+        return `Grille portuaire : ${fmt(rate)} FCFA`;
+      }
+      // Generic fallback
+      const confPct = Math.round(pl.confidence * 100);
+      return `Grille tarifaire : ${fmt(rate)} FCFA (confiance ${confPct}%)`;
+    }
+
+    // ═══ V4.1.7: Replace technical explanations with human-readable ones ═══
+    for (const pl of pricedLines) {
+      const debugExplanation = pl.explanation;
+      pl.explanation = humanExplanation(pl);
+      // Log the technical detail for debugging
+      structuredLog({ level: "debug", service: FUNCTION_NAME, op: "human_explanation", correlationId,
+        meta: { id: pl.id, source: pl.source, human: pl.explanation, debug: debugExplanation } });
     }
 
     // ═══ P0-4: Idempotent audit write via upsert ═══
