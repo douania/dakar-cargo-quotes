@@ -1372,7 +1372,13 @@ Deno.serve(async (req) => {
       if (pl.source.startsWith("port_tariffs")) {
         return `Grille portuaire : ${fmt(rate)} FCFA`;
       }
-      // Generic fallback
+      // V4.1.7b: Parse rate card match details from technical explanation
+      const matchInfo = pl.explanation.match(/match:\s*([^,]+),\s*score=(\d+)/);
+      if (matchInfo) {
+        const cardName = matchInfo[1].replace(/\+/g, ' ');
+        const score = matchInfo[2];
+        return `Grille tarifaire ${cardName} : ${fmt(rate)} FCFA (confiance ${score}%)`;
+      }
       const confPct = Math.round(pl.confidence * 100);
       return `Grille tarifaire : ${fmt(rate)} FCFA (confiance ${confPct}%)`;
     }
