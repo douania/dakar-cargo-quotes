@@ -303,8 +303,19 @@ function buildPricingContext(
   const containers: Array<{ type: string; quantity: number }> = [];
 
   const containersFact = factsMap.get("cargo.containers");
-  if (containersFact?.value_json && Array.isArray(containersFact.value_json)) {
-    const raw = containersFact.value_json as Array<{ type: string; quantity: number }>;
+  let containersRaw = containersFact?.value_json;
+
+  // V4.1.5: Defensive parse for double-encoded JSON strings
+  if (typeof containersRaw === "string") {
+    try {
+      containersRaw = JSON.parse(containersRaw);
+    } catch {
+      containersRaw = null;
+    }
+  }
+
+  if (containersRaw && Array.isArray(containersRaw)) {
+    const raw = containersRaw as Array<{ type: string; quantity: number }>;
     for (const c of raw) {
       containers.push({ type: c.type, quantity: c.quantity || 1 });
     }
