@@ -1298,6 +1298,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ═══ Normalise source for CHECK constraint ═══
+    function normalizeSourceForAudit(source: string): string {
+      if (source.startsWith("port_tariffs")) return "port_tariffs";
+      if (source.startsWith("rate_card")) return "internal";
+      return source;
+    }
+
     // ═══ P0-4: Idempotent audit write via upsert ═══
     const auditRows = pricedLines.map((pl) => ({
       case_id,
@@ -1305,7 +1312,7 @@ Deno.serve(async (req) => {
       service_key: service_lines.find((sl) => sl.id === pl.id)?.service || "UNKNOWN",
       suggested_rate: pl.rate,
       currency: pl.currency,
-      source: pl.source,
+      source: normalizeSourceForAudit(pl.source),
       confidence: pl.confidence,
       explanation: pl.explanation,
       quantity_used: pl.quantity_used,
