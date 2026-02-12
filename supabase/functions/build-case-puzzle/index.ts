@@ -1310,12 +1310,20 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
       const parsed = JSON.parse(jsonMatch[0]);
       const facts = parsed.facts || [];
       
-      // Enrich with source email IDs
-      return facts.map((f: any) => ({
-        ...f,
-        sourceType: f.isAssumption ? "ai_assumption" : "ai_extraction",
-        sourceEmailId: emails[0]?.id,
-      }));
+      // Enrich with source email IDs + V4.1.5: ensure JSON values are objects not strings
+      return facts.map((f: any) => {
+        let value = f.value;
+        // V4.1.5: If valueType is 'json' but value is a string, parse it
+        if (f.valueType === 'json' && typeof value === 'string') {
+          try { value = JSON.parse(value); } catch { /* keep as-is */ }
+        }
+        return {
+          ...f,
+          value,
+          sourceType: f.isAssumption ? "ai_assumption" : "ai_extraction",
+          sourceEmailId: emails[0]?.id,
+        };
+      });
     }
 
     return extractFactsBasic(emails, attachments);

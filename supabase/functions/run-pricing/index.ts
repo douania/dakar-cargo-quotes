@@ -471,8 +471,15 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "routing.incoterm":
         inputs.incoterm = String(value);
         break;
-      case "cargo.containers":
-        inputs.containers = Array.isArray(value) ? value : [];
+      case "cargo.containers": {
+        // V4.1.5: Defensive parse for double-encoded JSON strings
+        let parsedContainers = value;
+        if (typeof parsedContainers === "string") {
+          try { parsedContainers = JSON.parse(parsedContainers); } catch { parsedContainers = []; }
+        }
+        inputs.containers = Array.isArray(parsedContainers) ? parsedContainers : [];
+        break;
+      }
         break;
       case "cargo.weight_kg":
         inputs.cargoWeight = Number(value);
