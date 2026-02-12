@@ -25,6 +25,8 @@ export interface QuoteFact {
   source_email_id: string | null;
   confidence: number | null;
   created_at: string;
+  source_type?: string;
+  is_current?: boolean;
 }
 
 export interface QuoteCaseData {
@@ -96,8 +98,9 @@ export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGap
       
       const { data, error } = await supabase
         .from('quote_facts')
-        .select('id, fact_key, value_text, value_json, source_email_id, confidence, created_at')
+        .select('id, fact_key, value_text, value_json, source_email_id, confidence, created_at, source_type, is_current')
         .eq('case_id', quoteCase.id)
+        .eq('is_current', true)
         .order('created_at', { ascending: true });
       
       if (error) throw error;
