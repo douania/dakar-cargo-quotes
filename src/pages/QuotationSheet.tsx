@@ -724,6 +724,8 @@ L'équipe SODATRA`;
             currency: pl.currency === 'XOF' ? 'FCFA' : pl.currency,
             ...(pl.quantity_used !== undefined && { quantity: pl.quantity_used }),
             ...(pl.unit_used !== undefined && { unit: pl.unit_used }),
+            ...(pl.source && { source: pl.source }),
+            ...(pl.explanation && { explanation: pl.explanation }),
           });
           pricedCount++;
         }

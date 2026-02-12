@@ -13,9 +13,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DollarSign, Plus, Trash2 } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ServiceLine } from '@/features/quotation/types';
 import { serviceTemplates } from '@/features/quotation/constants';
+
+const SOURCE_LABELS: Record<string, string> = {
+  catalogue_sodatra: "Catalogue SODATRA",
+  local_transport_rate: "Transport local",
+  business_rule: "Règle métier",
+  customs_tier: "Barème douane",
+  customs_weight_tier: "Barème douane (poids)",
+  client_override: "Tarif contractuel",
+  internal: "Tarif interne",
+  no_match: "Non trouvé",
+  missing_quantity: "Quantité manquante",
+};
+
+function getSourceLabel(source?: string): string | null {
+  if (!source) return null;
+  if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
+  if (source.startsWith("port_tariffs")) return "Grille portuaire";
+  if (source.startsWith("rate_card")) return "Rate card";
+  return source.replace(/_/g, ' ');
+}
 
 interface ServiceTemplate {
   service: string;
@@ -91,48 +112,72 @@ export function ServiceLinesForm({
             </div>
           </div>
         ) : (
-          serviceLines.map((line) => (
-            <div key={line.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-              <div className="flex-1">
-                <Input
-                  value={line.description}
-                  onChange={(e) => updateServiceLine(line.id, { description: e.target.value })}
-                  className="font-medium"
-                />
+          serviceLines.map((line) => {
+            const sourceLabel = getSourceLabel(line.source);
+            return (
+              <div key={line.id} className="space-y-1">
+                <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                  <div className="flex-1">
+                    <Input
+                      value={line.description}
+                      onChange={(e) => updateServiceLine(line.id, { description: e.target.value })}
+                      className="font-medium"
+                    />
+                  </div>
+                  <div className="w-20">
+                    <Input
+                      type="number"
+                      value={line.quantity}
+                      onChange={(e) => updateServiceLine(line.id, { quantity: parseInt(e.target.value) })}
+                      className="text-center"
+                    />
+                  </div>
+                  <div className="w-24">
+                    <Input
+                      value={line.unit}
+                      onChange={(e) => updateServiceLine(line.id, { unit: e.target.value })}
+                      placeholder="unité"
+                    />
+                  </div>
+                  <div className="w-28">
+                    <Input
+                      type="number"
+                      value={line.rate || ''}
+                      onChange={(e) => updateServiceLine(line.id, { rate: parseFloat(e.target.value) })}
+                      placeholder="Tarif"
+                    />
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeServiceLine(line.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                {sourceLabel && (
+                  <div className="flex items-center gap-1.5 pl-3">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1 cursor-help">
+                            <Info className="h-2.5 w-2.5" />
+                            {sourceLabel}
+                          </Badge>
+                        </TooltipTrigger>
+                        {line.explanation && (
+                          <TooltipContent side="bottom" className="max-w-xs text-xs">
+                            {line.explanation}
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                )}
               </div>
-              <div className="w-20">
-                <Input
-                  type="number"
-                  value={line.quantity}
-                  onChange={(e) => updateServiceLine(line.id, { quantity: parseInt(e.target.value) })}
-                  className="text-center"
-                />
-              </div>
-              <div className="w-24">
-                <Input
-                  value={line.unit}
-                  onChange={(e) => updateServiceLine(line.id, { unit: e.target.value })}
-                  placeholder="unité"
-                />
-              </div>
-              <div className="w-28">
-                <Input
-                  type="number"
-                  value={line.rate || ''}
-                  onChange={(e) => updateServiceLine(line.id, { rate: parseFloat(e.target.value) })}
-                  placeholder="Tarif"
-                />
-              </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                onClick={() => removeServiceLine(line.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))
+            );
+          })
         )}
       </CardContent>
     </Card>
