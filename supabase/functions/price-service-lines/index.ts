@@ -923,6 +923,22 @@ Deno.serve(async (req) => {
       const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
+      // ═══ V4.1.6: Business rule — EMPTY_RETURN = 0 for import Senegal ═══
+      if (serviceKey === "EMPTY_RETURN") {
+        const destCountry = (pricingCtx.destination_country || "").toUpperCase();
+        const isSenegal = destCountry === "SN" || destCountry === "SENEGAL" || destCountry === "";
+        if (isSenegal && pricingCtx.scope === "import") {
+          pricedLines.push({
+            id: line.id, rate: 0, currency, source: "business_rule",
+            confidence: 1.0,
+            explanation: "EMPTY_RETURN: Obligation contractuelle client, non facturé en import SN",
+            quantity_used: computed.quantity_used ?? 1, unit_used: computed.unit_used,
+            rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+          });
+          continue;
+        }
+      }
+
       // A1: If quantity_used is null (missing weight for KG basis), skip pricing
       if (computed.quantity_used === null || computed.quantity_used === undefined) {
         pricedLines.push({
