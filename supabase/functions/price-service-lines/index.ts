@@ -152,6 +152,7 @@ function computeQuantity(
   ctx: PricingContext,
   evpConversions: Map<string, number>,
   isAirMode: boolean = false,
+  isLCL: boolean = false,
 ): { quantity_used: number | null; unit_used: string; rule_id: string | null; conversion_used?: string } {
 
   if (!rule) {
@@ -199,6 +200,25 @@ function computeQuantity(
   }
 
   if (basis === "COUNT") {
+    // LCL mode: TRUCKING/ON_CARRIAGE use weight-based or forfait instead of container count
+    if (isLCL && (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE")) {
+      const weightKg = ctx.weight_kg;
+      if (weightKg && weightKg > 0) {
+        const tonnes = Math.ceil(weightKg / 1000);
+        return {
+          quantity_used: tonnes,
+          unit_used: "tonne",
+          rule_id: rule.id,
+          conversion_used: `lcl_weight_${weightKg}kg=${tonnes}t`,
+        };
+      }
+      return {
+        quantity_used: 1,
+        unit_used: "forfait",
+        rule_id: rule.id,
+        conversion_used: "lcl_no_weight_forfait",
+      };
+    }
     if (ctx.containers.length === 0) {
       return { quantity_used: 1, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "missing_containers_default_1" };
     }
@@ -378,6 +398,7 @@ function findBestRateCard(
   lineUnit: string,
   lineCurrency: string,
   isAirMode: boolean = false,
+  isLCL: boolean = false,
 ): { card: RateCardRow; score: number; explanation: string } | null {
   const candidates = allCards.filter((c) => c.service_key === serviceKey);
   if (candidates.length === 0) return null;
@@ -389,6 +410,8 @@ function findBestRateCard(
   for (const card of candidates) {
     // Phase S1.3: Exclure rate cards container pour mode AIR
     if (isAirMode && card.container_type) continue;
+    // LCL mode: exclure rate cards par conteneur
+    if (isLCL && card.container_type) continue;
     let score = 40;
     const matchParts: string[] = [serviceKey];
 
@@ -462,6 +485,7 @@ function findLocalTransportRate(
   serviceKey: string,
   pricingCtx: PricingContext,
   isAirMode: boolean,
+  isLCL: boolean = false,
 ): { rate: number; currency: string; source: string; confidence: number; explanation: string } | null {
   // Only TRUCKING and ON_CARRIAGE use local transport rates
   if (serviceKey !== "TRUCKING" && serviceKey !== "ON_CARRIAGE") return null;
@@ -519,6 +543,8 @@ function findLocalTransportRate(
 
   // Container type matching with mapping
   const ctxContainer = pricingCtx.container_type; // e.g. "20DV", "40DV", "40HC"
+  // LCL: skip container-based transport rates entirely
+  if (isLCL) return null;
   if (!ctxContainer) return null; // CTO Correction A: no container info → null
 
   const containerSearchTerms: string[] = [];
@@ -683,7 +709,7 @@ async function resolveWithoutClientOverride(
   }
 
   // 3.5 Phase V4.1: Local transport rates
-  const transportFb = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode);
+  const transportFb = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
   if (transportFb) {
     return {
       rate: transportFb.rate, source: transportFb.source, confidence: transportFb.confidence,
@@ -694,7 +720,7 @@ async function resolveWithoutClientOverride(
   }
 
   // 4. Rate card
-  const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode);
+  const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode, isLCL);
   if (match) {
     return {
       rate: match.card.value, source: match.card.source, confidence: match.score / 100,
@@ -780,6 +806,7 @@ Deno.serve(async (req) => {
     // Phase S1.3: Derive transport mode from quote_case
     const requestType = caseData?.request_type || "";
     const isAirMode = /AIR/i.test(requestType);
+    const isLCL = /LCL/i.test(requestType);
 
     // ═══ Load facts for pricing context (JWT client, RLS) ═══
     const { data: facts } = await jwtClient
@@ -920,7 +947,7 @@ Deno.serve(async (req) => {
 
       // ═══ T3: Compute quantity from DB rules ═══
       const rule = quantityRules.get(serviceKey);
-      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode);
+      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode, isLCL);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
       // ═══ V4.1.6: Business rule — EMPTY_RETURN = 0 for import Senegal ═══
@@ -1217,7 +1244,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ Phase V4.1: Local transport rate resolver (between catalogue and rate card) ═══
-      const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode);
+      const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
       if (transportFallback) {
         let lineTotal = transportFallback.rate;
 
@@ -1253,7 +1280,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ P1-A: Progressive matching with scoring (fallback) ═══
-      const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode);
+      const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode, isLCL);
 
       if (match) {
         pricedLines.push({
