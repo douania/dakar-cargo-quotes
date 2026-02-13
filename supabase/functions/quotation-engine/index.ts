@@ -2008,10 +2008,14 @@ async function generateQuotationLines(
     
     // Si code HS fourni, calculer les droits
     if (request.hsCode) {
+      // Support multiple HS codes separated by comma — use first one for duty calculation
+      const hsCodes = request.hsCode.split(/[,;]/).map((c: string) => c.trim()).filter(Boolean);
+      const primaryHsCode = hsCodes[0];
+      const hsNormalized = primaryHsCode.replace(/\D/g, '');
       const { data: hsData } = await supabase
         .from('hs_codes')
         .select('*')
-        .or(`code.eq.${request.hsCode},code_normalized.eq.${request.hsCode.replace(/\D/g, '')}`)
+        .or(`code.eq.${primaryHsCode},code_normalized.eq.${hsNormalized}`)
         .limit(1);
       
       if (hsData && hsData.length > 0) {
