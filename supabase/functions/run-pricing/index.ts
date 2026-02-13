@@ -33,6 +33,7 @@ interface PricingInputs {
   carrier?: string;
   clientEmail?: string;
   clientCompany?: string;
+  hsCode?: string;
 }
 
 Deno.serve(async (req) => {
@@ -253,13 +254,14 @@ Deno.serve(async (req) => {
         transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
         cargoDescription: inputs.cargoDescription,
         clientCompany: inputs.clientCompany,
+        hsCode: inputs.hsCode,
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
       const engineRes = await fetch(engineUrl, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${supabaseServiceKey}`,
+          Authorization: authHeader,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ action: "generate", params: engineParams }),
@@ -509,6 +511,9 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       case "contacts.client_company":
         inputs.clientCompany = String(value);
+        break;
+      case "cargo.hs_code":
+        inputs.hsCode = String(value);
         break;
     }
   }
