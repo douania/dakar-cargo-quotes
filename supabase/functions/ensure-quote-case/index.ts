@@ -70,26 +70,42 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Verify thread exists
-    const { data: thread, error: threadError } = await serviceClient
-      .from("email_threads")
-      .select("id, is_quotation_thread, subject_normalized")
-      .eq("id", thread_id)
-      .single();
+    // Detect synthetic thread_ref (from QuotationSheet fallback)
+    let effectiveThreadRef: string | null = thread_id;
+    if (typeof thread_id === 'string' && thread_id.startsWith('subject:')) {
+      effectiveThreadRef = null;
+    }
 
-    if (threadError || !thread) {
-      return new Response(
-        JSON.stringify({ error: "Thread not found", details: threadError?.message }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // 3. Verify thread exists (skip if synthetic ref)
+    let thread: { id: string; is_quotation_thread: boolean | null; subject_normalized: string } | null = null;
+
+    if (effectiveThreadRef) {
+      const { data: threadData, error: threadError } = await serviceClient
+        .from("email_threads")
+        .select("id, is_quotation_thread, subject_normalized")
+        .eq("id", effectiveThreadRef)
+        .single();
+
+      if (threadError || !threadData) {
+        return new Response(
+          JSON.stringify({ error: "Thread not found", details: threadError?.message }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      thread = threadData;
     }
 
     // 4. Check for existing case
-    const { data: existingCase } = await serviceClient
-      .from("quote_cases")
-      .select("id, status, request_type")
-      .eq("thread_id", thread_id)
-      .single();
+    let existingCase: { id: string; status: string; request_type: string | null } | null = null;
+
+    if (effectiveThreadRef) {
+      const { data } = await serviceClient
+        .from("quote_cases")
+        .select("id, status, request_type")
+        .eq("thread_id", effectiveThreadRef)
+        .single();
+      existingCase = data;
+    }
 
     if (existingCase) {
       // Return existing case
@@ -106,12 +122,12 @@ Deno.serve(async (req) => {
     }
 
     // 5. Create new case with explicit created_by
-    const initialStatus = thread.is_quotation_thread ? "RFQ_DETECTED" : "NEW_THREAD";
+    const initialStatus = thread?.is_quotation_thread ? "RFQ_DETECTED" : "NEW_THREAD";
 
     const { data: newCase, error: insertError } = await serviceClient
       .from("quote_cases")
       .insert({
-        thread_id,
+        thread_id: effectiveThreadRef,
         status: initialStatus,
         created_by: userId,  // Explicit, not relying on default
       })
@@ -131,9 +147,9 @@ Deno.serve(async (req) => {
       case_id: newCase.id,
       event_type: "case_created",
       event_data: {
-        thread_id,
-        thread_subject: thread.subject_normalized,
-        is_quotation_thread: thread.is_quotation_thread,
+        thread_id,  // Original value preserved for audit
+        thread_subject: thread?.subject_normalized ?? null,
+        is_quotation_thread: thread?.is_quotation_thread ?? false,
       },
       actor_type: "user",
       actor_user_id: userId,
