@@ -1,81 +1,151 @@
 
+# Correctif Transport Routier LCL
 
-# Correctif LCL - 2 bugs restants apres deploiement
+## Diagnostic
 
-## Etat actuel (confirme par test curl)
+Le transport routier affiche **3 500 000 FCFA** pour un envoi LCL. Cette valeur provient d'un tarif conteneur 40HC dans `pricing_rate_cards` (corridor DAKAR_KEDOUGOU, scope import, confiance 70%).
 
-L'appel direct a `build-case-puzzle` retourne maintenant `request_type: SEA_LCL_IMPORT` -- la detection fonctionne. Mais 2 problemes persistent :
+### Causes racines identifiees
 
-| Probleme | Cause racine | Preuve |
+| Composant | Probleme | Ligne |
 |---|---|---|
-| `service.package` reste `DAP_PROJECT_IMPORT` | `applyAssumptionRules` utilise `flowType` de `detectFlowType()` qui retourne `IMPORT_PROJECT_DAP` (car Dakar = SN), pas le `requestType` `SEA_LCL_IMPORT`. Le mapping vers `SEA_LCL_IMPORT` dans `ASSUMPTION_RULES` n'est jamais utilise. | Reponse curl : `flowType: IMPORT_PROJECT_DAP`, `skipped: 2` |
-| Aucun fact injecte depuis les PJ | `injectAttachmentFacts` retourne `added: 0, skipped: 0, updated: 0` malgre 2 attachments avec `codes_hs`, `valeur_caf`, etc. Cause probable : un probleme dans le parcours des cles ou un filtrage silencieux. | Reponse curl : `attachment_facts: {added: 0}` |
+| `quotation-engine/index.ts` | Quand `containers` est vide, il cree un **faux conteneur 40HC** par defaut (ligne 1192) | `[{ type: '40HC', quantity: 1 }]` |
+| `price-service-lines/index.ts` | Aucune detection du mode LCL : pas de variable `isLCL` | Lignes 780-782 |
+| `price-service-lines` quantity rules | TRUCKING utilise la base `COUNT` (nombre de conteneurs). En LCL, ca donne `missing_containers_default_1` | Ligne 203 |
+| `pricing_rate_cards` | Tous les tarifs TRUCKING sont par conteneur (40HC, 20DV). Aucun tarif au poids/volume pour le vrac | DB |
+| `local_transport_rates` | Toute la table est par type de conteneur (20' Dry, 40' Dry) | DB |
+
+### Consequence
+
+Pour du LCL, le systeme fabrique un conteneur fantome 40HC et applique un tarif conteneur plein. Le client recoit un devis transport a 3 500 000 FCFA pour quelques colis.
 
 ---
 
-## Action 1 — Forcer flowType = SEA_LCL_IMPORT quand requestType est LCL
+## Plan de correction — 3 actions
 
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`, fonction `applyAssumptionRules`
+### Action 1 — Quotation Engine : ne pas creer de conteneur fantome pour le LCL
 
-Ligne ~459, ajouter apres le bloc AIR_IMPORT :
+**Fichier** : `supabase/functions/quotation-engine/index.ts`
+
+Ligne 1188-1192, modifier le fallback pour respecter le mode de transport :
 
 ```text
-// A1 bis: If flowType is IMPORT_PROJECT_DAP but requestType is SEA_LCL_IMPORT, force LCL
-if (flowType === 'IMPORT_PROJECT_DAP' && requestType === 'SEA_LCL_IMPORT') {
-  flowType = 'SEA_LCL_IMPORT';
+// Avant (defaut aveugle)
+: [{ type: '40HC', quantity: 1 }];
+
+// Apres (respecter le type de demande)
+const containers: ContainerInfo[] = request.containers?.length
+  ? request.containers
+  : request.containerType
+    ? [{ type: request.containerType, quantity: request.containerCount || 1 }]
+    : [];
+```
+
+Quand `containers` est un array vide, le moteur doit utiliser les metriques poids/volume au lieu de forcer un conteneur.
+
+La section transport (ligne 1572) `for (const container of containers)` ne generera simplement aucune ligne transport si `containers` est vide, ce qui est le comportement correct pour le LCL ou le transport doit etre price differemment.
+
+### Action 2 — price-service-lines : detecter le mode LCL et adapter le pricing
+
+**Fichier** : `supabase/functions/price-service-lines/index.ts`
+
+#### 2a. Ajouter la detection LCL
+
+Apres la ligne 782 (`isAirMode`), ajouter :
+
+```text
+const isLCL = /LCL/i.test(requestType);
+```
+
+#### 2b. Adapter computeQuantity pour LCL
+
+Pour les services LCL, la quantite TRUCKING doit etre basee sur le poids (TONNE) ou un forfait, pas sur le nombre de conteneurs.
+
+Dans `computeQuantity`, ajouter un guard au debut de la section `COUNT` (ligne 201) :
+
+```text
+// LCL mode: TRUCKING/ON_CARRIAGE use TONNE basis instead of COUNT
+if (isLCL && (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE")) {
+  const weightKg = ctx.weight_kg;
+  if (weightKg && weightKg > 0) {
+    const tonnes = Math.ceil(weightKg / 1000);
+    return {
+      quantity_used: tonnes,
+      unit_used: "tonne",
+      rule_id: rule.id,
+      conversion_used: `lcl_weight_${weightKg}kg=${tonnes}t`,
+    };
+  }
+  // Pas de poids connu → forfait 1 voyage
+  return {
+    quantity_used: 1,
+    unit_used: "forfait",
+    rule_id: rule.id,
+    conversion_used: "lcl_no_weight_forfait",
+  };
 }
 ```
 
-Cela garantit que le `SEA_LCL_IMPORT` dans `ASSUMPTION_RULES` est utilise, et que `service.package = LCL_IMPORT_DAP` est injecte (en remplacement de `DAP_PROJECT_IMPORT`).
+#### 2c. Adapter findBestRateCard pour LCL
 
-Le meme pattern existe deja pour `AIR_IMPORT` (ligne 457), c'est donc coherent avec l'architecture.
-
----
-
-## Action 2 — Ajouter du logging diagnostic dans injectAttachmentFacts
-
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`, fonction `injectAttachmentFacts`
-
-Ajouter des logs pour tracer :
-- Nombre d'attachments charges
-- Pour chaque attachment : les cles parcourues
-- Pour chaque cle : si mapping trouve ou non
-- Si skip, la raison (source protegee, deja injectee)
-
-Cela permettra de diagnostiquer pourquoi `added: 0` malgre des donnees PJ valides.
-
-De plus, ajouter un log special avant la boucle pour montrer la structure exacte de `extractedInfo` :
+Pour le LCL, exclure les rate cards qui ont un `container_type` defini (meme logique que le mode AIR) :
 
 ```text
-console.log(`[M3.4] Processing attachment ${attachment.filename}: keys=${Object.keys(extractedInfo).join(',')}`);
+// LCL mode: exclure rate cards par conteneur
+if (isLCL && card.container_type) continue;
 ```
 
----
+Cela forcera le systeme a utiliser uniquement les rate cards sans container_type (generiques par voyage ou forfait) ou a retourner `no_match`.
 
-## Action 3 — Gerer le cas ou `extractedInfo` contient des cles imbriquees
+#### 2d. Adapter findLocalTransportRate pour LCL
 
-Certaines cles comme `quantites` ou `descriptions` sont des arrays d'objets complexes. Le code actuel fait `if (rawValue == null || rawValue === '') continue;` mais un array non-vide ne sera pas filtre. Par contre, si `normalizeExtractedKey` ne trouve pas de mapping pour ces cles, elles seront simplement ignorees — ce qui est correct.
-
-Le vrai risque est que `Object.entries(extractedInfo)` sur un objet Supabase JSONB retourne des entries inattendues. Ajoutons un guard :
+Ligne 522 : le code fait `if (!ctxContainer) return null`. Pour le LCL, il faut autoriser la recherche sans container_type et matcher sur la destination uniquement :
 
 ```text
-if (typeof extractedInfo !== 'object' || extractedInfo === null) continue;
+// LCL: skip container matching, use destination-only rate
+if (isLCL) {
+  // For LCL, return null (no container-based transport rate applies)
+  // Transport will be priced via rate card or manual input
+  return null;
+}
 ```
 
-(Ce guard existe deja ligne 616 mais verifions qu'il n'y a pas de probleme de type.)
+### Action 3 — Ajouter un rate card TRUCKING generique pour le LCL
+
+Inserer dans `pricing_rate_cards` un tarif transport LCL forfaitaire "a confirmer" :
+
+```sql
+INSERT INTO pricing_rate_cards (
+  service_key, scope, currency, unit, value, source, confidence,
+  container_type, corridor, notes, status
+) VALUES (
+  'TRUCKING', 'import', 'XOF', 'voyage', 0, 'no_match', 0,
+  NULL, NULL, 'LCL transport — tarif à confirmer avec transporteur', 'active'
+);
+```
+
+Avec `value: 0` et `confidence: 0`, l'operateur sera averti que le tarif est "Non trouve" et devra etre rempli manuellement. C'est preferable a un faux tarif conteneur.
 
 ---
 
 ## Resume
 
-| Action | Impact | Fichier |
+| Action | Fichier | Impact |
 |---|---|---|
-| 1. Mapper flowType LCL | `service.package = LCL_IMPORT_DAP` | build-case-puzzle |
-| 2. Logging diagnostic PJ | Comprendre le zero injection | build-case-puzzle |
-| 3. Guard structure | Robustesse | build-case-puzzle |
+| 1. Supprimer le conteneur fantome 40HC | quotation-engine | Empeche le moteur de generer des lignes transport par conteneur pour du LCL |
+| 2a-d. Detecter LCL dans price-service-lines | price-service-lines | Quantite basee sur le poids, rate cards conteneur exclues |
+| 3. Rate card generique LCL | DB migration | Fallback propre "a confirmer" |
 
-Apres deploiement, relancer l'analyse sur le dossier Lantia et verifier :
-1. `service.package` = `LCL_IMPORT_DAP`
-2. Facts PJ injectes (HS codes, valeur CIF)
-3. Logs visibles dans les edge function logs
+## Ce qui ne change PAS
 
+- Le pricing FCL reste identique (la branche conteneurs n'est pas modifiee)
+- Le pricing AIR reste identique
+- Aucune modification frontend
+- Aucune modification de tables DB (sauf insertion d'un rate card)
+
+## Validation
+
+Apres deploiement, relancer le pricing sur le dossier Lantia :
+1. Transport routier : **0 FCFA** avec source "Non trouve" et note "a confirmer"
+2. Pas de reference a un conteneur 40HC
+3. Quantite basee sur le poids ou forfait (pas EVP/COUNT)
