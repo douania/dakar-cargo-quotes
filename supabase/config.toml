@@ -28,7 +28,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.sync-emails]
-verify_jwt = true
+verify_jwt = false
 
 [functions.learn-from-content]
 verify_jwt = false
@@ -43,7 +43,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.import-thread]
-verify_jwt = true
+verify_jwt = false
 
 [functions.analyze-attachments]
 verify_jwt = false
@@ -61,10 +61,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.email-admin]
-verify_jwt = true
+verify_jwt = false
 
 [functions.data-admin]
-verify_jwt = true
+verify_jwt = false
 
 [functions.suggest-regime]
 verify_jwt = false
@@ -109,13 +109,13 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.ensure-quote-case]
-verify_jwt = true
+verify_jwt = false
 
 [functions.build-case-puzzle]
-verify_jwt = true
+verify_jwt = false
 
 [functions.run-pricing]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-case-outputs]
 verify_jwt = false
@@ -127,7 +127,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.commit-decision]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ack-pricing-ready]
 verify_jwt = false
@@ -139,7 +139,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-quotation]
-verify_jwt = true
+verify_jwt = false
 
 [functions.import-historical-quotation]
 verify_jwt = false
