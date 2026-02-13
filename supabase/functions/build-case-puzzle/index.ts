@@ -114,6 +114,14 @@ const MANDATORY_FACTS: Record<string, string[]> = {
     "cargo.containers",
     "contacts.client_email",
   ],
+  SEA_LCL_IMPORT: [
+    "routing.origin_port",
+    "routing.destination_city",
+    "cargo.description",
+    "cargo.weight_kg",
+    "cargo.volume_cbm",
+    "contacts.client_email",
+  ],
   AIR_IMPORT: [
     "routing.destination_city",
     "cargo.weight_kg",
@@ -141,6 +149,15 @@ const AIR_IMPORT_BLOCKING_GAPS = new Set([
   "routing.destination_city",
   "cargo.weight_kg",
   "cargo.pieces_count",
+  "contacts.client_email",
+]);
+
+// SEA_LCL_IMPORT blocking gaps
+const SEA_LCL_BLOCKING_GAPS = new Set([
+  "routing.destination_city",
+  "cargo.description",
+  "cargo.weight_kg",
+  "cargo.volume_cbm",
   "contacts.client_email",
 ]);
 
@@ -234,6 +251,7 @@ interface ExtractedFact {
 
 // --- M3.4: Attachment-to-fact deterministic mapping ---
 const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: string; valueType: 'text' | 'number' }> = {
+  // Format 1: extracted_info keys (packing lists, B/L)
   'Port_of_Loading': { factKey: 'routing.origin_port', category: 'routing', valueType: 'text' },
   'Port_of_Discharge': { factKey: 'routing.destination_port', category: 'routing', valueType: 'text' },
   'Description_of_Goods': { factKey: 'cargo.description', category: 'cargo', valueType: 'text' },
@@ -248,6 +266,17 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'Shipper': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
   'Number_and_Kind_of_Packages': { factKey: 'cargo.containers', category: 'cargo', valueType: 'text' },
   'Container_Nos': { factKey: 'cargo.container_numbers', category: 'cargo', valueType: 'text' },
+  // Format 2: flat keys from analyze-attachments (quotations, MSDS)
+  'codes_hs': { factKey: 'cargo.hs_code', category: 'cargo', valueType: 'text' },
+  'valeur_caf': { factKey: 'cargo.value', category: 'cargo', valueType: 'number' },
+  'poids_brut_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'poids_net_kg': { factKey: 'cargo.weight_net_kg', category: 'cargo', valueType: 'number' },
+  'volume_cbm': { factKey: 'cargo.volume_cbm', category: 'cargo', valueType: 'number' },
+  'origine': { factKey: 'routing.origin_port', category: 'routing', valueType: 'text' },
+  'destination': { factKey: 'routing.destination_city', category: 'routing', valueType: 'text' },
+  'incoterm': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
+  'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
+  'devise': { factKey: 'pricing.currency', category: 'pricing', valueType: 'text' },
 };
 
 // --- M3.5.1: Assumption rules by flow type ---
@@ -272,6 +301,11 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   // A1: AIR_IMPORT assumptions
   AIR_IMPORT: [
     { key: 'service.package', value: 'AIR_IMPORT_DAP', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+  // LCL import assumptions
+  SEA_LCL_IMPORT: [
+    { key: 'service.package', value: 'LCL_IMPORT_DAP', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
 };
@@ -575,7 +609,10 @@ async function injectAttachmentFacts(
   const injectedKeys = new Set<string>();
 
   for (const attachment of attachments) {
-    const extractedInfo = (attachment.extracted_data as any)?.extracted_info;
+    // Try both formats:
+    // Format 1: extracted_data.extracted_info.* (packing lists, B/L)
+    // Format 2: extracted_data.* (analyze-attachments quotations/MSDS)
+    const extractedInfo = (attachment.extracted_data as any)?.extracted_info || attachment.extracted_data;
     if (!extractedInfo || typeof extractedInfo !== 'object') continue;
 
     for (const [rawKey, rawValue] of Object.entries(extractedInfo)) {
@@ -605,13 +642,16 @@ async function injectAttachmentFacts(
       let valueText: string | null = null;
       let valueNumber: number | null = null;
 
+      // Handle array values (e.g., codes_hs: ["8525.50", "8507.20"])
+      const resolvedValue = Array.isArray(rawValue) ? rawValue.join(', ') : rawValue;
+
       if (mapping.valueType === 'number') {
-        valueNumber = parseWeight(String(rawValue));
+        valueNumber = parseRobustNumber(String(resolvedValue));
         if (valueNumber === null) {
-          valueText = String(rawValue);
+          valueText = String(resolvedValue);
         }
       } else {
-        valueText = String(rawValue);
+        valueText = String(resolvedValue);
       }
 
       // Call supersede_fact RPC
@@ -1142,6 +1182,8 @@ Deno.serve(async (req) => {
           let isBlocking: boolean;
           if (detectedType === "SEA_FCL_IMPORT") {
             isBlocking = SEA_FCL_BLOCKING_GAPS.has(requiredKey);
+          } else if (detectedType === "SEA_LCL_IMPORT") {
+            isBlocking = SEA_LCL_BLOCKING_GAPS.has(requiredKey);
           } else if (detectedType === "AIR_IMPORT") {
             isBlocking = AIR_IMPORT_BLOCKING_GAPS.has(requiredKey);
           } else {
@@ -1658,10 +1700,23 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
     console.log(`[Detection] Airport fact IGNORED — strong maritime signals present`);
   }
 
-  // Step 2: Maritime on strong indicators (word boundaries for short patterns)
+  // Step 2: Maritime on strong indicators
   if (hasStrongMaritime) {
+    // Step 2b: LCL detection (before FCL default)
+    const lclPatterns = ["lcl", "less than container", "groupage", "consolidation"];
+    if (lclPatterns.some(p => lowerContext.includes(p))) {
+      console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
+      return "SEA_LCL_IMPORT";
+    }
     console.log(`[Detection] SEA_FCL_IMPORT (strong maritime pattern)`);
     return "SEA_FCL_IMPORT";
+  }
+
+  // Step 2c: LCL without strong maritime (standalone LCL mention)
+  const lclStandalonePatterns = ["lcl", "less than container", "groupage", "consolidation"];
+  if (lclStandalonePatterns.some(p => lowerContext.includes(p))) {
+    console.log(`[Detection] SEA_LCL_IMPORT (standalone LCL pattern)`);
+    return "SEA_LCL_IMPORT";
   }
 
   // Step 3: Breakbulk patterns (Action 3: expanded with crane, lifting, rigging)
