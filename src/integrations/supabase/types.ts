@@ -2752,7 +2752,7 @@ export type Database = {
           puzzle_completeness: number | null
           request_type: Database["public"]["Enums"]["quote_request_type"] | null
           status: Database["public"]["Enums"]["quote_case_status"]
-          thread_id: string
+          thread_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -2771,7 +2771,7 @@ export type Database = {
             | Database["public"]["Enums"]["quote_request_type"]
             | null
           status?: Database["public"]["Enums"]["quote_case_status"]
-          thread_id: string
+          thread_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -2790,7 +2790,7 @@ export type Database = {
             | Database["public"]["Enums"]["quote_request_type"]
             | null
           status?: Database["public"]["Enums"]["quote_case_status"]
-          thread_id?: string
+          thread_id?: string | null
           updated_at?: string | null
         }
         Relationships: [

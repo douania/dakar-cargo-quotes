@@ -52,10 +52,12 @@ export interface QuoteCaseWithGaps {
 
 export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGaps {
   // Query le quote_case associé au thread
+  const isSyntheticRef = typeof threadId === 'string' && threadId.startsWith('subject:');
+
   const { data: quoteCase, isLoading: isLoadingCase, error: errorCase } = useQuery({
     queryKey: ['quote-case', threadId],
     queryFn: async () => {
-      if (!threadId) return null;
+      if (!threadId || isSyntheticRef) return null;
       
       const { data, error } = await supabase
         .from('quote_cases')
@@ -66,7 +68,7 @@ export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGap
       if (error) throw error;
       return data;
     },
-    enabled: !!threadId,
+    enabled: !!threadId && !isSyntheticRef,
     staleTime: 30000,
   });
 
