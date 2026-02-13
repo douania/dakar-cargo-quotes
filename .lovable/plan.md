@@ -1,83 +1,60 @@
-3 patchs chirurgicaux — sans refactor
 
-## Patch 1 : QuotationSheet.tsx — fallback stableThreadRef
 
-**Probleme** : Quand `emailData.thread_ref` est `null` (emails importes sans header References), `stableThreadRef` reste `null`. Le bouton "Analyser la demande" affiche "Fil email introuvable" et bloque tout le flux.
+# Patch chirurgical : ensure-quote-case — filtrage des thread_ref synthetiques
 
-**Correction** : Apres le fallback par sujet (ligne ~828), si `stableThreadRef` est toujours `null` et qu'on a trouve des emails par sujet, generer un ref synthetique `subject:<normalized>` et l'injecter dans `stableThreadRef`.
+## Contexte
+
+Le Patch 1 (QuotationSheet.tsx) genere des `stableThreadRef` synthetiques de la forme `subject:<normalized>`. Si ce ref est transmis a `ensure-quote-case` comme `thread_id`, il sera passe a `.eq("id", thread_id)` sur `email_threads` — ce qui echouera car ce n'est pas un UUID valide.
+
+## Modification
+
+**Fichier** : `supabase/functions/ensure-quote-case/index.ts`
+
+### Changement 1 — Detection du prefixe `subject:` (apres ligne 71)
+
+Ajouter apres la validation de `thread_id` :
 
 ```text
-// Apres ligne 828 (fallback subject), ajouter :
-if (!stableThreadRef && threadEmailsList.length > 0 && emailData.subject) {
-  const syntheticRef = `subject:${normalizeSubject(emailData.subject)}`;
-  setStableThreadRef(syntheticRef);
+let effectiveThreadRef = thread_id;
+if (typeof thread_id === 'string' && thread_id.startsWith('subject:')) {
+  effectiveThreadRef = null;
 }
 ```
 
-**Fichier** : `src/pages/QuotationSheet.tsx` (lignes 826-829)
-**Impact** : Le flux "Analyser la demande" fonctionne meme sans `thread_ref` natif. `normalizeSubject` est deja importe (ligne 133).
+### Changement 2 — Remplacer `thread_id` par `effectiveThreadRef` dans les requetes
 
----
+4 endroits concernes :
 
-## Patch 2 : calculate-duties/index.ts — base TVA corrigee
+| Ligne | Usage actuel | Remplacement |
+|---|---|---|
+| 77 | `.eq("id", thread_id)` (SELECT email_threads) | `.eq("id", effectiveThreadRef)` — avec guard null |
+| 91 | `.eq("thread_id", thread_id)` (SELECT quote_cases) | `.eq("thread_id", effectiveThreadRef)` — avec guard null |
+| 114 | `thread_id` dans INSERT quote_cases | `effectiveThreadRef` |
+| 134 | `thread_id` dans event_data | Conserver `thread_id` original (pour tracabilite) |
 
-**Probleme** : Ligne 313, la base TVA est `caf_value + ddAmount + rsAmount + tinAmount + tciAmount`. La surtaxe (`surtaxeAmount`) est calculee plus haut mais absente de l'assiette TVA. Or, selon le droit douanier senegalais, la TVA s'applique sur l'ensemble des droits et taxes exigibles, incluant la surtaxe.
+### Comportement attendu
 
-**Correction** : Ajouter `surtaxeAmount` dans la formule.
+- Si `thread_id = "subject:demande de prix"` :
+  - `effectiveThreadRef = null`
+  - Le SELECT sur `email_threads` est skippe (pas de thread reel)
+  - Le SELECT sur `quote_cases` cherche par `thread_id IS NULL` — ne trouve rien
+  - Le INSERT cree un case avec `thread_id = null`
+  - L'event_data conserve le `thread_id` original pour audit
 
-Ligne 313 actuelle :
+- Si `thread_id` est un UUID normal : comportement inchange.
 
-```text
-const baseTVA = caf_value + ddAmount + rsAmount + tinAmount + tciAmount;
-```
+### Logique adaptee (step 3 skippe si null)
 
-Remplacer par :
+Quand `effectiveThreadRef` est `null`, le step 3 (verify thread exists) est skippe car il n'y a pas de thread reel. Le thread objet est initialise avec des valeurs par defaut (`is_quotation_thread: false`, `subject_normalized: null`).
 
-```text
-// Base TVA = CAF + DD + Surtaxe + RS + TIN + TCI (droit douanier senegalais)
-const surtaxeTotal = breakdown.find(d => d.code === 'SURTAXE')?.amount || 0;
-const baseTVA = caf_value + ddAmount + surtaxeTotal + rsAmount + tinAmount + tciAmount;
-```
+## Ce qui ne change pas
 
-Note : `surtaxeAmount` n'est pas toujours dans le scope (elle est declaree dans un bloc conditionnel a la ligne ~150). On utilise donc `breakdown.find()` qui est toujours fiable puisque la ligne SURTAXE est ajoutee au breakdown avant ce point.
+- Interface `EnsureCaseRequest` / `EnsureCaseResponse`
+- Logique JWT
+- Timeline events
+- Aucun autre fichier
 
-**Fichier** : `supabase/functions/calculate-duties/index.ts` (ligne 313)
-**Impact** : Correctif fiscal pur. Ne change rien aux autres calculs.
+## Risque
 
----
+Minimal — fallback uniquement pour les refs synthetiques. Les UUID reels passent par le chemin existant sans modification.
 
-## Patch 3 : supabase/config.toml — verify_jwt = true sur fonctions sensibles
-
-**Probleme** : Toutes les fonctions sont en `verify_jwt = false`. Les fonctions qui modifient des donnees critiques (decisions, pricing, envoi de devis, import de threads) doivent etre protegees au niveau transport JWT, en complement du guard `requireUser()` dans le code.
-
-**Correction** : Passer en `verify_jwt = true` les 9 fonctions suivantes :
-
-
-| Fonction          | Raison                   |
-| ----------------- | ------------------------ |
-| data-admin        | Acces admin aux donnees  |
-| email-admin       | Acces admin aux emails   |
-| send-quotation    | Envoi de devis au client |
-| import-thread     | Import de donnees email  |
-| sync-emails       | Synchronisation emails   |
-| ensure-quote-case | Creation de dossier      |
-| build-case-puzzle | Extraction IA            |
-| run-pricing       | Calcul de prix           |
-| commit-decision   | Decision operateur       |
-
-
-**Fichier** : `supabase/config.toml`
-**Impact** : Config uniquement. Aucun changement de logique interne. Le guard `requireUser()` reste en place comme deuxieme couche.
-
-**Attention** : Ce patch suppose que le frontend envoie correctement le header `Authorization: Bearer <token>` pour ces appels (via `supabase.functions.invoke` qui le fait automatiquement quand l'utilisateur est connecte). Si un appel est fait sans session active, il sera rejete au niveau JWT avant meme d'atteindre le code.
-
----
-
-## Resume
-
-
-| Patch                       | Fichier                   | Lignes touchees    | Risque regression             |
-| --------------------------- | ------------------------- | ------------------ | ----------------------------- |
-| 1. Fallback stableThreadRef | QuotationSheet.tsx        | ~3 lignes ajoutees | Minimal (fallback uniquement) |
-| 2. Base TVA + surtaxe       | calculate-duties/index.ts | 1 ligne modifiee   | Nul (correctif fiscal)        |
-| 3. verify_jwt config        | config.toml               | 9 lignes changees  | Faible (config transport)     |
