@@ -15,6 +15,8 @@ interface Props {
 }
 
 export function ThreadUsageTagWithData({ threadId, size = 'sm' }: Props) {
+  const isSyntheticRef = threadId.startsWith('subject:');
+
   // Query quote_case status for this thread
   const { data: quoteCase } = useQuery({
     queryKey: ['thread-quote-case-status', threadId],
@@ -28,7 +30,8 @@ export function ThreadUsageTagWithData({ threadId, size = 'sm' }: Props) {
       if (error) throw error;
       return data;
     },
-    staleTime: 60000, // 1 minute cache
+    staleTime: 60000,
+    enabled: !isSyntheticRef,
   });
 
   // Query if puzzle job completed for this thread
@@ -47,7 +50,8 @@ export function ThreadUsageTagWithData({ threadId, size = 'sm' }: Props) {
       if (error) throw error;
       return data;
     },
-    staleTime: 60000, // 1 minute cache
+    staleTime: 60000,
+    enabled: !isSyntheticRef,
   });
 
   const usageType = getThreadUsageType(
