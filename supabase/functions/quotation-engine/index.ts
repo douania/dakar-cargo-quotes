@@ -1185,11 +1185,12 @@ async function generateQuotationLines(
   console.log(`Quotation context: isTransit=${isTransit}, transitCountry=${transitCountry}, operationType=${effectiveOperationType}`);
   
   // Build containers array from legacy or new format
+  // LCL fix: never create phantom containers when none are specified
   const containers: ContainerInfo[] = request.containers?.length 
     ? request.containers 
     : request.containerType 
       ? [{ type: request.containerType, quantity: request.containerCount || 1 }]
-      : [{ type: '40HC', quantity: 1 }];
+      : [];
   
   // Total weight from request
   const totalWeightTonnes = request.cargoWeight || request.weightTonnes || 0;
