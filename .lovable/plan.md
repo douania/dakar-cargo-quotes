@@ -1,43 +1,47 @@
 
+# Correctif double : revert verify_jwt + guard synthetique manquant
 
-# Correctif : NOT NULL constraint sur quote_cases.thread_id
+## Probleme 1 : 401 "Invalid token" sur ensure-quote-case (et 8 autres fonctions)
 
-## Diagnostic
+Le Patch 3 a mis `verify_jwt = true` sur 9 fonctions. Or, Lovable Cloud utilise un systeme signing-keys ou `verify_jwt = true` **ne fonctionne pas**. Le guard `requireUser()` dans le code suffit comme couche d'authentification.
 
-Deux erreurs en cascade :
+**Correction** : Remettre `verify_jwt = false` sur les 9 fonctions dans `supabase/config.toml` :
+- `data-admin` (ligne 67)
+- `email-admin` (ligne 64)
+- `send-quotation` (ligne 142)
+- `import-thread` (ligne 46)
+- `sync-emails` (ligne 31)
+- `ensure-quote-case` (ligne 112)
+- `build-case-puzzle` (ligne 115)
+- `run-pricing` (ligne 118)
+- `commit-decision` (ligne 130)
 
-1. **Backend** (`ensure-quote-case`) : INSERT avec `thread_id = null` echoue car la colonne a une contrainte NOT NULL.
-2. **Frontend** (`QuotationSheet.tsx`) : SELECT sur `quote_cases` avec `.eq("thread_id", "subject:...")` echoue car le type est UUID et la valeur n'en est pas un.
+---
 
-## Correctifs
+## Probleme 2 : 400 "invalid input syntax for uuid" depuis ThreadUsageTagWithData
 
-### 1. Migration SQL : rendre `thread_id` nullable
+Le fichier `src/components/puzzle/ThreadUsageTagWithData.tsx` query `quote_cases` et `puzzle_jobs` avec `.eq('thread_id', threadId)` sans verifier si `threadId` est un ref synthetique `subject:*`.
 
-```sql
-ALTER TABLE public.quote_cases ALTER COLUMN thread_id DROP NOT NULL;
+**Correction** : Ajouter un guard au debut du composant et dans les `enabled` des deux queries :
+
+```text
+const isSyntheticRef = threadId.startsWith('subject:');
 ```
 
-Risque : nul. Les cases existants ont tous un `thread_id` reel. Ce changement autorise simplement les nouveaux cases crees via le fallback synthetique.
+- Query quote_cases : `enabled: !isSyntheticRef`
+- Query puzzle_jobs : `enabled: !isSyntheticRef`
 
-### 2. Frontend : guard dans QuotationSheet.tsx
+Si `isSyntheticRef`, les queries ne s'executent pas et le composant retourne `null`.
 
-Dans le hook `useQuoteCaseData` (ou directement dans QuotationSheet), ajouter un guard pour ne pas envoyer de requete `.eq("thread_id", stableThreadRef)` quand `stableThreadRef` commence par `subject:`. Le SELECT doit etre skippe dans ce cas (pas de case existant a chercher par ref synthetique).
-
-Localisation : fichier `src/hooks/useQuoteCaseData.ts` — le hook qui fait le SELECT sur `quote_cases`.
-
-### 3. Aucun changement sur ensure-quote-case
-
-Le code edge function est deja correct apres le patch precedent. Une fois la contrainte NOT NULL levee, l'INSERT fonctionnera.
+---
 
 ## Resume
 
 | Correctif | Fichier | Nature |
 |---|---|---|
-| DROP NOT NULL | Migration SQL | Schema |
-| Guard ref synthetique | useQuoteCaseData.ts | Frontend |
-| Aucun | ensure-quote-case | Deja patche |
+| Revert verify_jwt | supabase/config.toml | 9 lignes false |
+| Guard synthetique | ThreadUsageTagWithData.tsx | 3 lignes ajoutees |
 
-## Risque global
+## Risque
 
-Minimal. La migration est additive (nullable), le guard frontend est un simple `if`.
-
+Nul. On revient a l'etat fonctionnel pour config.toml, et on ajoute un guard defensif pour ThreadUsageTagWithData.
