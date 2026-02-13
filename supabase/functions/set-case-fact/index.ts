@@ -16,6 +16,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.caf_value",
   "cargo.weight_kg",
   "cargo.chargeable_weight_kg",
+  "routing.incoterm",
 ]);
 
 // ── Category detection from prefix ──

@@ -310,14 +310,19 @@ Deno.serve(async (req) => {
 
     // 12. Parse and store results
     const tariffLines = engineResponse.lines || engineResponse.quotationLines || [];
-    const totalHt = engineResponse.totalHt || engineResponse.total_ht || 
-                    tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0);
+    const engineTotals = engineResponse.totals;
+    const incotermUpper = (inputs.incoterm || "").toUpperCase();
+    // DDP: total includes debours (duties); DAP/other: total excludes debours
+    const isDDP = incotermUpper === "DDP";
+    const totalHt = isDDP
+      ? (engineTotals?.ddp ?? engineResponse.totalHt ?? engineResponse.total_ht ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0))
+      : (engineTotals?.dap ?? engineResponse.totalHt ?? engineResponse.total_ht ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0));
     const totalTtc = engineResponse.totalTtc || engineResponse.total_ttc || totalHt;
     const currency = engineResponse.currency || "XOF";
 
     const outputsJson = {
       lines: tariffLines,
-      totals: { ht: totalHt, ttc: totalTtc, currency },
+      totals: { ht: totalHt, ttc: totalTtc, currency, dap: engineTotals?.dap, ddp: engineTotals?.ddp, debours: engineTotals?.debours, incoterm_applied: incotermUpper || "N/A" },
       metadata: {
         engine_version: engineResponse.version || "v4",
         computed_at: new Date().toISOString(),
