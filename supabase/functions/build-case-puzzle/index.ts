@@ -458,6 +458,11 @@ async function applyAssumptionRules(
     flowType = 'AIR_IMPORT';
   }
 
+  // A1 bis: If flowType is IMPORT_PROJECT_DAP but requestType is SEA_LCL_IMPORT, force LCL
+  if (flowType === 'IMPORT_PROJECT_DAP' && requestType === 'SEA_LCL_IMPORT') {
+    flowType = 'SEA_LCL_IMPORT';
+  }
+
   result.flowType = flowType;
 
   if (flowType === 'UNKNOWN' || !ASSUMPTION_RULES[flowType]) {
