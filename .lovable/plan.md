@@ -1,60 +1,43 @@
 
 
-# Patch chirurgical : ensure-quote-case — filtrage des thread_ref synthetiques
+# Correctif : NOT NULL constraint sur quote_cases.thread_id
 
-## Contexte
+## Diagnostic
 
-Le Patch 1 (QuotationSheet.tsx) genere des `stableThreadRef` synthetiques de la forme `subject:<normalized>`. Si ce ref est transmis a `ensure-quote-case` comme `thread_id`, il sera passe a `.eq("id", thread_id)` sur `email_threads` — ce qui echouera car ce n'est pas un UUID valide.
+Deux erreurs en cascade :
 
-## Modification
+1. **Backend** (`ensure-quote-case`) : INSERT avec `thread_id = null` echoue car la colonne a une contrainte NOT NULL.
+2. **Frontend** (`QuotationSheet.tsx`) : SELECT sur `quote_cases` avec `.eq("thread_id", "subject:...")` echoue car le type est UUID et la valeur n'en est pas un.
 
-**Fichier** : `supabase/functions/ensure-quote-case/index.ts`
+## Correctifs
 
-### Changement 1 — Detection du prefixe `subject:` (apres ligne 71)
+### 1. Migration SQL : rendre `thread_id` nullable
 
-Ajouter apres la validation de `thread_id` :
-
-```text
-let effectiveThreadRef = thread_id;
-if (typeof thread_id === 'string' && thread_id.startsWith('subject:')) {
-  effectiveThreadRef = null;
-}
+```sql
+ALTER TABLE public.quote_cases ALTER COLUMN thread_id DROP NOT NULL;
 ```
 
-### Changement 2 — Remplacer `thread_id` par `effectiveThreadRef` dans les requetes
+Risque : nul. Les cases existants ont tous un `thread_id` reel. Ce changement autorise simplement les nouveaux cases crees via le fallback synthetique.
 
-4 endroits concernes :
+### 2. Frontend : guard dans QuotationSheet.tsx
 
-| Ligne | Usage actuel | Remplacement |
+Dans le hook `useQuoteCaseData` (ou directement dans QuotationSheet), ajouter un guard pour ne pas envoyer de requete `.eq("thread_id", stableThreadRef)` quand `stableThreadRef` commence par `subject:`. Le SELECT doit etre skippe dans ce cas (pas de case existant a chercher par ref synthetique).
+
+Localisation : fichier `src/hooks/useQuoteCaseData.ts` — le hook qui fait le SELECT sur `quote_cases`.
+
+### 3. Aucun changement sur ensure-quote-case
+
+Le code edge function est deja correct apres le patch precedent. Une fois la contrainte NOT NULL levee, l'INSERT fonctionnera.
+
+## Resume
+
+| Correctif | Fichier | Nature |
 |---|---|---|
-| 77 | `.eq("id", thread_id)` (SELECT email_threads) | `.eq("id", effectiveThreadRef)` — avec guard null |
-| 91 | `.eq("thread_id", thread_id)` (SELECT quote_cases) | `.eq("thread_id", effectiveThreadRef)` — avec guard null |
-| 114 | `thread_id` dans INSERT quote_cases | `effectiveThreadRef` |
-| 134 | `thread_id` dans event_data | Conserver `thread_id` original (pour tracabilite) |
+| DROP NOT NULL | Migration SQL | Schema |
+| Guard ref synthetique | useQuoteCaseData.ts | Frontend |
+| Aucun | ensure-quote-case | Deja patche |
 
-### Comportement attendu
+## Risque global
 
-- Si `thread_id = "subject:demande de prix"` :
-  - `effectiveThreadRef = null`
-  - Le SELECT sur `email_threads` est skippe (pas de thread reel)
-  - Le SELECT sur `quote_cases` cherche par `thread_id IS NULL` — ne trouve rien
-  - Le INSERT cree un case avec `thread_id = null`
-  - L'event_data conserve le `thread_id` original pour audit
-
-- Si `thread_id` est un UUID normal : comportement inchange.
-
-### Logique adaptee (step 3 skippe si null)
-
-Quand `effectiveThreadRef` est `null`, le step 3 (verify thread exists) est skippe car il n'y a pas de thread reel. Le thread objet est initialise avec des valeurs par defaut (`is_quotation_thread: false`, `subject_normalized: null`).
-
-## Ce qui ne change pas
-
-- Interface `EnsureCaseRequest` / `EnsureCaseResponse`
-- Logique JWT
-- Timeline events
-- Aucun autre fichier
-
-## Risque
-
-Minimal — fallback uniquement pour les refs synthetiques. Les UUID reels passent par le chemin existant sans modification.
+Minimal. La migration est additive (nullable), le guard frontend est un simple `if`.
 
