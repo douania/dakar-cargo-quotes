@@ -317,6 +317,23 @@ SODATRA Team`,
     // CTO RULE: Force can_proceed to false - Phase 8.8 is qualification only, NOT pricing
     result.can_proceed = false;
 
+    // V4.2.3b: Filter medium-priority questions from clarification draft
+    const blockingQuestions = (result.questions || []).filter(
+      (q: ClarificationQuestion) => q.priority === 'critical' || q.priority === 'high'
+    );
+    if (blockingQuestions.length < (result.questions || []).length) {
+      console.log(`[V4.2.3b] Filtered ${(result.questions || []).length - blockingQuestions.length} medium-priority questions from draft`);
+      // Rebuild clarification draft with only blocking questions
+      if (blockingQuestions.length === 0) {
+        result.clarification_draft.body_fr = '';
+        result.clarification_draft.body_en = '';
+      } else {
+        result.clarification_draft.body_fr = `Bonjour,\n\nMerci pour votre demande de cotation. Afin de vous fournir une offre précise, nous aurions besoin des précisions suivantes :\n\n${blockingQuestions.map((q: ClarificationQuestion, i: number) => `${i + 1}. ${q.question_fr}`).join('\n')}\n\nNous restons à votre disposition.\n\nCordialement,\nL'équipe SODATRA`;
+        result.clarification_draft.body_en = `Dear Sir/Madam,\n\nThank you for your quotation request. In order to provide you with an accurate offer, we would need the following clarifications:\n\n${blockingQuestions.map((q: ClarificationQuestion, i: number) => `${i + 1}. ${q.question_en}`).join('\n')}\n\nWe remain at your disposal.\n\nBest regards,\nSODATRA Team`;
+      }
+      result.questions = blockingQuestions;
+    }
+
     // GARDE-FOU #1: On ne persiste RIEN, on retourne juste le payload
     return new Response(
       JSON.stringify(result),

@@ -1591,16 +1591,27 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
     return "AIR_IMPORT";
   }
 
-  // Step 2: Maritime on strong indicators ONLY (not on city/port names)
-  const maritimePatterns = [
+  // Step 1b (V4.2.3a): Airport fact — priority over maritime to avoid false positives
+  if (facts.some(f => f.key === "routing.origin_airport")) {
+    console.log(`[A1] detectRequestType: AIR_IMPORT (airport fact, Step 1b)`);
+    return "AIR_IMPORT";
+  }
+
+  // Step 2: Maritime on strong indicators ONLY (word boundaries for short patterns)
+  const maritimeExactPatterns = [
     "container", "fcl",
     "40ft", "20ft", "40'", "20'", "40 ft", "20 ft",
     "40hc", "40dv", "20dv", "40fr", "40ot", "40rf", "20rf",
     "vessel", "sea freight", "seafreight",
-    "bill of lading", "b/l", "bl ",
-    "pol", "pod", "cy/cfs", "cfs", 
+    "bill of lading", "b/l", "cy/cfs", "cfs",
   ];
-  if (maritimePatterns.some(p => lowerContext.includes(p))) {
+  // V4.2.3a: Word-boundary regex for ambiguous short patterns (pol, pod, bl)
+  const maritimeRegexPatterns = [
+    /\bpol\b/, /\bpod\b/, /\bbl\b/,
+  ];
+  const hasExactMaritime = maritimeExactPatterns.some(p => lowerContext.includes(p));
+  const hasRegexMaritime = maritimeRegexPatterns.some(r => r.test(lowerContext));
+  if (hasExactMaritime || hasRegexMaritime) {
     console.log(`[A1] detectRequestType: SEA_FCL_IMPORT (strong maritime pattern)`);
     return "SEA_FCL_IMPORT";
   }
@@ -1627,14 +1638,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
   const iataContextRegex = /([A-Z]{3})\s*(?:TO|-|>)\s*([A-Z]{3})/;
   const iataFromToRegex = /from\s+([A-Z]{3})\s+to\s+([A-Z]{3})/i;
   if (iataContextRegex.test(context) || iataFromToRegex.test(context)) {
-    // Only classify as AIR if no maritime indicators already detected
     console.log(`[A1] detectRequestType: AIR_IMPORT (IATA code context)`);
-    return "AIR_IMPORT";
-  }
-
-  // Step 6: Airport fact
-  if (facts.some(f => f.key === "routing.origin_airport")) {
-    console.log(`[A1] detectRequestType: AIR_IMPORT (airport fact)`);
     return "AIR_IMPORT";
   }
 
