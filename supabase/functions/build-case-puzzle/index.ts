@@ -120,6 +120,12 @@ const MANDATORY_FACTS: Record<string, string[]> = {
     "cargo.pieces_count",
     "contacts.client_email",
   ],
+  // V4.2.2: Minimal universal facts for unknown transport mode
+  UNKNOWN: [
+    "routing.destination_city",
+    "cargo.description",
+    "contacts.client_email",
+  ],
 };
 
 // For SEA_FCL_IMPORT, only these gaps are truly blocking (contextual blocking)
@@ -1025,10 +1031,42 @@ Deno.serve(async (req) => {
     }
 
     // 10. Identify gaps
-    const mandatoryFacts = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.SEA_FCL_IMPORT;
+    const mandatoryFacts = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.UNKNOWN;
     const extractedKeys = extractedFacts.map((f) => f.key);
     
     let gapsIdentified = 0;
+
+    // V4.2.1: Close orphan gaps not required for current request type
+    const { data: allOpenGaps } = await serviceClient
+      .from("quote_gaps")
+      .select("id, gap_key")
+      .eq("case_id", case_id)
+      .eq("status", "open");
+
+    if (allOpenGaps) {
+      const mandatorySet = new Set(mandatoryFacts);
+      // Also keep transport_mode gap if UNKNOWN
+      if (detectedType === "UNKNOWN") mandatorySet.add("routing.transport_mode");
+      const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
+
+      for (const orphan of orphanGaps) {
+        await serviceClient
+          .from("quote_gaps")
+          .update({ status: "resolved", resolved_at: new Date().toISOString() })
+          .eq("id", orphan.id);
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "gap_resolved",
+          event_data: { gap_key: orphan.gap_key, reason: `Not required for ${detectedType}` },
+          actor_type: "system",
+        });
+      }
+
+      if (orphanGaps.length > 0) {
+        console.log(`[V4.2.1] Closed ${orphanGaps.length} orphan gaps: ${orphanGaps.map(g => g.gap_key).join(', ')}`);
+      }
+    }
 
     // A1: For UNKNOWN request type, add a transport mode gap
     if (detectedType === "UNKNOWN") {
