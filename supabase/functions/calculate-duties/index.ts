@@ -310,7 +310,9 @@ Deno.serve(async (req) => {
     }
 
     // Calculate TVA base
-    const baseTVA = caf_value + ddAmount + rsAmount + tinAmount + tciAmount;
+    // Base TVA = CAF + DD + Surtaxe + RS + TIN + TCI (droit douanier sénégalais)
+    const surtaxeTotal = breakdown.find(d => d.code === 'SURTAXE')?.amount || 0;
+    const baseTVA = caf_value + ddAmount + surtaxeTotal + rsAmount + tinAmount + tciAmount;
 
     // 13. TVA - if regime allows
     const tvaRate = regimeFlags.tva ? (parseFloat(hsCode.tva) || 18) : 0;

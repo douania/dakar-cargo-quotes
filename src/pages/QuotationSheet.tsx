@@ -828,6 +828,12 @@ L'équipe SODATRA`;
         threadEmailsList = await loadThreadEmailsBySubject(emailData.subject);
       }
       
+      // Patch 1: synthetic stableThreadRef when thread_ref is absent
+      if (!stableThreadRef && threadEmailsList.length > 0 && emailData.subject) {
+        const syntheticRef = `subject:${normalizeSubject(emailData.subject)}`;
+        setStableThreadRef(syntheticRef);
+      }
+      
       // Last fallback: use single email
       if (threadEmailsList.length === 0) {
         threadEmailsList = [mapRawEmailToThreadEmail(emailData)];
