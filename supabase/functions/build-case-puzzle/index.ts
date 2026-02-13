@@ -359,7 +359,7 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
   }
 
   // Rule 3: Breakbulk project (only if NO containers detected — FCL with heavy cargo is NOT breakbulk)
-  const breakbulkKeywords = ['transformer', 'crane', 'heavy', 'breakbulk'];
+  const breakbulkKeywords = ['transformer', 'crane', 'heavy', 'breakbulk', 'lifting', 'rigging', 'heavy equipment'];
   if (!hasContainers && (weightKg > 30000 || breakbulkKeywords.some(kw => cargoDesc.includes(kw)))) {
     return 'BREAKBULK_PROJECT';
   }
@@ -778,8 +778,31 @@ Deno.serve(async (req) => {
       lovableApiKey
     );
 
-    // 8. Detect request type from content (A1: AIR priority)
-    const detectedType = detectRequestType(threadContext, extractedFacts);
+    // 8. Detect request type from content
+    let detectedType = detectRequestType(threadContext, extractedFacts);
+
+    // Action 4: Post-detection coherence guard
+    // If AIR_IMPORT but extracted facts contain valid containers → force SEA_FCL_IMPORT
+    if (detectedType === "AIR_IMPORT") {
+      const containerFact = extractedFacts.find(f => f.key === "cargo.containers");
+      const hasContainers = containerFact && Array.isArray(containerFact.value)
+        && (containerFact.value as any[]).some((c: any) => c && (c.quantity || 0) > 0);
+      if (hasContainers) {
+        console.log(`[Detection] COHERENCE OVERRIDE: AIR_IMPORT → SEA_FCL_IMPORT (containers present in facts)`);
+        detectedType = "SEA_FCL_IMPORT";
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "detection_corrected",
+          event_data: {
+            original_type: "AIR_IMPORT",
+            corrected_type: "SEA_FCL_IMPORT",
+            reason: "Containers detected in extracted facts override AIR classification",
+          },
+          actor_type: "system",
+        });
+      }
+    }
 
     // 9. Store facts using ATOMIC RPC supersede_fact
     let factsAdded = 0;
@@ -1309,7 +1332,14 @@ CRITICAL RULES:
    - If the address contains a Google Plus Code (e.g., "PGQH+J2 Dakar"), extract the city ("Dakar").
    - If the address says "Door delivery: [Company], [City] [PostCode], [Country]", extract the city.
    - Never use hotel names, beach resort names, or street addresses as destination_city.
-   - destination_city must be a recognized city or commune name (e.g., "Dakar", "Kaolack", "Mbour").`;
+   - destination_city must be a recognized city or commune name (e.g., "Dakar", "Kaolack", "Mbour").
+6. TRANSPORT MODE DISAMBIGUATION (CRITICAL):
+   - If the context mentions containers (20ft, 40ft, FCL, container), this is MARITIME transport.
+     Do NOT extract routing.origin_airport. Extract routing.origin_port instead.
+   - routing.origin_airport must ONLY be extracted if the context explicitly mentions air transport
+     (keywords: "air", "AWB", "airfreight", "by air", "air cargo").
+   - Port cities (e.g., Jeddah, Shanghai, Mumbai) are NOT airports unless "airport" is explicitly stated.
+   - 3-letter codes in signatures, reference numbers, or country names are NOT airport codes.`;
 
   const userPrompt = `Extract facts from this email thread:
 
@@ -1577,73 +1607,124 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
   return facts;
 }
 
-// A1: Refactored detectRequestType with CTO corrections
+// Sprint "Stabiliser la Comprehension": Refactored detectRequestType
+// Action 1: Maritime explicit > Air implicit hierarchy
+// Action 2: IATA whitelist + incoterm exclusion
+// Action 3: Breakbulk patterns expanded
+// Action 4: Post-detection coherence guard
 function detectRequestType(context: string, facts: ExtractedFact[]): string {
   const lowerContext = context.toLowerCase();
 
-  // Step 1: Explicit AIR mode (absolute priority) - P1-1: case-insensitive, comprehensive
+  // === PRE-SCAN: Strong maritime indicators (Action 1) ===
+  const strongMaritimePatterns = [
+    "container", "fcl",
+    "40ft", "20ft", "40'", "20'", "40 ft", "20 ft",
+    "40hc", "40dv", "20dv", "40fr", "40ot", "40rf", "20rf",
+    "vessel", "sea freight", "seafreight",
+    "bill of lading", "b/l",
+  ];
+  const strongMaritimeRegex = [/\bpol\b/, /\bpod\b/, /\bbl\b/];
+  const hasStrongMaritime = strongMaritimePatterns.some(p => lowerContext.includes(p))
+    || strongMaritimeRegex.some(r => r.test(lowerContext));
+
+  // Also check container facts
+  const containerFact = facts.find(f => f.key === "cargo.containers");
+  const hasValidContainerFact = containerFact && Array.isArray(containerFact.value)
+    && (containerFact.value as any[]).some((c: any) => c && (c.quantity || 0) > 0);
+
+  const maritimeSignal = hasStrongMaritime || hasValidContainerFact;
+
+  // Step 1: Explicit AIR mode (absolute priority — "by air", "awb" etc.)
   const airPatterns = [
     "by air", "via air", "par avion", "air cargo", "air shipment",
     "awb", "air waybill", "airfreight", "air freight",
   ];
   if (airPatterns.some(p => lowerContext.includes(p))) {
-    console.log(`[A1] detectRequestType: AIR_IMPORT (explicit air pattern)`);
+    // Action 4: Even with explicit air, if containers present, flag but still allow AIR
+    // (rare case: ULD air containers — respect explicit air keyword)
+    if (maritimeSignal) {
+      console.log(`[Detection] WARNING: Explicit AIR pattern found WITH maritime signals. Respecting explicit AIR.`);
+    }
+    console.log(`[Detection] AIR_IMPORT (explicit air pattern)`);
     return "AIR_IMPORT";
   }
 
-  // Step 1b (V4.2.3a): Airport fact — priority over maritime to avoid false positives
-  if (facts.some(f => f.key === "routing.origin_airport")) {
-    console.log(`[A1] detectRequestType: AIR_IMPORT (airport fact, Step 1b)`);
+  // Step 1b: Airport fact — ONLY if no strong maritime signal (Action 1)
+  if (facts.some(f => f.key === "routing.origin_airport") && !maritimeSignal) {
+    console.log(`[Detection] AIR_IMPORT (airport fact, no maritime conflict)`);
     return "AIR_IMPORT";
   }
+  if (facts.some(f => f.key === "routing.origin_airport") && maritimeSignal) {
+    console.log(`[Detection] Airport fact IGNORED — strong maritime signals present`);
+  }
 
-  // Step 2: Maritime on strong indicators ONLY (word boundaries for short patterns)
-  const maritimeExactPatterns = [
-    "container", "fcl",
-    "40ft", "20ft", "40'", "20'", "40 ft", "20 ft",
-    "40hc", "40dv", "20dv", "40fr", "40ot", "40rf", "20rf",
-    "vessel", "sea freight", "seafreight",
-    "bill of lading", "b/l", "cy/cfs", "cfs",
-  ];
-  // V4.2.3a: Word-boundary regex for ambiguous short patterns (pol, pod, bl)
-  const maritimeRegexPatterns = [
-    /\bpol\b/, /\bpod\b/, /\bbl\b/,
-  ];
-  const hasExactMaritime = maritimeExactPatterns.some(p => lowerContext.includes(p));
-  const hasRegexMaritime = maritimeRegexPatterns.some(r => r.test(lowerContext));
-  if (hasExactMaritime || hasRegexMaritime) {
-    console.log(`[A1] detectRequestType: SEA_FCL_IMPORT (strong maritime pattern)`);
+  // Step 2: Maritime on strong indicators (word boundaries for short patterns)
+  if (hasStrongMaritime) {
+    console.log(`[Detection] SEA_FCL_IMPORT (strong maritime pattern)`);
     return "SEA_FCL_IMPORT";
   }
 
-  // Step 3: Breakbulk BEFORE container fact (P0-2)
-  const breakbulkPatterns = ["breakbulk", "break bulk", "project cargo", "heavy lift"];
+  // Step 3: Breakbulk patterns (Action 3: expanded with crane, lifting, rigging)
+  const breakbulkPatterns = [
+    "breakbulk", "break bulk", "project cargo", "heavy lift",
+    "crane", "lifting", "rigging", "heavy equipment",
+  ];
   if (breakbulkPatterns.some(p => lowerContext.includes(p))) {
-    console.log(`[A1] detectRequestType: SEA_BREAKBULK_IMPORT (breakbulk pattern)`);
+    console.log(`[Detection] SEA_BREAKBULK_IMPORT (breakbulk pattern)`);
     return "SEA_BREAKBULK_IMPORT";
   }
 
-  // Step 4: Container fact (P0-A: strict check - must have items with quantity > 0)
-  const containerFact = facts.find(f => f.key === "cargo.containers");
-  if (containerFact) {
-    const containers = Array.isArray(containerFact.value) ? containerFact.value : [];
-    const hasValidContainers = containers.some((c: any) => c && (c.quantity || 0) > 0);
-    if (hasValidContainers) {
-      console.log(`[A1] detectRequestType: SEA_FCL_IMPORT (container fact with valid items)`);
-      return "SEA_FCL_IMPORT";
+  // Step 4: Container fact (already checked in pre-scan, but handle edge cases)
+  if (hasValidContainerFact) {
+    console.log(`[Detection] SEA_FCL_IMPORT (container fact with valid items)`);
+    return "SEA_FCL_IMPORT";
+  }
+
+  // Step 5: IATA codes — ONLY if no maritime signal (Action 1 + Action 2)
+  if (!maritimeSignal) {
+    // Action 2: Whitelist of known airports for SODATRA routes
+    const KNOWN_AIRPORTS = new Set([
+      "PVG", "CDG", "IST", "DXB", "JFK", "BOM", "NBO", "DSS", "DKR",
+      "ADD", "NKC", "ABJ", "ACC", "LOS", "CMN", "ORY", "LHR", "FRA",
+      "AMS", "BRU", "MXP", "JNB", "DOH", "SIN", "HKG", "ICN", "NRT",
+      "PEK", "CAN", "SZX", "BKK", "KUL", "DEL", "BLR", "MAA", "CGK",
+    ]);
+    // Incoterms to exclude from IATA matching
+    const INCOTERM_CODES = new Set([
+      "FOB", "CIF", "CFR", "DAP", "DDP", "EXW", "FCA", "CPT", "CIP", "DAT", "DPU",
+    ]);
+
+    const iataContextRegex = /\b([A-Z]{3})\s*(?:TO|-|>)\s*([A-Z]{3})\b/g;
+    let iataMatch;
+    while ((iataMatch = iataContextRegex.exec(context)) !== null) {
+      const code1 = iataMatch[1];
+      const code2 = iataMatch[2];
+      // Skip if either code is an incoterm
+      if (INCOTERM_CODES.has(code1) || INCOTERM_CODES.has(code2)) continue;
+      // At least one must be a known airport
+      if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
+        console.log(`[Detection] AIR_IMPORT (IATA codes: ${code1}-${code2})`);
+        return "AIR_IMPORT";
+      }
     }
+
+    // Also check "from XXX to YYY" pattern
+    const iataFromToRegex = /from\s+([A-Z]{3})\s+to\s+([A-Z]{3})/gi;
+    while ((iataMatch = iataFromToRegex.exec(context)) !== null) {
+      const code1 = iataMatch[1].toUpperCase();
+      const code2 = iataMatch[2].toUpperCase();
+      if (INCOTERM_CODES.has(code1) || INCOTERM_CODES.has(code2)) continue;
+      if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
+        console.log(`[Detection] AIR_IMPORT (IATA from-to: ${code1}-${code2})`);
+        return "AIR_IMPORT";
+      }
+    }
+  } else {
+    console.log(`[Detection] IATA check SKIPPED — maritime signals present`);
   }
 
-  // Step 5: IATA codes with context (P0-B: also match "from XXX to YYY")
-  const iataContextRegex = /([A-Z]{3})\s*(?:TO|-|>)\s*([A-Z]{3})/;
-  const iataFromToRegex = /from\s+([A-Z]{3})\s+to\s+([A-Z]{3})/i;
-  if (iataContextRegex.test(context) || iataFromToRegex.test(context)) {
-    console.log(`[A1] detectRequestType: AIR_IMPORT (IATA code context)`);
-    return "AIR_IMPORT";
-  }
-
-  // Step 7: Default = UNKNOWN (P0-1: NOT SEA_FCL_IMPORT)
-  console.log(`[A1] detectRequestType: UNKNOWN (no explicit mode detected)`);
+  // Step 6: Default = UNKNOWN
+  console.log(`[Detection] UNKNOWN (no explicit mode detected)`);
   return "UNKNOWN";
 }
 
