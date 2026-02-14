@@ -1,42 +1,49 @@
 
+# Correctif : total_ht doit refléter le coût global (DDP) pour le client
 
-# Relancer le pricing sur LCL 25607 (case acddafa7)
+## Diagnostic
 
-## Probleme identifie
+Le moteur quotation-engine calcule correctement deux totaux :
+- `dap = 191 191 FCFA` (honoraires + operationnel + border + terminal)
+- `ddp = 1 015 020 FCFA` (dap + debours/droits de douane)
 
-Le case est en statut `PRICED_DRAFT` mais `run-pricing` exige strictement `ACK_READY_FOR_PRICING`. Il est impossible de relancer le pricing apres une correction sans repasser par tout le workflow.
+Mais `run-pricing` stocke `total_ht = totals.dap` pour les incoterms non-DDP (CIF, FOB, etc.), ce qui masque les 823 829 FCFA de droits et taxes dans le total affiché.
 
-## Correctif necessaire
+Pour Sodatra (transitaire qui avance les droits de douane), le total pertinent est toujours le **DDP** car le client paie l'ensemble.
 
-### Fichier : `supabase/functions/run-pricing/index.ts` (ligne 103)
+## Correctif propose
 
-Elargir le guard FSM pour accepter le re-pricing depuis `PRICED_DRAFT` et `HUMAN_REVIEW` :
+### Fichier : `supabase/functions/run-pricing/index.ts` (lignes 317-321)
+
+Remplacer la logique conditionnelle DAP/DDP par un total qui inclut toujours les debours :
 
 ```text
-// Avant (trop strict)
-if (caseData.status !== "ACK_READY_FOR_PRICING") { ... }
+// Avant
+const isDDP = incotermUpper === "DDP";
+const totalHt = isDDP
+  ? (engineTotals?.ddp ?? ...)
+  : (engineTotals?.dap ?? ...);
 
-// Apres (permet le re-pricing)
-const pricingAllowedStatuses = ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW"];
-if (!pricingAllowedStatuses.includes(caseData.status)) { ... }
+// Apres — Sodatra facture toujours honoraires + debours
+const totalHt = engineTotals?.ddp
+  ?? tariffLines.reduce((sum, l) => sum + (l.amount || 0), 0);
 ```
 
-### Apres deploiement
+L'information DAP/DDP reste disponible dans `outputs_json.totals` pour l'affichage detaille (ventilation honoraires vs debours).
 
-Appeler `run-pricing` avec `case_id: acddafa7-11f4-4971-bd12-89d4de040cb5` pour declencher le recalcul avec :
-- Conversion EUR vers FCFA (4 655 EUR x 655.957 = ~3 053 480 FCFA)
-- Base TVA complete (DD + surtaxe + RS + TIN + TCI)
+## Impact
+
+| Champ | Avant | Apres |
+|---|---|---|
+| total_ht (pricing_runs) | 191 191 FCFA (DAP) | 1 015 020 FCFA (DDP) |
+| outputs_json.totals.dap | 191 191 | 191 191 (inchange) |
+| outputs_json.totals.ddp | 1 015 020 | 1 015 020 (inchange) |
+| outputs_json.totals.debours | 823 829 | 823 829 (inchange) |
 
 ## Risque
 
-Minimal. L'ajout de `PRICED_DRAFT` comme statut accepte est logique : un operateur doit pouvoir relancer le pricing apres correction des formules ou des facts. Le guard des gaps bloquants reste actif (ligne 114+).
+Minimal. Les totaux detailles (dap, ddp, debours) restent stockes dans outputs_json pour tout besoin de ventilation. Seul le champ `total_ht` de la table `pricing_runs` change pour refleter le vrai cout client.
 
-## Resume
+## Apres deploiement
 
-| Action | Detail |
-|---|---|
-| Modifier run-pricing FSM | Accepter PRICED_DRAFT et HUMAN_REVIEW |
-| Deployer run-pricing | Automatique |
-| Appeler run-pricing | case_id = acddafa7 |
-| Resultat attendu | CAF ~3 053 480 FCFA, droits corriges |
-
+Relancer le pricing sur le case acddafa7 pour obtenir le total corrige.
