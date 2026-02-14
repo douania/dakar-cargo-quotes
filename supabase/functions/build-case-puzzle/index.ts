@@ -860,7 +860,7 @@ Deno.serve(async (req) => {
       emails = threadEmails || [];
     }
 
-    if (emails.length === 0) {
+    if (caseData.thread_id && emails.length === 0) {
       return new Response(
         JSON.stringify({ error: "No emails found in thread" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
