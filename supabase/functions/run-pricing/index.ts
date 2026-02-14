@@ -314,11 +314,9 @@ Deno.serve(async (req) => {
     const tariffLines = engineResponse.lines || engineResponse.quotationLines || [];
     const engineTotals = engineResponse.totals;
     const incotermUpper = (inputs.incoterm || "").toUpperCase();
-    // DDP: total includes debours (duties); DAP/other: total excludes debours
-    const isDDP = incotermUpper === "DDP";
-    const totalHt = isDDP
-      ? (engineTotals?.ddp ?? engineResponse.totalHt ?? engineResponse.total_ht ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0))
-      : (engineTotals?.dap ?? engineResponse.totalHt ?? engineResponse.total_ht ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0));
+    // Sodatra facture toujours honoraires + débours — total_ht = coût global (DDP)
+    const totalHt = engineTotals?.ddp
+      ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0);
     const totalTtc = engineResponse.totalTtc || engineResponse.total_ttc || totalHt;
     const currency = engineResponse.currency || "XOF";
 
