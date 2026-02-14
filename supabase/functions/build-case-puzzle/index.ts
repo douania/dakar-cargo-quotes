@@ -704,6 +704,76 @@ async function injectAttachmentFacts(
     }
   }
 
+  // --- Inject cargo.articles_detail if multiple items with values exist ---
+  try {
+    for (const attachment of attachments) {
+      const extractedInfo = (attachment.extracted_data as any)?.extracted_info || attachment.extracted_data;
+      if (!extractedInfo) continue;
+
+      const items = extractedInfo.items || extractedInfo.articles || extractedInfo.lignes;
+      if (!Array.isArray(items) || items.length < 2) continue;
+
+      // Build articles detail from items with values > 0
+      const articlesDetail: Array<{ hs_code: string; value: number; currency: string; description?: string }> = [];
+      for (const item of items) {
+        const value = parseFloat(item.total ?? item.unit_price ?? item.value ?? item.montant ?? 0);
+        const hsCode = item.hs_code || item.code_hs || item.codes_hs || '';
+        if (value > 0 && hsCode) {
+          articlesDetail.push({
+            hs_code: String(hsCode),
+            value,
+            currency: item.currency || item.devise || extractedInfo.devise || 'EUR',
+            description: item.description || item.designation || undefined,
+          });
+        }
+      }
+
+      if (articlesDetail.length >= 2 && !injectedKeys.has('cargo.articles_detail')) {
+        const existingSource = factSourceMap.get('cargo.articles_detail');
+        if (existingSource !== 'operator') {
+          const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
+            p_case_id: caseId,
+            p_fact_key: 'cargo.articles_detail',
+            p_fact_category: 'cargo',
+            p_value_text: null,
+            p_value_number: null,
+            p_value_json: articlesDetail,
+            p_value_date: null,
+            p_source_type: 'attachment_extracted',
+            p_source_email_id: attachment.email_id || null,
+            p_source_attachment_id: attachment.id,
+            p_source_excerpt: `[${attachment.filename}] ${articlesDetail.length} articles with EXW values`,
+            p_confidence: 0.95,
+          });
+
+          if (!rpcError) {
+            result.added++;
+            injectedKeys.add('cargo.articles_detail');
+            factSourceMap.set('cargo.articles_detail', 'attachment_extracted');
+            console.log(`[M3.4] Injected cargo.articles_detail: ${articlesDetail.length} articles`);
+
+            await serviceClient.from('case_timeline_events').insert({
+              case_id: caseId,
+              event_type: 'fact_injected_from_attachment',
+              event_data: {
+                fact_key: 'cargo.articles_detail',
+                attachment_id: attachment.id,
+                filename: attachment.filename,
+                articles_count: articlesDetail.length,
+              },
+              actor_type: 'system',
+            });
+          } else {
+            console.error(`[M3.4] Failed to inject cargo.articles_detail:`, rpcError);
+          }
+        }
+        break; // First attachment with valid articles wins
+      }
+    }
+  } catch (e) {
+    console.error('[M3.4] Error injecting cargo.articles_detail:', e);
+  }
+
   console.log(`[M3.4] Attachment facts: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped`);
   return result;
 }

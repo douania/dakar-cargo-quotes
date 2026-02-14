@@ -457,6 +457,14 @@ interface QuotationRequest {
   // Code HS pour calcul droits
   hsCode?: string;
   
+  // Detail articles avec valeurs EXW pour répartition proportionnelle CAF
+  articlesDetail?: Array<{
+    hs_code: string;
+    value: number;
+    currency: string;
+    description?: string;
+  }>;
+  
   // Client info
   clientCompany?: string;
   
@@ -2033,16 +2041,56 @@ async function generateQuotationLines(
     
 
     // Si code HS fourni, calculer les droits
-    // Si code HS fourni, calculer les droits
     if (request.hsCode) {
-      // Support multiple HS codes — loop over ALL codes and distribute CAF equally
+      // Support multiple HS codes
       const hsCodes = request.hsCode.split(/[,;]/).map((c: string) => c.trim()).filter(Boolean);
-      const cafPerArticle = hsCodes.length > 1 ? caf.cafValue / hsCodes.length : caf.cafValue;
+      
+      // --- Proportional CAF distribution based on articlesDetail EXW values ---
+      let cafDistribution: number[] = [];
+      let distributionMethod: 'proportional' | 'equal' = 'equal';
+      
+      if (request.articlesDetail && request.articlesDetail.length >= 2) {
+        // Build a map of HS code → EXW value from articlesDetail
+        const detailMap = new Map<string, number>();
+        for (const art of request.articlesDetail) {
+          const normKey = art.hs_code.replace(/\D/g, '');
+          detailMap.set(normKey, (detailMap.get(normKey) || 0) + art.value);
+        }
+        
+        const totalEXW = request.articlesDetail.reduce((sum, a) => sum + a.value, 0);
+        
+        if (totalEXW > 0) {
+          // For each HS code in the loop, find its EXW value and compute ratio
+          let distributedSum = 0;
+          for (let i = 0; i < hsCodes.length; i++) {
+            const hsNorm = hsCodes[i].replace(/\D/g, '');
+            const exwValue = detailMap.get(hsNorm) || 0;
+            if (i === hsCodes.length - 1) {
+              // Last article gets remainder to avoid rounding drift
+              cafDistribution.push(caf.cafValue - distributedSum);
+            } else {
+              const ratio = exwValue / totalEXW;
+              const cafArticle = Math.round(caf.cafValue * ratio);
+              cafDistribution.push(cafArticle);
+              distributedSum += cafArticle;
+            }
+          }
+          distributionMethod = 'proportional';
+          console.log(`[Engine] Proportional CAF distribution: totalEXW=${totalEXW}, ratios=${cafDistribution.map(c => Math.round(c)).join(',')}`);
+        }
+      }
+      
+      // Fallback: equal distribution
+      if (cafDistribution.length !== hsCodes.length) {
+        cafDistribution = hsCodes.map(() => hsCodes.length > 1 ? caf.cafValue / hsCodes.length : caf.cafValue);
+        distributionMethod = 'equal';
+      }
+
       let totalAllDuties = 0;
-      let allFound = true;
       const missingCodes: string[] = [];
 
       for (const [idx, currentHsCode] of hsCodes.entries()) {
+        const cafForArticle = cafDistribution[idx];
         const hsNormalized = currentHsCode.replace(/\D/g, '');
         const { data: hsData } = await supabase
           .from('hs_codes')
@@ -2052,24 +2100,28 @@ async function generateQuotationLines(
 
         if (hsData && hsData.length > 0) {
           const hs = hsData[0];
-          const ddAmount = cafPerArticle * ((hs.dd || 0) / 100);
-          const rsAmount = cafPerArticle * ((hs.rs || 0) / 100);
-          const surtaxeAmount = cafPerArticle * ((hs.surtaxe || 0) / 100);
-          const tinAmount = cafPerArticle * ((hs.tin || 0) / 100);
-          const tciAmount = cafPerArticle * ((hs.t_conj || 0) / 100);
-          const pcsAmount = cafPerArticle * ((hs.pcs || 0) / 100);
-          const pccAmount = cafPerArticle * ((hs.pcc || 0) / 100);
-          const cosecAmount = cafPerArticle * ((hs.cosec || 0) / 100);
-          const baseVAT = cafPerArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
+          const ddAmount = cafForArticle * ((hs.dd || 0) / 100);
+          const rsAmount = cafForArticle * ((hs.rs || 0) / 100);
+          const surtaxeAmount = cafForArticle * ((hs.surtaxe || 0) / 100);
+          const tinAmount = cafForArticle * ((hs.tin || 0) / 100);
+          const tciAmount = cafForArticle * ((hs.t_conj || 0) / 100);
+          const pcsAmount = cafForArticle * ((hs.pcs || 0) / 100);
+          const pccAmount = cafForArticle * ((hs.pcc || 0) / 100);
+          const cosecAmount = cafForArticle * ((hs.cosec || 0) / 100);
+          const baseVAT = cafForArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
           const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
 
           const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
           totalAllDuties += articleDuties;
 
+          // Find description from articlesDetail if available
+          const articleDesc = request.articlesDetail?.find(a => a.hs_code.replace(/\D/g, '') === hsNormalized)?.description;
+
           dutyBreakdown.push({
             article_index: idx + 1,
             hs_code: currentHsCode,
-            caf: Math.round(cafPerArticle),
+            description: articleDesc || undefined,
+            caf: Math.round(cafForArticle),
             dd_rate: hs.dd || 0, dd_amount: Math.round(ddAmount),
             surtaxe_rate: hs.surtaxe || 0, surtaxe_amount: Math.round(surtaxeAmount),
             rs_rate: hs.rs || 0, rs_amount: Math.round(rsAmount),
@@ -2083,7 +2135,6 @@ async function generateQuotationLines(
             total_duties: Math.round(articleDuties),
           });
         } else {
-          allFound = false;
           missingCodes.push(currentHsCode);
           warnings.push(`Code HS ${currentHsCode} non trouvé (article ${idx + 1}) - Droits à calculer manuellement`);
         }
@@ -2091,9 +2142,11 @@ async function generateQuotationLines(
 
       // Push single duties_total line with cumulated amount
       if (dutyBreakdown.length > 0) {
-        const cafNote = hsCodes.length > 1
-          ? `Base CAF répartie sur ${hsCodes.length} articles: ${Math.round(cafPerArticle).toLocaleString()} FCFA chacun (total: ${Math.round(caf.cafValue).toLocaleString()} FCFA, devise source: ${rawCurrency})`
-          : `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA (devise source: ${rawCurrency})`;
+        const cafNote = distributionMethod === 'proportional'
+          ? `Répartition proportionnelle aux valeurs EXW (${hsCodes.length} articles, total CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA, devise source: ${rawCurrency})`
+          : hsCodes.length > 1
+            ? `Répartition équitable CAF/${hsCodes.length} (valeurs EXW non disponibles, total: ${Math.round(caf.cafValue).toLocaleString()} FCFA, devise source: ${rawCurrency})`
+            : `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA (devise source: ${rawCurrency})`;
 
         lines.push({
           id: 'duties_total',
