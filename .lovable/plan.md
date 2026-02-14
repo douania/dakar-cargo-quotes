@@ -1,119 +1,146 @@
 
 
-# Correctif : Prise en compte de tous les articles (multi-HS codes)
+# Correctif : Repartition CAF proportionnelle aux valeurs EXW par article
 
 ## Diagnostic
 
-Le probleme est une chaine de 3 limitations :
+### Situation actuelle
+- `analyze-attachments` extrait les articles avec `items[].unit_price`, `items[].total`, `items[].hs_code`
+- `build-case-puzzle` **aplatit** ces donnees : seuls `cargo.value` (total) et `cargo.hs_code` (concatene) sont stockes comme facts
+- `run-pricing` transmet `cargoValue` (total) et `hsCode` (string) au moteur
+- `quotation-engine` repartit CAF/N (equitable) — faux si les articles ont des valeurs differentes
 
-1. **Extraction correcte** : L'analyse de la piece jointe detecte bien 2 codes HS : `["8525.50.00.00", "8507.20.00.00"]`
-2. **Stockage aplati** : `build-case-puzzle` les joint en string : `"8525.50.00.00, 8507.20.00.00"` (correct)
-3. **Moteur incomplet** : `quotation-engine` (ligne 2040) ne traite que le **premier** code HS et ignore les suivants
+### Exemple reel (LCL 25607)
+- Article 1 (8525.50.00.00) : 165 EUR
+- Article 2 (8507.20.00.00) : 3 760 EUR
+- Total CIF : 4 655 EUR
 
-```text
-Flux actuel :
-  attachment: ["8525.50.00.00", "8507.20.00.00"]
-       |
-  fact: "8525.50.00.00, 8507.20.00.00"
-       |
-  engine: hsCodes = ["8525.50.00.00", "8507.20.00.00"]
-  primaryHsCode = hsCodes[0]  <-- STOP, le 2eme est ignore
-```
+Repartition actuelle (CAF/N) : 2 327,50 EUR chacun — **faux**
+Repartition correcte (proportionnelle) : 165/3925 = 4.2% et 3760/3925 = 95.8%
 
-### Sous-probleme : repartition de la valeur CAF
+## Contrainte architecturale
 
-La piece jointe ne fournit pas de valeur unitaire par article. Le total est de 4 655 EUR pour les 2 articles confondus. Sans repartition, on ne peut pas calculer les droits correctement par article.
+Le user demande "correction uniquement dans quotation-engine", mais les valeurs par article ne sont actuellement **pas transmises** au moteur. Elles sont perdues dans `build-case-puzzle`.
 
-**Strategie retenue** : repartition equitable de la valeur CAF entre les articles (CAF / nombre d'articles). C'est une approximation acceptable qui :
-- permet de calculer les droits pour chaque code HS avec ses taux specifiques
-- produit un total global correct si les taux sont identiques
-- signale explicitement l'approximation dans les notes
+**Solution chirurgicale en 3 touches minimales** (principe du projet : surgical corrections only) :
+
+| Fichier | Nature de la modification |
+|---|---|
+| `build-case-puzzle/index.ts` | Ajouter 1 fact `cargo.articles_detail` (JSON) quand les items ont des valeurs unitaires |
+| `run-pricing/index.ts` | Ajouter 1 mapping `cargo.articles_detail` vers un nouveau champ `articlesDetail` |
+| `quotation-engine/index.ts` | Utiliser `articlesDetail` pour repartition proportionnelle, fallback CAF/N si absent |
+
+Aucune modification du frontend, de la base de donnees, ni des autres edge functions.
 
 ## Plan d'implementation
 
-### Etape 1 — quotation-engine : boucle sur tous les HS codes
+### Etape 1 — build-case-puzzle : persister le detail articles
 
-**Fichier** : `supabase/functions/quotation-engine/index.ts` (lignes 2037-2113)
-
-Remplacer le traitement du seul `primaryHsCode` par une boucle sur tous les codes HS :
+Dans la section qui traite les facts issus des pieces jointes, ajouter l'injection d'un fait JSON `cargo.articles_detail` contenant le tableau `items` extrait par `analyze-attachments` :
 
 ```text
-Avant :
-  const hsCodes = request.hsCode.split(...)
-  const primaryHsCode = hsCodes[0]    // un seul
-  // calcul + push dutyBreakdown + push duties_total
-
-Apres :
-  const hsCodes = request.hsCode.split(...)
-  const cafPerArticle = caf.cafValue / hsCodes.length  // repartition
-  let totalAllDuties = 0
-
-  for (const [idx, hsCode] of hsCodes.entries()) {
-    // lookup HS dans la base
-    // calcul des droits avec cafPerArticle
-    // push dutyBreakdown pour cet article
-    // totalAllDuties += articleDuties
-  }
-
-  // Une seule ligne duties_total avec le cumul
-  lines.push({ id: 'duties_total', amount: totalAllDuties, ... })
+Nouveau fact :
+  fact_key: "cargo.articles_detail"
+  value_json: [
+    { "hs_code": "8525.50.00.00", "value": 165, "currency": "EUR", "description": "Circuit de control" },
+    { "hs_code": "8507.20.00.00", "value": 3760, "currency": "EUR", "description": "Batterie" }
+  ]
+  source_type: "attachment_extracted"
 ```
 
 Points cles :
-- La valeur CAF est repartie equitablement entre les articles
-- Chaque article a son propre lookup HS et ses propres taux
-- Le total global (`duties_total`) est la somme de tous les articles
-- Les notes mentionnent "CAF repartie sur N articles"
-- Si un code HS n'est pas trouve, un warning est emis pour cet article specifique
+- Insertion uniquement si `items` existe et contient au moins 2 elements avec des valeurs > 0
+- Si un seul article ou pas de valeurs, on ne cree pas le fact (comportement actuel preserve)
+- Aucun impact sur les autres facts existants
 
-### Etape 2 — Aucun changement sur run-pricing
+### Etape 2 — run-pricing : transmettre articlesDetail
 
-Le champ `duty_breakdown` est deja transmis comme tableau dans `outputs_json`. La boucle produit naturellement plusieurs elements dans le tableau.
+Ajouter dans l'interface `PricingInputs` :
+```text
+articlesDetail?: Array<{ hs_code: string; value: number; currency: string; description?: string }>
+```
 
-### Etape 3 — Aucun changement frontend
+Ajouter dans le switch de mapping des facts :
+```text
+case "cargo.articles_detail":
+  inputs.articlesDetail = JSON.parse(value)
+  break
+```
 
-Le composant `DutyBreakdownTable` affiche deja tous les elements du tableau `duty_breakdown`. Le badge "1 article" deviendra automatiquement "2 articles".
+Ajouter dans l'objet `engineRequest` transmis au moteur :
+```text
+articlesDetail: inputs.articlesDetail
+```
+
+### Etape 3 — quotation-engine : repartition proportionnelle
+
+Modifier la section droits et taxes (lignes 2037-2090) :
+
+```text
+Logique :
+1. Si request.articlesDetail existe et contient N articles avec valeurs :
+   - totalEXW = somme des article.value
+   - Pour chaque article :
+     ratio = article.value / totalEXW
+     cafArticle = caf.cafValue * ratio
+   - Utiliser cafArticle au lieu de cafPerArticle
+
+2. Sinon (fallback) :
+   - Garder la repartition equitable CAF/N actuelle
+
+3. cafNote mis a jour pour indiquer la methode utilisee :
+   "Repartition proportionnelle aux valeurs EXW" ou "Repartition equitable (valeurs EXW non disponibles)"
+```
+
+Le reste du code (lookup HS, calcul taxes, dutyBreakdown, duties_total) reste identique.
+
+### Interface QuotationRequest mise a jour
+
+Ajouter un champ optionnel :
+```text
+articlesDetail?: Array<{
+  hs_code: string;
+  value: number;
+  currency: string;
+  description?: string;
+}>
+```
 
 ## Resultat attendu
 
-Apres correctif et relance du pricing sur le dossier LCL 25607 :
+Apres correctif et relance du pricing :
 
 ```text
 duty_breakdown: [
   {
     article_index: 1,
     hs_code: "8525.50.00.00",
-    caf: 1526740,          // 4655 EUR / 2 * 655.957
-    dd_rate: 5, dd_amount: 76337,
+    caf: 128,282 FCFA,     // 4.2% du total
+    description: "Circuit de control",
     ...
   },
   {
     article_index: 2,
     hs_code: "8507.20.00.00",
-    caf: 1526740,
-    dd_rate: 20, dd_amount: 305348,   // taux DD different !
+    caf: 2,925,198 FCFA,   // 95.8% du total
+    description: "Batterie",
     ...
   }
 ]
 ```
 
-Le tableau UI affichera les 2 articles avec leurs taux respectifs.
-
 ## Ce qui ne change PAS
 
-- Aucune modification de `run-pricing`
-- Aucune modification du frontend
-- Aucune modification de la base de donnees
-- Les totaux globaux restent corrects (somme des articles)
-- La logique CAF reste identique (seule la repartition est ajoutee)
+- Aucune modification du frontend (DutyBreakdownTable affiche deja le tableau)
+- Aucune migration de base de donnees (value_json existe deja sur quote_facts)
+- Les cas a 1 seul article fonctionnent exactement comme avant
+- Les cas sans valeurs par article utilisent le fallback CAF/N
 
-## Fichier modifie
+## Risques et mitigations
 
-| Fichier | Nature |
+| Risque | Mitigation |
 |---|---|
-| `supabase/functions/quotation-engine/index.ts` | Boucle sur tous les HS codes au lieu du premier seul (~40 lignes modifiees) |
-
-## Limitation connue
-
-La repartition equitable CAF/N est une approximation. Pour une ventilation exacte, il faudrait que l'extraction de la piece jointe (`analyze-attachments`) retourne les valeurs unitaires par article. C'est une amelioration future possible.
+| Ancien dossier sans `cargo.articles_detail` | Fallback CAF/N (code existant) |
+| Conversion devise (articles en EUR, CAF en FCFA) | Les articles sont en devise source, conversion appliquee au total avant repartition |
+| Arrondis cumulatifs | Ajustement du dernier article pour coller au total exact |
 
