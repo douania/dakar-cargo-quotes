@@ -100,16 +100,19 @@ Deno.serve(async (req) => {
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 
-    if (caseData.status !== "ACK_READY_FOR_PRICING") {
+    // Allow re-pricing from PRICED_DRAFT (corrections) and HUMAN_REVIEW
+    const pricingAllowedStatuses = ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW"];
+    if (!pricingAllowedStatuses.includes(caseData.status)) {
       return new Response(
         JSON.stringify({ 
           error: "Case not ready for pricing",
           current_status: caseData.status,
-          required_status: "ACK_READY_FOR_PRICING"
+          allowed_statuses: pricingAllowedStatuses
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    const previousStatus = caseData.status;
 
     // 4. CTO FIX: Guard-fou - Revérifier les gaps bloquants même si status READY_TO_PRICE
     const { count: blockingGapsCount } = await serviceClient
@@ -143,7 +146,7 @@ Deno.serve(async (req) => {
     await serviceClient.from("case_timeline_events").insert({
       case_id,
       event_type: "status_changed",
-      previous_value: "ACK_READY_FOR_PRICING",
+      previous_value: previousStatus,
       new_value: "PRICING_RUNNING",
       actor_type: "system",
     });
@@ -157,7 +160,7 @@ Deno.serve(async (req) => {
 
     if (factsError) {
       // CTO FIX: Rollback status on error
-      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "facts_load_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "facts_load_failed");
       throw new Error(`Failed to load facts: ${factsError.message}`);
     }
 
@@ -183,7 +186,7 @@ Deno.serve(async (req) => {
 
     if (rpcError || runNumber === null) {
       // CTO FIX: Rollback status on error
-      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_number_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "run_number_failed");
       throw new Error(`Failed to get run number: ${rpcError?.message || "null result"}`);
     }
 
@@ -212,7 +215,7 @@ Deno.serve(async (req) => {
       pricingRun = runData;
     } catch (insertError: any) {
       // CTO FIX: Rollback status if run creation fails
-      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "run_insert_failed");
+      await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "run_insert_failed");
       
       await serviceClient.from("case_timeline_events").insert({
         case_id,
@@ -286,8 +289,8 @@ Deno.serve(async (req) => {
         })
         .eq("id", pricingRun.id);
 
-      // Rollback case to ACK_READY_FOR_PRICING (engine failed, allow retry)
-      await rollbackToPreviousStatus(serviceClient, case_id, "ACK_READY_FOR_PRICING", "engine_failed");
+      // Rollback case to previous status (engine failed, allow retry)
+      await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "engine_failed");
 
       await serviceClient.from("case_timeline_events").insert({
         case_id,
