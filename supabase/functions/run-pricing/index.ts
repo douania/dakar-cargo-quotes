@@ -97,12 +97,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (caseData.created_by !== userId && caseData.assigned_to !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Access denied" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     if (caseData.status !== "ACK_READY_FOR_PRICING") {
       return new Response(

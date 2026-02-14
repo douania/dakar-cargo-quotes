@@ -279,26 +279,8 @@ serve(async (req) => {
       });
     }
 
-    // Ownership check
-    if (quoteCase.created_by !== userId) {
-      console.warn(`[commit-decision] Ownership denied: user=${userId}, owner=${quoteCase.created_by}, case=${case_id}`);
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'commit-decision',
-        op: 'ownership',
-        userId,
-        status: 'fatal_error',
-        errorCode: 'FORBIDDEN_OWNER',
-        httpStatus: 403,
-        durationMs: Date.now() - startTime,
-        meta: { case_id, owner: quoteCase.created_by },
-      });
-      return respondError({
-        code: 'FORBIDDEN_OWNER',
-        message: 'Access denied: not the case owner',
-        correlationId,
-      });
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // CTO RULE: Status must be in allowed list
     if (!ALLOWED_STATUSES.includes(quoteCase.status as typeof ALLOWED_STATUSES[number])) {

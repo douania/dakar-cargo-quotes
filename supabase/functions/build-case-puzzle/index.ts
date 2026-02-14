@@ -768,12 +768,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (caseData.created_by !== userId && caseData.assigned_to !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Access denied" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
     const FROZEN_STATUSES = ["PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];

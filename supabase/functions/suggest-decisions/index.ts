@@ -347,14 +347,8 @@ serve(async (req) => {
       );
     }
 
-    // CTO RULE: Ownership check minimal - created_by uniquement
-    if (quoteCase.created_by !== userId) {
-      console.warn(`[suggest-decisions] Ownership denied: user ${userId} tried to access case ${case_id} owned by ${quoteCase.created_by}`);
-      return new Response(
-        JSON.stringify({ error: "Access denied" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // 4. LOAD CONTEXT (SELECT ONLY)
     

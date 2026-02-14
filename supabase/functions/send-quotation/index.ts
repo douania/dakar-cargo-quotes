@@ -118,10 +118,8 @@ Deno.serve(async (req) => {
       return await fail(serviceClient, "VALIDATION_FAILED", "Quote case not found", correlationId, t0, userId, { case_id });
     }
 
-    // 6. P2 — Explicit ownership guard
-    if (caseData.created_by !== user.id && caseData.assigned_to !== user.id) {
-      return await fail(serviceClient, "FORBIDDEN_OWNER", "Access denied", correlationId, t0, userId, { case_id });
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // 7. P3 — FSM guard (idempotent: accept SENT too)
     const allowedStatuses = ["QUOTED_VERSIONED", "SENT"];

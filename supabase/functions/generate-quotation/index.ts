@@ -134,26 +134,8 @@ serve(async (req) => {
       });
     }
 
-    // 6. Contrôle ownership strict
-    if (existingDraft.created_by !== userId) {
-      console.error('Ownership check failed:', { created_by: existingDraft.created_by, userId });
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'generate-quotation',
-        op: 'ownership',
-        userId,
-        status: 'fatal_error',
-        errorCode: 'FORBIDDEN_OWNER',
-        httpStatus: 403,
-        durationMs: Date.now() - startTime,
-        meta: { quotation_id, owner: existingDraft.created_by },
-      });
-      return respondError({
-        code: 'FORBIDDEN_OWNER',
-        message: 'Non autorisé',
-        correlationId,
-      });
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // 7. Vérifier transition valide (seul draft → generated autorisé)
     if (existingDraft.status !== 'draft') {

@@ -138,24 +138,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (caseData.created_by !== userId && caseData.assigned_to !== userId) {
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'generate-case-outputs',
-        op: 'ownership',
-        userId,
-        status: 'fatal_error',
-        errorCode: 'FORBIDDEN_OWNER',
-        httpStatus: 403,
-        durationMs: Date.now() - startTime,
-        meta: { case_id, owner: caseData.created_by },
-      });
-      return respondError({
-        code: 'FORBIDDEN_OWNER',
-        message: 'Access denied',
-        correlationId,
-      });
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     if (caseData.status !== "PRICED_DRAFT") {
       await logRuntimeEvent(serviceClient, {
