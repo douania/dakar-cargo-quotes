@@ -2046,43 +2046,65 @@ async function generateQuotationLines(
       const hsCodes = request.hsCode.split(/[,;]/).map((c: string) => c.trim()).filter(Boolean);
       
       // --- Proportional CAF distribution based on articlesDetail EXW values ---
+      // M3.4.1: Currency conversion helper
+      function convertArticleValueToFCFA(value: number, currency: string): number {
+        const cur = (currency || 'XOF').toUpperCase();
+        if (cur === 'XOF' || cur === 'FCFA' || cur === 'CFA') return value;
+        if (cur === 'EUR') return value * 655.957;
+        return value; // devise non supportee, fallback brut
+      }
+
       let cafDistribution: number[] = [];
       let distributionMethod: 'proportional' | 'equal' = 'equal';
       
       if (request.articlesDetail && request.articlesDetail.length >= 2) {
-        // Build a map of HS code → EXW value from articlesDetail
+        // Build a map of HS code → EXW value from articlesDetail (M3.4.1: converted to FCFA)
         const detailMap = new Map<string, number>();
         for (const art of request.articlesDetail) {
           const normKey = art.hs_code.replace(/\D/g, '');
-          detailMap.set(normKey, (detailMap.get(normKey) || 0) + art.value);
+          const valueFCFA = convertArticleValueToFCFA(art.value, art.currency);
+          detailMap.set(normKey, (detailMap.get(normKey) || 0) + valueFCFA);
         }
         
-        const totalEXW = request.articlesDetail.reduce((sum, a) => sum + a.value, 0);
+        // M3.4.1: totalEXW from converted detailMap, not raw request
+        const totalEXW = Array.from(detailMap.values()).reduce((sum, v) => sum + v, 0);
         
         if (totalEXW > 0) {
-          // For each HS code in the loop, find its EXW value and compute ratio
-          let distributedSum = 0;
-          for (let i = 0; i < hsCodes.length; i++) {
-            const hsNorm = hsCodes[i].replace(/\D/g, '');
-            const exwValue = detailMap.get(hsNorm) || 0;
-            if (i === hsCodes.length - 1) {
-              // Last article gets remainder to avoid rounding drift
-              cafDistribution.push(caf.cafValue - distributedSum);
-            } else {
-              const ratio = exwValue / totalEXW;
-              const cafArticle = Math.round(caf.cafValue * ratio);
-              cafDistribution.push(cafArticle);
-              distributedSum += cafArticle;
+          // M3.4.1: Coverage guard — check how many HS are covered
+          const coveredCount = hsCodes.filter(h => {
+            const hsNorm = h.replace(/\D/g, '');
+            return (detailMap.get(hsNorm) || 0) > 0;
+          }).length;
+
+          if (coveredCount !== hsCodes.length) {
+            // Incomplete coverage → fallback equal
+            console.log(`[Engine] Incomplete coverage: ${coveredCount}/${hsCodes.length} — equal distribution`);
+            cafDistribution = hsCodes.map(() => caf.cafValue / hsCodes.length);
+            distributionMethod = 'equal';
+          } else {
+            // Proportional distribution
+            let distributedSum = 0;
+            for (let i = 0; i < hsCodes.length; i++) {
+              const hsNorm = hsCodes[i].replace(/\D/g, '');
+              const exwValue = detailMap.get(hsNorm) || 0;
+              if (i === hsCodes.length - 1) {
+                cafDistribution.push(caf.cafValue - distributedSum);
+              } else {
+                const ratio = exwValue / totalEXW;
+                const cafArticle = Math.round(caf.cafValue * ratio);
+                cafDistribution.push(cafArticle);
+                distributedSum += cafArticle;
+              }
             }
+            distributionMethod = 'proportional';
+            console.log(`[Engine] Proportional CAF: totalEXW=${totalEXW}, distribution=${cafDistribution.join(',')}`);
           }
-          distributionMethod = 'proportional';
-          console.log(`[Engine] Proportional CAF distribution: totalEXW=${totalEXW}, ratios=${cafDistribution.map(c => Math.round(c)).join(',')}`);
         }
       }
       
-      // Fallback: equal distribution
-      if (cafDistribution.length !== hsCodes.length) {
-        cafDistribution = hsCodes.map(() => hsCodes.length > 1 ? caf.cafValue / hsCodes.length : caf.cafValue);
+      // Fallback: equal distribution if nothing was computed
+      if (cafDistribution.length === 0 || cafDistribution.length !== hsCodes.length) {
+        cafDistribution = hsCodes.map(() => caf.cafValue / hsCodes.length);
         distributionMethod = 'equal';
       }
 
