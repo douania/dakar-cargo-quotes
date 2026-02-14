@@ -2035,65 +2035,83 @@ async function generateQuotationLines(
     // Si code HS fourni, calculer les droits
     // Si code HS fourni, calculer les droits
     if (request.hsCode) {
-      // Support multiple HS codes separated by comma — use first one for duty calculation
+      // Support multiple HS codes — loop over ALL codes and distribute CAF equally
       const hsCodes = request.hsCode.split(/[,;]/).map((c: string) => c.trim()).filter(Boolean);
-      const primaryHsCode = hsCodes[0];
-      const hsNormalized = primaryHsCode.replace(/\D/g, '');
-      const { data: hsData } = await supabase
-        .from('hs_codes')
-        .select('*')
-        .or(`code.eq.${primaryHsCode},code_normalized.eq.${hsNormalized}`)
-        .limit(1);
-      
-      if (hsData && hsData.length > 0) {
-        const hs = hsData[0];
-        const ddAmount = caf.cafValue * ((hs.dd || 0) / 100);
-        const rsAmount = caf.cafValue * ((hs.rs || 0) / 100);
-        const surtaxeAmount = caf.cafValue * ((hs.surtaxe || 0) / 100);
-        const tinAmount = caf.cafValue * ((hs.tin || 0) / 100);
-        const tciAmount = caf.cafValue * ((hs.t_conj || 0) / 100);
-        const pcsAmount = caf.cafValue * ((hs.pcs || 0) / 100);
-        const pccAmount = caf.cafValue * ((hs.pcc || 0) / 100);
-        const cosecAmount = caf.cafValue * ((hs.cosec || 0) / 100);
-        const baseVAT = caf.cafValue + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
-        const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
-        
-        const totalDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+      const cafPerArticle = hsCodes.length > 1 ? caf.cafValue / hsCodes.length : caf.cafValue;
+      let totalAllDuties = 0;
+      let allFound = true;
+      const missingCodes: string[] = [];
 
-        // Duty breakdown per article (note de détail douanière)
-        dutyBreakdown.push({
-          article_index: dutyBreakdown.length + 1,
-          hs_code: primaryHsCode,
-          caf: Math.round(caf.cafValue),
-          dd_rate: hs.dd || 0, dd_amount: Math.round(ddAmount),
-          surtaxe_rate: hs.surtaxe || 0, surtaxe_amount: Math.round(surtaxeAmount),
-          rs_rate: hs.rs || 0, rs_amount: Math.round(rsAmount),
-          tin_rate: hs.tin || 0, tin_amount: Math.round(tinAmount),
-          tci_rate: hs.t_conj || 0, tci_amount: Math.round(tciAmount),
-          pcs_rate: hs.pcs || 0, pcs_amount: Math.round(pcsAmount),
-          pcc_rate: hs.pcc || 0, pcc_amount: Math.round(pccAmount),
-          cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
-          base_tva: Math.round(baseVAT),
-          tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
-          total_duties: Math.round(totalDuties),
-        });
-        
+      for (const [idx, currentHsCode] of hsCodes.entries()) {
+        const hsNormalized = currentHsCode.replace(/\D/g, '');
+        const { data: hsData } = await supabase
+          .from('hs_codes')
+          .select('*')
+          .or(`code.eq.${currentHsCode},code_normalized.eq.${hsNormalized}`)
+          .limit(1);
+
+        if (hsData && hsData.length > 0) {
+          const hs = hsData[0];
+          const ddAmount = cafPerArticle * ((hs.dd || 0) / 100);
+          const rsAmount = cafPerArticle * ((hs.rs || 0) / 100);
+          const surtaxeAmount = cafPerArticle * ((hs.surtaxe || 0) / 100);
+          const tinAmount = cafPerArticle * ((hs.tin || 0) / 100);
+          const tciAmount = cafPerArticle * ((hs.t_conj || 0) / 100);
+          const pcsAmount = cafPerArticle * ((hs.pcs || 0) / 100);
+          const pccAmount = cafPerArticle * ((hs.pcc || 0) / 100);
+          const cosecAmount = cafPerArticle * ((hs.cosec || 0) / 100);
+          const baseVAT = cafPerArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
+          const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
+
+          const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+          totalAllDuties += articleDuties;
+
+          dutyBreakdown.push({
+            article_index: idx + 1,
+            hs_code: currentHsCode,
+            caf: Math.round(cafPerArticle),
+            dd_rate: hs.dd || 0, dd_amount: Math.round(ddAmount),
+            surtaxe_rate: hs.surtaxe || 0, surtaxe_amount: Math.round(surtaxeAmount),
+            rs_rate: hs.rs || 0, rs_amount: Math.round(rsAmount),
+            tin_rate: hs.tin || 0, tin_amount: Math.round(tinAmount),
+            tci_rate: hs.t_conj || 0, tci_amount: Math.round(tciAmount),
+            pcs_rate: hs.pcs || 0, pcs_amount: Math.round(pcsAmount),
+            pcc_rate: hs.pcc || 0, pcc_amount: Math.round(pccAmount),
+            cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
+            base_tva: Math.round(baseVAT),
+            tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
+            total_duties: Math.round(articleDuties),
+          });
+        } else {
+          allFound = false;
+          missingCodes.push(currentHsCode);
+          warnings.push(`Code HS ${currentHsCode} non trouvé (article ${idx + 1}) - Droits à calculer manuellement`);
+        }
+      }
+
+      // Push single duties_total line with cumulated amount
+      if (dutyBreakdown.length > 0) {
+        const cafNote = hsCodes.length > 1
+          ? `Base CAF répartie sur ${hsCodes.length} articles: ${Math.round(cafPerArticle).toLocaleString()} FCFA chacun (total: ${Math.round(caf.cafValue).toLocaleString()} FCFA, devise source: ${rawCurrency})`
+          : `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA (devise source: ${rawCurrency})`;
+
         lines.push({
           id: 'duties_total',
           bloc: 'debours',
           category: 'Droits & Taxes',
-          description: `Droits et taxes (HS ${request.hsCode})`,
-          amount: Math.round(totalDuties),
+          description: `Droits et taxes (${hsCodes.length} article${hsCodes.length > 1 ? 's' : ''}: ${hsCodes.join(', ')})`,
+          amount: Math.round(totalAllDuties),
           currency: 'FCFA',
           source: {
             type: 'CALCULATED',
-            reference: `TEC UEMOA - DD ${hs.dd || 0}% + RS ${hs.rs || 0}% + TVA ${hs.tva || 0}% + Surtaxe ${hs.surtaxe || 0}% + TIN ${hs.tin || 0}%`,
-            confidence: 0.95
+            reference: `TEC UEMOA — ${hsCodes.length} code(s) HS traité(s)${missingCodes.length > 0 ? `, ${missingCodes.length} non trouvé(s)` : ''}`,
+            confidence: missingCodes.length > 0 ? 0.7 : 0.95
           },
-          notes: `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA (devise source: ${rawCurrency})`,
+          notes: cafNote,
           isEditable: true
         });
       } else {
+        // All HS codes were missing
         lines.push({
           id: 'duties_total',
           bloc: 'debours',
@@ -2103,13 +2121,12 @@ async function generateQuotationLines(
           currency: 'FCFA',
           source: {
             type: 'TO_CONFIRM',
-            reference: `Code HS ${request.hsCode} non trouvé`,
+            reference: `Code(s) HS ${request.hsCode} non trouvé(s)`,
             confidence: 0
           },
-          notes: 'Code HS à vérifier pour calcul des droits',
+          notes: 'Code(s) HS à vérifier pour calcul des droits',
           isEditable: true
         });
-        warnings.push(`Code HS ${request.hsCode} non trouvé - Droits à calculer manuellement`);
       }
     } else {
       // No HS code — no invented estimate, flag for human confirmation
@@ -2128,31 +2145,8 @@ async function generateQuotationLines(
         notes: 'Aucune donnée normative — fournir le code HS pour calcul exact des droits.',
         isEditable: true
       });
-      warnings.push('Code HS non fourni — droits et taxes à confirmer');
     }
-    
-    // Commission sur débours (5%)
-    const deboursTotal = lines
-      .filter(l => l.bloc === 'debours' && l.amount)
-      .reduce((sum, l) => sum + (l.amount || 0), 0);
-    
-    if (deboursTotal > 0) {
-      lines.push({
-        id: 'commission_debours',
-        bloc: 'honoraires',
-        category: 'Commission',
-        description: 'Commission sur débours (5%)',
-        amount: Math.round(deboursTotal * 0.05),
-        currency: 'FCFA',
-        source: {
-          type: 'CALCULATED',
-          reference: 'Grille SODATRA - 5% débours',
-          confidence: 1.0
-        },
-        isEditable: false
-      });
-    }
-  }
+  } // end if (!isTransit)
   
   return { lines, warnings, dutyBreakdown };
 }
