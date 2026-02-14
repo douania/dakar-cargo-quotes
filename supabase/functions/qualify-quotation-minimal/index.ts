@@ -175,30 +175,34 @@ serve(async (req) => {
       throw emailsError;
     }
 
+    const isSyntheticRef = thread_id.startsWith('subject:');
+
     if (!emails || emails.length === 0) {
-      // Fallback: chercher par ID si thread_ref est en fait un email ID
-      const { data: singleEmail, error: singleError } = await supabase
-        .from('emails')
-        .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
-        .eq('id', thread_id)
-        .single();
+      if (!isSyntheticRef) {
+        // Fallback: chercher par ID si thread_ref est en fait un email ID (UUID only)
+        const { data: singleEmail, error: singleError } = await supabase
+          .from('emails')
+          .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
+          .eq('id', thread_id)
+          .single();
 
-      if (singleError || !singleEmail) {
-        return new Response(
-          JSON.stringify({ error: 'Aucun email trouvé pour ce thread' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (!singleError && singleEmail) {
+          emails.push(singleEmail);
+        }
       }
-
-      emails.push(singleEmail);
+      // Si toujours pas d'emails, on continue avec un tableau vide (fonction read-only)
     }
 
     // Récupérer les gaps existants du quote_case (LECTURE SEULE)
-    const { data: quoteCase } = await supabase
-      .from('quote_cases')
-      .select('id, status')
-      .eq('thread_id', thread_id)
-      .maybeSingle();
+    let quoteCase: { id: string; status: string } | null = null;
+    if (!isSyntheticRef) {
+      const { data } = await supabase
+        .from('quote_cases')
+        .select('id, status')
+        .eq('thread_id', thread_id)
+        .maybeSingle();
+      quoteCase = data;
+    }
 
     let existingGaps: Array<{ gap_key: string; question_fr: string | null; gap_category: string }> = [];
     let existingFacts: Array<{ fact_key: string; value_text: string | null; value_number: number | null; confidence: number }> = [];
