@@ -250,6 +250,7 @@ Deno.serve(async (req) => {
         cargoWeight: inputs.cargoWeight,
         cargoVolume: inputs.cargoVolume,
         cargoValue: inputs.cargoValue,
+        cargoCurrency: inputs.cargoValueCurrency,
         carrier: inputs.carrier,
         transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
         cargoDescription: inputs.cargoDescription,

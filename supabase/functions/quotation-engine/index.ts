@@ -1997,11 +1997,34 @@ async function generateQuotationLines(
   // =====================================================
   
   if (!isTransit) {
+    // Conversion devise sécurisée (EUR uniquement — parité fixe BCEAO)
+    const rawCurrency = (request.cargoCurrency || 'XOF').toUpperCase();
+    let cargoValueFCFA: number;
+
+    if (rawCurrency === 'XOF' || rawCurrency === 'FCFA' || rawCurrency === 'CFA') {
+      cargoValueFCFA = request.cargoValue;
+    } else if (rawCurrency === 'EUR') {
+      cargoValueFCFA = request.cargoValue * 655.957; // parité fixe BCEAO
+    } else {
+      // Devise non supportée — flag TO_CONFIRM, pas de hardcode
+      lines.push({
+        id: 'currency_warning',
+        bloc: 'debours',
+        category: 'Avertissement',
+        description: `Devise ${rawCurrency} non supportée pour le calcul des droits`,
+        amount: null,
+        currency: 'FCFA',
+        source: { type: 'TO_CONFIRM', reference: 'Conversion manuelle requise', confidence: 0 },
+        isEditable: false
+      });
+      cargoValueFCFA = request.cargoValue; // fallback brut, signalé
+    }
+
     // Calcul CAF
     const incotermRule = dbIncoterms[request.incoterm?.toUpperCase() || 'CIF'];
     const caf = calculateCAF({
       incoterm: request.incoterm || 'CIF',
-      invoiceValue: request.cargoValue,
+      invoiceValue: cargoValueFCFA,
       freightAmount: undefined,
       insuranceRate: 0.005
     });
@@ -2020,15 +2043,18 @@ async function generateQuotationLines(
       
       if (hsData && hsData.length > 0) {
         const hs = hsData[0];
-        const ddAmount = caf.cafValue * (hs.dd / 100);
-        const rsAmount = caf.cafValue * (hs.rs / 100);
-        const pcsAmount = caf.cafValue * (hs.pcs / 100);
-        const pccAmount = caf.cafValue * (hs.pcc / 100);
-        const cosecAmount = caf.cafValue * (hs.cosec / 100);
-        const baseVAT = caf.cafValue + ddAmount + rsAmount;
-        const tvaAmount = baseVAT * (hs.tva / 100);
+        const ddAmount = caf.cafValue * ((hs.dd || 0) / 100);
+        const rsAmount = caf.cafValue * ((hs.rs || 0) / 100);
+        const surtaxeAmount = caf.cafValue * ((hs.surtaxe || 0) / 100);
+        const tinAmount = caf.cafValue * ((hs.tin || 0) / 100);
+        const tciAmount = caf.cafValue * ((hs.t_conj || 0) / 100);
+        const pcsAmount = caf.cafValue * ((hs.pcs || 0) / 100);
+        const pccAmount = caf.cafValue * ((hs.pcc || 0) / 100);
+        const cosecAmount = caf.cafValue * ((hs.cosec || 0) / 100);
+        const baseVAT = caf.cafValue + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
+        const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
         
-        const totalDuties = ddAmount + rsAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+        const totalDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
         
         lines.push({
           id: 'duties_total',
@@ -2039,10 +2065,10 @@ async function generateQuotationLines(
           currency: 'FCFA',
           source: {
             type: 'CALCULATED',
-            reference: `TEC UEMOA - DD ${hs.dd}% + RS ${hs.rs}% + TVA ${hs.tva}%`,
+            reference: `TEC UEMOA - DD ${hs.dd || 0}% + RS ${hs.rs || 0}% + TVA ${hs.tva || 0}% + Surtaxe ${hs.surtaxe || 0}% + TIN ${hs.tin || 0}%`,
             confidence: 0.95
           },
-          notes: `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA`,
+          notes: `Base CAF: ${Math.round(caf.cafValue).toLocaleString()} FCFA (devise source: ${rawCurrency})`,
           isEditable: true
         });
       } else {
