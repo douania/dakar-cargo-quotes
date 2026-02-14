@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
     const outputsJson = {
       lines: tariffLines,
       totals: { ht: totalHt, ttc: totalTtc, currency, dap: engineTotals?.dap, ddp: engineTotals?.ddp, debours: engineTotals?.debours, incoterm_applied: incotermUpper || "N/A" },
+      duty_breakdown: engineResponse.duty_breakdown || [],
       metadata: {
         engine_version: engineResponse.version || "v4",
         computed_at: new Date().toISOString(),

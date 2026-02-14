@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info } from 'lucide-react';
+import { DutyBreakdownTable } from './DutyBreakdownTable';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -191,6 +192,14 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
               </div>
             </CollapsibleContent>
           </Collapsible>
+        )}
+
+        {/* Duty Breakdown Table */}
+        {pricingRun.outputs_json?.duty_breakdown && pricingRun.outputs_json.duty_breakdown.length > 0 && (
+          <DutyBreakdownTable
+            items={pricingRun.outputs_json.duty_breakdown}
+            currency={pricingRun.currency || 'XOF'}
+          />
         )}
 
         {/* Version Creation Alert */}

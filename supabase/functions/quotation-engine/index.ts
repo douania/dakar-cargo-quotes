@@ -1995,7 +1995,9 @@ async function generateQuotationLines(
   // =====================================================
   // 9. BLOC DÉBOURS - DROITS ET TAXES (Only for non-transit)
   // =====================================================
-  
+  // Duty breakdown array — note de détail par article
+  const dutyBreakdown: any[] = [];
+
   if (!isTransit) {
     // Conversion devise sécurisée (EUR uniquement — parité fixe BCEAO)
     const rawCurrency = (request.cargoCurrency || 'XOF').toUpperCase();
@@ -2029,6 +2031,8 @@ async function generateQuotationLines(
       insuranceRate: 0.005
     });
     
+
+    // Si code HS fourni, calculer les droits
     // Si code HS fourni, calculer les droits
     if (request.hsCode) {
       // Support multiple HS codes separated by comma — use first one for duty calculation
@@ -2055,6 +2059,24 @@ async function generateQuotationLines(
         const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
         
         const totalDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+
+        // Duty breakdown per article (note de détail douanière)
+        dutyBreakdown.push({
+          article_index: dutyBreakdown.length + 1,
+          hs_code: primaryHsCode,
+          caf: Math.round(caf.cafValue),
+          dd_rate: hs.dd || 0, dd_amount: Math.round(ddAmount),
+          surtaxe_rate: hs.surtaxe || 0, surtaxe_amount: Math.round(surtaxeAmount),
+          rs_rate: hs.rs || 0, rs_amount: Math.round(rsAmount),
+          tin_rate: hs.tin || 0, tin_amount: Math.round(tinAmount),
+          tci_rate: hs.t_conj || 0, tci_amount: Math.round(tciAmount),
+          pcs_rate: hs.pcs || 0, pcs_amount: Math.round(pcsAmount),
+          pcc_rate: hs.pcc || 0, pcc_amount: Math.round(pccAmount),
+          cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
+          base_tva: Math.round(baseVAT),
+          tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
+          total_duties: Math.round(totalDuties),
+        });
         
         lines.push({
           id: 'duties_total',
@@ -2132,7 +2154,7 @@ async function generateQuotationLines(
     }
   }
   
-  return { lines, warnings };
+  return { lines, warnings, dutyBreakdown };
 }
 
 // =====================================================
@@ -2172,7 +2194,7 @@ Deno.serve(async (req) => {
         }
         
         // Générer les lignes de cotation
-        const { lines, warnings: engineWarnings } = await generateQuotationLines(supabase, request);
+        const { lines, warnings: engineWarnings, dutyBreakdown } = await generateQuotationLines(supabase, request);
         const warnings = [...earlyWarnings, ...engineWarnings];
         
         // M3.1 — Fetch historical suggestions (non-blocking, consultative)
@@ -2213,6 +2235,7 @@ Deno.serve(async (req) => {
           success: true,
           lines,
           totals,
+          duty_breakdown: dutyBreakdown,
           metadata: {
             incoterm: {
               code: incotermRule?.code || request.incoterm || 'N/A',

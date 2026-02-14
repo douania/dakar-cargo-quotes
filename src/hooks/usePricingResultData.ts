@@ -6,6 +6,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+export interface DutyBreakdownItem {
+  article_index: number;
+  hs_code: string;
+  caf: number;
+  dd_rate: number; dd_amount: number;
+  surtaxe_rate: number; surtaxe_amount: number;
+  rs_rate: number; rs_amount: number;
+  tin_rate: number; tin_amount: number;
+  tci_rate: number; tci_amount: number;
+  pcs_rate: number; pcs_amount: number;
+  pcc_rate: number; pcc_amount: number;
+  cosec_rate: number; cosec_amount: number;
+  base_tva: number;
+  tva_rate: number; tva_amount: number;
+  total_duties: number;
+}
+
 export interface PricingRun {
   id: string;
   run_number: number;
@@ -15,6 +32,7 @@ export interface PricingRun {
   currency: string | null;
   tariff_lines: any[] | null;
   tariff_sources: any[] | null;
+  outputs_json: { duty_breakdown?: DutyBreakdownItem[]; [key: string]: any } | null;
   created_at: string | null;
   completed_at: string | null;
 }
@@ -50,7 +68,7 @@ export function usePricingResultData(caseId: string | undefined): UsePricingResu
     try {
       const { data, error: fetchError } = await supabase
         .from('pricing_runs')
-        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, created_at, completed_at')
+        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, outputs_json, created_at, completed_at')
         .eq('case_id', caseId)
         .eq('status', 'success')
         .order('run_number', { ascending: false })
@@ -63,6 +81,9 @@ export function usePricingResultData(caseId: string | undefined): UsePricingResu
           ...data,
           tariff_lines: Array.isArray(data.tariff_lines) ? data.tariff_lines : [],
           tariff_sources: Array.isArray(data.tariff_sources) ? data.tariff_sources : [],
+          outputs_json: (typeof data.outputs_json === 'object' && data.outputs_json !== null && !Array.isArray(data.outputs_json))
+            ? data.outputs_json as PricingRun['outputs_json']
+            : null,
         });
       } else {
         setPricingRun(null);
