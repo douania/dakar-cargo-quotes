@@ -827,7 +827,7 @@ Deno.serve(async (req) => {
     // 3. Load case and verify ownership
     const { data: caseData, error: caseError } = await serviceClient
       .from("quote_cases")
-      .select("*, email_threads!inner(id, subject_normalized)")
+      .select("*, email_threads(id, subject_normalized)")
       .eq("id", case_id)
       .single();
 
@@ -849,14 +849,18 @@ Deno.serve(async (req) => {
       console.log(`[BuildPuzzle] Case ${case_id} is frozen (${caseData.status}), facts will be added but status unchanged`);
     }
 
-    // 4. Load all emails from thread
-    const { data: emails } = await serviceClient
-      .from("emails")
-      .select("id, from_address, to_addresses, subject, body_text, sent_at, is_quotation_request")
-      .eq("thread_ref", caseData.thread_id)
-      .order("sent_at", { ascending: true });
+    // 4. Load all emails from thread (guard: skip if no thread_id)
+    let emails: any[] = [];
+    if (caseData.thread_id) {
+      const { data: threadEmails } = await serviceClient
+        .from("emails")
+        .select("id, from_address, to_addresses, subject, body_text, sent_at, is_quotation_request")
+        .eq("thread_ref", caseData.thread_id)
+        .order("sent_at", { ascending: true });
+      emails = threadEmails || [];
+    }
 
-    if (!emails || emails.length === 0) {
+    if (emails.length === 0) {
       return new Response(
         JSON.stringify({ error: "No emails found in thread" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
