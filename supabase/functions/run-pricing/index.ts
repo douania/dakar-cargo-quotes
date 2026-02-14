@@ -34,6 +34,7 @@ interface PricingInputs {
   clientEmail?: string;
   clientCompany?: string;
   hsCode?: string;
+  articlesDetail?: Array<{ hs_code: string; value: number; currency: string; description?: string }>;
 }
 
 Deno.serve(async (req) => {
@@ -255,6 +256,7 @@ Deno.serve(async (req) => {
         cargoDescription: inputs.cargoDescription,
         clientCompany: inputs.clientCompany,
         hsCode: inputs.hsCode,
+        articlesDetail: inputs.articlesDetail,
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
@@ -514,6 +516,14 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "cargo.hs_code":
         inputs.hsCode = String(value);
         break;
+      case "cargo.articles_detail": {
+        let parsed = value;
+        if (typeof parsed === "string") {
+          try { parsed = JSON.parse(parsed); } catch { parsed = []; }
+        }
+        inputs.articlesDetail = Array.isArray(parsed) ? parsed : [];
+        break;
+      }
     }
   }
 
