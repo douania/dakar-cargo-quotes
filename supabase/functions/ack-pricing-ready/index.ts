@@ -135,12 +135,8 @@ serve(async (req) => {
       );
     }
 
-    if (quoteCase.created_by !== userId) {
-      return new Response(
-        JSON.stringify({ error: 'Access denied: not the owner of this case' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Mono-tenant app: all authenticated users can access all cases
+    // Ownership check removed — JWT auth is sufficient
 
     // ========================================================================
     // 4. FETCH FINAL DECISIONS

@@ -462,9 +462,8 @@ serve(async (req) => {
           .eq("id", job_id)
           .single();
 
-        if (job && job.created_by !== userId) {
-          return errorResponse("Not authorized to cancel this job", 403);
-        }
+        // Mono-tenant app: all authenticated users can cancel any job
+        // Ownership check removed — JWT auth is sufficient
       }
 
       await supabase
