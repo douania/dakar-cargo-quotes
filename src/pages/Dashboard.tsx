@@ -63,7 +63,7 @@ export default function Dashboard() {
       const { data: emails, error: emailsError } = await withTimeout(
         supabase
           .from('emails')
-          .select('id, subject, from_address, received_at, extracted_data, thread_id')
+          .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
           .eq('is_quotation_request', true)
           .order('received_at', { ascending: false })
           .limit(100)
@@ -157,7 +157,7 @@ export default function Dashboard() {
         const { data, error } = await withTimeout(
           supabase
             .from('emails')
-            .select('id, subject, from_address, received_at, extracted_data, thread_id')
+            .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
             .eq('is_quotation_request', true)
             .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
             .order('received_at', { ascending: false })
