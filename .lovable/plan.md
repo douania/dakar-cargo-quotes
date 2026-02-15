@@ -1,71 +1,109 @@
 
 
-# Fix: Forcer la re-analyse de l'attachment avec le nouveau prompt
+# P0 — Correction agregation totals HT / TTC (version CTO-validated)
 
-## Diagnostic factuel
+## Erreur identifiee dans le patch initial
 
-| Element | Etat |
-|---|---|
-| Prompt enrichi (analyze-attachments) | Deploye OK |
-| Moteur CAF proportionnel (quotation-engine) | Correct |
-| build-case-puzzle mapping articles | Correct |
-| Attachment `c0a2d839` | Analyse avec ANCIEN prompt, `is_analyzed = true` |
-| Fait `cargo.articles_detail` | INEXISTANT dans quote_facts |
-| Pricing runs (5 executions) | Toutes avec `articlesDetail: null` |
-
-Le probleme est un probleme de **donnees** et non de code. L'attachment doit etre re-analyse avec le nouveau prompt pour extraire les prix par article.
-
-## Plan en 2 etapes
-
-### Etape 1 — Reset de l'attachment pour forcer re-analyse
-
-Remettre `is_analyzed = false` et vider `extracted_data` sur l'attachment `c0a2d839` pour que la prochaine execution de `analyze-attachments` utilise le nouveau prompt enrichi.
-
-Egalement reset le second attachment `245c01e8` au cas ou il contiendrait aussi des donnees utiles.
-
-### Etape 2 — Re-executer le pipeline
-
-Apres le reset :
-
-1. Appeler `analyze-attachments` sur l'email `3b5310ee` → le nouveau prompt extraira les `articles` avec `unit_price` et `total`
-2. Appeler `build-case-puzzle` sur le case `acddafa7` → mappera les articles extraits vers `cargo.articles_detail`
-3. Appeler `run-pricing` → le moteur utilisera la repartition proportionnelle
-
-## Resultat attendu
+Le patch initial utilisait `engineTotals?.dap` comme base des honoraires HT.
 
 ```text
-Avant (equal split) :
-  Article 1 (8525.50): CAF = 1,526,740 FCFA
-  Article 2 (8507.20): CAF = 1,526,740 FCFA
-
-Apres (proportional) :
-  EXW Article 1 = 165 EUR → 108,233 FCFA (4.2%)
-  EXW Article 2 = 3,760 EUR → 2,466,398 FCFA (95.8%)
-  Transport 730 EUR = 478,849 FCFA reparti proportionnellement
-  Article 1 CAF = 165 * 655.957 + (478,849 * 165/3925) = ~128,375 FCFA
-  Article 2 CAF = 3,760 * 655.957 + (478,849 * 3760/3925) = ~2,925,105 FCFA
+DAP = operationnel + honoraires + border + terminal
 ```
 
-## Ce qui est modifie
+Appliquer la TVA 18% sur DAP revient a taxer des frais portuaires et terminaux, ce qui est fiscalement incorrect. Seuls les honoraires SODATRA sont soumis a TVA.
 
-| Action | Type |
+Sur le cas `acddafa7`, le bug etait masque car `operationnel = 0`, `border = 0`, `terminal = 0`, donc `dap == honoraires == 150,000`. Mais la correction doit etre structurellement correcte pour tous les cas.
+
+## Donnees factuelles (run #17)
+
+| Champ | Valeur |
 |---|---|
-| Reset `is_analyzed` sur 2 attachments | Donnees uniquement |
-| Re-execution analyze-attachments | Pipeline existant |
-| Re-execution build-case-puzzle | Pipeline existant |
-| Re-execution run-pricing | Pipeline existant |
+| honoraires | 150,000 FCFA |
+| operationnel | 0 |
+| border | 0 |
+| terminal | 0 |
+| dap | 150,000 (= somme des 4) |
+| debours | 1,341,575 |
+| ddp | 1,491,575 |
 
-Aucune modification de code. Le correctif du prompt est deja deploye.
+## Correction chirurgicale
+
+### Fichier unique : `supabase/functions/run-pricing/index.ts`
+
+**Bloc 1 — Lignes 315-323 : Remplacer le calcul totalHt/totalTtc**
+
+Code actuel :
+```text
+const incotermUpper = (inputs.incoterm || "").toUpperCase();
+const totalHt = engineTotals?.ddp
+    ?? tariffLines.reduce((sum, l) => sum + (l.amount || l.total || 0), 0);
+const totalTtc = engineResponse.totalTtc || engineResponse.total_ttc || totalHt;
+const currency = engineResponse.currency || "XOF";
+```
+
+Nouveau code :
+```text
+const incotermUpper = (inputs.incoterm || "").toUpperCase();
+
+// --- P0 FIX: Agregation correcte HT / TTC ---
+// Honoraires SODATRA = HT, soumis a TVA 18%
+// Debours douaniers = deja TTC (TVA incluse dans duty_breakdown)
+// DAP = operationnel + honoraires + border + terminal (NE PAS utiliser comme base TVA)
+const honoraires_ht  = engineTotals?.honoraires ?? 0;
+const debours        = engineTotals?.debours ?? 0;
+const TVA_RATE       = 0.18;
+const honoraires_tva = Math.round(honoraires_ht * TVA_RATE);
+const honoraires_ttc = honoraires_ht + honoraires_tva;
+
+const totalHt  = honoraires_ht;
+const totalTtc = debours + honoraires_ttc;
+const currency = engineResponse.currency || "XOF";
+```
+
+**Bloc 2 — Ligne ~327 : Enrichir outputsJson.totals**
+
+Remplacer le bloc totals dans outputsJson par :
+```text
+totals: {
+  ht: totalHt,
+  ttc: totalTtc,
+  honoraires_tva: honoraires_tva,
+  currency,
+  dap: engineTotals?.dap,
+  ddp: engineTotals?.ddp,
+  debours: engineTotals?.debours,
+  incoterm_applied: incotermUpper || "N/A",
+},
+```
+
+## Ce qui ne change PAS
+
+- `quotation-engine/index.ts` : aucune modification
+- `duty_breakdown` : intact
+- Lignes tarifaires : intactes
+- Split CAF : intact
+- Couche domaine `src/features/quotation/` : intacte
+
+## Verification post-deploiement
+
+Relancer le pricing sur `acddafa7` et verifier :
+
+```text
+totals.ht             = 150,000 (honoraires SODATRA)
+totals.honoraires_tva = 27,000 (150,000 * 0.18)
+totals.ttc            = 1,518,575 (1,341,575 + 150,000 + 27,000)
+totals.ht != totals.ttc ✓
+```
 
 ## Section technique
 
-Les requetes SQL a executer :
+### Impact
+- 1 seul fichier modifie
+- 1 variable renommee (`dap` remplacee par `honoraires`)
+- Aucune nouvelle dependance
+- Aucune migration DB
 
-```text
-UPDATE email_attachments 
-SET is_analyzed = false, extracted_data = null
-WHERE id IN ('c0a2d839-...', '245c01e8-...')
-```
-
-Puis appels sequentiels des 3 edge functions sur le case `acddafa7`.
+### Risque
+- **Minimal** : la correction est plus restrictive que le patch initial (base TVA plus petite = moins de risque de surcharge)
+- Les champs `dap` et `ddp` restent disponibles dans outputsJson pour tracabilite
 
