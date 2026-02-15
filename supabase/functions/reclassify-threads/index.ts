@@ -182,11 +182,18 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
     
     const threadRef = extractThreadReference(email);
     if (threadRef) {
+      const emailDate = new Date(email.sent_at);
       for (const [key, group] of threadGroups) {
         const hasMatchingRef = group.emails.some(e => 
           extractThreadReference(e) === threadRef || e.message_id === threadRef
         );
         if (hasMatchingRef) {
+          // Temporal guard: don't merge if more than 90 days apart
+          const timeDiff = Math.abs(emailDate.getTime() - group.lastMessageAt.getTime());
+          if (timeDiff > 90 * 24 * 60 * 60 * 1000) {
+            console.log(`Thread ref match but ${Math.round(timeDiff / 86400000)}d apart, splitting: ${email.subject}`);
+            continue;
+          }
           threadKey = key;
           break;
         }
