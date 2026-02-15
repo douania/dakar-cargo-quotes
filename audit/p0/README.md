@@ -45,3 +45,30 @@ Pour choisir un autre chemin de sortie:
 bash tools/audit/export_p0_bundle.sh /tmp/mon_bundle.txt
 ```
 
+## Audit complet d'un dossier réel (base Supabase)
+
+Script dédié pour auditer un dossier (ex: `acddafa7`) sur les 4 points demandés:
+
+1. `quote_facts` : présence de `cargo.articles_detail`
+2. dernière `pricing_runs` en succès : indices CAF
+3. `quotation_versions` : indices DD/TVA dans les snapshots
+4. `email_attachments` : taux `is_analyzed` et `extracted_data`
+
+Commande:
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+node tools/audit/audit_case_dossier.mjs --dossier acddafa7
+```
+
+Sortie par défaut:
+
+- `audit/p0/reports/dossier_acddafa7_audit.json`
+
+Option chemin personnalisé:
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+node tools/audit/audit_case_dossier.mjs --dossier acddafa7 --out /tmp/audit.json
+```
+
