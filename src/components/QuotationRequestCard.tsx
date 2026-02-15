@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { 
   Clock, 
   User, 
@@ -83,7 +84,8 @@ export function QuotationRequestCard({ request, onProcess }: QuotationRequestCar
   const missingFields = getMissingFields();
 
   // Email body preview
-  const cleanText = request.body_text?.replace(/\s+/g, ' ').trim() || '';
+  const decodedText = extractPlainTextFromMime(request.body_text || '') || '';
+  const cleanText = decodedText.replace(/\s+/g, ' ').trim();
   const preview = cleanText.slice(0, 200);
   const isTruncated = cleanText.length > 200;
 
