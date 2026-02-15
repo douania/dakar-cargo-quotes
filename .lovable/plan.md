@@ -1,90 +1,71 @@
 
 
-# Fix: qualify-quotation-minimal crash sur references synthetiques
+# Fix: Forcer la re-analyse de l'attachment avec le nouveau prompt
 
-## Diagnostic
+## Diagnostic factuel
 
-Les logs montrent clairement :
+| Element | Etat |
+|---|---|
+| Prompt enrichi (analyze-attachments) | Deploye OK |
+| Moteur CAF proportionnel (quotation-engine) | Correct |
+| build-case-puzzle mapping articles | Correct |
+| Attachment `c0a2d839` | Analyse avec ANCIEN prompt, `is_analyzed = true` |
+| Fait `cargo.articles_detail` | INEXISTANT dans quote_facts |
+| Pricing runs (5 executions) | Toutes avec `articlesDetail: null` |
 
-```
-invalid input syntax for type uuid: "subject:ddp rate request dakar lcl 25607"
-```
+Le probleme est un probleme de **donnees** et non de code. L'attachment doit etre re-analyse avec le nouveau prompt pour extraire les prix par article.
 
-Le fichier `qualify-quotation-minimal/index.ts` utilise `thread_id` (qui peut etre une reference synthetique comme `subject:...`) dans deux requetes qui attendent un UUID :
+## Plan en 2 etapes
 
-1. **Ligne 182** : `.eq('id', thread_id)` — fallback qui tente de chercher un email par ID avec une string non-UUID
-2. **Ligne 200** : `.eq('thread_id', thread_id)` — cherche le quote_case par thread_id, mais les cases synthetiques ont `thread_id = NULL`
+### Etape 1 — Reset de l'attachment pour forcer re-analyse
 
-## Correction (2 touches chirurgicales)
+Remettre `is_analyzed = false` et vider `extracted_data` sur l'attachment `c0a2d839` pour que la prochaine execution de `analyze-attachments` utilise le nouveau prompt enrichi.
 
-### Touch 1 — Guard sur le fallback email par ID (ligne 178-194)
+Egalement reset le second attachment `245c01e8` au cas ou il contiendrait aussi des donnees utiles.
 
-Le fallback `.eq('id', thread_id)` ne doit s'executer que si `thread_id` ressemble a un UUID. Pour les references synthetiques, on skip ce fallback.
+### Etape 2 — Re-executer le pipeline
 
-```text
-// Avant la ligne 179, ajouter un guard :
-const isSyntheticRef = thread_id.startsWith('subject:');
+Apres le reset :
 
-if (!emails || emails.length === 0) {
-  if (!isSyntheticRef) {
-    // Fallback: chercher par ID si thread_ref est un UUID
-    const { data: singleEmail, error: singleError } = await supabase
-      .from('emails')
-      .select(...)
-      .eq('id', thread_id)
-      .single();
-    if (!singleError && singleEmail) {
-      emails.push(singleEmail);
-    }
-  }
-}
-```
+1. Appeler `analyze-attachments` sur l'email `3b5310ee` → le nouveau prompt extraira les `articles` avec `unit_price` et `total`
+2. Appeler `build-case-puzzle` sur le case `acddafa7` → mappera les articles extraits vers `cargo.articles_detail`
+3. Appeler `run-pricing` → le moteur utilisera la repartition proportionnelle
 
-Si apres ce guard il n'y a toujours pas d'emails, on continue avec un tableau vide (pas de 404) car la fonction est read-only et doit pouvoir fonctionner sans emails.
-
-### Touch 2 — Chargement du quote_case pour refs synthetiques (ligne 197-201)
-
-Pour les references synthetiques, chercher le case par son `id` passe via le `case_id` de la page (extrait de l'URL). Mais cette fonction recoit `thread_id`, pas `case_id`.
-
-Solution : si `thread_id` est synthetique, chercher le case via `case_timeline_events` ou simplement skipper le chargement du case (la fonction est read-only).
+## Resultat attendu
 
 ```text
-let quoteCase = null;
-if (!isSyntheticRef) {
-  // Recherche standard par thread_id
-  const { data } = await supabase
-    .from('quote_cases')
-    .select('id, status')
-    .eq('thread_id', thread_id)
-    .maybeSingle();
-  quoteCase = data;
-}
-// Si pas de case, existingGaps et existingFacts restent vides
-// La fonction genere les questions basiques a partir des emails
+Avant (equal split) :
+  Article 1 (8525.50): CAF = 1,526,740 FCFA
+  Article 2 (8507.20): CAF = 1,526,740 FCFA
+
+Apres (proportional) :
+  EXW Article 1 = 165 EUR → 108,233 FCFA (4.2%)
+  EXW Article 2 = 3,760 EUR → 2,466,398 FCFA (95.8%)
+  Transport 730 EUR = 478,849 FCFA reparti proportionnellement
+  Article 1 CAF = 165 * 655.957 + (478,849 * 165/3925) = ~128,375 FCFA
+  Article 2 CAF = 3,760 * 655.957 + (478,849 * 3760/3925) = ~2,925,105 FCFA
 ```
 
-## Ce qui ne change PAS
+## Ce qui est modifie
 
-- Le prompt IA (lignes 49-117)
-- Le parsing de la reponse IA (lignes 269-317)
-- Le filtrage V4.2.3b (lignes 323-337)
-- La regle CTO `can_proceed = false`
+| Action | Type |
+|---|---|
+| Reset `is_analyzed` sur 2 attachments | Donnees uniquement |
+| Re-execution analyze-attachments | Pipeline existant |
+| Re-execution build-case-puzzle | Pipeline existant |
+| Re-execution run-pricing | Pipeline existant |
 
-## Impact
+Aucune modification de code. Le correctif du prompt est deja deploye.
 
-- References synthetiques : la fonction retourne des questions basiques sans contexte de faits/gaps (comportement degrade acceptable)
-- References UUID : comportement inchange
-- Pas de modification de schema DB
-- Pas de changement de contrat API
+## Section technique
 
-## Resume
+Les requetes SQL a executer :
 
-| Ligne | Avant | Apres |
-|---|---|---|
-| 178-194 | Fallback `.eq('id', thread_id)` sans guard | Guard `isSyntheticRef` pour eviter crash UUID |
-| 197-201 | `.eq('thread_id', thread_id)` sans guard | Skip si synthetique |
+```text
+UPDATE email_attachments 
+SET is_analyzed = false, extracted_data = null
+WHERE id IN ('c0a2d839-...', '245c01e8-...')
+```
 
-## Deploiement
-
-Redeployer `qualify-quotation-minimal` uniquement.
+Puis appels sequentiels des 3 edge functions sur le case `acddafa7`.
 
