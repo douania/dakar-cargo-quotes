@@ -102,7 +102,13 @@ Deno.serve(async (req) => {
     // Ownership check removed — JWT auth is sufficient
 
     // Allow re-pricing from PRICED_DRAFT (corrections) and HUMAN_REVIEW
-    const pricingAllowedStatuses = ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW"];
+    const pricingAllowedStatuses = [
+      "ACK_READY_FOR_PRICING",
+      "PRICED_DRAFT",
+      "HUMAN_REVIEW",
+      "QUOTED_VERSIONED",
+      "SENT",
+    ];
     if (!pricingAllowedStatuses.includes(caseData.status)) {
       return new Response(
         JSON.stringify({ 
@@ -114,6 +120,7 @@ Deno.serve(async (req) => {
       );
     }
     const previousStatus = caseData.status;
+    const isFinalized = ["SENT", "QUOTED_VERSIONED"].includes(previousStatus);
 
     // 4. CTO FIX: Guard-fou - Revérifier les gaps bloquants même si status READY_TO_PRICE
     const { count: blockingGapsCount } = await serviceClient
@@ -134,23 +141,25 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Transition to PRICING_RUNNING
-    await serviceClient
-      .from("quote_cases")
-      .update({ 
-        status: "PRICING_RUNNING",
-        last_activity_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", case_id);
+    // 5. Transition to PRICING_RUNNING (skip for finalized cases)
+    if (!isFinalized) {
+      await serviceClient
+        .from("quote_cases")
+        .update({ 
+          status: "PRICING_RUNNING",
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", case_id);
 
-    await serviceClient.from("case_timeline_events").insert({
-      case_id,
-      event_type: "status_changed",
-      previous_value: previousStatus,
-      new_value: "PRICING_RUNNING",
-      actor_type: "system",
-    });
+      await serviceClient.from("case_timeline_events").insert({
+        case_id,
+        event_type: "status_changed",
+        previous_value: previousStatus,
+        new_value: "PRICING_RUNNING",
+        actor_type: "system",
+      });
+    }
 
     // 6. Load all current facts
     const { data: facts, error: factsError } = await serviceClient
@@ -375,16 +384,28 @@ Deno.serve(async (req) => {
       })
       .eq("id", pricingRun.id);
 
-    // 14. Transition case to PRICED_DRAFT
-    await serviceClient
-      .from("quote_cases")
-      .update({ 
-        status: "PRICED_DRAFT",
-        pricing_runs_count: runNumber,
-        last_activity_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", case_id);
+    // 14. Transition case to PRICED_DRAFT (skip for finalized cases)
+    if (!isFinalized) {
+      await serviceClient
+        .from("quote_cases")
+        .update({ 
+          status: "PRICED_DRAFT",
+          pricing_runs_count: runNumber,
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", case_id);
+    } else {
+      // Finalized case: only update pricing_runs_count, no status change
+      await serviceClient
+        .from("quote_cases")
+        .update({ 
+          pricing_runs_count: runNumber,
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", case_id);
+    }
 
     await serviceClient.from("case_timeline_events").insert({
       case_id,
@@ -399,13 +420,15 @@ Deno.serve(async (req) => {
       actor_type: "system",
     });
 
-    await serviceClient.from("case_timeline_events").insert({
-      case_id,
-      event_type: "status_changed",
-      previous_value: "PRICING_RUNNING",
-      new_value: "PRICED_DRAFT",
-      actor_type: "system",
-    });
+    if (!isFinalized) {
+      await serviceClient.from("case_timeline_events").insert({
+        case_id,
+        event_type: "status_changed",
+        previous_value: "PRICING_RUNNING",
+        new_value: "PRICED_DRAFT",
+        actor_type: "system",
+      });
+    }
 
     console.log(`Pricing run ${runNumber} for case ${case_id} completed in ${durationMs}ms`);
 
