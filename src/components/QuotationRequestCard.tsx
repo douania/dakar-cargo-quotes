@@ -163,6 +163,13 @@ export function QuotationRequestCard({ request, onProcess }: QuotationRequestCar
                 )}
               </div>
 
+              {/* Always-visible email snippet */}
+              {cleanText && (
+                <p className="text-sm text-muted-foreground mb-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {cleanText.slice(0, 120)}{cleanText.length > 120 ? '…' : ''}
+                </p>
+              )}
+
               {/* Alerts */}
               {missingFields.length > 0 && (
                 <div className="flex items-center gap-2 text-xs text-amber-500">
