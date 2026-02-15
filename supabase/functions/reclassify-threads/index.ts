@@ -217,11 +217,13 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
       const normalizedSubj = normalizeSubject(email.subject || '');
       if (normalizedSubj.length > 10) {
         const emailDate = new Date(email.sent_at);
-        const emailParticipants = new Set([
-          email.from_address.toLowerCase(),
-          ...(email.to_addresses || []).map(e => e.toLowerCase()),
-          ...(email.cc_addresses || []).map(e => e.toLowerCase())
-        ]);
+        const emailParticipants = new Set(
+          [
+            String(email.from_address || '').toLowerCase().trim(),
+            ...(email.to_addresses || []).map(e => String(e || '').toLowerCase().trim()),
+            ...(email.cc_addresses || []).map(e => String(e || '').toLowerCase().trim())
+          ].filter(Boolean)
+        );
         
         for (const [key, group] of threadGroups) {
           if (group.normalizedSubject !== normalizedSubj) continue;
@@ -231,9 +233,10 @@ function groupEmailsByThread(emails: Email[]): Map<string, ThreadGroup> {
           
           const groupParticipants = new Set<string>();
           for (const e of group.emails) {
-            groupParticipants.add(e.from_address.toLowerCase());
-            (e.to_addresses || []).forEach(addr => groupParticipants.add(addr.toLowerCase()));
-            (e.cc_addresses || []).forEach(addr => groupParticipants.add(addr.toLowerCase()));
+            const f = String(e.from_address || '').toLowerCase().trim();
+            if (f) groupParticipants.add(f);
+            (e.to_addresses || []).forEach(addr => { const v = String(addr || '').toLowerCase().trim(); if (v) groupParticipants.add(v); });
+            (e.cc_addresses || []).forEach(addr => { const v = String(addr || '').toLowerCase().trim(); if (v) groupParticipants.add(v); });
           }
           
           const overlap = [...emailParticipants].filter(p => groupParticipants.has(p));
@@ -295,7 +298,8 @@ interface ExistingThread {
 function normalizeParticipants(participants: string[] | null | undefined): string[] {
   return (participants || [])
     .filter(Boolean)
-    .map((p) => p.toLowerCase().trim())
+    .map((p) => String(p || '').toLowerCase().trim())
+    .filter(Boolean)
     .filter((p) => p.includes('@'));
 }
 
@@ -307,7 +311,7 @@ function findMatchingThread(group: ThreadGroup, existingThreads: ExistingThread[
       email.from_address,
       ...(email.to_addresses || []),
       ...(email.cc_addresses || []),
-    ].map((v) => v.toLowerCase().trim())),
+    ].map((v) => String(v || '').toLowerCase().trim()).filter(Boolean)),
   );
 
   let best: { thread: ExistingThread; score: number } | null = null;
@@ -376,7 +380,7 @@ async function analyzeThreadRoles(
     ].filter(Boolean);
     
     for (const addr of allAddresses) {
-      const cleaned = addr.toLowerCase().trim();
+      const cleaned = String(addr || '').toLowerCase().trim();
       if (cleaned && cleaned.includes('@')) {
         participantsSet.add(cleaned);
         
@@ -405,7 +409,7 @@ async function analyzeThreadRoles(
   );
   
   for (const email of sortedEmails) {
-    const senderEmail = email.from_address.toLowerCase();
+    const senderEmail = String(email.from_address || '').toLowerCase();
     const role = roleMap.get(senderEmail);
     
     if (!role || (role !== 'internal' && role !== 'partner' && role !== 'supplier')) {
@@ -420,13 +424,13 @@ async function analyzeThreadRoles(
   
   if (partnerEmail) {
     const clientContactedSodatraDirectly = sortedEmails.some(email => {
-      const senderEmail = email.from_address.toLowerCase();
+      const senderEmail = String(email.from_address || '').toLowerCase();
       if (senderEmail !== clientEmail) return false;
       
       const allRecipients = [
         ...(email.to_addresses || []),
         ...(email.cc_addresses || [])
-      ].map(e => e.toLowerCase());
+      ].map(e => String(e || '').toLowerCase());
       
       return allRecipients.some(r => r.includes('@sodatra'));
     });
@@ -637,7 +641,7 @@ Deno.serve(async (req) => {
 
         const mergedParticipants = Array.from(new Set([
           ...normalizeParticipants(thread.participants),
-          ...roles.participants.map((p) => p.toLowerCase().trim()),
+          ...roles.participants.map((p) => String(p || '').toLowerCase().trim()).filter(Boolean),
         ]));
 
         const firstMessageAt = thread.first_message_at
