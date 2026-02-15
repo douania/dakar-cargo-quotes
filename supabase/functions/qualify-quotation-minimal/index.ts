@@ -164,22 +164,41 @@ serve(async (req) => {
     // This function is READ-ONLY: emails + quote_cases + quote_gaps SELECT only
 
     // Récupérer les emails du thread (LECTURE SEULE)
-    const { data: emails, error: emailsError } = await supabase
-      .from('emails')
-      .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
-      .eq('thread_ref', thread_id)
-      .order('sent_at', { ascending: true });
-
-    if (emailsError) {
-      console.error('Error fetching emails:', emailsError);
-      throw emailsError;
-    }
-
     const isSyntheticRef = thread_id.startsWith('subject:');
 
-    if (!emails || emails.length === 0) {
-      if (!isSyntheticRef) {
-        // Fallback: chercher par ID si thread_ref est en fait un email ID (UUID only)
+    let emails: Array<{id: string; subject: string | null; body_text: string | null; from_address: string; to_addresses: string[]; sent_at: string | null; received_at: string | null}> = [];
+
+    if (isSyntheticRef) {
+      // Synthetic ref: thread_ref is UUID-typed, cannot query with string
+      const subjectSearch = thread_id.replace(/^subject:/, '');
+      const { data, error: emailsError } = await supabase
+        .from('emails')
+        .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
+        .ilike('subject', subjectSearch)
+        .order('sent_at', { ascending: true })
+        .limit(5);
+
+      if (emailsError) {
+        console.error('Error fetching emails by subject:', emailsError);
+      } else {
+        emails = data || [];
+      }
+    } else {
+      // UUID ref: query by thread_ref
+      const { data, error: emailsError } = await supabase
+        .from('emails')
+        .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
+        .eq('thread_ref', thread_id)
+        .order('sent_at', { ascending: true });
+
+      if (emailsError) {
+        console.error('Error fetching emails:', emailsError);
+        throw emailsError;
+      }
+      emails = data || [];
+
+      // Fallback: chercher par ID si thread_ref est en fait un email ID
+      if (emails.length === 0) {
         const { data: singleEmail, error: singleError } = await supabase
           .from('emails')
           .select('id, subject, body_text, from_address, to_addresses, sent_at, received_at')
@@ -187,22 +206,17 @@ serve(async (req) => {
           .single();
 
         if (!singleError && singleEmail) {
-          emails.push(singleEmail);
+          emails = [singleEmail];
         }
       }
-      // Si toujours pas d'emails, on continue avec un tableau vide (fonction read-only)
     }
 
-    // Récupérer les gaps existants du quote_case (LECTURE SEULE)
-    let quoteCase: { id: string; status: string } | null = null;
-    if (!isSyntheticRef) {
-      const { data } = await supabase
-        .from('quote_cases')
-        .select('id, status')
-        .eq('thread_id', thread_id)
-        .maybeSingle();
-      quoteCase = data;
-    }
+    // Récupérer le quote_case (LECTURE SEULE) — thread_id est de type text, pas de risque UUID
+    const { data: quoteCase } = await supabase
+      .from('quote_cases')
+      .select('id, status')
+      .eq('thread_id', thread_id)
+      .maybeSingle();
 
     let existingGaps: Array<{ gap_key: string; question_fr: string | null; gap_category: string }> = [];
     let existingFacts: Array<{ fact_key: string; value_text: string | null; value_number: number | null; confidence: number }> = [];
