@@ -316,15 +316,24 @@ Deno.serve(async (req) => {
     const tariffLines = engineResponse.lines || engineResponse.quotationLines || [];
     const engineTotals = engineResponse.totals;
     const incotermUpper = (inputs.incoterm || "").toUpperCase();
-    // Sodatra facture toujours honoraires + débours — total_ht = coût global (DDP)
-    const totalHt = engineTotals?.ddp
-      ?? tariffLines.reduce((sum: number, l: any) => sum + (l.amount || l.total || 0), 0);
-    const totalTtc = engineResponse.totalTtc || engineResponse.total_ttc || totalHt;
+
+    // --- P0 FIX: Agregation correcte HT / TTC ---
+    // Honoraires SODATRA = HT, soumis a TVA 18%
+    // Debours douaniers = deja TTC (TVA incluse dans duty_breakdown)
+    // DAP = operationnel + honoraires + border + terminal (NE PAS utiliser comme base TVA)
+    const honoraires_ht  = engineTotals?.honoraires ?? 0;
+    const debours        = engineTotals?.debours ?? 0;
+    const TVA_RATE       = 0.18;
+    const honoraires_tva = Math.round(honoraires_ht * TVA_RATE);
+    const honoraires_ttc = honoraires_ht + honoraires_tva;
+
+    const totalHt  = honoraires_ht;
+    const totalTtc = debours + honoraires_ttc;
     const currency = engineResponse.currency || "XOF";
 
     const outputsJson = {
       lines: tariffLines,
-      totals: { ht: totalHt, ttc: totalTtc, currency, dap: engineTotals?.dap, ddp: engineTotals?.ddp, debours: engineTotals?.debours, incoterm_applied: incotermUpper || "N/A" },
+      totals: { ht: totalHt, ttc: totalTtc, honoraires_tva: honoraires_tva, currency, dap: engineTotals?.dap, ddp: engineTotals?.ddp, debours: engineTotals?.debours, incoterm_applied: incotermUpper || "N/A" },
       duty_breakdown: engineResponse.duty_breakdown || [],
       metadata: {
         engine_version: engineResponse.version || "v4",
