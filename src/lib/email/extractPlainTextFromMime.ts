@@ -16,9 +16,34 @@ export function extractPlainTextFromMime(rawBody: string): string {
     .replace(/Content-Transfer-Encoding:\s*(base64|quoted-printable)\s+/gi,
       'Content-Transfer-Encoding: $1\n\n');
 
-  // 1. No MIME boundary → return truncated raw
+  // 1. No MIME boundary → check if it's pure Base64, else return truncated raw
   const boundaryMatch = rawBody.match(/boundary="?([^"\s;]+)"?/i);
   if (!boundaryMatch) {
+    const stripped = rawBody.replace(/[\s\r\n]/g, '');
+    const looksLikeBase64 = /^[A-Za-z0-9+/=]{40,}$/.test(stripped.slice(0, 200));
+
+    if (looksLikeBase64) {
+      try {
+        const decoded = decodeURIComponent(escape(atob(stripped)));
+        // If decoded looks like HTML, strip tags
+        if (decoded.includes('<html') || decoded.includes('<div')) {
+          return decoded
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+            .replace(/&#039;/g, "'").replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 4000);
+        }
+        return decoded.slice(0, 4000);
+      } catch {
+        // Not valid Base64, fall through
+      }
+    }
+
     return rawBody.slice(0, 4000);
   }
 
