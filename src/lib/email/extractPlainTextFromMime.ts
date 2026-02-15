@@ -24,7 +24,9 @@ export function extractPlainTextFromMime(rawBody: string): string {
 
     if (looksLikeBase64) {
       try {
-        const decoded = decodeURIComponent(escape(atob(stripped)));
+        // Truncate to multiple of 4 before atob to avoid failures on very large bodies
+        const safeChunk = stripped.slice(0, Math.floor(Math.min(stripped.length, 8000) / 4) * 4);
+        const decoded = decodeURIComponent(escape(atob(safeChunk)));
         // If decoded looks like HTML, strip tags
         if (decoded.includes('<html') || decoded.includes('<div')) {
           return decoded

@@ -163,10 +163,10 @@ export function QuotationRequestCard({ request, onProcess }: QuotationRequestCar
                 )}
               </div>
 
-              {/* Always-visible email snippet */}
+              {/* Always-visible email preview */}
               {cleanText && (
-                <p className="text-sm text-muted-foreground mb-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {cleanText.slice(0, 120)}{cleanText.length > 120 ? '…' : ''}
+                <p className="text-sm text-muted-foreground mb-2 line-clamp-3">
+                  {cleanText.slice(0, 300)}{cleanText.length > 300 ? '…' : ''}
                 </p>
               )}
 
