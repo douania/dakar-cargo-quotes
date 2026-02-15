@@ -1,4 +1,4 @@
-import { requireUser } from "../_shared/auth.ts";
+import { requireAdmin } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -281,6 +281,66 @@ interface ThreadRoles {
   participants: string[];
 }
 
+interface ExistingThread {
+  id: string;
+  subject_normalized: string;
+  project_name: string | null;
+  participants: string[] | null;
+  first_message_at: string | null;
+  last_message_at: string | null;
+  email_count: number | null;
+  is_quotation_thread: boolean | null;
+}
+
+function normalizeParticipants(participants: string[] | null | undefined): string[] {
+  return (participants || [])
+    .filter(Boolean)
+    .map((p) => p.toLowerCase().trim())
+    .filter((p) => p.includes('@'));
+}
+
+function findMatchingThread(group: ThreadGroup, existingThreads: ExistingThread[]): ExistingThread | null {
+  const normalizedSubject = (group.normalizedSubject || '').trim().toLowerCase();
+  const normalizedProject = (group.projectName || '').trim().toLowerCase();
+  const groupParticipants = new Set(
+    group.emails.flatMap((email) => [
+      email.from_address,
+      ...(email.to_addresses || []),
+      ...(email.cc_addresses || []),
+    ].map((v) => v.toLowerCase().trim())),
+  );
+
+  let best: { thread: ExistingThread; score: number } | null = null;
+
+  for (const thread of existingThreads) {
+    let score = 0;
+
+    if ((thread.subject_normalized || '').trim().toLowerCase() === normalizedSubject && normalizedSubject.length > 0) {
+      score += 5;
+    }
+
+    if ((thread.project_name || '').trim().toLowerCase() === normalizedProject && normalizedProject.length > 0) {
+      score += 4;
+    }
+
+    const participants = normalizeParticipants(thread.participants);
+    const overlapCount = participants.filter((p) => groupParticipants.has(p)).length;
+    if (overlapCount > 0) score += Math.min(overlapCount, 3);
+
+    if (thread.last_message_at) {
+      const diffMs = Math.abs(new Date(thread.last_message_at).getTime() - group.lastMessageAt.getTime());
+      if (diffMs <= 30 * 24 * 60 * 60 * 1000) score += 1;
+    }
+
+    if (score < 5) continue;
+    if (!best || score > best.score) {
+      best = { thread, score };
+    }
+  }
+
+  return best?.thread || null;
+}
+
 function extractDomain(email: string): string {
   const match = email.match(/@([^>]+)$/);
   return match ? match[1].toLowerCase() : '';
@@ -393,8 +453,8 @@ Deno.serve(async (req) => {
   }
   
   try {
-    // Phase S0: Auth guard
-    const auth = await requireUser(req);
+    // Phase S0: Admin-only auth guard (destructive-capable operation)
+    const auth = await requireAdmin(req);
     if (auth instanceof Response) return auth;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -402,21 +462,51 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
     
     const body = await req.json().catch(() => ({}));
-    const dryRun = body.dry_run || false;
+    const dryRun = body.dry_run === true;
+    const since = typeof body.since === 'string' ? body.since : null;
+    const onlyUnthreaded = body.only_unthreaded !== false;
+    const destructiveRebuild = body.destructive_rebuild === true;
+    const requestedLimit = Number(body.limit || 2000);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(5000, Math.floor(requestedLimit)))
+      : 2000;
+
+    if (destructiveRebuild) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'destructive_rebuild is disabled in v2; use incremental non-destructive mode only',
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
     
-    console.log(`=== RECLASSIFY THREADS (dry_run: ${dryRun}) ===`);
+    console.log(
+      `=== RECLASSIFY THREADS V2 (admin=${auth.user.email || auth.user.id}, dry_run=${dryRun}, since=${since || 'none'}, only_unthreaded=${onlyUnthreaded}, limit=${limit}) ===`,
+    );
     
-    // 1. Fetch all emails
-    const { data: emails, error: emailsError } = await supabase
+    // 1. Incremental fetch of candidate emails
+    let emailsQuery = supabase
       .from('emails')
-      .select('*')
-      .order('sent_at', { ascending: true });
+      .select('id, from_address, to_addresses, cc_addresses, subject, body_text, sent_at, message_id, thread_id, thread_ref, is_quotation_request')
+      .order('sent_at', { ascending: true })
+      .limit(limit);
+
+    if (since) {
+      emailsQuery = emailsQuery.gte('sent_at', since);
+    }
+
+    if (onlyUnthreaded) {
+      emailsQuery = emailsQuery.is('thread_ref', null);
+    }
+
+    const { data: emails, error: emailsError } = await emailsQuery;
     
     if (emailsError) {
       throw new Error(`Failed to fetch emails: ${emailsError.message}`);
     }
     
-    console.log(`Found ${emails.length} emails to process`);
+    console.log(`Found ${emails.length} candidate emails to process`);
     
     // 2. Clean spam emails (using improved detection)
     const spamEmails = emails.filter(e => isSpam(e.subject || '', e.from_address));
@@ -427,16 +517,33 @@ Deno.serve(async (req) => {
     // 3. Update quotation status for valid emails using improved detection
     let quotationUpdates = 0;
     if (!dryRun) {
+      const toTrueIds: string[] = [];
+      const toFalseIds: string[] = [];
+
       for (const email of validEmails) {
         const shouldBeQuotation = isQuotationRelated(email);
-        if (shouldBeQuotation !== email.is_quotation_request) {
-          await supabase
-            .from('emails')
-            .update({ is_quotation_request: shouldBeQuotation })
-            .eq('id', email.id);
-          quotationUpdates++;
-        }
+        if (shouldBeQuotation === email.is_quotation_request) continue;
+        if (shouldBeQuotation) toTrueIds.push(email.id);
+        else toFalseIds.push(email.id);
       }
+
+      if (toTrueIds.length > 0) {
+        const { error } = await supabase
+          .from('emails')
+          .update({ is_quotation_request: true })
+          .in('id', toTrueIds);
+        if (error) throw new Error(`Failed updating quotation=true flags: ${error.message}`);
+      }
+
+      if (toFalseIds.length > 0) {
+        const { error } = await supabase
+          .from('emails')
+          .update({ is_quotation_request: false })
+          .in('id', toFalseIds);
+        if (error) throw new Error(`Failed updating quotation=false flags: ${error.message}`);
+      }
+
+      quotationUpdates = toTrueIds.length + toFalseIds.length;
       console.log(`Updated quotation status for ${quotationUpdates} emails`);
     }
     
@@ -455,17 +562,25 @@ Deno.serve(async (req) => {
     const threadGroups = groupEmailsByThread(validEmails);
     console.log(`Created ${threadGroups.size} thread groups`);
     
-    // 5. Delete old threads to rebuild fresh
-    if (!dryRun) {
-      await supabase.from('email_threads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      console.log('Cleared old threads');
+    // 5. Load existing threads (non-destructive reconciliation)
+    const { data: existingThreadsData, error: existingThreadsError } = await supabase
+      .from('email_threads')
+      .select('id, subject_normalized, project_name, participants, first_message_at, last_message_at, email_count, is_quotation_thread')
+      .order('last_message_at', { ascending: false })
+      .limit(5000);
+
+    if (existingThreadsError) {
+      throw new Error(`Failed to load existing threads: ${existingThreadsError.message}`);
     }
+
+    const existingThreads: ExistingThread[] = existingThreadsData || [];
     
     // 6. Create/Update email_threads and link emails
     const stats = {
       threadsCreated: 0,
       threadsUpdated: 0,
       emailsLinked: 0,
+      groupsMatchedToExisting: 0,
       spamMarked: spamEmails.length,
       quotationUpdates
     };
@@ -493,27 +608,77 @@ Deno.serve(async (req) => {
         status: 'active'
       };
       
+      let thread = findMatchingThread(group, existingThreads);
+
       if (dryRun) {
-        console.log(`[DRY RUN] Would create thread: ${group.normalizedSubject.substring(0, 50)}... (${group.emails.length} emails)`);
+        const action = thread ? 'update/match' : 'create';
+        console.log(`[DRY RUN] Would ${action} thread: ${group.normalizedSubject.substring(0, 50)}... (${group.emails.length} emails)`);
         continue;
       }
-      
-      // Insert thread
-      const { data: thread, error: threadError } = await supabase
-        .from('email_threads')
-        .insert(threadData)
-        .select()
-        .single();
-      
-      if (threadError) {
-        console.error(`Failed to create thread: ${threadError.message}`);
-        continue;
+
+      if (!thread) {
+        const { data: insertedThread, error: threadError } = await supabase
+          .from('email_threads')
+          .insert(threadData)
+          .select('id, subject_normalized, project_name, participants, first_message_at, last_message_at, email_count, is_quotation_thread')
+          .single();
+
+        if (threadError || !insertedThread) {
+          console.error(`Failed to create thread: ${threadError?.message || 'unknown error'}`);
+          continue;
+        }
+
+        thread = insertedThread;
+        existingThreads.push(insertedThread);
+        stats.threadsCreated++;
+      } else {
+        stats.groupsMatchedToExisting++;
+
+        const mergedParticipants = Array.from(new Set([
+          ...normalizeParticipants(thread.participants),
+          ...roles.participants.map((p) => p.toLowerCase().trim()),
+        ]));
+
+        const firstMessageAt = thread.first_message_at
+          ? new Date(Math.min(new Date(thread.first_message_at).getTime(), group.firstMessageAt.getTime())).toISOString()
+          : group.firstMessageAt.toISOString();
+        const lastMessageAt = thread.last_message_at
+          ? new Date(Math.max(new Date(thread.last_message_at).getTime(), group.lastMessageAt.getTime())).toISOString()
+          : group.lastMessageAt.toISOString();
+
+        const { error: updateThreadError } = await supabase
+          .from('email_threads')
+          .update({
+            project_name: thread.project_name || group.projectName,
+            client_email: roles.clientEmail,
+            client_company: roles.clientCompany,
+            partner_email: roles.partnerEmail,
+            our_role: roles.ourRole,
+            participants: mergedParticipants,
+            first_message_at: firstMessageAt,
+            last_message_at: lastMessageAt,
+            is_quotation_thread: (thread.is_quotation_thread || false) || isQuotationThread,
+            status: 'active',
+          })
+          .eq('id', thread.id);
+
+        if (updateThreadError) {
+          console.error(`Failed to update existing thread ${thread.id}: ${updateThreadError.message}`);
+        } else {
+          thread.participants = mergedParticipants;
+          thread.first_message_at = firstMessageAt;
+          thread.last_message_at = lastMessageAt;
+          thread.is_quotation_thread = (thread.is_quotation_thread || false) || isQuotationThread;
+          stats.threadsUpdated++;
+        }
       }
-      
-      stats.threadsCreated++;
       
       // Link emails to thread
-      const emailIds = group.emails.map(e => e.id);
+      const emailIds = group.emails
+        .filter((e) => e.thread_ref !== thread.id)
+        .map((e) => e.id);
+      if (emailIds.length === 0) continue;
+
       const { error: linkError } = await supabase
         .from('emails')
         .update({ thread_ref: thread.id })
@@ -526,18 +691,6 @@ Deno.serve(async (req) => {
       }
     }
     
-    // 5. Clean old spam threads
-    if (!dryRun) {
-      const { error: deleteError } = await supabase
-        .from('email_threads')
-        .delete()
-        .ilike('subject_normalized', '%spam%');
-      
-      if (!deleteError) {
-        console.log('Cleaned up spam threads');
-      }
-    }
-    
     console.log(`=== RECLASSIFICATION COMPLETE ===`);
     console.log(`Threads created: ${stats.threadsCreated}`);
     console.log(`Emails linked: ${stats.emailsLinked}`);
@@ -546,7 +699,13 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        mode: 'incremental_non_destructive_v2',
         dry_run: dryRun,
+        filters: {
+          since,
+          only_unthreaded: onlyUnthreaded,
+          limit,
+        },
         stats,
         message: dryRun 
           ? `Dry run: would create ${threadGroups.size} threads` 
