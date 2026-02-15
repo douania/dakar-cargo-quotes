@@ -1,0 +1,2 @@
+audit_case_id,dossier_id,mode,incoterm,origin,destination,cargo_type,weight_kg,volume_cbm,hs_codes,reference_quote_id,agent_quote_id,ia_quote_id
+A001,DOS-2026-001,SEA_IMPORT,CIF,Shanghai,Dakar,electronics,12000,35,"85044000|85371000",QREF001,QAG001,QIA001

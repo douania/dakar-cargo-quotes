@@ -1,0 +1,29 @@
+{
+  "cases": 1,
+  "kpi_p0": {
+    "coverage_structurale_pct": 83.33333333333334,
+    "mape_median_lignes_pct": 0,
+    "conformite_incoterm_pct": 0,
+    "erreurs_bloquantes_pct": 100,
+    "ecart_total_median_pct": 2
+  },
+  "thresholds": {
+    "coverage_min_pct": 95,
+    "mape_max_pct": 8,
+    "incoterm_min_pct": 98,
+    "blocking_max_pct": 2,
+    "total_gap_max_pct": 5
+  },
+  "verdict": "NO-GO",
+  "case_results": [
+    {
+      "audit_case_id": "A001",
+      "coverage_pct": 83.33333333333334,
+      "mape_median_pct": 0,
+      "incoterm_ok": false,
+      "blocking_error": true,
+      "total_gap_pct": 2
+    }
+  ],
+  "generated_at": "2026-02-15T11:15:46.593Z"
+}
