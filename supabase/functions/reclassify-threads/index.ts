@@ -466,6 +466,7 @@ Deno.serve(async (req) => {
     const since = typeof body.since === 'string' ? body.since : null;
     const onlyUnthreaded = body.only_unthreaded !== false;
     const destructiveRebuild = body.destructive_rebuild === true;
+    const reclassifyAll = body.reclassify_all === true;
     const requestedLimit = Number(body.limit || 2000);
     const limit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(5000, Math.floor(requestedLimit)))
@@ -482,7 +483,7 @@ Deno.serve(async (req) => {
     }
     
     console.log(
-      `=== RECLASSIFY THREADS V2 (admin=${auth.user.email || auth.user.id}, dry_run=${dryRun}, since=${since || 'none'}, only_unthreaded=${onlyUnthreaded}, limit=${limit}) ===`,
+      `=== RECLASSIFY THREADS V2 (admin=${auth.user.email || auth.user.id}, dry_run=${dryRun}, since=${since || 'none'}, only_unthreaded=${onlyUnthreaded}, reclassify_all=${reclassifyAll}, limit=${limit}) ===`,
     );
     
     // 1. Incremental fetch of candidate emails
@@ -496,7 +497,7 @@ Deno.serve(async (req) => {
       emailsQuery = emailsQuery.gte('sent_at', since);
     }
 
-    if (onlyUnthreaded) {
+    if (!reclassifyAll && onlyUnthreaded) {
       emailsQuery = emailsQuery.is('thread_ref', null);
     }
 
