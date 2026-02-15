@@ -716,9 +716,42 @@ ${excelText}`;
         body: JSON.stringify({
           model: 'google/gemini-2.5-flash-lite',
           messages: [
-            { role: 'system', content: 'Analyse ce document et extrais les tarifs en JSON: {type, tariff_lines: [{service, amount, currency}]}' },
+            { role: 'system', content: `Tu es un expert en extraction de documents logistiques et commerciaux.
+
+Analyse ce document et extrais les informations en JSON avec cette structure :
+{
+  "type": "quotation|invoice|packing_list|tariff|other",
+  "devise": "EUR|USD|XOF",
+  "valeur_caf": montant_total_numerique_ou_null,
+  "codes_hs": ["code1", "code2"],
+  "incoterm": "CIF|FOB|DAP|...|null",
+  "destination": "ville ou null",
+  "origine": "ville ou pays ou null",
+  "fournisseur": "nom ou null",
+  "poids_brut_kg": nombre_ou_null,
+  "volume_cbm": nombre_ou_null,
+  "articles": [
+    {
+      "description": "nom article",
+      "hs_code": "code HS si visible, sinon null",
+      "quantity": nombre,
+      "unit_price": prix_unitaire_si_visible_sinon_null,
+      "total": prix_total_ligne_si_visible_sinon_null,
+      "currency": "EUR|USD|XOF"
+    }
+  ],
+  "tariff_lines": [
+    {"service": "nom", "amount": montant, "currency": "devise"}
+  ]
+}
+
+REGLES CRITIQUES :
+- Pour chaque ligne d'article, extrais le prix unitaire ET le total si visibles sur le document
+- Si un code HS est mentionné, associe-le à l'article correspondant
+- Ne jamais inventer de prix ou de codes HS non visibles
+- JSON valide uniquement, pas de texte avant ou après` },
             { role: 'user', content: [
-              { type: 'text', text: `Analyse: ${attachment.filename}` },
+              { type: 'text', text: `Analyse ce document logistique: ${attachment.filename}` },
               { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
             ]}
           ]
