@@ -24,8 +24,11 @@ export function extractPlainTextFromMime(rawBody: string): string {
 
     if (looksLikeBase64) {
       try {
-        // Truncate to multiple of 4 before atob to avoid failures on very large bodies
-        const safeChunk = stripped.slice(0, Math.floor(Math.min(stripped.length, 8000) / 4) * 4);
+        // Extract only the leading valid Base64 portion (stop at first non-Base64 char like - or _)
+        const b64Match = stripped.match(/^[A-Za-z0-9+/=]+/);
+        const validB64 = b64Match ? b64Match[0] : stripped;
+        const maxLen = Math.min(validB64.length, 8000);
+        const safeChunk = validB64.slice(0, Math.floor(maxLen / 4) * 4);
         const decoded = decodeURIComponent(escape(atob(safeChunk)));
         // If decoded looks like HTML, strip tags
         if (decoded.includes('<html') || decoded.includes('<div')) {

@@ -180,10 +180,8 @@ export function QuotationRequestCard({ request, onProcess }: QuotationRequestCar
 
               {/* Collapsible email body preview */}
               <CollapsibleContent>
-                <div className="mt-3 text-sm text-muted-foreground bg-muted/30 p-3 rounded-md">
-                  {cleanText
-                    ? `${preview}${isTruncated ? '…' : ''}`
-                    : 'Aucun contenu disponible'}
+                <div className="mt-3 text-sm text-muted-foreground bg-muted/30 p-3 rounded-md max-h-64 overflow-y-auto whitespace-pre-wrap">
+                  {cleanText || 'Aucun contenu disponible'}
                 </div>
               </CollapsibleContent>
             </div>
