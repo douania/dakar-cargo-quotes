@@ -1,103 +1,87 @@
 
-# Diagnostic architectural : flux Intake vers CaseView
 
-## Probleme identifie
+# Correction ensure-quote-case : request_type null-safe (sans pollution enum)
 
-Le flux actuel comporte une **rupture architecturale** entre deux systemes :
+## Probleme
 
-```text
-INTAKE (creation)                    CASEVIEW (consultation)
-     |                                      |
-     v                                      v
-Railway API                           Railway API
-POST /api/casefiles/intake            GET /api/casefiles/{id}
-     |                                      |
-     v                                      |
-quote_cases (Supabase)                      |
-     |                                      |
-     v                                      |
-Dashboard (lit Supabase) ----click---> CaseView (lit Railway)
-```
+`ensure-quote-case` (ligne 102) insere `request_type: workflowKey` directement, soit `"WF_SIMPLE_QUOTE"`. Cette valeur n'existe pas dans l'enum `quote_request_type`, ce qui fait crasher l'INSERT et empeche la creation du dossier en base. Toute la chaine tombe en cascade (documents, facts, CaseView).
 
-### Ce qui fonctionne
+## Approche CTO validee
 
-1. **Intake** : `createIntake()` appelle Railway, qui cree le dossier et (normalement) l'insere dans la table `quote_cases` de la base de donnees
-2. **Dashboard** : Lit les dossiers depuis `quote_cases` (base de donnees) -- fonctionne
-3. **Upload document** : Apres creation, le fichier est stocke dans le storage `case-documents` et enregistre dans `case_documents` -- fonctionne
-4. **Analyse IA** : `parse-document` + `analyze-document` extraient les donnees du document uploade -- fonctionne
+**Ne PAS ajouter `WF_*` a l'enum** `quote_request_type`. Cet enum represente le mode transport (SEA_FCL_IMPORT, etc.), pas le type de workflow Railway. Melanger les deux serait une dette structurelle.
 
-### Ce qui ne fonctionne PAS
+A la place : mapping defensif dans `ensure-quote-case` + erreur bloquante dans `Intake.tsx`.
 
-1. **CaseView** : Quand on clique sur un dossier, la page appelle `fetchCaseFile(caseId)` vers Railway (`GET /api/casefiles/{id}`). Si Railway ne retrouve pas le dossier ou est indisponible, on obtient "not_found"
-2. **Documents multiples** : L'Intake ne supporte qu'un seul fichier. Vous ne pouvez pas uploader BL + Packing List + DPI + Invoice en meme temps
-3. **Pas de lien document-dossier solide** : Les documents supplementaires doivent etre ajoutes APRES creation, via l'onglet Documents de CaseView... qui ne s'ouvre pas (voir point 1)
+## Modifications
 
-## Plan de correction (2 etapes)
+### Fichier 1 : `supabase/functions/ensure-quote-case/index.ts`
 
-### Etape 1 -- Corriger CaseView pour lire la base de donnees
+**Ligne 68** : Remplacer `const workflowKey = body.workflow_key || "WF_SIMPLE_QUOTE";` par un mapping qui ne passe que les valeurs enum valides dans `request_type`, et met `null` sinon.
 
-**Fichier** : `src/pages/CaseView.tsx`
-
-Remplacer l'appel `fetchCaseFile(caseId)` (Railway) par des requetes directes vers les tables existantes :
-
-| Table | Donnees |
-|-------|---------|
-| `quote_cases` | Statut, type de demande, completude, priorite |
-| `quote_facts` | Faits extraits (client, cargo, routing, incoterm...) groupes par categorie |
-| `case_documents` | Documents uploades (deja gere par `CaseDocumentsTab`) |
-| `case_timeline_events` | Historique des evenements |
-
-L'interface sera adaptee pour afficher :
-- En-tete : nom client (avec fallback) + statut + type + barre de completude
-- Onglet Faits : tableau des `quote_facts` groupes par categorie
-- Onglet Documents : composant `CaseDocumentsTab` existant (inchange)
-- Onglet Timeline : evenements de `case_timeline_events`
-
-Le bouton "Executer le workflow" (Railway) sera retire car non pertinent pour les dossiers Intake.
-
-### Etape 2 -- Permettre l'upload de documents multiples depuis CaseView
-
-Une fois CaseView fonctionnel, vous pourrez :
-1. Creer le dossier via Intake avec l'Ordre de Transit (1 document)
-2. Ouvrir le dossier depuis le Dashboard
-3. Ajouter les documents supplementaires (BL, Packing List, DPI, Invoice, etc.) via l'onglet Documents qui utilise `CaseDocumentsTab` -- deja implemente et fonctionnel
-
-Aucune modification necessaire pour cette etape : `CaseDocumentsTab` supporte deja l'upload multiple avec choix du type de document.
-
-## Fichiers modifies
-
-| Fichier | Action |
-|---------|--------|
-| `src/pages/CaseView.tsx` | Reecrit pour lire depuis la base de donnees au lieu de Railway |
-
-## Fichiers NON modifies
-
-- `src/pages/Intake.tsx` (inchange)
-- `src/pages/Dashboard.tsx` (inchange)
-- `src/components/case/CaseDocumentsTab.tsx` (inchange)
-- `src/services/railwayApi.ts` (inchange, utilise par Intake)
-- Aucune migration de base de donnees
-
-## Flux corrige apres implementation
+**Lignes 96-107** : Dans l'insert, utiliser `safeRequestType` (null si workflow key) au lieu de `workflowKey` brut.
 
 ```text
-INTAKE                  DASHBOARD              CASEVIEW
-  |                        |                      |
-  v                        v                      v
-Railway API           quote_cases (DB)      quote_cases (DB)
-  |                        |                quote_facts (DB)
-  v                        |                case_documents (DB)
-quote_cases (DB) <---------+                      |
-  |                                               v
-  +--- case_documents (storage) ----------> Documents tab
+// Avant (ligne 102)
+request_type: workflowKey,
+
+// Apres
+const ALLOWED_REQUEST_TYPES = new Set([
+  "SEA_FCL_IMPORT", "SEA_LCL_IMPORT", "SEA_BREAKBULK_IMPORT",
+  "AIR_IMPORT", "ROAD_IMPORT", "MULTIMODAL_IMPORT",
+]);
+const workflowKey = body.workflow_key ?? null;
+const safeRequestType = ALLOWED_REQUEST_TYPES.has(workflowKey ?? "")
+  ? workflowKey
+  : null;
+
+// insert
+request_type: safeRequestType,
 ```
 
-Tout le parcours consultation sera sur la base de donnees. Railway reste utilise uniquement pour la creation initiale (Intake).
+Le `workflow_key` est conserve dans `event_data` du timeline event (deja le cas, ligne ~122), donc aucune perte d'information.
 
-## Resume
+### Fichier 2 : `src/pages/Intake.tsx`
 
-- Le dossier CASSIS sera cree normalement via Intake
-- L'OT sera analyse et le formulaire pre-rempli
-- Le dossier apparaitra sur le Dashboard
-- En cliquant dessus, CaseView affichera les donnees depuis la base de donnees (plus de "not_found")
-- Vous pourrez ajouter les documents supplementaires via l'onglet Documents
+**Lignes 249-258** : Transformer le `console.warn` en erreur bloquante. Si `ensure-quote-case` echoue, les etapes suivantes (upload document, injection facts) sont inutiles et vont cascader en erreurs.
+
+```text
+// Avant
+if (ensureErr) {
+  console.warn("[Intake] ensure-quote-case failed:", ensureErr);
+}
+
+// Apres
+const { data: ensureData, error: ensureErr } = await supabase.functions.invoke(...);
+if (ensureErr || ensureData?.error) {
+  throw new Error(
+    "Creation du dossier en base impossible: " +
+    (ensureData?.error || ensureErr?.message || "reponse invalide")
+  );
+}
+```
+
+Cela garantit que l'utilisateur voit une erreur claire au lieu d'un echec silencieux suivi de multiples erreurs FK/RLS.
+
+## Pas de migration SQL necessaire
+
+- `request_type` est deja `nullable` (confirme par la requete schema)
+- Aucune modification d'enum
+- Les event_types `document_uploaded` et `fact_injected_manual` ont deja ete ajoutes dans la migration precedente
+
+## Flux corrige
+
+```text
+1. createIntake(Railway) → case_id + workflow_key="WF_SIMPLE_QUOTE"
+2. ensure-quote-case → insert request_type=NULL (WF_* filtre) → OK
+3. Upload document → case_documents (FK satisfaite) → OK
+4. Timeline "document_uploaded" → OK
+5. injectContainerFacts → set-case-fact (ownership OK) → OK
+6. CaseView → quote_cases existe → affichage OK
+```
+
+## Risques
+
+- Zero regression : `request_type` est nullable, NULL est une valeur valide partout
+- Le workflow_key reste trace dans `event_data` du timeline
+- L'erreur bloquante empeche les cascades d'erreurs silencieuses
+
