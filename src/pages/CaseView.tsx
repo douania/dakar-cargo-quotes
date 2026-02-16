@@ -31,11 +31,11 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 
 const statusIcons: Record<string, React.ReactNode> = {
-  queued: <Clock className="h-4 w-4 text-gray-500" />,
+  queued: <Clock className="h-4 w-4 text-muted-foreground" />,
   running: <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />,
   done: <CheckCircle2 className="h-4 w-4 text-green-500" />,
   failed: <XCircle className="h-4 w-4 text-red-500" />,
-  skipped: <Clock className="h-4 w-4 text-gray-400" />,
+  skipped: <Clock className="h-4 w-4 text-muted-foreground/60" />,
 };
 
 
@@ -128,7 +128,7 @@ export default function CaseView() {
             Dossier {caseId?.slice(0, 8)}...
           </h1>
           {caseInfo.client_name && (
-            <p className="text-gray-600">Client: {caseInfo.client_name}</p>
+            <p className="text-muted-foreground">Client: {caseInfo.client_name}</p>
           )}
         </div>
         <div className="flex items-center gap-3">
@@ -154,12 +154,12 @@ export default function CaseView() {
         <CardContent className="py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div>
-              <span className="text-sm text-gray-500">Complexité:</span>
+              <span className="text-sm text-muted-foreground">Complexité:</span>
               <span className="ml-2 font-bold">{caseInfo.complexity_level}/4</span>
             </div>
             {caseInfo.confidence && (
               <div>
-                <span className="text-sm text-gray-500">Confiance:</span>
+                <span className="text-sm text-muted-foreground">Confiance:</span>
                 <span className="ml-2 font-bold">{Math.round(caseInfo.confidence * 100)}%</span>
               </div>
             )}
@@ -228,7 +228,7 @@ export default function CaseView() {
                 {tasks.map((task: any, i: number) => (
                   <div
                     key={task.id || i}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-4 bg-muted rounded-lg"
                   >
                     <div className="flex items-center gap-3">
                       {statusIcons[task.status] || <Clock className="h-4 w-4" />}
@@ -255,7 +255,7 @@ export default function CaseView() {
             </CardHeader>
             <CardContent>
               {outputs.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">
+                <p className="text-muted-foreground text-center py-8">
                   Aucun résultat encore. Exécutez le workflow pour générer des résultats.
                 </p>
               ) : (
@@ -264,11 +264,11 @@ export default function CaseView() {
                     <div key={output.id || i} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Badge>{output.output_type}</Badge>
-                        <span className="text-sm text-gray-500">
+                        <span className="text-sm text-muted-foreground">
                           {output.created_at ? new Date(output.created_at).toLocaleString() : ""}
                         </span>
                       </div>
-                      <pre className="bg-gray-50 p-3 rounded text-sm overflow-auto max-h-60">
+                      <pre className="bg-muted p-3 rounded text-sm overflow-auto max-h-60">
                         {JSON.stringify(output.content_json, null, 2)}
                       </pre>
                     </div>
@@ -287,19 +287,19 @@ export default function CaseView() {
             </CardHeader>
             <CardContent>
               {inputs.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">Aucune entrée enregistrée.</p>
+                <p className="text-muted-foreground text-center py-8">Aucune entrée enregistrée.</p>
               ) : (
                 <div className="space-y-4">
                   {inputs.map((input: any, i: number) => (
                     <div key={input.id || i} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <Badge variant="outline">{input.source_type}</Badge>
-                        <span className="text-sm text-gray-500">
+                        <span className="text-sm text-muted-foreground">
                           {input.created_at ? new Date(input.created_at).toLocaleString() : ""}
                         </span>
                       </div>
                       {input.raw_text && (
-                        <pre className="bg-gray-50 p-3 rounded text-sm whitespace-pre-wrap">
+                        <pre className="bg-muted p-3 rounded text-sm whitespace-pre-wrap">
                           {input.raw_text}
                         </pre>
                       )}
@@ -322,16 +322,16 @@ export default function CaseView() {
                 {events.map((event: any, i: number) => (
                   <div
                     key={event.id || i}
-                    className="flex items-start gap-3 p-3 bg-gray-50 rounded text-sm"
+                    className="flex items-start gap-3 p-3 bg-muted rounded text-sm"
                   >
-                    <div className="text-gray-500 whitespace-nowrap">
+                    <div className="text-muted-foreground whitespace-nowrap">
                       {event.created_at ? new Date(event.created_at).toLocaleTimeString() : ""}
                     </div>
                     <Badge variant="outline" className="shrink-0">
                       {event.event_type}
                     </Badge>
                     {event.payload && (
-                      <code className="text-xs text-gray-600">
+                      <code className="text-xs text-muted-foreground">
                         {JSON.stringify(event.payload)}
                       </code>
                     )}
