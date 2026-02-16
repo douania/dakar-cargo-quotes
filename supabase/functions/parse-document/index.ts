@@ -45,6 +45,15 @@ serve(async (req) => {
 
     console.log('Processing file:', file.name, 'Type:', file.type, 'Size:', file.size);
 
+    // Correctif 3: Validation taille côté serveur (10 MB max)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      return new Response(
+        JSON.stringify({ error: 'Fichier trop volumineux (max 10 MB)' }),
+        { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const fileExt = file.name.split('.').pop()?.toLowerCase();
     // Sanitize filename for storage - remove special chars, spaces, accents
     const sanitizedName = file.name
