@@ -172,12 +172,25 @@ export default function Intake() {
 
       setResult(data);
 
-      // Post-creation: store uploaded document in case-documents
+      // Post-creation: store uploaded document in case-documents (Lovable Cloud)
+      // Note: This might fail if the case created in Railway isn't yet synced in Lovable Cloud quote_cases table
       if (uploadedFile && data.case_id) {
         try {
           const { data: userData } = await supabase.auth.getUser();
           const userId = userData?.user?.id;
-          if (!userId) throw new Error("Non authentifié");
+          if (!userId) return; // Silent skip if not authenticated
+
+          // Check if case exists in Lovable Cloud to avoid FK violations
+          const { data: existingCase } = await supabase
+            .from("quote_cases")
+            .select("id")
+            .eq("id", data.case_id)
+            .maybeSingle();
+
+          if (!existingCase) {
+            console.warn("Case sync pending: skipped document attachment to Supabase");
+            return;
+          }
 
           const docId = crypto.randomUUID();
           const safeName = uploadedFile.name.replace(/[^\w.-]/g, "_");
@@ -198,7 +211,7 @@ export default function Intake() {
             uploaded_by: userId,
           });
 
-          // 3. Timeline event
+          // 3. Timeline event (Note: Check RLS policies if 403 occurs)
           await supabase.from("case_timeline_events").insert({
             case_id: data.case_id,
             event_type: "document_uploaded",
@@ -207,7 +220,8 @@ export default function Intake() {
             event_data: { document_type: "Ordre de transit", file_name: uploadedFile.name },
           });
         } catch (docErr) {
-          console.warn("Erreur stockage document source (non bloquant):", docErr);
+          // Robust guard to prevent breaking the main flow
+          console.warn("Post-creation tasks skipped (non-blocking):", docErr);
         }
       }
     } catch (err: any) {
