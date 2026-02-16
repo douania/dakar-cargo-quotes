@@ -141,6 +141,23 @@ export default function CaseView() {
         </div>
       </div>
 
+      {/* Missing Fields / Alert */}
+      {caseInfo.status === "needs_info" && caseInfo.missing_fields?.length > 0 && (
+        <Alert className="mb-6 border-warning bg-warning/10">
+          <AlertCircle className="h-4 w-4 text-warning" />
+          <div className="ml-2">
+            <h4 className="font-semibold text-warning">Informations manquantes pour la cotation</h4>
+            <ul className="mt-2 space-y-1">
+              {caseInfo.missing_fields.map((f: any, i: number) => (
+                <li key={i} className="text-sm">
+                  <span className="font-medium">{f.question}</span> (Champ: {f.field})
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Alert>
+      )}
+
       {/* Error */}
       {error && (
         <Alert variant="destructive" className="mb-6">
