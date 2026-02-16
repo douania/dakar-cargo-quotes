@@ -520,7 +520,6 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         inputs.containers = Array.isArray(parsedContainers) ? parsedContainers : [];
         break;
       }
-        break;
       case "cargo.weight_kg":
         inputs.cargoWeight = Number(value);
         break;
