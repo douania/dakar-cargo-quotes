@@ -1,108 +1,143 @@
 
-# Audit CTO : Correctifs P0 run-pricing / quotation-engine
 
-## Contexte
+# PHASE DOCS-P0 — Gestion documentaire par dossier
 
-L'audit ChatGPT a identifie 2 bugs confirmes par analyse directe du code et 1 validation forensique sur un cas reel.
+## Rapport d'audit
 
----
+| Element | Statut | Detail |
+|---------|--------|--------|
+| Table liee a quote_cases | NON | `documents` existe (generique, sans case_id). `quotation_documents` liee a quotation_id. |
+| UI upload dans CaseView | NON | 4 onglets existants (Taches, Resultats, Entrees, Historique). Aucun onglet Documents. |
+| Bucket Storage dedie | NON | Buckets existants : `documents` (public, generique), `quotation-attachments` (cotations PDF). |
 
-## Verification forensique — cas reel (case acddafa7)
-
-Donnees en base :
-- `cargoValue = 4655`, `cargoValueCurrency = EUR`
-- Conversion attendue : `4655 * 655.957 = 3,053,479 FCFA`
-- `duty_breakdown` : `caf[0]=128,363 + caf[1]=2,925,117 = 3,053,480 FCFA` -- Correct (arrondi 1 FCFA)
-
-Verification TVA article 2 (HS 8507.20) :
-- `base_tva = 3,539,391` = `caf(2,925,117) + dd(585,023) + rs(29,251) + surtaxe(0) + tin(0) + tci(0)` = `3,539,391` -- Correct
-- `tva = 3,539,391 * 18% = 637,090` -- Correct
-- PCS/PCC/COSEC exclus de la base TVA -- Correct
-
-Totaux :
-- `debours = 1,341,575` (somme duties articles 1+2 = 34,632 + 1,306,942 = 1,341,574) -- Correct (arrondi 1 FCFA)
-- `honoraires = 150,000 HT` + `TVA 18% = 27,000` = `177,000 TTC`
-- `total_ttc = 1,341,575 + 177,000 = 1,518,575` -- Correct
-
-**Verdict : Le moteur de calcul est fiable.** Les 2 bugs identifies sont reels mais n'affectent pas les chiffres du duty_breakdown.
+**Verdict : Ajout necessaire.**
 
 ---
 
-## Bug 1 (P0) : metadata.caf calcule sans conversion devise
+## Plan d'implementation (3 etapes)
 
-**Fichier** : `supabase/functions/quotation-engine/index.ts`
-**Ligne** : ~2298
+### Etape 1 — Migration SQL : table `case_documents` + bucket `case-documents`
 
-**Probleme** : Le CAF des metadata est calcule avec `request.cargoValue` brut (potentiellement en EUR), alors que le CAF du duty_breakdown utilise `cargoValueFCFA` (correctement converti).
+Creer la table `case_documents` :
+- `id` (uuid, pk, default gen_random_uuid())
+- `case_id` (uuid, FK vers quote_cases.id ON DELETE CASCADE, NOT NULL)
+- `document_type` (text, NOT NULL) — BL, Facture commerciale, Declaration douane, DPI, Ordre de transit, Liste de colisage, Autre
+- `file_name` (text, NOT NULL)
+- `storage_path` (text, NOT NULL)
+- `mime_type` (text)
+- `file_size` (integer)
+- `uploaded_by` (uuid, NOT NULL)
+- `created_at` (timestamptz, default now())
 
-```text
-Ligne 2035 (debours, correct) :  calculateCAF({ invoiceValue: cargoValueFCFA })
-Ligne 2298 (metadata, faux)   :  calculateCAF({ invoiceValue: request.cargoValue })
-```
+Index sur `case_id`.
 
-**Impact** : `metadata.caf.value` affiche un CAF faux quand la devise n'est pas XOF. Utilise pour debug/UI/audit.
+RLS :
+- SELECT : `TO authenticated USING (true)` — coherent avec la politique mono-tenant existante (meme logique que quote_cases, quote_facts, pricing_runs)
+- INSERT : `TO authenticated WITH CHECK (auth.uid() = uploaded_by)` — tracabilite
+- DELETE : `TO authenticated USING (auth.uid() = uploaded_by)`
 
-**Correctif** : Remplacer `request.cargoValue` par la valeur convertie en FCFA. La variable `cargoValueFCFA` existe deja dans la fonction `generateQuotationLines()`. Il faut la faire remonter au scope du handler principal.
+Bucket Storage :
+- Nom : `case-documents`
+- Public : **NON** (prive, acces via signed URLs)
+- Policies storage.objects : SELECT/INSERT/DELETE pour authenticated sur `bucket_id = 'case-documents'`
 
-Approche chirurgicale :
-1. Faire retourner `cargoValueFCFA` depuis `generateQuotationLines()` dans l'objet resultat
-2. Utiliser cette valeur dans le `calculateCAF` du metadata (ligne 2298)
+Structure fichiers : `{case_id}/{document_id}-{file_name}`
+
+### Etape 2 — Composant UI : `CaseDocumentsTab`
+
+Nouveau fichier : `src/components/case/CaseDocumentsTab.tsx`
+
+Contenu :
+- Props : `caseId: string`
+- Query les `case_documents` filtres par `case_id`
+- Affiche un tableau : Type | Nom fichier | Taille | Date upload
+- Bouton "Ajouter un document" ouvrant un Dialog
+- Dialog d'upload :
+  - Select pour le type de document (BL, Facture commerciale, Declaration douane, DPI, Ordre de transit, Liste de colisage, Autre)
+  - Zone de drop / bouton fichier (input file standard)
+  - Upload vers bucket `case-documents` via Supabase Storage
+  - Insert dans `case_documents`
+  - Insert event timeline dans `case_timeline_events` avec `event_type = 'document_uploaded'`
+- Lien de telechargement via signed URL (1h)
+
+### Etape 3 — Integration dans CaseView
+
+Modifier `src/pages/CaseView.tsx` :
+- Ajouter un 5eme onglet "Documents" dans le TabsList (grid passe de 4 a 5 colonnes)
+- Importer et rendre `CaseDocumentsTab` dans le TabsContent correspondant
+- Icone : `Paperclip` de lucide-react
 
 ---
 
-## Bug 2 (P1) : Double break dans run-pricing
+## Fichiers modifies/crees
 
-**Fichier** : `supabase/functions/run-pricing/index.ts`
-**Lignes** : 521-523
+| Fichier | Action |
+|---------|--------|
+| Migration SQL | CREER — table `case_documents`, bucket `case-documents`, RLS, policies storage |
+| `src/components/case/CaseDocumentsTab.tsx` | CREER — composant onglet documents |
+| `src/pages/CaseView.tsx` | MODIFIER — ajout 5eme onglet Documents (lignes 192-210 uniquement) |
 
-**Probleme** : Un `break;` surnumeraire apres le bloc `case "cargo.containers"`.
-
-```text
-      inputs.containers = Array.isArray(parsedContainers) ? parsedContainers : [];
-      break;      // <-- break du bloc (correct)
-    }
-      break;      // <-- break orphelin (dead code / erreur)
-```
-
-**Impact** : Dead code. Pas d'impact fonctionnel actuellement (le compilateur accepte), mais code incorrect et confusant pour les audits.
-
-**Correctif** : Supprimer la ligne 523 (`break;` surnumeraire).
-
----
-
-## Resume des modifications
-
-| # | Fichier | Type | Impact |
-|---|---------|------|--------|
-| 1 | `quotation-engine/index.ts` | Bug CAF metadata | P0 - Valeur CAF fausse en metadata quand devise != XOF |
-| 2 | `run-pricing/index.ts` | Dead code break | P1 - Nettoyage, zero impact fonctionnel |
-
----
+## Composants FROZEN impactes : AUCUN
 
 ## Section technique
 
-### Modification 1 : quotation-engine/index.ts
+### Migration SQL
 
-Etape A : Modifier le retour de `generateQuotationLines()` pour inclure `cargoValueFCFA`.
+```sql
+-- Table case_documents
+CREATE TABLE public.case_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID NOT NULL REFERENCES public.quote_cases(id) ON DELETE CASCADE,
+  document_type TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  mime_type TEXT,
+  file_size INTEGER,
+  uploaded_by UUID NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
-La fonction retourne actuellement `{ lines, totals, dutyBreakdown, warnings }`. Ajouter `cargoValueFCFA` a cet objet.
+CREATE INDEX idx_case_documents_case_id ON public.case_documents(case_id);
 
-Etape B : Dans le handler principal (action `generate`), recuperer `cargoValueFCFA` depuis le resultat et l'utiliser dans le calculateCAF du metadata :
+ALTER TABLE public.case_documents ENABLE ROW LEVEL SECURITY;
 
-```typescript
-// Avant (ligne ~2298)
-const caf = calculateCAF({
-  incoterm: request.incoterm || 'CIF',
-  invoiceValue: request.cargoValue   // BUG: valeur brute, pas convertie
-});
+CREATE POLICY "case_documents_select" ON public.case_documents
+  FOR SELECT TO authenticated USING (true);
 
-// Apres
-const caf = calculateCAF({
-  incoterm: request.incoterm || 'CIF',
-  invoiceValue: result.cargoValueFCFA || request.cargoValue  // Converti si disponible
-});
+CREATE POLICY "case_documents_insert" ON public.case_documents
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = uploaded_by);
+
+CREATE POLICY "case_documents_delete" ON public.case_documents
+  FOR DELETE TO authenticated USING (auth.uid() = uploaded_by);
+
+-- Bucket prive
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('case-documents', 'case-documents', false)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "case_docs_storage_select" ON storage.objects
+  FOR SELECT TO authenticated USING (bucket_id = 'case-documents');
+
+CREATE POLICY "case_docs_storage_insert" ON storage.objects
+  FOR INSERT TO authenticated WITH CHECK (bucket_id = 'case-documents');
+
+CREATE POLICY "case_docs_storage_delete" ON storage.objects
+  FOR DELETE TO authenticated USING (bucket_id = 'case-documents');
 ```
 
-### Modification 2 : run-pricing/index.ts
+### CaseDocumentsTab.tsx — Architecture
 
-Supprimer la ligne 523 (le `break;` orphelin apres le bloc `cargo.containers`).
+- Hook `useQuery` pour charger les documents du case
+- `useMutation` pour upload (Storage + insert DB + timeline event)
+- Dialog Radix pour le formulaire d'ajout
+- Table shadcn/ui pour l'affichage
+- Signed URL pour telechargement (pas de bucket public)
+
+### CaseView.tsx — Diff prevu
+
+- Ligne 1 : ajout import `Paperclip` depuis lucide-react
+- Ligne ~5 : ajout import `CaseDocumentsTab`
+- Ligne 192 : `grid-cols-4` devient `grid-cols-5`
+- Apres ligne 210 : ajout TabsTrigger "Documents"
+- Apres le dernier TabsContent : ajout TabsContent avec `CaseDocumentsTab`
+
