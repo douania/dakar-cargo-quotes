@@ -78,6 +78,7 @@ export default function Dashboard() {
             .from('quote_cases')
             .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
             .not('status', 'in', '(SENT,ARCHIVED)')
+            .is('thread_id', null)
             .order('updated_at', { ascending: false })
             .limit(50)
         ),
