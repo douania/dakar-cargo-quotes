@@ -44,6 +44,7 @@ export default function Intake() {
   const [extractedDocId, setExtractedDocId] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [extractionSource, setExtractionSource] = useState<string | null>(null);
+  const [extractedAnalysis, setExtractedAnalysis] = useState<Record<string, any> | null>(null);
 
   // Submit state
   const [loading, setLoading] = useState(false);
@@ -81,6 +82,7 @@ export default function Intake() {
     setUploadedFile(null);
     setExtractionSource(null);
     setExtractedDocId(null);
+    setExtractedAnalysis(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -122,6 +124,7 @@ export default function Intake() {
       // Step 3: Pre-fill form with extracted data
       const extracted = analyzeData.analysis;
       if (extracted) {
+        setExtractedAnalysis(extracted);
         if (extracted.client_name) setClientName(extracted.client_name);
         if (extracted.client_email) setClientEmail(extracted.client_email);
         if (extracted.customer_ref) setCustomerRef(extracted.customer_ref);
@@ -157,6 +160,72 @@ export default function Intake() {
     }
   }
 
+  /** Correct Railway assumptions using analyze-document extracted data */
+  function correctAssumptions(data: IntakeResponse, analysis: Record<string, any> | null): IntakeResponse {
+    if (!analysis) return data;
+
+    const containerCount = Number(analysis.container_count) || 0;
+    const containerType = String(analysis.container_type || "").replace(/[^0-9]/g, "");
+    const weightKg = Number(analysis.weight_kg) || 0;
+
+    if (containerCount >= 1 && (containerType === "20" || containerType === "40")) {
+      // Filter out incorrect "colis lourd" assumptions
+      const filtered = (data.assumptions || []).filter(
+        (a) => !/colis\s*lourd/i.test(a) && !/heavy.*cargo/i.test(a)
+      );
+
+      // Build smart FCL assumptions
+      const weightPerContainer = weightKg > 0 ? Math.round(weightKg / containerCount) : null;
+      const weightInfo = weightPerContainer
+        ? ` (poids total : ${weightKg.toLocaleString("fr-FR")} kg, soit ~${weightPerContainer.toLocaleString("fr-FR")} kg/conteneur)`
+        : "";
+
+      filtered.unshift(
+        `${containerCount} conteneur(s) ${containerType}' détecté(s)${weightInfo}`,
+        `Mode de transport : Maritime FCL`
+      );
+
+      // Detect "importation partielle" from the text
+      if (/importation\s+partielle/i.test(text)) {
+        filtered.push("Importation partielle détectée");
+      }
+
+      return { ...data, assumptions: filtered };
+    }
+
+    return data;
+  }
+
+  /** Inject container facts into quote_facts (non-blocking, best-effort) */
+  async function injectContainerFacts(caseId: string, analysis: Record<string, any>) {
+    const containerCount = Number(analysis.container_count) || 0;
+    const containerType = String(analysis.container_type || "");
+    const weightKg = Number(analysis.weight_kg) || 0;
+
+    if (containerCount < 1) return;
+
+    const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [
+      { fact_key: "cargo.container_count", value_number: containerCount },
+      { fact_key: "cargo.container_type", value_text: containerType },
+    ];
+    if (weightKg > 0) {
+      facts.push({ fact_key: "cargo.weight_kg", value_number: weightKg });
+    }
+    if (containerType.includes("40") || containerType.includes("20")) {
+      facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
+    }
+
+    for (const fact of facts) {
+      try {
+        await supabase.functions.invoke("set-case-fact", {
+          body: { case_id: caseId, ...fact },
+        });
+      } catch (err) {
+        console.warn(`[Intake] Failed to inject fact ${fact.fact_key}:`, err);
+      }
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -170,7 +239,14 @@ export default function Intake() {
         customer_ref: customerRef || undefined,
       });
 
-      setResult(data);
+      // Correct assumptions using extracted analysis data
+      const correctedData = correctAssumptions(data, extractedAnalysis);
+      setResult(correctedData);
+
+      // Inject facts into quote_facts via set-case-fact (non-blocking)
+      if (correctedData.case_id && extractedAnalysis) {
+        injectContainerFacts(correctedData.case_id, extractedAnalysis);
+      }
 
       // Post-creation: store uploaded document in case-documents (Lovable Cloud)
       // Note: This might fail if the case created in Railway isn't yet synced in Lovable Cloud quote_cases table
