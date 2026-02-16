@@ -76,7 +76,8 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
       if (!user) throw new Error("Non authentifié");
 
       const docId = crypto.randomUUID();
-      const storagePath = `${caseId}/${docId}-${file.name}`;
+      const safeName = file.name.replace(/[^\w.-]/g, "_");
+      const storagePath = `${caseId}/${docId}-${safeName}`;
 
       // 1. Upload to storage
       const { error: uploadError } = await supabase.storage
@@ -124,9 +125,10 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (doc: { id: string; storage_path: string }) => {
-      await supabase.storage.from("case-documents").remove([doc.storage_path]);
+      // DB first (canonical source), then storage
       const { error } = await supabase.from("case_documents").delete().eq("id", doc.id);
       if (error) throw error;
+      await supabase.storage.from("case-documents").remove([doc.storage_path]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
