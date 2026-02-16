@@ -27,6 +27,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { CaseCard } from '@/components/dashboard/CaseCard';
+import type { QuoteCaseData } from '@/hooks/useQuoteCaseData';
 
 interface QuotationRequest {
   id: string;
@@ -55,21 +57,38 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<QuotationRequest[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
 
   const fetchData = async () => {
     setFetchError(null);
     try {
-      // Fetch quotation requests with timeout
-      const { data: emails, error: emailsError } = await withTimeout(
-        supabase
-          .from('emails')
-          .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
-          .eq('is_quotation_request', true)
-          .order('received_at', { ascending: false })
-          .limit(100)
-      );
+      // Fetch quotation requests and active cases in parallel
+      const [emailsResult, casesResult] = await Promise.all([
+        withTimeout(
+          supabase
+            .from('emails')
+            .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
+            .eq('is_quotation_request', true)
+            .order('received_at', { ascending: false })
+            .limit(100)
+        ),
+        withTimeout(
+          supabase
+            .from('quote_cases')
+            .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
+            .not('status', 'in', '(SENT,ARCHIVED)')
+            .order('updated_at', { ascending: false })
+            .limit(50)
+        ),
+      ]);
 
+      const { data: emails, error: emailsError } = emailsResult;
       if (emailsError) throw emailsError;
+
+      const { data: cases } = casesResult;
+      setActiveCases((cases as QuoteCaseData[]) || []);
+
+
 
       // Get attachment counts
       const { data: attachments } = await withTimeout(
@@ -284,7 +303,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card className="border-border/50 bg-gradient-card">
             <CardContent className="pt-4 pb-3">
               <div className="flex items-center justify-between">
@@ -294,6 +313,20 @@ export default function Dashboard() {
                 </div>
                 <div className="p-2.5 rounded-lg bg-amber-500/10">
                   <Clock className="h-5 w-5 text-amber-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-gradient-card">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Dossiers actifs</p>
+                  <p className="text-2xl font-bold text-primary">{activeCases.length}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-primary/10">
+                  <FileText className="h-5 w-5 text-primary" />
                 </div>
               </div>
             </CardContent>
@@ -327,6 +360,21 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Active Cases Section */}
+        {activeCases.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
+              <FileText className="h-5 w-5 text-primary" />
+              Dossiers en cours
+            </h2>
+            <div className="space-y-2">
+              {activeCases.map((c) => (
+                <CaseCard key={c.id} caseData={c} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Filter & Sort */}
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
