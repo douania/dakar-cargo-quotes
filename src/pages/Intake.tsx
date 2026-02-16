@@ -160,13 +160,52 @@ export default function Intake() {
     }
   }
 
-  /** Correct Railway assumptions using analyze-document extracted data */
-  function correctAssumptions(data: IntakeResponse, analysis: Record<string, any> | null): IntakeResponse {
-    if (!analysis) return data;
+  /** Parse operator text overrides (container count, type, destination) */
+  function parseTextOverrides(inputText: string): Record<string, any> {
+    const overrides: Record<string, any> = {};
 
-    const containerCount = Number(analysis.container_count) || 0;
-    const containerType = String(analysis.container_type || "").replace(/[^0-9]/g, "");
-    const weightKg = Number(analysis.weight_kg) || 0;
+    // Detect "1 conteneur", "un seul conteneur 40'", "1 x 40HC", etc.
+    const containerMatch = inputText.match(
+      /(\d+)\s*(?:seul\s+)?(?:conteneur|container|x)\s*(\d{2})?[''']?\s*(HC|DV|OT|FR|GP)?/i
+    );
+    if (containerMatch) {
+      overrides.container_count = parseInt(containerMatch[1], 10);
+      if (containerMatch[2]) {
+        const size = containerMatch[2];
+        const type = containerMatch[3] || "";
+        overrides.container_type = size + "'" + (type ? " " + type.toUpperCase() : "");
+      }
+    }
+
+    // Detect delivery location
+    const destPatterns = [
+      /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
+      /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
+    ];
+    for (const pat of destPatterns) {
+      const match = inputText.match(pat);
+      if (match) {
+        overrides.destination = match[1].trim();
+        break;
+      }
+    }
+
+    return overrides;
+  }
+
+  /** Correct Railway assumptions using extracted data + operator overrides */
+  function correctAssumptions(
+    data: IntakeResponse,
+    analysis: Record<string, any> | null,
+    textOverrides: Record<string, any> = {}
+  ): IntakeResponse {
+    if (!analysis && Object.keys(textOverrides).length === 0) return data;
+
+    const mergedAnalysis = analysis || {};
+    const containerCount = Number(textOverrides.container_count ?? mergedAnalysis.container_count) || 0;
+    const containerType = String(textOverrides.container_type ?? mergedAnalysis.container_type ?? "").replace(/[^0-9]/g, "");
+    const weightKg = Number(mergedAnalysis.weight_kg) || 0;
+    const destination = textOverrides.destination ?? mergedAnalysis.destination ?? null;
 
     if (containerCount >= 1 && (containerType === "20" || containerType === "40")) {
       // Filter out incorrect "colis lourd" assumptions
@@ -185,34 +224,66 @@ export default function Intake() {
         `Mode de transport : Maritime FCL`
       );
 
+      // Show operator correction if override differs from document
+      if (
+        textOverrides.container_count != null &&
+        mergedAnalysis.container_count != null &&
+        Number(textOverrides.container_count) !== Number(mergedAnalysis.container_count)
+      ) {
+        filtered.push(
+          `⚠️ Correction opérateur : ${textOverrides.container_count} conteneur(s) (OT originale : ${mergedAnalysis.container_count})`
+        );
+      }
+
       // Detect "importation partielle" from the text
       if (/importation\s+partielle/i.test(text)) {
         filtered.push("Importation partielle détectée");
       }
 
+      // Show destination if detected
+      if (destination) {
+        filtered.push(`📍 Lieu de livraison : ${destination}`);
+      }
+
       return { ...data, assumptions: filtered };
+    }
+
+    // Even if no container info, show destination override
+    if (destination) {
+      const assumptions = [...(data.assumptions || [])];
+      assumptions.push(`📍 Lieu de livraison : ${destination}`);
+      return { ...data, assumptions };
     }
 
     return data;
   }
 
-  /** Inject container facts into quote_facts (non-blocking, best-effort) */
-  async function injectContainerFacts(caseId: string, analysis: Record<string, any>) {
-    const containerCount = Number(analysis.container_count) || 0;
-    const containerType = String(analysis.container_type || "");
+  /** Inject facts into quote_facts with operator overrides taking priority */
+  async function injectFacts(
+    caseId: string,
+    analysis: Record<string, any>,
+    textOverrides: Record<string, any>
+  ) {
+    // Merge: text overrides > document analysis
+    const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
+    const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
     const weightKg = Number(analysis.weight_kg) || 0;
+    const destination = textOverrides.destination ?? analysis.destination ?? null;
 
-    if (containerCount < 1) return;
+    const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [];
 
-    const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [
-      { fact_key: "cargo.container_count", value_number: containerCount },
-      { fact_key: "cargo.container_type", value_text: containerType },
-    ];
+    if (containerCount >= 1) {
+      facts.push({ fact_key: "cargo.container_count", value_number: containerCount });
+      facts.push({ fact_key: "cargo.container_type", value_text: containerType });
+    }
     if (weightKg > 0) {
       facts.push({ fact_key: "cargo.weight_kg", value_number: weightKg });
     }
     if (containerType.includes("40") || containerType.includes("20")) {
       facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
+    }
+    if (destination) {
+      facts.push({ fact_key: "routing.destination_city", value_text: destination });
     }
 
     for (const fact of facts) {
@@ -239,8 +310,11 @@ export default function Intake() {
         customer_ref: customerRef || undefined,
       });
 
-      // Correct assumptions using extracted analysis data
-      const correctedData = correctAssumptions(data, extractedAnalysis);
+      // Parse text overrides from operator's edits
+      const textOverrides = parseTextOverrides(text);
+
+      // Correct assumptions using extracted analysis data + operator overrides
+      const correctedData = correctAssumptions(data, extractedAnalysis, textOverrides);
       setResult(correctedData);
 
       if (data.case_id) {
@@ -256,9 +330,9 @@ export default function Intake() {
           );
         }
 
-        // Step B: Inject container facts (non-blocking, best-effort)
-        if (extractedAnalysis) {
-          injectContainerFacts(data.case_id, extractedAnalysis);
+        // Step B: Inject facts with operator overrides taking priority
+        if (extractedAnalysis || Object.keys(textOverrides).length > 0) {
+          injectFacts(data.case_id, extractedAnalysis || {}, textOverrides);
         }
 
         // Step C: Store uploaded document in case-documents
