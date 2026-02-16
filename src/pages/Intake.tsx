@@ -180,17 +180,9 @@ export default function Intake() {
           const userId = userData?.user?.id;
           if (!userId) return; // Silent skip if not authenticated
 
-          // Check if case exists in Lovable Cloud to avoid FK violations
-          const { data: existingCase } = await supabase
-            .from("quote_cases")
-            .select("id")
-            .eq("id", data.case_id)
-            .maybeSingle();
+          // Since the FK constraint has been removed, we can now attach documents 
+          // even if the case is not yet synchronized in the local quote_cases table.
 
-          if (!existingCase) {
-            console.warn("Case sync pending: skipped document attachment to Supabase");
-            return;
-          }
 
           const docId = crypto.randomUUID();
           const safeName = uploadedFile.name.replace(/[^\w.-]/g, "_");
@@ -448,7 +440,7 @@ Merci de nous faire une cotation."
             <CardHeader className="bg-primary/5">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <CheckCircle2 className="h-5 w-5 text-success" />
                   Analyse terminée
                 </CardTitle>
                 <Badge className={WORKFLOW_LABELS[result.workflow_key]?.color || "bg-muted"}>
@@ -456,6 +448,7 @@ Merci de nous faire une cotation."
                 </Badge>
               </div>
             </CardHeader>
+
             <CardContent className="pt-6 space-y-6">
               {/* KPIs */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -480,11 +473,11 @@ Merci de nous faire une cotation."
               {/* Champs manquants */}
               {result.missing_fields.length > 0 && (
                 <div>
-                  <h4 className="font-semibold mb-2 text-orange-700">Informations manquantes</h4>
+                  <h4 className="font-semibold mb-2 text-warning">Informations manquantes</h4>
                   <ul className="space-y-2">
                     {result.missing_fields.map((field, i) => (
-                      <li key={i} className="flex items-start gap-2 p-3 bg-orange-50 rounded-lg">
-                        <AlertCircle className="h-5 w-5 text-orange-500 mt-0.5" />
+                      <li key={i} className="flex items-start gap-2 p-3 bg-warning/10 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-warning mt-0.5" />
                         <div>
                           <div className="font-medium">{field.question}</div>
                           <div className="text-sm text-muted-foreground">Champ: {field.field}</div>
@@ -494,6 +487,7 @@ Merci de nous faire une cotation."
                   </ul>
                 </div>
               )}
+
 
               {/* Hypothèses */}
               {result.assumptions && result.assumptions.length > 0 && (
