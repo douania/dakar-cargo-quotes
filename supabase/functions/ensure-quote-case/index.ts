@@ -1,6 +1,10 @@
 /**
- * Phase 7.0.2: ensure-quote-case
- * Creates or retrieves a quote_case for a given email thread
+ * Phase 7.0.2+: ensure-quote-case
+ * Creates or retrieves a quote_case for a given email thread OR intake case_id.
+ *
+ * Two modes:
+ *   1. { thread_id }          — original thread-based flow
+ *   2. { case_id, mode: "intake", workflow_key? } — Intake upsert flow
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -10,10 +14,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-interface EnsureCaseRequest {
-  thread_id: string;
-}
 
 interface EnsureCaseResponse {
   case_id: string;
@@ -41,9 +41,8 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // User client for auth validation
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
     });
 
     const token = authHeader.replace("Bearer ", "");
@@ -56,12 +55,89 @@ Deno.serve(async (req) => {
     }
 
     const userId = userData.user.id;
-
-    // Service client for DB operations
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
-    const { thread_id }: EnsureCaseRequest = await req.json();
+    const body = await req.json();
+    const mode = body.mode || "thread"; // "thread" (default) or "intake"
+
+    // ─── MODE: INTAKE ───
+    // Upsert a quote_case with a known case_id (from Railway)
+    if (mode === "intake") {
+      const caseId = body.case_id;
+      const workflowKey = body.workflow_key || "WF_SIMPLE_QUOTE";
+
+      if (!caseId) {
+        return new Response(
+          JSON.stringify({ error: "case_id is required for intake mode" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if case already exists
+      const { data: existing } = await serviceClient
+        .from("quote_cases")
+        .select("id, status, request_type")
+        .eq("id", caseId)
+        .single();
+
+      if (existing) {
+        const response: EnsureCaseResponse = {
+          case_id: existing.id,
+          status: existing.status,
+          is_new: false,
+          request_type: existing.request_type,
+        };
+        return new Response(JSON.stringify(response), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Insert new case with the Railway-provided ID
+      const { data: newCase, error: insertError } = await serviceClient
+        .from("quote_cases")
+        .insert({
+          id: caseId,
+          status: "INTAKE",
+          request_type: workflowKey,
+          created_by: userId,
+          puzzle_completeness: 0,
+        })
+        .select("id, status, request_type")
+        .single();
+
+      if (insertError) {
+        console.error("Error creating intake case:", insertError);
+        return new Response(
+          JSON.stringify({ error: "Failed to create case", details: insertError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Timeline event
+      await serviceClient.from("case_timeline_events").insert({
+        case_id: newCase.id,
+        event_type: "case_created",
+        event_data: { source: "intake", workflow_key: workflowKey },
+        actor_type: "user",
+        actor_user_id: userId,
+      });
+
+      console.log(`[ensure-quote-case] Intake case created: ${newCase.id}`);
+
+      const response: EnsureCaseResponse = {
+        case_id: newCase.id,
+        status: newCase.status,
+        is_new: true,
+        request_type: newCase.request_type,
+      };
+      return new Response(JSON.stringify(response), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ─── MODE: THREAD (original flow) ───
+    const thread_id = body.thread_id;
 
     if (!thread_id) {
       return new Response(
@@ -108,14 +184,12 @@ Deno.serve(async (req) => {
     }
 
     if (existingCase) {
-      // Return existing case
       const response: EnsureCaseResponse = {
         case_id: existingCase.id,
         status: existingCase.status,
         is_new: false,
         request_type: existingCase.request_type,
       };
-
       return new Response(JSON.stringify(response), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -129,7 +203,7 @@ Deno.serve(async (req) => {
       .insert({
         thread_id: effectiveThreadRef,
         status: initialStatus,
-        created_by: userId,  // Explicit, not relying on default
+        created_by: userId,
       })
       .select("id, status, request_type")
       .single();
@@ -147,7 +221,7 @@ Deno.serve(async (req) => {
       case_id: newCase.id,
       event_type: "case_created",
       event_data: {
-        thread_id,  // Original value preserved for audit
+        thread_id,
         thread_subject: thread?.subject_normalized ?? null,
         is_quotation_thread: thread?.is_quotation_thread ?? false,
       },
@@ -155,7 +229,6 @@ Deno.serve(async (req) => {
       actor_user_id: userId,
     });
 
-    // If auto-transitioned to RFQ_DETECTED, log that too
     if (initialStatus === "RFQ_DETECTED") {
       await serviceClient.from("case_timeline_events").insert({
         case_id: newCase.id,
