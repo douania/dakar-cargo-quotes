@@ -17,8 +17,11 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.weight_kg",
   "cargo.chargeable_weight_kg",
   "cargo.articles_detail",
+  "cargo.container_count",
+  "cargo.container_type",
   "routing.incoterm",
   "routing.destination_city",
+  "service.mode",
 ]);
 
 // ── Category detection from prefix ──
@@ -29,6 +32,7 @@ function detectCategory(factKey: string): string {
     case "cargo": return "cargo";
     case "routing": return "routing";
     case "timing": return "timing";
+    case "service": return "service";
     default: return "other";
   }
 }
