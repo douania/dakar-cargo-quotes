@@ -216,6 +216,33 @@ export default function Intake() {
     return overrides;
   }
 
+  // Mapping: Railway missing_field name -> resolver checking if data is available
+  const FIELD_RESOLVERS: Record<string, (a: Record<string, any>, o: Record<string, any>) => boolean> = {
+    "route.destinations": (a, o) => !!(o.destination || a.destination),
+    "cargo.container_count": (a, o) => !!(o.container_count || a.container_count),
+    "cargo.weight": (a, o) => !!(a.weight_kg),
+    "cargo.commodity": (a, o) => !!(a.commodity || a.cargo_description),
+    "cargo.incoterm": (a, o) => !!(a.incoterm || o.incoterm),
+  };
+
+  /** Filter missing_fields against already-resolved data */
+  function filterMissingFields(
+    data: IntakeResponse,
+    analysis: Record<string, any>,
+    overrides: Record<string, any>
+  ): IntakeResponse {
+    if (!data.missing_fields || data.missing_fields.length === 0) return data;
+    const filteredMissing = data.missing_fields.filter((field: any) => {
+      const resolver = FIELD_RESOLVERS[field.field];
+      if (resolver && resolver(analysis, overrides)) {
+        return false; // resolved, remove
+      }
+      return true;
+    });
+    if (filteredMissing.length === data.missing_fields.length) return data;
+    return { ...data, missing_fields: filteredMissing };
+  }
+
   /** Correct Railway assumptions using extracted data + operator overrides */
   function correctAssumptions(
     data: IntakeResponse,
@@ -230,9 +257,12 @@ export default function Intake() {
     const weightKg = Number(mergedAnalysis.weight_kg) || 0;
     const destination = textOverrides.destination ?? mergedAnalysis.destination ?? null;
 
+    // Always filter missing_fields against available data
+    let result = filterMissingFields(data, mergedAnalysis, textOverrides);
+
     if (containerCount >= 1 && (containerType === "20" || containerType === "40")) {
       // Filter out incorrect "colis lourd" assumptions
-      const filtered = (data.assumptions || []).filter(
+      const filtered = (result.assumptions || []).filter(
         (a) => !/colis\s*lourd/i.test(a) && !/heavy.*cargo/i.test(a)
       );
 
@@ -268,17 +298,17 @@ export default function Intake() {
         filtered.push(`📍 Lieu de livraison : ${destination}`);
       }
 
-      return { ...data, assumptions: filtered };
+      return { ...result, assumptions: filtered };
     }
 
     // Even if no container info, show destination override
     if (destination) {
-      const assumptions = [...(data.assumptions || [])];
+      const assumptions = [...(result.assumptions || [])];
       assumptions.push(`📍 Lieu de livraison : ${destination}`);
-      return { ...data, assumptions };
+      return { ...result, assumptions };
     }
 
-    return data;
+    return result;
   }
 
   /** Inject facts into quote_facts with operator overrides taking priority */
