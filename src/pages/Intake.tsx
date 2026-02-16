@@ -246,15 +246,14 @@ export default function Intake() {
       if (data.case_id) {
         // Step A: Ensure quote_cases row exists in DB (via service-role Edge Function)
         // This MUST happen before any fact injection, document upload, or timeline event
-        try {
-          const { error: ensureErr } = await supabase.functions.invoke("ensure-quote-case", {
-            body: { case_id: data.case_id, mode: "intake", workflow_key: data.workflow_key || "WF_SIMPLE_QUOTE" },
-          });
-          if (ensureErr) {
-            console.warn("[Intake] ensure-quote-case failed:", ensureErr);
-          }
-        } catch (ensureEx) {
-          console.warn("[Intake] ensure-quote-case exception:", ensureEx);
+        const { data: ensureData, error: ensureErr } = await supabase.functions.invoke("ensure-quote-case", {
+          body: { case_id: data.case_id, mode: "intake", workflow_key: data.workflow_key || "WF_SIMPLE_QUOTE" },
+        });
+        if (ensureErr || ensureData?.error) {
+          throw new Error(
+            "Création du dossier en base impossible: " +
+            (ensureData?.error || ensureErr?.message || "réponse invalide")
+          );
         }
 
         // Step B: Inject container facts (non-blocking, best-effort)
