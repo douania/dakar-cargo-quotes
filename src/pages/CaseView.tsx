@@ -18,7 +18,8 @@ import {
   ListTodo,
   FileOutput,
   History,
-  Inbox
+  Inbox,
+  Paperclip
 } from "lucide-react";
 import { 
   fetchCaseFile, 
@@ -27,6 +28,7 @@ import {
 } from "@/services/railwayApi";
 import { WORKFLOW_LABELS, TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import { MainLayout } from "@/components/layout/MainLayout";
+import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 
 const statusIcons: Record<string, React.ReactNode> = {
   queued: <Clock className="h-4 w-4 text-gray-500" />,
@@ -189,7 +191,7 @@ export default function CaseView() {
 
       {/* Tabs */}
       <Tabs defaultValue="tasks" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="tasks" className="flex items-center gap-2">
             <ListTodo className="h-4 w-4" />
             Tâches ({tasks.length})
@@ -205,6 +207,10 @@ export default function CaseView() {
           <TabsTrigger value="events" className="flex items-center gap-2">
             <History className="h-4 w-4" />
             Historique ({events.length})
+          </TabsTrigger>
+          <TabsTrigger value="documents" className="flex items-center gap-2">
+            <Paperclip className="h-4 w-4" />
+            Documents
           </TabsTrigger>
         </TabsList>
 
@@ -334,6 +340,11 @@ export default function CaseView() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Documents Tab */}
+        <TabsContent value="documents">
+          {caseId && <CaseDocumentsTab caseId={caseId} />}
         </TabsContent>
         </Tabs>
       </div>
