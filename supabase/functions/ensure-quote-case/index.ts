@@ -65,7 +65,14 @@ Deno.serve(async (req) => {
     // Upsert a quote_case with a known case_id (from Railway)
     if (mode === "intake") {
       const caseId = body.case_id;
-      const workflowKey = body.workflow_key || "WF_SIMPLE_QUOTE";
+      const ALLOWED_REQUEST_TYPES = new Set([
+        "SEA_FCL_IMPORT", "SEA_LCL_IMPORT", "SEA_BREAKBULK_IMPORT",
+        "AIR_IMPORT", "ROAD_IMPORT", "MULTIMODAL_IMPORT",
+      ]);
+      const workflowKey = body.workflow_key ?? null;
+      const safeRequestType = ALLOWED_REQUEST_TYPES.has(workflowKey ?? "")
+        ? workflowKey
+        : null;
 
       if (!caseId) {
         return new Response(
@@ -99,7 +106,7 @@ Deno.serve(async (req) => {
         .insert({
           id: caseId,
           status: "INTAKE",
-          request_type: workflowKey,
+          request_type: safeRequestType,
           created_by: userId,
           puzzle_completeness: 0,
         })
