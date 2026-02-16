@@ -1,51 +1,81 @@
 
 
-# Correctif : Erreur 404 dans analyze-document
+# Ajout de la saisie de destination dans CaseView
 
 ## Diagnostic
 
-| Fonction | Client Supabase | Peut lire `documents` ? |
-|----------|----------------|------------------------|
-| `parse-document` | `SERVICE_ROLE_KEY` | Oui (bypass RLS) |
-| `analyze-document` | `ANON_KEY` | **Non** (RLS: `false`) |
+| Element | Etat actuel |
+|---------|-------------|
+| Alerte "missing_fields" | Affiche la question mais aucun champ de saisie |
+| `set-case-fact` whitelist | `routing.destination_city` **absent** |
+| UI de saisie | **inexistante** |
 
-La policy RLS sur la table `documents` est `"Deny all client access"` avec `qual = false`. Le client anon ne voit aucune ligne.
+L'operateur voit le probleme mais ne peut rien faire.
 
-## Correction chirurgicale
+## Corrections
 
-### Fichier : `supabase/functions/analyze-document/index.ts`
+### 1. Edge Function `set-case-fact` -- Ajouter la cle a la whitelist
 
-Remplacer l'utilisation de `SUPABASE_ANON_KEY` par `SUPABASE_SERVICE_ROLE_KEY` (lignes 20-22).
+Fichier : `supabase/functions/set-case-fact/index.ts`
 
-Avant :
+Ajouter `routing.destination_city` dans `ALLOWED_FACT_KEYS` (ligne 14-21).
+
+### 2. CaseView -- Formulaire inline sous l'alerte missing_fields
+
+Fichier : `src/pages/CaseView.tsx`
+
+Transformer l'alerte passive en alerte actionnable :
+- Pour chaque champ manquant dont le `field` correspond a une cle connue (`routing.destination_city`), afficher un champ `Input` + bouton "Enregistrer"
+- Au clic, appeler l'Edge Function `set-case-fact` avec le `case_id`, `fact_key` et `value_text`
+- Apres succes, rafraichir les donnees du dossier (appel `loadCase()`)
+- Afficher un toast de confirmation
+
+Le formulaire sera minimaliste : un input texte + un bouton par champ manquant, directement dans le bloc d'alerte.
+
+## Section technique
+
+### Whitelist (set-case-fact)
+
 ```text
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const ALLOWED_FACT_KEYS = new Set([
+  "client.code",
+  "cargo.caf_value",
+  "cargo.weight_kg",
+  "cargo.chargeable_weight_kg",
+  "cargo.articles_detail",
+  "routing.incoterm",
+  "routing.destination_city",  // AJOUT
+]);
 ```
 
-Apres :
+### Composant inline (CaseView.tsx)
+
+Sous l'alerte missing_fields existante, pour chaque champ `f` :
+- Si `f.field` est dans une map de champs editables, afficher un `Input` pre-labellise
+- Bouton "Enregistrer" qui POST vers `/set-case-fact`
+- State local pour la valeur et le loading
+- Toast sonner en cas de succes/erreur
+- Appel `loadCase()` apres succes pour rafraichir le statut
+
+### Mapping des champs editables
+
 ```text
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+routing.destination_city -> Input texte, placeholder "Ex: Dakar, Bamako..."
 ```
 
-## Justification
-
-- La fonction est deja protegee par `requireUser(req)` en ligne 17, donc seul un utilisateur authentifie peut l'appeler
-- Le `SERVICE_ROLE_KEY` est necessaire uniquement pour bypasser la RLS restrictive sur `documents`
-- C'est le meme pattern que `parse-document` qui utilise deja `SERVICE_ROLE_KEY`
-- Modification de 2 lignes, zero refactor
+Ce mapping est extensible pour d'autres champs manquants a l'avenir.
 
 ## Fichiers concernes
 
 | Fichier | Action |
 |---------|--------|
-| `supabase/functions/analyze-document/index.ts` | MODIFIER -- 2 lignes (client key) |
+| `supabase/functions/set-case-fact/index.ts` | MODIFIER -- ajouter 1 cle a la whitelist |
+| `src/pages/CaseView.tsx` | MODIFIER -- formulaire inline sous l'alerte |
+
+## Composants FROZEN impactes : AUCUN
 
 ## Impact
 
-- Aucun composant FROZEN touche
-- Aucune nouvelle dependance
-- Coherent avec le pattern des autres Edge Functions
+- Zero refactor global
+- Pattern existant reutilise (set-case-fact)
+- UX : l'operateur peut corriger le champ manquant sans quitter la page
