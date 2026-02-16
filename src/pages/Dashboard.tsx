@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState<QuotationRequest[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
+  const [clientNames, setClientNames] = useState<Record<string, string>>({});
 
   const fetchData = async () => {
     setFetchError(null);
@@ -86,8 +87,22 @@ export default function Dashboard() {
       if (emailsError) throw emailsError;
 
       const { data: cases } = casesResult;
-      setActiveCases((cases as QuoteCaseData[]) || []);
+      const typedCases = (cases as QuoteCaseData[]) || [];
+      setActiveCases(typedCases);
 
+      // Fetch client names from quote_facts
+      if (typedCases.length > 0) {
+        const caseIds = typedCases.map(c => c.id);
+        const { data: clientFacts } = await supabase
+          .from('quote_facts')
+          .select('case_id, value_text')
+          .in('case_id', caseIds)
+          .eq('fact_key', 'contacts.client_company')
+          .eq('is_current', true);
+        const names: Record<string, string> = {};
+        clientFacts?.forEach(f => { if (f.case_id && f.value_text) names[f.case_id] = f.value_text; });
+        setClientNames(names);
+      }
 
 
       // Get attachment counts
@@ -370,7 +385,7 @@ export default function Dashboard() {
             </h2>
             <div className="space-y-2">
               {activeCases.map((c) => (
-                <CaseCard key={c.id} caseData={c} />
+                <CaseCard key={c.id} caseData={c} clientName={clientNames[c.id]} />
               ))}
             </div>
           </div>
