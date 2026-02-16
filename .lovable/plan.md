@@ -1,46 +1,51 @@
 
 
-# PHASE DOCS-P0 — Gestion documentaire par dossier
+# Correctif : Erreur 404 dans analyze-document
 
-## Statut : ✅ IMPLÉMENTÉ
+## Diagnostic
 
-Table `case_documents`, bucket `case-documents`, composant `CaseDocumentsTab`, onglet Documents dans CaseView.
+| Fonction | Client Supabase | Peut lire `documents` ? |
+|----------|----------------|------------------------|
+| `parse-document` | `SERVICE_ROLE_KEY` | Oui (bypass RLS) |
+| `analyze-document` | `ANON_KEY` | **Non** (RLS: `false`) |
 
----
+La policy RLS sur la table `documents` est `"Deny all client access"` avec `qual = false`. Le client anon ne voit aucune ligne.
 
-# PHASE INTAKE-DOC — Intake par upload d'Ordre de Transit
+## Correction chirurgicale
 
-## Statut : ✅ IMPLÉMENTÉ
+### Fichier : `supabase/functions/analyze-document/index.ts`
 
-### Modifications appliquées
+Remplacer l'utilisation de `SUPABASE_ANON_KEY` par `SUPABASE_SERVICE_ROLE_KEY` (lignes 20-22).
 
-| Fichier | Action | Détail |
-|---------|--------|--------|
-| Migration SQL | EXÉCUTÉE | `UNIQUE(case_id, file_name)` sur `case_documents` (idempotence) |
-| `supabase/functions/analyze-document/index.ts` | MODIFIÉ | Ajout branche `transit_order` avec prompt spécialisé logistique Sénégal |
-| `supabase/functions/parse-document/index.ts` | MODIFIÉ | Ajout validation taille serveur (10 MB max, HTTP 413) |
-| `src/pages/Intake.tsx` | MODIFIÉ | Zone upload drag-and-drop, analyse IA, pré-remplissage, stockage post-création |
-
-### Flux implémenté
-
-```
-Upload fichier (mémoire uniquement)
-→ parse-document (extraction texte, crée doc en DB)
-→ analyze-document (analysisType="transit_order")
-→ pré-remplissage formulaire (client, cargo, route, etc.)
-→ validation opérateur → createIntake (Railway API)
-→ case_id obtenu → upload case-documents + insert DB + timeline event
+Avant :
+```text
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 ```
 
-### Micro-correctifs CTO appliqués
+Apres :
+```text
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+```
 
-1. **Idempotence** : Contrainte UNIQUE(case_id, file_name) empêche les doublons
-2. **Validation serveur** : parse-document rejette les fichiers > 10 MB (HTTP 413)
-3. **Pas de stockage avant case** : fichier en mémoire jusqu'à obtention du case_id
+## Justification
 
-### Sécurité
+- La fonction est deja protegee par `requireUser(req)` en ligne 17, donc seul un utilisateur authentifie peut l'appeler
+- Le `SERVICE_ROLE_KEY` est necessaire uniquement pour bypasser la RLS restrictive sur `documents`
+- C'est le meme pattern que `parse-document` qui utilise deja `SERVICE_ROLE_KEY`
+- Modification de 2 lignes, zero refactor
 
-- Auth requise sur les deux Edge Functions
-- Bucket `case-documents` privé (signed URLs)
-- Pas de persistance fichier avant validation opérateur
-- Timeline event pour traçabilité
+## Fichiers concernes
+
+| Fichier | Action |
+|---------|--------|
+| `supabase/functions/analyze-document/index.ts` | MODIFIER -- 2 lignes (client key) |
+
+## Impact
+
+- Aucun composant FROZEN touche
+- Aucune nouvelle dependance
+- Coherent avec le pattern des autres Edge Functions
