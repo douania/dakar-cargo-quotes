@@ -2223,7 +2223,7 @@ async function generateQuotationLines(
     }
   } // end if (!isTransit)
   
-  return { lines, warnings, dutyBreakdown };
+  return { lines, warnings, dutyBreakdown, cargoValueFCFA };
 }
 
 // =====================================================
@@ -2263,7 +2263,7 @@ Deno.serve(async (req) => {
         }
         
         // Générer les lignes de cotation
-        const { lines, warnings: engineWarnings, dutyBreakdown } = await generateQuotationLines(supabase, request);
+        const { lines, warnings: engineWarnings, dutyBreakdown, cargoValueFCFA } = await generateQuotationLines(supabase, request);
         const warnings = [...earlyWarnings, ...engineWarnings];
         
         // M3.1 — Fetch historical suggestions (non-blocking, consultative)
@@ -2297,7 +2297,7 @@ Deno.serve(async (req) => {
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         const caf = calculateCAF({
           incoterm: request.incoterm || 'CIF',
-          invoiceValue: request.cargoValue
+          invoiceValue: cargoValueFCFA || request.cargoValue
         });
         
         const result = {
