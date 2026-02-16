@@ -18,6 +18,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.chargeable_weight_kg",
   "cargo.articles_detail",
   "routing.incoterm",
+  "routing.destination_city",
 ]);
 
 // ── Category detection from prefix ──

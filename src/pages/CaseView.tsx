@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   FileText,
   Play,
@@ -19,7 +22,8 @@ import {
   FileOutput,
   History,
   Inbox,
-  Paperclip
+  Paperclip,
+  Save
 } from "lucide-react";
 import { 
   fetchCaseFile, 
@@ -37,7 +41,10 @@ const statusIcons: Record<string, React.ReactNode> = {
   failed: <XCircle className="h-4 w-4 text-red-500" />,
   skipped: <Clock className="h-4 w-4 text-muted-foreground/60" />,
 };
-
+// ── Editable fields mapping ──
+const EDITABLE_FIELDS: Record<string, { placeholder: string; label: string }> = {
+  "routing.destination_city": { placeholder: "Ex: Dakar, Bamako...", label: "Destination" },
+};
 
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -46,6 +53,8 @@ export default function CaseView() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [savingField, setSavingField] = useState<string | null>(null);
 
   async function loadCase() {
     if (!caseId) return;
@@ -66,15 +75,34 @@ export default function CaseView() {
     if (!caseId) return;
     setRunning(true);
     setError("");
-
     try {
       await runCaseWorkflow(caseId);
-      // Rafraîchir les données
       await loadCase();
     } catch (err: any) {
       setError(err.message || "Erreur lors de l'exécution");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function saveField(factKey: string) {
+    if (!caseId) return;
+    const value = fieldValues[factKey]?.trim();
+    if (!value) { toast.error("Veuillez saisir une valeur"); return; }
+    setSavingField(factKey);
+    try {
+      const { data: resp, error: fnErr } = await supabase.functions.invoke("set-case-fact", {
+        body: { case_id: caseId, fact_key: factKey, value_text: value },
+      });
+      if (fnErr) throw fnErr;
+      if (resp?.error) throw new Error(resp.error.message || JSON.stringify(resp.error));
+      toast.success("Valeur enregistrée");
+      setFieldValues((prev) => ({ ...prev, [factKey]: "" }));
+      await loadCase();
+    } catch (err: any) {
+      toast.error(err.message || "Erreur lors de l'enregistrement");
+    } finally {
+      setSavingField(null);
     }
   }
 
@@ -141,18 +169,48 @@ export default function CaseView() {
         </div>
       </div>
 
-      {/* Missing Fields / Alert */}
+      {/* Missing Fields / Alert + Inline Form */}
       {caseInfo.status === "needs_info" && caseInfo.missing_fields?.length > 0 && (
         <Alert className="mb-6 border-warning bg-warning/10">
           <AlertCircle className="h-4 w-4 text-warning" />
-          <div className="ml-2">
+          <div className="ml-2 w-full">
             <h4 className="font-semibold text-warning">Informations manquantes pour la cotation</h4>
-            <ul className="mt-2 space-y-1">
-              {caseInfo.missing_fields.map((f: any, i: number) => (
-                <li key={i} className="text-sm">
-                  <span className="font-medium">{f.question}</span> (Champ: {f.field})
-                </li>
-              ))}
+            <ul className="mt-3 space-y-3">
+              {caseInfo.missing_fields.map((f: any, i: number) => {
+                const editable = EDITABLE_FIELDS[f.field];
+                return (
+                  <li key={i}>
+                    <span className="text-sm font-medium">{f.question}</span>
+                    {editable ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Input
+                          placeholder={editable.placeholder}
+                          value={fieldValues[f.field] || ""}
+                          onChange={(e) =>
+                            setFieldValues((prev) => ({ ...prev, [f.field]: e.target.value }))
+                          }
+                          className="max-w-xs"
+                          disabled={savingField === f.field}
+                          onKeyDown={(e) => e.key === "Enter" && saveField(f.field)}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => saveField(f.field)}
+                          disabled={savingField === f.field || !fieldValues[f.field]?.trim()}
+                        >
+                          {savingField === f.field ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <><Save className="h-4 w-4 mr-1" /> Enregistrer</>
+                          )}
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground ml-2">(Champ: {f.field})</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </Alert>
