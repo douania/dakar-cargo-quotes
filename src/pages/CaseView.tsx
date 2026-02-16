@@ -25,7 +25,9 @@ import {
   History,
   Puzzle,
   RefreshCw,
+  Play,
 } from "lucide-react";
+import { toast } from "sonner";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
@@ -58,6 +60,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -112,10 +115,41 @@ export default function CaseView() {
     enabled: !!caseId,
   });
 
+  // ── Fetch documents count ──
+  const { data: documentsCount = 0 } = useQuery({
+    queryKey: ["case-documents-count", caseId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("case_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("case_id", caseId!);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!caseId,
+  });
+
   function handleRefresh() {
     refetchCase();
     refetchFacts();
     refetchEvents();
+  }
+
+  async function handleLaunchAnalysis() {
+    if (!caseId || isAnalyzing) return;
+    setIsAnalyzing(true);
+    try {
+      const { error } = await supabase.functions.invoke("build-case-puzzle", {
+        body: { case_id: caseId },
+      });
+      if (error) throw error;
+      toast.success("Analyse lancée avec succès");
+      handleRefresh();
+    } catch (err) {
+      toast.error("Erreur lors de l'analyse : " + (err as Error).message);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   // ── Group facts by category ──
@@ -225,6 +259,31 @@ export default function CaseView() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Action Panel — visible for actionable statuses */}
+        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO'].includes(caseData.status) && (
+          <Card className="mb-6 border-primary/30 bg-primary/5">
+            <CardContent className="py-4 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold">Dossier prêt à analyser</h3>
+                <p className="text-sm text-muted-foreground">
+                  {documentsCount} document(s) uploadé(s) — {facts.length} fait(s) extrait(s)
+                </p>
+              </div>
+              <Button
+                onClick={handleLaunchAnalysis}
+                disabled={isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+              >
+                {isAnalyzing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="mr-2 h-4 w-4" />
+                )}
+                Lancer l'analyse
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
