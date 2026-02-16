@@ -1,81 +1,101 @@
 
 
-# Ajout de la saisie de destination dans CaseView
+# Afficher les dossiers Intake sur le Dashboard
 
-## Diagnostic
+## Probleme
 
-| Element | Etat actuel |
-|---------|-------------|
-| Alerte "missing_fields" | Affiche la question mais aucun champ de saisie |
-| `set-case-fact` whitelist | `routing.destination_city` **absent** |
-| UI de saisie | **inexistante** |
+Le Dashboard (`/`) ne montre que les emails avec `is_quotation_request = true`.
+Les dossiers crees via Intake (upload de documents) sont des `quote_cases` sans email associe.
+Resultat : l'operateur ne voit pas ses dossiers Intake dans le Dashboard.
 
-L'operateur voit le probleme mais ne peut rien faire.
+## Solution
 
-## Corrections
+Ajouter une section "Dossiers en cours" au Dashboard qui liste les `quote_cases` actifs, independamment de leur origine (email ou Intake).
 
-### 1. Edge Function `set-case-fact` -- Ajouter la cle a la whitelist
+## Modifications
 
-Fichier : `supabase/functions/set-case-fact/index.ts`
+### 1. Dashboard.tsx -- Ajouter la section "Dossiers en cours"
 
-Ajouter `routing.destination_city` dans `ALLOWED_FACT_KEYS` (ligne 14-21).
+**Nouveau query** : Recuperer les `quote_cases` avec statuts actifs (tous sauf `SENT` et `ARCHIVED`).
 
-### 2. CaseView -- Formulaire inline sous l'alerte missing_fields
+```text
+SELECT id, thread_id, status, request_type, priority, 
+       puzzle_completeness, created_at, updated_at
+FROM quote_cases
+WHERE status NOT IN ('SENT', 'ARCHIVED')
+ORDER BY updated_at DESC
+LIMIT 50
+```
 
-Fichier : `src/pages/CaseView.tsx`
+**Nouveau composant inline** : une liste de cartes cliquables affichant :
+- Statut du dossier (badge colore)
+- Type de demande (request_type)
+- Completude du puzzle (barre de progression)
+- Date de creation / derniere mise a jour
+- Bouton "Ouvrir" qui navigue vers `/case/{id}`
 
-Transformer l'alerte passive en alerte actionnable :
-- Pour chaque champ manquant dont le `field` correspond a une cle connue (`routing.destination_city`), afficher un champ `Input` + bouton "Enregistrer"
-- Au clic, appeler l'Edge Function `set-case-fact` avec le `case_id`, `fact_key` et `value_text`
-- Apres succes, rafraichir les donnees du dossier (appel `loadCase()`)
-- Afficher un toast de confirmation
+**Placement** : Entre les stats cards et la liste des emails, avec un titre "Dossiers en cours" et une icone `FileText`.
 
-Le formulaire sera minimaliste : un input texte + un bouton par champ manquant, directement dans le bloc d'alerte.
+### 2. Composant CaseCard (inline dans Dashboard)
+
+Carte minimaliste pour chaque `quote_case` :
+- Badge statut avec couleur semantique (ambre pour FACTS_PARTIAL/NEED_INFO, bleu pour READY_TO_PRICE, vert pour PRICED_DRAFT)
+- Affichage du `request_type` si disponible
+- Barre de completude `puzzle_completeness`
+- Dates formatees en francais
+- Click -> navigation vers `/case/{id}`
 
 ## Section technique
 
-### Whitelist (set-case-fact)
+### Query Supabase (dans fetchData)
+
+Ajout d'un appel parallele dans `fetchData()` :
 
 ```text
-const ALLOWED_FACT_KEYS = new Set([
-  "client.code",
-  "cargo.caf_value",
-  "cargo.weight_kg",
-  "cargo.chargeable_weight_kg",
-  "cargo.articles_detail",
-  "routing.incoterm",
-  "routing.destination_city",  // AJOUT
-]);
+const { data: cases } = await withTimeout(
+  supabase
+    .from('quote_cases')
+    .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
+    .not('status', 'in', '(SENT,ARCHIVED)')
+    .order('updated_at', { ascending: false })
+    .limit(50)
+);
 ```
 
-### Composant inline (CaseView.tsx)
-
-Sous l'alerte missing_fields existante, pour chaque champ `f` :
-- Si `f.field` est dans une map de champs editables, afficher un `Input` pre-labellise
-- Bouton "Enregistrer" qui POST vers `/set-case-fact`
-- State local pour la valeur et le loading
-- Toast sonner en cas de succes/erreur
-- Appel `loadCase()` apres succes pour rafraichir le statut
-
-### Mapping des champs editables
+### State additionnel
 
 ```text
-routing.destination_city -> Input texte, placeholder "Ex: Dakar, Bamako..."
+const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
 ```
 
-Ce mapping est extensible pour d'autres champs manquants a l'avenir.
+### Mapping des statuts vers couleurs
+
+```text
+NEW_THREAD       -> gris
+RFQ_DETECTED     -> bleu clair
+FACTS_PARTIAL    -> ambre
+NEED_INFO        -> orange
+READY_TO_PRICE   -> bleu
+PRICING_RUNNING  -> bleu anime
+PRICED_DRAFT     -> vert
+HUMAN_REVIEW     -> violet
+QUOTED_VERSIONED -> vert fonce
+```
+
+### Stats mise a jour
+
+Ajouter dans les stats cards un nouveau compteur "Dossiers actifs" ou integrer le count dans "En attente".
 
 ## Fichiers concernes
 
 | Fichier | Action |
 |---------|--------|
-| `supabase/functions/set-case-fact/index.ts` | MODIFIER -- ajouter 1 cle a la whitelist |
-| `src/pages/CaseView.tsx` | MODIFIER -- formulaire inline sous l'alerte |
-
-## Composants FROZEN impactes : AUCUN
+| `src/pages/Dashboard.tsx` | MODIFIER -- ajouter query quote_cases + section UI |
 
 ## Impact
 
-- Zero refactor global
-- Pattern existant reutilise (set-case-fact)
-- UX : l'operateur peut corriger le champ manquant sans quitter la page
+- Zero migration SQL (les tables existent deja, RLS en place)
+- Zero nouveau fichier (tout inline dans Dashboard)
+- Pas de modification des autres pages
+- Compatible avec les dossiers existants et futurs
+
