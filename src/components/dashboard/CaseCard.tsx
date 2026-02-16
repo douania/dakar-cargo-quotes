@@ -19,14 +19,29 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   QUOTED_VERSIONED: { label: 'Versionné',       className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
 };
 
+const REQUEST_TYPE_LABELS: Record<string, string> = {
+  SEA_FCL_IMPORT: 'Maritime FCL Import',
+  SEA_LCL_IMPORT: 'Maritime LCL Import',
+  SEA_FCL_EXPORT: 'Maritime FCL Export',
+  SEA_LCL_EXPORT: 'Maritime LCL Export',
+  AIR_IMPORT: 'Aérien Import',
+  AIR_EXPORT: 'Aérien Export',
+  ROAD_IMPORT: 'Routier Import',
+  ROAD_EXPORT: 'Routier Export',
+  TRANSIT: 'Transit',
+};
+
 interface CaseCardProps {
   caseData: QuoteCaseData;
+  clientName?: string;
 }
 
-export function CaseCard({ caseData }: CaseCardProps) {
+export function CaseCard({ caseData, clientName }: CaseCardProps) {
   const navigate = useNavigate();
   const config = STATUS_CONFIG[caseData.status] || { label: caseData.status, className: 'bg-muted text-muted-foreground' };
-  const completeness = caseData.puzzle_completeness ?? 0;
+  // puzzle_completeness is already 0–100 in DB
+  const completeness = Math.min(caseData.puzzle_completeness ?? 0, 100);
+  const typeLabel = REQUEST_TYPE_LABELS[caseData.request_type ?? ''] ?? caseData.request_type;
 
   return (
     <Card
@@ -34,32 +49,38 @@ export function CaseCard({ caseData }: CaseCardProps) {
       onClick={() => navigate(`/case/${caseData.id}`)}
     >
       <CardContent className="py-3 px-4">
+        {/* Line 1: Client name + date */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
             <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge className={`${config.className} border-0 text-[11px]`}>
-                  {config.label}
-                </Badge>
-                {caseData.request_type && (
-                  <span className="text-xs text-muted-foreground truncate">
-                    {caseData.request_type}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-1.5">
-                <div className="flex-1 max-w-[200px]">
-                  <Progress value={completeness * 100} className="h-1.5" />
-                </div>
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                  {Math.round(completeness * 100)}%
-                </span>
-              </div>
-            </div>
+            <span className="font-medium text-sm truncate">
+              {clientName || 'Client inconnu'}
+            </span>
           </div>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
             {format(new Date(caseData.updated_at), 'dd MMM HH:mm', { locale: fr })}
+          </span>
+        </div>
+
+        {/* Line 2: Status badge + request type */}
+        <div className="flex items-center gap-2 mt-1.5 ml-6">
+          <Badge className={`${config.className} border-0 text-[11px]`}>
+            {config.label}
+          </Badge>
+          {typeLabel && (
+            <span className="text-xs text-muted-foreground truncate">
+              {typeLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Line 3: Progress bar */}
+        <div className="flex items-center gap-3 mt-2 ml-6">
+          <div className="flex-1 max-w-[200px]">
+            <Progress value={completeness} className="h-1.5" />
+          </div>
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+            {Math.round(completeness)}%
           </span>
         </div>
       </CardContent>
