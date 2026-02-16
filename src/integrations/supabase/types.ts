@@ -168,15 +168,7 @@ export type Database = {
           storage_path?: string
           uploaded_by?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "case_documents_case_id_fkey"
-            columns: ["case_id"]
-            isOneToOne: false
-            referencedRelation: "quote_cases"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       case_timeline_events: {
         Row: {
