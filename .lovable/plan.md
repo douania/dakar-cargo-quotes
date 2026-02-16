@@ -1,39 +1,103 @@
 
+# Diagnostic architectural : flux Intake vers CaseView
 
-# Archiver les 4 dossiers de test
+## Probleme identifie
 
-## Action
-
-Passer les 4 dossiers identifies comme dossiers de test au statut `ARCHIVED` dans la base de donnees.
-
-| ID (abrege) | Client | Statut actuel |
-|-------------|--------|---------------|
-| 843a1f1c | QCS-Quick Cargo Service | READY_TO_PRICE |
-| 4f2baa5b | STL Lojistik | NEED_INFO |
-| 7e6bdba7 | ABOUDI Logistics | NEED_INFO |
-| 0f1a53ac | Bruhat | NEED_INFO |
-
-## Requete SQL
+Le flux actuel comporte une **rupture architecturale** entre deux systemes :
 
 ```text
-UPDATE quote_cases 
-SET status = 'ARCHIVED', updated_at = now()
-WHERE id IN (
-  '843a1f1c-f3cc-4950-a867-915e93c8fe84',
-  '4f2baa5b-d39c-4e13-ba82-75f84fef8936',
-  '7e6bdba7-c174-4447-b8be-4b25ca7d8ced',
-  '0f1a53ac-da4f-4adf-9f20-be422a675168'
-);
+INTAKE (creation)                    CASEVIEW (consultation)
+     |                                      |
+     v                                      v
+Railway API                           Railway API
+POST /api/casefiles/intake            GET /api/casefiles/{id}
+     |                                      |
+     v                                      |
+quote_cases (Supabase)                      |
+     |                                      |
+     v                                      |
+Dashboard (lit Supabase) ----click---> CaseView (lit Railway)
 ```
 
-## Resultat attendu
+### Ce qui fonctionne
 
-- La section "Dossiers en cours" du Dashboard sera vide et automatiquement masquee (la condition `activeCases.length > 0` existe deja)
-- Les 4 dossiers restent en base mais ne sont plus visibles
-- Operation reversible si necessaire
-- Aucune modification de code
+1. **Intake** : `createIntake()` appelle Railway, qui cree le dossier et (normalement) l'insere dans la table `quote_cases` de la base de donnees
+2. **Dashboard** : Lit les dossiers depuis `quote_cases` (base de donnees) -- fonctionne
+3. **Upload document** : Apres creation, le fichier est stocke dans le storage `case-documents` et enregistre dans `case_documents` -- fonctionne
+4. **Analyse IA** : `parse-document` + `analyze-document` extraient les donnees du document uploade -- fonctionne
 
-## Fichiers concernes
+### Ce qui ne fonctionne PAS
 
-Aucun fichier modifie. Operation purement base de donnees.
+1. **CaseView** : Quand on clique sur un dossier, la page appelle `fetchCaseFile(caseId)` vers Railway (`GET /api/casefiles/{id}`). Si Railway ne retrouve pas le dossier ou est indisponible, on obtient "not_found"
+2. **Documents multiples** : L'Intake ne supporte qu'un seul fichier. Vous ne pouvez pas uploader BL + Packing List + DPI + Invoice en meme temps
+3. **Pas de lien document-dossier solide** : Les documents supplementaires doivent etre ajoutes APRES creation, via l'onglet Documents de CaseView... qui ne s'ouvre pas (voir point 1)
 
+## Plan de correction (2 etapes)
+
+### Etape 1 -- Corriger CaseView pour lire la base de donnees
+
+**Fichier** : `src/pages/CaseView.tsx`
+
+Remplacer l'appel `fetchCaseFile(caseId)` (Railway) par des requetes directes vers les tables existantes :
+
+| Table | Donnees |
+|-------|---------|
+| `quote_cases` | Statut, type de demande, completude, priorite |
+| `quote_facts` | Faits extraits (client, cargo, routing, incoterm...) groupes par categorie |
+| `case_documents` | Documents uploades (deja gere par `CaseDocumentsTab`) |
+| `case_timeline_events` | Historique des evenements |
+
+L'interface sera adaptee pour afficher :
+- En-tete : nom client (avec fallback) + statut + type + barre de completude
+- Onglet Faits : tableau des `quote_facts` groupes par categorie
+- Onglet Documents : composant `CaseDocumentsTab` existant (inchange)
+- Onglet Timeline : evenements de `case_timeline_events`
+
+Le bouton "Executer le workflow" (Railway) sera retire car non pertinent pour les dossiers Intake.
+
+### Etape 2 -- Permettre l'upload de documents multiples depuis CaseView
+
+Une fois CaseView fonctionnel, vous pourrez :
+1. Creer le dossier via Intake avec l'Ordre de Transit (1 document)
+2. Ouvrir le dossier depuis le Dashboard
+3. Ajouter les documents supplementaires (BL, Packing List, DPI, Invoice, etc.) via l'onglet Documents qui utilise `CaseDocumentsTab` -- deja implemente et fonctionnel
+
+Aucune modification necessaire pour cette etape : `CaseDocumentsTab` supporte deja l'upload multiple avec choix du type de document.
+
+## Fichiers modifies
+
+| Fichier | Action |
+|---------|--------|
+| `src/pages/CaseView.tsx` | Reecrit pour lire depuis la base de donnees au lieu de Railway |
+
+## Fichiers NON modifies
+
+- `src/pages/Intake.tsx` (inchange)
+- `src/pages/Dashboard.tsx` (inchange)
+- `src/components/case/CaseDocumentsTab.tsx` (inchange)
+- `src/services/railwayApi.ts` (inchange, utilise par Intake)
+- Aucune migration de base de donnees
+
+## Flux corrige apres implementation
+
+```text
+INTAKE                  DASHBOARD              CASEVIEW
+  |                        |                      |
+  v                        v                      v
+Railway API           quote_cases (DB)      quote_cases (DB)
+  |                        |                quote_facts (DB)
+  v                        |                case_documents (DB)
+quote_cases (DB) <---------+                      |
+  |                                               v
+  +--- case_documents (storage) ----------> Documents tab
+```
+
+Tout le parcours consultation sera sur la base de donnees. Railway reste utilise uniquement pour la creation initiale (Intake).
+
+## Resume
+
+- Le dossier CASSIS sera cree normalement via Intake
+- L'OT sera analyse et le formulaire pre-rempli
+- Le dossier apparaitra sur le Dashboard
+- En cliquant dessus, CaseView affichera les donnees depuis la base de donnees (plus de "not_found")
+- Vous pourrez ajouter les documents supplementaires via l'onglet Documents
