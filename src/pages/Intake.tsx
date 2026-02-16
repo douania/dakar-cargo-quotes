@@ -160,11 +160,16 @@ export default function Intake() {
     }
   }
 
+  const FRENCH_NUMBERS: Record<string, number> = {
+    un: 1, une: 1, deux: 2, trois: 3, quatre: 4,
+    cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
+  };
+
   /** Parse operator text overrides (container count, type, destination) */
   function parseTextOverrides(inputText: string): Record<string, any> {
     const overrides: Record<string, any> = {};
 
-    // Detect "1 conteneur", "un seul conteneur 40'", "1 x 40HC", etc.
+    // Pattern 1: digits — "1 conteneur 40'", "1 x 40HC"
     const containerMatch = inputText.match(
       /(\d+)\s*(?:seul\s+)?(?:conteneur|container|x)\s*(\d{2})?[''']?\s*(HC|DV|OT|FR|GP)?/i
     );
@@ -177,10 +182,28 @@ export default function Intake() {
       }
     }
 
-    // Detect delivery location
+    // Pattern 2: French words — "un des huit conteneurs 40'"
+    if (overrides.container_count == null) {
+      const wordPattern = new RegExp(
+        `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?\\s*(\\d{2})?['''"]*\\s*(HC|DV|OT|FR|GP)?`,
+        "i"
+      );
+      const wordMatch = inputText.match(wordPattern);
+      if (wordMatch) {
+        overrides.container_count = FRENCH_NUMBERS[wordMatch[1].toLowerCase()] ?? 1;
+        if (wordMatch[2]) {
+          const size = wordMatch[2];
+          const type = wordMatch[3] || "";
+          overrides.container_type = size + "'" + (type ? " " + type.toUpperCase() : "");
+        }
+      }
+    }
+
+    // Detect delivery location (explicit space, NOT \s, to avoid newline bleed)
     const destPatterns = [
-      /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
-      /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
+      /Lieu\s+de\s+Livraison[^:\n]*:\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
+      /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
+      /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
     ];
     for (const pat of destPatterns) {
       const match = inputText.match(pat);
