@@ -1,101 +1,39 @@
 
 
-# Afficher les dossiers Intake sur le Dashboard
+# Archiver les 4 dossiers de test
 
-## Probleme
+## Action
 
-Le Dashboard (`/`) ne montre que les emails avec `is_quotation_request = true`.
-Les dossiers crees via Intake (upload de documents) sont des `quote_cases` sans email associe.
-Resultat : l'operateur ne voit pas ses dossiers Intake dans le Dashboard.
+Passer les 4 dossiers identifies comme dossiers de test au statut `ARCHIVED` dans la base de donnees.
 
-## Solution
+| ID (abrege) | Client | Statut actuel |
+|-------------|--------|---------------|
+| 843a1f1c | QCS-Quick Cargo Service | READY_TO_PRICE |
+| 4f2baa5b | STL Lojistik | NEED_INFO |
+| 7e6bdba7 | ABOUDI Logistics | NEED_INFO |
+| 0f1a53ac | Bruhat | NEED_INFO |
 
-Ajouter une section "Dossiers en cours" au Dashboard qui liste les `quote_cases` actifs, independamment de leur origine (email ou Intake).
-
-## Modifications
-
-### 1. Dashboard.tsx -- Ajouter la section "Dossiers en cours"
-
-**Nouveau query** : Recuperer les `quote_cases` avec statuts actifs (tous sauf `SENT` et `ARCHIVED`).
+## Requete SQL
 
 ```text
-SELECT id, thread_id, status, request_type, priority, 
-       puzzle_completeness, created_at, updated_at
-FROM quote_cases
-WHERE status NOT IN ('SENT', 'ARCHIVED')
-ORDER BY updated_at DESC
-LIMIT 50
-```
-
-**Nouveau composant inline** : une liste de cartes cliquables affichant :
-- Statut du dossier (badge colore)
-- Type de demande (request_type)
-- Completude du puzzle (barre de progression)
-- Date de creation / derniere mise a jour
-- Bouton "Ouvrir" qui navigue vers `/case/{id}`
-
-**Placement** : Entre les stats cards et la liste des emails, avec un titre "Dossiers en cours" et une icone `FileText`.
-
-### 2. Composant CaseCard (inline dans Dashboard)
-
-Carte minimaliste pour chaque `quote_case` :
-- Badge statut avec couleur semantique (ambre pour FACTS_PARTIAL/NEED_INFO, bleu pour READY_TO_PRICE, vert pour PRICED_DRAFT)
-- Affichage du `request_type` si disponible
-- Barre de completude `puzzle_completeness`
-- Dates formatees en francais
-- Click -> navigation vers `/case/{id}`
-
-## Section technique
-
-### Query Supabase (dans fetchData)
-
-Ajout d'un appel parallele dans `fetchData()` :
-
-```text
-const { data: cases } = await withTimeout(
-  supabase
-    .from('quote_cases')
-    .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
-    .not('status', 'in', '(SENT,ARCHIVED)')
-    .order('updated_at', { ascending: false })
-    .limit(50)
+UPDATE quote_cases 
+SET status = 'ARCHIVED', updated_at = now()
+WHERE id IN (
+  '843a1f1c-f3cc-4950-a867-915e93c8fe84',
+  '4f2baa5b-d39c-4e13-ba82-75f84fef8936',
+  '7e6bdba7-c174-4447-b8be-4b25ca7d8ced',
+  '0f1a53ac-da4f-4adf-9f20-be422a675168'
 );
 ```
 
-### State additionnel
+## Resultat attendu
 
-```text
-const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
-```
-
-### Mapping des statuts vers couleurs
-
-```text
-NEW_THREAD       -> gris
-RFQ_DETECTED     -> bleu clair
-FACTS_PARTIAL    -> ambre
-NEED_INFO        -> orange
-READY_TO_PRICE   -> bleu
-PRICING_RUNNING  -> bleu anime
-PRICED_DRAFT     -> vert
-HUMAN_REVIEW     -> violet
-QUOTED_VERSIONED -> vert fonce
-```
-
-### Stats mise a jour
-
-Ajouter dans les stats cards un nouveau compteur "Dossiers actifs" ou integrer le count dans "En attente".
+- La section "Dossiers en cours" du Dashboard sera vide et automatiquement masquee (la condition `activeCases.length > 0` existe deja)
+- Les 4 dossiers restent en base mais ne sont plus visibles
+- Operation reversible si necessaire
+- Aucune modification de code
 
 ## Fichiers concernes
 
-| Fichier | Action |
-|---------|--------|
-| `src/pages/Dashboard.tsx` | MODIFIER -- ajouter query quote_cases + section UI |
-
-## Impact
-
-- Zero migration SQL (les tables existent deja, RLS en place)
-- Zero nouveau fichier (tout inline dans Dashboard)
-- Pas de modification des autres pages
-- Compatible avec les dossiers existants et futurs
+Aucun fichier modifie. Operation purement base de donnees.
 
