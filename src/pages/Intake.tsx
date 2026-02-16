@@ -243,53 +243,62 @@ export default function Intake() {
       const correctedData = correctAssumptions(data, extractedAnalysis);
       setResult(correctedData);
 
-      // Inject facts into quote_facts via set-case-fact (non-blocking)
-      if (correctedData.case_id && extractedAnalysis) {
-        injectContainerFacts(correctedData.case_id, extractedAnalysis);
-      }
-
-      // Post-creation: store uploaded document in case-documents (Lovable Cloud)
-      // Note: This might fail if the case created in Railway isn't yet synced in Lovable Cloud quote_cases table
-      if (uploadedFile && data.case_id) {
+      if (data.case_id) {
+        // Step A: Ensure quote_cases row exists in DB (via service-role Edge Function)
+        // This MUST happen before any fact injection, document upload, or timeline event
         try {
-          const { data: userData } = await supabase.auth.getUser();
-          const userId = userData?.user?.id;
-          if (!userId) return; // Silent skip if not authenticated
-
-          // Since the FK constraint has been removed, we can now attach documents 
-          // even if the case is not yet synchronized in the local quote_cases table.
-
-
-          const docId = crypto.randomUUID();
-          const safeName = uploadedFile.name.replace(/[^\w.-]/g, "_");
-          const storagePath = `${data.case_id}/${docId}-${safeName}`;
-
-          // 1. Upload to storage
-          await supabase.storage.from("case-documents").upload(storagePath, uploadedFile);
-
-          // 2. Insert case_documents record
-          await supabase.from("case_documents").insert({
-            id: docId,
-            case_id: data.case_id,
-            document_type: "Ordre de transit",
-            file_name: uploadedFile.name,
-            storage_path: storagePath,
-            mime_type: uploadedFile.type,
-            file_size: uploadedFile.size,
-            uploaded_by: userId,
+          const { error: ensureErr } = await supabase.functions.invoke("ensure-quote-case", {
+            body: { case_id: data.case_id, mode: "intake", workflow_key: data.workflow_key || "WF_SIMPLE_QUOTE" },
           });
+          if (ensureErr) {
+            console.warn("[Intake] ensure-quote-case failed:", ensureErr);
+          }
+        } catch (ensureEx) {
+          console.warn("[Intake] ensure-quote-case exception:", ensureEx);
+        }
 
-          // 3. Timeline event (Note: Check RLS policies if 403 occurs)
-          await supabase.from("case_timeline_events").insert({
-            case_id: data.case_id,
-            event_type: "document_uploaded",
-            actor_type: "user",
-            actor_user_id: userId,
-            event_data: { document_type: "Ordre de transit", file_name: uploadedFile.name },
-          });
-        } catch (docErr) {
-          // Robust guard to prevent breaking the main flow
-          console.warn("Post-creation tasks skipped (non-blocking):", docErr);
+        // Step B: Inject container facts (non-blocking, best-effort)
+        if (extractedAnalysis) {
+          injectContainerFacts(data.case_id, extractedAnalysis);
+        }
+
+        // Step C: Store uploaded document in case-documents
+        if (uploadedFile) {
+          try {
+            const { data: userData } = await supabase.auth.getUser();
+            const userId = userData?.user?.id;
+            if (userId) {
+              const docId = crypto.randomUUID();
+              const safeName = uploadedFile.name.replace(/[^\w.-]/g, "_");
+              const storagePath = `${data.case_id}/${docId}-${safeName}`;
+
+              // 1. Upload to storage
+              await supabase.storage.from("case-documents").upload(storagePath, uploadedFile);
+
+              // 2. Insert case_documents record
+              await supabase.from("case_documents").insert({
+                id: docId,
+                case_id: data.case_id,
+                document_type: "Ordre de transit",
+                file_name: uploadedFile.name,
+                storage_path: storagePath,
+                mime_type: uploadedFile.type,
+                file_size: uploadedFile.size,
+                uploaded_by: userId,
+              });
+
+              // 3. Timeline event
+              await supabase.from("case_timeline_events").insert({
+                case_id: data.case_id,
+                event_type: "document_uploaded",
+                actor_type: "user",
+                actor_user_id: userId,
+                event_data: { document_type: "Ordre de transit", file_name: uploadedFile.name },
+              });
+            }
+          } catch (docErr) {
+            console.warn("[Intake] Post-creation tasks skipped (non-blocking):", docErr);
+          }
         }
       }
     } catch (err: any) {
