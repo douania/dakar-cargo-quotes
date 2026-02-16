@@ -1,87 +1,158 @@
 
 
-# Correction ensure-quote-case : request_type null-safe (sans pollution enum)
+# Correction : les modifications texte de l'operateur ne sont pas prises en compte
 
-## Probleme
+## Diagnostic
 
-`ensure-quote-case` (ligne 102) insere `request_type: workflowKey` directement, soit `"WF_SIMPLE_QUOTE"`. Cette valeur n'existe pas dans l'enum `quote_request_type`, ce qui fait crasher l'INSERT et empeche la creation du dossier en base. Toute la chaine tombe en cascade (documents, facts, CaseView).
+Le flux actuel a deux problemes :
 
-## Approche CTO validee
+### Probleme 1 : extractedAnalysis n'est jamais mis a jour par le texte
 
-**Ne PAS ajouter `WF_*` a l'enum** `quote_request_type`. Cet enum represente le mode transport (SEA_FCL_IMPORT, etc.), pas le type de workflow Railway. Melanger les deux serait une dette structurelle.
+Quand l'utilisateur modifie le champ "Texte de la Demande" :
+- Le texte modifie est envoye a Railway (`createIntake`) -- OK
+- Mais `injectContainerFacts` utilise `extractedAnalysis` (donnees du document) sans tenir compte des modifications de l'utilisateur
+- Resultat : le document dit "8 conteneurs", l'operateur ecrit "1 seul conteneur 40'", mais le fait injecte reste `cargo.container_count = 8`
 
-A la place : mapping defensif dans `ensure-quote-case` + erreur bloquante dans `Intake.tsx`.
+### Probleme 2 : le lieu de livraison n'est jamais injecte
 
-## Modifications
+Meme si `extractedAnalysis` contient `destination` ou si l'utilisateur ecrit "livraison a Diamniadio", aucun fait `routing.destination_city` n'est injecte. La fonction `injectContainerFacts` ne gere que les faits cargo/mode.
 
-### Fichier 1 : `supabase/functions/ensure-quote-case/index.ts`
+## Plan de correction (Intake.tsx uniquement)
 
-**Ligne 68** : Remplacer `const workflowKey = body.workflow_key || "WF_SIMPLE_QUOTE";` par un mapping qui ne passe que les valeurs enum valides dans `request_type`, et met `null` sinon.
+### Modification 1 : Nouvelle fonction `parseTextOverrides(text)`
 
-**Lignes 96-107** : Dans l'insert, utiliser `safeRequestType` (null si workflow key) au lieu de `workflowKey` brut.
-
-```text
-// Avant (ligne 102)
-request_type: workflowKey,
-
-// Apres
-const ALLOWED_REQUEST_TYPES = new Set([
-  "SEA_FCL_IMPORT", "SEA_LCL_IMPORT", "SEA_BREAKBULK_IMPORT",
-  "AIR_IMPORT", "ROAD_IMPORT", "MULTIMODAL_IMPORT",
-]);
-const workflowKey = body.workflow_key ?? null;
-const safeRequestType = ALLOWED_REQUEST_TYPES.has(workflowKey ?? "")
-  ? workflowKey
-  : null;
-
-// insert
-request_type: safeRequestType,
-```
-
-Le `workflow_key` est conserve dans `event_data` du timeline event (deja le cas, ligne ~122), donc aucune perte d'information.
-
-### Fichier 2 : `src/pages/Intake.tsx`
-
-**Lignes 249-258** : Transformer le `console.warn` en erreur bloquante. Si `ensure-quote-case` echoue, les etapes suivantes (upload document, injection facts) sont inutiles et vont cascader en erreurs.
+Avant l'injection des faits, parser le champ texte pour detecter les informations que l'operateur a explicitement ajoutees ou corrigees :
 
 ```text
-// Avant
-if (ensureErr) {
-  console.warn("[Intake] ensure-quote-case failed:", ensureErr);
-}
+function parseTextOverrides(text: string): Partial<Record<string, any>> {
+  const overrides: Record<string, any> = {};
 
-// Apres
-const { data: ensureData, error: ensureErr } = await supabase.functions.invoke(...);
-if (ensureErr || ensureData?.error) {
-  throw new Error(
-    "Creation du dossier en base impossible: " +
-    (ensureData?.error || ensureErr?.message || "reponse invalide")
+  // Detecter "1 conteneur", "un seul conteneur 40'", "1 x 40HC", etc.
+  const containerMatch = text.match(
+    /(\d+)\s*(?:seul\s+)?(?:conteneur|container|x)\s*(\d{2})?[''']?\s*(HC|DV|OT|FR|GP)?/i
   );
+  if (containerMatch) {
+    overrides.container_count = parseInt(containerMatch[1], 10);
+    if (containerMatch[2]) {
+      const size = containerMatch[2];
+      const type = containerMatch[3] || "";
+      overrides.container_type = size + "'" + (type ? " " + type.toUpperCase() : "");
+    }
+  }
+
+  // Detecter lieu de livraison
+  const destPatterns = [
+    /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
+    /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ\s-]+)/i,
+  ];
+  for (const pat of destPatterns) {
+    const match = text.match(pat);
+    if (match) {
+      overrides.destination = match[1].trim();
+      break;
+    }
+  }
+
+  return overrides;
 }
 ```
 
-Cela garantit que l'utilisateur voit une erreur claire au lieu d'un echec silencieux suivi de multiples erreurs FK/RLS.
+### Modification 2 : Fusionner les overrides dans injectContainerFacts
 
-## Pas de migration SQL necessaire
+Renommer et enrichir la fonction pour devenir `injectFacts(caseId, analysis, textOverrides)` :
 
-- `request_type` est deja `nullable` (confirme par la requete schema)
-- Aucune modification d'enum
-- Les event_types `document_uploaded` et `fact_injected_manual` ont deja ete ajoutes dans la migration precedente
+- Les overrides du texte ont priorite sur les donnees du document
+- Ajouter l'injection de `routing.destination_city` si une destination est detectee
+
+```text
+async function injectFacts(
+  caseId: string,
+  analysis: Record<string, any>,
+  textOverrides: Record<string, any>
+) {
+  // Merge : text overrides > document analysis
+  const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
+  const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
+  const weightKg = Number(analysis.weight_kg) || 0;
+  const destination = textOverrides.destination ?? analysis.destination ?? null;
+
+  const facts = [];
+
+  if (containerCount >= 1) {
+    facts.push({ fact_key: "cargo.container_count", value_number: containerCount });
+    facts.push({ fact_key: "cargo.container_type", value_text: containerType });
+  }
+  if (weightKg > 0) {
+    facts.push({ fact_key: "cargo.weight_kg", value_number: weightKg });
+  }
+  if (containerType.includes("40") || containerType.includes("20")) {
+    facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
+  }
+  if (destination) {
+    facts.push({ fact_key: "routing.destination_city", value_text: destination });
+  }
+
+  for (const fact of facts) {
+    try {
+      await supabase.functions.invoke("set-case-fact", {
+        body: { case_id: caseId, ...fact },
+      });
+    } catch (err) {
+      console.warn(`[Intake] Failed to inject fact ${fact.fact_key}:`, err);
+    }
+  }
+}
+```
+
+### Modification 3 : Appeler la fusion dans handleSubmit
+
+Dans `handleSubmit`, avant l'injection :
+
+```text
+// Parse text overrides from operator's edits
+const textOverrides = parseTextOverrides(text);
+
+// Inject facts with operator overrides taking priority
+if (extractedAnalysis || Object.keys(textOverrides).length > 0) {
+  injectFacts(data.case_id, extractedAnalysis || {}, textOverrides);
+}
+```
+
+### Modification 4 : Mettre a jour correctAssumptions
+
+Ajouter les overrides dans les hypotheses affichees pour que l'operateur voie que ses corrections sont prises en compte :
+
+- Si `textOverrides.container_count` existe et differe de `analysis.container_count`, afficher "Correction operateur : X conteneur(s) (OT originale : Y)"
+- Si `textOverrides.destination` existe, afficher "Lieu de livraison : [destination]"
+
+## Fichiers modifies
+
+| Fichier | Action |
+|---------|--------|
+| `src/pages/Intake.tsx` | Ajouter `parseTextOverrides`, enrichir `injectContainerFacts` en `injectFacts`, appeler la fusion dans `handleSubmit`, mettre a jour `correctAssumptions` |
+
+## Aucune modification backend necessaire
+
+- `set-case-fact` accepte deja `routing.destination_city` (dans la whitelist)
+- `set-case-fact` accepte deja `cargo.container_count` et `cargo.container_type`
+- Pas de migration SQL
 
 ## Flux corrige
 
 ```text
-1. createIntake(Railway) → case_id + workflow_key="WF_SIMPLE_QUOTE"
-2. ensure-quote-case → insert request_type=NULL (WF_* filtre) → OK
-3. Upload document → case_documents (FK satisfaite) → OK
-4. Timeline "document_uploaded" → OK
-5. injectContainerFacts → set-case-fact (ownership OK) → OK
-6. CaseView → quote_cases existe → affichage OK
+1. Upload OT → analyse: 8 conteneurs, destination Dakar
+2. Operateur edite le texte: "1 seul conteneur 40', livraison a Diamniadio"
+3. Submit → createIntake(text modifie) → Railway
+4. parseTextOverrides(text) → { container_count: 1, destination: "Diamniadio" }
+5. injectFacts(caseId, analysis{8 containers}, overrides{1 container, Diamniadio})
+   → cargo.container_count = 1 (override)
+   → cargo.container_type = "40'" (override ou document)
+   → routing.destination_city = "Diamniadio" (override)
+6. CaseView affiche les valeurs corrigees
 ```
 
 ## Risques
 
-- Zero regression : `request_type` est nullable, NULL est une valeur valide partout
-- Le workflow_key reste trace dans `event_data` du timeline
-- L'erreur bloquante empeche les cascades d'erreurs silencieuses
-
+- Aucune regression : si l'operateur ne modifie pas le texte, le comportement est identique (overrides vide)
+- Les regex de parsing sont volontairement simples et ciblent les patterns francais courants
+- En cas de non-detection, les donnees du document font toujours fallback
