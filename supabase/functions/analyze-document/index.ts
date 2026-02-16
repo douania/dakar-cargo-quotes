@@ -74,6 +74,27 @@ Analyse ce document douanier et extrait:
 
 Réponds en JSON structuré.`;
       userPrompt = `Analyse ce document douanier:\n\n${doc.content_text?.substring(0, 8000)}`;
+    } else if (analysisType === 'transit_order') {
+      systemPrompt = `Tu es un expert en transit et logistique au Sénégal (contexte SODATRA).
+Analyse cet ordre de transit et extrait les informations suivantes en JSON :
+{
+  "client_name": "nom du donneur d'ordre ou client",
+  "client_email": "email si présent",
+  "customer_ref": "référence du client ou numéro d'ordre",
+  "cargo_description": "description de la marchandise",
+  "origin": "lieu/port d'origine",
+  "destination": "lieu/port de destination",
+  "weight_kg": nombre ou null,
+  "volume_cbm": nombre ou null,
+  "nb_pieces": nombre ou null,
+  "container_type": "20GP, 40HC, etc." ou null,
+  "container_count": nombre ou null,
+  "incoterm": "FOB, CIF, DAP, etc." ou null,
+  "transport_mode": "sea, air, road, rail" ou "unknown",
+  "special_instructions": "instructions particulières" ou null
+}
+Si une information n'est pas trouvée, mettre null.`;
+      userPrompt = `Analyse cet ordre de transit:\n\n${doc.content_text?.substring(0, 8000)}`;
     } else if (analysisType === 'bl' || doc.tags?.includes('BL')) {
       systemPrompt = `Tu es un expert en documents de transport maritime.
 Analyse ce Bill of Lading et extrait:
