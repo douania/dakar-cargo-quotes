@@ -1,55 +1,60 @@
 
-# Correction des 4 incohérences de filtrage contextuel des services
+
+# Correction du gap `cargo.description` qui ne se resout jamais
 
 ## Probleme
 
-Le filtrage contextuel actuel dans `isServiceRelevant` et `EXCLUSIVE_GROUPS` laisse passer 4 services incoherents pour un dossier SEA_FCL_IMPORT :
-1. DISCHARGE (breakbulk) visible en FCL
-2. CUSTOMS_EXPORT visible en mode IMPORT
-3. PORT_CHARGES doublon de PORT_DAKAR_HANDLING
-4. CUSTOMS doublon de CUSTOMS_DAKAR
+Le moteur `build-case-puzzle` (ligne 1235) verifie uniquement les facts extraits par l'IA **durant le run courant** (`extractedKeys`) pour determiner si un gap doit etre resolu. Les facts deja presents en base (injectes manuellement via `set-case-fact` ou lors de runs precedents) ne sont **pas consultes**.
 
-## Modifications
+Consequence : meme apres injection de `cargo.description` via `set-case-fact`, le gap reste ouvert car l'IA ne re-extrait pas cette cle depuis les emails.
 
-### Fichier unique : `src/pages/CaseView.tsx`
+## Solution
 
-**1. Ajouter `DISCHARGE` dans le filtre SEA (ligne 107)**
+Enrichir la verification a la ligne 1235 pour consulter egalement les facts existants en base (`is_current = true`).
 
-Ajout d'une ligne : `if (service === "DISCHARGE") return false;`
+## Modification
 
-Le dechargement breakbulk n'a pas de sens en conteneurise.
+### Fichier unique : `supabase/functions/build-case-puzzle/index.ts`
 
-**2. Ajouter regles IMPORT/EXPORT croisees (apres les blocs SEA/AIR)**
+**Avant la boucle `for (const requiredKey of mandatoryFacts)` (vers ligne 1234) :**
+
+Ajouter une requete pour charger toutes les `fact_key` existantes en base pour ce dossier :
 
 ```text
-if (mode.includes("IMPORT") && service === "CUSTOMS_EXPORT") return false;
-if (mode.includes("EXPORT") && service === "CUSTOMS_DAKAR") return false;
+const { data: existingDbFacts } = await serviceClient
+  .from("quote_facts")
+  .select("fact_key")
+  .eq("case_id", case_id)
+  .eq("is_current", true);
+
+const existingDbKeys = (existingDbFacts || []).map(f => f.fact_key);
 ```
 
-**3. Enrichir EXCLUSIVE_GROUPS (ligne 118)**
+**Ligne 1235 — modifier la condition `hasFact` :**
 
 ```text
-const EXCLUSIVE_GROUPS = [
-  ["TRUCKING", "ON_CARRIAGE"],
-  ["PORT_DAKAR_HANDLING", "PORT_CHARGES"],
-  ["CUSTOMS_DAKAR", "CUSTOMS"],
-];
+// Avant (bug)
+const hasFact = extractedKeys.includes(requiredKey);
+
+// Apres (correctif)
+const hasFact = extractedKeys.includes(requiredKey) || existingDbKeys.includes(requiredKey);
 ```
 
 ## Impact
 
 | Element | Impact |
 |---------|--------|
-| Backend | Aucun |
-| QuotationSheet | Aucun |
-| Pricing | Aucun |
+| Fichier modifie | `supabase/functions/build-case-puzzle/index.ts` |
+| Lignes modifiees | ~5 lignes ajoutees, 1 ligne modifiee |
+| Backend | La fonction sera redeployee automatiquement |
+| Frontend | Aucun changement |
 | Migration SQL | Aucune |
-| Lignes modifiees | ~8 lignes |
+| Risque | Tres faible — lecture seule supplementaire |
 
 ## Resultat attendu
 
-Pour un dossier SEA_FCL_IMPORT / DAP_PROJECT_IMPORT, les services supplementaires se reduisent a :
-- Frais agence (AGENCY)
-- Survey (SURVEY)
+1. Injecter `cargo.description` via `set-case-fact`
+2. Relancer `build-case-puzzle`
+3. Le gap `cargo.description` passe de `open` a `resolved`
+4. Le statut du dossier passe de `NEED_INFO` a `READY_TO_PRICE`
 
-Tous les services incoherents (DISCHARGE, CUSTOMS_EXPORT, PORT_CHARGES, CUSTOMS) disparaissent.
