@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import {
   Paperclip,
   History,
   Puzzle,
+  Package,
   RefreshCw,
   Play,
   Pencil,
@@ -34,7 +36,8 @@ import {
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TASK_STATUS_COLORS, SERVICE_PACKAGES } from "@/features/quotation/constants";
+import { TASK_STATUS_COLORS, SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ── Fact keys rendered as Select dropdown instead of Input ──
 const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
@@ -95,6 +98,236 @@ const STATUS_LABELS: Record<string, string> = {
   LOST: "Perdu",
   ARCHIVED: "Archivé",
 };
+
+// ── Service Override Panel ──
+function ServiceOverridePanel({
+  facts,
+  caseId,
+  isLocked,
+  onSaved,
+}: {
+  facts: any[];
+  caseId: string;
+  isLocked: boolean;
+  onSaved: () => void;
+}) {
+  const packageFact = facts.find(
+    (f: any) => f.fact_key === "service.package" && f.is_current
+  );
+  const packageKey = packageFact?.value_text;
+  const packageServices = packageKey ? SERVICE_PACKAGES[packageKey] : null;
+
+  // Parse existing overrides
+  const overrideFact = facts.find(
+    (f: any) => f.fact_key === "service.overrides" && f.is_current
+  );
+  const existingOverrides = useMemo<{ add: string[]; remove: string[] }>(() => {
+    if (!overrideFact?.value_json) return { add: [], remove: [] };
+    try {
+      const raw = overrideFact.value_json;
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return {
+        add: Array.isArray(parsed.add) ? parsed.add : [],
+        remove: Array.isArray(parsed.remove) ? parsed.remove : [],
+      };
+    } catch {
+      return { add: [], remove: [] };
+    }
+  }, [overrideFact]);
+
+  const [removedServices, setRemovedServices] = useState<Set<string>>(
+    new Set(existingOverrides.remove)
+  );
+  const [addedServices, setAddedServices] = useState<Set<string>>(
+    new Set(existingOverrides.add)
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  // Reset when package changes
+  React.useEffect(() => {
+    setRemovedServices(new Set(existingOverrides.remove));
+    setAddedServices(new Set(existingOverrides.add));
+  }, [packageKey, existingOverrides]);
+
+  if (!packageServices || !packageKey) return null;
+
+  const ALL_SERVICE_KEYS = new Set(serviceTemplates.map((t) => t.service));
+  const extraServices = serviceTemplates.filter(
+    (t) => !packageServices.includes(t.service)
+  );
+  const frequentExtra = extraServices.slice(0, 4);
+  const restExtra = extraServices.slice(4);
+
+  const toggleRemove = (key: string) => {
+    setRemovedServices((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAdd = (key: string) => {
+    setAddedServices((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const hasChanges =
+    JSON.stringify([...removedServices].sort()) !==
+      JSON.stringify([...new Set(existingOverrides.remove)].sort()) ||
+    JSON.stringify([...addedServices].sort()) !==
+      JSON.stringify([...new Set(existingOverrides.add)].sort());
+
+  const handleSaveOverrides = async () => {
+    setIsSaving(true);
+    try {
+      // Sanitize against allowlist
+      const add = [...addedServices].filter((k) => ALL_SERVICE_KEYS.has(k));
+      const remove = [...removedServices].filter((k) => ALL_SERVICE_KEYS.has(k));
+
+      const { error } = await supabase.functions.invoke("set-case-fact", {
+        body: {
+          case_id: caseId,
+          fact_key: "service.overrides",
+          value_json: { add, remove },
+        },
+      });
+      if (error) throw error;
+      toast.success("Ajustements sauvegardés");
+      onSaved();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getLabel = (key: string) =>
+    serviceTemplates.find((t) => t.service === key)?.description || key;
+
+  // Derive effective services for display
+  const effectiveKeys = packageServices
+    .filter((k: string) => !removedServices.has(k))
+    .concat([...addedServices].filter((k) => !packageServices.includes(k)));
+
+  return (
+    <Card className="mt-4 border-primary/20">
+      <CardHeader className="py-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Package className="h-4 w-4 text-primary" />
+          Services du package : {packageKey.replace(/_/g, " ")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+        {/* Package services (removable) */}
+        <div className="space-y-2">
+          {packageServices.map((key: string) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
+              <Checkbox
+                checked={!removedServices.has(key)}
+                onCheckedChange={() => toggleRemove(key)}
+                disabled={isLocked}
+              />
+              <span className={removedServices.has(key) ? "line-through text-muted-foreground" : ""}>
+                {getLabel(key)}
+              </span>
+              <Badge variant="outline" className="text-[10px] ml-auto">
+                {key}
+              </Badge>
+            </label>
+          ))}
+        </div>
+
+        {/* Extra services (addable) */}
+        {(frequentExtra.length > 0) && (
+          <>
+            <Separator />
+            <p className="text-xs text-muted-foreground font-medium">
+              Services supplémentaires
+            </p>
+            <div className="space-y-2">
+              {frequentExtra.map((t) => (
+                <label
+                  key={t.service}
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
+                  <Checkbox
+                    checked={addedServices.has(t.service)}
+                    onCheckedChange={() => toggleAdd(t.service)}
+                    disabled={isLocked}
+                  />
+                  <span>{t.description}</span>
+                  <Badge variant="outline" className="text-[10px] ml-auto">
+                    {t.service}
+                  </Badge>
+                </label>
+              ))}
+              {restExtra.length > 0 && !showMore && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => setShowMore(true)}
+                >
+                  + {restExtra.length} autres services
+                </Button>
+              )}
+              {showMore &&
+                restExtra.map((t) => (
+                  <label
+                    key={t.service}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={addedServices.has(t.service)}
+                      onCheckedChange={() => toggleAdd(t.service)}
+                      disabled={isLocked}
+                    />
+                    <span>{t.description}</span>
+                    <Badge variant="outline" className="text-[10px] ml-auto">
+                      {t.service}
+                    </Badge>
+                  </label>
+                ))}
+            </div>
+          </>
+        )}
+
+        {/* Effective count + save */}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs text-muted-foreground">
+            {effectiveKeys.length} service(s) effectif(s)
+          </span>
+          <Button
+            size="sm"
+            onClick={handleSaveOverrides}
+            disabled={isLocked || isSaving || !hasChanges}
+          >
+            {isSaving ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="mr-1 h-3 w-3" />
+            )}
+            Valider les ajustements
+          </Button>
+        </div>
+        {isLocked && (
+          <p className="text-xs text-muted-foreground italic">
+            Pricing en cours — modifications désactivées
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -676,6 +909,14 @@ export default function CaseView() {
                 ))}
               </div>
             )}
+
+            {/* Service Override Panel */}
+            <ServiceOverridePanel
+              facts={facts}
+              caseId={caseId!}
+              isLocked={isLocked}
+              onSaved={handleRefresh}
+            />
           </TabsContent>
 
           {/* Documents Tab */}
