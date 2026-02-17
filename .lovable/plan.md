@@ -1,50 +1,51 @@
 
-# Fix: `cargoValueFCFA is not defined` dans quotation-engine
+# Afficher les resultats de pricing dans CaseView
 
 ## Diagnostic
 
-L'erreur `ReferenceError: cargoValueFCFA is not defined` est un probleme de **portee de variable** (block scoping).
+Le pricing du dossier 31efcc01 a reussi :
+- Statut passe a `PRICED_DRAFT`
+- 9 lignes calculees, total HT 150 000 XOF, TTC 177 000 XOF
+- Le bouton "Lancer le pricing" a disparu (correct, le statut n'est plus `READY_TO_PRICE`)
 
-```text
-Ligne 2009:  if (!isTransit) {
-Ligne 2012:    let cargoValueFCFA: number;  // <-- declare DANS le bloc if
-  ...
-Ligne 2224:  } // end if (!isTransit)
-Ligne 2226:  return { lines, warnings, dutyBreakdown, cargoValueFCFA };  // <-- HORS du bloc
-```
-
-La variable `cargoValueFCFA` est declaree avec `let` a l'interieur du bloc `if (!isTransit)`, ce qui la rend invisible au `return` situe apres la fermeture du bloc. Meme pour un dossier non-transit (comme le cas actuel SEA_FCL_IMPORT), le moteur JavaScript/Deno considere la variable comme hors-portee au point de retour.
+Mais **aucun panneau de resultats n'est affiche** car `CaseView.tsx` n'importe pas `PricingResultPanel`. Ce composant existe deja et fonctionne dans `QuotationSheet.tsx`.
 
 ## Correction
 
-**Fichier** : `supabase/functions/quotation-engine/index.ts`
+**Fichier** : `src/pages/CaseView.tsx`
 
-Deplacer la declaration de `cargoValueFCFA` **avant** le bloc `if (!isTransit)`, avec une valeur par defaut :
+### 1. Import du composant
+
+Ajouter l'import de `PricingResultPanel` (deja existant dans `src/components/puzzle/PricingResultPanel.tsx`).
+
+### 2. Affichage conditionnel apres le PricingLaunchPanel
+
+Apres le bloc `READY_TO_PRICE` (ligne 744), ajouter :
 
 ```text
-// Avant le bloc if (!isTransit)
-const dutyBreakdown: any[] = [];
-let cargoValueFCFA: number = 0;    // <-- AJOUTER ICI
-
-if (!isTransit) {
-  const rawCurrency = ...
-  // SUPPRIMER l'ancien "let cargoValueFCFA: number;" (ligne 2012)
-  // Garder les assignations: cargoValueFCFA = request.cargoValue; etc.
+{['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+  <div className="mb-6">
+    <PricingResultPanel 
+      caseId={caseId!} 
+      isLocked={caseData.status === 'SENT'} 
+    />
+  </div>
+)}
 ```
 
-## Detail technique
+Ce bloc affiche :
+- Les lignes de pricing calculees (frais SODATRA, droits de douane, etc.)
+- Le total HT / TTC
+- Le bouton de creation de version (si non verrouille)
 
-| Ligne | Avant | Apres |
-|-------|-------|-------|
-| 2007 (apres dutyBreakdown) | rien | `let cargoValueFCFA: number = 0;` |
-| 2012 | `let cargoValueFCFA: number;` | supprimee |
+## Fichiers modifies
 
-Tout le reste du code (assignations, calculs CAF, return) reste inchange.
+| Fichier | Modification |
+|---------|-------------|
+| `src/pages/CaseView.tsx` | Import + rendu conditionnel de PricingResultPanel |
 
-## Impact
+## Resultat attendu
 
-- 1 ligne ajoutee, 1 ligne supprimee
-- Zero changement de logique metier
-- Les cas transit retourneront `cargoValueFCFA = 0` (correct : pas de droits en transit)
-- Les cas non-transit fonctionneront comme avant
-- Deploiement automatique de `quotation-engine` apres modification
+1. Statut `PRICED_DRAFT` : le panneau de resultats apparait avec les 9 lignes et les totaux
+2. Statut `SENT` : le panneau est en lecture seule (verrouille)
+3. Zero changement de logique metier
