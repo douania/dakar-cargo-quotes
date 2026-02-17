@@ -1,38 +1,50 @@
 
-
-# Fix : Ajouter READY_TO_PRICE dans les statuts autorisés de run-pricing
+# Fix: `cargoValueFCFA is not defined` dans quotation-engine
 
 ## Diagnostic
 
-L'erreur 400 est explicite :
+L'erreur `ReferenceError: cargoValueFCFA is not defined` est un probleme de **portee de variable** (block scoping).
 
 ```text
-current_status: "READY_TO_PRICE"
-allowed_statuses: ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "QUOTED_VERSIONED", "SENT"]
+Ligne 2009:  if (!isTransit) {
+Ligne 2012:    let cargoValueFCFA: number;  // <-- declare DANS le bloc if
+  ...
+Ligne 2224:  } // end if (!isTransit)
+Ligne 2226:  return { lines, warnings, dutyBreakdown, cargoValueFCFA };  // <-- HORS du bloc
 ```
 
-Le statut `READY_TO_PRICE` a ete introduit par `build-case-puzzle` mais jamais ajoute a la whitelist de `run-pricing`.
+La variable `cargoValueFCFA` est declaree avec `let` a l'interieur du bloc `if (!isTransit)`, ce qui la rend invisible au `return` situe apres la fermeture du bloc. Meme pour un dossier non-transit (comme le cas actuel SEA_FCL_IMPORT), le moteur JavaScript/Deno considere la variable comme hors-portee au point de retour.
 
 ## Correction
 
-**Fichier** : `supabase/functions/run-pricing/index.ts`
+**Fichier** : `supabase/functions/quotation-engine/index.ts`
 
-Ajouter `"READY_TO_PRICE"` dans le tableau `pricingAllowedStatuses` (ligne 100) :
+Deplacer la declaration de `cargoValueFCFA` **avant** le bloc `if (!isTransit)`, avec une valeur par defaut :
 
 ```text
-const pricingAllowedStatuses = [
-  "READY_TO_PRICE",
-  "ACK_READY_FOR_PRICING",
-  "PRICED_DRAFT",
-  "HUMAN_REVIEW",
-  "QUOTED_VERSIONED",
-  "SENT",
-];
+// Avant le bloc if (!isTransit)
+const dutyBreakdown: any[] = [];
+let cargoValueFCFA: number = 0;    // <-- AJOUTER ICI
+
+if (!isTransit) {
+  const rawCurrency = ...
+  // SUPPRIMER l'ancien "let cargoValueFCFA: number;" (ligne 2012)
+  // Garder les assignations: cargoValueFCFA = request.cargoValue; etc.
 ```
+
+## Detail technique
+
+| Ligne | Avant | Apres |
+|-------|-------|-------|
+| 2007 (apres dutyBreakdown) | rien | `let cargoValueFCFA: number = 0;` |
+| 2012 | `let cargoValueFCFA: number;` | supprimee |
+
+Tout le reste du code (assignations, calculs CAF, return) reste inchange.
 
 ## Impact
 
-- 1 ligne ajoutee, zero risque de regression
-- Les deux chemins (`READY_TO_PRICE` via puzzle et `ACK_READY_FOR_PRICING` via decisions manuelles) seront acceptes
-- Deploiement automatique apres modification
-
+- 1 ligne ajoutee, 1 ligne supprimee
+- Zero changement de logique metier
+- Les cas transit retourneront `cargoValueFCFA = 0` (correct : pas de droits en transit)
+- Les cas non-transit fonctionneront comme avant
+- Deploiement automatique de `quotation-engine` apres modification
