@@ -105,6 +105,7 @@ function isServiceRelevant(service: string, mode: string): boolean {
     if (service.startsWith("AIR_")) return false;
     if (service === "CUSTOMS_BAMAKO") return false;
     if (service === "BORDER_FEES") return false;
+    if (service === "DISCHARGE") return false;
   }
   if (mode.startsWith("AIR")) {
     if (service.startsWith("PORT_")) return false;
@@ -112,10 +113,16 @@ function isServiceRelevant(service: string, mode: string): boolean {
     if (service === "EMPTY_RETURN") return false;
     if (service === "DISCHARGE") return false;
   }
+  if (mode.includes("IMPORT") && service === "CUSTOMS_EXPORT") return false;
+  if (mode.includes("EXPORT") && service === "CUSTOMS_DAKAR") return false;
   return true;
 }
 
-const EXCLUSIVE_GROUPS = [["TRUCKING", "ON_CARRIAGE"]];
+const EXCLUSIVE_GROUPS = [
+  ["TRUCKING", "ON_CARRIAGE"],
+  ["PORT_DAKAR_HANDLING", "PORT_CHARGES"],
+  ["CUSTOMS_DAKAR", "CUSTOMS"],
+];
 
 // ── Service Override Panel ──
 function ServiceOverridePanel({
