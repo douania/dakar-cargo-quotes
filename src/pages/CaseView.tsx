@@ -271,8 +271,8 @@ export default function CaseView() {
     );
 
     if (
-      weightFact?.value_number &&
-      countFact?.value_number &&
+      weightFact?.value_number != null &&
+      countFact?.value_number != null &&
       countFact.value_number > 1 &&
       !perContainerFact
     ) {
@@ -311,7 +311,9 @@ export default function CaseView() {
       });
       if (error) throw error;
       toast.success("Fait dérivé créé");
-      setDismissedSuggestions((prev) => [...prev, suggestion.id]);
+      setDismissedSuggestions((prev) =>
+        prev.includes(suggestion.id) ? prev : [...prev, suggestion.id]
+      );
       handleRefresh();
     } catch (err) {
       toast.error((err as Error).message);
@@ -486,7 +488,9 @@ export default function CaseView() {
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        setDismissedSuggestions((prev) => [...prev, suggestion.id])
+                        setDismissedSuggestions((prev) =>
+                          prev.includes(suggestion.id) ? prev : [...prev, suggestion.id]
+                        )
                       }
                     >
                       Ignorer
