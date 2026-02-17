@@ -24,6 +24,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "routing.destination_city",
   "service.mode",
   "service.package",
+  "service.overrides",
 ]);
 
 // ── Category detection from prefix ──

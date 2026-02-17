@@ -660,8 +660,34 @@ L'équipe SODATRA`;
 
     // Injecter les services du nouveau package
     lastAppliedPackageRef.current = packageKey;
-    const serviceKeys = SERVICE_PACKAGES[packageKey];
-    const autoLines: ServiceLine[] = serviceKeys.map(key => {
+    const baseServiceKeys = SERVICE_PACKAGES[packageKey];
+
+    // ── Garde-fou 1: Allowlist des clés de service valides ──
+    const ALL_SERVICE_KEYS = new Set(serviceTemplates.map(t => t.service));
+
+    // ── Garde-fou 2: Parsing robuste du JSON service.overrides ──
+    const overrideFact = quoteFacts.find(f => f.fact_key === 'service.overrides' && f.is_current);
+    let overrides: { add?: string[]; remove?: string[] } = {};
+    if (overrideFact?.value_json) {
+      try {
+        const raw = overrideFact.value_json;
+        overrides = typeof raw === 'string' ? JSON.parse(raw) : (raw as { add?: string[]; remove?: string[] });
+      } catch {
+        overrides = {};
+      }
+    }
+
+    // Sanitize: only allow known service keys
+    const addKeys = (overrides.add ?? []).filter(k => ALL_SERVICE_KEYS.has(k));
+    const removeKeys = new Set((overrides.remove ?? []).filter(k => ALL_SERVICE_KEYS.has(k)));
+
+    // ── Garde-fou 3: Ordre stable + dédoublonnage ──
+    let finalKeys = baseServiceKeys.filter(k => !removeKeys.has(k));
+    for (const k of addKeys) {
+      if (!finalKeys.includes(k)) finalKeys.push(k);
+    }
+
+    const autoLines: ServiceLine[] = finalKeys.map(key => {
       const template = serviceTemplates.find(t => t.service === key);
       return {
         id: crypto.randomUUID(),
