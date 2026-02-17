@@ -33,9 +33,10 @@ import { toast } from 'sonner';
 
 interface PricingLaunchPanelProps {
   caseId: string;
+  onComplete?: () => void;
 }
 
-export function PricingLaunchPanel({ caseId }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function PricingLaunchPanel({ caseId }: PricingLaunchPanelProps) {
       
       toast.success(`Pricing lancé - ${data?.lines_count ?? 0} lignes calculées`);
       setConfirmOpen(false);
+      onComplete?.();
       
       // Pas de redirection automatique - l'UI se mettra à jour via le hook
       
