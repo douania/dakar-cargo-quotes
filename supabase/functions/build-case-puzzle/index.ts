@@ -1231,8 +1231,16 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Load existing DB facts to also consider manually injected facts
+    const { data: existingDbFacts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key")
+      .eq("case_id", case_id)
+      .eq("is_current", true);
+    const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
+
     for (const requiredKey of mandatoryFacts) {
-      const hasFact = extractedKeys.includes(requiredKey);
+      const hasFact = extractedKeys.includes(requiredKey) || existingDbKeys.includes(requiredKey);
       const hasAssumption = extractedFacts.find((f) => f.key === requiredKey && f.isAssumption);
 
       // Check if gap already exists
