@@ -1,56 +1,38 @@
 
 
-# Ajouter le bouton "Lancer le pricing" dans CaseView
+# Fix : Ajouter READY_TO_PRICE dans les statuts autorisés de run-pricing
 
-## Constat
+## Diagnostic
 
-Le composant `PricingLaunchPanel` existe deja dans `src/components/puzzle/PricingLaunchPanel.tsx` et appelle correctement `run-pricing`. Mais il n'est jamais importe ni rendu dans `CaseView.tsx`.
+L'erreur 400 est explicite :
 
-Le panneau d'action actuel (ligne 714) ne s'affiche que pour les statuts `INTAKE`, `FACTS_PARTIAL`, `NEED_INFO`. Quand le dossier passe a `READY_TO_PRICE`, l'operateur ne voit aucune action possible.
+```text
+current_status: "READY_TO_PRICE"
+allowed_statuses: ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "QUOTED_VERSIONED", "SENT"]
+```
+
+Le statut `READY_TO_PRICE` a ete introduit par `build-case-puzzle` mais jamais ajoute a la whitelist de `run-pricing`.
 
 ## Correction
 
-**Fichier** : `src/pages/CaseView.tsx`
+**Fichier** : `supabase/functions/run-pricing/index.ts`
 
-### 1. Import du composant
-
-Ajouter en haut du fichier :
+Ajouter `"READY_TO_PRICE"` dans le tableau `pricingAllowedStatuses` (ligne 100) :
 
 ```text
-import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
+const pricingAllowedStatuses = [
+  "READY_TO_PRICE",
+  "ACK_READY_FOR_PRICING",
+  "PRICED_DRAFT",
+  "HUMAN_REVIEW",
+  "QUOTED_VERSIONED",
+  "SENT",
+];
 ```
 
-### 2. Affichage conditionnel
+## Impact
 
-Apres le panneau d'action existant (ligne 736), ajouter un bloc conditionnel :
-
-```text
-{caseData.status === 'READY_TO_PRICE' && (
-  <div className="mb-6">
-    <PricingLaunchPanel caseId={caseId!} />
-  </div>
-)}
-```
-
-### 3. Rafraichissement apres pricing
-
-Le `PricingLaunchPanel` actuel affiche un toast de succes mais ne declenche pas de refresh des donnees. Pour que le statut se mette a jour automatiquement apres le pricing, ajouter un callback `onComplete` au composant :
-
-- Modifier `PricingLaunchPanel` pour accepter un prop optionnel `onComplete?: () => void`
-- Appeler `onComplete()` apres le toast de succes
-- Dans CaseView, passer `handleRefresh` comme callback
-
-## Fichiers modifies
-
-| Fichier | Modification |
-|---------|-------------|
-| `src/pages/CaseView.tsx` | Import + rendu conditionnel de PricingLaunchPanel |
-| `src/components/puzzle/PricingLaunchPanel.tsx` | Ajout prop optionnel `onComplete` |
-
-## Resultat attendu
-
-1. Statut `READY_TO_PRICE` → le bouton "Lancer le pricing" apparait
-2. Click → confirmation → appel `run-pricing`
-3. Succes → refresh automatique → statut passe a `PRICED_DRAFT`
-4. Le bouton disparait (statut n'est plus `READY_TO_PRICE`)
+- 1 ligne ajoutee, zero risque de regression
+- Les deux chemins (`READY_TO_PRICE` via puzzle et `ACK_READY_FOR_PRICING` via decisions manuelles) seront acceptes
+- Deploiement automatique apres modification
 
