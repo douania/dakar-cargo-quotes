@@ -860,7 +860,13 @@ Deno.serve(async (req) => {
       emails = threadEmails || [];
     }
 
-    // 4b. Load case_documents with pre-extracted text (Intake flow)
+    // 4b. Count ALL case_documents (for guard check — includes docs without extracted_text)
+    const { count: totalCaseDocsCount } = await serviceClient
+      .from("case_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("case_id", case_id);
+
+    // 4c. Load case_documents with pre-extracted text (Intake flow)
     const { data: caseDocuments } = await serviceClient
       .from("case_documents")
       .select("file_name, document_type, extracted_text")
@@ -874,7 +880,7 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    if (!caseData.thread_id && (!caseDocuments || caseDocuments.length === 0)) {
+    if (!caseData.thread_id && (!totalCaseDocsCount || totalCaseDocsCount === 0)) {
       return new Response(
         JSON.stringify({ error: "No emails or documents found for this case" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
