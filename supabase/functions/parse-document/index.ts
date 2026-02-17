@@ -35,6 +35,7 @@ serve(async (req) => {
 
     const formData = await req.formData();
     const file = formData.get('file') as File;
+    const caseDocumentId = formData.get('case_document_id') as string | null;
     
     if (!file) {
       return new Response(
@@ -297,6 +298,19 @@ serve(async (req) => {
     if (docError) {
       console.error('Database error:', docError);
       throw new Error(`Database insert failed: ${docError.message}`);
+    }
+
+    // If a case_document_id was provided, copy extracted text to case_documents
+    if (caseDocumentId && extractedText) {
+      const { error: updateError } = await supabase
+        .from("case_documents")
+        .update({ extracted_text: extractedText.substring(0, 200000) })
+        .eq("id", caseDocumentId);
+      if (updateError) {
+        console.warn('Failed to update case_documents.extracted_text:', updateError.message);
+      } else {
+        console.log('Updated case_documents.extracted_text for', caseDocumentId, 'length:', Math.min(extractedText.length, 200000));
+      }
     }
 
     return new Response(

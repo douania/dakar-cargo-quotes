@@ -860,9 +860,23 @@ Deno.serve(async (req) => {
       emails = threadEmails || [];
     }
 
+    // 4b. Load case_documents with pre-extracted text (Intake flow)
+    const { data: caseDocuments } = await serviceClient
+      .from("case_documents")
+      .select("file_name, document_type, extracted_text")
+      .eq("case_id", case_id)
+      .not("extracted_text", "is", null);
+
+    // Guard: need either emails or case_documents
     if (caseData.thread_id && emails.length === 0) {
       return new Response(
         JSON.stringify({ error: "No emails found in thread" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (!caseData.thread_id && (!caseDocuments || caseDocuments.length === 0)) {
+      return new Response(
+        JSON.stringify({ error: "No emails or documents found for this case" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -884,10 +898,21 @@ Deno.serve(async (req) => {
       .map((a) => `[Attachment: ${a.filename}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
       .join("\n\n");
 
+    // 6b. Build case_documents context (Intake documents)
+    let caseDocContext = "";
+    for (const doc of caseDocuments || []) {
+      const truncated = (doc.extracted_text || "").slice(0, 3000);
+      caseDocContext += `\n[Document: ${doc.file_name} (${doc.document_type})]\n${truncated}\n`;
+    }
+
+    const fullAttachmentContext = [attachmentContext, caseDocContext]
+      .filter(Boolean)
+      .join("\n\n");
+
     // 7. Call AI for fact extraction
     const extractedFacts = await extractFactsWithAI(
       threadContext,
-      attachmentContext,
+      fullAttachmentContext,
       emails,
       attachments || [],
       lovableApiKey
