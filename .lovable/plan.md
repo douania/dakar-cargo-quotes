@@ -1,76 +1,56 @@
 
 
-# Correction de l'erreur 400 "No emails or documents found"
+# Ajouter le bouton "Lancer le pricing" dans CaseView
 
-## Bug reel
+## Constat
 
-La garde (ligne 877) utilise la variable `caseDocuments` qui est filtree par `extracted_text IS NOT NULL` (ligne 868). Les 6 documents du dossier 31efcc01 ont tous `extracted_text = null` car uploades avant le correctif. Donc `caseDocuments` est vide, et la garde retourne 400.
+Le composant `PricingLaunchPanel` existe deja dans `src/components/puzzle/PricingLaunchPanel.tsx` et appelle correctement `run-pricing`. Mais il n'est jamais importe ni rendu dans `CaseView.tsx`.
 
-## Correction en 2 parties
+Le panneau d'action actuel (ligne 714) ne s'affiche que pour les statuts `INTAKE`, `FACTS_PARTIAL`, `NEED_INFO`. Quand le dossier passe a `READY_TO_PRICE`, l'operateur ne voit aucune action possible.
 
-### Partie 1 — Corriger la garde dans build-case-puzzle
+## Correction
 
-Separer la requete de la garde de celle du contexte IA :
+**Fichier** : `src/pages/CaseView.tsx`
 
-**Fichier : `supabase/functions/build-case-puzzle/index.ts`**
+### 1. Import du composant
 
-Avant la garde (ligne 863), ajouter une requete qui compte TOUS les case_documents (sans filtre sur extracted_text) :
-
-```text
-// Count ALL case_documents (for guard check)
-const { count: totalCaseDocsCount } = await serviceClient
-  .from("case_documents")
-  .select("id", { count: "exact", head: true })
-  .eq("case_id", case_id);
-```
-
-Modifier la garde ligne 877 :
+Ajouter en haut du fichier :
 
 ```text
-// Avant (bug) : utilise caseDocuments (filtre extracted_text IS NOT NULL)
-if (!caseData.thread_id && (!caseDocuments || caseDocuments.length === 0)) {
-
-// Apres (fix) : utilise totalCaseDocsCount (tous les documents)
-if (!caseData.thread_id && (!totalCaseDocsCount || totalCaseDocsCount === 0)) {
+import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
 ```
 
-Cela permet a l'analyse de continuer meme si les documents n'ont pas encore de texte extrait. L'IA travaillera avec ce qui est disponible (les facts existants en base seront pris en compte grace au fix precedent).
+### 2. Affichage conditionnel
 
-### Partie 2 — Backfill des documents existants
+Apres le panneau d'action existant (ligne 736), ajouter un bloc conditionnel :
 
-Creer une edge function `backfill-case-documents` qui :
-1. Lit tous les `case_documents` ou `extracted_text IS NULL`
-2. Pour chaque document, telecharge le fichier depuis le storage
-3. Appelle `parse-document` en interne (via fetch)
-4. Stocke le resultat dans `case_documents.extracted_text`
+```text
+{caseData.status === 'READY_TO_PRICE' && (
+  <div className="mb-6">
+    <PricingLaunchPanel caseId={caseId!} />
+  </div>
+)}
+```
 
-**Fichier : `supabase/functions/backfill-case-documents/index.ts`**
+### 3. Rafraichissement apres pricing
 
-La fonction :
-- Accepte un `case_id` optionnel (si omis, traite tous les documents sans texte)
-- Pour chaque document sans `extracted_text` :
-  - Telecharge depuis le bucket `case-documents`
-  - Envoie a `parse-document` avec le `case_document_id`
-  - Le texte sera stocke automatiquement par `parse-document` (deja implemente)
-- Retourne un rapport : nombre de documents traites / erreurs
+Le `PricingLaunchPanel` actuel affiche un toast de succes mais ne declenche pas de refresh des donnees. Pour que le statut se mette a jour automatiquement apres le pricing, ajouter un callback `onComplete` au composant :
+
+- Modifier `PricingLaunchPanel` pour accepter un prop optionnel `onComplete?: () => void`
+- Appeler `onComplete()` apres le toast de succes
+- Dans CaseView, passer `handleRefresh` comme callback
 
 ## Fichiers modifies
 
 | Fichier | Modification |
 |---------|-------------|
-| `supabase/functions/build-case-puzzle/index.ts` | Ajout requete count, modification garde |
-| `supabase/functions/backfill-case-documents/index.ts` | Nouveau fichier — backfill one-shot |
+| `src/pages/CaseView.tsx` | Import + rendu conditionnel de PricingLaunchPanel |
+| `src/components/puzzle/PricingLaunchPanel.tsx` | Ajout prop optionnel `onComplete` |
 
-## Sequence d'execution
+## Resultat attendu
 
-1. Deployer le fix de la garde (Partie 1)
-2. Deployer la fonction de backfill (Partie 2)
-3. Appeler backfill avec `case_id = 31efcc01-...`
-4. Verifier que `extracted_text` est rempli pour les 6 documents
-5. Relancer `build-case-puzzle` — l'IA aura le contenu reel des documents
-6. `cargo.description` sera extrait, le gap sera resolu
-
-## Risque
-
-Faible. La Partie 1 est une modification minimale de la garde. La Partie 2 est un script one-shot qui reutilise `parse-document` deja en place.
+1. Statut `READY_TO_PRICE` → le bouton "Lancer le pricing" apparait
+2. Click → confirmation → appel `run-pricing`
+3. Succes → refresh automatique → statut passe a `PRICED_DRAFT`
+4. Le bouton disparait (statut n'est plus `READY_TO_PRICE`)
 
