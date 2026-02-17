@@ -1,60 +1,154 @@
 
 
-# Correction du gap `cargo.description` qui ne se resout jamais
+# Correctif : build-case-puzzle ignore les documents Intake
 
-## Probleme
+## Bug reel
 
-Le moteur `build-case-puzzle` (ligne 1235) verifie uniquement les facts extraits par l'IA **durant le run courant** (`extractedKeys`) pour determiner si un gap doit etre resolu. Les facts deja presents en base (injectes manuellement via `set-case-fact` ou lors de runs precedents) ne sont **pas consultes**.
+`build-case-puzzle` ne lit que `emails` + `email_attachments`. Les dossiers crees via Intake ont `thread_id = NULL`, donc l'IA recoit zero texte, et tous les gaps restent ouverts.
 
-Consequence : meme apres injection de `cargo.description` via `set-case-fact`, le gap reste ouvert car l'IA ne re-extrait pas cette cle depuis les emails.
+## Solution : Option A stricte
 
-## Solution
+Pas de telechargement PDF dans build-case-puzzle.
+Pas d'appel storage.
+Pas d'Option B.
 
-Enrichir la verification a la ligne 1235 pour consulter egalement les facts existants en base (`is_current = true`).
+Le texte est extrait une seule fois a l'upload, stocke en base, et lu directement par build-case-puzzle.
 
-## Modification
+## 3 etapes chirurgicales
 
-### Fichier unique : `supabase/functions/build-case-puzzle/index.ts`
+### Etape 1 — Migration SQL
 
-**Avant la boucle `for (const requiredKey of mandatoryFacts)` (vers ligne 1234) :**
+Ajouter la colonne `extracted_text` a `case_documents` :
 
-Ajouter une requete pour charger toutes les `fact_key` existantes en base pour ce dossier :
+```sql
+ALTER TABLE case_documents ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+```
+
+### Etape 2 — Remplir extracted_text a l'upload
+
+Modifier `CaseDocumentsTab.tsx` : apres l'insert DB (ligne 98), appeler `parse-document` puis stocker le texte extrait.
 
 ```text
-const { data: existingDbFacts } = await serviceClient
-  .from("quote_facts")
-  .select("fact_key")
+// Apres l'insert DB reussi (ligne 98)
+// Appeler parse-document pour extraire le texte
+const formData = new FormData();
+formData.append('file', file);
+
+const { data: { session } } = await supabase.auth.getSession();
+const parseResponse = await fetch(
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
+  {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session?.access_token}` },
+    body: formData,
+  }
+);
+
+if (parseResponse.ok) {
+  const parseResult = await parseResponse.json();
+  const extractedText = parseResult.document?.text_preview
+    ? parseResult.document.text_preview
+    : null;
+
+  // Probleme : text_preview est tronque a 500 chars.
+  // Il faut utiliser content_text complet depuis la table documents.
+  if (parseResult.document?.id) {
+    // Lire le content_text complet depuis documents (via edge function ou RPC)
+    // Pour l'instant, stocker ce qui est disponible
+    await supabase
+      .from("case_documents")
+      .update({ extracted_text: extractedText })
+      .eq("id", docId);
+  }
+}
+```
+
+**Point d'attention** : `parse-document` stocke le texte complet dans la table `documents.content_text` (jusqu'a 2M chars). Il faut recuperer ce texte complet et le copier dans `case_documents.extracted_text`. Deux approches :
+
+- **Approche simple** : lire `documents.content_text` via une requete service-role dans une edge function dediee (la table `documents` a RLS `deny all` cote client).
+- **Approche retenue** : modifier `parse-document` pour qu'il accepte un parametre optionnel `case_document_id` et remplisse directement `case_documents.extracted_text` apres extraction.
+
+Modification dans `parse-document/index.ts` (apres l'insert dans `documents`, vers ligne 218) :
+
+```text
+// Si un case_document_id est fourni, copier le texte extrait
+const caseDocumentId = formData.get('case_document_id') as string | null;
+if (caseDocumentId && extractedText) {
+  await supabase
+    .from("case_documents")
+    .update({ extracted_text: extractedText.substring(0, 200000) })
+    .eq("id", caseDocumentId);
+}
+```
+
+Puis dans `CaseDocumentsTab.tsx`, passer `case_document_id` dans le FormData :
+
+```text
+formData.append('case_document_id', docId);
+```
+
+### Etape 3 — build-case-puzzle lit extracted_text
+
+Modifier `supabase/functions/build-case-puzzle/index.ts` (apres la section attachments, vers ligne 885) :
+
+```text
+// Load case_documents with pre-extracted text (Intake flow)
+const { data: caseDocuments } = await serviceClient
+  .from("case_documents")
+  .select("file_name, document_type, extracted_text")
   .eq("case_id", case_id)
-  .eq("is_current", true);
+  .not("extracted_text", "is", null);
 
-const existingDbKeys = (existingDbFacts || []).map(f => f.fact_key);
+let caseDocContext = "";
+for (const doc of caseDocuments || []) {
+  const truncated = (doc.extracted_text || "").slice(0, 3000);
+  caseDocContext += `\n[Document: ${doc.file_name} (${doc.document_type})]\n${truncated}\n`;
+}
+
+// Combine with email attachments
+const fullAttachmentContext = [attachmentContext, caseDocContext]
+  .filter(Boolean)
+  .join("\n\n");
 ```
 
-**Ligne 1235 — modifier la condition `hasFact` :**
+Passer `fullAttachmentContext` au lieu de `attachmentContext` dans `extractFactsWithAI`.
+
+Modifier aussi la garde ligne 863 pour ne plus bloquer si des case_documents existent :
 
 ```text
-// Avant (bug)
-const hasFact = extractedKeys.includes(requiredKey);
-
-// Apres (correctif)
-const hasFact = extractedKeys.includes(requiredKey) || existingDbKeys.includes(requiredKey);
+if (caseData.thread_id && emails.length === 0) {
+  // Garde existante inchangee — ne concerne que les dossiers email
+}
+// Ajouter : si pas de thread_id ET pas de case_documents → erreur
+if (!caseData.thread_id && (!caseDocuments || caseDocuments.length === 0)) {
+  return new Response(
+    JSON.stringify({ error: "No emails or documents found for this case" }),
+    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
 ```
 
-## Impact
+## Fichiers modifies
 
-| Element | Impact |
-|---------|--------|
-| Fichier modifie | `supabase/functions/build-case-puzzle/index.ts` |
-| Lignes modifiees | ~5 lignes ajoutees, 1 ligne modifiee |
-| Backend | La fonction sera redeployee automatiquement |
-| Frontend | Aucun changement |
-| Migration SQL | Aucune |
-| Risque | Tres faible — lecture seule supplementaire |
+| Fichier | Modification |
+|---------|-------------|
+| Migration SQL | `ALTER TABLE case_documents ADD COLUMN extracted_text TEXT` |
+| `supabase/functions/parse-document/index.ts` | Accepter `case_document_id`, ecrire `extracted_text` |
+| `src/components/case/CaseDocumentsTab.tsx` | Passer `case_document_id` dans le FormData |
+| `supabase/functions/build-case-puzzle/index.ts` | Lire `case_documents.extracted_text`, injecter dans le contexte IA |
+
+## Pour les documents deja uploades
+
+Les 6 documents existants du dossier 31efcc01 n'ont pas encore de `extracted_text`. Apres le deploiement, il faudra :
+1. Re-uploader les documents, ou
+2. Lancer un script one-shot qui appelle `parse-document` pour chaque `case_document` existant sans `extracted_text`
 
 ## Resultat attendu
 
-1. Injecter `cargo.description` via `set-case-fact`
-2. Relancer `build-case-puzzle`
-3. Le gap `cargo.description` passe de `open` a `resolved`
-4. Le statut du dossier passe de `NEED_INFO` a `READY_TO_PRICE`
+1. Upload d'un document → `parse-document` → `extracted_text` stocke dans `case_documents`
+2. `build-case-puzzle` lit `extracted_text` directement (zero appel storage)
+3. L'IA recoit le vrai contenu des documents
+4. `cargo.description` est extrait automatiquement
+5. Le gap passe de `open` a `resolved`
+6. Le statut passe a `READY_TO_PRICE`
 
