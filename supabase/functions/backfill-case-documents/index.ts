@@ -1,7 +1,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireAdmin } from "../_shared/auth.ts";
+
+try {
+  (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
+    "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
+} catch (_) { /* ignore */ }
+
+const sanitizeText = (text: string): string =>
+  text
+    .replace(/\u0000/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+    .replace(/\\u0000/g, "")
+    .trim();
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -9,7 +22,6 @@ serve(async (req) => {
   }
 
   try {
-    // Admin-only operation
     const auth = await requireAdmin(req);
     if (auth instanceof Response) return auth;
 
@@ -19,76 +31,132 @@ serve(async (req) => {
 
     const { case_id } = await req.json().catch(() => ({ case_id: null }));
 
-    // Find case_documents without extracted_text
+    // Find ONE document without extracted_text
     let query = supabase
       .from("case_documents")
       .select("id, case_id, file_name, storage_path, mime_type")
-      .is("extracted_text", null);
+      .is("extracted_text", null)
+      .limit(1);
 
-    if (case_id) {
-      query = query.eq("case_id", case_id);
-    }
+    if (case_id) query = query.eq("case_id", case_id);
 
-    const { data: docs, error: fetchError } = await query.limit(50);
+    const { data: docs, error: fetchError } = await query;
     if (fetchError) throw fetchError;
 
     if (!docs || docs.length === 0) {
+      let cq = supabase.from("case_documents").select("id", { count: "exact", head: true });
+      if (case_id) cq = cq.eq("case_id", case_id);
+      const { count } = await cq;
       return new Response(
-        JSON.stringify({ message: "No documents to backfill", processed: 0 }),
+        JSON.stringify({ message: "All documents already have extracted_text", total_documents: count, remaining: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Backfill: ${docs.length} documents to process`);
+    const doc = docs[0];
+    console.log(`Backfill: processing ${doc.file_name} (${doc.id})`);
 
-    const results: { id: string; file_name: string; status: string; error?: string }[] = [];
+    // Download file from storage
+    const { data: fileData, error: dlError } = await supabase.storage
+      .from("case-documents")
+      .download(doc.storage_path);
 
-    for (const doc of docs) {
-      try {
-        // Download file from storage
-        const { data: fileData, error: dlError } = await supabase.storage
-          .from("case-documents")
-          .download(doc.storage_path);
-
-        if (dlError || !fileData) {
-          results.push({ id: doc.id, file_name: doc.file_name, status: "error", error: `Download failed: ${dlError?.message}` });
-          continue;
-        }
-
-        // Build FormData for parse-document
-        const formData = new FormData();
-        const file = new File([fileData], doc.file_name, { type: doc.mime_type || "application/octet-stream" });
-        formData.append("file", file);
-        formData.append("case_document_id", doc.id);
-
-        // Call parse-document internally
-        const parseResponse = await fetch(`${supabaseUrl}/functions/v1/parse-document`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${auth.token}`,
-          },
-          body: formData,
-        });
-
-        if (!parseResponse.ok) {
-          const errText = await parseResponse.text();
-          results.push({ id: doc.id, file_name: doc.file_name, status: "error", error: `parse-document ${parseResponse.status}: ${errText.slice(0, 200)}` });
-          continue;
-        }
-
-        results.push({ id: doc.id, file_name: doc.file_name, status: "ok" });
-        console.log(`Backfill OK: ${doc.file_name}`);
-      } catch (docErr) {
-        const msg = docErr instanceof Error ? docErr.message : String(docErr);
-        results.push({ id: doc.id, file_name: doc.file_name, status: "error", error: msg });
-      }
+    if (dlError || !fileData) {
+      throw new Error(`Download failed for ${doc.file_name}: ${dlError?.message}`);
     }
 
-    const okCount = results.filter((r) => r.status === "ok").length;
-    const errCount = results.filter((r) => r.status === "error").length;
+    const arrayBuffer = await fileData.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const ext = doc.file_name.split(".").pop()?.toLowerCase();
+    let extractedText = "";
+
+    if (ext === "pdf") {
+      // Try pdfjs first
+      try {
+        const loadingTask = pdfjsLib.getDocument({ data: uint8Array, disableWorker: true } as any);
+        const pdf = await loadingTask.promise;
+        const pages: string[] = [];
+        for (let p = 1; p <= pdf.numPages; p++) {
+          const page = await pdf.getPage(p);
+          const tc = await page.getTextContent();
+          pages.push(
+            (tc.items as any[]).map((it) => it?.str ?? "").filter((s: string) => s.trim().length > 0).join(" ")
+          );
+        }
+        extractedText = sanitizeText(pages.join("\n\n"));
+        console.log(`pdfjs OK: ${extractedText.length} chars, ${pdf.numPages} pages`);
+      } catch (pdfjsErr) {
+        console.warn("pdfjs failed, trying AI fallback:", pdfjsErr);
+      }
+
+      // If pdfjs gave too little text, try AI
+      if (extractedText.length < 50) {
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (LOVABLE_API_KEY) {
+          const chunkSize = 8192;
+          let binary = "";
+          for (let i = 0; i < uint8Array.length; i += chunkSize) {
+            binary += String.fromCharCode(...uint8Array.subarray(i, i + chunkSize));
+          }
+          const base64Pdf = btoa(binary);
+
+          const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: "Extrais TOUT le texte de ce document PDF. Conserve la structure. Ne résume pas." },
+                  { type: "file", file: { filename: doc.file_name, file_data: `data:application/pdf;base64,${base64Pdf}` } },
+                ],
+              }],
+              max_tokens: 8192,
+            }),
+          });
+
+          if (aiResp.ok) {
+            const aiData = await aiResp.json();
+            const content = aiData.choices?.[0]?.message?.content;
+            extractedText = sanitizeText(typeof content === "string" ? content : JSON.stringify(content ?? ""));
+            console.log(`AI extraction OK: ${extractedText.length} chars`);
+          } else {
+            console.error("AI extraction failed:", aiResp.status);
+            extractedText = "[Extraction échouée]";
+          }
+        } else {
+          extractedText = "[PDF - extraction indisponible]";
+        }
+      }
+    } else {
+      // Non-PDF: just decode as text
+      extractedText = sanitizeText(new TextDecoder().decode(uint8Array));
+    }
+
+    // Update case_documents.extracted_text directly
+    const { error: updateError } = await supabase
+      .from("case_documents")
+      .update({ extracted_text: extractedText.substring(0, 200000) })
+      .eq("id", doc.id);
+
+    if (updateError) throw new Error(`Update failed: ${updateError.message}`);
+
+    // Count remaining
+    let rq = supabase.from("case_documents").select("id", { count: "exact", head: true }).is("extracted_text", null);
+    if (case_id) rq = rq.eq("case_id", case_id);
+    const { count: remaining } = await rq;
+
+    console.log(`Backfill OK: ${doc.file_name}, text_length=${extractedText.length}, remaining=${remaining}`);
 
     return new Response(
-      JSON.stringify({ processed: docs.length, ok: okCount, errors: errCount, results }),
+      JSON.stringify({
+        status: "ok",
+        processed_file: doc.file_name,
+        processed_id: doc.id,
+        text_length: extractedText.length,
+        remaining: remaining ?? 0,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
