@@ -139,6 +139,7 @@ export type Database = {
           case_id: string
           created_at: string | null
           document_type: string
+          extracted_text: string | null
           file_name: string
           file_size: number | null
           id: string
@@ -150,6 +151,7 @@ export type Database = {
           case_id: string
           created_at?: string | null
           document_type: string
+          extracted_text?: string | null
           file_name: string
           file_size?: number | null
           id?: string
@@ -161,6 +163,7 @@ export type Database = {
           case_id?: string
           created_at?: string | null
           document_type?: string
+          extracted_text?: string | null
           file_name?: string
           file_size?: number | null
           id?: string
