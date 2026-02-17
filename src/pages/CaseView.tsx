@@ -33,7 +33,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TASK_STATUS_COLORS, SERVICE_PACKAGES } from "@/features/quotation/constants";
+
+// ── Fact keys rendered as Select dropdown instead of Input ──
+const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  "service.package": Object.keys(SERVICE_PACKAGES).map((pkg) => ({
+    value: pkg,
+    label: pkg.replace(/_/g, " "),
+  })),
+};
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 
@@ -50,6 +59,7 @@ const EDITABLE_FACT_KEYS = new Set([
   "routing.incoterm",
   "routing.destination_city",
   "service.mode",
+  "service.package",
 ]);
 
 const NUMERIC_FACT_KEYS = new Set([
@@ -563,16 +573,31 @@ export default function CaseView() {
                                 </TableCell>
                                 <TableCell>
                                   {isEditing ? (
-                                    <Input
-                                      value={editValue}
-                                      onChange={(e) => setEditValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") handleSaveFact(fact);
-                                        if (e.key === "Escape") cancelEdit();
-                                      }}
-                                      className="h-8"
-                                      autoFocus
-                                    />
+                                    SELECT_FACT_OPTIONS[fact.fact_key] ? (
+                                      <Select value={editValue} onValueChange={setEditValue}>
+                                        <SelectTrigger className="h-8">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {SELECT_FACT_OPTIONS[fact.fact_key].map((opt) => (
+                                            <SelectItem key={opt.value} value={opt.value}>
+                                              {opt.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <Input
+                                        value={editValue}
+                                        onChange={(e) => setEditValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleSaveFact(fact);
+                                          if (e.key === "Escape") cancelEdit();
+                                        }}
+                                        className="h-8"
+                                        autoFocus
+                                      />
+                                    )
                                   ) : (
                                     <div className="flex items-center gap-2">
                                       <span>{displayValue}</span>

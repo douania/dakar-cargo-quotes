@@ -23,6 +23,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "routing.incoterm",
   "routing.destination_city",
   "service.mode",
+  "service.package",
 ]);
 
 // ── Category detection from prefix ──
