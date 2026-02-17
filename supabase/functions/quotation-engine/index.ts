@@ -2005,11 +2005,11 @@ async function generateQuotationLines(
   // =====================================================
   // Duty breakdown array — note de détail par article
   const dutyBreakdown: any[] = [];
+  let cargoValueFCFA: number = 0;
 
   if (!isTransit) {
     // Conversion devise sécurisée (EUR uniquement — parité fixe BCEAO)
     const rawCurrency = (request.cargoCurrency || 'XOF').toUpperCase();
-    let cargoValueFCFA: number;
 
     if (rawCurrency === 'XOF' || rawCurrency === 'FCFA' || rawCurrency === 'CFA') {
       cargoValueFCFA = request.cargoValue;
