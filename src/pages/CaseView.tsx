@@ -99,6 +99,24 @@ const STATUS_LABELS: Record<string, string> = {
   ARCHIVED: "Archivé",
 };
 
+// ── Contextual service filtering ──
+function isServiceRelevant(service: string, mode: string): boolean {
+  if (mode.startsWith("SEA")) {
+    if (service.startsWith("AIR_")) return false;
+    if (service === "CUSTOMS_BAMAKO") return false;
+    if (service === "BORDER_FEES") return false;
+  }
+  if (mode.startsWith("AIR")) {
+    if (service.startsWith("PORT_")) return false;
+    if (service === "DTHC") return false;
+    if (service === "EMPTY_RETURN") return false;
+    if (service === "DISCHARGE") return false;
+  }
+  return true;
+}
+
+const EXCLUSIVE_GROUPS = [["TRUCKING", "ON_CARRIAGE"]];
+
 // ── Service Override Panel ──
 function ServiceOverridePanel({
   facts,
@@ -150,12 +168,32 @@ function ServiceOverridePanel({
     setAddedServices(new Set(existingOverrides.add));
   }, [packageKey, existingOverrides]);
 
+  // Read service.mode for contextual filtering
+  const modeFact = facts.find(
+    (f: any) => f.fact_key === "service.mode" && f.is_current
+  );
+  const serviceMode = modeFact?.value_text || "";
+
   if (!packageServices || !packageKey) return null;
 
   const ALL_SERVICE_KEYS = new Set(serviceTemplates.map((t) => t.service));
-  const extraServices = serviceTemplates.filter(
-    (t) => !packageServices.includes(t.service)
+
+  // Exclusive groups: if one member is in the package, hide the others
+  const excludedByExclusive = new Set(
+    EXCLUSIVE_GROUPS.flatMap((group) => {
+      const inPackage = group.filter((k) => packageServices.includes(k));
+      return inPackage.length > 0
+        ? group.filter((k) => !packageServices.includes(k))
+        : [];
+    })
   );
+
+  const extraServices = serviceTemplates.filter((t) => {
+    if (packageServices.includes(t.service)) return false;
+    if (!isServiceRelevant(t.service, serviceMode)) return false;
+    if (excludedByExclusive.has(t.service)) return false;
+    return true;
+  });
   const frequentExtra = extraServices.slice(0, 4);
   const restExtra = extraServices.slice(4);
 
