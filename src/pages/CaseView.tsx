@@ -49,6 +49,7 @@ const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
+import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
 
 // ── Editable fact keys (must match set-case-fact whitelist) ──
 const EDITABLE_FACT_KEYS = new Set([
@@ -740,6 +741,13 @@ export default function CaseView() {
         {caseData.status === 'READY_TO_PRICE' && (
           <div className="mb-6">
             <PricingLaunchPanel caseId={caseId!} onComplete={handleRefresh} />
+          </div>
+        )}
+
+        {/* Pricing Result Panel — visible after pricing */}
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+          <div className="mb-6">
+            <PricingResultPanel caseId={caseId!} isLocked={caseData.status === 'SENT'} />
           </div>
         )}
 
