@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,6 +29,7 @@ import {
   Pencil,
   Check,
   X,
+  Calculator,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,7 @@ const EDITABLE_FACT_KEYS = new Set([
   "cargo.container_type",
   "cargo.caf_value",
   "cargo.chargeable_weight_kg",
+  "cargo.weight_per_container_kg",
   "cargo.articles_detail",
   "client.code",
   "routing.incoterm",
@@ -55,6 +57,7 @@ const NUMERIC_FACT_KEYS = new Set([
   "cargo.container_count",
   "cargo.caf_value",
   "cargo.chargeable_weight_kg",
+  "cargo.weight_per_container_kg",
 ]);
 
 // ── Category labels for display ──
@@ -89,6 +92,8 @@ export default function CaseView() {
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const [isSavingFact, setIsSavingFact] = React.useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
+  const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -247,6 +252,74 @@ export default function CaseView() {
     return acc;
   }, {});
 
+  // ── Derived suggestions ──
+  interface DerivedSuggestion {
+    id: string;
+    label: string;
+    description: string;
+    suggestedValue: number;
+    unit: string;
+    fact_key: string;
+  }
+
+  const derivedSuggestions = useMemo<DerivedSuggestion[]>(() => {
+    const suggestions: DerivedSuggestion[] = [];
+    const weightFact = facts.find((f) => f.fact_key === "cargo.weight_kg" && f.is_current);
+    const countFact = facts.find((f) => f.fact_key === "cargo.container_count" && f.is_current);
+    const perContainerFact = facts.find(
+      (f) => f.fact_key === "cargo.weight_per_container_kg" && f.is_current
+    );
+
+    if (
+      weightFact?.value_number &&
+      countFact?.value_number &&
+      countFact.value_number > 1 &&
+      !perContainerFact
+    ) {
+      const avg = Math.round(weightFact.value_number / countFact.value_number);
+      if (Number.isFinite(avg) && avg > 0) {
+        suggestions.push({
+          id: "weight_per_container",
+          label: "Poids moyen par conteneur",
+          description: `${weightFact.value_number.toLocaleString()} kg ÷ ${countFact.value_number} conteneurs`,
+          suggestedValue: avg,
+          unit: "kg",
+          fact_key: "cargo.weight_per_container_kg",
+        });
+      }
+    }
+    return suggestions;
+  }, [facts]);
+
+  const visibleSuggestions = derivedSuggestions.filter(
+    (s) => !dismissedSuggestions.includes(s.id)
+  );
+
+  async function applySuggestion(suggestion: DerivedSuggestion) {
+    if (!caseId) {
+      toast.error("Dossier invalide");
+      return;
+    }
+    setIsApplyingSuggestion(true);
+    try {
+      const { error } = await supabase.functions.invoke("set-case-fact", {
+        body: {
+          case_id: caseId,
+          fact_key: suggestion.fact_key,
+          value_number: suggestion.suggestedValue,
+        },
+      });
+      if (error) throw error;
+      toast.success("Fait dérivé créé");
+      setDismissedSuggestions((prev) => [...prev, suggestion.id]);
+      handleRefresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setIsApplyingSuggestion(false);
+    }
+  }
+
   // ── Derive client name from facts ──
   const clientFact = facts.find(
     (f) => f.fact_key === "contacts.client_name" || f.fact_key === "client_name"
@@ -368,6 +441,59 @@ export default function CaseView() {
                 )}
                 Lancer l'analyse
               </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Derived Suggestions Panel */}
+        {visibleSuggestions.length > 0 && !isLocked && (
+          <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-amber-600" />
+                Suggestions intelligentes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              {visibleSuggestions.map((suggestion) => (
+                <div
+                  key={suggestion.id}
+                  className="flex items-center justify-between p-3 rounded-md bg-background border"
+                >
+                  <div>
+                    <p className="font-medium text-sm">{suggestion.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {suggestion.description} ={" "}
+                      <strong>
+                        {suggestion.suggestedValue.toLocaleString()} {suggestion.unit}
+                      </strong>
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => applySuggestion(suggestion)}
+                      disabled={isApplyingSuggestion}
+                    >
+                      {isApplyingSuggestion ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="mr-1 h-3 w-3" />
+                      )}
+                      Créer le fait dérivé
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setDismissedSuggestions((prev) => [...prev, suggestion.id])
+                      }
+                    >
+                      Ignorer
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}

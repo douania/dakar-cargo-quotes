@@ -16,6 +16,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.caf_value",
   "cargo.weight_kg",
   "cargo.chargeable_weight_kg",
+  "cargo.weight_per_container_kg",
   "cargo.articles_detail",
   "cargo.container_count",
   "cargo.container_type",
