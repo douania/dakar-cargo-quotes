@@ -26,11 +26,36 @@ import {
   Puzzle,
   RefreshCw,
   Play,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
+
+// ── Editable fact keys (must match set-case-fact whitelist) ──
+const EDITABLE_FACT_KEYS = new Set([
+  "cargo.weight_kg",
+  "cargo.container_count",
+  "cargo.container_type",
+  "cargo.caf_value",
+  "cargo.chargeable_weight_kg",
+  "cargo.articles_detail",
+  "client.code",
+  "routing.incoterm",
+  "routing.destination_city",
+  "service.mode",
+]);
+
+const NUMERIC_FACT_KEYS = new Set([
+  "cargo.weight_kg",
+  "cargo.container_count",
+  "cargo.caf_value",
+  "cargo.chargeable_weight_kg",
+]);
 
 // ── Category labels for display ──
 const CATEGORY_LABELS: Record<string, string> = {
@@ -61,6 +86,9 @@ const STATUS_LABELS: Record<string, string> = {
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
+  const [editValue, setEditValue] = React.useState("");
+  const [isSavingFact, setIsSavingFact] = React.useState(false);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -149,6 +177,65 @@ export default function CaseView() {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  const isLocked = caseData?.status === "PRICING_RUNNING";
+
+  function startEdit(fact: any) {
+    const currentValue =
+      fact.value_text ||
+      (fact.value_number != null ? String(fact.value_number) : "") ||
+      (fact.value_json ? JSON.stringify(fact.value_json) : "");
+    setEditingFactId(fact.id);
+    setEditValue(currentValue);
+  }
+
+  function cancelEdit() {
+    setEditingFactId(null);
+    setEditValue("");
+  }
+
+  async function handleSaveFact(fact: any) {
+    if (!caseId) {
+      toast.error("Dossier invalide");
+      return;
+    }
+    setIsSavingFact(true);
+    try {
+      const isNumeric = NUMERIC_FACT_KEYS.has(fact.fact_key);
+      const payload: Record<string, unknown> = {
+        case_id: caseId,
+        fact_key: fact.fact_key,
+      };
+
+      if (isNumeric) {
+        const num = Number(editValue);
+        if (!Number.isFinite(num) || num < 0) {
+          throw new Error("Valeur numérique invalide");
+        }
+        payload.value_number = num;
+        payload.value_text = null;
+      } else {
+        if (!editValue || !editValue.trim()) {
+          throw new Error("Valeur texte invalide");
+        }
+        payload.value_text = editValue.trim();
+        payload.value_number = null;
+      }
+
+      const { error } = await supabase.functions.invoke("set-case-fact", {
+        body: payload,
+      });
+      if (error) throw error;
+
+      toast.success("Fait mis à jour");
+      cancelEdit();
+      handleRefresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setIsSavingFact(false);
     }
   }
 
@@ -328,39 +415,105 @@ export default function CaseView() {
                             <TableHead className="w-1/3">Clé</TableHead>
                             <TableHead>Valeur</TableHead>
                             <TableHead className="w-24">Confiance</TableHead>
+                            <TableHead className="w-20">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {catFacts.map((fact) => (
-                            <TableRow key={fact.id}>
-                              <TableCell className="font-mono text-xs">
-                                {fact.fact_key}
-                              </TableCell>
-                              <TableCell>
-                                {fact.value_text ||
-                                  (fact.value_number != null ? String(fact.value_number) : null) ||
-                                  (fact.value_json ? JSON.stringify(fact.value_json) : "—")}
-                              </TableCell>
-                              <TableCell>
-                                {fact.confidence != null ? (
-                                  <Badge
-                                    variant="outline"
-                                    className={
-                                      fact.confidence >= 0.8
-                                        ? "border-green-500 text-green-700"
-                                        : fact.confidence >= 0.5
-                                        ? "border-yellow-500 text-yellow-700"
-                                        : "border-red-500 text-red-700"
-                                    }
-                                  >
-                                    {Math.round(fact.confidence * 100)}%
-                                  </Badge>
-                                ) : (
-                                  "—"
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {catFacts.map((fact) => {
+                            const isEditing = editingFactId === fact.id;
+                            const displayValue =
+                              fact.value_text ||
+                              (fact.value_number != null ? String(fact.value_number) : null) ||
+                              (fact.value_json ? JSON.stringify(fact.value_json) : "—");
+
+                            return (
+                              <TableRow key={fact.id}>
+                                <TableCell className="font-mono text-xs">
+                                  {fact.fact_key}
+                                </TableCell>
+                                <TableCell>
+                                  {isEditing ? (
+                                    <Input
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveFact(fact);
+                                        if (e.key === "Escape") cancelEdit();
+                                      }}
+                                      className="h-8"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span>{displayValue}</span>
+                                      {fact.source_type === "manual_input" && (
+                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                          Opérateur
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {fact.confidence != null ? (
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        fact.confidence >= 0.8
+                                          ? "border-green-500 text-green-700"
+                                          : fact.confidence >= 0.5
+                                          ? "border-yellow-500 text-yellow-700"
+                                          : "border-red-500 text-red-700"
+                                      }
+                                    >
+                                      {Math.round(fact.confidence * 100)}%
+                                    </Badge>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {isEditing ? (
+                                    <div className="flex gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => handleSaveFact(fact)}
+                                        disabled={isSavingFact}
+                                      >
+                                        {isSavingFact ? (
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <Check className="h-3 w-3" />
+                                        )}
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={cancelEdit}
+                                        disabled={isSavingFact}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    EDITABLE_FACT_KEYS.has(fact.fact_key) && !isLocked && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={() => startEdit(fact)}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    )
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </CardContent>
