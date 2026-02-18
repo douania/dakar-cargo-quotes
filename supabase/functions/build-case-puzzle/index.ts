@@ -333,6 +333,52 @@ const PORT_COUNTRY_MAP: Record<string, string> = {
   'HAMBURG': 'DE', 'ROTTERDAM': 'NL',
 };
 
+// --- HS Code Resolution: SH6 → 10 digits Sénégal (UEMOA) ---
+async function resolveSenegalHsCode(
+  serviceClient: any,
+  rawDigits: string
+): Promise<
+  | { status: "unique"; code10: string; description: string | null }
+  | { status: "ambiguous"; candidates: Array<{ code10: string; description: string | null }> }
+  | { status: "not_found" }
+> {
+  const digitsOnly = rawDigits.replace(/\D/g, "");
+  if (digitsOnly.length < 6) return { status: "not_found" };
+
+  // 1. Try exact 10-digit match
+  if (digitsOnly.length >= 10) {
+    const code10 = digitsOnly.substring(0, 10);
+    const { data } = await serviceClient
+      .from("hs_codes")
+      .select("code_normalized, description")
+      .eq("code_normalized", code10)
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      return { status: "unique", code10: data.code_normalized, description: data.description };
+    }
+    // Fall through to SH6 lookup
+  }
+
+  // 2. SH6 prefix lookup
+  const sh6 = digitsOnly.substring(0, 6);
+  const { data: rows } = await serviceClient
+    .from("hs_codes")
+    .select("code_normalized, description")
+    .like("code_normalized", `${sh6}%`)
+    .order("code_normalized")
+    .limit(20);
+
+  if (!rows || rows.length === 0) return { status: "not_found" };
+  if (rows.length === 1) {
+    return { status: "unique", code10: rows[0].code_normalized, description: rows[0].description };
+  }
+  return {
+    status: "ambiguous",
+    candidates: rows.map((r: any) => ({ code10: r.code_normalized, description: r.description })),
+  };
+}
+
 function resolveCountry(
   factMap: Map<string, { value: string; source: string }>,
   countryKey: string,
@@ -961,6 +1007,23 @@ Deno.serve(async (req) => {
 
     for (const fact of extractedFacts) {
       try {
+        // --- HS Code guard: validate against hs_codes table before injection ---
+        if (fact.key === "cargo.hs_code") {
+          const rawHs = String(fact.value);
+          const hsResult = await resolveSenegalHsCode(serviceClient, rawHs);
+          if (hsResult.status === "unique") {
+            // Replace with validated 10-digit code
+            fact.value = hsResult.code10;
+            fact.confidence = rawHs.replace(/\D/g, "").length >= 10 ? 1.0 : 0.98;
+            console.log(`[HS Guard] Resolved ${rawHs} → ${hsResult.code10}`);
+          } else {
+            // ambiguous or not_found → skip injection, will be handled post-attachment
+            console.warn(`[HS Guard] Skipping cargo.hs_code injection: ${hsResult.status} for raw=${rawHs}`);
+            factsSkipped++;
+            continue;
+          }
+        }
+
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
           .from("quote_facts")
@@ -1082,6 +1145,106 @@ Deno.serve(async (req) => {
     );
     factsAdded += attachmentFactsResult.added;
     factsUpdated += attachmentFactsResult.updated;
+
+    // --- HS Code post-attachment validation ---
+    // Re-check cargo.hs_code after attachment injection: validate/resolve to 10 digits
+    try {
+      const { data: hsFactRow } = await serviceClient
+        .from("quote_facts")
+        .select("id, value_text, source_type")
+        .eq("case_id", case_id)
+        .eq("fact_key", "cargo.hs_code")
+        .eq("is_current", true)
+        .maybeSingle();
+
+      if (hsFactRow) {
+        const rawHsValue = hsFactRow.value_text || "";
+        const digitsOnly = rawHsValue.replace(/\D/g, "");
+
+        // Only re-validate if not already a valid 10-digit code
+        if (digitsOnly.length !== 10 || !(await isExactHsMatch(serviceClient, digitsOnly))) {
+          const hsResult = await resolveSenegalHsCode(serviceClient, rawHsValue);
+
+          if (hsResult.status === "unique") {
+            // Supersede with validated 10-digit code
+            const confidence = digitsOnly.length >= 10 ? 1.0 : 0.98;
+            await serviceClient.rpc("supersede_fact", {
+              p_case_id: case_id,
+              p_fact_key: "cargo.hs_code",
+              p_fact_category: "cargo",
+              p_value_text: hsResult.code10,
+              p_value_number: null,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: "hs_resolution",
+              p_source_email_id: null,
+              p_source_attachment_id: null,
+              p_source_excerpt: `[HS Resolution] ${rawHsValue} → ${hsResult.code10} (${hsResult.description || "N/A"})`,
+              p_confidence: confidence,
+            });
+            factsUpdated++;
+            console.log(`[HS Post-Attach] Resolved ${rawHsValue} → ${hsResult.code10}`);
+
+            await serviceClient.from("case_timeline_events").insert({
+              case_id,
+              event_type: "hs_code_resolved",
+              event_data: { raw: rawHsValue, resolved: hsResult.code10, description: hsResult.description },
+              actor_type: "system",
+            });
+          } else {
+            // ambiguous or not_found → invalidate the fact + create GAP
+            // Deactivate the invalid fact
+            await serviceClient
+              .from("quote_facts")
+              .update({ is_current: false, updated_at: new Date().toISOString() })
+              .eq("id", hsFactRow.id);
+            factsUpdated++;
+
+            console.warn(`[HS Post-Attach] Invalidated cargo.hs_code=${rawHsValue} (${hsResult.status})`);
+
+            // Create blocking GAP for cargo.hs_code
+            const { data: existingHsGap } = await serviceClient
+              .from("quote_gaps")
+              .select("id")
+              .eq("case_id", case_id)
+              .eq("gap_key", "cargo.hs_code")
+              .eq("status", "open")
+              .maybeSingle();
+
+            if (!existingHsGap) {
+              const candidatesHint = hsResult.status === "ambiguous"
+                ? ` Candidats possibles: ${hsResult.candidates.slice(0, 5).map((c: any) => c.code10).join(", ")}`
+                : "";
+
+              await serviceClient.from("quote_gaps").insert({
+                case_id,
+                gap_key: "cargo.hs_code",
+                gap_category: "cargo",
+                question_fr: `Le code HS "${rawHsValue}" n'a pas pu être validé dans la nomenclature UEMOA (${hsResult.status}).${candidatesHint} Veuillez préciser le code HS 10 chiffres exact.`,
+                question_en: `HS code "${rawHsValue}" could not be validated in UEMOA nomenclature (${hsResult.status}).${candidatesHint} Please provide the exact 10-digit HS code.`,
+                priority: "high",
+                is_blocking: true,
+              });
+              gapsIdentified++;
+
+              await serviceClient.from("case_timeline_events").insert({
+                case_id,
+                event_type: "gap_identified",
+                event_data: {
+                  gap_key: "cargo.hs_code",
+                  reason: `HS resolution failed: ${hsResult.status}`,
+                  raw_value: rawHsValue,
+                  candidates_count: hsResult.status === "ambiguous" ? hsResult.candidates.length : 0,
+                },
+                actor_type: "system",
+              });
+            }
+          }
+        }
+      }
+    } catch (hsErr) {
+      console.error("[HS Post-Attach] Unexpected error:", hsErr);
+    }
 
     // --- M3.5.1: Apply hypothesis engine (after M3.4, before gap detection) ---
     // A1: Pass requestType so AIR_IMPORT assumptions can be applied
@@ -1899,4 +2062,15 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
 function getFactValue(fact: ExtractedFact): string | number | object {
   return fact.value;
+}
+
+// Helper: check if a 10-digit code exists exactly in hs_codes
+async function isExactHsMatch(serviceClient: any, code10: string): Promise<boolean> {
+  const { data } = await serviceClient
+    .from("hs_codes")
+    .select("code_normalized")
+    .eq("code_normalized", code10)
+    .limit(1)
+    .maybeSingle();
+  return !!data;
 }
