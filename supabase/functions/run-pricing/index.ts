@@ -142,6 +142,27 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 4b. HS Code strict guard: require valid 10-digit code for pricing
+    const { data: hsCodeFact } = await serviceClient
+      .from("quote_facts")
+      .select("value_text")
+      .eq("case_id", case_id)
+      .eq("fact_key", "cargo.hs_code")
+      .eq("is_current", true)
+      .maybeSingle();
+
+    const hsDigits = (hsCodeFact?.value_text || "").replace(/\D/g, "");
+    if (!hsDigits || hsDigits.length !== 10) {
+      return new Response(
+        JSON.stringify({
+          error: "Valid 10-digit HS code required for pricing",
+          current_hs_code: hsCodeFact?.value_text || null,
+          hint: "Inject a validated cargo.hs_code (10 digits UEMOA) via set-case-fact or resolve the HS gap"
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 5. Transition to PRICING_RUNNING (skip for finalized cases)
     if (!isFinalized) {
       await serviceClient
