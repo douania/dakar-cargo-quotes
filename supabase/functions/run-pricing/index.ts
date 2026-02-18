@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4b. HS Code strict guard: require valid 10-digit code for pricing
+    // 4b. HS Code strict guard: require valid 10-digit code verified in hs_codes
     const { data: hsCodeFact } = await serviceClient
       .from("quote_facts")
       .select("value_text")
@@ -152,14 +152,59 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const hsDigits = (hsCodeFact?.value_text || "").replace(/\D/g, "");
+    let hsBlocker: string | null = null;
+
     if (!hsDigits || hsDigits.length !== 10) {
+      hsBlocker = "HS_CODE_REQUIRED";
+    } else {
+      // Verify the 10-digit code actually exists in hs_codes table
+      const { data: hsRow } = await serviceClient
+        .from("hs_codes")
+        .select("code_normalized")
+        .eq("code_normalized", hsDigits)
+        .limit(1)
+        .maybeSingle();
+      if (!hsRow) {
+        hsBlocker = "HS_CODE_UNKNOWN";
+      }
+    }
+
+    if (hsBlocker) {
+      // Soft blocker: create a pricing_run with blocker instead of HTTP 400
+      const { data: blockerRunNumber } = await serviceClient
+        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+      const blockerOutputs = {
+        pricing_blockers: [hsBlocker],
+        message: hsBlocker === "HS_CODE_REQUIRED"
+          ? "Code HS 10 chiffres UEMOA requis pour tarifer. Injectez cargo.hs_code via set-case-fact."
+          : `Code HS "${hsCodeFact?.value_text}" (${hsDigits}) introuvable dans la nomenclature UEMOA.`,
+        current_hs_code: hsCodeFact?.value_text || null,
+      };
+
+      await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: blockerRunNumber || 1,
+          inputs_json: { hsCode: hsCodeFact?.value_text || null },
+          facts_snapshot: [],
+          status: "blocked",
+          error_message: blockerOutputs.message,
+          outputs_json: blockerOutputs,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
       return new Response(
         JSON.stringify({
-          error: "Valid 10-digit HS code required for pricing",
-          current_hs_code: hsCodeFact?.value_text || null,
-          hint: "Inject a validated cargo.hs_code (10 digits UEMOA) via set-case-fact or resolve the HS gap"
+          pricing_blockers: blockerOutputs.pricing_blockers,
+          message: blockerOutputs.message,
+          run_number: blockerRunNumber || 1,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

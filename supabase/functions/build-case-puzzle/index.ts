@@ -1182,15 +1182,7 @@ Deno.serve(async (req) => {
               p_source_excerpt: `[HS Resolution] ${rawHsValue} → ${hsResult.code10} (${hsResult.description || "N/A"})`,
               p_confidence: confidence,
             });
-            factsUpdated++;
             console.log(`[HS Post-Attach] Resolved ${rawHsValue} → ${hsResult.code10}`);
-
-            await serviceClient.from("case_timeline_events").insert({
-              case_id,
-              event_type: "hs_code_resolved",
-              event_data: { raw: rawHsValue, resolved: hsResult.code10, description: hsResult.description },
-              actor_type: "system",
-            });
           } else {
             // ambiguous or not_found → invalidate the fact + create GAP
             // Deactivate the invalid fact
@@ -1211,7 +1203,7 @@ Deno.serve(async (req) => {
               .eq("status", "open")
               .maybeSingle();
 
-            if (!existingHsGap) {
+            if (!existingHsGap?.id) {
               const candidatesHint = hsResult.status === "ambiguous"
                 ? ` Candidats possibles: ${hsResult.candidates.slice(0, 5).map((c: any) => c.code10).join(", ")}`
                 : "";
@@ -1226,18 +1218,7 @@ Deno.serve(async (req) => {
                 is_blocking: true,
               });
               gapsIdentified++;
-
-              await serviceClient.from("case_timeline_events").insert({
-                case_id,
-                event_type: "gap_identified",
-                event_data: {
-                  gap_key: "cargo.hs_code",
-                  reason: `HS resolution failed: ${hsResult.status}`,
-                  raw_value: rawHsValue,
-                  candidates_count: hsResult.status === "ambiguous" ? hsResult.candidates.length : 0,
-                },
-                actor_type: "system",
-              });
+              console.log(`[HS Post-Attach] Created blocking GAP for cargo.hs_code (${hsResult.status})`);
             }
           }
         }
