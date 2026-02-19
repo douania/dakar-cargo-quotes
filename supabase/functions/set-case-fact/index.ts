@@ -28,6 +28,8 @@ const ALLOWED_FACT_KEYS = new Set([
   "service.mode",
   "service.package",
   "service.overrides",
+  "customs.regime_code",
+  "regulatory.exemption_title",
 ]);
 
 // ── Category detection from prefix ──
@@ -39,6 +41,8 @@ function detectCategory(factKey: string): string {
     case "routing": return "routing";
     case "timing": return "timing";
     case "service": return "service";
+    case "customs": return "customs";
+    case "regulatory": return "regulatory";
     default: return "other";
   }
 }

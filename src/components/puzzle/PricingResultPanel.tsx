@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info } from 'lucide-react';
 import { DutyBreakdownTable } from './DutyBreakdownTable';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -106,6 +106,30 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Regime Blocker Alert */}
+        {(() => {
+          const outputs = pricingRun.outputs_json as any;
+          const blockers = Array.isArray(outputs?.pricing_blockers) ? outputs.pricing_blockers : [];
+          const regimeCode = outputs?.metadata?.duties_regime_code;
+          return (
+            <>
+              {blockers.includes("REGIME_REQUIRED_FOR_EXEMPTION") && (
+                <Alert variant="default" className="border-amber-300 bg-amber-50/80 dark:border-amber-700 dark:bg-amber-950/30">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-800 dark:text-amber-200">
+                    Titre d'exonération détecté — renseignez le <strong>régime douanier</strong> pour calculer les exonérations.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {regimeCode && (
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                  Régime : {regimeCode}
+                </Badge>
+              )}
+            </>
+          );
+        })()}
+
         {/* Summary Section */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
           <div className="text-center">

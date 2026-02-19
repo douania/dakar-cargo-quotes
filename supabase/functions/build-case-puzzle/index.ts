@@ -1244,6 +1244,240 @@ Deno.serve(async (req) => {
       console.error("[HS doc-regex] Unexpected error:", hsDocErr);
     }
 
+    // --- Regime evidence-based detection from case_documents ---
+    try {
+      // Helper: extract regime codes and exemption titles from text
+      function extractRegimeCandidatesFromText(text: string): { regimeCodes: string[], titles: string[] } {
+        const regimeCodes: string[] = [];
+        const titles: string[] = [];
+
+        const codePatterns = [
+          /R[ée]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+          /Code\s*r[ée]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+        ];
+        for (const p of codePatterns) {
+          let m;
+          while ((m = p.exec(text)) !== null) {
+            // Normalize: remove spaces/dashes/slashes, uppercase
+            regimeCodes.push(m[1].replace(/[\s\-\/]/g, "").toUpperCase());
+          }
+        }
+
+        const titlePattern = /(Titre\s*d[''\u2019]exon[ée]ration\s*:?\s*)([^\r\n]{5,120})/i;
+        const tm = text.match(titlePattern);
+        if (tm) {
+          titles.push(tm[2].trim());
+        }
+
+        return {
+          regimeCodes: [...new Set(regimeCodes)],
+          titles: [...new Set(titles)],
+        };
+      }
+
+      const allRegimeCodes: string[] = [];
+      const allTitles: string[] = [];
+      const excerpts: string[] = [];
+
+      // Scan case_documents
+      if (caseDocuments && caseDocuments.length > 0) {
+        for (const doc of caseDocuments) {
+          if (!doc.extracted_text) continue;
+          const { regimeCodes, titles } = extractRegimeCandidatesFromText(doc.extracted_text);
+          for (const code of regimeCodes) {
+            allRegimeCodes.push(code);
+            excerpts.push(`[document_regex] ${doc.file_name}: régime ${code}`);
+          }
+          for (const title of titles) {
+            allTitles.push(title);
+          }
+        }
+      }
+
+      // Scan email bodies
+      if (emails && emails.length > 0) {
+        for (const email of emails) {
+          const emailText = (email.body_text || email.subject || "");
+          if (!emailText) continue;
+          const { regimeCodes, titles } = extractRegimeCandidatesFromText(emailText);
+          for (const code of regimeCodes) {
+            allRegimeCodes.push(code);
+            excerpts.push(`[email] ${email.from_address}: régime ${code}`);
+          }
+          for (const title of titles) {
+            allTitles.push(title);
+          }
+        }
+      }
+
+      const uniqueRegimeCodes = [...new Set(allRegimeCodes)];
+      const uniqueTitles = [...new Set(allTitles)];
+
+      // Check existing regime fact (skip if manual_input)
+      const { data: existingRegimeFact } = await serviceClient
+        .from("quote_facts")
+        .select("id, source_type")
+        .eq("case_id", case_id)
+        .eq("fact_key", "customs.regime_code")
+        .eq("is_current", true)
+        .maybeSingle();
+
+      const isRegimeManual = existingRegimeFact?.source_type === "manual_input";
+
+      // 1. If exactly one regime code found and no manual override exists
+      if (uniqueRegimeCodes.length === 1 && !isRegimeManual) {
+        const candidateCode = uniqueRegimeCodes[0];
+        const { data: regimeRow } = await serviceClient
+          .from("customs_regimes")
+          .select("code, name, is_active")
+          .eq("code", candidateCode)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (regimeRow) {
+          const { error: regimeRpcErr } = await serviceClient.rpc("supersede_fact", {
+            p_case_id: case_id,
+            p_fact_key: "customs.regime_code",
+            p_fact_category: "customs",
+            p_value_text: candidateCode,
+            p_value_number: null,
+            p_value_json: null,
+            p_value_date: null,
+            p_source_type: "document_regex",
+            p_source_email_id: null,
+            p_source_attachment_id: null,
+            p_source_excerpt: excerpts[0] || `[document_regex] ${candidateCode}`,
+            p_confidence: 0.95,
+          });
+          if (regimeRpcErr) {
+            console.error("[Regime doc-regex] supersede_fact FAILED:", regimeRpcErr.message);
+          } else {
+            factsAdded++;
+            console.log(`[Regime doc-regex] Injected customs.regime_code=${candidateCode}`);
+          }
+        } else {
+          // Unknown regime code — create non-blocking GAP
+          const { data: existingRegimeGap } = await serviceClient
+            .from("quote_gaps")
+            .select("id")
+            .eq("case_id", case_id)
+            .eq("gap_key", "customs.regime_code")
+            .eq("status", "open")
+            .maybeSingle();
+
+          if (!existingRegimeGap?.id) {
+            await serviceClient.from("quote_gaps").insert({
+              case_id,
+              gap_key: "customs.regime_code",
+              gap_category: "customs",
+              question_fr: `Le code régime "${candidateCode}" détecté dans les documents n'a pas été trouvé dans la nomenclature active. Veuillez préciser le code régime douanier.`,
+              question_en: `Regime code "${candidateCode}" detected in documents was not found in active nomenclature. Please specify the customs regime code.`,
+              priority: "high",
+              is_blocking: false,
+            });
+            gapsIdentified++;
+            console.log(`[Regime doc-regex] Created GAP for unknown regime ${candidateCode}`);
+          }
+        }
+      } else if (uniqueRegimeCodes.length > 1) {
+        console.warn(`[Regime doc-regex] Multiple regime candidates: ${uniqueRegimeCodes.join(", ")} — skipping injection`);
+      }
+
+      // 2. Exemption title injection
+      if (uniqueTitles.length > 0 && !isRegimeManual) {
+        const { data: existingTitleFact } = await serviceClient
+          .from("quote_facts")
+          .select("id, source_type")
+          .eq("case_id", case_id)
+          .eq("fact_key", "regulatory.exemption_title")
+          .eq("is_current", true)
+          .maybeSingle();
+
+        if (!existingTitleFact || existingTitleFact.source_type !== "manual_input") {
+          const { error: titleRpcErr } = await serviceClient.rpc("supersede_fact", {
+            p_case_id: case_id,
+            p_fact_key: "regulatory.exemption_title",
+            p_fact_category: "regulatory",
+            p_value_text: uniqueTitles[0],
+            p_value_number: null,
+            p_value_json: null,
+            p_value_date: null,
+            p_source_type: "document_regex",
+            p_source_email_id: null,
+            p_source_attachment_id: null,
+            p_source_excerpt: `[document_regex] Titre d'exonération: ${uniqueTitles[0]}`,
+            p_confidence: 0.90,
+          });
+          if (titleRpcErr) {
+            console.error("[Regime doc-regex] exemption_title supersede_fact FAILED:", titleRpcErr.message);
+          } else {
+            factsAdded++;
+            console.log(`[Regime doc-regex] Injected regulatory.exemption_title`);
+          }
+
+          // If no regime code was injected → GAP
+          if (uniqueRegimeCodes.length === 0 && !existingRegimeFact) {
+            const { data: existingRegimeGap2 } = await serviceClient
+              .from("quote_gaps")
+              .select("id")
+              .eq("case_id", case_id)
+              .eq("gap_key", "customs.regime_code")
+              .eq("status", "open")
+              .maybeSingle();
+
+            if (!existingRegimeGap2?.id) {
+              await serviceClient.from("quote_gaps").insert({
+                case_id,
+                gap_key: "customs.regime_code",
+                gap_category: "customs",
+                question_fr: `Un titre d'exonération a été détecté mais aucun code régime. Renseignez le régime douanier pour appliquer l'exonération.`,
+                question_en: `An exemption title was detected but no regime code. Please specify the customs regime code to apply the exemption.`,
+                priority: "high",
+                is_blocking: false,
+              });
+              gapsIdentified++;
+              console.log(`[Regime doc-regex] Created GAP: exemption title without regime code`);
+            }
+          }
+        }
+      }
+
+      // 3. If regulatory.dpi_expected=true and no regime → suggest via GAP
+      const { data: dpiFact } = await serviceClient
+        .from("quote_facts")
+        .select("value_text")
+        .eq("case_id", case_id)
+        .eq("fact_key", "regulatory.dpi_expected")
+        .eq("is_current", true)
+        .maybeSingle();
+
+      if (dpiFact?.value_text === "true" && !existingRegimeFact) {
+        const { data: existingDpiGap } = await serviceClient
+          .from("quote_gaps")
+          .select("id")
+          .eq("case_id", case_id)
+          .eq("gap_key", "customs.regime_code")
+          .eq("status", "open")
+          .maybeSingle();
+
+        if (!existingDpiGap?.id) {
+          await serviceClient.from("quote_gaps").insert({
+            case_id,
+            gap_key: "customs.regime_code",
+            gap_category: "customs",
+            question_fr: `DPI attendu — veuillez préciser le régime douanier applicable (ex: C134 Code investissements, C131 ZES/APIX, C111 Droit commun). Ne pas injecter automatiquement.`,
+            question_en: `DPI expected — please specify applicable customs regime (e.g. C134, C131, C111). Do not auto-inject.`,
+            priority: "high",
+            is_blocking: false,
+          });
+          gapsIdentified++;
+          console.log(`[Regime dpi_expected] Created GAP with suggestions (no auto-inject)`);
+        }
+      }
+    } catch (regimeDocErr) {
+      console.error("[Regime doc-regex] Unexpected error:", regimeDocErr);
+    }
+
     // --- HS Code post-attachment validation ---
     // Re-check cargo.hs_code after attachment injection: validate/resolve to 10 digits
     try {
