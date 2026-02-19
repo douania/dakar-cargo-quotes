@@ -379,6 +379,27 @@ async function resolveSenegalHsCode(
   };
 }
 
+// --- Deterministic HS code extraction from free text (regex) ---
+function extractHsCodesFromText(text: string): string[] {
+  const patterns = [
+    /Code\s*SH\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
+    /HS\s*(?:Code)?\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
+    /(\d{4}\.\d{2}\.\d{2}\.\d{2})/g,
+  ];
+
+  const seen = new Set<string>();
+  for (const regex of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      const normalized = match[1].replace(/\D/g, "").substring(0, 10);
+      if (normalized.length >= 6) {
+        seen.add(normalized);
+      }
+    }
+  }
+  return [...seen];
+}
+
 function resolveCountry(
   factMap: Map<string, { value: string; source: string }>,
   countryKey: string,
@@ -1145,6 +1166,79 @@ Deno.serve(async (req) => {
     );
     factsAdded += attachmentFactsResult.added;
     factsUpdated += attachmentFactsResult.updated;
+
+    // --- M3.4b: Deterministic HS extraction from case_documents (regex) ---
+    try {
+      // 1. Check if cargo.hs_code already exists and is valid 10-digit in DB
+      const { data: hsFactDoc } = await serviceClient
+        .from("quote_facts")
+        .select("id, value_text, source_type")
+        .eq("case_id", case_id)
+        .eq("fact_key", "cargo.hs_code")
+        .eq("is_current", true)
+        .maybeSingle();
+
+      const hsDigitsDoc = (hsFactDoc?.value_text || "").replace(/\D/g, "");
+
+      let skipHsDocRegex = false;
+      if (hsDigitsDoc.length === 10) {
+        const alreadyValid = await isExactHsMatch(serviceClient, hsDigitsDoc);
+        if (alreadyValid) {
+          console.log("[HS doc-regex] Existing HS already valid:", hsDigitsDoc);
+          skipHsDocRegex = true;
+        }
+      }
+
+      if (!skipHsDocRegex && caseDocuments && caseDocuments.length > 0) {
+        // 2. Extract HS candidates from all case_documents
+        const resolvedCandidates: Array<{ code10: string; file: string; raw: string }> = [];
+
+        for (const doc of caseDocuments) {
+          if (!doc.extracted_text) continue;
+          const rawCandidates = extractHsCodesFromText(doc.extracted_text);
+          for (const raw of rawCandidates) {
+            const hsResult = await resolveSenegalHsCode(serviceClient, raw);
+            if (hsResult.status === "unique") {
+              resolvedCandidates.push({ code10: hsResult.code10, file: doc.file_name, raw });
+            }
+          }
+        }
+
+        // 3. Deduplicate by resolved code10
+        const uniqueCodes = [...new Set(resolvedCandidates.map(r => r.code10))];
+
+        if (uniqueCodes.length === 1) {
+          // 4. Idempotency: skip if existing HS is identical
+          if (hsDigitsDoc === uniqueCodes[0]) {
+            console.log("[HS doc-regex] HS identical to existing, skip supersede");
+          } else {
+            const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
+            await serviceClient.rpc("supersede_fact", {
+              p_case_id: case_id,
+              p_fact_key: "cargo.hs_code",
+              p_fact_category: "cargo",
+              p_value_text: match.code10,
+              p_value_number: null,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: "document_regex",
+              p_source_email_id: null,
+              p_source_attachment_id: null,
+              p_source_excerpt: `[document_regex] ${match.file}: ${match.raw} → ${match.code10}`,
+              p_confidence: 0.95,
+            });
+            factsAdded++;
+            console.log("[HS doc-regex] Injected", match.code10, "from", match.file);
+          }
+        } else if (uniqueCodes.length === 0) {
+          console.log("[HS doc-regex] No HS found/resolved from case_documents");
+        } else {
+          console.warn("[HS doc-regex] Multiple valid HS candidates found:", uniqueCodes.slice(0, 5));
+        }
+      }
+    } catch (hsDocErr) {
+      console.error("[HS doc-regex] Unexpected error:", hsDocErr);
+    }
 
     // --- HS Code post-attachment validation ---
     // Re-check cargo.hs_code after attachment injection: validate/resolve to 10 digits
