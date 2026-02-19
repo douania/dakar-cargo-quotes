@@ -387,7 +387,7 @@ export function calculateCAF(params: {
     };
   } else {
     // FOB, FCA, FAS, EXW: CAF = FOB + Fret + Assurance
-    const freight = params.freightAmount || (params.invoiceValue * 0.08); // Estimer 8% si non fourni
+    const freight = params.freightAmount || 0; // P0 CAF strict: blocage en amont dans run-pricing, zero estimation
     const insurance = (params.invoiceValue + freight) * insuranceRate;
     
     return {

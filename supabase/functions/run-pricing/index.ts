@@ -37,6 +37,10 @@ interface PricingInputs {
   articlesDetail?: Array<{ hs_code: string; value: number; currency: string; description?: string }>;
   regimeCode?: string;
   exemptionTitle?: string;
+  // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
+  freightCost?: number;
+  freightCurrency?: string;
+  freightExchangeRate?: number;
 }
 
 Deno.serve(async (req) => {
@@ -307,6 +311,61 @@ Deno.serve(async (req) => {
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
 
+    // 8b. P0 CAF strict: Soft blocker FOB freight requirement
+    const incoterm = String(inputs.incoterm ?? '').trim().toUpperCase();
+    const isFobType = ['FOB', 'FCA', 'FAS', 'EXW'].includes(incoterm);
+
+    if (isFobType) {
+      const fobBlockers: string[] = [];
+
+      if (!inputs.freightCost || inputs.freightCost <= 0) {
+        fobBlockers.push("FREIGHT_REQUIRED_FOR_FOB");
+      }
+
+      const freightCur = String(inputs.freightCurrency ?? '').trim().toUpperCase();
+      if (freightCur === 'USD' && (!inputs.freightExchangeRate || inputs.freightExchangeRate <= 0)) {
+        fobBlockers.push("USD_EXCHANGE_RATE_REQUIRED");
+      }
+
+      if (fobBlockers.length > 0) {
+        const { data: fobBlockerRunNumber } = await serviceClient
+          .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+        const fobBlockerMessage = fobBlockers.includes("FREIGHT_REQUIRED_FOR_FOB")
+          ? "Incoterm FOB/FCA/FAS/EXW : le montant du fret réel est obligatoire pour le calcul CAF douanier."
+          : "Fret en USD : le taux officiel USD/XOF douane doit être saisi par l'opérateur.";
+
+        await serviceClient
+          .from("pricing_runs")
+          .insert({
+            case_id,
+            run_number: fobBlockerRunNumber || 1,
+            inputs_json: { incoterm, freightCost: inputs.freightCost, freightCurrency: inputs.freightCurrency },
+            facts_snapshot: factsSnapshot,
+            status: "blocked",
+            error_message: fobBlockerMessage,
+            outputs_json: { pricing_blockers: fobBlockers, message: fobBlockerMessage },
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+            created_by: userId,
+          });
+
+        if (!isFinalized) {
+          await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "fob_freight_blocker");
+        }
+
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: fobBlockers,
+            message: fobBlockerMessage,
+            run_number: fobBlockerRunNumber || 1,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
       .rpc('get_next_pricing_run_number', { p_case_id: case_id });
@@ -384,6 +443,9 @@ Deno.serve(async (req) => {
         hsCode: inputs.hsCode,
         articlesDetail: inputs.articlesDetail,
         regimeCode: inputs.regimeCode || undefined,
+        freightAmount: inputs.freightCost,
+        freightCurrency: inputs.freightCurrency,
+        exchangeRateUSD: inputs.freightExchangeRate,
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
@@ -680,6 +742,23 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "regulatory.exemption_title":
         inputs.exemptionTitle = String(value);
         break;
+      case "cargo.freight_cost": {
+        const raw = String(value ?? "").trim();
+        const normalized = raw.replace(/\s/g, "").replace(/,/g, ".");
+        const n = Number(normalized);
+        inputs.freightCost = Number.isFinite(n) ? n : undefined;
+        break;
+      }
+      case "cargo.freight_currency":
+        inputs.freightCurrency = String(value);
+        break;
+      case "cargo.freight_exchange_rate": {
+        const raw = String(value ?? "").trim();
+        const normalized = raw.replace(/\s/g, "").replace(/,/g, ".");
+        const n = Number(normalized);
+        inputs.freightExchangeRate = Number.isFinite(n) ? n : undefined;
+        break;
+      }
     }
   }
 

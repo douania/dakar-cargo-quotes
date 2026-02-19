@@ -460,6 +460,11 @@ interface QuotationRequest {
   // Régime douanier pour exonérations conditionnelles
   regimeCode?: string;
   
+  // P0 CAF strict: fret réel
+  freightAmount?: number;
+  freightCurrency?: string;
+  exchangeRateUSD?: number;
+  
   // Detail articles avec valeurs EXW pour répartition proportionnelle CAF
   articlesDetail?: Array<{
     hs_code: string;
@@ -2033,12 +2038,30 @@ async function generateQuotationLines(
       cargoValueFCFA = request.cargoValue; // fallback brut, signalé
     }
 
+    // P0 CAF strict: conversion fret réel en FCFA (si fourni)
+    let freightFCFA: number | undefined = undefined;
+    if (request.freightAmount && request.freightAmount > 0) {
+      const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
+      if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
+        freightFCFA = request.freightAmount;
+      } else if (freightCur === 'EUR') {
+        freightFCFA = request.freightAmount * 655.957; // parité fixe BCEAO
+      } else if (freightCur === 'USD') {
+        if (!request.exchangeRateUSD || request.exchangeRateUSD <= 0) {
+          throw new Error("Taux USD/XOF requis pour conversion fret douane.");
+        }
+        freightFCFA = request.freightAmount * request.exchangeRateUSD;
+      } else {
+        throw new Error(`Devise fret non supportée : ${freightCur}`);
+      }
+    }
+
     // Calcul CAF
     const incotermRule = dbIncoterms[request.incoterm?.toUpperCase() || 'CIF'];
     const caf = calculateCAF({
       incoterm: request.incoterm || 'CIF',
       invoiceValue: cargoValueFCFA,
-      freightAmount: undefined,
+      freightAmount: freightFCFA,
       insuranceRate: 0.005
     });
     
@@ -2350,7 +2373,8 @@ Deno.serve(async (req) => {
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         const caf = calculateCAF({
           incoterm: request.incoterm || 'CIF',
-          invoiceValue: cargoValueFCFA || request.cargoValue
+          invoiceValue: cargoValueFCFA || request.cargoValue,
+          freightAmount: freightFCFA,
         });
         
         const result = {

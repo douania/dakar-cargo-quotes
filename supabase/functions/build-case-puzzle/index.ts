@@ -1954,6 +1954,8 @@ Fact keys to extract:
 - timing.loading_date, timing.delivery_deadline
 - carrier.name
 - contacts.client_email, contacts.client_company
+- cargo.freight_cost (montant du transport international principal uniquement - base freight. Ne PAS inclure THC, BAF, handling, documentation, surestaries ou frais locaux)
+- cargo.freight_currency (devise du fret : XOF, EUR, USD)
 
 CRITICAL RULES:
 1. Set isAssumption=true and confidence=0.4 for assumed values (e.g., destination_port=Dakar if not explicit)
