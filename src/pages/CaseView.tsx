@@ -126,13 +126,13 @@ function mapSourceType(type: string): string {
 
 function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: string }) {
   const cacheKey = `${caseId}::${factKey}`;
-  const [history, setHistory] = useState<any[]>([]);
+  const [historyCache, setHistoryCache] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [loadedKeys, setLoadedKeys] = useState<Set<string>>(new Set());
+  const history = historyCache[cacheKey] ?? [];
 
   const handleOpen = async (open: boolean) => {
     if (!open) return;
-    if (loadedKeys.has(cacheKey)) return;
+    if (historyCache[cacheKey]) return;
     setIsLoading(true);
     try {
       const { data, error } = await supabase
@@ -144,10 +144,10 @@ function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: stri
         .order("created_at", { ascending: false })
         .limit(10);
       if (error) throw error;
-      setHistory(data ?? []);
-      setLoadedKeys(prev => new Set(prev).add(cacheKey));
+      const result = data ?? [];
+      setHistoryCache(prev => ({ ...prev, [cacheKey]: result }));
     } catch {
-      setHistory([]);
+      setHistoryCache(prev => ({ ...prev, [cacheKey]: [] }));
     } finally {
       setIsLoading(false);
     }
