@@ -19,6 +19,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'tif'];
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -55,7 +57,7 @@ serve(async (req) => {
       );
     }
 
-    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    const fileExt = (file.name.split('.').pop() || '').toLowerCase();
     // Sanitize filename for storage - remove special chars, spaces, accents
     const sanitizedName = file.name
       .normalize('NFD')
@@ -268,6 +270,28 @@ serve(async (req) => {
       } catch (csvError) {
         console.error('CSV parse error:', csvError);
       }
+    } else if (IMAGE_EXTENSIONS.includes(fileExt!)) {
+      try {
+        extractedText = await extractTextFromImage(uint8Array, file.type, fileExt!);
+        extractedData = {
+          type: 'image',
+          rawSize: uint8Array.length,
+          extractionMethod: 'ocr_ai',
+        };
+        if (!extractedText) {
+          (extractedData as any).extractionStatus = 'empty';
+        }
+        console.log('OCR extraction done, text length:', extractedText.length);
+      } catch (ocrError) {
+        console.error('OCR error:', ocrError);
+        extractedText = '';
+        extractedData = {
+          type: 'image',
+          rawSize: uint8Array.length,
+          extractionMethod: 'none',
+          extractionStatus: 'error',
+        } as any;
+      }
     } else if (fileExt === 'txt' || fileExt === 'md') {
       extractedText = sanitizeText(new TextDecoder().decode(uint8Array));
     } else {
@@ -338,6 +362,90 @@ serve(async (req) => {
     );
   }
 });
+
+// --- OCR helpers ---
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const chunk = bytes.subarray(i, i + CHUNK);
+    parts.push(String.fromCharCode(...chunk));
+  }
+  return btoa(parts.join(""));
+}
+
+async function extractTextFromImage(
+  imageBytes: Uint8Array,
+  mimeType: string,
+  fileExt: string,
+): Promise<string> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!LOVABLE_API_KEY) {
+    throw new Error("LOVABLE_API_KEY non configure pour OCR");
+  }
+  if (imageBytes.length > 8_000_000) {
+    throw new Error("Image trop volumineuse pour OCR (max 8MB)");
+  }
+
+  const mime = mimeType || `image/${fileExt}`;
+  const base64 = uint8ToBase64(imageBytes);
+
+  console.log('OCR: sending image to AI, size:', imageBytes.length, 'mime:', mime);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Extrais tout le texte visible de cette image. " +
+                  "C'est un document logistique, transport ou douane. " +
+                  "Ne fais aucun commentaire. Ne fais aucun resume. " +
+                  "Ne reformule rien. " +
+                  "Retourne uniquement le texte brut tel qu'il apparait."
+              },
+              {
+                type: "image_url",
+                image_url: { url: `data:${mime};base64,${base64}` }
+              }
+            ]
+          }],
+          temperature: 0,
+          max_tokens: 2000,
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OCR AI error:", response.status, errorText);
+      throw new Error(`OCR AI error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    return typeof content === "string" ? content.trim() : "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// --- Document type detection ---
 
 function detectDocumentType(text: string): { type: string; tags: string[]; confidence: number } {
   const lowerText = text.toLowerCase();
