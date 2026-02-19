@@ -1213,7 +1213,7 @@ Deno.serve(async (req) => {
             console.log("[HS doc-regex] HS identical to existing, skip supersede");
           } else {
             const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
-            await serviceClient.rpc("supersede_fact", {
+            const { error: hsRpcErr } = await serviceClient.rpc("supersede_fact", {
               p_case_id: case_id,
               p_fact_key: "cargo.hs_code",
               p_fact_category: "cargo",
@@ -1227,8 +1227,12 @@ Deno.serve(async (req) => {
               p_source_excerpt: `[document_regex] ${match.file}: ${match.raw} → ${match.code10}`,
               p_confidence: 0.95,
             });
-            factsAdded++;
-            console.log("[HS doc-regex] Injected", match.code10, "from", match.file);
+            if (hsRpcErr) {
+              console.error("[HS doc-regex] supersede_fact FAILED:", hsRpcErr.message);
+            } else {
+              factsAdded++;
+              console.log("[HS doc-regex] Injected", match.code10, "from", match.file);
+            }
           }
         } else if (uniqueCodes.length === 0) {
           console.log("[HS doc-regex] No HS found/resolved from case_documents");
