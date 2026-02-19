@@ -717,13 +717,19 @@ export default function CaseView() {
         </Card>
 
         {/* Action Panel — visible for actionable statuses */}
-        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO'].includes(caseData.status) && (
+        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
           <Card className="mb-6 border-primary/30 bg-primary/5">
             <CardContent className="py-4 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold">Dossier prêt à analyser</h3>
+                <h3 className="font-semibold">
+                  {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                    ? 'Relancer l\'analyse'
+                    : 'Dossier prêt à analyser'}
+                </h3>
                 <p className="text-sm text-muted-foreground">
-                  {documentsCount} document(s) uploadé(s) — {facts.length} fait(s) extrait(s)
+                  {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                    ? 'Prend en compte les nouveaux documents et extracteurs déployés'
+                    : `${documentsCount} document(s) uploadé(s) — ${facts.length} fait(s) extrait(s)`}
                 </p>
               </div>
               <Button
@@ -735,7 +741,9 @@ export default function CaseView() {
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                Lancer l'analyse
+                {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                  ? 'Relancer l\'analyse'
+                  : 'Lancer l\'analyse'}
               </Button>
             </CardContent>
           </Card>
