@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -32,7 +33,10 @@ import {
   Check,
   X,
   Calculator,
+  Clock,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -108,6 +112,88 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 // ── Contextual service filtering ──
+// ── Fact history helpers ──
+function mapSourceType(type: string): string {
+  if (["manual_input", "operator"].includes(type)) return "Opérateur";
+  if (type.startsWith("ai_")) return "IA";
+  if (["document_regex", "attachment_extracted"].includes(type)) return "Document";
+  if (type === "hs_resolution") return "HS";
+  if (type === "known_contact_match") return "Contact";
+  if (type === "quotation_engine") return "Moteur";
+  if (type.startsWith("email_")) return "Email";
+  return type;
+}
+
+function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: string }) {
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const handleOpen = async (open: boolean) => {
+    if (!open || loaded) return;
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("quote_facts")
+        .select("id, value_text, value_number, value_json, source_type, confidence, created_at")
+        .eq("case_id", caseId)
+        .eq("fact_key", factKey)
+        .eq("is_current", false)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      setHistory(data ?? []);
+      setLoaded(true);
+    } catch {
+      setHistory([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatValue = (h: any) =>
+    h.value_text ?? (h.value_number != null ? String(h.value_number) : JSON.stringify(h.value_json));
+
+  return (
+    <Popover onOpenChange={handleOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7" title="Historique">
+          <Clock className="h-3 w-3" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 max-h-64 overflow-auto" align="end">
+        <p className="font-semibold text-sm mb-2">Historique</p>
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+        ) : history.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Aucune version précédente</p>
+        ) : (
+          <div className="space-y-2">
+            {history.map((h) => (
+              <div key={h.id} className="border rounded p-2 space-y-1">
+                <p className="text-sm font-medium break-all">{formatValue(h)}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                    {mapSourceType(h.source_type)}
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground">
+                    {h.confidence != null ? `${Math.round(h.confidence * 100)}%` : "—"}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {formatDistanceToNow(new Date(h.created_at), { addSuffix: true, locale: fr })}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function isServiceRelevant(service: string, mode: string): boolean {
   if (mode.startsWith("SEA")) {
     if (service.startsWith("AIR_")) return false;
@@ -962,16 +1048,19 @@ export default function CaseView() {
                                       </Button>
                                     </div>
                                   ) : (
-                                    EDITABLE_FACT_KEYS.has(fact.fact_key) && !isLocked && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7"
-                                        onClick={() => startEdit(fact)}
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                      </Button>
-                                    )
+                                    <div className="flex gap-1">
+                                      {EDITABLE_FACT_KEYS.has(fact.fact_key) && !isLocked && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7"
+                                          onClick={() => startEdit(fact)}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                      <FactHistoryPopover caseId={caseId!} factKey={fact.fact_key} />
+                                    </div>
                                   )}
                                 </TableCell>
                               </TableRow>
