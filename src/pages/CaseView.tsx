@@ -124,13 +124,19 @@ function mapSourceType(type: string): string {
   return type;
 }
 
+const factHistoryCache: Record<string, any[]> = {};
+
 function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: string }) {
+  const cacheKey = `${caseId}::${factKey}`;
   const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   const handleOpen = async (open: boolean) => {
-    if (!open || loaded) return;
+    if (!open) return;
+    if (factHistoryCache[cacheKey]) {
+      setHistory(factHistoryCache[cacheKey]);
+      return;
+    }
     setIsLoading(true);
     try {
       const { data, error } = await supabase
@@ -142,8 +148,9 @@ function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: stri
         .order("created_at", { ascending: false })
         .limit(10);
       if (error) throw error;
-      setHistory(data ?? []);
-      setLoaded(true);
+      const result = data ?? [];
+      setHistory(result);
+      factHistoryCache[cacheKey] = result;
     } catch {
       setHistory([]);
     } finally {
@@ -151,8 +158,15 @@ function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: stri
     }
   };
 
-  const formatValue = (h: any) =>
-    h.value_text ?? (h.value_number != null ? String(h.value_number) : JSON.stringify(h.value_json));
+  const formatValue = (h: any) => {
+    if (h.value_text != null) return h.value_text;
+    if (h.value_number != null) return String(h.value_number);
+    if (h.value_json != null) {
+      const str = JSON.stringify(h.value_json);
+      return str.length > 120 ? str.slice(0, 120) + "…" : str;
+    }
+    return "—";
+  };
 
   return (
     <Popover onOpenChange={handleOpen}>
