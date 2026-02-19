@@ -49,6 +49,11 @@ const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }
     value: pkg,
     label: pkg.replace(/_/g, " "),
   })),
+  "cargo.freight_currency": [
+    { value: "XOF", label: "XOF (FCFA)" },
+    { value: "EUR", label: "EUR" },
+    { value: "USD", label: "USD" },
+  ],
 };
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
@@ -73,6 +78,9 @@ const EDITABLE_FACT_KEYS = new Set([
   "cargo.pieces_count",
   "customs.regime_code",
   "regulatory.exemption_title",
+  "cargo.freight_cost",
+  "cargo.freight_currency",
+  "cargo.freight_exchange_rate",
 ]);
 
 const NUMERIC_FACT_KEYS = new Set([
@@ -83,6 +91,8 @@ const NUMERIC_FACT_KEYS = new Set([
   "cargo.weight_per_container_kg",
   "cargo.value",
   "cargo.pieces_count",
+  "cargo.freight_cost",
+  "cargo.freight_exchange_rate",
 ]);
 
 // ── Category labels for display ──
