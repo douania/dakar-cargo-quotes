@@ -2371,6 +2371,20 @@ Deno.serve(async (req) => {
         const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
+        // P0 CAF strict: recalcul freightFCFA pour metadata (meme logique que generateQuotationLines)
+        let freightFCFA: number | undefined = undefined;
+        if (request.freightAmount && request.freightAmount > 0) {
+          const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
+          if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
+            freightFCFA = request.freightAmount;
+          } else if (freightCur === 'EUR') {
+            freightFCFA = request.freightAmount * 655.957;
+          } else if (freightCur === 'USD') {
+            if (request.exchangeRateUSD && request.exchangeRateUSD > 0) {
+              freightFCFA = request.freightAmount * request.exchangeRateUSD;
+            }
+          }
+        }
         const caf = calculateCAF({
           incoterm: request.incoterm || 'CIF',
           invoiceValue: cargoValueFCFA || request.cargoValue,

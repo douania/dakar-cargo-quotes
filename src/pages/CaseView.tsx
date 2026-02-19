@@ -76,6 +76,7 @@ const EDITABLE_FACT_KEYS = new Set([
   "service.package",
   "cargo.value",
   "cargo.pieces_count",
+  "cargo.hs_code",
   "customs.regime_code",
   "regulatory.exemption_title",
   "cargo.freight_cost",
