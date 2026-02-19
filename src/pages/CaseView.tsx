@@ -124,19 +124,15 @@ function mapSourceType(type: string): string {
   return type;
 }
 
-const factHistoryCache: Record<string, any[]> = {};
-
 function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: string }) {
   const cacheKey = `${caseId}::${factKey}`;
   const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadedKeys, setLoadedKeys] = useState<Set<string>>(new Set());
 
   const handleOpen = async (open: boolean) => {
     if (!open) return;
-    if (factHistoryCache[cacheKey]) {
-      setHistory(factHistoryCache[cacheKey]);
-      return;
-    }
+    if (loadedKeys.has(cacheKey)) return;
     setIsLoading(true);
     try {
       const { data, error } = await supabase
@@ -148,9 +144,8 @@ function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: stri
         .order("created_at", { ascending: false })
         .limit(10);
       if (error) throw error;
-      const result = data ?? [];
-      setHistory(result);
-      factHistoryCache[cacheKey] = result;
+      setHistory(data ?? []);
+      setLoadedKeys(prev => new Set(prev).add(cacheKey));
     } catch {
       setHistory([]);
     } finally {
