@@ -457,6 +457,9 @@ interface QuotationRequest {
   // Code HS pour calcul droits
   hsCode?: string;
   
+  // Régime douanier pour exonérations conditionnelles
+  regimeCode?: string;
+  
   // Detail articles avec valeurs EXW pour répartition proportionnelle CAF
   articlesDetail?: Array<{
     hs_code: string;
@@ -2111,6 +2114,36 @@ async function generateQuotationLines(
       let totalAllDuties = 0;
       const missingCodes: string[] = [];
 
+      // --- Regime flags: load from customs_regimes if regimeCode provided ---
+      let regimeFlags = { dd:true, stx:true, rs:true, tin:true, tva:true, cosec:true, pcs:true, pcc:true, tpast:true, ta:true };
+      let regimeName: string | null = null;
+      let regimeUnknown = false;
+
+      if (request.regimeCode) {
+        const { data: regime, error: regimeErr } = await supabase
+          .from("customs_regimes")
+          .select("code,name,dd,stx,rs,tin,tva,cosec,pcs,pcc,tpast,ta,is_active")
+          .eq("code", request.regimeCode)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (regimeErr) console.error("[regime] load failed:", regimeErr.message);
+
+        if (regime) {
+          regimeFlags = {
+            dd: regime.dd ?? true, stx: regime.stx ?? true, rs: regime.rs ?? true,
+            tin: regime.tin ?? true, tva: regime.tva ?? true, cosec: regime.cosec ?? true,
+            pcs: regime.pcs ?? true, pcc: regime.pcc ?? true, tpast: regime.tpast ?? true,
+            ta: regime.ta ?? true,
+          };
+          regimeName = regime.name || null;
+          console.log(`[regime] Loaded ${request.regimeCode}: ${regimeName}, flags=`, regimeFlags);
+        } else {
+          regimeUnknown = true;
+          console.warn(`[regime] Code "${request.regimeCode}" not found or inactive — no exoneration applied`);
+        }
+      }
+
       for (const [idx, currentHsCode] of hsCodes.entries()) {
         const cafForArticle = cafDistribution[idx];
         const hsNormalized = currentHsCode.replace(/\D/g, '');
@@ -2122,22 +2155,37 @@ async function generateQuotationLines(
 
         if (hsData && hsData.length > 0) {
           const hs = hsData[0];
-          const ddAmount = cafForArticle * ((hs.dd || 0) / 100);
-          const rsAmount = cafForArticle * ((hs.rs || 0) / 100);
-          const surtaxeAmount = cafForArticle * ((hs.surtaxe || 0) / 100);
-          const tinAmount = cafForArticle * ((hs.tin || 0) / 100);
+          // Calculate all taxes with original formulas (untouched)
+          let ddAmount = cafForArticle * ((hs.dd || 0) / 100);
+          let rsAmount = cafForArticle * ((hs.rs || 0) / 100);
+          let surtaxeAmount = cafForArticle * ((hs.surtaxe || 0) / 100);
+          let tinAmount = cafForArticle * ((hs.tin || 0) / 100);
           const tciAmount = cafForArticle * ((hs.t_conj || 0) / 100);
-          const pcsAmount = cafForArticle * ((hs.pcs || 0) / 100);
-          const pccAmount = cafForArticle * ((hs.pcc || 0) / 100);
-          const cosecAmount = cafForArticle * ((hs.cosec || 0) / 100);
+          let pcsAmount = cafForArticle * ((hs.pcs || 0) / 100);
+          let pccAmount = cafForArticle * ((hs.pcc || 0) / 100);
+          let cosecAmount = cafForArticle * ((hs.cosec || 0) / 100);
+
+          // Apply regime flags AFTER calculation (CTO: never rewrite formulas)
+          if (!regimeFlags.dd) ddAmount = 0;
+          if (!regimeFlags.rs) rsAmount = 0;
+          if (!regimeFlags.stx) surtaxeAmount = 0;
+          if (!regimeFlags.tin) tinAmount = 0;
+          if (!regimeFlags.pcs) pcsAmount = 0;
+          if (!regimeFlags.pcc) pccAmount = 0;
+          if (!regimeFlags.cosec) cosecAmount = 0;
+
           const baseVAT = cafForArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
-          const tvaAmount = baseVAT * ((hs.tva || 0) / 100);
+          let tvaAmount = baseVAT * ((hs.tva || 0) / 100);
+          if (!regimeFlags.tva) tvaAmount = 0;
 
           const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
           totalAllDuties += articleDuties;
 
           // Find description from articlesDetail if available
           const articleDesc = request.articlesDetail?.find(a => a.hs_code.replace(/\D/g, '') === hsNormalized)?.description;
+
+          const regimeNote = request.regimeCode && !regimeUnknown
+            ? `Régime ${request.regimeCode}` : undefined;
 
           dutyBreakdown.push({
             article_index: idx + 1,
@@ -2155,6 +2203,11 @@ async function generateQuotationLines(
             base_tva: Math.round(baseVAT),
             tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
             total_duties: Math.round(articleDuties),
+            regime_applied: request.regimeCode || null,
+            regime_note: regimeNote,
+            dd_exonerated: !regimeFlags.dd,
+            rs_exonerated: !regimeFlags.rs,
+            tva_exonerated: !regimeFlags.tva,
           });
         } else {
           missingCodes.push(currentHsCode);
@@ -2325,7 +2378,10 @@ Deno.serve(async (req) => {
               method: caf.method
             },
             isTransit: transitCountry !== null,
-            transitCountry: transitCountry || undefined
+            transitCountry: transitCountry || undefined,
+            regime_applied: request.regimeCode || null,
+            regime_name: regimeName || null,
+            regime_unknown: regimeUnknown || false,
           },
           warnings,
           historical_suggestions: historicalSuggestions,

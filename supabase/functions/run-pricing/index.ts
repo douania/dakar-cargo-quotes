@@ -35,6 +35,8 @@ interface PricingInputs {
   clientCompany?: string;
   hsCode?: string;
   articlesDetail?: Array<{ hs_code: string; value: number; currency: string; description?: string }>;
+  regimeCode?: string;
+  exemptionTitle?: string;
 }
 
 Deno.serve(async (req) => {
@@ -208,6 +210,54 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 4c. Regime soft blocker: load facts early to check exemptionTitle vs regimeCode
+    const { data: regimeCheckFacts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", ["customs.regime_code", "regulatory.exemption_title"]);
+
+    const regimeCheckMap = new Map((regimeCheckFacts || []).map(f => [f.fact_key, f.value_text]));
+    const hasExemptionTitle = !!regimeCheckMap.get("regulatory.exemption_title");
+    const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
+
+    if (hasExemptionTitle && !hasRegimeCode) {
+      const { data: regimeBlockerRunNumber } = await serviceClient
+        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+      const regimeBlockerOutputs = {
+        pricing_blockers: ["REGIME_REQUIRED_FOR_EXEMPTION"],
+        message: "Titre d'exonération détecté — renseignez le régime douanier pour calculer les exonérations.",
+        exemption_title: regimeCheckMap.get("regulatory.exemption_title"),
+      };
+
+      await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: regimeBlockerRunNumber || 1,
+          inputs_json: { exemptionTitle: regimeCheckMap.get("regulatory.exemption_title") },
+          facts_snapshot: [],
+          status: "blocked",
+          error_message: regimeBlockerOutputs.message,
+          outputs_json: regimeBlockerOutputs,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
+      return new Response(
+        JSON.stringify({
+          pricing_blockers: regimeBlockerOutputs.pricing_blockers,
+          message: regimeBlockerOutputs.message,
+          run_number: regimeBlockerRunNumber || 1,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 5. Transition to PRICING_RUNNING (skip for finalized cases)
     if (!isFinalized) {
       await serviceClient
@@ -333,6 +383,7 @@ Deno.serve(async (req) => {
         clientCompany: inputs.clientCompany,
         hsCode: inputs.hsCode,
         articlesDetail: inputs.articlesDetail,
+        regimeCode: inputs.regimeCode || undefined,
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
@@ -415,6 +466,7 @@ Deno.serve(async (req) => {
         engine_version: engineResponse.version || "v4",
         computed_at: new Date().toISOString(),
         request_type: caseData.request_type,
+        duties_regime_code: inputs.regimeCode || null,
       },
       client: {
         email: inputs.clientEmail,
@@ -622,6 +674,12 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         inputs.articlesDetail = Array.isArray(parsed) ? parsed : [];
         break;
       }
+      case "customs.regime_code":
+        inputs.regimeCode = String(value);
+        break;
+      case "regulatory.exemption_title":
+        inputs.exemptionTitle = String(value);
+        break;
     }
   }
 

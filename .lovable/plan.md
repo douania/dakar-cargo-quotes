@@ -1,48 +1,52 @@
 
-# Fix echec silencieux parse-document a l'upload
+# Régime douanier : intégration pipeline pricing (DONE)
 
-## Probleme
+## Patches appliqués
 
-Dans `CaseDocumentsTab.tsx` (lignes 121-128), le `fetch()` vers `parse-document` ne verifie pas `response.ok`. Comme `fetch()` ne throw pas sur les erreurs HTTP (401/404/500), le `catch` ne s'execute jamais et l'echec est completement invisible.
+### ✅ Migration DB
+- `quote_facts_source_type_check` : ajouté `hs_resolution` + `known_contact_match`
 
-## Modification unique
+### ✅ Patch C1 : Whitelist opérateur
+- `set-case-fact/index.ts` : +2 clés (`customs.regime_code`, `regulatory.exemption_title`), +2 cases `detectCategory`
+- `CaseView.tsx` : +2 clés dans `EDITABLE_FACT_KEYS` (type texte, pas numérique)
 
-**Fichier** : `src/components/case/CaseDocumentsTab.tsx`
-**Lignes** : 120-131
+### ✅ Patch B : run-pricing transmet régime + soft blocker
+- `PricingInputs` : +`regimeCode`, +`exemptionTitle`
+- `buildPricingInputs` : +2 cases mapping
+- Soft blocker `REGIME_REQUIRED_FOR_EXEMPTION` si exemptionTitle présent et regimeCode absent
+- `engineParams` : +`regimeCode`
+- `outputsJson.metadata` : +`duties_regime_code`
 
-Remplacer le bloc fetch + catch par :
+### ✅ Patch B2 : quotation-engine applique flags régime inline
+- `QuotationRequest` : +`regimeCode`
+- Chargement `customs_regimes` si regimeCode fourni
+- Flags appliqués APRÈS calcul (CTO: formules intouchées) : `if (!regimeFlags.dd) ddAmount = 0;`
+- `dutyBreakdown` : +annotations `regime_applied`, `dd_exonerated`, `rs_exonerated`, `tva_exonerated`
+- Metadata réponse : +`regime_applied`, `regime_name`, `regime_unknown`
+- Rétrocompat totale si regimeCode absent
 
-```typescript
-const { data: { session } } = await supabase.auth.getSession();
-const parseRes = await fetch(
-  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
-  {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${session?.access_token}` },
-    body: parseFormData,
-  }
-);
-if (!parseRes.ok) {
-  const errBody = await parseRes.text().catch(() => '');
-  console.error('parse-document failed:', parseRes.status, errBody);
-  throw new Error(`parse-document HTTP ${parseRes.status}: ${errBody || 'no body'}`);
-}
-console.log('parse-document ok for', docId);
-} catch (parseErr) {
-  console.warn('Text extraction failed (non-blocking):', parseErr);
-  toast({ title: "Extraction texte echouee", description: "Vous pouvez relancer via backfill.", variant: "destructive" });
-```
+### ✅ Patch A : Détection evidence-based dans build-case-puzzle
+- Helper `extractRegimeCandidatesFromText` (regex robustes C/S + espaces/tirets/slashes)
+- Scan `case_documents.extracted_text` + emails
+- Injection si 1 seul code valide en base (confidence 0.95)
+- GAP si code inconnu, titre sans code, ou dpi_expected=true sans régime
+- Protection manual_input (pas d'écrasement)
+- Idempotence GAP
 
-## Ce qui change
+### ✅ Patch C2 : UI affiche blocker régime + badge
+- `PricingResultPanel.tsx` : alerte amber si `REGIME_REQUIRED_FOR_EXEMPTION`
+- Badge `Régime: {code}` si `duties_regime_code` présent
 
-1. `response.ok` est teste : les erreurs HTTP deviennent visibles
-2. `console.error` avec status + body pour tracabilite dans les logs
-3. `throw` pour tomber dans le `catch` existant
-4. Toast non-bloquant ajoute dans le catch : l'operateur voit le probleme sans bloquer l'upload
-5. Log de succes pour confirmer le bon fonctionnement
+## Fichiers modifiés (6)
+1. `supabase/functions/set-case-fact/index.ts`
+2. `src/pages/CaseView.tsx`
+3. `supabase/functions/run-pricing/index.ts`
+4. `supabase/functions/quotation-engine/index.ts`
+5. `supabase/functions/build-case-puzzle/index.ts`
+6. `src/components/puzzle/PricingResultPanel.tsx`
 
-## Ce qui ne change pas
-
-- Le reste de la logique d'upload (storage, DB, timeline)
-- L'upload reste fonctionnel meme si parse-document echoue (try/catch conserve)
-- Aucun autre fichier modifie
+## Ce qui n'a PAS changé
+- `calculate-duties` : intouché
+- Formules fiscales : intouchées (flags appliqués post-calcul)
+- Structure DB : aucune nouvelle table/colonne
+- Outputs existants : rétro-compatibles
