@@ -2391,6 +2391,17 @@ Deno.serve(async (req) => {
           freightAmount: freightFCFA,
         });
         
+        // P0 fix: recalcul regimeName pour metadata via requête ciblée (pas de dépendance à generateQuotationLines)
+        let regimeMeta: { name: string | null } | null = null;
+        if (request.regimeCode) {
+          const { data: regime } = await supabase
+            .from("customs_regimes")
+            .select("code,name")
+            .eq("code", request.regimeCode)
+            .maybeSingle();
+          regimeMeta = regime ? { name: regime.name || null } : null;
+        }
+
         const result = {
           success: true,
           lines,
@@ -2418,8 +2429,8 @@ Deno.serve(async (req) => {
             isTransit: transitCountry !== null,
             transitCountry: transitCountry || undefined,
             regime_applied: request.regimeCode || null,
-            regime_name: regimeName || null,
-            regime_unknown: regimeUnknown || false,
+            regime_name: regimeMeta?.name || null,
+            regime_unknown: regimeMeta === null && !!request.regimeCode,
           },
           warnings,
           historical_suggestions: historicalSuggestions,
