@@ -65,6 +65,8 @@ const EDITABLE_FACT_KEYS = new Set([
   "routing.destination_city",
   "service.mode",
   "service.package",
+  "cargo.value",
+  "cargo.pieces_count",
 ]);
 
 const NUMERIC_FACT_KEYS = new Set([
@@ -73,6 +75,8 @@ const NUMERIC_FACT_KEYS = new Set([
   "cargo.caf_value",
   "cargo.chargeable_weight_kg",
   "cargo.weight_per_container_kg",
+  "cargo.value",
+  "cargo.pieces_count",
 ]);
 
 // ── Category labels for display ──

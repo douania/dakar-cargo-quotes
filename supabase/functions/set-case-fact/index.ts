@@ -21,6 +21,8 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.container_count",
   "cargo.container_type",
   "cargo.description",
+  "cargo.value",
+  "cargo.pieces_count",
   "routing.incoterm",
   "routing.destination_city",
   "service.mode",
