@@ -1,92 +1,132 @@
 
+# Correction transport : mapping zone + container type strict
 
-# Page d'administration des taux de change
+## Contexte
 
-## Probleme
+Le bloc `isPortDelivery` actuel force `amount: 0` pour Dakar, ce qui est **metier faux**. Dakar = FORFAIT ZONE 1 = 82 600 FCFA (20' Dry).
 
-La saisie des taux via le formulaire brut de la base de donnees est penible : il faut renseigner manuellement l'ID, les dates, et calculer soi-meme la date d'expiration. L'utilisateur veut une interface simple et rapide.
+## Donnees en base `local_transport_rates`
 
-## Solution
+### Destinations disponibles
+26 destinations dont les zones forfaitaires :
+- `FORFAIT ZONE 1 <18 km` : 82 600 / 123 900 / 371 700 FCFA
+- `FORFAIT ZONE 2, SEIKHOTANE ET POUT` : 135 700 / 218 300 / 654 900 FCFA
+- Plus des villes nommees : THIES / POPONGUINE, KAOLACK, MBOUR, ZIGUINCHOR, etc.
 
-Creer une page `/admin/exchange-rates` dediee avec un formulaire intelligent qui calcule automatiquement les dates de validite.
+### Container types en base
+- `20' Dry`
+- `40' Dry`
+- `Low Bed`
 
----
+## Modifications dans `supabase/functions/quotation-engine/index.ts`
 
-## 1. Nouvelle page `src/pages/admin/ExchangeRates.tsx`
+### 1. Supprimer le bloc `isPortDelivery` (lignes 1629-1732)
 
-Page admin suivant le pattern existant (comme TaxRates.tsx) avec :
+Retirer entierement :
+- La constante `portCity`, `destNorm`, `isPortDelivery` (lignes 1629-1631)
+- Le bloc `if (isPortDelivery) { ... }` (lignes 1633-1651)
+- Le `} else {` ligne 1652
+- Le `} // end else !isPortDelivery` ligne 1732
 
-### Tableau des taux existants
-- Colonnes : Devise, Taux/XOF, Source, Valide du, Valide jusqu'au, Statut (actif/expire), Saisi par
-- Badge vert/rouge pour indiquer si le taux est actuellement valide
-- Tri par date de creation decroissante
+Le flux redevient lineaire : pour chaque conteneur, chercher historique puis `local_transport_rates` puis TO_CONFIRM.
 
-### Formulaire d'ajout rapide (Dialog)
-
-L'utilisateur saisit uniquement 3 champs :
-- **Devise** : select parmi les devises courantes (USD, EUR, GBP, CNY, JPY) + saisie libre
-- **Taux** : champ numerique (1 devise = ? XOF)
-- **Periode de validite** : choix parmi 4 options
-  - Quotidienne (expire ce soir 23:59 UTC)
-  - Hebdomadaire (expire le jour choisi a 23:59 UTC) — avec un selecteur de jour de la semaine (Lundi a Dimanche, defaut : Mercredi)
-  - Mensuelle (expire le dernier jour du mois en cours)
-  - Annuelle (expire le 31 decembre de l'annee en cours)
-  - Permanente (pour les taux fixes type EUR/BCEAO, expire en 2100)
-
-Les champs auto-calcules (invisibles pour l'utilisateur) :
-- `id` : genere par la base
-- `valid_from` : now()
-- `valid_until` : calcule selon la periode choisie
-- `source` : pre-rempli "GAINDE" (modifiable)
-- `updated_by` : user connecte
-- `created_at` / `updated_at` : auto
-
-## 2. Modification de `upsert-exchange-rate` (edge function)
-
-Ajouter le support d'un parametre optionnel `valid_until` dans le body :
-- Si `valid_until` est fourni : l'utiliser directement (au lieu de calculer le prochain mardi)
-- Si absent : comportement actuel (prochain mardi 23:59 UTC, retrocompatible)
-
-Cela permet a la page admin d'envoyer la date calculee cote frontend selon le choix de periode.
-
-## 3. Ajout dans la navigation
-
-- Ajouter l'entree "Taux de change" dans `AppSidebar.tsx` (section Administration)
-- Ajouter la route `/admin/exchange-rates` dans `App.tsx`
-
-## 4. Mise a jour de la modale PricingLaunchPanel
-
-Adapter le body envoye a `upsert-exchange-rate` depuis la modale existante pour qu'il inclue aussi un choix de periode (par defaut : hebdomadaire/mercredi, qui correspond au cycle GAINDE actuel).
-
----
-
-## Details techniques
-
-### Calcul `valid_until` cote frontend
+### 2. Ajouter ZONE_MAPPING en haut du fichier (apres DPW_PROVIDERS)
 
 ```text
-function computeValidUntil(period, dayOfWeek?):
-  - "daily"    → aujourd'hui 23:59:59 UTC
-  - "weekly"   → prochain [dayOfWeek] 23:59:59 UTC
-  - "monthly"  → dernier jour du mois courant 23:59:59 UTC
-  - "yearly"   → 31 dec annee courante 23:59:59 UTC
-  - "permanent"→ 2100-01-01T00:00:00Z
+const ZONE_MAPPING: Record<string, string> = {
+  'dakar': 'FORFAIT ZONE 1',
+  'plateau': 'FORFAIT ZONE 1',
+  'medina': 'FORFAIT ZONE 1',
+  'almadies': 'FORFAIT ZONE 1',
+  'pikine': 'FORFAIT ZONE 1',
+  'guediawaye': 'FORFAIT ZONE 1',
+  'rufisque': 'FORFAIT ZONE 1',
+  'keur massar': 'FORFAIT ZONE 1',
+  'parcelles': 'FORFAIT ZONE 1',
+  'diamniadio': 'FORFAIT ZONE 1',
+  'pout': 'FORFAIT ZONE 2',
+  'seikhotane': 'FORFAIT ZONE 2',
+  'sebikhotane': 'FORFAIT ZONE 2',
+};
 ```
 
-### Fichiers impactes
+### 3. Ajouter CONTAINER_TYPE_MAPPING en haut du fichier
 
-| Fichier | Action |
-|---------|--------|
-| `src/pages/admin/ExchangeRates.tsx` | Nouveau — page admin complete |
-| `src/App.tsx` | Ajouter route `/admin/exchange-rates` |
-| `src/components/AppSidebar.tsx` | Ajouter lien navigation |
-| `supabase/functions/upsert-exchange-rate/index.ts` | Support `valid_until` optionnel |
-| `src/components/puzzle/PricingLaunchPanel.tsx` | Ajout selecteur periode dans la modale |
+```text
+const CONTAINER_TYPE_MAPPING: Record<string, string> = {
+  '20': "20' Dry",
+  '40': "40' Dry",
+};
+```
 
-### Ce qui ne change pas
+### 4. Remplacer la recherche `local_transport_rates` (lignes 1686-1691)
 
-- La table `exchange_rates` (pas de migration SQL)
-- La fonction `get-active-exchange-rate`
-- Le moteur `quotation-engine` et `resolveExchangeRate`
-- La logique de cache `_rateCache`
+Au lieu de :
+```text
+.ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
+.limit(1);
+```
 
+Faire :
+1. Normaliser la destination via `normalize()` (deja defini)
+2. Chercher dans ZONE_MAPPING via `includes()` (pas exact match) pour gerer "Dakar Plateau", "Dakar - Port", etc.
+3. Si zone trouvee, chercher avec `ILIKE '%{zone}%'` sur destination
+4. Sinon, garder la recherche ILIKE existante sur le premier mot
+5. Ajouter filtre `.eq('container_type', mappedContainerType)` via CONTAINER_TYPE_MAPPING
+
+La recherche via `includes()` :
+
+```text
+const destKey = normalize(request.finalDestination);
+const mappedZone = Object.entries(ZONE_MAPPING)
+  .find(([key]) => destKey.includes(key))?.[1];
+const searchTerm = mappedZone || request.finalDestination.split(' ')[0];
+```
+
+Pour le container type :
+
+```text
+const sizePrefix = container.type.slice(0, 2); // "20" ou "40"
+const mappedContainerType = CONTAINER_TYPE_MAPPING[sizePrefix];
+```
+
+Puis requete :
+
+```text
+let rateQuery = supabase
+  .from('local_transport_rates')
+  .select('*')
+  .eq('is_active', true)
+  .ilike('destination', `%${searchTerm}%`);
+
+if (mappedContainerType) {
+  rateQuery = rateQuery.eq('container_type', mappedContainerType);
+}
+
+const { data: localRates } = await rateQuery.limit(1);
+```
+
+## Impact attendu
+
+| Ligne | Avant | Apres |
+|-------|-------|-------|
+| Transport 20ST Dakar | 0 FCFA (COMPUTED) | 82 600 FCFA (OFFICIAL) |
+| Transport 40HC Dakar | 0 FCFA (COMPUTED) | 123 900 FCFA (OFFICIAL) |
+| THC | OK (DPW_PROVIDERS) | Inchange |
+| Sources | >= 3 | >= 4 |
+
+## Ce qui ne change PAS
+
+- Tables DB (zero migration)
+- Transport Mali (bloc separe)
+- Logique THC (DPW_PROVIDERS reste en place)
+- Logique fiscale (droits, taxes, CAF)
+- Historique tarifs (toujours prioritaire avant local_transport_rates)
+
+## Risques
+
+| Risque | Mitigation |
+|--------|-----------|
+| ZONE_MAPPING incomplet | Fallback sur recherche ILIKE existante |
+| Container type inconnu (Low Bed, etc.) | Si pas dans mapping, pas de filtre container (comportement actuel) |
+| Destinations composees ("Dakar Plateau") | `includes()` au lieu de match exact |
