@@ -264,7 +264,7 @@ function buildQuotationGuidance(incotermRef: any, costsToQuote: string[]): Quota
 function getCafNotes(method: string): string {
   switch (method) {
     case 'FOB_PLUS_FREIGHT':
-      return "Valeur CAF = FOB + Fret + Assurance (0.5% si non spécifiée)";
+      return "Valeur CAF = FOB + Fret + Assurance (0.15% si non spécifiée)";
     case 'INVOICE_VALUE':
       return "Valeur CAF = Valeur facture CIF/CIP (fret déjà inclus)";
     case 'EXW_PLUS_ALL':

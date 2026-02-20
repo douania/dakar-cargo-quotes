@@ -370,7 +370,7 @@ export function calculateCAF(params: {
   insuranceRate?: number;
 }): CAFCalculation {
   const incotermRule = INCOTERMS_MATRIX[params.incoterm.toUpperCase()];
-  const insuranceRate = params.insuranceRate || 0.005; // 0.5% par défaut
+  const insuranceRate = params.insuranceRate || 0.0015; // 0.15% par défaut
   
   if (!incotermRule) {
     throw new Error(`Incoterm inconnu: ${params.incoterm}`);
