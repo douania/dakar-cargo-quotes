@@ -14,6 +14,7 @@ import { getCorrelationId, respondOk, respondError, logRuntimeEvent } from "../_
 const ALLOWED_FACT_KEYS = new Set([
   "client.code",
   "cargo.caf_value",
+  "cargo.freight_cost",
   "cargo.weight_kg",
   "cargo.chargeable_weight_kg",
   "cargo.weight_per_container_kg",
