@@ -464,7 +464,21 @@ Deno.serve(async (req) => {
       }
 
       engineResponse = await engineRes.json();
-      tariffSources = engineResponse.sources || engineResponse.tariffSources || [];
+      // Fix CTO: construire tariffSources depuis les lignes (le moteur ne renvoie pas de champ global)
+      const rawLines = engineResponse.lines || engineResponse.quotationLines || [];
+      const sourceMap = new Map<string, any>();
+      for (const line of rawLines) {
+        if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {
+          const key = `${line.source.type}_${line.source.reference}`;
+          sourceMap.set(key, {
+            type: line.source.type,
+            reference: line.source.reference,
+            table: line.source.table || line.source.type,
+            confidence: line.source.confidence,
+          });
+        }
+      }
+      tariffSources = Array.from(sourceMap.values());
 
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
