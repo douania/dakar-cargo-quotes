@@ -1,136 +1,52 @@
 
 
-# Integration PROMAD — Patch final corrige apres audit reel
+# Modification du taux d'assurance par defaut : 0.5% vers 0.15%
 
-## Correction CTO importante
+## Contexte
 
-Le `ratesMap` mentionne dans la review CTO **n'existe pas** dans `quotation-engine`. Les taux sont lus directement depuis `hs_codes` par article. La table `tax_rates` n'est jamais chargee globalement.
+Le taux d'assurance utilise pour le calcul de la valeur CAF (Cout Assurance Fret) est actuellement fixe a 0.5% par defaut. Il doit etre abaisse a 0.15% (0.0015) pour refleter le taux reel applique.
 
-La requete dediee avant la boucle est donc le bon pattern — minimal, isole, sans refactor.
+## Modifications (3 fichiers)
 
-## Modifications (4 fichiers)
+### 1. `supabase/functions/_shared/quotation-rules.ts` (ligne 373)
 
-### 1. `supabase/functions/calculate-duties/index.ts`
+Changer le taux par defaut dans la fonction `calculateCAF` :
 
-Apres le bloc COSEC (ligne ~227), ajouter :
+```
+// Avant
+const insuranceRate = params.insuranceRate || 0.005; // 0.5% par défaut
 
-```text
-// PROMAD (2% CAF — hors base TVA)
-const promadRateRaw = getTaxRate('PROMAD');
-const promadRate = typeof promadRateRaw === 'number' ? promadRateRaw : 0;
-
-const isPromadExempt =
-  normalizedCode.startsWith('1006') ||
-  normalizedCode.startsWith('1001') ||
-  normalizedCode.startsWith('1003') ||
-  normalizedCode.startsWith('30');
-
-const effectivePromadRate = isPromadExempt ? 0 : promadRate;
-const promadAmount = Math.round(caf_value * (effectivePromadRate / 100));
-
-breakdown.push({
-  name: 'PROMAD',
-  code: 'PROMAD',
-  rate: effectivePromadRate,
-  base: caf_value,
-  amount: promadAmount,
-  notes: isPromadExempt ? 'Exempte (produit exonere PROMAD)' : undefined,
-});
+// Après
+const insuranceRate = params.insuranceRate || 0.0015; // 0.15% par défaut
 ```
 
-Ajouter `'PROMAD'` dans l'agregation `droits_douane` (ligne ~350) :
-```text
-['DD', 'SURTAXE', 'RS', 'PCS', 'PCC', 'COSEC', 'PROMAD']
+### 2. `supabase/functions/quotation-engine/index.ts` (ligne 2125)
+
+Changer le taux passe explicitement au calcul CAF :
+
+```
+// Avant
+insuranceRate: 0.005
+
+// Après
+insuranceRate: 0.0015
 ```
 
-Aucune modification de `baseTVA`.
+### 3. `supabase/functions/arbitrage-incoterm/index.ts` (ligne 267)
 
-### 2. `supabase/functions/quotation-engine/index.ts`
+Mettre a jour le texte descriptif affiche :
 
-**Avant la boucle (ligne ~2229)**, requete dediee unique :
+```
+// Avant
+"Valeur CAF = FOB + Fret + Assurance (0.5% si non spécifiée)"
 
-```text
-// PROMAD rate — loaded once before article loop
-let promadRate = 0;
-{
-  const { data: promadRow } = await supabase
-    .from('tax_rates')
-    .select('rate')
-    .eq('code', 'PROMAD')
-    .eq('is_active', true)
-    .maybeSingle();
-  if (promadRow) promadRate = parseFloat(promadRow.rate) || 0;
-}
+// Après
+"Valeur CAF = FOB + Fret + Assurance (0.15% si non spécifiée)"
 ```
 
-**Dans la boucle, apres cosecAmount (ligne ~2249)** :
+## Impact
 
-```text
-// PROMAD — exemptions produit (riz, ble, orge, pharma)
-const isPromadExempt =
-  hsNormalized.startsWith('1006') ||
-  hsNormalized.startsWith('1001') ||
-  hsNormalized.startsWith('1003') ||
-  hsNormalized.startsWith('30');
-const promadAmount = Math.round(
-  isPromadExempt ? 0 : cafForArticle * (promadRate / 100)
-);
-```
-
-**Ligne 2260 — commentaire de securite** :
-
-```text
-const baseVAT = cafForArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
-// PROMAD excluded from VAT base intentionally (parafiscal, same as COSEC/PCS)
-```
-
-**Ligne 2264 — ajouter promadAmount** :
-
-```text
-const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount
-  + tciAmount + pcsAmount + pccAmount + cosecAmount + promadAmount + tvaAmount;
-```
-
-**Lignes 2285-2286 — ajouter dans dutyBreakdown.push()** :
-
-```text
-cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
-promad_rate: promadRate, promad_amount: Math.round(promadAmount),
-```
-
-### 3. `src/hooks/usePricingResultData.ts`
-
-Ajouter deux champs optionnels dans `DutyBreakdownItem` :
-
-```text
-promad_rate?: number;
-promad_amount?: number;
-```
-
-### 4. `src/components/puzzle/DutyBreakdownTable.tsx`
-
-Ajouter colonne PROMAD dans `taxColumns`, apres COSEC :
-
-```text
-{ label: 'PROMAD', rateKey: 'promad_rate', amountKey: 'promad_amount' },
-```
-
-## Justification de la requete dediee (vs ratesMap)
-
-| Point | Realite du code |
-|---|---|
-| `ratesMap` dans quotation-engine | N'existe pas |
-| Source des taux DD/RS/TVA... | Table `hs_codes` par article |
-| Source de PROMAD | Table `tax_rates` (taux unique global) |
-| Pattern existant | Aucun chargement global de `tax_rates` |
-
-La requete dediee est le choix le plus chirurgical. Refactorer pour creer un `ratesMap` global serait un changement d'architecture hors scope.
-
-## Ce qui ne change PAS
-
-- Zero migration DB
-- Base TVA/VAT inchangee (commentaire ajoute pour securite future)
-- Aucune autre taxe modifiee
-- Idempotence preservee
-- Retrocompatibilite UI (champs optionnels)
+- Le calcul CAF pour les incoterms FOB/FCA/FAS/EXW utilisera desormais 0.15% au lieu de 0.5% comme taux d'assurance par defaut.
+- Tout pricing run futur sera impacte. Les runs precedents ne sont pas modifies.
+- Si un `insuranceRate` specifique est passe en parametre, il continuera a etre utilise (pas de regression).
 
