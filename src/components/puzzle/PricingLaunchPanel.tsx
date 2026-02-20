@@ -5,6 +5,13 @@
 
 import { useState } from 'react';
 import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  computeValidUntil,
+  PERIOD_LABELS,
+  DAY_LABELS,
+  type ValidityPeriod,
+} from '@/lib/exchangeRateUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -46,6 +53,8 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
   const [showRateModal, setShowRateModal] = useState(false);
   const [rateInput, setRateInput] = useState('');
   const [isSubmittingRate, setIsSubmittingRate] = useState(false);
+  const [ratePeriod, setRatePeriod] = useState<ValidityPeriod>('weekly');
+  const [rateDayOfWeek, setRateDayOfWeek] = useState(3);
 
   const handleLaunchPricing = async () => {
     setIsLoading(true);
@@ -104,6 +113,7 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
         body: {
           currency_code: missingCurrency,
           rate_to_xof: rate,
+          valid_until: computeValidUntil(ratePeriod, rateDayOfWeek),
         }
       });
 
@@ -245,9 +255,36 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
                 disabled={isSubmittingRate}
               />
               <p className="text-xs text-muted-foreground">
-                Source : GAINDE — le taux sera valide jusqu'au prochain mardi 23:59 UTC.
+                Source : GAINDE
               </p>
             </div>
+
+            {/* Période de validité */}
+            <div className="space-y-2">
+              <Label>Période de validité</Label>
+              <Select value={ratePeriod} onValueChange={v => setRatePeriod(v as ValidityPeriod)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PERIOD_LABELS) as ValidityPeriod[]).map(p => (
+                    <SelectItem key={p} value={p}>{PERIOD_LABELS[p]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {ratePeriod === 'weekly' && (
+              <div className="space-y-2">
+                <Label>Expire le</Label>
+                <Select value={String(rateDayOfWeek)} onValueChange={v => setRateDayOfWeek(Number(v))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DAY_LABELS.map((label, i) => (
+                      <SelectItem key={i} value={String(i)}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

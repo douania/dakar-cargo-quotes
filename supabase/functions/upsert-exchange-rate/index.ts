@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
   if (auth instanceof Response) return auth;
 
   try {
-    const { currency_code, rate_to_xof } = await req.json();
+    const { currency_code, rate_to_xof, valid_until: bodyValidUntil, source: bodySource } = await req.json();
 
     if (!currency_code || typeof currency_code !== "string") {
       return new Response(
@@ -52,8 +52,8 @@ Deno.serve(async (req) => {
         currency_code: cur,
         rate_to_xof: rate,
         valid_from: new Date().toISOString(),
-        valid_until: nextTuesday2359(),
-        source: "GAINDE",
+        valid_until: bodyValidUntil || nextTuesday2359(),
+        source: bodySource || "GAINDE",
         updated_by: auth.user.id,
       })
       .select()
