@@ -33,6 +33,7 @@ export function DutyBreakdownTable({ items, currency = 'XOF' }: DutyBreakdownTab
     { label: 'PCS', rateKey: 'pcs_rate', amountKey: 'pcs_amount' },
     { label: 'PCC', rateKey: 'pcc_rate', amountKey: 'pcc_amount' },
     { label: 'COSEC', rateKey: 'cosec_rate', amountKey: 'cosec_amount' },
+    { label: 'PROMAD', rateKey: 'promad_rate', amountKey: 'promad_amount' },
   ];
 
   return (

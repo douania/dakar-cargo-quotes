@@ -2227,6 +2227,18 @@ async function generateQuotationLines(
         }
       }
 
+      // PROMAD rate — loaded once before article loop
+      let promadRate = 0;
+      {
+        const { data: promadRow } = await supabase
+          .from('tax_rates')
+          .select('rate')
+          .eq('code', 'PROMAD')
+          .eq('is_active', true)
+          .maybeSingle();
+        if (promadRow) promadRate = parseFloat(promadRow.rate) || 0;
+      }
+
       for (const [idx, currentHsCode] of hsCodes.entries()) {
         const cafForArticle = cafDistribution[idx];
         const hsNormalized = currentHsCode.replace(/\D/g, '');
@@ -2248,6 +2260,16 @@ async function generateQuotationLines(
           let pccAmount = cafForArticle * ((hs.pcc || 0) / 100);
           let cosecAmount = cafForArticle * ((hs.cosec || 0) / 100);
 
+          // PROMAD — exemptions produit (riz, blé, orge, pharma)
+          const isPromadExempt =
+            hsNormalized.startsWith('1006') ||
+            hsNormalized.startsWith('1001') ||
+            hsNormalized.startsWith('1003') ||
+            hsNormalized.startsWith('30');
+          const promadAmount = Math.round(
+            isPromadExempt ? 0 : cafForArticle * (promadRate / 100)
+          );
+
           // Apply regime flags AFTER calculation (CTO: never rewrite formulas)
           if (!regimeFlags.dd) ddAmount = 0;
           if (!regimeFlags.rs) rsAmount = 0;
@@ -2258,10 +2280,11 @@ async function generateQuotationLines(
           if (!regimeFlags.cosec) cosecAmount = 0;
 
           const baseVAT = cafForArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
+          // PROMAD excluded from VAT base intentionally (parafiscal, same as COSEC/PCS)
           let tvaAmount = baseVAT * ((hs.tva || 0) / 100);
           if (!regimeFlags.tva) tvaAmount = 0;
 
-          const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + tvaAmount;
+          const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount + tciAmount + pcsAmount + pccAmount + cosecAmount + promadAmount + tvaAmount;
           totalAllDuties += articleDuties;
 
           // Find description from articlesDetail if available
@@ -2283,6 +2306,7 @@ async function generateQuotationLines(
             pcs_rate: hs.pcs || 0, pcs_amount: Math.round(pcsAmount),
             pcc_rate: hs.pcc || 0, pcc_amount: Math.round(pccAmount),
             cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
+            promad_rate: promadRate, promad_amount: promadAmount,
             base_tva: Math.round(baseVAT),
             tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
             total_duties: Math.round(articleDuties),
