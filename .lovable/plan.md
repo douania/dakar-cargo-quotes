@@ -1,52 +1,46 @@
 
 
-# Modification du taux d'assurance par defaut : 0.5% vers 0.15%
+# Correction PCS : 1% vers 0.8% dans la base hs_codes
 
 ## Contexte
 
-Le taux d'assurance utilise pour le calcul de la valeur CAF (Cout Assurance Fret) est actuellement fixe a 0.5% par defaut. Il doit etre abaisse a 0.15% (0.0015) pour refleter le taux reel applique.
+La table `hs_codes` contient **2 995 lignes** avec un taux PCS de 1.00% au lieu de 0.80%.
+Les valeurs par defaut dans le code sont deja a 0.8%, ce qui confirme que 0.8% est le taux reglementaire correct (UEMOA).
 
-## Modifications (3 fichiers)
+## Etat actuel des donnees
 
-### 1. `supabase/functions/_shared/quotation-rules.ts` (ligne 373)
-
-Changer le taux par defaut dans la fonction `calculateCAF` :
-
-```
-// Avant
-const insuranceRate = params.insuranceRate || 0.005; // 0.5% par défaut
-
-// Après
-const insuranceRate = params.insuranceRate || 0.0015; // 0.15% par défaut
+```text
+PCS = 0.80  →  3 135 lignes (correct)
+PCS = 1.00  →  2 995 lignes (a corriger)
+PCS = 5.00  →  1 ligne (cas special, non touche)
+PCS = 20.00 →  1 ligne (cas special, non touche)
 ```
 
-### 2. `supabase/functions/quotation-engine/index.ts` (ligne 2125)
+## Action
 
-Changer le taux passe explicitement au calcul CAF :
+Une seule operation de mise a jour en base :
 
-```
-// Avant
-insuranceRate: 0.005
-
-// Après
-insuranceRate: 0.0015
+```sql
+UPDATE hs_codes SET pcs = 0.80 WHERE pcs = 1.00;
 ```
 
-### 3. `supabase/functions/arbitrage-incoterm/index.ts` (ligne 267)
-
-Mettre a jour le texte descriptif affiche :
-
-```
-// Avant
-"Valeur CAF = FOB + Fret + Assurance (0.5% si non spécifiée)"
-
-// Après
-"Valeur CAF = FOB + Fret + Assurance (0.15% si non spécifiée)"
-```
+Cela corrige les 2 995 lignes sans toucher aux cas speciaux (5% et 20%).
 
 ## Impact
 
-- Le calcul CAF pour les incoterms FOB/FCA/FAS/EXW utilisera desormais 0.15% au lieu de 0.5% comme taux d'assurance par defaut.
-- Tout pricing run futur sera impacte. Les runs precedents ne sont pas modifies.
-- Si un `insuranceRate` specifique est passe en parametre, il continuera a etre utilise (pas de regression).
+- Tous les calculs de droits futurs utiliseront le bon taux PCS de 0.8%
+- Les dossiers existants ne sont pas retroactivement modifies (les pricing runs passes restent intacts dans leur snapshot)
+- Pour le dossier en cours (`7eab135d`), un nouveau pricing run sera necessaire pour prendre en compte le bon taux PCS
+
+## Aucune modification de code
+
+Le code source est deja aligne sur 0.8% comme valeur par defaut. Seule la donnee en base est incorrecte.
+
+## Section technique
+
+- Table cible : `hs_codes`
+- Colonne : `pcs` (numeric)
+- Condition : `WHERE pcs = 1.00`
+- Lignes affectees : 2 995
+- Aucun risque de regression : les fallbacks code sont deja a 0.8
 
