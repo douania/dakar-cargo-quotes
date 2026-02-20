@@ -23,6 +23,29 @@ import {
 // Provider aliases — centralised to avoid hardcoded mismatches (DPW vs DP_WORLD)
 const DPW_PROVIDERS = ['DPW', 'DP_WORLD'];
 
+// Zone mapping: common city names → tariff zone labels in local_transport_rates
+const ZONE_MAPPING: Record<string, string> = {
+  'dakar': 'FORFAIT ZONE 1',
+  'plateau': 'FORFAIT ZONE 1',
+  'medina': 'FORFAIT ZONE 1',
+  'almadies': 'FORFAIT ZONE 1',
+  'pikine': 'FORFAIT ZONE 1',
+  'guediawaye': 'FORFAIT ZONE 1',
+  'rufisque': 'FORFAIT ZONE 1',
+  'keur massar': 'FORFAIT ZONE 1',
+  'parcelles': 'FORFAIT ZONE 1',
+  'diamniadio': 'FORFAIT ZONE 1',
+  'pout': 'FORFAIT ZONE 2',
+  'seikhotane': 'FORFAIT ZONE 2',
+  'sebikhotane': 'FORFAIT ZONE 2',
+};
+
+// Container type mapping: size prefix → exact DB value in local_transport_rates
+const CONTAINER_TYPE_MAPPING: Record<string, string> = {
+  '20': "20' Dry",
+  '40': "40' Dry",
+};
+
 const normalize = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
 
@@ -1625,31 +1648,7 @@ async function generateQuotationLines(
       }
       
     } else {
-      // ===== NON-MALI TRANSPORT (original logic) =====
-      const portCity = normalize(request.port || 'Dakar');
-      const destNorm = normalize(request.finalDestination || '');
-      const isPortDelivery = destNorm === portCity || destNorm.startsWith(portCity);
-
-      if (isPortDelivery) {
-        // Destination = port d'entrée → pas de transport inter-urbain
-        for (const container of containers) {
-          lines.push({
-            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
-            bloc: 'operationnel',
-            category: 'Transport',
-            description: `Transport local — livraison zone portuaire ${request.port || 'Dakar'}`,
-            amount: 0,
-            currency: 'FCFA',
-            containerType: container.type,
-            source: {
-              type: 'COMPUTED' as DataSourceType,
-              reference: 'Destination identique au port d\'entrée',
-              confidence: 1.0
-            },
-            isEditable: true
-          });
-        }
-      } else {
+      // ===== NON-MALI TRANSPORT =====
       for (const container of containers) {
         // Search historical tariffs for this destination
         const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
@@ -1682,13 +1681,27 @@ async function generateQuotationLines(
             isEditable: true
           });
         } else {
-          // Try local_transport_rates table
-          const { data: localRates } = await supabase
+          // Zone mapping: resolve destination to tariff zone via includes()
+          const destKey = normalize(request.finalDestination || '');
+          const mappedZone = Object.entries(ZONE_MAPPING)
+            .find(([key]) => destKey.includes(key))?.[1];
+          const searchTerm = mappedZone || request.finalDestination.split(' ')[0];
+
+          // Container type mapping: strict .eq() match
+          const sizePrefix = container.type.slice(0, 2); // "20" or "40"
+          const mappedContainerType = CONTAINER_TYPE_MAPPING[sizePrefix];
+
+          let rateQuery = supabase
             .from('local_transport_rates')
             .select('*')
             .eq('is_active', true)
-            .ilike('destination', `%${request.finalDestination.split(' ')[0]}%`)
-            .limit(1);
+            .ilike('destination', `%${searchTerm}%`);
+
+          if (mappedContainerType) {
+            rateQuery = rateQuery.eq('container_type', mappedContainerType);
+          }
+
+          const { data: localRates } = await rateQuery.limit(1);
           
           if (localRates && localRates.length > 0) {
             const rate = localRates[0];
@@ -1729,7 +1742,6 @@ async function generateQuotationLines(
           }
         }
       }
-      } // end else !isPortDelivery
     }
   }
   
