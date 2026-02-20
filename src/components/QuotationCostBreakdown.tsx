@@ -155,7 +155,7 @@ export function QuotationCostBreakdown({
           <Separator />
 
           <div className="flex justify-between items-center">
-            <span className="font-medium">Total DAP</span>
+            <span className="font-medium">Total DAP <span className="text-xs font-normal text-muted-foreground">(hors droits & taxes)</span></span>
             <span className="font-bold text-lg text-primary">
               {formatAmount(totalDap)} {currency}
             </span>
@@ -165,6 +165,16 @@ export function QuotationCostBreakdown({
             <div className="flex justify-between items-center text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 Total DDP
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Coût complet livré : opérationnel + honoraires + droits & taxes</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 {totalDdp === 'TBC' && (
                   <TooltipProvider>
                     <Tooltip>
@@ -531,7 +541,7 @@ export function QuotationCostBreakdown({
             <Separator />
             
             <div className="flex justify-between items-center p-2 rounded bg-muted">
-              <span className="font-semibold">TOTAL DDP</span>
+              <span className="font-semibold">TOTAL DDP <span className="text-xs font-normal">(coût complet livré)</span></span>
               <div className="text-right">
                 <span className={cn(
                   "font-bold text-lg",
