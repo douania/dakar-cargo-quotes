@@ -18,6 +18,7 @@ export interface DutyBreakdownItem {
   pcs_rate: number; pcs_amount: number;
   pcc_rate: number; pcc_amount: number;
   cosec_rate: number; cosec_amount: number;
+  promad_rate?: number; promad_amount?: number;
   base_tva: number;
   tva_rate: number; tva_amount: number;
   total_duties: number;

@@ -226,6 +226,28 @@ Deno.serve(async (req) => {
       notes: !regimeFlags.cosec ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
+    // PROMAD (2% CAF — hors base TVA)
+    const promadRateRaw = getTaxRate('PROMAD');
+    const promadRate = typeof promadRateRaw === 'number' ? promadRateRaw : 0;
+
+    const isPromadExempt =
+      normalizedCode.startsWith('1006') ||
+      normalizedCode.startsWith('1001') ||
+      normalizedCode.startsWith('1003') ||
+      normalizedCode.startsWith('30');
+
+    const effectivePromadRate = isPromadExempt ? 0 : promadRate;
+    const promadAmount = Math.round(caf_value * (effectivePromadRate / 100));
+
+    breakdown.push({
+      name: 'PROMAD',
+      code: 'PROMAD',
+      rate: effectivePromadRate,
+      base: caf_value,
+      amount: promadAmount,
+      notes: isPromadExempt ? 'Exempte (produit exonere PROMAD)' : undefined,
+    });
+
     // Calculate intermediary base for taxes
     const baseTaxeIntermediaire = caf_value + ddAmount + rsAmount;
 
@@ -347,7 +369,7 @@ Deno.serve(async (req) => {
 
     // Calculate totals
     const totalDroitsDouane = breakdown
-      .filter(d => ['DD', 'SURTAXE', 'RS', 'PCS', 'PCC', 'COSEC'].includes(d.code))
+      .filter(d => ['DD', 'SURTAXE', 'RS', 'PCS', 'PCC', 'COSEC', 'PROMAD'].includes(d.code))
       .reduce((sum, d) => sum + d.amount, 0);
 
     const totalTaxesInterieures = breakdown
