@@ -20,6 +20,12 @@ import {
   type SodatraFeeParams,
 } from "../_shared/quotation-rules.ts";
 
+// Provider aliases — centralised to avoid hardcoded mismatches (DPW vs DP_WORLD)
+const DPW_PROVIDERS = ['DPW', 'DP_WORLD'];
+
+const normalize = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+
 // =====================================================
 // DB-BACKED LOADERS (M1.3 — replace hardcoded rules)
 // =====================================================
@@ -926,6 +932,7 @@ async function fetchOfficialTariffs(
   supabase: any,
   params: {
     provider?: string;
+    providers?: string[];
     category?: string;
     operationType?: string;
     classification?: string;
@@ -937,7 +944,11 @@ async function fetchOfficialTariffs(
     .select('*')
     .eq('is_active', true);
   
-  if (params.provider) query = query.eq('provider', params.provider);
+  if (params.providers && params.providers.length > 0) {
+    query = query.in('provider', params.providers);
+  } else if (params.provider) {
+    query = query.eq('provider', params.provider);
+  }
   if (params.category) query = query.eq('category', params.category);
   if (params.operationType) query = query.eq('operation_type', params.operationType);
   if (params.classification) query = query.ilike('classification', `%${params.classification}%`);
@@ -1249,7 +1260,7 @@ async function generateQuotationLines(
   
   // THC Tariffs - with correct operation type
   const thcTariffs = await fetchOfficialTariffs(supabase, {
-    provider: 'DP_WORLD',
+    providers: DPW_PROVIDERS,
     category: 'THC',
     operationType: effectiveOperationType
   });
@@ -1262,7 +1273,7 @@ async function generateQuotationLines(
   
   // DPW additional tariffs (Relevage, etc.)
   const dpwAdditionalTariffs = await fetchOfficialTariffs(supabase, {
-    provider: 'DP_WORLD',
+    providers: DPW_PROVIDERS,
     operationType: effectiveOperationType
   });
   
@@ -1615,6 +1626,30 @@ async function generateQuotationLines(
       
     } else {
       // ===== NON-MALI TRANSPORT (original logic) =====
+      const portCity = normalize(request.port || 'Dakar');
+      const destNorm = normalize(request.finalDestination || '');
+      const isPortDelivery = destNorm === portCity || destNorm.startsWith(portCity);
+
+      if (isPortDelivery) {
+        // Destination = port d'entrée → pas de transport inter-urbain
+        for (const container of containers) {
+          lines.push({
+            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+            bloc: 'operationnel',
+            category: 'Transport',
+            description: `Transport local — livraison zone portuaire ${request.port || 'Dakar'}`,
+            amount: 0,
+            currency: 'FCFA',
+            containerType: container.type,
+            source: {
+              type: 'COMPUTED' as DataSourceType,
+              reference: 'Destination identique au port d\'entrée',
+              confidence: 1.0
+            },
+            isEditable: true
+          });
+        }
+      } else {
       for (const container of containers) {
         // Search historical tariffs for this destination
         const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
@@ -1694,6 +1729,7 @@ async function generateQuotationLines(
           }
         }
       }
+      } // end else !isPortDelivery
     }
   }
   
@@ -2075,7 +2111,7 @@ async function generateQuotationLines(
       freightAmount: freightFCFA,
       insuranceRate: 0.005
     });
-    
+
 
     // Si code HS fourni, calculer les droits
     if (request.hsCode) {
