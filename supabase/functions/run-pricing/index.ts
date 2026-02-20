@@ -671,7 +671,7 @@ function buildPricingInputs(facts: any[]): PricingInputs {
   const inputs: PricingInputs = {};
 
   for (const fact of facts) {
-    const value = fact.value_text || fact.value_number || fact.value_json;
+    const value = fact.value_json ?? fact.value_number ?? fact.value_text;
 
     switch (fact.fact_key) {
       case "routing.origin_port":
