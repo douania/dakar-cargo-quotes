@@ -2327,6 +2327,7 @@ Deno.serve(async (req) => {
     if (auth instanceof Response) return auth;
 
     const supabase = createSupabaseClient();
+    _rateCache.clear();
     const body = await req.json();
     
     const { action, params } = body;
