@@ -1,60 +1,100 @@
 
-# Corrections de securite pre-relance pricing
 
-## 3 micro-corrections dans `supabase/functions/quotation-engine/index.ts`
+# Clarification des labels TTC vs DDP dans l'UI
 
-### Correction A — Safe access `container.type` (ligne 1691)
+## Probleme
 
-Avant :
+Les labels actuels "Total TTC" et "Total DDP" sont ambigus pour le client final. Il peut croire a une incoherence alors que ce sont deux perimetre de couts differents.
+
+## Composants concernes
+
+### 1. `src/components/QuotationCostBreakdown.tsx`
+
+**Ligne 167** : "Total DDP" (vue compacte)
+- Ajouter un sous-label explicatif : "Cout complet livre"
+- Ajouter un tooltip sur le label normal (pas seulement quand TBC)
+
+**Ligne 534** : "TOTAL DDP" (vue detaillee)
+- Remplacer par : "TOTAL DDP (cout complet livre)"
+
+**Ligne 158** : "Total DAP"
+- Ajouter un sous-label : "Hors droits et taxes"
+
+### 2. `src/features/quotation/components/QuotationTotalsCard.tsx`
+
+**Ligne "Total HT"** (environ ligne 120) : Garder tel quel, c'est clair.
+
+**Ligne "Total TTC"** (environ ligne 130) :
+- Remplacer le label par : "Total TTC (hors couts port & transport)"
+- Ajouter un tooltip explicatif : "Ce total inclut les droits, taxes et honoraires. Les frais portuaires et de transport sont inclus dans le Total DDP."
+
+### 3. `src/components/puzzle/PricingResultPanel.tsx`
+
+**Ligne 140** : "Total HT" dans le panneau de resultats pricing.
+- Pas de changement necessaire, le label est correct dans ce contexte.
+
+## Detail technique des modifications
+
+### QuotationCostBreakdown.tsx - Vue compacte (lignes 157-184)
+
+Modifier le label "Total DAP" :
 ```text
-const sizePrefix = container.type.slice(0, 2);
+<span className="font-medium">
+  Total DAP
+  <span className="text-xs font-normal text-muted-foreground ml-1">(hors droits & taxes)</span>
+</span>
 ```
 
-Apres :
+Modifier le label "Total DDP" avec tooltip permanent :
 ```text
-const sizePrefix = container.type?.slice(0, 2) || '';
+<span className="flex items-center gap-1">
+  Total DDP
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger>
+        <Info className="h-3 w-3 text-muted-foreground" />
+      </TooltipTrigger>
+      <TooltipContent>
+        <p className="text-xs">Cout complet livre : operationnel + honoraires + droits & taxes</p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+</span>
 ```
 
-Empeche un crash runtime si `container.type` est `undefined`.
+### QuotationCostBreakdown.tsx - Vue detaillee (ligne 534)
 
-### Correction B — Normalisation du fallback searchTerm (ligne 1688)
-
-Avant :
+Remplacer :
 ```text
-const searchTerm = mappedZone || request.finalDestination.split(' ')[0];
+<span className="font-semibold">TOTAL DDP</span>
+```
+Par :
+```text
+<span className="font-semibold">TOTAL DDP <span className="text-xs font-normal">(cout complet livre)</span></span>
 ```
 
-Apres :
+### QuotationTotalsCard.tsx (lignes 126-133)
+
+Modifier le label "Total TTC" :
 ```text
-const searchTerm = mappedZone || normalize(request.finalDestination?.split(' ')[0] || '');
+<TotalRow
+  label="Total TTC (fiscal, hors port & transport)"
+  amount={total_ttc}
+  currency={currency}
+  bold
+  highlight
+/>
 ```
 
-Le fallback passe desormais par `normalize()` pour gerer accents et espaces.
+## Import supplementaire
 
-### Correction C — Tri par longueur decroissante du ZONE_MAPPING (lignes 1686-1687)
-
-Avant :
-```text
-const mappedZone = Object.entries(ZONE_MAPPING)
-  .find(([key]) => destKey.includes(key))?.[1];
-```
-
-Apres :
-```text
-const mappedZone = Object.entries(ZONE_MAPPING)
-  .sort((a, b) => b[0].length - a[0].length)
-  .find(([key]) => destKey.includes(key))?.[1];
-```
-
-Garantit que `'keur massar'` est teste avant un eventuel `'keur'`, evitant les collisions.
-
-## Apres corrections
-
-Deploiement automatique de la edge function, puis relance pricing sur dossier `7eab135d`.
+Ajouter `Info` depuis `lucide-react` dans `QuotationCostBreakdown.tsx` (si pas deja importe).
 
 ## Ce qui ne change PAS
 
-- Les mappings ZONE_MAPPING et CONTAINER_TYPE_MAPPING (inchanges)
-- La logique THC / DPW_PROVIDERS
-- Le flux general du moteur
+- Aucune logique metier
+- Aucun calcul modifie
 - Zero migration DB
+- Les montants restent identiques
+- Le PricingResultPanel (affiche Total HT, correct)
+
