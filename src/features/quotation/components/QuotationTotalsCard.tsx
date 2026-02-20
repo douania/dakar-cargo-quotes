@@ -140,7 +140,7 @@ export function QuotationTotalsCard({
                 currency={currency}
               />
               <TotalRow
-                label="Total TTC"
+                label="Total TTC (fiscal, hors port & transport)"
                 amount={total_ttc}
                 currency={currency}
                 bold
