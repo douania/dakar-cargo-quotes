@@ -54,6 +54,7 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
 
   const tariffLines = pricingRun.tariff_lines || [];
   const tariffSources = pricingRun.tariff_sources || [];
+  const toConfirmCount = tariffLines.filter((l: any) => l.source?.type === 'TO_CONFIRM').length;
   const nextVersionNumber = versions.length > 0 
     ? Math.max(...versions.map(v => v.version_number)) + 1 
     : 1;
@@ -143,8 +144,17 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
             <p className="text-xs text-muted-foreground">Lignes tarifaires</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold">{tariffSources.length}</p>
-            <p className="text-xs text-muted-foreground">Sources tarifs</p>
+            {toConfirmCount > 0 ? (
+              <>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{toConfirmCount}</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">À confirmer</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">✓</p>
+                <p className="text-xs text-muted-foreground">Tout confirmé</p>
+              </>
+            )}
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold">{versions.length}</p>
@@ -191,19 +201,38 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
                     </tr>
                   </thead>
                   <tbody>
-                    {tariffLines.slice(0, 10).map((line: any, idx: number) => (
-                      <tr key={idx} className="border-t">
-                        <td className="p-2 font-mono text-xs">
-                          {line.service_code || line.charge_code || `L${idx + 1}`}
-                        </td>
-                        <td className="p-2 text-muted-foreground">
-                          {(line.description || line.charge_name || '').substring(0, 40)}
-                        </td>
-                        <td className="p-2 text-right font-medium">
-                          {formatAmount(line.amount || line.total || 0)}
-                        </td>
-                      </tr>
-                    ))}
+                    {tariffLines.slice(0, 10).map((line: any, idx: number) => {
+                      const value = line.amount ?? line.total;
+                      const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
+                      return (
+                        <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
+                          <td className="p-2 font-mono text-xs">
+                            {line.service_code || line.charge_code || `L${idx + 1}`}
+                          </td>
+                          <td className="p-2 text-muted-foreground">
+                            {isToConfirm ? (
+                              <span className="text-amber-700 dark:text-amber-300">
+                                {(line.source?.note || line.description || line.charge_name || '').substring(0, 50)}
+                              </span>
+                            ) : (
+                              (line.description || line.charge_name || '').substring(0, 40)
+                            )}
+                          </td>
+                          <td className="p-2 text-right font-medium">
+                            {isToConfirm ? (
+                              <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 text-xs">
+                                <AlertCircle className="h-3 w-3 mr-1" />
+                                À confirmer
+                              </Badge>
+                            ) : value == null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              formatAmount(value)
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {tariffLines.length > 10 && (
                       <tr className="border-t bg-muted/50">
                         <td colSpan={3} className="p-2 text-center text-muted-foreground text-xs">
