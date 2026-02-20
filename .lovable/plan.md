@@ -1,47 +1,92 @@
 
 
-# Correction P0 : Cache _rateCache stale entre requetes
+# Page d'administration des taux de change
 
-## Constat
+## Probleme
 
-Points 1 et 2 de l'audit sont OK :
-- `convertArticleValueToFCFA` est `async` et tous ses appels utilisent `await`
-- `generateQuotationLines` est `async` et son appel utilise `await`
+La saisie des taux via le formulaire brut de la base de donnees est penible : il faut renseigner manuellement l'ID, les dates, et calculer soi-meme la date d'expiration. L'utilisateur veut une interface simple et rapide.
 
-Point 3 est un risque reel :
-- `_rateCache` (ligne 405) est un `Map` au niveau module
-- Dans Deno Deploy (Lovable Cloud), le worker peut etre reutilise entre requetes
-- Un taux mis a jour par un operateur pourrait ne pas etre pris en compte si le cache survit
+## Solution
 
-## Correction
+Creer une page `/admin/exchange-rates` dediee avec un formulaire intelligent qui calcule automatiquement les dates de validite.
 
-### Fichier unique : `supabase/functions/quotation-engine/index.ts`
+---
 
-Ajouter une seule ligne apres la creation du supabase client (ligne 2329) :
+## 1. Nouvelle page `src/pages/admin/ExchangeRates.tsx`
+
+Page admin suivant le pattern existant (comme TaxRates.tsx) avec :
+
+### Tableau des taux existants
+- Colonnes : Devise, Taux/XOF, Source, Valide du, Valide jusqu'au, Statut (actif/expire), Saisi par
+- Badge vert/rouge pour indiquer si le taux est actuellement valide
+- Tri par date de creation decroissante
+
+### Formulaire d'ajout rapide (Dialog)
+
+L'utilisateur saisit uniquement 3 champs :
+- **Devise** : select parmi les devises courantes (USD, EUR, GBP, CNY, JPY) + saisie libre
+- **Taux** : champ numerique (1 devise = ? XOF)
+- **Periode de validite** : choix parmi 4 options
+  - Quotidienne (expire ce soir 23:59 UTC)
+  - Hebdomadaire (expire le jour choisi a 23:59 UTC) — avec un selecteur de jour de la semaine (Lundi a Dimanche, defaut : Mercredi)
+  - Mensuelle (expire le dernier jour du mois en cours)
+  - Annuelle (expire le 31 decembre de l'annee en cours)
+  - Permanente (pour les taux fixes type EUR/BCEAO, expire en 2100)
+
+Les champs auto-calcules (invisibles pour l'utilisateur) :
+- `id` : genere par la base
+- `valid_from` : now()
+- `valid_until` : calcule selon la periode choisie
+- `source` : pre-rempli "GAINDE" (modifiable)
+- `updated_by` : user connecte
+- `created_at` / `updated_at` : auto
+
+## 2. Modification de `upsert-exchange-rate` (edge function)
+
+Ajouter le support d'un parametre optionnel `valid_until` dans le body :
+- Si `valid_until` est fourni : l'utiliser directement (au lieu de calculer le prochain mardi)
+- Si absent : comportement actuel (prochain mardi 23:59 UTC, retrocompatible)
+
+Cela permet a la page admin d'envoyer la date calculee cote frontend selon le choix de periode.
+
+## 3. Ajout dans la navigation
+
+- Ajouter l'entree "Taux de change" dans `AppSidebar.tsx` (section Administration)
+- Ajouter la route `/admin/exchange-rates` dans `App.tsx`
+
+## 4. Mise a jour de la modale PricingLaunchPanel
+
+Adapter le body envoye a `upsert-exchange-rate` depuis la modale existante pour qu'il inclue aussi un choix de periode (par defaut : hebdomadaire/mercredi, qui correspond au cycle GAINDE actuel).
+
+---
+
+## Details techniques
+
+### Calcul `valid_until` cote frontend
 
 ```text
-_rateCache.clear();
+function computeValidUntil(period, dayOfWeek?):
+  - "daily"    → aujourd'hui 23:59:59 UTC
+  - "weekly"   → prochain [dayOfWeek] 23:59:59 UTC
+  - "monthly"  → dernier jour du mois courant 23:59:59 UTC
+  - "yearly"   → 31 dec annee courante 23:59:59 UTC
+  - "permanent"→ 2100-01-01T00:00:00Z
 ```
 
-Position exacte :
+### Fichiers impactes
 
-```text
-const supabase = createSupabaseClient();
-_rateCache.clear(); // <-- ajout ici
-const body = await req.json();
-```
+| Fichier | Action |
+|---------|--------|
+| `src/pages/admin/ExchangeRates.tsx` | Nouveau — page admin complete |
+| `src/App.tsx` | Ajouter route `/admin/exchange-rates` |
+| `src/components/AppSidebar.tsx` | Ajouter lien navigation |
+| `supabase/functions/upsert-exchange-rate/index.ts` | Support `valid_until` optionnel |
+| `src/components/puzzle/PricingLaunchPanel.tsx` | Ajout selecteur periode dans la modale |
 
-## Impact
+### Ce qui ne change pas
 
-- 1 ligne ajoutee
-- Garantit que chaque requete HTTP resout les taux depuis la DB
-- Le cache `Map` reste utile DANS une meme requete (evite 4 queries identiques pour USD)
-- Zero risque de stale data entre requetes
-
-## Ce qui ne change pas
-
-- Tout le reste du moteur
-- Les 2 nouvelles edge functions
-- La migration SQL
-- Le frontend PricingLaunchPanel
+- La table `exchange_rates` (pas de migration SQL)
+- La fonction `get-active-exchange-rate`
+- Le moteur `quotation-engine` et `resolveExchangeRate`
+- La logique de cache `_rateCache`
 
