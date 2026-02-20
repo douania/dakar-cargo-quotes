@@ -276,7 +276,7 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'destination': { factKey: 'routing.destination_city', category: 'routing', valueType: 'text' },
   'incoterm': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
   'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
-  'devise': { factKey: 'pricing.currency', category: 'pricing', valueType: 'text' },
+  'devise': { factKey: 'cargo.value_currency', category: 'cargo', valueType: 'text' },
 };
 
 // --- M3.5.1: Assumption rules by flow type ---
@@ -398,6 +398,45 @@ function extractHsCodesFromText(text: string): string[] {
     }
   }
   return [...seen];
+}
+
+// --- P0 Fix: Parse container text into structured JSON ---
+function parseContainersFromText(raw: string): Array<{ type: string; quantity: number }> {
+  const s = (raw || "").toUpperCase();
+  const cleaned = s
+    .replace(/\s+/g, " ")
+    .replace(/'/g, "'")
+    .replace(/CONT(?:A)?INER(S)?/g, "")
+    .replace(/CNTR(S)?/g, "")
+    .trim();
+
+  const re = /(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)\s*(?:'|\s)?\s*(HC|HQ|DV|GP|STD)?/g;
+  const out: Array<{ type: string; quantity: number }> = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(cleaned)) !== null) {
+    const qty = Number(m[1]);
+    const size = m[2];
+    const suffix = (m[3] || "").trim();
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    let type = `${size}${suffix || "GP"}`;
+    type = type.replace("DV", "GP").replace("STD", "GP");
+    out.push({ type, quantity: qty });
+  }
+
+  // Fallback: if we see "40HC" or "20" without qty, assume 1
+  if (out.length === 0) {
+    const has40 = cleaned.includes("40");
+    const has20 = cleaned.includes("20");
+    const hasHC = cleaned.includes("HC") || cleaned.includes("HQ");
+    if (has40) out.push({ type: hasHC ? "40HC" : "40GP", quantity: 1 });
+    else if (has20) out.push({ type: "20GP", quantity: 1 });
+  }
+
+  // Merge same types
+  const merged = new Map<string, number>();
+  for (const c of out) merged.set(c.type, (merged.get(c.type) || 0) + c.quantity);
+  return Array.from(merged.entries()).map(([type, quantity]) => ({ type, quantity }));
 }
 
 function resolveCountry(
@@ -713,17 +752,35 @@ async function injectAttachmentFacts(
       // Prepare value
       let valueText: string | null = null;
       let valueNumber: number | null = null;
+      let valueJson: any = null;
 
-      // Handle array values (e.g., codes_hs: ["8525.50", "8507.20"])
-      const resolvedValue = Array.isArray(rawValue) ? rawValue.join(', ') : rawValue;
+      const resolvedValue = Array.isArray(rawValue) ? rawValue : rawValue;
 
-      if (mapping.valueType === 'number') {
-        valueNumber = parseRobustNumber(String(resolvedValue));
-        if (valueNumber === null) {
-          valueText = String(resolvedValue);
+      if (mapping.factKey === "cargo.containers") {
+        // P0 Fix: inject containers as structured JSON for run-pricing
+        if (Array.isArray(resolvedValue) && resolvedValue.length > 0 && typeof resolvedValue[0] === "object") {
+          valueJson = resolvedValue;
+        } else {
+          const asText = Array.isArray(resolvedValue) ? resolvedValue.join(", ") : String(resolvedValue);
+          const parsed = parseContainersFromText(asText);
+          if (parsed.length > 0) {
+            valueJson = parsed;
+          } else {
+            // Fallback legacy: keep as text if parsing fails
+            valueText = asText;
+          }
         }
       } else {
-        valueText = String(resolvedValue);
+        // Legacy behavior for all other facts
+        const scalar = Array.isArray(resolvedValue) ? resolvedValue.join(", ") : resolvedValue;
+        if (mapping.valueType === 'number') {
+          valueNumber = parseRobustNumber(String(scalar));
+          if (valueNumber === null) {
+            valueText = String(scalar);
+          }
+        } else {
+          valueText = String(scalar);
+        }
       }
 
       // Call supersede_fact RPC
@@ -733,7 +790,7 @@ async function injectAttachmentFacts(
         p_fact_category: mapping.category,
         p_value_text: valueText,
         p_value_number: valueNumber,
-        p_value_json: null,
+        p_value_json: valueJson,
         p_value_date: null,
         p_source_type: 'attachment_extracted',
         p_source_email_id: attachment.email_id || null,
