@@ -564,10 +564,31 @@ export default function CaseView() {
     enabled: !!caseId,
   });
 
+  // ── Fetch open gaps (source de vérité directe) ──
+  const { data: gaps = [], refetch: refetchGaps } = useQuery({
+    queryKey: ["case-gaps", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quote_gaps")
+        .select("id, gap_key, gap_category, question_fr, is_blocking, status")
+        .eq("case_id", caseId!)
+        .eq("status", "open")
+        .order("is_blocking", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!caseId,
+    staleTime: 30000,
+  });
+
+  const blockingGaps = gaps.filter((g: any) => g.is_blocking);
+  const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
+
   function handleRefresh() {
     refetchCase();
     refetchFacts();
     refetchEvents();
+    refetchGaps();
   }
 
   async function handleLaunchAnalysis() {
@@ -808,7 +829,14 @@ export default function CaseView() {
               </div>
               <div>
                 <span className="text-xs text-muted-foreground">Gaps</span>
-                <p className="text-sm font-semibold">{caseData.gaps_count ?? 0}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-semibold">{displayedGapsCount}</p>
+                  {blockingGaps.length > 0 && (
+                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                      {blockingGaps.length} bloquant{blockingGaps.length > 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                </div>
               </div>
               {caseData.priority && (
                 <div>
@@ -823,6 +851,23 @@ export default function CaseView() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Blocking gaps alert */}
+        {blockingGaps.length > 0 && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <p className="font-semibold mb-2">
+                {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-sm">
+                {blockingGaps.map((g: any) => (
+                  <li key={g.id}>{g.question_fr || g.gap_key}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Action Panel — visible for actionable statuses */}
         {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
