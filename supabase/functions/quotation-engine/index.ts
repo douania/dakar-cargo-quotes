@@ -2122,7 +2122,7 @@ async function generateQuotationLines(
       incoterm: request.incoterm || 'CIF',
       invoiceValue: cargoValueFCFA,
       freightAmount: freightFCFA,
-      insuranceRate: 0.005
+      insuranceRate: 0.0015
     });
 
 
