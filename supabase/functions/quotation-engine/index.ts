@@ -1684,11 +1684,12 @@ async function generateQuotationLines(
           // Zone mapping: resolve destination to tariff zone via includes()
           const destKey = normalize(request.finalDestination || '');
           const mappedZone = Object.entries(ZONE_MAPPING)
+            .sort((a, b) => b[0].length - a[0].length)
             .find(([key]) => destKey.includes(key))?.[1];
-          const searchTerm = mappedZone || request.finalDestination.split(' ')[0];
+          const searchTerm = mappedZone || normalize(request.finalDestination?.split(' ')[0] || '');
 
           // Container type mapping: strict .eq() match
-          const sizePrefix = container.type.slice(0, 2); // "20" or "40"
+          const sizePrefix = container.type?.slice(0, 2) || ''; // "20" or "40"
           const mappedContainerType = CONTAINER_TYPE_MAPPING[sizePrefix];
 
           let rateQuery = supabase
