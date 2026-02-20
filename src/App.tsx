@@ -30,6 +30,7 @@ import TendersAdmin from "./pages/admin/Tenders";
 import TransportRates from "./pages/admin/TransportRates";
 import QuotationHistory from "./pages/admin/QuotationHistory";
 import ClientOverrides from "./pages/admin/ClientOverrides";
+import ExchangeRates from "./pages/admin/ExchangeRates";
 
 const queryClient = new QueryClient();
 
@@ -63,6 +64,7 @@ const App = () => (
             <Route path="/admin/transport-rates" element={<RequireAuth><TransportRates /></RequireAuth>} />
             <Route path="/admin/quotation-history" element={<RequireAuth><QuotationHistory /></RequireAuth>} />
             <Route path="/admin/client-overrides" element={<RequireAuth><ClientOverrides /></RequireAuth>} />
+            <Route path="/admin/exchange-rates" element={<RequireAuth><ExchangeRates /></RequireAuth>} />
             <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
             <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />
             <Route path="/case/:caseId" element={<RequireAuth><CaseView /></RequireAuth>} />

@@ -66,7 +66,7 @@ const mainNavItems = [
   },
 ];
 
-import { TrendingUp, Briefcase, History } from 'lucide-react';
+import { TrendingUp, Briefcase, History, Coins } from 'lucide-react';
 
 const adminItems = [
   { title: 'Emails', url: '/admin/emails', icon: Mail },
@@ -76,6 +76,7 @@ const adminItems = [
   { title: 'Rapports tarifs', url: '/admin/tariff-reports', icon: TrendingUp },
   { title: 'Tarifs transport', url: '/admin/transport-rates', icon: Route },
   { title: 'Contrats clients', url: '/admin/client-overrides', icon: Briefcase },
+  { title: 'Taux de change', url: '/admin/exchange-rates', icon: Coins },
   { title: 'Codes SH', url: '/admin/hs-codes', icon: Package },
   { title: 'Taux & Taxes', url: '/admin/tax-rates', icon: DollarSign },
   { title: 'Régimes douaniers', url: '/admin/customs-regimes', icon: FileText },
