@@ -1,32 +1,47 @@
 
-# Gestion centralisée des taux de change douaniers GAINDE
 
-## Statut : ✅ IMPLÉMENTÉ
+# Correction P0 : Cache _rateCache stale entre requetes
 
-### Modifications réalisées
+## Constat
 
-| Fichier | Action | Statut |
-|---------|--------|--------|
-| Migration SQL | Table `exchange_rates` + RLS + unique index + seed EUR | ✅ |
-| `supabase/functions/get-active-exchange-rate/index.ts` | Nouveau — résolution taux actif | ✅ |
-| `supabase/functions/upsert-exchange-rate/index.ts` | Nouveau — insertion taux GAINDE | ✅ |
-| `supabase/functions/quotation-engine/index.ts` | Helper `resolveExchangeRate` avec cache Map + 4 zones converties + `exchangeRateUSD` supprimé | ✅ |
-| `supabase/functions/run-pricing/index.ts` | `freightExchangeRate` supprimé (interface, switch, body) | ✅ |
-| `src/components/puzzle/PricingLaunchPanel.tsx` | Modale taux de change + relance auto | ✅ |
+Points 1 et 2 de l'audit sont OK :
+- `convertArticleValueToFCFA` est `async` et tous ses appels utilisent `await`
+- `generateQuotationLines` est `async` et son appel utilise `await`
 
-### Vérifications post-déploiement
+Point 3 est un risque reel :
+- `_rateCache` (ligne 405) est un `Map` au niveau module
+- Dans Deno Deploy (Lovable Cloud), le worker peut etre reutilise entre requetes
+- Un taux mis a jour par un operateur pourrait ne pas etre pris en compte si le cache survit
 
-- [x] Zéro occurrence de `655.957` dans quotation-engine
-- [x] Zéro occurrence de `exchangeRateUSD` dans quotation-engine
-- [x] Seed EUR en base : 655.957, BCEAO_FIXED, 2000-2100
-- [x] Edge functions déployées : get-active-exchange-rate, upsert-exchange-rate, quotation-engine, run-pricing
-- [x] requireUser protège les 2 nouvelles fonctions (401 si non authentifié)
+## Correction
 
-### Flux opérateur
+### Fichier unique : `supabase/functions/quotation-engine/index.ts`
 
-1. Pricing lancé → moteur détecte devise (ex: USD)
-2. Query `exchange_rates` → taux valide → conversion auto → OK
-3. Si taux absent/expiré → throw "Exchange rate for USD expired or missing"
-4. PricingLaunchPanel intercepte → modale "Taux USD/XOF requis (source GAINDE)"
-5. Opérateur saisit taux → `upsert-exchange-rate` insère (validité mardi suivant)
-6. Pricing relancé automatiquement → succès
+Ajouter une seule ligne apres la creation du supabase client (ligne 2329) :
+
+```text
+_rateCache.clear();
+```
+
+Position exacte :
+
+```text
+const supabase = createSupabaseClient();
+_rateCache.clear(); // <-- ajout ici
+const body = await req.json();
+```
+
+## Impact
+
+- 1 ligne ajoutee
+- Garantit que chaque requete HTTP resout les taux depuis la DB
+- Le cache `Map` reste utile DANS une meme requete (evite 4 queries identiques pour USD)
+- Zero risque de stale data entre requetes
+
+## Ce qui ne change pas
+
+- Tout le reste du moteur
+- Les 2 nouvelles edge functions
+- La migration SQL
+- Le frontend PricingLaunchPanel
+
