@@ -1,100 +1,136 @@
 
 
-# Clarification des labels TTC vs DDP dans l'UI
+# Integration PROMAD — Patch final corrige apres audit reel
 
-## Probleme
+## Correction CTO importante
 
-Les labels actuels "Total TTC" et "Total DDP" sont ambigus pour le client final. Il peut croire a une incoherence alors que ce sont deux perimetre de couts differents.
+Le `ratesMap` mentionne dans la review CTO **n'existe pas** dans `quotation-engine`. Les taux sont lus directement depuis `hs_codes` par article. La table `tax_rates` n'est jamais chargee globalement.
 
-## Composants concernes
+La requete dediee avant la boucle est donc le bon pattern — minimal, isole, sans refactor.
 
-### 1. `src/components/QuotationCostBreakdown.tsx`
+## Modifications (4 fichiers)
 
-**Ligne 167** : "Total DDP" (vue compacte)
-- Ajouter un sous-label explicatif : "Cout complet livre"
-- Ajouter un tooltip sur le label normal (pas seulement quand TBC)
+### 1. `supabase/functions/calculate-duties/index.ts`
 
-**Ligne 534** : "TOTAL DDP" (vue detaillee)
-- Remplacer par : "TOTAL DDP (cout complet livre)"
+Apres le bloc COSEC (ligne ~227), ajouter :
 
-**Ligne 158** : "Total DAP"
-- Ajouter un sous-label : "Hors droits et taxes"
-
-### 2. `src/features/quotation/components/QuotationTotalsCard.tsx`
-
-**Ligne "Total HT"** (environ ligne 120) : Garder tel quel, c'est clair.
-
-**Ligne "Total TTC"** (environ ligne 130) :
-- Remplacer le label par : "Total TTC (hors couts port & transport)"
-- Ajouter un tooltip explicatif : "Ce total inclut les droits, taxes et honoraires. Les frais portuaires et de transport sont inclus dans le Total DDP."
-
-### 3. `src/components/puzzle/PricingResultPanel.tsx`
-
-**Ligne 140** : "Total HT" dans le panneau de resultats pricing.
-- Pas de changement necessaire, le label est correct dans ce contexte.
-
-## Detail technique des modifications
-
-### QuotationCostBreakdown.tsx - Vue compacte (lignes 157-184)
-
-Modifier le label "Total DAP" :
 ```text
-<span className="font-medium">
-  Total DAP
-  <span className="text-xs font-normal text-muted-foreground ml-1">(hors droits & taxes)</span>
-</span>
+// PROMAD (2% CAF — hors base TVA)
+const promadRateRaw = getTaxRate('PROMAD');
+const promadRate = typeof promadRateRaw === 'number' ? promadRateRaw : 0;
+
+const isPromadExempt =
+  normalizedCode.startsWith('1006') ||
+  normalizedCode.startsWith('1001') ||
+  normalizedCode.startsWith('1003') ||
+  normalizedCode.startsWith('30');
+
+const effectivePromadRate = isPromadExempt ? 0 : promadRate;
+const promadAmount = Math.round(caf_value * (effectivePromadRate / 100));
+
+breakdown.push({
+  name: 'PROMAD',
+  code: 'PROMAD',
+  rate: effectivePromadRate,
+  base: caf_value,
+  amount: promadAmount,
+  notes: isPromadExempt ? 'Exempte (produit exonere PROMAD)' : undefined,
+});
 ```
 
-Modifier le label "Total DDP" avec tooltip permanent :
+Ajouter `'PROMAD'` dans l'agregation `droits_douane` (ligne ~350) :
 ```text
-<span className="flex items-center gap-1">
-  Total DDP
-  <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger>
-        <Info className="h-3 w-3 text-muted-foreground" />
-      </TooltipTrigger>
-      <TooltipContent>
-        <p className="text-xs">Cout complet livre : operationnel + honoraires + droits & taxes</p>
-      </TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-</span>
+['DD', 'SURTAXE', 'RS', 'PCS', 'PCC', 'COSEC', 'PROMAD']
 ```
 
-### QuotationCostBreakdown.tsx - Vue detaillee (ligne 534)
+Aucune modification de `baseTVA`.
 
-Remplacer :
-```text
-<span className="font-semibold">TOTAL DDP</span>
-```
-Par :
-```text
-<span className="font-semibold">TOTAL DDP <span className="text-xs font-normal">(cout complet livre)</span></span>
-```
+### 2. `supabase/functions/quotation-engine/index.ts`
 
-### QuotationTotalsCard.tsx (lignes 126-133)
+**Avant la boucle (ligne ~2229)**, requete dediee unique :
 
-Modifier le label "Total TTC" :
 ```text
-<TotalRow
-  label="Total TTC (fiscal, hors port & transport)"
-  amount={total_ttc}
-  currency={currency}
-  bold
-  highlight
-/>
+// PROMAD rate — loaded once before article loop
+let promadRate = 0;
+{
+  const { data: promadRow } = await supabase
+    .from('tax_rates')
+    .select('rate')
+    .eq('code', 'PROMAD')
+    .eq('is_active', true)
+    .maybeSingle();
+  if (promadRow) promadRate = parseFloat(promadRow.rate) || 0;
+}
 ```
 
-## Import supplementaire
+**Dans la boucle, apres cosecAmount (ligne ~2249)** :
 
-Ajouter `Info` depuis `lucide-react` dans `QuotationCostBreakdown.tsx` (si pas deja importe).
+```text
+// PROMAD — exemptions produit (riz, ble, orge, pharma)
+const isPromadExempt =
+  hsNormalized.startsWith('1006') ||
+  hsNormalized.startsWith('1001') ||
+  hsNormalized.startsWith('1003') ||
+  hsNormalized.startsWith('30');
+const promadAmount = Math.round(
+  isPromadExempt ? 0 : cafForArticle * (promadRate / 100)
+);
+```
+
+**Ligne 2260 — commentaire de securite** :
+
+```text
+const baseVAT = cafForArticle + ddAmount + surtaxeAmount + rsAmount + tinAmount + tciAmount;
+// PROMAD excluded from VAT base intentionally (parafiscal, same as COSEC/PCS)
+```
+
+**Ligne 2264 — ajouter promadAmount** :
+
+```text
+const articleDuties = ddAmount + rsAmount + surtaxeAmount + tinAmount
+  + tciAmount + pcsAmount + pccAmount + cosecAmount + promadAmount + tvaAmount;
+```
+
+**Lignes 2285-2286 — ajouter dans dutyBreakdown.push()** :
+
+```text
+cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
+promad_rate: promadRate, promad_amount: Math.round(promadAmount),
+```
+
+### 3. `src/hooks/usePricingResultData.ts`
+
+Ajouter deux champs optionnels dans `DutyBreakdownItem` :
+
+```text
+promad_rate?: number;
+promad_amount?: number;
+```
+
+### 4. `src/components/puzzle/DutyBreakdownTable.tsx`
+
+Ajouter colonne PROMAD dans `taxColumns`, apres COSEC :
+
+```text
+{ label: 'PROMAD', rateKey: 'promad_rate', amountKey: 'promad_amount' },
+```
+
+## Justification de la requete dediee (vs ratesMap)
+
+| Point | Realite du code |
+|---|---|
+| `ratesMap` dans quotation-engine | N'existe pas |
+| Source des taux DD/RS/TVA... | Table `hs_codes` par article |
+| Source de PROMAD | Table `tax_rates` (taux unique global) |
+| Pattern existant | Aucun chargement global de `tax_rates` |
+
+La requete dediee est le choix le plus chirurgical. Refactorer pour creer un `ratesMap` global serait un changement d'architecture hors scope.
 
 ## Ce qui ne change PAS
 
-- Aucune logique metier
-- Aucun calcul modifie
 - Zero migration DB
-- Les montants restent identiques
-- Le PricingResultPanel (affiche Total HT, correct)
+- Base TVA/VAT inchangee (commentaire ajoute pour securite future)
+- Aucune autre taxe modifiee
+- Idempotence preservee
+- Retrocompatibilite UI (champs optionnels)
 
