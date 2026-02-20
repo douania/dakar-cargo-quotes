@@ -40,7 +40,7 @@ interface PricingInputs {
   // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
   freightCost?: number;
   freightCurrency?: string;
-  freightExchangeRate?: number;
+  
 }
 
 Deno.serve(async (req) => {
@@ -445,7 +445,7 @@ Deno.serve(async (req) => {
         regimeCode: inputs.regimeCode || undefined,
         freightAmount: inputs.freightCost,
         freightCurrency: inputs.freightCurrency,
-        exchangeRateUSD: inputs.freightExchangeRate,
+        
       };
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
@@ -752,13 +752,6 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "cargo.freight_currency":
         inputs.freightCurrency = String(value);
         break;
-      case "cargo.freight_exchange_rate": {
-        const raw = String(value ?? "").trim();
-        const normalized = raw.replace(/\s/g, "").replace(/,/g, ".");
-        const n = Number(normalized);
-        inputs.freightExchangeRate = Number.isFinite(n) ? n : undefined;
-        break;
-      }
     }
   }
 

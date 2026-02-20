@@ -400,6 +400,36 @@ async function fetchHistoricalSuggestions(
 // corsHeaders imported from _shared/cors.ts
 
 // =====================================================
+// EXCHANGE RATE RESOLVER (centralized, cached per invocation)
+// =====================================================
+const _rateCache = new Map<string, number>();
+
+async function resolveExchangeRate(
+  supabase: any, currency: string
+): Promise<number> {
+  const cur = currency.trim().toUpperCase();
+  if (_rateCache.has(cur)) return _rateCache.get(cur)!;
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('exchange_rates')
+    .select('rate_to_xof')
+    .eq('currency_code', cur)
+    .lte('valid_from', now)
+    .gte('valid_until', now)
+    .order('valid_from', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data || error) {
+    throw new Error(`Exchange rate for ${cur} expired or missing`);
+  }
+  const rate = Number(data.rate_to_xof);
+  _rateCache.set(cur, rate);
+  return rate;
+}
+
+// =====================================================
 // TYPES
 // =====================================================
 interface ContainerInfo {
@@ -463,7 +493,6 @@ interface QuotationRequest {
   // P0 CAF strict: fret réel
   freightAmount?: number;
   freightCurrency?: string;
-  exchangeRateUSD?: number;
   
   // Detail articles avec valeurs EXW pour répartition proportionnelle CAF
   articlesDetail?: Array<{
@@ -2021,21 +2050,9 @@ async function generateQuotationLines(
 
     if (rawCurrency === 'XOF' || rawCurrency === 'FCFA' || rawCurrency === 'CFA') {
       cargoValueFCFA = request.cargoValue;
-    } else if (rawCurrency === 'EUR') {
-      cargoValueFCFA = request.cargoValue * 655.957; // parité fixe BCEAO
     } else {
-      // Devise non supportée — flag TO_CONFIRM, pas de hardcode
-      lines.push({
-        id: 'currency_warning',
-        bloc: 'debours',
-        category: 'Avertissement',
-        description: `Devise ${rawCurrency} non supportée pour le calcul des droits`,
-        amount: null,
-        currency: 'FCFA',
-        source: { type: 'TO_CONFIRM', reference: 'Conversion manuelle requise', confidence: 0 },
-        isEditable: false
-      });
-      cargoValueFCFA = request.cargoValue; // fallback brut, signalé
+      const rate = await resolveExchangeRate(supabase, rawCurrency);
+      cargoValueFCFA = request.cargoValue * rate;
     }
 
     // P0 CAF strict: conversion fret réel en FCFA (si fourni)
@@ -2044,15 +2061,9 @@ async function generateQuotationLines(
       const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
       if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
         freightFCFA = request.freightAmount;
-      } else if (freightCur === 'EUR') {
-        freightFCFA = request.freightAmount * 655.957; // parité fixe BCEAO
-      } else if (freightCur === 'USD') {
-        if (!request.exchangeRateUSD || request.exchangeRateUSD <= 0) {
-          throw new Error("Taux USD/XOF requis pour conversion fret douane.");
-        }
-        freightFCFA = request.freightAmount * request.exchangeRateUSD;
       } else {
-        throw new Error(`Devise fret non supportée : ${freightCur}`);
+        const rate = await resolveExchangeRate(supabase, freightCur);
+        freightFCFA = request.freightAmount * rate;
       }
     }
 
@@ -2073,11 +2084,11 @@ async function generateQuotationLines(
       
       // --- Proportional CAF distribution based on articlesDetail EXW values ---
       // M3.4.1: Currency conversion helper
-      function convertArticleValueToFCFA(value: number, currency: string): number {
-        const cur = (currency || 'XOF').toUpperCase();
+      async function convertArticleValueToFCFA(value: number, currency: string): Promise<number> {
+        const cur = (currency || 'XOF').trim().toUpperCase();
         if (cur === 'XOF' || cur === 'FCFA' || cur === 'CFA') return value;
-        if (cur === 'EUR') return value * 655.957;
-        return value; // devise non supportee, fallback brut
+        const rate = await resolveExchangeRate(supabase, cur);
+        return value * rate;
       }
 
       let cafDistribution: number[] = [];
@@ -2088,7 +2099,7 @@ async function generateQuotationLines(
         const detailMap = new Map<string, number>();
         for (const art of request.articlesDetail) {
           const normKey = art.hs_code.replace(/\D/g, '');
-          const valueFCFA = convertArticleValueToFCFA(art.value, art.currency);
+          const valueFCFA = await convertArticleValueToFCFA(art.value, art.currency);
           detailMap.set(normKey, (detailMap.get(normKey) || 0) + valueFCFA);
         }
         
@@ -2371,18 +2382,15 @@ Deno.serve(async (req) => {
         const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
-        // P0 CAF strict: recalcul freightFCFA pour metadata (meme logique que generateQuotationLines)
+        // P0 CAF strict: recalcul freightFCFA pour metadata (resolution DB centralisee)
         let freightFCFA: number | undefined = undefined;
         if (request.freightAmount && request.freightAmount > 0) {
           const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
           if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
             freightFCFA = request.freightAmount;
-          } else if (freightCur === 'EUR') {
-            freightFCFA = request.freightAmount * 655.957;
-          } else if (freightCur === 'USD') {
-            if (request.exchangeRateUSD && request.exchangeRateUSD > 0) {
-              freightFCFA = request.freightAmount * request.exchangeRateUSD;
-            }
+          } else {
+            const rate = await resolveExchangeRate(supabase, freightCur);
+            freightFCFA = request.freightAmount * rate;
           }
         }
         const caf = calculateCAF({

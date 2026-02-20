@@ -1,16 +1,6 @@
 // ============================================================================
 // Phase 10.1 — UI GATE "Lancer le pricing"
-// 
-// ⚠️ CTO RULES ABSOLUES:
-// ❌ AUCUN calcul de prix ici
-// ❌ AUCUNE logique métier
-// ❌ AUCUNE lecture des tables pricing
-// ❌ AUCUNE transition de statut (gérée par run-pricing)
-// ❌ AUCUN auto-trigger
-// 
-// ✅ UI uniquement
-// ✅ Déclenchement explicite Phase 11 (run-pricing)
-// ✅ Confirmation utilisateur obligatoire
+// + Modale taux de change GAINDE (exchange_rates)
 // ============================================================================
 
 import { useState } from 'react';
@@ -18,6 +8,8 @@ import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +20,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -41,17 +41,17 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Exchange rate modal state
+  const [missingCurrency, setMissingCurrency] = useState<string | null>(null);
+  const [showRateModal, setShowRateModal] = useState(false);
+  const [rateInput, setRateInput] = useState('');
+  const [isSubmittingRate, setIsSubmittingRate] = useState(false);
+
   const handleLaunchPricing = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      // ❌ AUCUN calcul de prix ici
-      // ❌ AUCUNE logique métier
-      // ❌ AUCUNE lecture des tables pricing
-      // ❌ AUCUNE transition de statut
-      // ✅ Appel unique run-pricing
-      
       const { data, error: fnError } = await supabase.functions.invoke('run-pricing', {
         body: { case_id: caseId }
       });
@@ -62,13 +62,21 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
       setConfirmOpen(false);
       onComplete?.();
       
-      // Pas de redirection automatique - l'UI se mettra à jour via le hook
-      
     } catch (err: any) {
       console.error('[PricingLaunchPanel] Error:', err);
       
-      // Gestion des erreurs spécifiques
-      const message = err.message || 'Erreur inconnue';
+      const message = err.message || '';
+
+      // Intercept exchange rate error → open modal
+      if (message.includes('Exchange rate for')) {
+        const match = message.match(/Exchange rate for (\w+)/);
+        setMissingCurrency(match?.[1] || 'USD');
+        setShowRateModal(true);
+        setConfirmOpen(false);
+        setIsLoading(false);
+        return;
+      }
+
       if (message.includes('not ready') || message.includes('status')) {
         setError('Le dossier n\'est pas prêt pour le pricing');
       } else if (message.includes('Access denied')) {
@@ -80,6 +88,39 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
       toast.error('Erreur lors du lancement du pricing');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSubmitRate = async () => {
+    const rate = Number(rateInput);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      toast.error('Veuillez saisir un taux valide (nombre positif)');
+      return;
+    }
+
+    setIsSubmittingRate(true);
+    try {
+      const { error: upsertError } = await supabase.functions.invoke('upsert-exchange-rate', {
+        body: {
+          currency_code: missingCurrency,
+          rate_to_xof: rate,
+        }
+      });
+
+      if (upsertError) throw upsertError;
+
+      toast.success(`Taux ${missingCurrency}/XOF enregistré : ${rate}`);
+      setShowRateModal(false);
+      setRateInput('');
+      setMissingCurrency(null);
+
+      // Relaunch pricing automatically
+      handleLaunchPricing();
+    } catch (err: any) {
+      console.error('[PricingLaunchPanel] Rate upsert error:', err);
+      toast.error(`Erreur d'enregistrement du taux : ${err.message}`);
+    } finally {
+      setIsSubmittingRate(false);
     }
   };
 
@@ -98,7 +139,6 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
         </CardHeader>
         
         <CardContent className="space-y-4">
-          {/* Alert info traçabilité */}
           <Alert className="border-primary/30 bg-primary/5">
             <Info className="h-4 w-4 text-primary" />
             <AlertDescription className="text-sm text-primary">
@@ -107,7 +147,6 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
             </AlertDescription>
           </Alert>
           
-          {/* Erreur si présente */}
           {error && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
@@ -115,7 +154,6 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
             </Alert>
           )}
           
-          {/* Bouton principal */}
           <Button
             onClick={() => setConfirmOpen(true)}
             disabled={isLoading}
@@ -137,7 +175,7 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
         </CardContent>
       </Card>
 
-      {/* Dialog de confirmation obligatoire */}
+      {/* Confirmation dialog */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -145,13 +183,11 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>Cette action va déclencher le moteur de pricing.</p>
-                
                 <ul className="list-disc list-inside text-sm space-y-1">
                   <li>Le calcul est basé sur les décisions validées</li>
                   <li>L'opération est tracée et auditée</li>
                   <li>Le calcul peut prendre plusieurs secondes</li>
                 </ul>
-                
                 <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg mt-3">
                   <AlertTriangle className="h-4 w-4 text-warning-foreground mt-0.5" />
                   <p className="text-sm text-warning-foreground">
@@ -179,6 +215,68 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Exchange rate modal */}
+      <Dialog open={showRateModal} onOpenChange={setShowRateModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Taux de change {missingCurrency}/XOF requis
+            </DialogTitle>
+            <DialogDescription>
+              Le taux de change pour la devise <strong>{missingCurrency}</strong> est absent ou expiré.
+              Saisissez le taux GAINDE (taux douane officiel) pour continuer.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="exchange-rate">
+                1 {missingCurrency} = ? XOF (FCFA)
+              </Label>
+              <Input
+                id="exchange-rate"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Ex: 605.50"
+                value={rateInput}
+                onChange={(e) => setRateInput(e.target.value)}
+                disabled={isSubmittingRate}
+              />
+              <p className="text-xs text-muted-foreground">
+                Source : GAINDE — le taux sera valide jusqu'au prochain mardi 23:59 UTC.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowRateModal(false);
+                setRateInput('');
+              }}
+              disabled={isSubmittingRate}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleSubmitRate}
+              disabled={isSubmittingRate || !rateInput}
+            >
+              {isSubmittingRate ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Enregistrement...
+                </>
+              ) : (
+                'Enregistrer et relancer'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

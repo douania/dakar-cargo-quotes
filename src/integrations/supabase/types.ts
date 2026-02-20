@@ -1042,6 +1042,42 @@ export type Database = {
         }
         Relationships: []
       }
+      exchange_rates: {
+        Row: {
+          created_at: string | null
+          currency_code: string
+          id: string
+          rate_to_xof: number
+          source: string
+          updated_at: string | null
+          updated_by: string | null
+          valid_from: string
+          valid_until: string
+        }
+        Insert: {
+          created_at?: string | null
+          currency_code: string
+          id?: string
+          rate_to_xof: number
+          source?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          valid_from: string
+          valid_until: string
+        }
+        Update: {
+          created_at?: string | null
+          currency_code?: string
+          id?: string
+          rate_to_xof?: number
+          source?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          valid_from?: string
+          valid_until?: string
+        }
+        Relationships: []
+      }
       expert_profiles: {
         Row: {
           communication_style: Json | null
