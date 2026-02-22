@@ -1048,8 +1048,9 @@ Deno.serve(async (req) => {
       lovableApiKey
     );
 
-    // 8. Detect request type from content
-    let detectedType = detectRequestType(threadContext, extractedFacts);
+    // 8. Detect request type from content (include attachment text for Intake cases)
+    const fullDetectionContext = [threadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
+    let detectedType = detectRequestType(fullDetectionContext, extractedFacts);
 
     // Action 4: Post-detection coherence guard
     // If AIR_IMPORT but extracted facts contain valid containers → force SEA_FCL_IMPORT
@@ -2353,7 +2354,9 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
   if (hasStrongMaritime) {
     // Step 2b: LCL detection (before FCL default)
     const lclPatterns = ["lcl", "less than container", "groupage", "consolidation"];
-    if (lclPatterns.some(p => lowerContext.includes(p))) {
+    const isLclByPartOf = lowerContext.includes("part of") &&
+      (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
+    if (lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf) {
       console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
       return "SEA_LCL_IMPORT";
     }
@@ -2363,7 +2366,9 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
   // Step 2c: LCL without strong maritime (standalone LCL mention)
   const lclStandalonePatterns = ["lcl", "less than container", "groupage", "consolidation"];
-  if (lclStandalonePatterns.some(p => lowerContext.includes(p))) {
+  const isStandaloneLclByPartOf = lowerContext.includes("part of") &&
+    (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
+  if (lclStandalonePatterns.some(p => lowerContext.includes(p)) || isStandaloneLclByPartOf) {
     console.log(`[Detection] SEA_LCL_IMPORT (standalone LCL pattern)`);
     return "SEA_LCL_IMPORT";
   }
