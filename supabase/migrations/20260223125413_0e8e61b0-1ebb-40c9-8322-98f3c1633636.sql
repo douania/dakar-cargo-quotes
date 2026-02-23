@@ -1,0 +1,6 @@
+DELETE FROM quote_cases
+WHERE id IN (
+  '0f23304a-1705-408f-8ceb-627473f17f08',
+  'e5dbb910-b00b-44e3-8608-337e3525bae1',
+  '91921bb4-87a7-4664-9d67-721e50e76863'
+);

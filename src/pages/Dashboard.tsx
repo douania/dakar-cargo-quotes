@@ -383,9 +383,7 @@ export default function Dashboard() {
           const displayCases = activeCases.filter(c =>
             clientNames[c.id] ||
             (c.puzzle_completeness ?? 0) > 0 ||
-            c.request_type ||
-            // Un dossier INTAKE légitime peut commencer à 0%, on le garde s'il a un status non-NEW_THREAD
-            (c.status !== 'NEW_THREAD')
+            c.request_type
           );
           return displayCases.length > 0 ? (
             <div className="mb-6">
