@@ -1,70 +1,30 @@
 
+# Audit CTO P0/P1 — Module Gestion Emails — APPLIQUÉ ✅
 
-# Patch P0-D : Envoyer threadKey dans le payload d'import
+## Patches appliqués
 
-## Probleme identifie
+### P0-A ✅ — processQuotationRequest batching complet
+- **Fichier**: `src/services/emailService.ts`
+- Boucle `importThread()` jusqu'à `hasMore=false`
+- Garde anti-boucle infinie (max 20 itérations)
+- Contrôle de progrès (si remainingUids ne diminue pas → throw)
+- Agrégation de tous les emails importés avant `generate-response`
 
-Le frontend (`EmailSearchImport.tsx`) n'envoie pas `threadKey` dans les appels a `import-thread` et `processQuotationRequest`. Le backend l'extrait (L1339) mais recoit toujours `undefined`, se rabattant sur le `threadId` derive du premier email du batch.
+### P1-B ✅ — Recalcul metadata thread sur fil complet
+- **Fichier**: `supabase/functions/import-thread/index.ts`
+- Après linking, recharge tous les emails `thread_ref = threadId`
+- Recalcule: email_count, first/last dates (dates non-nulles), participants (from+to+cc)
+- Préserve root_message_id et is_quotation_thread
 
-Ce fallback fonctionne dans la majorite des cas, mais est moins deterministe : si le batch melange des emails de fils differents (cas edge residuel post P0-B), le `batchRootMessageId` pourrait etre celui du mauvais fil.
+### P1-C ✅ — Index unique partiel root_message_id
+- **Migration SQL**: `CREATE UNIQUE INDEX ... WHERE root_message_id IS NOT NULL`
+- Ancien index non-unique conservé temporairement
+- Gestion conflit 23505 dans import-thread, sync-emails, email-admin
 
-## Correction
+### P1-D ✅ — Harmonisation sync-emails et email-admin
+- **sync-emails**: `findExistingThread` lookup par root_message_id en priorité + barrière anti-fusion cross-root
+- **sync-emails**: `upsertEmailThread` passe et stocke rootMessageId
+- **email-admin/merge_threads**: skip groupes multi-root + lookup root prioritaire + barrière
+- **email-admin/create_threads_from_emails**: select thread_id/message_id + dérive root + barrière
 
-### Fichier : `src/components/EmailSearchImport.tsx`
-
-**1) `handleImport` (L153-158)** : Ajouter `threadKey` du premier thread selectionne dans le payload.
-
-```text
-// AVANT
-body: { 
-  configId, 
-  uids: remainingUids,
-  learningCase: 'quotation'
-}
-
-// APRES
-// Trouver le threadKey du thread courant dans la boucle
-// Pour chaque batch, envoyer le threadKey correspondant
-body: { 
-  configId, 
-  uids: remainingUids,
-  learningCase: 'quotation',
-  threadKey: currentThreadKey  // derive du thread selectionne
-}
-```
-
-Attention : la logique actuelle collecte tous les UIDs de TOUS les threads selectionnes en un seul batch. Pour que `threadKey` soit coherent, il faut iterer par thread selectionne (un appel import-thread par thread), ou au minimum envoyer le threadKey du premier thread si un seul est selectionne.
-
-**Approche recommandee** : Iterer par thread selectionne au lieu de fusionner tous les UIDs :
-
-```text
-for (const thread of threads) {
-  if (!selectedThreads.has(getThreadSelectionKey(thread))) continue;
-  const threadUids = thread.messages.map(m => m.uid);
-  const currentThreadKey = thread.threadKey;
-  // Appel import-thread avec threadKey + uids de CE thread uniquement
-}
-```
-
-Cela garantit que chaque appel import-thread recoit le bon `threadKey` pour son lot d'emails.
-
-**2) `handleProcessQuotation` (L222-232)** : Ajouter `threadKey` dans l'appel a `processQuotationRequest`.
-
-Verifier si `processQuotationRequest` dans `src/services/emailService.ts` transmet `threadKey` au backend. Si non, l'ajouter aussi.
-
-## Fichiers modifies
-
-| Fichier | Changement |
-|---------|-----------|
-| `src/components/EmailSearchImport.tsx` | Import par thread (pas batch global) + envoi threadKey |
-
-## Risque
-
-Nul. Le backend accepte deja `threadKey` (L1339). L'ajout est purement additif. Le fallback reste en place si `threadKey` est absent.
-
-## Section technique
-
-La boucle `while (remainingUids.length > 0)` gere deja le batching par taille (le backend renvoie `remainingUids`). La modification consiste a ajouter une boucle externe par thread selectionne, puis la boucle interne par batch de taille.
-
-Pas de changement backend necessaire.
-
+## Aucun composant FROZEN modifié
