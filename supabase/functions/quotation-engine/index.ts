@@ -2201,11 +2201,12 @@ async function generateQuotationLines(
       let regimeFlags = { dd:true, stx:true, rs:true, tin:true, tva:true, cosec:true, pcs:true, pcc:true, tpast:true, ta:true };
       let regimeName: string | null = null;
       let regimeUnknown = false;
+      let isPromadExemptByRegime = false;
 
       if (request.regimeCode) {
         const { data: regime, error: regimeErr } = await supabase
           .from("customs_regimes")
-          .select("code,name,dd,stx,rs,tin,tva,cosec,pcs,pcc,tpast,ta,is_active")
+          .select("code,name,dd,stx,rs,tin,tva,cosec,pcs,pcc,tpast,ta,hors_promad,hors_bic,is_active")
           .eq("code", request.regimeCode)
           .eq("is_active", true)
           .maybeSingle();
@@ -2220,7 +2221,8 @@ async function generateQuotationLines(
             ta: regime.ta ?? true,
           };
           regimeName = regime.name || null;
-          console.log(`[regime] Loaded ${request.regimeCode}: ${regimeName}, flags=`, regimeFlags);
+          isPromadExemptByRegime = regime.hors_promad === true;
+          console.log(`[regime] Loaded ${request.regimeCode}: ${regimeName}, flags=`, regimeFlags, { hors_promad: isPromadExemptByRegime });
         } else {
           regimeUnknown = true;
           console.warn(`[regime] Code "${request.regimeCode}" not found or inactive — no exoneration applied`);
@@ -2260,14 +2262,16 @@ async function generateQuotationLines(
           let pccAmount = cafForArticle * ((hs.pcc || 0) / 100);
           let cosecAmount = cafForArticle * ((hs.cosec || 0) / 100);
 
-          // PROMAD — exemptions produit (riz, blé, orge, pharma)
-          const isPromadExempt =
+          // PROMAD — exemptions produit (riz, blé, orge, pharma) + exemption régime
+          const isPromadExemptByProduct =
             hsNormalized.startsWith('1006') ||
             hsNormalized.startsWith('1001') ||
             hsNormalized.startsWith('1003') ||
             hsNormalized.startsWith('30');
+          // isPromadExemptByRegime already set at regime load level
+          const promadExempt = isPromadExemptByProduct || isPromadExemptByRegime;
           const promadAmount = Math.round(
-            isPromadExempt ? 0 : cafForArticle * (promadRate / 100)
+            promadExempt ? 0 : cafForArticle * (promadRate / 100)
           );
 
           // Apply regime flags AFTER calculation (CTO: never rewrite formulas)
@@ -2307,6 +2311,8 @@ async function generateQuotationLines(
             pcc_rate: hs.pcc || 0, pcc_amount: Math.round(pccAmount),
             cosec_rate: hs.cosec || 0, cosec_amount: Math.round(cosecAmount),
             promad_rate: promadRate, promad_amount: promadAmount,
+            promad_exonerated: promadExempt,
+            promad_exoneration_reason: isPromadExemptByProduct ? 'HS_EXEMPT' : isPromadExemptByRegime ? 'REGIME_EXEMPT' : null,
             base_tva: Math.round(baseVAT),
             tva_rate: hs.tva || 0, tva_amount: Math.round(tvaAmount),
             total_duties: Math.round(articleDuties),

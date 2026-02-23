@@ -382,6 +382,8 @@ export type Database = {
           created_at: string | null
           dd: boolean | null
           fixed_amount: number | null
+          hors_bic: boolean | null
+          hors_promad: boolean | null
           id: string
           is_active: boolean | null
           keywords: string[] | null
@@ -404,6 +406,8 @@ export type Database = {
           created_at?: string | null
           dd?: boolean | null
           fixed_amount?: number | null
+          hors_bic?: boolean | null
+          hors_promad?: boolean | null
           id?: string
           is_active?: boolean | null
           keywords?: string[] | null
@@ -426,6 +430,8 @@ export type Database = {
           created_at?: string | null
           dd?: boolean | null
           fixed_amount?: number | null
+          hors_bic?: boolean | null
+          hors_promad?: boolean | null
           id?: string
           is_active?: boolean | null
           keywords?: string[] | null
