@@ -1,137 +1,92 @@
 
 
-# Fix extraction regime/titre d'exoneration + categorie manquante
+# Correction des flags customs_regimes -- Source 4D (screenshots)
 
-## 3 bugs identifies
+## Constat
 
-### Bug 1 -- Regex titre tronquee (ligne 1324)
+La comparaison entre les 3 screenshots du systeme 4D (55 regimes, source de verite metier) et la table `customs_regimes` en base revele :
 
-Le texte OCR a cette structure multi-lignes :
+- **31 regimes avec au moins un flag incorrect**
+- **2 regimes manquants** (C520, C530 absents de la base)
 
-```text
-TITRE D'EXONERATION
-Numero:
-2025CI-1244
-Regime :
-C139
-```
+## Tableau comparatif detaille des ecarts
 
-La regex actuelle capture ce qui suit "Titre d'exoneration" sur la meme ligne, soit `"Numero:"` au lieu de `"2025CI-1244"`.
-
-**Correction** : Ajouter un pattern specifique pour capturer le numero d'exoneration sur la ligne suivante.
+### Regimes avec flags a corriger (UPDATE)
 
 ```text
-// Pattern 1: "Titre d'exoneration" suivi du contenu sur la meme ligne
-// Pattern 2: "Numero:" suivi de la valeur (meme ligne ou ligne suivante)
-const numberPattern = /Num[ée]ro\s*:?\s*\n?\s*([A-Z0-9][\w\s\-\/CI]+\d)/i;
+Code   | Colonne(s) en ecart         | DB actuel → Valeur 4D
+-------|-----------------------------|-----------------------
+C100   | cosec F→T, pcc F→T, tpast F→T
+C121   | cosec T→F
+C122   | dd T→F, cosec T→F, pcc F→T
+C131   | dd T→F, stx F→T, cosec T→F, pcc F→T
+C132   | dd T→F, stx F→T
+C139   | stx T→F, rs T→F, cosec F→T, ta T→F
+C140   | cosec F→T, pcs T→F, pcc T→F
+C201   | rs T→F, tin T→F, tva T→F
+C301   | stx T→F, rs T→F
+C303   | stx T→F, tin F→T
+C321   | pcc T→F
+C322   | dd T→F
+C332   | pcc F→T
+C339   | dd T→F, stx F→T, rs T→F, cosec F→T
+C401   | tin F→T, pcs F→T, pcc F→T
+C501   | pcs T→F, pcc T→F
+C502   | tin F→T, pcc F→T, tpast F→T, ta F→T
+C503   | rs T→F, tva T→F
+C521   | rs T→F
+C522   | rs T→F, pcc T→F
+C540   | stx T→F
+C600   | ta T→F
+C951   | cosec T→F
+E840   | dd T→F
+R320   | dd T→F, rs T→F, tva T→F
+S110   | dd T→F
+S300   | dd T→F, pcs T→F, cosec F→T
+S520   | cosec F→T
+S600   | dd T→F
+S951   | dd T→F
+S972   | tin T→F
 ```
 
-Si la regex titre ne capture que `"Numero:"`, on extrait la vraie valeur via le pattern numero.
-
-### Bug 2 -- Regex regime ne traverse pas les sauts de ligne (ligne 1312-1315)
-
-La regex `/Regime\s*:?\s*(C\d{3,4})/` ne matche pas quand il y a un saut de ligne entre `Regime :` et `C139`.
-
-**Correction** : Ajouter `\n?\s*` pour autoriser un saut de ligne optionnel entre le label et la valeur.
+### Regimes manquants (INSERT)
 
 ```text
-// Avant
-/R[ee]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|...)/gi
-
-// Apres
-/R[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|...)/gi
+Code   | DD  STX  RS  TIN  TVA  COSEC PCS PCC TPAST TA
+-------|--------------------------------------------------
+C520   |  T   T   T   T    T    F     T   T    T    F
+C530   |  T   T   T   T    T    F     T   T    T    F
 ```
 
-### Bug 3 -- Categorie "customs" absente du check constraint (ligne 1399)
+### Regimes deja conformes (aucune modification)
 
-La fonction `supersede_fact` est appelee avec `p_fact_category: "customs"` pour `customs.regime_code`. Or le check constraint `quote_facts_fact_category_check` n'autorise PAS `customs`. C'est pourquoi les logs montrent :
-
-```text
-[Regime doc-regex] supersede_fact FAILED: quote_facts_fact_category_check
-```
-
-Meme si les regex etaient correctes, l'insertion echouerait toujours.
-
-**Correction** : Ajouter `'customs'` au check constraint via migration SQL.
+C123, C124, C138, C331, C340, E100, R300, R510, R520, R530, R951, S301, S320, S321, S510, S521, S530, S531, S601, S952, S954
 
 ## Plan d'implementation
 
-### Etape 1 -- Migration SQL
+### Etape 1 -- Corrections par UPDATE (31 regimes)
 
-Ajouter `'customs'` a la contrainte `quote_facts_fact_category_check` :
+Executer 31 instructions UPDATE ciblant uniquement les colonnes en ecart pour chaque regime.
 
-```text
-ALTER TABLE quote_facts DROP CONSTRAINT IF EXISTS quote_facts_fact_category_check;
-ALTER TABLE quote_facts ADD CONSTRAINT quote_facts_fact_category_check
-  CHECK (fact_category IN (
-    'cargo', 'routing', 'timing', 'pricing', 'documents',
-    'contacts', 'other', 'service', 'regulatory',
-    'carrier', 'survey', 'customs'
-  ));
-```
+### Etape 2 -- Insertions des regimes manquants (2 regimes)
 
-### Etape 2 -- Corriger les regex dans build-case-puzzle/index.ts
+Inserer C520 et C530 avec les flags lus depuis le systeme 4D. Le nom et la categorie devront etre renseignes (a confirmer par l'utilisateur ou a laisser vides pour le moment).
 
-**Ligne 1312-1315** : Modifier les patterns regime pour accepter un saut de ligne optionnel entre le label et la valeur :
+### Etape 3 -- Verification
 
-```text
-const codePatterns = [
-  /R[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
-  /Code\s*r[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
-];
-```
-
-**Ligne 1324-1328** : Corriger le pattern titre pour gerer le format OCR multi-lignes. Si le texte apres "Titre d'exoneration" est juste un label comme "Numero:", extraire la valeur sur la ligne suivante :
-
-```text
-const titlePattern = /(Titre\s*d['''\u2019]exon[ee]ration\s*:?\s*)([^\r\n]{5,120})/i;
-const tm = text.match(titlePattern);
-if (tm) {
-  let titleValue = tm[2].trim();
-  // Si la valeur capturee est juste un label (ex: "Numero:"), chercher la vraie valeur
-  if (/^Num[ee]ro\s*:?\s*$/i.test(titleValue)) {
-    const numMatch = text.match(/Num[ee]ro\s*:?\s*\n?\s*([A-Z0-9][\w\-\/\s]*\d)/i);
-    if (numMatch) {
-      titleValue = numMatch[1].trim();
-    }
-  }
-  if (titleValue.length > 3 && !/^(Num[ee]ro|R[ee]gime)\s*:?\s*$/i.test(titleValue)) {
-    titles.push(titleValue);
-  }
-}
-```
-
-### Etape 3 -- Deployer et tester
-
-1. Deployer la migration SQL
-2. Deployer `build-case-puzzle`
-3. Relancer l'analyse sur le dossier CASSIS EQUIPEMENTS
-4. Verifier que les facts injectes sont :
-   - `regulatory.exemption_title = "2025CI-1244"`
-   - `customs.regime_code = "C139"`
-5. Relancer le pricing pour verifier qu'il passe
+Requete de controle post-migration pour confirmer 0 ecart restant.
 
 ## Section technique
 
-### Fichier modifie : supabase/functions/build-case-puzzle/index.ts
+### Outil utilise
 
-**Lignes 1312-1315** : Ajout de `\n?\s*` dans les regex regime pour traverser les sauts de ligne OCR.
-
-**Lignes 1324-1328** : Ajout d'une logique de fallback quand le pattern titre capture un label au lieu de la valeur.
-
-### Migration SQL
-
-Ajout de `'customs'` au check constraint `quote_facts_fact_category_check`. Sans cette migration, AUCUN fact de categorie `customs` ne peut etre insere -- ce qui explique pourquoi `customs.regime_code` n'a jamais ete injecte, meme si le regex le detectait.
+Outil `insert` (data update) pour les UPDATE et INSERT, pas de migration de schema necessaire.
 
 ### Risque de regression
 
-Faible. Les regex sont elargies (acceptent plus de formats) sans changer le comportement pour les cas existants. La migration ajoute une valeur au check sans toucher les valeurs existantes.
+Aucun impact sur le schema. Seules les valeurs boolean des colonnes de taxes sont modifiees. Les colonnes `code`, `name`, `category`, `use_case`, `keywords`, `fixed_amount`, `is_active` ne sont pas touchees.
 
-### Verification des erreurs existantes
+### Note importante
 
-Le log montre que cette erreur se reproduit a chaque run :
-```text
-[Regime doc-regex] supersede_fact FAILED: quote_facts_fact_category_check
-```
-Cela signifie que C139 ETAIT detecte par la regex, mais l'insertion echouait systematiquement a cause du check constraint. C'est donc le bug 3 qui est le plus critique des trois.
+Les valeurs sont lues directement depuis les captures d'ecran du systeme 4D de production. Certains regimes avec beaucoup de checkboxes proches (comme C401, C502, C503) ont ete lus avec attention mais une verification post-correction est recommandee par l'utilisateur via la page admin `/admin/customs-regimes`.
 
