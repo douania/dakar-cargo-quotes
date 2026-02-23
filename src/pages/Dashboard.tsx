@@ -378,19 +378,29 @@ export default function Dashboard() {
         </div>
 
         {/* Active Cases Section */}
-        {activeCases.length > 0 && (
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
-              <FileText className="h-5 w-5 text-primary" />
-              Dossiers en cours
-            </h2>
-            <div className="space-y-2">
-              {activeCases.map((c) => (
-                <CaseCard key={c.id} caseData={c} clientName={clientNames[c.id]} />
-              ))}
+        {(() => {
+          // Filtre anti-orphelins : masquer les dossiers sans client, sans progression, et sans thread
+          const displayCases = activeCases.filter(c =>
+            clientNames[c.id] ||
+            (c.puzzle_completeness ?? 0) > 0 ||
+            c.request_type ||
+            // Un dossier INTAKE légitime peut commencer à 0%, on le garde s'il a un status non-NEW_THREAD
+            (c.status !== 'NEW_THREAD')
+          );
+          return displayCases.length > 0 ? (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
+                <FileText className="h-5 w-5 text-primary" />
+                Dossiers en cours
+              </h2>
+              <div className="space-y-2">
+                {displayCases.map((c) => (
+                  <CaseCard key={c.id} caseData={c} clientName={clientNames[c.id]} />
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          ) : null;
+        })()}
 
         {/* Filter & Sort */}
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">

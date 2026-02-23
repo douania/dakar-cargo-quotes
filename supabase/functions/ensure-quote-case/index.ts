@@ -147,8 +147,13 @@ Deno.serve(async (req) => {
     const thread_id = body.thread_id;
 
     if (!thread_id) {
+      console.warn("[ensure-quote-case] Orphan case creation blocked — no thread_id, no case_id", {
+        mode,
+        body_keys: Object.keys(body),
+        user_id: userId,
+      });
       return new Response(
-        JSON.stringify({ error: "thread_id is required" }),
+        JSON.stringify({ error: "thread_id is required — cannot create orphan case" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
