@@ -127,9 +127,9 @@ export async function searchEmails(configId: string, searchType: string, query: 
   return data;
 }
 
-export async function importThread(configId: string, uids: number[]) {
+export async function importThread(configId: string, uids: number[], threadKey?: string) {
   const { data, error } = await supabase.functions.invoke('import-thread', {
-    body: { configId, uids, learningCase: 'quotation' },
+    body: { configId, uids, learningCase: 'quotation', threadKey },
   });
   
   if (error) throw error;
@@ -342,10 +342,11 @@ export interface QuotationProcessResult {
 
 export async function processQuotationRequest(
   configId: string, 
-  uids: number[]
+  uids: number[],
+  threadKey?: string
 ): Promise<QuotationProcessResult> {
-  // Step 1: Import the email(s)
-  const importResult = await importThread(configId, uids);
+  // Step 1: Import the email(s) with threadKey for deterministic threading
+  const importResult = await importThread(configId, uids, threadKey);
   
   // FIX: import-thread returns "emails" array, not "emailIds"
   const importedEmails = importResult.emails || [];
