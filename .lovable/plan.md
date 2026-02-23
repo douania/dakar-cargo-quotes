@@ -1,83 +1,137 @@
 
-# Affichage des gaps bloquants dans CaseView
 
-## Probleme constate
+# Fix extraction regime/titre d'exoneration + categorie manquante
 
-La page CaseView affiche "Gaps: 0" (ligne 811) en lisant `caseData.gaps_count`, un compteur denormalise qui n'est mis a jour que par `build-case-puzzle`. En base, il existe pourtant 1 gap bloquant ouvert (`routing.transport_mode`) et 1 gap non-bloquant. L'operateur n'a aucune indication visuelle du blocage.
+## 3 bugs identifies
 
-## Solution en 2 parties
+### Bug 1 -- Regex titre tronquee (ligne 1324)
 
-### 1. Ajouter une requete directe sur `quote_gaps`
-
-Ajouter un `useQuery` dans CaseView pour lire les gaps reels depuis la table `quote_gaps`, filtre sur `case_id`. Cela evite d'utiliser le hook `useQuoteCaseData` (qui fonctionne par `thread_id` et ferait un double fetch du case).
+Le texte OCR a cette structure multi-lignes :
 
 ```text
-const { data: gaps = [] } = useQuery({
-  queryKey: ["case-gaps", caseId],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from("quote_gaps")
-      .select("id, gap_key, gap_category, question_fr, is_blocking, status")
-      .eq("case_id", caseId!)
-      .eq("status", "open")
-      .order("is_blocking", { ascending: false });
-    if (error) throw error;
-    return data || [];
-  },
-  enabled: !!caseId,
-  staleTime: 30000,
-});
+TITRE D'EXONERATION
+Numero:
+2025CI-1244
+Regime :
+C139
 ```
 
-### 2. Modifier l'affichage
+La regex actuelle capture ce qui suit "Titre d'exoneration" sur la meme ligne, soit `"Numero:"` au lieu de `"2025CI-1244"`.
 
-**Compteur Gaps (ligne 811)** : remplacer `caseData.gaps_count ?? 0` par `gaps.length` avec fallback :
+**Correction** : Ajouter un pattern specifique pour capturer le numero d'exoneration sur la ligne suivante.
 
 ```text
-const displayedGapsCount = gaps.length || (caseData.gaps_count ?? 0);
+// Pattern 1: "Titre d'exoneration" suivi du contenu sur la meme ligne
+// Pattern 2: "Numero:" suivi de la valeur (meme ligne ou ligne suivante)
+const numberPattern = /Num[ée]ro\s*:?\s*\n?\s*([A-Z0-9][\w\s\-\/CI]+\d)/i;
 ```
 
-Ajouter un badge rouge si des gaps bloquants existent.
+Si la regex titre ne capture que `"Numero:"`, on extrait la vraie valeur via le pattern numero.
 
-**Bandeau d'alerte** : inserer entre la barre Info (ligne 825) et le panneau d'action (ligne 828). Si des gaps bloquants existent (`gaps.filter(g => g.is_blocking).length > 0`), afficher une `Alert` destructive listant chaque gap bloquant avec sa `question_fr`.
+### Bug 2 -- Regex regime ne traverse pas les sauts de ligne (ligne 1312-1315)
+
+La regex `/Regime\s*:?\s*(C\d{3,4})/` ne matche pas quand il y a un saut de ligne entre `Regime :` et `C139`.
+
+**Correction** : Ajouter `\n?\s*` pour autoriser un saut de ligne optionnel entre le label et la valeur.
 
 ```text
-{blockingGaps.length > 0 && (
-  <Alert variant="destructive" className="mb-6">
-    <AlertCircle className="h-4 w-4" />
-    <AlertDescription>
-      <p className="font-semibold mb-2">
-        {blockingGaps.length} gap(s) bloquant(s)
-      </p>
-      <ul className="list-disc pl-4 space-y-1 text-sm">
-        {blockingGaps.map(g => (
-          <li key={g.id}>{g.question_fr || g.gap_key}</li>
-        ))}
-      </ul>
-    </AlertDescription>
-  </Alert>
-)}
+// Avant
+/R[ee]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|...)/gi
+
+// Apres
+/R[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|...)/gi
 ```
 
-**Refresh** : ajouter `refetchGaps` dans `handleRefresh()` pour que le bandeau disparaisse apres resolution d'un gap.
+### Bug 3 -- Categorie "customs" absente du check constraint (ligne 1399)
+
+La fonction `supersede_fact` est appelee avec `p_fact_category: "customs"` pour `customs.regime_code`. Or le check constraint `quote_facts_fact_category_check` n'autorise PAS `customs`. C'est pourquoi les logs montrent :
+
+```text
+[Regime doc-regex] supersede_fact FAILED: quote_facts_fact_category_check
+```
+
+Meme si les regex etaient correctes, l'insertion echouerait toujours.
+
+**Correction** : Ajouter `'customs'` au check constraint via migration SQL.
+
+## Plan d'implementation
+
+### Etape 1 -- Migration SQL
+
+Ajouter `'customs'` a la contrainte `quote_facts_fact_category_check` :
+
+```text
+ALTER TABLE quote_facts DROP CONSTRAINT IF EXISTS quote_facts_fact_category_check;
+ALTER TABLE quote_facts ADD CONSTRAINT quote_facts_fact_category_check
+  CHECK (fact_category IN (
+    'cargo', 'routing', 'timing', 'pricing', 'documents',
+    'contacts', 'other', 'service', 'regulatory',
+    'carrier', 'survey', 'customs'
+  ));
+```
+
+### Etape 2 -- Corriger les regex dans build-case-puzzle/index.ts
+
+**Ligne 1312-1315** : Modifier les patterns regime pour accepter un saut de ligne optionnel entre le label et la valeur :
+
+```text
+const codePatterns = [
+  /R[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+  /Code\s*r[ee]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+];
+```
+
+**Ligne 1324-1328** : Corriger le pattern titre pour gerer le format OCR multi-lignes. Si le texte apres "Titre d'exoneration" est juste un label comme "Numero:", extraire la valeur sur la ligne suivante :
+
+```text
+const titlePattern = /(Titre\s*d['''\u2019]exon[ee]ration\s*:?\s*)([^\r\n]{5,120})/i;
+const tm = text.match(titlePattern);
+if (tm) {
+  let titleValue = tm[2].trim();
+  // Si la valeur capturee est juste un label (ex: "Numero:"), chercher la vraie valeur
+  if (/^Num[ee]ro\s*:?\s*$/i.test(titleValue)) {
+    const numMatch = text.match(/Num[ee]ro\s*:?\s*\n?\s*([A-Z0-9][\w\-\/\s]*\d)/i);
+    if (numMatch) {
+      titleValue = numMatch[1].trim();
+    }
+  }
+  if (titleValue.length > 3 && !/^(Num[ee]ro|R[ee]gime)\s*:?\s*$/i.test(titleValue)) {
+    titles.push(titleValue);
+  }
+}
+```
+
+### Etape 3 -- Deployer et tester
+
+1. Deployer la migration SQL
+2. Deployer `build-case-puzzle`
+3. Relancer l'analyse sur le dossier CASSIS EQUIPEMENTS
+4. Verifier que les facts injectes sont :
+   - `regulatory.exemption_title = "2025CI-1244"`
+   - `customs.regime_code = "C139"`
+5. Relancer le pricing pour verifier qu'il passe
 
 ## Section technique
 
-### Fichier modifie : `src/pages/CaseView.tsx`
+### Fichier modifie : supabase/functions/build-case-puzzle/index.ts
 
-1. **Nouvelle query** (apres ligne 565) : `useQuery` sur `quote_gaps` avec `case_id`, filtre `status = 'open'`
-2. **Variable derivee** : `const blockingGaps = gaps.filter(g => g.is_blocking);`
-3. **Ligne 811** : remplacer `caseData.gaps_count ?? 0` par `gaps.length || (caseData.gaps_count ?? 0)` + badge rouge conditionnel
-4. **Apres ligne 825** : inserer le bandeau `Alert` destructive
-5. **Ligne 569** : ajouter `refetchGaps()` dans `handleRefresh`
+**Lignes 1312-1315** : Ajout de `\n?\s*` dans les regex regime pour traverser les sauts de ligne OCR.
 
-### Aucune modification backend
+**Lignes 1324-1328** : Ajout d'une logique de fallback quand le pattern titre capture un label au lieu de la valeur.
 
-Les donnees existent deja. Les RLS policies sur `quote_gaps` autorisent le SELECT pour les utilisateurs authentifies (`quote_gaps_select_team`).
+### Migration SQL
 
-### Garde-fous integres
+Ajout de `'customs'` au check constraint `quote_facts_fact_category_check`. Sans cette migration, AUCUN fact de categorie `customs` ne peut etre insere -- ce qui explique pourquoi `customs.regime_code` n'a jamais ete injecte, meme si le regex le detectait.
 
-- Fallback sur `caseData.gaps_count` si la query gaps echoue
-- Guard `enabled: !!caseId` pour eviter les fetch invalides
-- `staleTime: 30000` pour eviter les requetes excessives
-- Le bandeau ne s'affiche que si `blockingGaps.length > 0` (pas de rendu inutile)
+### Risque de regression
+
+Faible. Les regex sont elargies (acceptent plus de formats) sans changer le comportement pour les cas existants. La migration ajoute une valeur au check sans toucher les valeurs existantes.
+
+### Verification des erreurs existantes
+
+Le log montre que cette erreur se reproduit a chaque run :
+```text
+[Regime doc-regex] supersede_fact FAILED: quote_facts_fact_category_check
+```
+Cela signifie que C139 ETAIT detecte par la regex, mais l'insertion echouait systematiquement a cause du check constraint. C'est donc le bug 3 qui est le plus critique des trois.
+
