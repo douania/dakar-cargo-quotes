@@ -96,6 +96,8 @@ Deno.serve(async (req) => {
       cosec: true, pcs: true, pcc: true, tpast: true, ta: true
     };
     let regimeName: string | null = null;
+    let isPromadExemptByRegime = false;
+    let isBicExemptByRegime = false;
 
     if (regime_code) {
       const { data: regime, error: regimeError } = await supabase
@@ -121,7 +123,9 @@ Deno.serve(async (req) => {
           ta: regime.ta ?? false,
         };
         regimeName = regime.name;
-        console.log('Applied regime:', regime_code, regimeName, regimeFlags);
+        isPromadExemptByRegime = regime.hors_promad === true;
+        isBicExemptByRegime = regime.hors_bic === true;
+        console.log('Applied regime:', regime_code, regimeName, regimeFlags, { hors_promad: isPromadExemptByRegime, hors_bic: isBicExemptByRegime });
       } else {
         console.warn('Regime not found:', regime_code);
       }
@@ -230,13 +234,14 @@ Deno.serve(async (req) => {
     const promadRateRaw = getTaxRate('PROMAD');
     const promadRate = typeof promadRateRaw === 'number' ? promadRateRaw : 0;
 
-    const isPromadExempt =
+    const isPromadExemptByProduct =
       normalizedCode.startsWith('1006') ||
       normalizedCode.startsWith('1001') ||
       normalizedCode.startsWith('1003') ||
       normalizedCode.startsWith('30');
 
-    const effectivePromadRate = isPromadExempt ? 0 : promadRate;
+    const promadExempt = isPromadExemptByProduct || isPromadExemptByRegime;
+    const effectivePromadRate = promadExempt ? 0 : promadRate;
     const promadAmount = Math.round(caf_value * (effectivePromadRate / 100));
 
     breakdown.push({
@@ -245,7 +250,7 @@ Deno.serve(async (req) => {
       rate: effectivePromadRate,
       base: caf_value,
       amount: promadAmount,
-      notes: isPromadExempt ? 'Exempte (produit exonere PROMAD)' : undefined,
+      notes: isPromadExemptByProduct ? 'Exempté (produit exonéré PROMAD)' : isPromadExemptByRegime ? `Exonéré (régime ${regime_code})` : undefined,
     });
 
     // Calculate intermediary base for taxes
@@ -354,17 +359,18 @@ Deno.serve(async (req) => {
       notes: tvaNotes,
     });
 
-    // 14. Acompte BIC (only for non-CGE importers)
-    const bicApplicable = hsCode.bic && !is_cge;
+    // 14. Acompte BIC (only for non-CGE importers, and regime allows)
+    const bicApplicable = hsCode.bic && !is_cge && !isBicExemptByRegime;
     const bicRate = bicApplicable ? 3 : 0;
     const bicAmount = bicApplicable ? baseTVA * (bicRate / 100) : 0;
+    const bicExonerationReason = !hsCode.bic ? 'HS_NOT_SUBJECT' : is_cge ? 'CGE' : isBicExemptByRegime ? 'REGIME_EXEMPT' : null;
     breakdown.push({
       name: 'Acompte BIC',
       code: 'BIC',
       rate: bicRate,
       base: baseTVA,
       amount: bicAmount,
-      notes: is_cge ? 'Exonéré (entreprise CGE)' : (!hsCode.bic ? 'Non applicable' : undefined),
+      notes: is_cge ? 'Exonéré (entreprise CGE)' : isBicExemptByRegime ? `Exonéré (régime ${regime_code})` : (!hsCode.bic ? 'Non applicable' : undefined),
     });
 
     // Calculate totals
