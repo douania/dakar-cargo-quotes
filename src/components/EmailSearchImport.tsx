@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,6 +53,7 @@ interface Props {
 }
 
 export function EmailSearchImport({ configId, onImportComplete }: Props) {
+  const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'subject' | 'from' | 'text'>('subject');
   const [query, setQuery] = useState('');
   const [threads, setThreads] = useState<EmailThread[]>([]);
@@ -242,13 +244,28 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     const threadKey = selectedThread.threadKey;
     
     setProcessingQuotation(true);
-    setShowQuotationModal(true);
     setQuotationResult(null);
 
     try {
+      toast.info('Import du fil en cours...');
       const result = await processQuotationRequest(configId, uids, threadKey);
-      setQuotationResult(result);
-      toast.success('Cotation générée avec succès');
+      
+      // C1 Convergence: if caseId is returned, navigate to case view
+      if (result.caseId) {
+        if (result.warning) {
+          toast.warning(result.warning);
+        }
+        toast.success(`Dossier ${result.caseId.slice(0, 8)}… créé via pipeline case/puzzle`);
+        setSelectedThreads(new Set());
+        onImportComplete();
+        // Navigate to case view
+        navigate(`/case/${result.caseId}`);
+      } else {
+        // Legacy fallback: open modal
+        setQuotationResult(result);
+        setShowQuotationModal(true);
+        toast.success('Cotation générée avec succès (chemin legacy)');
+      }
     } catch (error) {
       console.error('Quotation processing error:', error);
       toast.error(error instanceof Error ? error.message : 'Erreur lors du traitement');
