@@ -1,92 +1,55 @@
 
 
-# Correction des flags customs_regimes -- Source 4D (screenshots)
+# Correction suppression dossiers orphelins + filtre dashboard
 
 ## Constat
 
-La comparaison entre les 3 screenshots du systeme 4D (55 regimes, source de verite metier) et la table `customs_regimes` en base revele :
+1. **Migration precedente inoperante** : les 3 UUIDs dans le DELETE etaient faux (probablement tronques/reconstruits incorrectement). Aucun dossier n'a ete supprime.
+2. **Filtre dashboard insuffisant** : les dossiers INTAKE a 0% sans client passent le filtre car `status !== 'NEW_THREAD'` est vrai pour INTAKE.
 
-- **31 regimes avec au moins un flag incorrect**
-- **2 regimes manquants** (C520, C530 absents de la base)
+## Dossiers orphelins reels en base (thread_id = NULL)
 
-## Tableau comparatif detaille des ecarts
+| UUID reel | Status | Completeness | request_type | Action |
+|-----------|--------|-------------|--------------|--------|
+| `0f23304a-1705-408f-8ceb-627473f17f08` | NEW_THREAD | 0% | null | Supprimer |
+| `e5dbb910-b00b-44e3-8608-337e3525bae1` | INTAKE | 0% | null | Supprimer |
+| `91921bb4-87a7-4664-9d67-721e50e76863` | INTAKE | 0% | null | Supprimer |
 
-### Regimes avec flags a corriger (UPDATE)
+Les 4 autres dossiers sans thread_id (ab959454, 7eab135d, 31efcc01, 5514fedc) ont du contenu reel (83-100% completeness, request_type renseigne) -- ce sont des dossiers Intake legitimes, on ne les touche pas.
 
-```text
-Code   | Colonne(s) en ecart         | DB actuel → Valeur 4D
--------|-----------------------------|-----------------------
-C100   | cosec F→T, pcc F→T, tpast F→T
-C121   | cosec T→F
-C122   | dd T→F, cosec T→F, pcc F→T
-C131   | dd T→F, stx F→T, cosec T→F, pcc F→T
-C132   | dd T→F, stx F→T
-C139   | stx T→F, rs T→F, cosec F→T, ta T→F
-C140   | cosec F→T, pcs T→F, pcc T→F
-C201   | rs T→F, tin T→F, tva T→F
-C301   | stx T→F, rs T→F
-C303   | stx T→F, tin F→T
-C321   | pcc T→F
-C322   | dd T→F
-C332   | pcc F→T
-C339   | dd T→F, stx F→T, rs T→F, cosec F→T
-C401   | tin F→T, pcs F→T, pcc F→T
-C501   | pcs T→F, pcc T→F
-C502   | tin F→T, pcc F→T, tpast F→T, ta F→T
-C503   | rs T→F, tva T→F
-C521   | rs T→F
-C522   | rs T→F, pcc T→F
-C540   | stx T→F
-C600   | ta T→F
-C951   | cosec T→F
-E840   | dd T→F
-R320   | dd T→F, rs T→F, tva T→F
-S110   | dd T→F
-S300   | dd T→F, pcs T→F, cosec F→T
-S520   | cosec F→T
-S600   | dd T→F
-S951   | dd T→F
-S972   | tin T→F
-```
-
-### Regimes manquants (INSERT)
+## Etape 1 -- Migration corrective : supprimer les 3 vrais orphelins
 
 ```text
-Code   | DD  STX  RS  TIN  TVA  COSEC PCS PCC TPAST TA
--------|--------------------------------------------------
-C520   |  T   T   T   T    T    F     T   T    T    F
-C530   |  T   T   T   T    T    F     T   T    T    F
+DELETE FROM quote_cases
+WHERE id IN (
+  '0f23304a-1705-408f-8ceb-627473f17f08',
+  'e5dbb910-b00b-44e3-8608-337e3525bae1',
+  '91921bb4-87a7-4664-9d67-721e50e76863'
+);
 ```
 
-### Regimes deja conformes (aucune modification)
+FK CASCADE gerera les tables enfants (verifie precedemment : 0 rows liees).
 
-C123, C124, C138, C331, C340, E100, R300, R510, R520, R530, R951, S301, S320, S321, S510, S521, S530, S531, S601, S952, S954
+## Etape 2 -- Renforcer le filtre Dashboard
 
-## Plan d'implementation
+Le filtre actuel laisse passer les INTAKE a 0% sans client. Correction du predicat :
 
-### Etape 1 -- Corrections par UPDATE (31 regimes)
+```text
+// Ancien filtre (insuffisant)
+clientNames[c.id] || (c.puzzle_completeness ?? 0) > 0 || c.request_type || (c.status !== 'NEW_THREAD')
 
-Executer 31 instructions UPDATE ciblant uniquement les colonnes en ecart pour chaque regime.
+// Nouveau filtre (strict)
+clientNames[c.id] || (c.puzzle_completeness ?? 0) > 0 || c.request_type
+```
 
-### Etape 2 -- Insertions des regimes manquants (2 regimes)
+Supprimer la condition `status !== 'NEW_THREAD'`. Un dossier sans client, sans progression, et sans request_type est un orphelin quel que soit son status (NEW_THREAD ou INTAKE).
 
-Inserer C520 et C530 avec les flags lus depuis le systeme 4D. Le nom et la categorie devront etre renseignes (a confirmer par l'utilisateur ou a laisser vides pour le moment).
+## Fichiers modifies
 
-### Etape 3 -- Verification
+- Migration SQL : DELETE avec les bons UUIDs
+- `src/pages/Dashboard.tsx` : simplification du filtre (suppression de la clause status)
 
-Requete de controle post-migration pour confirmer 0 ecart restant.
+## Risque
 
-## Section technique
-
-### Outil utilise
-
-Outil `insert` (data update) pour les UPDATE et INSERT, pas de migration de schema necessaire.
-
-### Risque de regression
-
-Aucun impact sur le schema. Seules les valeurs boolean des colonnes de taxes sont modifiees. Les colonnes `code`, `name`, `category`, `use_case`, `keywords`, `fixed_amount`, `is_active` ne sont pas touchees.
-
-### Note importante
-
-Les valeurs sont lues directement depuis les captures d'ecran du systeme 4D de production. Certains regimes avec beaucoup de checkboxes proches (comme C401, C502, C503) ont ete lus avec attention mais une verification post-correction est recommandee par l'utilisateur via la page admin `/admin/customs-regimes`.
+Nul. Les dossiers Intake legitimes ont tous un `request_type` ou un `puzzle_completeness > 0`, donc ils passent toujours le filtre.
 
