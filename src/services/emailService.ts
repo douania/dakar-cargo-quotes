@@ -305,6 +305,9 @@ export interface GeneratedAttachment {
   content_type: string;
 }
 
+// Feature flag — centralisé pour rollback rapide sans retoucher la logique métier
+export const USE_CASE_PIPELINE_FOR_EMAIL_QUOTATION = true;
+
 export interface QuotationProcessResult {
   importedEmailId: string;
   originalEmail: {
@@ -338,6 +341,11 @@ export interface QuotationProcessResult {
   // NEW: Transport mode from backend intelligent detection
   transportMode?: 'air' | 'maritime' | 'road' | 'multimodal' | 'unknown';
   transportModeEvidence?: string[];
+  // C1 Convergence: case/puzzle pipeline fields
+  caseId?: string;
+  pipelineUsed?: 'case-puzzle' | 'generate-response-fallback';
+  puzzleStatus?: 'ready' | 'processing' | 'failed';
+  warning?: string;
 }
 
 export async function processQuotationRequest(
@@ -381,7 +389,7 @@ export async function processQuotationRequest(
   }
   
   const emailId = allImportedEmails[0].id;
-  
+
   // Step 2: Get the imported email details
   const { data: email, error: emailError } = await supabase
     .from('emails')
@@ -390,8 +398,105 @@ export async function processQuotationRequest(
     .single();
   
   if (emailError) throw emailError;
-  
-  // Step 3: Generate the expert response
+
+  // ─── C1 CONVERGENCE: case/puzzle pipeline ───
+  if (USE_CASE_PIPELINE_FOR_EMAIL_QUOTATION) {
+    // Amendment CTO #4: Verify thread_ref coherence across imported emails
+    const importedIds = allImportedEmails.map((e: any) => e.id);
+    const { data: importedEmails, error: fetchError } = await supabase
+      .from('emails')
+      .select('id, thread_ref')
+      .in('id', importedIds);
+    
+    if (fetchError) {
+      console.error('[C1] Failed to fetch imported emails for thread_ref check:', fetchError);
+    }
+
+    const distinctThreadRefs = new Set(
+      (importedEmails || [])
+        .map((e: any) => e.thread_ref)
+        .filter((ref: string | null) => ref != null)
+    );
+
+    if (distinctThreadRefs.size !== 1) {
+      console.warn(`[C1] Expected exactly 1 thread_ref, got ${distinctThreadRefs.size}. Falling back to generate-response.`);
+      // Fallback to legacy pipeline
+      return await _legacyGenerateResponse(emailId, email);
+    }
+
+    const threadRefId = [...distinctThreadRefs][0] as string;
+    console.log(`[C1] Converging to case/puzzle pipeline. threadRef=${threadRefId}, threadKey=${threadKey}`);
+
+    // Step C1-a: ensure-quote-case (thread_id = email_threads.id = emails.thread_ref)
+    let caseId: string | undefined;
+    let caseIsNew = false;
+    try {
+      const { data: caseData, error: caseError } = await supabase.functions.invoke('ensure-quote-case', {
+        body: { thread_id: threadRefId }
+      });
+      if (caseError) throw caseError;
+      if (caseData?.error) throw new Error(caseData.error);
+
+      caseId = caseData.case_id;
+      caseIsNew = caseData.is_new;
+      console.log(`[C1] ensure-quote-case: caseId=${caseId}, isNew=${caseIsNew}`);
+    } catch (err) {
+      console.error('[C1] ensure-quote-case failed, falling back to generate-response:', err);
+      // Amendment CTO #2: caseId absent → fallback OK
+      return await _legacyGenerateResponse(emailId, email);
+    }
+
+    // Step C1-b: build-case-puzzle
+    // Amendment CTO #2: if caseId exists, never fall back to generate-response
+    let puzzleStatus: 'ready' | 'processing' | 'failed' = 'ready';
+    let warning: string | undefined;
+    try {
+      const { data: puzzleData, error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
+        body: { case_id: caseId }
+      });
+      if (puzzleError) throw puzzleError;
+      if (puzzleData?.error) throw new Error(puzzleData.error);
+
+      // Amendment CTO #3: handle async/queued status
+      if (puzzleData?.status === 'processing' || puzzleData?.status === 'queued') {
+        puzzleStatus = 'processing';
+        warning = 'Dossier créé, puzzle en cours de construction';
+      }
+      console.log(`[C1] build-case-puzzle completed. puzzleStatus=${puzzleStatus}`);
+    } catch (err) {
+      console.error('[C1] build-case-puzzle failed (case already exists, returning caseId with warning):', err);
+      puzzleStatus = 'failed';
+      warning = `Construction du puzzle échouée: ${err instanceof Error ? err.message : String(err)}`;
+    }
+
+    // Return converged result with caseId (UI will navigate to /case/<caseId>)
+    return {
+      importedEmailId: emailId,
+      originalEmail: {
+        subject: email.subject || 'Sans sujet',
+        from: email.from_address,
+        body: email.body_text || email.body_html || '',
+        date: email.sent_at || email.received_at || email.created_at,
+      },
+      draft: { id: '', subject: '', body: '', to: [] },
+      analysis: {
+        confidence: 0,
+        missingInfo: [],
+        quotationDetails: {},
+      },
+      caseId,
+      pipelineUsed: 'case-puzzle',
+      puzzleStatus,
+      warning,
+    };
+  }
+
+  // ─── LEGACY PATH (feature flag OFF) ───
+  return await _legacyGenerateResponse(emailId, email);
+}
+
+/** Legacy generate-response path (preserved for fallback / feature flag OFF) */
+async function _legacyGenerateResponse(emailId: string, email: any): Promise<QuotationProcessResult> {
   const { data: responseData, error: responseError } = await supabase.functions.invoke('generate-response', {
     body: { emailId },
   });
@@ -399,7 +504,6 @@ export async function processQuotationRequest(
   if (responseError) throw responseError;
   if (responseData.error) throw new Error(responseData.error);
   
-  // Map the response data to the expected format
   const draft = responseData.draft || {};
   
   return {
@@ -426,14 +530,13 @@ export async function processQuotationRequest(
       v5Analysis: responseData.v5_analysis,
       generatedAttachment: responseData.generated_attachment,
     },
-    // Puzzle-related fields from backend
     extractedData: responseData.extracted_data,
     detectedElements: responseData.detected_elements,
     canQuoteNow: responseData.can_quote_now,
     requestType: responseData.request_type,
     clarificationQuestions: responseData.clarification_questions,
-    // NEW: Transport mode from backend intelligent detection
     transportMode: responseData.transport_mode,
     transportModeEvidence: responseData.transport_mode_evidence,
+    pipelineUsed: 'generate-response-fallback',
   };
 }
