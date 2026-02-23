@@ -1310,8 +1310,8 @@ Deno.serve(async (req) => {
         const titles: string[] = [];
 
         const codePatterns = [
-          /R[ée]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
-          /Code\s*r[ée]gime\s*:?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+          /R[ée]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
+          /Code\s*r[ée]gime\s*:?\s*\n?\s*(C[\s\-\/]?\d{3,4}|S[\s\-\/]?\d{3,4}|\d{4})/gi,
         ];
         for (const p of codePatterns) {
           let m;
@@ -1324,7 +1324,17 @@ Deno.serve(async (req) => {
         const titlePattern = /(Titre\s*d[''\u2019]exon[ée]ration\s*:?\s*)([^\r\n]{5,120})/i;
         const tm = text.match(titlePattern);
         if (tm) {
-          titles.push(tm[2].trim());
+          let titleValue = tm[2].trim();
+          // Si la valeur capturée est juste un label (ex: "Numero:"), chercher la vraie valeur sur la ligne suivante
+          if (/^Num[ée]ro\s*:?\s*$/i.test(titleValue)) {
+            const numMatch = text.match(/Num[ée]ro\s*:?\s*\n?\s*([A-Z0-9][\w\-\/\s]*\d)/i);
+            if (numMatch) {
+              titleValue = numMatch[1].trim();
+            }
+          }
+          if (titleValue.length > 3 && !/^(Num[ée]ro|R[ée]gime)\s*:?\s*$/i.test(titleValue)) {
+            titles.push(titleValue);
+          }
         }
 
         return {
