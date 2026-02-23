@@ -861,6 +861,7 @@ serve(async (req) => {
         
         let mergedCount = 0;
         let threadsCreated = 0;
+        let skippedMultiRootGroups = 0;
         
         // Process each group
         for (const [normalizedSubject, emails] of subjectGroups) {
@@ -869,14 +870,42 @@ serve(async (req) => {
           // Sort by date to get the canonical thread_id from the first email
           emails.sort((a, b) => new Date(a.sent_at || 0).getTime() - new Date(b.sent_at || 0).getTime());
           
+          // P1-D Safety: Check for multiple distinct roots in this group
+          const distinctRoots = new Set(
+            emails.map(e => e.thread_id).filter(Boolean)
+          );
+          if (distinctRoots.size > 1) {
+            console.log(`[P1-D] Skipping merge for "${normalizedSubject.substring(0, 40)}" — ${distinctRoots.size} distinct roots (multi-root ambiguous)`);
+            skippedMultiRootGroups++;
+            continue;
+          }
+
           const canonicalThreadId = emails[0].thread_id;
+          // P1-D: Derive rootMessageId from first email
+          const rootMessageId = canonicalThreadId || emails[0].message_id || null;
           
-          // Check if a email_threads entry exists for this subject
-          let { data: existingThread } = await supabase
-            .from('email_threads')
-            .select('id')
-            .eq('subject_normalized', normalizedSubject)
-            .maybeSingle();
+          // P1-D: Check if a email_threads entry exists by root_message_id first
+          let { data: existingThread } = rootMessageId
+            ? await supabase
+                .from('email_threads')
+                .select('id, root_message_id')
+                .eq('root_message_id', rootMessageId)
+                .maybeSingle()
+            : { data: null };
+
+          // Fallback to subject_normalized only for legacy threads
+          if (!existingThread) {
+            const { data: subjectThread } = await supabase
+              .from('email_threads')
+              .select('id, root_message_id')
+              .eq('subject_normalized', normalizedSubject)
+              .maybeSingle();
+            
+            // P1-D barrier: only reuse if no conflicting root
+            if (subjectThread && (!subjectThread.root_message_id || subjectThread.root_message_id === rootMessageId)) {
+              existingThread = subjectThread;
+            }
+          }
           
           // Create one if not exists
           if (!existingThread) {
@@ -884,10 +913,11 @@ serve(async (req) => {
               .from('email_threads')
               .insert({
                 subject_normalized: normalizedSubject,
+                root_message_id: rootMessageId,
                 first_message_at: emails[0].sent_at,
                 last_message_at: emails[emails.length - 1].sent_at,
                 email_count: emails.length,
-                is_quotation_thread: true, // Default to true, reclassify will fix if needed
+                is_quotation_thread: true,
                 status: 'active',
                 participants: [],
                 created_at: new Date().toISOString(),
@@ -900,12 +930,33 @@ serve(async (req) => {
               existingThread = newThread;
               threadsCreated++;
             } else if (createError) {
-              console.error(`Error creating thread for "${normalizedSubject.substring(0, 30)}...":`, createError);
-              continue;
+              // P1-C: Handle unique conflict
+              if (createError.code === '23505' && rootMessageId) {
+                const { data: conflictThread } = await supabase
+                  .from('email_threads')
+                  .select('id, root_message_id')
+                  .eq('root_message_id', rootMessageId)
+                  .maybeSingle();
+                if (conflictThread) {
+                  existingThread = conflictThread;
+                }
+              }
+              if (!existingThread) {
+                console.error(`Error creating thread for "${normalizedSubject.substring(0, 30)}...":`, createError);
+                continue;
+              }
             }
           }
           
           if (!existingThread) continue;
+
+          // P1-D: Set root_message_id if missing on existing thread
+          if (rootMessageId && !existingThread.root_message_id) {
+            await supabase
+              .from('email_threads')
+              .update({ root_message_id: rootMessageId, updated_at: new Date().toISOString() })
+              .eq('id', existingThread.id);
+          }
           
           // Update all emails in this group to use the same thread_ref
           for (const email of emails) {
@@ -931,13 +982,14 @@ serve(async (req) => {
             .eq('id', existingThread.id);
         }
         
-        console.log(`Thread merge complete: ${mergedCount} emails merged, ${threadsCreated} threads created`);
+        console.log(`Thread merge complete: ${mergedCount} emails merged, ${threadsCreated} threads created, ${skippedMultiRootGroups} multi-root groups skipped`);
         
         return new Response(
           JSON.stringify({ 
             success: true, 
             merged: mergedCount,
             threadsCreated,
+            skippedMultiRootGroups,
             subjectGroups: subjectGroups.size
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -959,7 +1011,7 @@ serve(async (req) => {
         // Fetch emails without thread_ref
         const { data: orphanEmails, error: orphanError } = await supabase
           .from('emails')
-          .select('id, subject, from_address, to_addresses, sent_at, is_quotation_request')
+          .select('id, subject, from_address, to_addresses, sent_at, is_quotation_request, thread_id, message_id')
           .is('thread_ref', null);
         
         if (orphanError) throw orphanError;
@@ -989,15 +1041,42 @@ serve(async (req) => {
         let emailsLinked = 0;
         
         for (const [normalizedSubject, emails] of subjectGroups) {
-          // Check if thread already exists
-          let { data: existingThread } = await supabase
-            .from('email_threads')
-            .select('id')
-            .eq('subject_normalized', normalizedSubject)
-            .maybeSingle();
-          
           // Sort emails by date
           emails.sort((a, b) => new Date(a.sent_at || 0).getTime() - new Date(b.sent_at || 0).getTime());
+
+          // P1-D: Derive rootMessageId from first email
+          const rootMessageId = emails[0].thread_id || emails[0].message_id || null;
+
+          // P1-D Safety: Check for multiple distinct roots
+          const distinctRoots = new Set(
+            emails.map(e => e.thread_id || e.message_id).filter(Boolean)
+          );
+          if (distinctRoots.size > 1) {
+            console.log(`[P1-D] Skipping create_threads for "${normalizedSubject.substring(0, 40)}" — ${distinctRoots.size} distinct roots`);
+            continue;
+          }
+
+          // P1-D: Check if thread exists by root_message_id first
+          let { data: existingThread } = rootMessageId
+            ? await supabase
+                .from('email_threads')
+                .select('id, root_message_id')
+                .eq('root_message_id', rootMessageId)
+                .maybeSingle()
+            : { data: null };
+
+          // Fallback: subject_normalized (only if no conflicting root)
+          if (!existingThread) {
+            const { data: subjectThread } = await supabase
+              .from('email_threads')
+              .select('id, root_message_id')
+              .eq('subject_normalized', normalizedSubject)
+              .maybeSingle();
+            
+            if (subjectThread && (!subjectThread.root_message_id || subjectThread.root_message_id === rootMessageId)) {
+              existingThread = subjectThread;
+            }
+          }
           
           const participants = [...new Set(emails.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))];
           const hasQuotationEmail = emails.some(e => e.is_quotation_request);
@@ -1016,6 +1095,7 @@ serve(async (req) => {
               .from('email_threads')
               .insert({
                 subject_normalized: normalizedSubject,
+                root_message_id: rootMessageId,
                 first_message_at: emails[0].sent_at,
                 last_message_at: emails[emails.length - 1].sent_at,
                 email_count: emails.length,
@@ -1032,12 +1112,31 @@ serve(async (req) => {
               existingThread = newThread;
               threadsCreated++;
             } else if (createError) {
-              console.error(`Error creating thread:`, createError);
-              continue;
+              // P1-C: Handle unique conflict
+              if (createError.code === '23505' && rootMessageId) {
+                const { data: conflictThread } = await supabase
+                  .from('email_threads')
+                  .select('id, root_message_id')
+                  .eq('root_message_id', rootMessageId)
+                  .maybeSingle();
+                if (conflictThread) existingThread = conflictThread;
+              }
+              if (!existingThread) {
+                console.error(`Error creating thread:`, createError);
+                continue;
+              }
             }
           }
           
           if (!existingThread) continue;
+
+          // P1-D: Set root_message_id if missing
+          if (rootMessageId && !existingThread.root_message_id) {
+            await supabase
+              .from('email_threads')
+              .update({ root_message_id: rootMessageId, updated_at: new Date().toISOString() })
+              .eq('id', existingThread.id);
+          }
           
           // Link emails to thread
           for (const email of emails) {

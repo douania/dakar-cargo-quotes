@@ -345,16 +345,42 @@ export async function processQuotationRequest(
   uids: number[],
   threadKey?: string
 ): Promise<QuotationProcessResult> {
-  // Step 1: Import the email(s) with threadKey for deterministic threading
-  const importResult = await importThread(configId, uids, threadKey);
-  
-  // FIX: import-thread returns "emails" array, not "emailIds"
-  const importedEmails = importResult.emails || [];
-  if (importedEmails.length === 0) {
+  // Step 1: Import ALL emails via batching loop (P0-A)
+  const MAX_IMPORT_ITERATIONS = 20;
+  let allImportedEmails: any[] = [];
+  let currentUids = [...uids];
+  let iteration = 0;
+
+  while (currentUids.length > 0) {
+    iteration++;
+    if (iteration > MAX_IMPORT_ITERATIONS) {
+      console.error(`[P0-A] Import loop exceeded ${MAX_IMPORT_ITERATIONS} iterations — aborting`);
+      throw new Error(`Import interrompu après ${MAX_IMPORT_ITERATIONS} lots (boucle infinie détectée)`);
+    }
+
+    const prevCount = currentUids.length;
+    const importResult = await importThread(configId, currentUids, threadKey);
+    
+    const batchEmails = importResult.emails || [];
+    allImportedEmails.push(...batchEmails);
+
+    const nextUids: number[] = importResult.remainingUids || [];
+
+    // Progress guard: if remainingUids didn't shrink, abort
+    if (nextUids.length >= prevCount) {
+      console.error(`[P0-A] No progress detected: remainingUids ${nextUids.length} >= previous ${prevCount}`);
+      throw new Error('Import bloqué: aucun progrès entre deux lots');
+    }
+
+    currentUids = nextUids;
+    if (!importResult.hasMore) break;
+  }
+
+  if (allImportedEmails.length === 0) {
     throw new Error('Aucun email importé');
   }
   
-  const emailId = importedEmails[0].id;
+  const emailId = allImportedEmails[0].id;
   
   // Step 2: Get the imported email details
   const { data: email, error: emailError } = await supabase

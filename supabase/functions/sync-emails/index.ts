@@ -1049,50 +1049,78 @@ async function findExistingThread(
   supabase: any,
   projectId: string,
   normalizedSubject: string,
-  clientEmail: string
-): Promise<{ id: string; project_name: string } | null> {
+  clientEmail: string,
+  rootMessageId?: string
+): Promise<{ id: string; project_name: string; root_message_id?: string } | null> {
   try {
+    // P1-D Step 0: Lookup by root_message_id first (deterministic)
+    if (rootMessageId) {
+      const { data: rootThread } = await supabase
+        .from('email_threads')
+        .select('id, project_name, root_message_id')
+        .eq('root_message_id', rootMessageId)
+        .maybeSingle();
+      if (rootThread) {
+        console.log(`[P1-D] Found thread by root_message_id: ${rootThread.id}`);
+        return rootThread;
+      }
+    }
+
     // 1. D'abord chercher par project_name si on a un projet
     if (projectId) {
       const { data: projectThread } = await supabase
         .from('email_threads')
-        .select('id, project_name')
+        .select('id, project_name, root_message_id')
         .ilike('project_name', `%${projectId.replace(/_/g, '%')}%`)
         .order('last_message_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       
       if (projectThread) {
-        console.log(`Found thread by project: ${projectThread.project_name}`);
-        return projectThread;
+        // P1-D barrier: don't merge if roots differ
+        if (rootMessageId && projectThread.root_message_id && projectThread.root_message_id !== rootMessageId) {
+          console.log(`[P1-D] Barrier: project thread ${projectThread.id} has different root_message_id, skipping`);
+        } else {
+          console.log(`Found thread by project: ${projectThread.project_name}`);
+          return projectThread;
+        }
       }
     }
     
     // 2. Chercher par sujet normalisé exact
     const { data: subjectThread } = await supabase
       .from('email_threads')
-      .select('id, project_name, subject_normalized')
+      .select('id, project_name, subject_normalized, root_message_id')
       .eq('subject_normalized', normalizedSubject)
       .order('last_message_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     
     if (subjectThread) {
-      console.log(`Found thread by subject: ${normalizedSubject}`);
-      return subjectThread;
+      // P1-D barrier: don't merge if roots differ
+      if (rootMessageId && subjectThread.root_message_id && subjectThread.root_message_id !== rootMessageId) {
+        console.log(`[P1-D] Barrier: subject thread ${subjectThread.id} has different root_message_id, skipping`);
+      } else {
+        console.log(`Found thread by subject: ${normalizedSubject}`);
+        return subjectThread;
+      }
     }
     
     // 3. Chercher par client + sujet similaire
     if (clientEmail) {
       const { data: threads } = await supabase
         .from('email_threads')
-        .select('id, project_name, subject_normalized')
+        .select('id, project_name, subject_normalized, root_message_id')
         .eq('client_email', clientEmail)
         .order('last_message_at', { ascending: false })
         .limit(5);
       
       if (threads) {
         for (const thread of threads) {
+          // P1-D barrier: don't merge if roots differ
+          if (rootMessageId && thread.root_message_id && thread.root_message_id !== rootMessageId) {
+            continue;
+          }
           const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
           if (similarity > 0.6) {
             console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity})`);
@@ -1173,7 +1201,8 @@ async function upsertEmailThread(
   normalizedSubject: string,
   email: EmailRecord,
   existingThreadEmails: EmailRecord[],
-  knownContacts: KnownBusinessContact[]
+  knownContacts: KnownBusinessContact[],
+  rootMessageId?: string
 ): Promise<string | null> {
   try {
     // Collecter tous les emails du fil
@@ -1193,12 +1222,13 @@ async function upsertEmailThread(
     // Nettoyer les participants
     const cleanedParticipants = cleanParticipants(allEmails);
     
-    // Chercher un fil existant
+    // P1-D: Pass rootMessageId to findExistingThread
     const existingThread = await findExistingThread(
       supabase,
       projectId,
       normalizedSubject,
-      threadRoles.clientEmail
+      threadRoles.clientEmail,
+      rootMessageId
     );
     
     const firstEmail = allEmails[0];
@@ -1217,7 +1247,7 @@ async function upsertEmailThread(
     // Déterminer si c'est un fil de cotation
     const isQuotation = isQuotationThread(normalizedSubject, allEmails);
     
-    const threadData = {
+    const threadData: Record<string, unknown> = {
       subject_normalized: normalizedSubject,
       first_message_at: firstEmail?.sent_at,
       last_message_at: lastEmail?.sent_at,
@@ -1231,6 +1261,11 @@ async function upsertEmailThread(
       is_quotation_thread: isQuotation,
       updated_at: new Date().toISOString(),
     };
+
+    // P1-D: Store root_message_id when available
+    if (rootMessageId) {
+      threadData.root_message_id = rootMessageId;
+    }
     
     console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}, is_quotation=${isQuotation}`);
     
@@ -1251,6 +1286,19 @@ async function upsertEmailThread(
         .single();
       
       if (error) {
+        // P1-C: Handle unique constraint conflict
+        if (error.code === '23505' && rootMessageId) {
+          const { data: conflictThread } = await supabase
+            .from('email_threads')
+            .select('id, project_name')
+            .eq('root_message_id', rootMessageId)
+            .maybeSingle();
+          if (conflictThread) {
+            console.log(`[P1-D] Resolved unique conflict, using existing thread ${conflictThread.id}`);
+            await supabase.from('email_threads').update(threadData).eq('id', conflictThread.id);
+            return conflictThread.id;
+          }
+        }
         console.error('Error creating thread:', error);
         return null;
       }
@@ -1400,6 +1448,11 @@ serve(async (req) => {
           const threadId = extractThreadId(msg.messageId, msg.references);
           const normalizedSubject = normalizeSubject(msg.subject);
           
+          // P1-D: Derive rootMessageId for deterministic threading
+          const rootMessageId = msg.references
+            ? (msg.references.split(/\s+/).filter(Boolean)[0] || msg.messageId)
+            : msg.messageId;
+
           // Récupérer les emails existants du même fil pour analyse
           const { data: existingThreadEmails } = await supabase
             .from('emails')
@@ -1416,12 +1469,14 @@ serve(async (req) => {
             body_text: bodyText || '',
           };
           
+          // P1-D: Pass rootMessageId to upsertEmailThread
           const threadRefId = await upsertEmailThread(
             supabase,
             normalizedSubject,
             emailData,
             existingThreadEmails || [],
-            knownContacts || []
+            knownContacts || [],
+            rootMessageId
           );
           
           // Identifier et enregistrer le contact avec les contacts connus

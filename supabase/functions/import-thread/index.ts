@@ -1600,18 +1600,13 @@ serve(async (req) => {
         updated_at: new Date().toISOString()
       };
       
+      let resolvedThreadId: string | null = null;
+
       if (existingThread) {
-        // Update existing thread with merged data
+        resolvedThreadId = existingThread.id;
         console.log(`Updating existing email_thread ${existingThread.id} with ${allEmailIds.length} emails`);
-        await supabase
-          .from('email_threads')
-          .update({
-            ...threadData,
-            email_count: Math.max(existingThread.email_count || 0, allEmailIds.length)
-          })
-          .eq('id', existingThread.id);
         
-        // Update emails to link to this thread
+        // Link emails to this thread
         for (const emailId of allEmailIds) {
           await supabase
             .from('emails')
@@ -1631,7 +1626,7 @@ serve(async (req) => {
           .single();
         
         if (!insertError && newThread) {
-          // Update emails to link to this new thread
+          resolvedThreadId = newThread.id;
           for (const emailId of allEmailIds) {
             await supabase
               .from('emails')
@@ -1640,7 +1635,80 @@ serve(async (req) => {
           }
           console.log(`Created email_thread ${newThread.id} and linked ${allEmailIds.length} emails`);
         } else if (insertError) {
-          console.error('Error creating email_thread:', insertError);
+          // P1-C: Handle unique constraint conflict on root_message_id
+          if (insertError.code === '23505' && batchRootMessageId) {
+            console.log(`[P1-C] Unique conflict on root_message_id, retrying lookup...`);
+            const { data: conflictThread } = await supabase
+              .from('email_threads')
+              .select('id, email_count')
+              .eq('root_message_id', batchRootMessageId)
+              .maybeSingle();
+            if (conflictThread) {
+              resolvedThreadId = conflictThread.id;
+              for (const emailId of allEmailIds) {
+                await supabase
+                  .from('emails')
+                  .update({ thread_ref: conflictThread.id })
+                  .eq('id', emailId);
+              }
+              console.log(`[P1-C] Resolved conflict: linked ${allEmailIds.length} emails to existing thread ${conflictThread.id}`);
+            }
+          } else {
+            console.error('Error creating email_thread:', insertError);
+          }
+        }
+      }
+
+      // P1-B: Recalculate thread metadata from ALL emails in DB (not just current batch)
+      if (resolvedThreadId) {
+        try {
+          const { data: allThreadEmails } = await supabase
+            .from('emails')
+            .select('from_address, to_addresses, cc_addresses, sent_at')
+            .eq('thread_ref', resolvedThreadId)
+            .order('sent_at', { ascending: true });
+
+          if (allThreadEmails && allThreadEmails.length > 0) {
+            // Filter non-null dates for min/max
+            const validDates = allThreadEmails
+              .map(e => e.sent_at)
+              .filter((d): d is string => !!d)
+              .sort();
+
+            const allParticipants = [...new Set(
+              allThreadEmails.flatMap(e => [
+                e.from_address,
+                ...(e.to_addresses || []),
+                ...(e.cc_addresses || [])
+              ].filter(Boolean))
+            )];
+
+            const refreshData: Record<string, unknown> = {
+              email_count: allThreadEmails.length,
+              participants: allParticipants.map(email => ({ email, role: 'participant' })),
+              updated_at: new Date().toISOString(),
+            };
+
+            if (validDates.length > 0) {
+              refreshData.first_message_at = validDates[0];
+              refreshData.last_message_at = validDates[validDates.length - 1];
+            }
+
+            // Preserve root_message_id and is_quotation_thread (don't overwrite from batch)
+            if (batchRootMessageId) {
+              refreshData.root_message_id = batchRootMessageId;
+            }
+
+            await supabase
+              .from('email_threads')
+              .update(refreshData)
+              .eq('id', resolvedThreadId);
+
+            console.log(`[P1-B] Refreshed thread ${resolvedThreadId}: ${allThreadEmails.length} emails, ${allParticipants.length} participants`);
+          }
+        } catch (refreshError) {
+          console.error('[P1-B] Error refreshing thread metadata:', refreshError);
+          // Non-blocking
         }
       }
     }
