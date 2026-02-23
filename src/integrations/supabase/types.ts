@@ -882,6 +882,7 @@ export type Database = {
           participants: Json | null
           partner_email: string | null
           project_name: string | null
+          root_message_id: string | null
           status: string | null
           subject_normalized: string
           updated_at: string | null
@@ -899,6 +900,7 @@ export type Database = {
           participants?: Json | null
           partner_email?: string | null
           project_name?: string | null
+          root_message_id?: string | null
           status?: string | null
           subject_normalized: string
           updated_at?: string | null
@@ -916,6 +918,7 @@ export type Database = {
           participants?: Json | null
           partner_email?: string | null
           project_name?: string | null
+          root_message_id?: string | null
           status?: string | null
           subject_normalized?: string
           updated_at?: string | null

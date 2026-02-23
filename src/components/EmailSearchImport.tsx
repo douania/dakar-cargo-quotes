@@ -23,6 +23,7 @@ interface AttachmentPreview {
 }
 
 interface EmailThread {
+  threadKey?: string;
   subject: string;
   normalizedSubject: string;
   messageCount: number;
@@ -38,6 +39,11 @@ interface EmailThread {
     date: string;
     messageId: string;
   }>;
+}
+
+// Helper: get the unique key for a thread (threadKey preferred, fallback normalizedSubject)
+function getThreadSelectionKey(thread: EmailThread): string {
+  return thread.threadKey || thread.normalizedSubject;
 }
 
 interface Props {
@@ -105,12 +111,13 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     setSearching(false);
   };
 
-  const toggleThread = (normalizedSubject: string) => {
+  const toggleThread = (thread: EmailThread) => {
+    const key = getThreadSelectionKey(thread);
     const newSelected = new Set(selectedThreads);
-    if (newSelected.has(normalizedSubject)) {
-      newSelected.delete(normalizedSubject);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
     } else {
-      newSelected.add(normalizedSubject);
+      newSelected.add(key);
     }
     setSelectedThreads(newSelected);
   };
@@ -127,7 +134,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       // Collect all UIDs from selected threads
       let remainingUids: number[] = [];
       for (const thread of threads) {
-        if (selectedThreads.has(thread.normalizedSubject)) {
+        if (selectedThreads.has(getThreadSelectionKey(thread))) {
           remainingUids.push(...thread.messages.map(m => m.uid));
         }
       }
@@ -230,7 +237,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     }
 
     // Get UIDs from the first selected thread
-    const selectedThread = threads.find(t => selectedThreads.has(t.normalizedSubject));
+    const selectedThread = threads.find(t => selectedThreads.has(getThreadSelectionKey(t)));
     if (!selectedThread) return;
 
     const uids = selectedThread.messages.map(m => m.uid);
@@ -386,20 +393,22 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           </div>
 
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-            {threads.map((thread) => (
+            {threads.map((thread) => {
+              const selKey = getThreadSelectionKey(thread);
+              return (
               <Card 
-                key={thread.normalizedSubject}
+                key={selKey}
                 className={`cursor-pointer transition-colors ${
-                  selectedThreads.has(thread.normalizedSubject) 
+                  selectedThreads.has(selKey) 
                     ? 'ring-2 ring-primary bg-primary/5' 
                     : 'hover:bg-muted/50'
                 }`}
-                onClick={() => toggleThread(thread.normalizedSubject)}
+                onClick={() => toggleThread(thread)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <Checkbox 
-                      checked={selectedThreads.has(thread.normalizedSubject)}
+                      checked={selectedThreads.has(selKey)}
                       className="mt-1"
                     />
                     <div className="flex-1 min-w-0">
@@ -478,7 +487,8 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

@@ -621,20 +621,35 @@ serve(async (req) => {
       console.log(`Thread reconstruction complete. Added ${foundAdditional} emails. Total: ${messages.length}`);
     }
     
-    // Group by thread using improved normalization (handles Spam: prefixes)
+    // P0-B: Group by thread key (root Message-ID from References) instead of normalizedSubject
+    function getThreadKey(msg: { messageId: string; references: string }): string {
+      if (msg.references) {
+        const root = msg.references.split(/\s+/).filter(Boolean)[0];
+        if (root) return root;
+      }
+      return msg.messageId;
+    }
+
     const threads = new Map<string, typeof messages>();
     for (const msg of messages) {
-      // Use the improved normalizeSubject that handles Spam: prefixes
-      const normalizedSubj = normalizeSubject(msg.subject);
-      
-      if (!threads.has(normalizedSubj)) {
-        threads.set(normalizedSubj, []);
+      const key = getThreadKey(msg);
+      if (!threads.has(key)) {
+        threads.set(key, []);
       }
-      threads.get(normalizedSubj)!.push(msg);
+      threads.get(key)!.push(msg);
+    }
+
+    console.log(`[P0-B] ${messages.length} messages grouped into ${threads.size} conversations by threadKey`);
+    // Log up to 3 examples
+    let exampleCount = 0;
+    for (const [key, msgs] of threads) {
+      if (exampleCount >= 3) break;
+      console.log(`[P0-B] threadKey=${key.substring(0, 60)} subject="${msgs[0].subject.substring(0, 50)}" (${msgs.length} msg)`);
+      exampleCount++;
     }
 
     // Convert to array format with proper date sorting
-    const threadList = Array.from(threads.entries()).map(([subject, msgs]) => {
+    const threadList = Array.from(threads.entries()).map(([threadKey, msgs]) => {
       // Sort messages by date (oldest first) for accurate dateRange
       const sortedMsgs = [...msgs].sort(
         (a, b) => new Date(parseEmailDate(a.date)).getTime() - new Date(parseEmailDate(b.date)).getTime()
@@ -650,13 +665,14 @@ serve(async (req) => {
       );
       
       return {
+        threadKey,
         subject: displaySubject,
-        normalizedSubject: subject,
+        normalizedSubject: normalizeSubject(sortedMsgs[0].subject),
         messageCount: msgs.length,
         participants: [...new Set(msgs.map(m => m.from).filter(f => f))],
         dateRange: {
-          first: parseEmailDate(sortedMsgs[0].date), // Oldest
-          last: parseEmailDate(sortedMsgs[sortedMsgs.length - 1].date) // Newest
+          first: parseEmailDate(sortedMsgs[0].date),
+          last: parseEmailDate(sortedMsgs[sortedMsgs.length - 1].date)
         },
         attachments: uniqueAttachments,
         messages: sortedMsgs.map(m => ({
