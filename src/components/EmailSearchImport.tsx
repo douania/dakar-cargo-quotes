@@ -131,45 +131,44 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     setImporting(true);
 
     try {
-      // Collect all UIDs from selected threads
-      let remainingUids: number[] = [];
-      for (const thread of threads) {
-        if (selectedThreads.has(getThreadSelectionKey(thread))) {
-          remainingUids.push(...thread.messages.map(m => m.uid));
-        }
-      }
-
       let totalImported = 0;
       let totalExisting = 0;
       let totalAttachments = 0;
       let lastAnalysis: any = null;
-      let batchNum = 0;
 
-      // Process in batches
-      while (remainingUids.length > 0) {
-        batchNum++;
-        toast.info(`Import en cours... (lot ${batchNum}, ${remainingUids.length} email(s) restant(s))`);
+      // P0-D: Iterate per selected thread to send the correct threadKey
+      for (const thread of threads) {
+        if (!selectedThreads.has(getThreadSelectionKey(thread))) continue;
 
-        const { data, error } = await supabase.functions.invoke('import-thread', {
-          body: { 
-            configId, 
-            uids: remainingUids,
-            learningCase: 'quotation'
-          }
-        });
+        const currentThreadKey = thread.threadKey;
+        let remainingUids = thread.messages.map(m => m.uid);
+        let batchNum = 0;
 
-        if (error) throw error;
-        if (data.error) throw new Error(data.error);
+        // Process this thread's UIDs in batches (backend may return remainingUids)
+        while (remainingUids.length > 0) {
+          batchNum++;
+          toast.info(`Import en cours... (lot ${batchNum}, ${remainingUids.length} email(s) restant(s))`);
 
-        totalImported += data.imported || 0;
-        totalExisting += data.alreadyExisted || 0;
-        totalAttachments += data.attachmentsProcessed || 0;
-        if (data.analysis) lastAnalysis = data.analysis;
+          const { data, error } = await supabase.functions.invoke('import-thread', {
+            body: { 
+              configId, 
+              uids: remainingUids,
+              learningCase: 'quotation',
+              threadKey: currentThreadKey
+            }
+          });
 
-        // Update remaining UIDs from response
-        remainingUids = data.remainingUids || [];
-        
-        if (!data.hasMore) break;
+          if (error) throw error;
+          if (data.error) throw new Error(data.error);
+
+          totalImported += data.imported || 0;
+          totalExisting += data.alreadyExisted || 0;
+          totalAttachments += data.attachmentsProcessed || 0;
+          if (data.analysis) lastAnalysis = data.analysis;
+
+          remainingUids = data.remainingUids || [];
+          if (!data.hasMore) break;
+        }
       }
 
       // Build informative message
@@ -202,7 +201,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
         toast.info('Lancement de l\'analyse des pièces jointes...');
         
         try {
-          // Trigger bulk analysis for newly imported attachments
           const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke('analyze-attachments', {
             body: { bulk: true, unanalyzedOnly: true }
           });
@@ -241,13 +239,14 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
     if (!selectedThread) return;
 
     const uids = selectedThread.messages.map(m => m.uid);
+    const threadKey = selectedThread.threadKey;
     
     setProcessingQuotation(true);
     setShowQuotationModal(true);
     setQuotationResult(null);
 
     try {
-      const result = await processQuotationRequest(configId, uids);
+      const result = await processQuotationRequest(configId, uids, threadKey);
       setQuotationResult(result);
       toast.success('Cotation générée avec succès');
     } catch (error) {
