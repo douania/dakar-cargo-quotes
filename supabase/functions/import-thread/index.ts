@@ -1336,7 +1336,7 @@ serve(async (req) => {
     const auth = await requireUser(req);
     if (auth instanceof Response) return auth;
 
-    const { configId, uids, learningCase } = await req.json();
+    const { configId, uids, learningCase, threadKey } = await req.json();
     
     // Limit batch size to prevent CPU timeout
     const MAX_EMAILS_PER_BATCH = 10;
@@ -1439,13 +1439,14 @@ serve(async (req) => {
         continue;
       }
 
-      // Determine thread ID for new email
+      // P0-A: Calculate thread_id locally for each email (not batch-wide)
+      const threadIdForEmail = msg.references
+        ? (msg.references.split(/\s+/).filter(Boolean)[0] || msg.messageId)
+        : msg.messageId;
+      
+      // Keep batch-level threadId for Phase 1 compat (derived from first email)
       if (!threadId) {
-        if (msg.references) {
-          threadId = msg.references.split(/\s+/)[0];
-        } else {
-          threadId = msg.messageId;
-        }
+        threadId = threadIdForEmail;
       }
 
       const { data: inserted, error: insertError } = await supabase
@@ -1453,7 +1454,7 @@ serve(async (req) => {
         .insert({
           email_config_id: configId,
           message_id: msg.messageId,
-          thread_id: threadId,
+          thread_id: threadIdForEmail,
           from_address: msg.from,
           to_addresses: msg.to.length > 0 ? msg.to : [config.username],
           subject: msg.subject,
@@ -1513,10 +1514,11 @@ serve(async (req) => {
     }
 
     // ========== PHASE 1: Create/Update email_threads entry ==========
+    // P1-C: Lookup/create by root_message_id instead of subject_normalized
     if (allEmailIds.length > 0 && threadId) {
       console.log('Creating/updating email_threads entry for imported thread...');
       
-      // Normalize subject for matching
+      // Normalize subject for metadata/display only (no longer used as lookup key)
       function normalizeSubjectForThread(subject: string): string {
         return (subject || '')
           .replace(/^(Re:|Fwd:|Fw:|Spam:\**,?\s*)+/gi, '')
@@ -1525,18 +1527,54 @@ serve(async (req) => {
           .toLowerCase();
       }
       
+      // P1-C: Determine batchRootMessageId for deterministic lookup
+      // Priority: threadKey from frontend payload > batch threadId (root of first email)
+      const batchRootMessageId = threadKey || threadId;
+      
+      // Count distinct root IDs in the batch for debug
+      const distinctRoots = new Set(
+        allEmailsForAnalysis.map(e => {
+          const tid = e.thread_id as string;
+          return tid || e.message_id;
+        })
+      );
+      console.log(`[P1-C] batchRootMessageId=${batchRootMessageId?.substring(0, 60)}, distinct roots in batch: ${distinctRoots.size}`);
+      
       const firstEmailSubject = allEmailsForAnalysis[0]?.subject || '';
       const normalizedSubject = normalizeSubjectForThread(firstEmailSubject);
       const participants = [...new Set(allEmailsForAnalysis.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))];
       const dateFirst = allEmailsForAnalysis[allEmailsForAnalysis.length - 1]?.sent_at;
       const dateLast = allEmailsForAnalysis[0]?.sent_at;
       
-      // Check if a thread with similar normalized subject already exists
-      const { data: existingThread } = await supabase
-        .from('email_threads')
-        .select('id, email_count')
-        .eq('subject_normalized', normalizedSubject)
-        .maybeSingle();
+      // P1-C: Lookup by root_message_id first, fallback to subject_normalized for legacy compat
+      let existingThread: { id: string; email_count: number } | null = null;
+      
+      if (batchRootMessageId) {
+        const { data: byRoot } = await supabase
+          .from('email_threads')
+          .select('id, email_count')
+          .eq('root_message_id', batchRootMessageId)
+          .maybeSingle();
+        existingThread = byRoot;
+        if (byRoot) {
+          console.log(`[P1-C] Found existing thread by root_message_id: ${byRoot.id}`);
+        }
+      }
+      
+      // Only fallback to subject_normalized if root lookup found nothing
+      if (!existingThread) {
+        const { data: bySubject } = await supabase
+          .from('email_threads')
+          .select('id, email_count, root_message_id')
+          .eq('subject_normalized', normalizedSubject)
+          .maybeSingle();
+        
+        // Only reuse if the existing thread has NO root_message_id set (legacy thread)
+        if (bySubject && !bySubject.root_message_id) {
+          existingThread = bySubject;
+          console.log(`[P1-C] Found legacy thread by subject_normalized: ${bySubject.id} (will set root_message_id)`);
+        }
+      }
       
       // Determine if this is a quotation thread based on keywords
       const THREAD_QUOTATION_KEYWORDS = [
@@ -1552,6 +1590,7 @@ serve(async (req) => {
       
       const threadData = {
         subject_normalized: normalizedSubject || firstEmailSubject.substring(0, 200),
+        root_message_id: batchRootMessageId,
         first_message_at: dateFirst || new Date().toISOString(),
         last_message_at: dateLast || new Date().toISOString(),
         participants: participants.map(email => ({ email, role: 'participant' })),
@@ -1581,7 +1620,7 @@ serve(async (req) => {
         }
       } else {
         // Create new thread entry
-        console.log(`Creating new email_thread for "${normalizedSubject.substring(0, 50)}..." with ${allEmailIds.length} emails`);
+        console.log(`[P1-C] Creating new email_thread with root_message_id=${batchRootMessageId?.substring(0, 50)} for "${normalizedSubject.substring(0, 50)}..." (${allEmailIds.length} emails)`);
         const { data: newThread, error: insertError } = await supabase
           .from('email_threads')
           .insert({

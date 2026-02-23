@@ -60,6 +60,7 @@ export interface LearnedKnowledge {
 }
 
 export interface EmailThread {
+  threadKey?: string;
   subject: string;
   normalizedSubject: string;
   messageCount: number;
