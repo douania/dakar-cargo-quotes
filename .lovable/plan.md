@@ -1,55 +1,70 @@
 
 
-# Correction suppression dossiers orphelins + filtre dashboard
+# Patch P0-D : Envoyer threadKey dans le payload d'import
 
-## Constat
+## Probleme identifie
 
-1. **Migration precedente inoperante** : les 3 UUIDs dans le DELETE etaient faux (probablement tronques/reconstruits incorrectement). Aucun dossier n'a ete supprime.
-2. **Filtre dashboard insuffisant** : les dossiers INTAKE a 0% sans client passent le filtre car `status !== 'NEW_THREAD'` est vrai pour INTAKE.
+Le frontend (`EmailSearchImport.tsx`) n'envoie pas `threadKey` dans les appels a `import-thread` et `processQuotationRequest`. Le backend l'extrait (L1339) mais recoit toujours `undefined`, se rabattant sur le `threadId` derive du premier email du batch.
 
-## Dossiers orphelins reels en base (thread_id = NULL)
+Ce fallback fonctionne dans la majorite des cas, mais est moins deterministe : si le batch melange des emails de fils differents (cas edge residuel post P0-B), le `batchRootMessageId` pourrait etre celui du mauvais fil.
 
-| UUID reel | Status | Completeness | request_type | Action |
-|-----------|--------|-------------|--------------|--------|
-| `0f23304a-1705-408f-8ceb-627473f17f08` | NEW_THREAD | 0% | null | Supprimer |
-| `e5dbb910-b00b-44e3-8608-337e3525bae1` | INTAKE | 0% | null | Supprimer |
-| `91921bb4-87a7-4664-9d67-721e50e76863` | INTAKE | 0% | null | Supprimer |
+## Correction
 
-Les 4 autres dossiers sans thread_id (ab959454, 7eab135d, 31efcc01, 5514fedc) ont du contenu reel (83-100% completeness, request_type renseigne) -- ce sont des dossiers Intake legitimes, on ne les touche pas.
+### Fichier : `src/components/EmailSearchImport.tsx`
 
-## Etape 1 -- Migration corrective : supprimer les 3 vrais orphelins
+**1) `handleImport` (L153-158)** : Ajouter `threadKey` du premier thread selectionne dans le payload.
 
 ```text
-DELETE FROM quote_cases
-WHERE id IN (
-  '0f23304a-1705-408f-8ceb-627473f17f08',
-  'e5dbb910-b00b-44e3-8608-337e3525bae1',
-  '91921bb4-87a7-4664-9d67-721e50e76863'
-);
+// AVANT
+body: { 
+  configId, 
+  uids: remainingUids,
+  learningCase: 'quotation'
+}
+
+// APRES
+// Trouver le threadKey du thread courant dans la boucle
+// Pour chaque batch, envoyer le threadKey correspondant
+body: { 
+  configId, 
+  uids: remainingUids,
+  learningCase: 'quotation',
+  threadKey: currentThreadKey  // derive du thread selectionne
+}
 ```
 
-FK CASCADE gerera les tables enfants (verifie precedemment : 0 rows liees).
+Attention : la logique actuelle collecte tous les UIDs de TOUS les threads selectionnes en un seul batch. Pour que `threadKey` soit coherent, il faut iterer par thread selectionne (un appel import-thread par thread), ou au minimum envoyer le threadKey du premier thread si un seul est selectionne.
 
-## Etape 2 -- Renforcer le filtre Dashboard
-
-Le filtre actuel laisse passer les INTAKE a 0% sans client. Correction du predicat :
+**Approche recommandee** : Iterer par thread selectionne au lieu de fusionner tous les UIDs :
 
 ```text
-// Ancien filtre (insuffisant)
-clientNames[c.id] || (c.puzzle_completeness ?? 0) > 0 || c.request_type || (c.status !== 'NEW_THREAD')
-
-// Nouveau filtre (strict)
-clientNames[c.id] || (c.puzzle_completeness ?? 0) > 0 || c.request_type
+for (const thread of threads) {
+  if (!selectedThreads.has(getThreadSelectionKey(thread))) continue;
+  const threadUids = thread.messages.map(m => m.uid);
+  const currentThreadKey = thread.threadKey;
+  // Appel import-thread avec threadKey + uids de CE thread uniquement
+}
 ```
 
-Supprimer la condition `status !== 'NEW_THREAD'`. Un dossier sans client, sans progression, et sans request_type est un orphelin quel que soit son status (NEW_THREAD ou INTAKE).
+Cela garantit que chaque appel import-thread recoit le bon `threadKey` pour son lot d'emails.
+
+**2) `handleProcessQuotation` (L222-232)** : Ajouter `threadKey` dans l'appel a `processQuotationRequest`.
+
+Verifier si `processQuotationRequest` dans `src/services/emailService.ts` transmet `threadKey` au backend. Si non, l'ajouter aussi.
 
 ## Fichiers modifies
 
-- Migration SQL : DELETE avec les bons UUIDs
-- `src/pages/Dashboard.tsx` : simplification du filtre (suppression de la clause status)
+| Fichier | Changement |
+|---------|-----------|
+| `src/components/EmailSearchImport.tsx` | Import par thread (pas batch global) + envoi threadKey |
 
 ## Risque
 
-Nul. Les dossiers Intake legitimes ont tous un `request_type` ou un `puzzle_completeness > 0`, donc ils passent toujours le filtre.
+Nul. Le backend accepte deja `threadKey` (L1339). L'ajout est purement additif. Le fallback reste en place si `threadKey` est absent.
+
+## Section technique
+
+La boucle `while (remainingUids.length > 0)` gere deja le batching par taille (le backend renvoie `remainingUids`). La modification consiste a ajouter une boucle externe par thread selectionne, puis la boucle interne par batch de taille.
+
+Pas de changement backend necessaire.
 
