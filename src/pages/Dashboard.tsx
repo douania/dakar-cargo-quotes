@@ -1,43 +1,112 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
 import { 
   Mail, 
   RefreshCw, 
   Plus,
   Loader2,
-  AlertCircle,
   CheckCircle2,
   Clock,
   FileText,
-  TrendingUp,
   Filter,
   WifiOff,
   Search
 } from 'lucide-react';
 import { withTimeout } from '@/lib/fetchWithRetry';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { QuotationRequestCard } from '@/components/QuotationRequestCard';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { QuotationThreadCard } from '@/components/QuotationThreadCard';
+import type { ThreadGroup, MergedExtractedData } from '@/components/QuotationThreadCard';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 import { CaseCard } from '@/components/dashboard/CaseCard';
 import type { QuoteCaseData } from '@/hooks/useQuoteCaseData';
 
-interface QuotationRequest {
+interface RawEmail {
   id: string;
   subject: string;
   from_address: string;
   received_at: string;
+  sent_at?: string | null;
+  created_at?: string | null;
   extracted_data: any;
   thread_id?: string;
+  thread_ref?: string | null;
+  body_text?: string | null;
   attachmentCount?: number;
+}
+
+// ── Whitelist merge of extracted_data (A3: field-by-field, no generic spread) ──
+const MERGE_FIELDS: (keyof MergedExtractedData)[] = [
+  'client', 'company', 'cargo', 'origin', 'destination',
+  'incoterm', 'container_type', 'weight', 'urgency',
+];
+
+function mergeExtractedData(emails: RawEmail[]): MergedExtractedData {
+  const result: MergedExtractedData = {};
+  // oldest-first so latest non-empty wins
+  const sorted = [...emails].sort(
+    (a, b) => new Date(emailEventAt(a)).getTime() - new Date(emailEventAt(b)).getTime()
+  );
+  for (const email of sorted) {
+    const ed = email.extracted_data;
+    if (!ed || typeof ed !== 'object') continue;
+    for (const key of MERGE_FIELDS) {
+      const val = ed[key];
+      if (val && typeof val === 'string' && val.trim()) {
+        result[key] = val.trim();
+      }
+    }
+  }
+  return result;
+}
+
+// A4: normalised event date
+function emailEventAt(e: RawEmail): string {
+  return e.received_at || e.sent_at || e.created_at || new Date(0).toISOString();
+}
+
+// ── Group emails by thread (A1: rootEmailVisible, A2: counts are "visible") ──
+function groupEmailsByThread(
+  emails: RawEmail[],
+  attachmentCounts: Record<string, number>,
+): ThreadGroup[] {
+  const groups = new Map<string, RawEmail[]>();
+
+  for (const email of emails) {
+    const key = email.thread_ref || email.thread_id || email.id;
+    const arr = groups.get(key) || [];
+    arr.push(email);
+    groups.set(key, arr);
+  }
+
+  const result: ThreadGroup[] = [];
+  for (const [groupKey, msgs] of groups) {
+    // sort by event date ascending
+    msgs.sort((a, b) => new Date(emailEventAt(a)).getTime() - new Date(emailEventAt(b)).getTime());
+    const root = msgs[0];
+    const latest = msgs[msgs.length - 1];
+    const totalAtt = msgs.reduce((sum, m) => sum + (attachmentCounts[m.id] || 0), 0);
+
+    result.push({
+      groupKey,
+      rootEmailId: root.id,
+      latestEmailId: latest.id,
+      threadRef: root.thread_ref || null,
+      threadId: root.thread_id || null,
+      subject: root.subject || latest.subject || 'Sans sujet',
+      from_address: root.from_address,
+      lastActivityAt: emailEventAt(latest),
+      rootReceivedAt: emailEventAt(root),
+      messageCount: msgs.length,
+      attachmentCount: totalAtt,
+      mergedExtractedData: mergeExtractedData(msgs),
+      latestBodyText: latest.body_text || null,
+    });
+  }
+  return result;
 }
 
 interface Stats {
@@ -48,14 +117,16 @@ interface Stats {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [requests, setRequests] = useState<QuotationRequest[]>([]);
+  const [requests, setRequests] = useState<RawEmail[]>([]);
+  const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState<Stats>({ pending: 0, processed: 0, drafts: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'completeness'>('date');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<QuotationRequest[] | null>(null);
+  const [searchResults, setSearchResults] = useState<RawEmail[] | null>(null);
+  const [searchAttCounts, setSearchAttCounts] = useState<Record<string, number>>({});
   const [isSearching, setIsSearching] = useState(false);
   const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
   const [clientNames, setClientNames] = useState<Record<string, string>>({});
@@ -68,7 +139,7 @@ export default function Dashboard() {
         withTimeout(
           supabase
             .from('emails')
-            .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
+            .select('id, subject, from_address, received_at, sent_at, created_at, extracted_data, thread_id, thread_ref, body_text')
             .eq('is_quotation_request', true)
             .order('received_at', { ascending: false })
             .limit(100)
@@ -132,13 +203,10 @@ export default function Dashboard() {
       const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
       const pendingRequests = (emails || [])
-        .filter(email => !sentEmailIds.has(email.id))
-        .map(email => ({
-          ...email,
-          attachmentCount: attachmentCounts[email.id] || 0,
-        }));
+        .filter(email => !sentEmailIds.has(email.id)) as RawEmail[];
 
       setRequests(pendingRequests);
+      setAttachmentCounts(attachmentCounts);
 
       // Calculate stats
       const { count: quotationCount } = await withTimeout(
@@ -155,8 +223,10 @@ export default function Dashboard() {
           .eq('status', 'draft')
       );
 
+      // Stats use thread count, not email count
+      const threadCount = groupEmailsByThread(pendingRequests, attachmentCounts).length;
       setStats({
-        pending: pendingRequests.length,
+        pending: threadCount,
         processed: sentEmailIds.size,
         drafts: draftCount || 0,
       });
@@ -192,7 +262,7 @@ export default function Dashboard() {
         const { data, error } = await withTimeout(
           supabase
             .from('emails')
-            .select('id, subject, from_address, received_at, extracted_data, thread_id, body_text')
+            .select('id, subject, from_address, received_at, sent_at, created_at, extracted_data, thread_id, thread_ref, body_text')
             .eq('is_quotation_request', true)
             .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
             .order('received_at', { ascending: false })
@@ -217,10 +287,9 @@ export default function Dashboard() {
         const sentIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
         setSearchResults(
-          (data || [])
-            .filter(e => !sentIds.has(e.id))
-            .map(e => ({ ...e, attachmentCount: attCounts[e.id] || 0 }))
+          (data || []).filter(e => !sentIds.has(e.id)) as RawEmail[]
         );
+        setSearchAttCounts(attCounts);
       } catch (err) {
         console.error('Search error:', err);
       } finally {
@@ -244,17 +313,18 @@ export default function Dashboard() {
     navigate('/quotation/new');
   };
 
-  // Use search results when searching, otherwise use all requests
-  const displayRequests = searchResults !== null ? searchResults : requests;
+  // Group emails into thread groups
+  const displayEmails = searchResults !== null ? searchResults : requests;
+  const currentAttCounts = searchResults !== null ? searchAttCounts : attachmentCounts;
+  const threadGroups = groupEmailsByThread(displayEmails, currentAttCounts);
 
-  const sortedRequests = [...displayRequests].sort((a, b) => {
+  const sortedThreadGroups = [...threadGroups].sort((a, b) => {
     if (sortBy === 'date') {
-      return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
+      return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
     }
-    const getCompleteness = (r: QuotationRequest) => {
-      const data = r.extracted_data || {};
-      const fields = ['cargo', 'origin', 'incoterm'];
-      return fields.filter(f => data[f]).length;
+    const getCompleteness = (t: ThreadGroup) => {
+      const fields: (keyof MergedExtractedData)[] = ['cargo', 'origin', 'incoterm'];
+      return fields.filter(f => t.mergedExtractedData[f]).length;
     };
     return getCompleteness(b) - getCompleteness(a);
   });
@@ -298,7 +368,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-2xl font-bold text-gradient-gold">Demandes à traiter</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {stats.pending} demande{stats.pending > 1 ? 's' : ''} de cotation en attente
+              {stats.pending} dossier{stats.pending > 1 ? 's' : ''} de cotation en attente
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -430,8 +500,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Requests List */}
-        {sortedRequests.length === 0 ? (
+        {/* Thread Groups List */}
+        {sortedThreadGroups.length === 0 ? (
           <Card className="border-border/50 bg-gradient-card">
             <CardContent className="py-12">
               <div className="text-center">
@@ -449,10 +519,10 @@ export default function Dashboard() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {sortedRequests.map((request) => (
-              <QuotationRequestCard
-                key={request.id}
-                request={request}
+            {sortedThreadGroups.map((tg) => (
+              <QuotationThreadCard
+                key={tg.groupKey}
+                thread={tg}
                 onProcess={handleProcess}
               />
             ))}
