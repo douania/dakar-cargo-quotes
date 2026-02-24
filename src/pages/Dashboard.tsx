@@ -55,8 +55,10 @@ function mergeExtractedData(emails: RawEmail[]): MergedExtractedData {
     if (!ed || typeof ed !== 'object') continue;
     for (const key of MERGE_FIELDS) {
       const val = ed[key];
-      if (val && typeof val === 'string' && val.trim()) {
+      if (typeof val === 'string' && val.trim()) {
         result[key] = val.trim();
+      } else if (typeof val === 'number' && Number.isFinite(val)) {
+        result[key] = String(val);
       }
     }
   }
@@ -68,15 +70,32 @@ function emailEventAt(e: RawEmail): string {
   return e.received_at || e.sent_at || e.created_at || new Date(0).toISOString();
 }
 
-// ── Group emails by thread (A1: rootEmailVisible, A2: counts are "visible") ──
+// ── Group emails by thread (2-pass: canonical key resolves mixed thread_ref/thread_id) ──
 function groupEmailsByThread(
   emails: RawEmail[],
   attachmentCounts: Record<string, number>,
 ): ThreadGroup[] {
-  const groups = new Map<string, RawEmail[]>();
-
+  // Pass 1: build canonical key per thread_id
+  // If any email in a thread_id group has thread_ref, all emails with that thread_id use it
+  const canonicalByThreadId = new Map<string, string>();
   for (const email of emails) {
-    const key = email.thread_ref || email.thread_id || email.id;
+    if (email.thread_id) {
+      const existing = canonicalByThreadId.get(email.thread_id);
+      // thread_ref wins over thread_id as canonical key
+      if (email.thread_ref) {
+        canonicalByThreadId.set(email.thread_id, email.thread_ref);
+      } else if (!existing) {
+        canonicalByThreadId.set(email.thread_id, email.thread_id);
+      }
+    }
+  }
+
+  // Pass 2: group using canonical key
+  const groups = new Map<string, RawEmail[]>();
+  for (const email of emails) {
+    const key = email.thread_id
+      ? (canonicalByThreadId.get(email.thread_id) || email.thread_id)
+      : (email.thread_ref || email.id);
     const arr = groups.get(key) || [];
     arr.push(email);
     groups.set(key, arr);
@@ -314,9 +333,14 @@ export default function Dashboard() {
   };
 
   // Group emails into thread groups
-  const displayEmails = searchResults !== null ? searchResults : requests;
-  const currentAttCounts = searchResults !== null ? searchAttCounts : attachmentCounts;
+  const isSearch = searchResults !== null;
+  const displayEmails = isSearch ? searchResults : requests;
+  const currentAttCounts = isSearch ? searchAttCounts : attachmentCounts;
   const threadGroups = groupEmailsByThread(displayEmails, currentAttCounts);
+  // A2: mark search results so badge shows "visibles"
+  if (isSearch) {
+    threadGroups.forEach(tg => { tg.isSearchResult = true; });
+  }
 
   const sortedThreadGroups = [...threadGroups].sort((a, b) => {
     if (sortBy === 'date') {
