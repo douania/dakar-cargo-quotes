@@ -37,18 +37,8 @@ export function useSendQuotation(caseId: string | undefined) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Parallel fetches: draft, version, case status
-      const [draftResult, versionResult, caseResult] = await Promise.all([
-        // C2: minimal filter - created_by + status, no thread_ref dependency
-        supabase
-          .from('email_drafts')
-          .select('id, subject, to_addresses, status, sent_at, quotation_version_id')
-          .eq('created_by', user.id)
-          .in('status', ['draft', 'sent'])
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-
+      // Step 1: fetch version + case status in parallel
+      const [versionResult, caseResult] = await Promise.all([
         supabase
           .from('quotation_versions')
           .select('id, version_number, status, snapshot')
@@ -57,7 +47,6 @@ export function useSendQuotation(caseId: string | undefined) {
           .limit(1)
           .maybeSingle(),
 
-        // CTO micro-correction: fetch case status
         supabase
           .from('quote_cases')
           .select('status')
@@ -65,9 +54,26 @@ export function useSendQuotation(caseId: string | undefined) {
           .maybeSingle(),
       ]);
 
+      const selectedVersion = versionResult.data ?? null;
+
+      // Step 2: fetch draft ONLY if version exists, scoped strictly by quotation_version_id
+      // C2.1-A: NO fallback to unattached drafts — panel blocked if no linked draft
+      let ownerDraft: SendQuotationData['ownerDraft'] = null;
+      if (selectedVersion) {
+        const { data: draftData } = await supabase
+          .from('email_drafts')
+          .select('id, subject, to_addresses, status, sent_at, quotation_version_id')
+          .eq('quotation_version_id', selectedVersion.id)
+          .in('status', ['draft', 'sent'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        ownerDraft = draftData ?? null;
+      }
+
       return {
-        ownerDraft: draftResult.data ?? null,
-        selectedVersion: versionResult.data ?? null,
+        ownerDraft,
+        selectedVersion,
         caseStatus: caseResult.data?.status ?? null,
       };
     },
