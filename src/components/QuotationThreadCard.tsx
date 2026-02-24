@@ -50,6 +50,8 @@ export interface ThreadGroup {
   attachmentCount: number;
   mergedExtractedData: MergedExtractedData;
   latestBodyText: string | null;
+  /** true when this group was built from a filtered/search subset */
+  isSearchResult?: boolean;
 }
 
 interface QuotationThreadCardProps {
@@ -116,7 +118,7 @@ export function QuotationThreadCard({ thread, onProcess }: QuotationThreadCardPr
                     {thread.messageCount > 1 && (
                       <Badge variant="outline" className="text-xs px-1.5 py-0 border-primary/30 text-primary">
                         <MessageSquare className="h-3 w-3 mr-1" />
-                        {thread.messageCount} msg
+                        {thread.messageCount} msg{thread.isSearchResult ? ' visibles' : ''}
                       </Badge>
                     )}
                     {thread.attachmentCount > 0 && (
