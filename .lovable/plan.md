@@ -1,29 +1,32 @@
 
 
-# Phase C2.1-D -- Ajout dependance `activeCases` dans useEffect recherche
+# Phase C3 — Convergence "Traiter" -> case direct (DONE)
 
-## Probleme
+## Fichiers modifiés
 
-Le `useEffect` de recherche (ligne 279-339) utilise `activeCases` pour filtrer les threads deja convertis en case, mais le tableau de dependances (ligne 339) ne contient que `[searchQuery]`. Cela peut causer un filtre stale si `activeCases` change apres le montage initial.
+1. `src/components/QuotationThreadCard.tsx` (2 lignes)
+2. `src/pages/Dashboard.tsx` (import + handleProcess refactoré)
 
-## Correction
+## Résumé des changements
 
-**Fichier unique** : `src/pages/Dashboard.tsx`
+### QuotationThreadCard.tsx
+- Signature `onProcess`: `(rootEmailId: string)` → `(rootEmailId: string, threadRef: string | null)`
+- onClick: `void onProcess(thread.rootEmailId, thread.threadRef)` (async-safe)
 
-**Ligne 339** : remplacer `[searchQuery]` par `[searchQuery, activeCases]`
+### Dashboard.tsx
+- Import `useCallback` ajouté
+- `isProcessing` state anti double-clic
+- `handleProcess` async avec:
+  - fallback legacy si `threadRef` absent
+  - `ensure-quote-case({ thread_id: threadRef })` idempotent
+  - garde `factsCount === 0` avant `build-case-puzzle`
+  - navigation `/case/:caseId`
+  - fallback legacy + toast warning si erreur
+  - `finally` reset `isProcessing`
 
-C'est un changement d'une seule ligne, sans impact sur la logique de filtrage ni sur aucun autre comportement.
-
-## Impact
-
-- Si `activeCases` est mis a jour (par ex. apres un `fetchData()` ou un refresh), toute recherche en cours sera re-executee avec le filtre anti-fantome a jour
-- Aucun risque de regression : le contenu du useEffect ne change pas, seul le declencheur est elargi
-
-## Ce qui ne change PAS
-
-- Logique de filtrage interne au useEffect
-- `fetchData()`
-- Requetes backend
-- UI / labels / composants
-- Aucun autre fichier
-
+## Ce qui n'a PAS changé
+- Logique C2.1 (pending/search anti-fantôme)
+- emailService.ts pipeline C1
+- Backend functions
+- Aucune migration DB
+- Aucun composant FROZEN
