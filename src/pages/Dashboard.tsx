@@ -380,9 +380,14 @@ export default function Dashboard() {
 
       if (factsCount === 0) {
         try {
-          await supabase.functions.invoke('build-case-puzzle', {
+          const { error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
             body: { case_id: caseId },
           });
+          if (puzzleError) {
+            console.warn('[C3] build-case-puzzle returned error (non-blocking):', puzzleError);
+            const { toast } = await import('sonner');
+            toast.warning('Analyse du dossier partielle — vous pouvez continuer');
+          }
         } catch (puzzleErr) {
           console.warn('[C3] build-case-puzzle failed (non-blocking):', puzzleErr);
           const { toast } = await import('sonner');
