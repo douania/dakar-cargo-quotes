@@ -336,7 +336,7 @@ export default function Dashboard() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, activeCases]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
