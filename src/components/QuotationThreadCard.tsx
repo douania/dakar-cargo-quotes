@@ -56,7 +56,7 @@ export interface ThreadGroup {
 
 interface QuotationThreadCardProps {
   thread: ThreadGroup;
-  onProcess: (rootEmailId: string) => void;
+  onProcess: (rootEmailId: string, threadRef: string | null) => void;
 }
 
 const REQUIRED_FIELDS: (keyof MergedExtractedData)[] = ['cargo', 'origin', 'incoterm'];
@@ -218,7 +218,7 @@ export function QuotationThreadCard({ thread, onProcess }: QuotationThreadCardPr
 
               <Button
                 size="sm"
-                onClick={() => onProcess(thread.rootEmailId)}
+                onClick={() => void onProcess(thread.rootEmailId, thread.threadRef)}
                 className="gap-1"
               >
                 Traiter

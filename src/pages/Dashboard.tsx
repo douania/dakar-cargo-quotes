@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Mail, 
@@ -343,9 +343,64 @@ export default function Dashboard() {
     fetchData();
   };
 
-  const handleProcess = (emailId: string) => {
-    navigate(`/quotation/${emailId}`);
-  };
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleProcess = useCallback(async (emailId: string, threadRef: string | null) => {
+    if (isProcessing) return;
+
+    // Fallback legacy if no threadRef
+    if (!threadRef) {
+      navigate(`/quotation/${emailId}`);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      // 1. ensure-quote-case (idempotent)
+      const { data: caseData, error: caseError } = await supabase.functions.invoke('ensure-quote-case', {
+        body: { thread_id: threadRef },
+      });
+
+      if (caseError || !caseData?.case_id) {
+        console.error('[C3] ensure-quote-case failed:', caseError || caseData);
+        const { toast } = await import('sonner');
+        toast.warning('Impossible de créer le dossier — ouverture en mode classique');
+        navigate(`/quotation/${emailId}`);
+        return;
+      }
+
+      const caseId = caseData.case_id;
+
+      // 2. Guard: only build puzzle if no facts exist yet
+      const { count: factsCount } = await supabase
+        .from('quote_facts')
+        .select('id', { count: 'exact', head: true })
+        .eq('case_id', caseId)
+        .eq('is_current', true);
+
+      if (factsCount === 0) {
+        try {
+          await supabase.functions.invoke('build-case-puzzle', {
+            body: { case_id: caseId },
+          });
+        } catch (puzzleErr) {
+          console.warn('[C3] build-case-puzzle failed (non-blocking):', puzzleErr);
+          const { toast } = await import('sonner');
+          toast.warning('Analyse du dossier partielle — vous pouvez continuer');
+        }
+      }
+
+      // 3. Navigate to case view
+      navigate(`/case/${caseId}`);
+    } catch (err) {
+      console.error('[C3] handleProcess error:', err);
+      const { toast } = await import('sonner');
+      toast.error('Erreur inattendue — ouverture en mode classique');
+      navigate(`/quotation/${emailId}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [isProcessing, navigate]);
 
   const handleNewQuotation = () => {
     navigate('/quotation/new');
