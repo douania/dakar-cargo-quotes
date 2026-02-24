@@ -496,6 +496,9 @@ export default function CaseView() {
   const [isSavingFact, setIsSavingFact] = React.useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
+  // ── Gap inline resolution state ──
+  const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
+  const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -852,7 +855,7 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
-        {/* Blocking gaps alert */}
+        {/* Blocking gaps alert — with inline resolution for editable gaps */}
         {blockingGaps.length > 0 && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
@@ -860,10 +863,74 @@ export default function CaseView() {
               <p className="font-semibold mb-2">
                 {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
               </p>
-              <ul className="list-disc pl-4 space-y-1 text-sm">
-                {blockingGaps.map((g: any) => (
-                  <li key={g.id}>{g.question_fr || g.gap_key}</li>
-                ))}
+              <ul className="space-y-3">
+                {blockingGaps.map((g: any) => {
+                  const isEditable = EDITABLE_FACT_KEYS.has(g.gap_key);
+                  const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
+                  const isSaving = savingGapKey === g.gap_key;
+
+                  const handleSaveGap = async () => {
+                    if (!caseId) return;
+                    const raw = gapInputs[g.gap_key] || "";
+                    setSavingGapKey(g.gap_key);
+                    try {
+                      const payload: Record<string, unknown> = {
+                        case_id: caseId,
+                        fact_key: g.gap_key,
+                      };
+                      if (isNumeric) {
+                        const num = Number(raw);
+                        if (!Number.isFinite(num) || num <= 0 || (g.gap_key === "cargo.pieces_count" && !Number.isInteger(num))) {
+                          throw new Error(g.gap_key === "cargo.pieces_count" ? "Entier positif requis" : "Nombre positif requis");
+                        }
+                        payload.value_number = num;
+                        payload.value_text = null;
+                      } else {
+                        if (!raw.trim()) throw new Error("Valeur requise");
+                        payload.value_text = raw.trim();
+                        payload.value_number = null;
+                      }
+                      const { error } = await supabase.functions.invoke("set-case-fact", { body: payload });
+                      if (error) throw error;
+                      toast.success(`${g.gap_key} enregistré`);
+                      setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
+                      handleRefresh();
+                    } catch (err) {
+                      toast.error((err as Error).message);
+                    } finally {
+                      setSavingGapKey(null);
+                    }
+                  };
+
+                  return (
+                    <li key={g.id} className="flex items-center gap-2 text-sm">
+                      <span className="flex-1">{g.question_fr || g.gap_key}</span>
+                      {isEditable && !isLocked && (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type={isNumeric ? "number" : "text"}
+                            placeholder={isNumeric ? "ex: 12" : "Saisir…"}
+                            className="h-8 w-32 text-foreground bg-background"
+                            value={gapInputs[g.gap_key] || ""}
+                            onChange={(e) => setGapInputs((prev) => ({ ...prev, [g.gap_key]: e.target.value }))}
+                            onKeyDown={(e) => e.key === "Enter" && handleSaveGap()}
+                            disabled={isSaving}
+                            min={isNumeric ? 1 : undefined}
+                          />
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 px-2"
+                            onClick={handleSaveGap}
+                            disabled={isSaving || !(gapInputs[g.gap_key] || "").trim()}
+                          >
+                            {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          </Button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </AlertDescription>
           </Alert>
