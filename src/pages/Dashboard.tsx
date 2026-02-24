@@ -168,7 +168,6 @@ export default function Dashboard() {
             .from('quote_cases')
             .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
             .not('status', 'in', '(SENT,ARCHIVED)')
-            .is('thread_id', null)
             .order('updated_at', { ascending: false })
             .limit(50)
         ),
@@ -221,8 +220,18 @@ export default function Dashboard() {
 
       const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
-      const pendingRequests = (emails || [])
-        .filter(email => !sentEmailIds.has(email.id)) as RawEmail[];
+      // C2.1-C: build Set of thread_ids covered by active cases
+      const activeCaseThreadIds = new Set<string>(
+        typedCases.map(c => c.thread_id).filter((tid): tid is string => !!tid)
+      );
+
+      // Filter pending: exclude sent + exclude threads already covered by a case
+      const isPendingEmail = (email: RawEmail) =>
+        !sentEmailIds.has(email.id)
+        && !(email.thread_ref && activeCaseThreadIds.has(email.thread_ref))
+        && !(email.thread_id && activeCaseThreadIds.has(email.thread_id));
+
+      const pendingRequests = (emails || []).filter(isPendingEmail) as RawEmail[];
 
       setRequests(pendingRequests);
       setAttachmentCounts(attachmentCounts);
@@ -305,8 +314,18 @@ export default function Dashboard() {
           .not('original_email_id', 'is', null);
         const sentIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
 
+        // C2.1-C: also exclude threads covered by active cases (reuse activeCases state)
+        const searchActiveCaseThreadIds = new Set<string>(
+          activeCases.map(c => c.thread_id).filter((tid): tid is string => !!tid)
+        );
+
         setSearchResults(
-          (data || []).filter(e => !sentIds.has(e.id)) as RawEmail[]
+          (data || []).filter(e => {
+            if (sentIds.has(e.id)) return false;
+            if (e.thread_ref && searchActiveCaseThreadIds.has(e.thread_ref)) return false;
+            if (e.thread_id && searchActiveCaseThreadIds.has(e.thread_id)) return false;
+            return true;
+          }) as RawEmail[]
         );
         setSearchAttCounts(attCounts);
       } catch (err) {

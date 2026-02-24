@@ -152,12 +152,35 @@ Deno.serve(async (req) => {
     // 9. Load draft via userClient (RLS ownership)
     const { data: draftData, error: draftError } = await userClient
       .from("email_drafts")
-      .select("id, sent_at, status")
+      .select("id, sent_at, status, quotation_version_id")
       .eq("id", draft_id)
       .single();
 
     if (draftError || !draftData) {
       return await fail(serviceClient, "VALIDATION_FAILED", "Email draft not found", correlationId, t0, userId, { draft_id });
+    }
+
+    // 9b. C2.1-B — Validate draft belongs to the target version (defense in depth)
+    if (draftData.quotation_version_id && draftData.quotation_version_id !== version_id) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        "Draft does not match the target version",
+        correlationId, t0, userId,
+        { draft_id, expected_version: version_id, actual_version: draftData.quotation_version_id },
+      );
+    }
+
+    // 9c. C2.1-B — Reject unexpected draft status
+    const allowedDraftStatuses = ["draft", "sent"];
+    if (draftData.status && !allowedDraftStatuses.includes(draftData.status)) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        `Invalid draft status: ${draftData.status}. Expected: draft or sent`,
+        correlationId, t0, userId,
+        { draft_id, draft_status: draftData.status },
+      );
     }
 
     // 10. Idempotence
