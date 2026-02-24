@@ -559,8 +559,9 @@ async function applyAssumptionRules(
     }
   }
 
-  // A1: If flowType is UNKNOWN but requestType is AIR_IMPORT, force AIR_IMPORT for assumptions
-  if (flowType === 'UNKNOWN' && requestType === 'AIR_IMPORT') {
+  // A1 + C3.1-A: If requestType is AIR_IMPORT, force AIR_IMPORT regardless of detectFlowType result
+  if (requestType === 'AIR_IMPORT' && flowType !== 'AIR_IMPORT') {
+    console.log(`[M3.5.1] Flow override: ${flowType} -> AIR_IMPORT (requestType is AIR_IMPORT)`);
     flowType = 'AIR_IMPORT';
   }
 
@@ -1302,6 +1303,91 @@ Deno.serve(async (req) => {
       console.error("[HS doc-regex] Unexpected error:", hsDocErr);
     }
 
+    // --- M3.4c: Deterministic HS extraction from emails (regex) --- C3.1-C
+    try {
+      // 1. Reload current cargo.hs_code (may have been updated by M3.4b)
+      const { data: hsFactEmail } = await serviceClient
+        .from("quote_facts")
+        .select("id, value_text, source_type")
+        .eq("case_id", case_id)
+        .eq("fact_key", "cargo.hs_code")
+        .eq("is_current", true)
+        .maybeSingle();
+
+      const hsDigitsEmail = (hsFactEmail?.value_text || "").replace(/\D/g, "");
+
+      let skipHsEmailRegex = false;
+      if (hsDigitsEmail.length === 10) {
+        const alreadyValid = await isExactHsMatch(serviceClient, hsDigitsEmail);
+        if (alreadyValid) {
+          console.log("[HS email-regex] Existing HS already valid:", hsDigitsEmail);
+          skipHsEmailRegex = true;
+        }
+      }
+
+      if (!skipHsEmailRegex && emails && emails.length > 0) {
+        const resolvedEmailCandidates: Array<{ code10: string; emailId: string; subject: string; raw: string }> = [];
+
+        for (const email of emails) {
+          const emailText = [
+            email.subject || "",
+            extractPlainTextFromMime(email.body_text || ""),
+          ].join(" ");
+
+          const rawCandidates = extractHsCodesFromText(emailText);
+          for (const raw of rawCandidates) {
+            const hsResult = await resolveSenegalHsCode(serviceClient, raw);
+            if (hsResult.status === "unique") {
+              resolvedEmailCandidates.push({
+                code10: hsResult.code10,
+                emailId: email.id,
+                subject: email.subject || "(no subject)",
+                raw,
+              });
+            }
+          }
+        }
+
+        // Deduplicate by resolved code10
+        const uniqueEmailCodes = [...new Set(resolvedEmailCandidates.map(r => r.code10))];
+
+        if (uniqueEmailCodes.length === 1) {
+          // Idempotency: skip if existing HS is identical
+          if (hsDigitsEmail === uniqueEmailCodes[0]) {
+            console.log("[HS email-regex] HS identical to existing, skip supersede");
+          } else {
+            const match = resolvedEmailCandidates.find(r => r.code10 === uniqueEmailCodes[0])!;
+            const { error: hsEmailRpcErr } = await serviceClient.rpc("supersede_fact", {
+              p_case_id: case_id,
+              p_fact_key: "cargo.hs_code",
+              p_fact_category: "cargo",
+              p_value_text: match.code10,
+              p_value_number: null,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: "email_body",
+              p_source_email_id: match.emailId,
+              p_source_attachment_id: null,
+              p_source_excerpt: `[email_regex] ${match.subject}: ${match.raw} → ${match.code10}`,
+              p_confidence: 0.92,
+            });
+            if (hsEmailRpcErr) {
+              console.error("[HS email-regex] supersede_fact FAILED:", hsEmailRpcErr.message);
+            } else {
+              factsAdded++;
+              console.log("[HS email-regex] Injected", match.code10, "from email:", match.subject);
+            }
+          }
+        } else if (uniqueEmailCodes.length === 0) {
+          console.log("[HS email-regex] No HS found/resolved from emails");
+        } else {
+          console.warn("[HS email-regex] Multiple valid HS candidates from emails:", uniqueEmailCodes.slice(0, 5));
+        }
+      }
+    } catch (hsEmailErr) {
+      console.error("[HS email-regex] Unexpected error:", hsEmailErr);
+    }
+
     // --- Regime evidence-based detection from case_documents ---
     try {
       // Helper: extract regime codes and exemption titles from text
@@ -1558,7 +1644,16 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (hsFactRow) {
-        const rawHsValue = hsFactRow.value_text || "";
+        const rawHsValue = (hsFactRow.value_text || "").trim();
+
+        // C3.1-D: Guard against empty HS code — skip validation, deactivate fact
+        if (!rawHsValue) {
+          console.warn("[HS Post-Attach] Empty cargo.hs_code — skipping validation, deactivating fact");
+          await serviceClient.from("quote_facts")
+            .update({ is_current: false, updated_at: new Date().toISOString() })
+            .eq("id", hsFactRow.id);
+          factsUpdated++;
+        } else {
         const digitsOnly = rawHsValue.replace(/\D/g, "");
 
         // Only re-validate if not already a valid 10-digit code
@@ -1620,8 +1715,9 @@ Deno.serve(async (req) => {
               gapsIdentified++;
               console.log(`[HS Post-Attach] Created blocking GAP for cargo.hs_code (${hsResult.status})`);
             }
-          }
         }
+        }
+        } // end else (non-empty rawHsValue)
       }
     } catch (hsErr) {
       console.error("[HS Post-Attach] Unexpected error:", hsErr);
@@ -2019,6 +2115,7 @@ Fact keys to extract:
 - routing.origin_airport, routing.destination_airport
 - cargo.description, cargo.containers (as JSON array [{type, quantity, coc_soc}])
 - cargo.weight_kg, cargo.volume_cbm, cargo.value, cargo.value_currency, cargo.pieces_count
+- cargo.hs_code (Harmonized System code, extract exact digits as stated e.g. 3002.12.00.10)
 - timing.loading_date, timing.delivery_deadline
 - carrier.name
 - contacts.client_email, contacts.client_company
