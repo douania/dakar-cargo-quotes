@@ -400,6 +400,175 @@ function extractHsCodesFromText(text: string): string[] {
   return [...seen];
 }
 
+// --- C3.2-A: Multi-quote line detection helpers ---
+
+const MULTI_QUOTE_MARKERS = [
+  /\bquote\s*[1-9]/i,
+  /\boption\s*[a-d1-4]/i,
+  /\balternative\s*[1-4]/i,
+  /\bshipment\s*[1-4]/i,
+  /\bscenario\s*[1-4]/i,
+  /\bdevis\s*[1-4]/i,
+  /\bcotation\s*[1-4]/i,
+  /\benvoi\s*[1-4]/i,
+];
+
+function detectMultiQuoteMarkers(text: string): boolean {
+  if (!text || text.length < 20) return false;
+  let distinctCount = 0;
+  for (const re of MULTI_QUOTE_MARKERS) {
+    if (re.test(text)) distinctCount++;
+    if (distinctCount >= 2) return true;
+  }
+  // Also check numbered lists: "1) ... 2) ..." or "1. ... 2. ..." with quote-like context
+  const numberedPattern = /(?:^|\n)\s*[1-4][.)]\s*.{10,}/g;
+  const numberedMatches = text.match(numberedPattern);
+  if (numberedMatches && numberedMatches.length >= 2 && distinctCount >= 1) return true;
+  return false;
+}
+
+function pickSourceEmailId(emails: any[]): string | null {
+  if (!Array.isArray(emails) || emails.length === 0) return null;
+  for (let i = emails.length - 1; i >= 0; i--) {
+    if (emails[i]?.is_quotation_request) return emails[i].id;
+  }
+  return emails[emails.length - 1]?.id || null;
+}
+
+const MULTI_QUOTE_ALLOWED_KEYS = new Set([
+  "cargo.weight_kg", "cargo.volume_cbm", "cargo.description",
+  "cargo.pieces_count", "cargo.hs_code", "cargo.dimensions",
+  "cargo.containers", "routing.origin_port", "routing.origin_airport",
+  "routing.destination_port", "routing.destination_airport",
+  "routing.incoterm", "timing.loading_date", "timing.delivery_deadline",
+]);
+
+async function extractQuoteLinesWithAI(
+  threadContext: string,
+  attachmentContext: string,
+  _emails: any[],
+  apiKey: string
+): Promise<Array<{
+  line_index: number;
+  line_label: string;
+  segment_text: string;
+  extracted_facts: Array<{ key: string; value: string; valueType?: string; confidence?: number }>;
+  confidence: number;
+  request_type_hint?: string;
+  source_excerpt?: string;
+  meta_json?: Record<string, unknown>;
+}> | null> {
+  const truncatedAttach = (attachmentContext || "").slice(0, 8000);
+
+  const systemPrompt = `You are a freight quotation analyst. The email thread contains MULTIPLE distinct quotation requests (e.g., "Quote 1", "Option A", "Alternative 1").
+Extract each distinct quotation request as a separate line.
+
+Return ONLY a valid JSON object with this structure:
+{
+  "lines": [
+    {
+      "line_index": 1,
+      "line_label": "Quote 1 - Dry cargo from Shanghai",
+      "segment_text": "relevant text segment for this quote",
+      "request_type_hint": "SEA_FCL_IMPORT",
+      "extracted_facts": [
+        { "key": "cargo.weight_kg", "value": "22000", "valueType": "number", "confidence": 0.9 },
+        { "key": "routing.origin_port", "value": "Shanghai", "valueType": "text", "confidence": 0.95 }
+      ],
+      "confidence": 0.9
+    }
+  ]
+}
+
+Allowed fact keys: cargo.weight_kg, cargo.volume_cbm, cargo.description, cargo.pieces_count, cargo.hs_code, cargo.dimensions, cargo.containers, routing.origin_port, routing.origin_airport, routing.destination_port, routing.destination_airport, routing.incoterm, timing.loading_date, timing.delivery_deadline.
+
+Rules:
+- Maximum 8 lines
+- Each line must have at least 2 extracted facts with allowed keys
+- line_index must be 1-based sequential
+- Be precise about which facts belong to which quote option`;
+
+  const userPrompt = `THREAD:\n${threadContext}\n\nATTACHMENTS:\n${truncatedAttach}`;
+
+  try {
+    const response = await fetch(LOVABLE_AI_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn("[M3.5 multi-quote] AI response error:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const rawContent = data.choices?.[0]?.message?.content || "";
+
+    // Parse JSON from response (handle markdown code blocks)
+    const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, rawContent];
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonMatch[1]?.trim() || rawContent.trim());
+    } catch {
+      console.warn("[M3.5 multi-quote] Failed to parse AI JSON response");
+      return null;
+    }
+
+    const lines = parsed?.lines;
+    if (!Array.isArray(lines)) return null;
+
+    // Validate and filter
+    const validLines = lines
+      .slice(0, 8)
+      .map((line: any, idx: number) => {
+        if (!line || typeof line !== "object") return null;
+        const facts = Array.isArray(line.extracted_facts)
+          ? line.extracted_facts.filter((f: any) =>
+              f && typeof f.key === "string" && MULTI_QUOTE_ALLOWED_KEYS.has(f.key) && f.value != null
+            )
+          : [];
+        if (facts.length < 2) {
+          console.warn(`[M3.5 multi-quote] Line ${idx + 1} rejected: only ${facts.length} valid facts`);
+          return null;
+        }
+        // Parse JSON values when valueType=json
+        const parsedFacts = facts.map((f: any) => {
+          if (f.valueType === "json" && typeof f.value === "string") {
+            try { return { ...f, value: JSON.parse(f.value) }; } catch { return f; }
+          }
+          return f;
+        });
+        return {
+          line_index: idx + 1, // Always 1-based sequential (B5)
+          line_label: typeof line.line_label === "string" ? line.line_label.slice(0, 200) : `Quote ${idx + 1}`,
+          segment_text: typeof line.segment_text === "string" ? line.segment_text.slice(0, 5000) : "",
+          extracted_facts: parsedFacts,
+          confidence: typeof line.confidence === "number" ? Math.min(1, Math.max(0, line.confidence)) : 0.8,
+          request_type_hint: typeof line.request_type_hint === "string" ? line.request_type_hint : undefined,
+          source_excerpt: typeof line.source_excerpt === "string" ? line.source_excerpt.slice(0, 500) : undefined,
+          meta_json: line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {},
+        };
+      })
+      .filter(Boolean);
+
+    return validLines.length > 0 ? validLines : null;
+  } catch (err) {
+    console.warn("[M3.5 multi-quote] extractQuoteLinesWithAI error:", err);
+    return null;
+  }
+}
+
 // --- P0 Fix: Parse container text into structured JSON ---
 function parseContainersFromText(raw: string): Array<{ type: string; quantity: number }> {
   const s = (raw || "").toUpperCase();
@@ -1080,6 +1249,7 @@ Deno.serve(async (req) => {
     let factsAdded = 0;
     let factsUpdated = 0;
     let factsSkipped = 0;
+    let multiQuoteResult: { detected: boolean; stored: number; mode: string | null } | null = null;
     const factErrors: Array<{ key: string; error: string; isCritical: boolean }> = [];
     
     // Get mandatory facts for this request type to mark critical errors
@@ -1386,6 +1556,62 @@ Deno.serve(async (req) => {
       }
     } catch (hsEmailErr) {
       console.error("[HS email-regex] Unexpected error:", hsEmailErr);
+    }
+
+    // --- M3.5: Multi-quote line detection (C3.2-A) ---
+    try {
+      const gateText = threadContext || "";
+      if (detectMultiQuoteMarkers(gateText)) {
+        console.log("[M3.5 multi-quote] Markers detected, launching AI extraction...");
+        const quoteLines = await extractQuoteLinesWithAI(
+          threadContext, fullAttachmentContext, emails, lovableApiKey || ""
+        );
+
+        if (Array.isArray(quoteLines) && quoteLines.length > 0) {
+          const sourceEmailId = pickSourceEmailId(emails);
+
+          const linesPayload = quoteLines.map((line, idx) => ({
+            line_index: idx + 1,
+            line_label: line.line_label || `Quote ${idx + 1}`,
+            request_type_hint: line.request_type_hint || null,
+            confidence: typeof line.confidence === "number" ? line.confidence : 0.8,
+            source_email_id: sourceEmailId,
+            source_excerpt: line.source_excerpt || `[multi-quote] ${line.line_label || `Quote ${idx + 1}`}`,
+            segment_text: line.segment_text || null,
+            extracted_facts_json: Array.isArray(line.extracted_facts) ? line.extracted_facts : [],
+            meta_json: line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {},
+          }));
+
+          const validLinesPayload = linesPayload.filter(
+            (l) => Array.isArray(l.extracted_facts_json) && l.extracted_facts_json.length >= 2
+          );
+
+          if (validLinesPayload.length > 0) {
+            const { data: storedCount, error: rpcErr } = await serviceClient.rpc(
+              "replace_quote_request_lines",
+              { p_case_id: case_id, p_lines: validLinesPayload }
+            );
+
+            if (rpcErr) {
+              console.warn("[M3.5 multi-quote] RPC error (non-blocking):", rpcErr.message);
+              multiQuoteResult = { detected: true, stored: 0, mode: "rpc_error" };
+            } else {
+              console.log(`[M3.5 multi-quote] Stored ${storedCount} quote request lines`);
+              multiQuoteResult = { detected: true, stored: storedCount ?? 0, mode: "ai_extraction" };
+            }
+          } else {
+            console.log("[M3.5 multi-quote] No valid lines after validation (min 2 facts required)");
+            multiQuoteResult = { detected: true, stored: 0, mode: "detected_no_valid_lines" };
+          }
+        } else {
+          multiQuoteResult = { detected: true, stored: 0, mode: "ai_no_lines" };
+        }
+      } else {
+        multiQuoteResult = { detected: false, stored: 0, mode: null };
+      }
+    } catch (mqErr) {
+      console.warn("[M3.5 multi-quote] Non-blocking error:", mqErr);
+      multiQuoteResult = { detected: true, stored: 0, mode: "exception" };
     }
 
     // --- Regime evidence-based detection from case_documents ---
@@ -2069,6 +2295,9 @@ Deno.serve(async (req) => {
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
         ready_to_price: newStatus === "READY_TO_PRICE",
+        quote_request_lines_detected: multiQuoteResult?.detected || false,
+        quote_request_lines_stored: multiQuoteResult?.stored || 0,
+        quote_request_lines_mode: multiQuoteResult?.mode || null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

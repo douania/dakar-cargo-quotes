@@ -3057,6 +3057,69 @@ export type Database = {
           },
         ]
       }
+      quote_request_lines: {
+        Row: {
+          case_id: string
+          confidence: number | null
+          created_at: string | null
+          extracted_facts_json: Json
+          id: string
+          line_index: number
+          line_label: string
+          meta_json: Json
+          request_type_hint: string | null
+          segment_text: string | null
+          source_email_id: string | null
+          source_excerpt: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          case_id: string
+          confidence?: number | null
+          created_at?: string | null
+          extracted_facts_json?: Json
+          id?: string
+          line_index: number
+          line_label?: string
+          meta_json?: Json
+          request_type_hint?: string | null
+          segment_text?: string | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          case_id?: string
+          confidence?: number | null
+          created_at?: string | null
+          extracted_facts_json?: Json
+          id?: string
+          line_index?: number
+          line_label?: string
+          meta_json?: Json
+          request_type_hint?: string | null
+          segment_text?: string | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_request_lines_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lines_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_service_pricing: {
         Row: {
           case_id: string
@@ -4237,6 +4300,10 @@ export type Database = {
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
         Returns: string
+      }
+      replace_quote_request_lines: {
+        Args: { p_case_id: string; p_lines: Json }
+        Returns: number
       }
       select_quotation_version: {
         Args: { p_case_id: string; p_version_id: string }
