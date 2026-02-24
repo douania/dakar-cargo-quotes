@@ -894,7 +894,20 @@ export default function CaseView() {
                       if (error) throw error;
                       toast.success(`${g.gap_key} enregistré`);
                       setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
-                      handleRefresh();
+                      // Relancer build-case-puzzle pour recalculer/fermer les gaps
+                      if (caseId) {
+                        try {
+                          const { error: puzzleErr } = await supabase.functions.invoke("build-case-puzzle", {
+                            body: { case_id: caseId },
+                          });
+                          if (puzzleErr) {
+                            console.warn("[handleSaveGap] build-case-puzzle non-blocking error:", puzzleErr.message);
+                          }
+                        } catch (e) {
+                          console.warn("[handleSaveGap] build-case-puzzle invoke exception:", e);
+                        }
+                      }
+                      await handleRefresh();
                     } catch (err) {
                       toast.error((err as Error).message);
                     } finally {
