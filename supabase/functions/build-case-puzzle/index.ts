@@ -467,12 +467,27 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
       { key: 'totalValue', regex: /(?:Montant|Total)\s+HT(?!\s*Hors)/i },
     ];
 
-    // Find the anchor: first line matching any of our labels
+    // Helper: detect tabulated table header lines (3+ tab-separated columns)
+    const isTabulated = (l: string) => l.includes('\t') && l.split('\t').length >= 3;
+
+    // Find the anchor: PRIORITY 1 = "Sous-total HT" (most specific), PRIORITY 2 = any label pattern
     let anchorIdx = -1;
+    // Priority pass: Sous-total HT (skip tabulated lines)
     for (let i = 0; i < lines.length; i++) {
-      if (labelPatterns.some(lp => lp.regex.test(lines[i]))) {
+      if (isTabulated(lines[i])) continue;
+      if (/Sous[- ]?total\s+HT/i.test(lines[i])) {
         anchorIdx = i;
         break;
+      }
+    }
+    // Fallback pass: any label pattern (skip tabulated lines)
+    if (anchorIdx < 0) {
+      for (let i = 0; i < lines.length; i++) {
+        if (isTabulated(lines[i])) continue;
+        if (labelPatterns.some(lp => lp.regex.test(lines[i]))) {
+          anchorIdx = i;
+          break;
+        }
       }
     }
 
@@ -484,6 +499,7 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
       for (let i = anchorIdx; i < lines.length; i++) {
         const trimLine = lines[i].trim();
         if (!trimLine) continue; // skip blank lines
+        if (isTabulated(lines[i])) continue; // skip tabulated table rows
         // Check if line is purely numeric (amount line)
         const isNumericLine = /^[\s]*[0-9][0-9\s',.]*[0-9][\s]*$/.test(trimLine) || /^[\s]*[0-9]+[\s]*$/.test(trimLine);
         if (isNumericLine) {
