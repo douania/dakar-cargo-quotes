@@ -911,7 +911,7 @@ export default function CaseView() {
                       await handleRefresh();
 
                       // ── P0.2: Auto-pricing si plus aucun gap bloquant ──
-                      if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED") {
+                      if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING") {
                         try {
                           const { data: updatedGaps } = await supabase
                             .from("quote_gaps")
@@ -938,7 +938,7 @@ export default function CaseView() {
                                 body: { case_id: caseId },
                               });
                               toast.success("Pricing lancé automatiquement");
-                              handleRefresh();
+                              await handleRefresh();
                             }
                           }
                         } catch (e) {
