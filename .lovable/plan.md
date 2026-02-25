@@ -1,83 +1,120 @@
 
 
-# Diagnostic confirme : le bug est dans la detection de l'ancre
+# Plan : Rendre le gap `routing.transport_mode` resolvable par l'operateur
 
-## Cause racine identifiee (logs runtime)
+## Diagnostic confirme
 
-```
-[cargo-value doc-regex] Stacked anchor at line 33: "Designation\tQuantite\tPrix Unit. HT\tTVA\tTotal HT EUR"
-[cargo-value doc-regex] Label block: 3 labels, amounts: 1 {"labels":["totalValue","?","?"],"amounts":[101]}
-[cargo-value doc-regex] No candidate found in any document
-```
+Le gap bloquant `routing.transport_mode` est legitime (document sans indice transport). Mais 3 verrous empechent sa resolution manuelle :
 
-L'ancre se fixe sur la **ligne d'en-tete du tableau** ("Designation\tQuantite\tPrix Unit. HT\tTVA\tTotal HT EUR") au lieu du **bloc recapitulatif** ("Sous-total HT", "Transport Export", etc.) situe plus bas dans le document.
+1. **UI** : `routing.transport_mode` absent de `EDITABLE_FACT_KEYS` et `SELECT_FACT_OPTIONS` -- pas de selecteur
+2. **Backend `set-case-fact`** : `routing.transport_mode` absent de `ALLOWED_FACT_KEYS` -- sauvegarde rejetee
+3. **Backend `build-case-puzzle`** : le bloc A1 (ligne 2471) re-insere le gap quand `detectedType === "UNKNOWN"` sans verifier si un fact manuel existe deja
 
-Le regex `/(Montant|Total)\s+HT/i` matche "Total HT EUR" dans cette ligne de colonnes. C'est la premiere occurrence, donc l'ancre s'y arrete. Le labelBlock construit a partir de la est absurde (lignes de detail produit), et les montants extraits sont faux (101 = une quantite).
+## Corrections (3 patchs chirurgicaux)
 
-## Probleme secondaire : cargo.value absent
+### Patch A -- `src/pages/CaseView.tsx`
 
-`cargo.freight_cost = 19500` et `cargo.freight_currency = EUR` existent deja (source `ai_extraction`), mais `cargo.value` n'est pas injecte parce que `bestCandidate` reste null (extraction echouee).
-
-## Correction : 3 points
-
-### 1. Exclure les lignes tabulees de l'ancre
-
-Les en-tetes de tableau PDF contiennent des tabulations (`\t`). Une ligne avec 2+ colonnes tabulees n'est jamais un label recapitulatif. Ajouter un guard :
+Ajouter `routing.transport_mode` dans `EDITABLE_FACT_KEYS` (ligne 66) et dans `SELECT_FACT_OPTIONS` (ligne 48) :
 
 ```typescript
-// Skip tabulated lines (table headers like "Designation\tQuantite\t...")
-if (lines[i].includes('\t') && lines[i].split('\t').length >= 3) continue;
+// SELECT_FACT_OPTIONS
+"routing.transport_mode": [
+  { value: "AIR", label: "Air" },
+  { value: "MARITIME", label: "Maritime" },
+  { value: "ROUTE", label: "Route" },
+],
+
+// EDITABLE_FACT_KEYS
+"routing.transport_mode",
 ```
 
-### 2. Privilegier Sous-total HT comme ancre primaire
+Le systeme existant `renderGapRow` + `saveGapAnswer` + `Select` fonctionne deja sans modification supplementaire.
 
-Au lieu de s'arreter au premier match de n'importe quel pattern, chercher d'abord `Sous-total HT` specifiquement. Ne fallback sur les autres patterns que si "Sous-total HT" n'est pas trouve.
+### Patch B -- `supabase/functions/set-case-fact/index.ts`
+
+Ajouter `"routing.transport_mode"` dans `ALLOWED_FACT_KEYS` (ligne 18).
+
+### Patch C -- `supabase/functions/build-case-puzzle/index.ts`
+
+Modifier le bloc A1 (lignes 2471-2493) pour verifier si un fact manuel `routing.transport_mode` existe deja avant d'inserer/maintenir le gap :
 
 ```typescript
-// Priority: look for "Sous-total HT" first (most specific anchor)
-let anchorIdx = -1;
-for (let i = 0; i < lines.length; i++) {
-  if (lines[i].includes('\t') && lines[i].split('\t').length >= 3) continue;
-  if (/Sous[- ]?total\s+HT/i.test(lines[i])) {
-    anchorIdx = i;
-    break;
-  }
-}
-// Fallback: any label pattern (excluding tabulated lines)
-if (anchorIdx < 0) {
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes('\t') && lines[i].split('\t').length >= 3) continue;
-    if (labelPatterns.some(lp => lp.regex.test(lines[i]))) {
-      anchorIdx = i;
-      break;
+// A1: For UNKNOWN request type, add transport mode gap ONLY if no manual fact exists
+if (detectedType === "UNKNOWN") {
+  const hasManualTransportMode = existingDbKeys.includes("routing.transport_mode");
+  
+  if (hasManualTransportMode) {
+    // Resolve existing gap if operator already answered
+    const { data: openModeGap } = await serviceClient
+      .from("quote_gaps")
+      .select("id")
+      .eq("case_id", case_id)
+      .eq("gap_key", "routing.transport_mode")
+      .eq("status", "open")
+      .single();
+    
+    if (openModeGap) {
+      await serviceClient.from("quote_gaps")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("id", openModeGap.id);
+      console.log("[A1] Closed routing.transport_mode gap: manual fact exists");
+    }
+  } else {
+    // No fact → ensure gap exists
+    const { data: existingModeGap } = await serviceClient
+      .from("quote_gaps")
+      .select("id")
+      .eq("case_id", case_id)
+      .eq("gap_key", "routing.transport_mode")
+      .eq("status", "open")
+      .single();
+    
+    if (!existingModeGap) {
+      const modeGapInfo = GAP_QUESTIONS["routing.transport_mode"];
+      await serviceClient.from("quote_gaps").insert({
+        case_id,
+        gap_key: "routing.transport_mode",
+        gap_category: "routing",
+        question_fr: modeGapInfo.fr,
+        question_en: modeGapInfo.en,
+        priority: "critical",
+        is_blocking: true,
+      });
+      gapsIdentified++;
     }
   }
 }
 ```
 
-### 3. Exclure les lignes tabulees du label block
+Egalement, modifier la ligne 2448 pour ne pas maintenir le gap dans mandatorySet si le fact existe :
 
-Meme garde dans la boucle de construction du labelBlock : ignorer les lignes multi-colonnes tabulees.
+```typescript
+if (detectedType === "UNKNOWN" && !existingDbKeys.includes("routing.transport_mode")) {
+  mandatorySet.add("routing.transport_mode");
+}
+```
 
-## Fichier modifie
+Note : `existingDbKeys` est charge a la ligne 2496, mais le bloc A1 est a 2471 (avant). Il faut deplacer le chargement `existingDbFacts` AVANT le bloc A1, ou dupliquer la lecture. Le plus simple est de deplacer les lignes 2496-2501 avant la ligne 2445.
 
-| Fichier | Lignes | Action |
-|---------|--------|--------|
-| `supabase/functions/build-case-puzzle/index.ts` | ~470-498 | Ajout garde anti-tab dans ancre + priorite Sous-total HT + garde dans labelBlock |
+## Fichiers modifies
+
+| Fichier | Action |
+|---------|--------|
+| `src/pages/CaseView.tsx` | Ajouter `routing.transport_mode` dans `EDITABLE_FACT_KEYS` + `SELECT_FACT_OPTIONS` |
+| `supabase/functions/set-case-fact/index.ts` | Ajouter `"routing.transport_mode"` dans `ALLOWED_FACT_KEYS` |
+| `supabase/functions/build-case-puzzle/index.ts` | Deplacer lecture existingDbFacts avant A1, conditionner A1 sur absence de fact manuel, fermer le gap si fact existe |
+
+## Semantique des valeurs
+
+- `routing.transport_mode` = `AIR` / `MARITIME` / `ROUTE` (mode generique)
+- `request_type` = `AIR_IMPORT` / `SEA_FCL_IMPORT` / etc. (type de requete specifique)
+- On ne stocke PAS `SEA_FCL_IMPORT` dans `routing.transport_mode`
 
 ## Resultat attendu
 
-Avec le texte reel du document Taleb :
-- L'ancre saute la ligne 33 (en-tete tabule) et trouve "Sous-total HT" plus bas
-- LabelBlock : Sous-total HT, Transport Export, Montant HT, Total TTC...
-- Amounts : 945995.26, 19500.00, 965495.26, 965495.26
-- `bestCandidate.goodsValue = 945995.26`
-- Injection : `cargo.value = 945995.26`, `cargo.value_currency = EUR`
-
-## Securite
-
-- Zero changement de logique d'injection ou de guard
-- Le garde `\t` count >= 3 est specifique aux en-tetes de tableau PDF
-- Le premier pass (ligne par ligne) reste inchange
-- Redeploiement force apres modification
+1. L'operateur voit le gap "Quel mode de transport ?" avec un Select (Air / Maritime / Route)
+2. Il choisit "MARITIME"
+3. `set-case-fact` injecte `routing.transport_mode = MARITIME`
+4. `build-case-puzzle` relance, voit le fact, ferme le gap
+5. Le dossier progresse (vers READY_TO_PRICE si plus de gaps bloquants)
 
