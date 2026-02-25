@@ -1,40 +1,37 @@
 
 
-# Micro-patch post-review CTO : 2 corrections dans CaseView.tsx
+# Patch P0 + P1 : Gaps non-bloquants UI + Multi-HS CSV
 
-## Constat apres inspection du code deploye
+## P0 — UI gaps non-bloquants (CaseView.tsx)
 
-### P1.1 (MultiRequestLinesPanel) : OK, aucune correction necessaire
-Le JSX compile proprement. La condition `confidence >= 0.8` est correcte (ligne 86). Le `as any` est acceptable pour ce patch (la table n'est pas dans les types generes).
+### Problème
+Le formulaire de réponse aux gaps n'était rendu que pour `blockingGaps`. Après résolution du dernier gap bloquant, les gaps non-bloquants restants étaient comptés mais inaccessibles.
 
-### P0.2 (Auto-pricing) : 2 micro-corrections a faire
+### Correction
+- Extraction de `saveGapAnswer(g, allowAutoPricing: boolean)` comme fonction locale partagée
+- `renderGapRow(g, allowAutoPricing)` pour éviter la duplication du JSX
+- Nouvelle section "questions ouvertes" (style bleu) visible uniquement quand `blockingGaps.length === 0`
+- Auto-pricing désactivé pour les gaps non-bloquants (`allowAutoPricing: false`)
 
-**Correction 1 — Ligne 941 : `handleRefresh()` sans `await`**
+## P1 — Multi-HS CSV (build-case-puzzle/index.ts)
 
-Le dernier `handleRefresh()` apres le run-pricing n'a pas de `await`. Meme si handleRefresh n'est pas veritablement async, il faut etre coherent avec la ligne 911 qui utilise `await handleRefresh()`.
+### Problème
+Quand plusieurs codes HS valides étaient détectés dans les documents ou emails, le code loggait un warning sans rien injecter.
 
-```
-Avant : handleRefresh();
-Apres : await handleRefresh();
-```
+### Correction
+- Helper `normalizeHsCsv()` pour comparaison idempotente basée sur `value_text` brut
+- Blocs M3.4b (documents) et M3.4c (emails) : injection CSV trié au lieu de warning
+- Guard post-attach : détection multi-HS CSV pour éviter invalidation par la revalidation single-code
 
-**Correction 2 — Ligne 914 : Ajouter garde anti-double PRICING_RUNNING**
+## Fichiers modifiés
 
-Le guard `!isLocked` depend du state React (potentiellement stale). Ajouter une verification directe sur `caseData?.status` pour couvrir le cas de latence reseau ou l'utilisateur resout 2 gaps rapidement.
-
-```
-Avant : if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED")
-Apres : if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING")
-```
-
-## Fichiers modifies
-
-| Fichier | Lignes | Action |
-|---------|--------|--------|
-| `src/pages/CaseView.tsx` | 914, 941 | 2 corrections chirurgicales |
+| Fichier | Action |
+|---------|--------|
+| `src/pages/CaseView.tsx` | P0 : `saveGapAnswer` extraite, section non-bloquants, import `HelpCircle` |
+| `supabase/functions/build-case-puzzle/index.ts` | P1 : `normalizeHsCsv`, multi-HS CSV doc+email, guard post-attach |
 
 ## Ce qui ne change pas
-- MultiRequestLinesPanel : inchange
-- Backend / edge functions : inchange
-- Logique metier : inchangee
-
+- Backend RPC `supersede_fact` : inchangé
+- Moteur `quotation-engine` / `run-pricing` : inchangé
+- Migration DB : aucune
+- RLS : inchangé
