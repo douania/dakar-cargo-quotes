@@ -404,6 +404,71 @@ function extractHsCodesFromText(text: string): string[] {
   return [...seen];
 }
 
+// --- Deterministic cargo value extraction from free text (regex) ---
+interface CargoValueExtraction {
+  goodsValue?: number;
+  freightValue?: number;
+  totalValue?: number;
+  currency?: string;
+  goodsSource?: string;
+}
+
+function extractCargoValueFromText(text: string): CargoValueExtraction {
+  const result: CargoValueExtraction = {};
+
+  // Robust number parser for French/English formats
+  const parseAmount = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    let cleaned = trimmed.replace(/[\s']/g, '');
+    const lastDot = cleaned.lastIndexOf('.');
+    const lastComma = cleaned.lastIndexOf(',');
+    if (lastComma > lastDot) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else if (lastDot > lastComma) {
+      cleaned = cleaned.replace(/,/g, '');
+    }
+    const n = parseFloat(cleaned);
+    return isNaN(n) || n <= 0 ? null : n;
+  };
+
+  const lines = text.split(/\n/);
+  for (const line of lines) {
+    // Take the LAST numeric amount on the line to avoid quantities/references
+    const matches = [...line.matchAll(/([0-9][0-9\s',.]*[0-9])/g)];
+    if (matches.length === 0) continue;
+    const lastMatch = matches[matches.length - 1][1];
+
+    if (/Sous[- ]?total\s+HT/i.test(line)) {
+      const v = parseAmount(lastMatch);
+      if (v) { result.goodsValue = v; result.goodsSource = 'goods_from_sous_total'; }
+    } else if (/Transport\s+(?:Export|International)/i.test(line)) {
+      const v = parseAmount(lastMatch);
+      if (v) result.freightValue = v;
+    } else if (/(?:Montant|Total)\s+HT/i.test(line) && !result.totalValue) {
+      const v = parseAmount(lastMatch);
+      if (v) result.totalValue = v;
+    }
+
+    // Currency detection (line-level, first wins)
+    if (!result.currency) {
+      if (/\bEUR\b/i.test(line)) result.currency = 'EUR';
+      else if (/\bUSD\b/i.test(line)) result.currency = 'USD';
+      else if (/\bXOF\b|\bFCFA\b/i.test(line)) result.currency = 'XOF';
+    }
+  }
+
+  // Fallback derivation: goods = total - freight
+  if (!result.goodsValue && result.totalValue && result.freightValue) {
+    const derived = result.totalValue - result.freightValue;
+    if (derived > 0) {
+      result.goodsValue = derived;
+      result.goodsSource = 'goods_derived_total_minus_freight';
+    }
+  }
+
+  return result;
+}
+
 // --- C3.2-A: Multi-quote line detection helpers ---
 
 const MULTI_QUOTE_MARKERS = [
@@ -1640,6 +1705,116 @@ Deno.serve(async (req) => {
       }
     } catch (hsEmailErr) {
       console.error("[HS email-regex] Unexpected error:", hsEmailErr);
+    }
+
+    // --- Cargo value doc-regex: deterministic extraction from case_documents ---
+    try {
+      let bestCandidate: CargoValueExtraction | null = null;
+      let bestDocName = '';
+      for (const doc of (caseDocuments || [])) {
+        if (!doc.extracted_text) continue;
+        const candidate = extractCargoValueFromText(doc.extracted_text);
+        if (candidate.goodsValue && (!bestCandidate?.goodsValue || candidate.goodsValue > bestCandidate.goodsValue)) {
+          bestCandidate = candidate;
+          bestDocName = doc.file_name || 'unknown';
+        }
+      }
+
+      if (bestCandidate && (bestCandidate.goodsValue || bestCandidate.freightValue)) {
+        console.log(`[cargo-value doc-regex] Best candidate from "${bestDocName}":`, JSON.stringify(bestCandidate));
+
+        // Read existing facts from DB independently
+        const cargoFactKeys = ['cargo.value', 'cargo.value_currency', 'cargo.freight_cost', 'cargo.freight_currency'];
+        const { data: cargoExistingRows } = await serviceClient
+          .from("quote_facts")
+          .select("fact_key, value_text, value_number, source_type")
+          .eq("case_id", case_id)
+          .eq("is_current", true)
+          .in("fact_key", cargoFactKeys);
+
+        const existingFacts: Record<string, { value_number: number | null; value_text: string | null; source_type: string | null }> = {};
+        for (const fk of cargoFactKeys) {
+          const existing = (cargoExistingRows || []).find((f: any) => f.fact_key === fk);
+          existingFacts[fk] = {
+            value_number: existing?.value_number ?? null,
+            value_text: existing?.value_text ?? null,
+            source_type: existing?.source_type ?? null,
+          };
+        }
+
+        const PROTECTED_SOURCES = new Set(['operator', 'manual_input', 'attachment_extracted']);
+        const floatClose = (a: number | null, b: number | null) => a !== null && b !== null && Math.abs(a - b) < 0.01;
+
+        // Helper to inject a single fact with guards
+        const tryInjectFact = async (
+          factKey: string, category: string,
+          valueText: string | null, valueNumber: number | null,
+          sourceExcerpt: string
+        ) => {
+          const ex = existingFacts[factKey];
+          if (ex.source_type && PROTECTED_SOURCES.has(ex.source_type)) {
+            console.log(`[cargo-value doc-regex] SKIP ${factKey}: protected source '${ex.source_type}'`);
+            return false;
+          }
+          // Idempotence: skip if same value
+          if (valueNumber !== null && floatClose(ex.value_number, valueNumber)) {
+            console.log(`[cargo-value doc-regex] SKIP ${factKey}: same value ${valueNumber}`);
+            return false;
+          }
+          if (valueText !== null && valueNumber === null && ex.value_text === valueText) {
+            console.log(`[cargo-value doc-regex] SKIP ${factKey}: same text "${valueText}"`);
+            return false;
+          }
+
+          const { error } = await serviceClient.rpc("supersede_fact", {
+            p_case_id: case_id,
+            p_fact_key: factKey,
+            p_fact_category: category,
+            p_value_text: valueText,
+            p_value_number: valueNumber,
+            p_value_json: null,
+            p_value_date: null,
+            p_source_type: "document_regex",
+            p_source_email_id: null,
+            p_source_attachment_id: null,
+            p_source_excerpt: `[doc-regex] ${sourceExcerpt} from "${bestDocName}"`,
+            p_confidence: 0.88,
+          });
+          if (error) {
+            console.error(`[cargo-value doc-regex] supersede_fact ${factKey} FAILED:`, error.message);
+            return false;
+          }
+          factsAdded++;
+          console.log(`[cargo-value doc-regex] Injected ${factKey} = ${valueNumber ?? valueText}`);
+          return true;
+        };
+
+        // Inject cargo.value (goods value, never totalValue directly)
+        if (bestCandidate.goodsValue) {
+          await tryInjectFact('cargo.value', 'cargo', null, bestCandidate.goodsValue,
+            bestCandidate.goodsSource || 'goods_from_sous_total');
+        }
+
+        // Inject cargo.value_currency
+        if (bestCandidate.currency) {
+          await tryInjectFact('cargo.value_currency', 'cargo', bestCandidate.currency, null,
+            `currency_${bestCandidate.currency}`);
+        }
+
+        // Inject cargo.freight_cost
+        if (bestCandidate.freightValue) {
+          await tryInjectFact('cargo.freight_cost', 'cargo', null, bestCandidate.freightValue,
+            'freight_from_transport_export');
+        }
+
+        // Inject cargo.freight_currency (same as goods currency)
+        if (bestCandidate.freightValue && bestCandidate.currency) {
+          await tryInjectFact('cargo.freight_currency', 'cargo', bestCandidate.currency, null,
+            `freight_currency_${bestCandidate.currency}`);
+        }
+      }
+    } catch (cargoValErr) {
+      console.error("[cargo-value doc-regex] Unexpected error:", cargoValErr);
     }
 
     // --- M3.5: Multi-quote line detection (C3.2-A) ---
