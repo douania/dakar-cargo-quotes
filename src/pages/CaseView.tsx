@@ -1112,10 +1112,22 @@ export default function CaseView() {
           <TabsContent value="facts">
             {Object.keys(factsByCategory).length === 0 ? (
               <Card>
-                <CardContent className="py-8">
-                  <p className="text-muted-foreground text-center">
-                    Aucun fait extrait. Uploadez un document pour commencer l'analyse.
+                <CardContent className="py-8 text-center space-y-3">
+                  <p className="text-muted-foreground">
+                    {documentsCount === 0
+                      ? "Aucun document uploadé. Ajoutez un document dans l'onglet Documents pour commencer."
+                      : "Aucun fait extrait pour le moment."}
                   </p>
+                  {documentsCount > 0 && (
+                    <Button
+                      onClick={handleLaunchAnalysis}
+                      disabled={isAnalyzing || isLocked}
+                      size="sm"
+                    >
+                      {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Puzzle className="mr-2 h-4 w-4" />}
+                      Lancer l'analyse
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (
