@@ -1161,7 +1161,10 @@ async function injectAttachmentFacts(
       const extractedInfo = (attachment.extracted_data as any)?.extracted_info || attachment.extracted_data;
       if (!extractedInfo) continue;
 
-      const items = extractedInfo.items || extractedInfo.articles || extractedInfo.lignes;
+      const items = Array.isArray(extractedInfo.items) ? extractedInfo.items
+        : Array.isArray((extractedInfo as any).articles) ? (extractedInfo as any).articles
+        : Array.isArray((extractedInfo as any).lignes) ? (extractedInfo as any).lignes
+        : [];
       if (!Array.isArray(items) || items.length === 0) continue;
 
       // Build enriched articles detail (P2-A: schema riche + P2-B: calcul qty*unitPrice)
