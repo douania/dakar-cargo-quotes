@@ -1466,7 +1466,36 @@ Deno.serve(async (req) => {
         } else if (uniqueCodes.length === 0) {
           console.log("[HS doc-regex] No HS found/resolved from case_documents");
         } else {
-          console.warn("[HS doc-regex] Multiple valid HS candidates found:", uniqueCodes.slice(0, 5));
+          // P1: Multi-HS — inject as sorted CSV (quotation-engine already supports comma-separated HS)
+          const sortedCodes = [...uniqueCodes].sort();
+          const csvValue = sortedCodes.join(",");
+          const hsRawDoc = (hsFactDoc?.value_text || "").trim();
+          const existingNormalized = normalizeHsCsv(hsRawDoc);
+          if (csvValue === existingNormalized) {
+            console.log("[HS doc-regex] Multi-HS CSV identical to existing, skip");
+          } else {
+            const firstMatch = resolvedCandidates.find(r => r.code10 === sortedCodes[0])!;
+            const { error: hsMultiErr } = await serviceClient.rpc("supersede_fact", {
+              p_case_id: case_id,
+              p_fact_key: "cargo.hs_code",
+              p_fact_category: "cargo",
+              p_value_text: csvValue,
+              p_value_number: null,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: "document_regex",
+              p_source_email_id: null,
+              p_source_attachment_id: null,
+              p_source_excerpt: `[document_regex] Multi-HS from ${firstMatch.file}: ${sortedCodes.join(", ")}`,
+              p_confidence: 0.90,
+            });
+            if (hsMultiErr) {
+              console.error("[HS doc-regex] Multi-HS supersede_fact FAILED:", hsMultiErr.message);
+            } else {
+              factsAdded++;
+              console.log("[HS doc-regex] Injected multi-HS CSV:", csvValue);
+            }
+          }
         }
       }
     } catch (hsDocErr) {
@@ -1551,7 +1580,36 @@ Deno.serve(async (req) => {
         } else if (uniqueEmailCodes.length === 0) {
           console.log("[HS email-regex] No HS found/resolved from emails");
         } else {
-          console.warn("[HS email-regex] Multiple valid HS candidates from emails:", uniqueEmailCodes.slice(0, 5));
+          // P1: Multi-HS email — inject as sorted CSV
+          const sortedEmailCodes = [...uniqueEmailCodes].sort();
+          const csvEmailValue = sortedEmailCodes.join(",");
+          const hsRawEmail = (hsFactEmail?.value_text || "").trim();
+          const existingEmailNormalized = normalizeHsCsv(hsRawEmail);
+          if (csvEmailValue === existingEmailNormalized) {
+            console.log("[HS email-regex] Multi-HS CSV identical to existing, skip");
+          } else {
+            const firstEmailMatch = resolvedEmailCandidates.find(r => r.code10 === sortedEmailCodes[0])!;
+            const { error: hsEmailMultiErr } = await serviceClient.rpc("supersede_fact", {
+              p_case_id: case_id,
+              p_fact_key: "cargo.hs_code",
+              p_fact_category: "cargo",
+              p_value_text: csvEmailValue,
+              p_value_number: null,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: "email_body",
+              p_source_email_id: firstEmailMatch.emailId,
+              p_source_attachment_id: null,
+              p_source_excerpt: `[email_regex] Multi-HS from ${firstEmailMatch.subject}: ${sortedEmailCodes.join(", ")}`,
+              p_confidence: 0.88,
+            });
+            if (hsEmailMultiErr) {
+              console.error("[HS email-regex] Multi-HS supersede_fact FAILED:", hsEmailMultiErr.message);
+            } else {
+              factsAdded++;
+              console.log("[HS email-regex] Injected multi-HS CSV:", csvEmailValue);
+            }
+          }
         }
       }
     } catch (hsEmailErr) {
@@ -1880,6 +1938,13 @@ Deno.serve(async (req) => {
             .eq("id", hsFactRow.id);
           factsUpdated++;
         } else {
+        // P1 Guard: skip post-attach validation for multi-HS CSV values
+        const hsTokens = rawHsValue.split(/[;,]/).map((c: string) => c.trim()).filter(Boolean);
+        const isMultiHsCsv = hsTokens.length > 1 && hsTokens.every((c: string) => /^\d{10}$/.test(c));
+
+        if (isMultiHsCsv) {
+          console.log("[HS Post-Attach] Multi-HS CSV detected, skipping re-validation:", rawHsValue);
+        } else {
         const digitsOnly = rawHsValue.replace(/\D/g, "");
 
         // Only re-validate if not already a valid 10-digit code
@@ -1943,6 +2008,7 @@ Deno.serve(async (req) => {
             }
         }
         }
+        } // end else (multi-HS guard)
         } // end else (non-empty rawHsValue)
       }
     } catch (hsErr) {
@@ -2775,6 +2841,16 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
 function getFactValue(fact: ExtractedFact): string | number | object {
   return fact.value;
+}
+
+// P1 Helper: normalize a multi-HS CSV value for idempotent comparison
+function normalizeHsCsv(value: string | null | undefined): string {
+  return (value || "")
+    .split(/[;,]/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d{10}$/.test(s))
+    .sort()
+    .join(",");
 }
 
 // Helper: check if a 10-digit code exists exactly in hs_codes

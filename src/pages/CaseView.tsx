@@ -22,6 +22,7 @@ import {
   FileText,
   Loader2,
   AlertCircle,
+  HelpCircle,
   ArrowLeft,
   Paperclip,
   History,
@@ -586,6 +587,7 @@ export default function CaseView() {
   });
 
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
+  const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
 
   function handleRefresh() {
@@ -856,135 +858,186 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
-        {/* Blocking gaps alert — with inline resolution for editable gaps */}
-        {blockingGaps.length > 0 && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <p className="font-semibold mb-2">
-                {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
-              </p>
-              <ul className="space-y-3">
-                {blockingGaps.map((g: any) => {
-                  const isEditable = EDITABLE_FACT_KEYS.has(g.gap_key);
-                  const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
-                  const isSaving = savingGapKey === g.gap_key;
+        {/* Shared gap save handler — extracted to avoid duplication */}
+        {(() => {
+          // P0: Extracted saveGapAnswer with allowAutoPricing flag
+          const saveGapAnswer = async (g: any, allowAutoPricing: boolean) => {
+            if (!caseId) return;
+            const raw = gapInputs[g.gap_key] || "";
+            const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
+            setSavingGapKey(g.gap_key);
+            try {
+              const payload: Record<string, unknown> = {
+                case_id: caseId,
+                fact_key: g.gap_key,
+              };
+              if (isNumeric) {
+                const num = Number(raw);
+                if (!Number.isFinite(num) || num <= 0 || (g.gap_key === "cargo.pieces_count" && !Number.isInteger(num))) {
+                  throw new Error(g.gap_key === "cargo.pieces_count" ? "Entier positif requis" : "Nombre positif requis");
+                }
+                payload.value_number = num;
+                payload.value_text = null;
+              } else {
+                if (!raw.trim()) throw new Error("Valeur requise");
+                payload.value_text = raw.trim();
+                payload.value_number = null;
+              }
+              const { error } = await supabase.functions.invoke("set-case-fact", { body: payload });
+              if (error) throw error;
+              toast.success(`${g.gap_key} enregistré`);
+              setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
+              // Relancer build-case-puzzle pour recalculer/fermer les gaps
+              if (caseId) {
+                try {
+                  const { error: puzzleErr } = await supabase.functions.invoke("build-case-puzzle", {
+                    body: { case_id: caseId },
+                  });
+                  if (puzzleErr) {
+                    console.warn("[saveGapAnswer] build-case-puzzle non-blocking error:", puzzleErr.message);
+                  }
+                } catch (e) {
+                  console.warn("[saveGapAnswer] build-case-puzzle invoke exception:", e);
+                }
+              }
+              await handleRefresh();
 
-                  const handleSaveGap = async () => {
-                    if (!caseId) return;
-                    const raw = gapInputs[g.gap_key] || "";
-                    setSavingGapKey(g.gap_key);
-                    try {
-                      const payload: Record<string, unknown> = {
-                        case_id: caseId,
-                        fact_key: g.gap_key,
-                      };
-                      if (isNumeric) {
-                        const num = Number(raw);
-                        if (!Number.isFinite(num) || num <= 0 || (g.gap_key === "cargo.pieces_count" && !Number.isInteger(num))) {
-                          throw new Error(g.gap_key === "cargo.pieces_count" ? "Entier positif requis" : "Nombre positif requis");
-                        }
-                        payload.value_number = num;
-                        payload.value_text = null;
-                      } else {
-                        if (!raw.trim()) throw new Error("Valeur requise");
-                        payload.value_text = raw.trim();
-                        payload.value_number = null;
-                      }
-                      const { error } = await supabase.functions.invoke("set-case-fact", { body: payload });
-                      if (error) throw error;
-                      toast.success(`${g.gap_key} enregistré`);
-                      setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
-                      // Relancer build-case-puzzle pour recalculer/fermer les gaps
-                      if (caseId) {
-                        try {
-                          const { error: puzzleErr } = await supabase.functions.invoke("build-case-puzzle", {
-                            body: { case_id: caseId },
-                          });
-                          if (puzzleErr) {
-                            console.warn("[handleSaveGap] build-case-puzzle non-blocking error:", puzzleErr.message);
-                          }
-                        } catch (e) {
-                          console.warn("[handleSaveGap] build-case-puzzle invoke exception:", e);
-                        }
-                      }
+              // ── Auto-pricing si plus aucun gap bloquant (uniquement pour gaps bloquants) ──
+              if (allowAutoPricing && caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING") {
+                try {
+                  const { data: updatedGaps } = await supabase
+                    .from("quote_gaps")
+                    .select("id")
+                    .eq("case_id", caseId)
+                    .eq("status", "open")
+                    .eq("is_blocking", true);
+
+                  const noBlockingGaps = !updatedGaps || updatedGaps.length === 0;
+
+                  if (noBlockingGaps) {
+                    const { data: recentRun } = await supabase
+                      .from("pricing_runs")
+                      .select("status")
+                      .eq("case_id", caseId)
+                      .order("created_at", { ascending: false })
+                      .limit(1)
+                      .maybeSingle();
+
+                    if (recentRun?.status !== "running" && recentRun?.status !== "success") {
+                      toast.info("Tous les gaps résolus — lancement automatique du pricing…");
+                      await supabase.functions.invoke("run-pricing", {
+                        body: { case_id: caseId },
+                      });
+                      toast.success("Pricing lancé automatiquement");
                       await handleRefresh();
-
-                      // ── P0.2: Auto-pricing si plus aucun gap bloquant ──
-                      if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING") {
-                        try {
-                          const { data: updatedGaps } = await supabase
-                            .from("quote_gaps")
-                            .select("id")
-                            .eq("case_id", caseId)
-                            .eq("status", "open")
-                            .eq("is_blocking", true);
-
-                          const noBlockingGaps = !updatedGaps || updatedGaps.length === 0;
-
-                          if (noBlockingGaps) {
-                            // Garde anti-double : vérifier qu'aucun run n'est déjà en cours ou récemment réussi
-                            const { data: recentRun } = await supabase
-                              .from("pricing_runs")
-                              .select("status")
-                              .eq("case_id", caseId)
-                              .order("created_at", { ascending: false })
-                              .limit(1)
-                              .maybeSingle();
-
-                            if (recentRun?.status !== "running" && recentRun?.status !== "success") {
-                              toast.info("Tous les gaps résolus — lancement automatique du pricing…");
-                              await supabase.functions.invoke("run-pricing", {
-                                body: { case_id: caseId },
-                              });
-                              toast.success("Pricing lancé automatiquement");
-                              await handleRefresh();
-                            }
-                          }
-                        } catch (e) {
-                          console.warn("[handleSaveGap] auto run-pricing failed:", e);
-                        }
-                      }
-                    } catch (err) {
-                      toast.error((err as Error).message);
-                    } finally {
-                      setSavingGapKey(null);
                     }
-                  };
+                  }
+                } catch (e) {
+                  console.warn("[saveGapAnswer] auto run-pricing failed:", e);
+                }
+              }
+            } catch (err) {
+              toast.error((err as Error).message);
+            } finally {
+              setSavingGapKey(null);
+            }
+          };
 
-                  return (
-                    <li key={g.id} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1">{g.question_fr || g.gap_key}</span>
-                      {isEditable && !isLocked && (
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            type={isNumeric ? "number" : "text"}
-                            placeholder={isNumeric ? "ex: 12" : "Saisir…"}
-                            className="h-8 w-32 text-foreground bg-background"
-                            value={gapInputs[g.gap_key] || ""}
-                            onChange={(e) => setGapInputs((prev) => ({ ...prev, [g.gap_key]: e.target.value }))}
-                            onKeyDown={(e) => e.key === "Enter" && handleSaveGap()}
-                            disabled={isSaving}
-                            min={isNumeric ? 1 : undefined}
-                          />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-8 px-2"
-                            onClick={handleSaveGap}
-                            disabled={isSaving || !(gapInputs[g.gap_key] || "").trim()}
-                          >
-                            {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          </Button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        )}
+          const renderGapRow = (g: any, allowAutoPricing: boolean) => {
+            const isEditable = EDITABLE_FACT_KEYS.has(g.gap_key);
+            const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
+            const isSaving = savingGapKey === g.gap_key;
+            const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
+
+            return (
+              <li key={g.id} className="flex items-center gap-2 text-sm">
+                <span className="flex-1">{g.question_fr || g.gap_key}</span>
+                {isEditable && !isLocked && (
+                  <div className="flex items-center gap-1.5">
+                    {selectOptions ? (
+                      <Select
+                        value={gapInputs[g.gap_key] || ""}
+                        onValueChange={(val) => {
+                          setGapInputs((prev) => ({ ...prev, [g.gap_key]: val }));
+                          // Auto-save on select
+                          setTimeout(() => {
+                            const fakeG = g;
+                            setSavingGapKey(fakeG.gap_key);
+                            saveGapAnswer(fakeG, allowAutoPricing);
+                          }, 0);
+                        }}
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger className="h-8 w-40 text-foreground bg-background">
+                          <SelectValue placeholder="Choisir…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type={isNumeric ? "number" : "text"}
+                        placeholder={isNumeric ? "ex: 12" : "Saisir…"}
+                        className="h-8 w-32 text-foreground bg-background"
+                        value={gapInputs[g.gap_key] || ""}
+                        onChange={(e) => setGapInputs((prev) => ({ ...prev, [g.gap_key]: e.target.value }))}
+                        onKeyDown={(e) => e.key === "Enter" && saveGapAnswer(g, allowAutoPricing)}
+                        disabled={isSaving}
+                        min={isNumeric ? 1 : undefined}
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-8 px-2"
+                      onClick={() => saveGapAnswer(g, allowAutoPricing)}
+                      disabled={isSaving || !(gapInputs[g.gap_key] || "").trim()}
+                    >
+                      {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                    </Button>
+                  </div>
+                )}
+              </li>
+            );
+          };
+
+          return (
+            <>
+              {/* Blocking gaps alert */}
+              {blockingGaps.length > 0 && (
+                <Alert variant="destructive" className="mb-6">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <p className="font-semibold mb-2">
+                      {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
+                    </p>
+                    <ul className="space-y-3">
+                      {blockingGaps.map((g: any) => renderGapRow(g, true))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* P0: Non-blocking open gaps — visible only when all blocking gaps are resolved */}
+              {nonBlockingOpenGaps.length > 0 && blockingGaps.length === 0 && (
+                <Alert className="mb-6 border-blue-200 bg-blue-50">
+                  <HelpCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription>
+                    <p className="font-semibold mb-2 text-blue-800">
+                      {nonBlockingOpenGaps.length} question{nonBlockingOpenGaps.length > 1 ? 's' : ''} ouverte{nonBlockingOpenGaps.length > 1 ? 's' : ''} (non bloquante{nonBlockingOpenGaps.length > 1 ? 's' : ''})
+                    </p>
+                    <ul className="space-y-3">
+                      {nonBlockingOpenGaps.map((g: any) => renderGapRow(g, false))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
+          );
+        })()}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
