@@ -1,37 +1,53 @@
 
 
-# Patch P0 + P1 : Gaps non-bloquants UI + Multi-HS CSV
+# Fix : stale value sur Select auto-save (saveGapAnswer)
 
-## P0 — UI gaps non-bloquants (CaseView.tsx)
+## Diagnostic confirmé
 
-### Problème
-Le formulaire de réponse aux gaps n'était rendu que pour `blockingGaps`. Après résolution du dernier gap bloquant, les gaps non-bloquants restants étaient comptés mais inaccessibles.
+Ligne 866 : `const raw = gapInputs[g.gap_key] || ""` lit le state React **avant** que `setGapInputs` (ligne 961) ait pris effet. Le `setTimeout(0)` (ligne 963) ne garantit pas que le re-render a eu lieu.
 
-### Correction
-- Extraction de `saveGapAnswer(g, allowAutoPricing: boolean)` comme fonction locale partagée
-- `renderGapRow(g, allowAutoPricing)` pour éviter la duplication du JSX
-- Nouvelle section "questions ouvertes" (style bleu) visible uniquement quand `blockingGaps.length === 0`
-- Auto-pricing désactivé pour les gaps non-bloquants (`allowAutoPricing: false`)
+Résultat possible : `raw` est vide ou contient l'ancienne valeur → erreur "Valeur requise" ou mauvaise valeur enregistrée.
 
-## P1 — Multi-HS CSV (build-case-puzzle/index.ts)
+## Correction (3 lignes modifiées, zero refactor)
 
-### Problème
-Quand plusieurs codes HS valides étaient détectés dans les documents ou emails, le code loggait un warning sans rien injecter.
+### 1. Ajouter un paramètre `rawOverride?` à `saveGapAnswer` (ligne 864-866)
 
-### Correction
-- Helper `normalizeHsCsv()` pour comparaison idempotente basée sur `value_text` brut
-- Blocs M3.4b (documents) et M3.4c (emails) : injection CSV trié au lieu de warning
-- Guard post-attach : détection multi-HS CSV pour éviter invalidation par la revalidation single-code
+```typescript
+const saveGapAnswer = async (g: any, allowAutoPricing: boolean, rawOverride?: string) => {
+  if (!caseId) return;
+  const raw = rawOverride ?? gapInputs[g.gap_key] ?? "";
+```
+
+### 2. Passer la valeur directement dans le Select `onValueChange` (lignes 960-967)
+
+Remplacer le bloc actuel par :
+
+```typescript
+onValueChange={(val) => {
+  setGapInputs((prev) => ({ ...prev, [g.gap_key]: val }));
+  saveGapAnswer(g, allowAutoPricing, val);
+}}
+```
+
+Cela supprime le `setTimeout` hack, le `setSavingGapKey` redondant (déjà fait dans `saveGapAnswer`), et passe la valeur fraîche directement.
+
+### 3. Aucun changement sur les autres call sites
+
+- `onKeyDown Enter` (ligne 987) → continue sans override (lit `gapInputs`, correct car la valeur est déjà dans le state)
+- Bouton `onClick` (ligne 996) → idem, correct
+- `renderGapRow` appels (lignes 1018, 1033) → inchangés
 
 ## Fichiers modifiés
 
-| Fichier | Action |
-|---------|--------|
-| `src/pages/CaseView.tsx` | P0 : `saveGapAnswer` extraite, section non-bloquants, import `HelpCircle` |
-| `supabase/functions/build-case-puzzle/index.ts` | P1 : `normalizeHsCsv`, multi-HS CSV doc+email, guard post-attach |
+| Fichier | Lignes | Action |
+|---------|--------|--------|
+| `src/pages/CaseView.tsx` | 864-866 | Ajout paramètre `rawOverride?` |
+| `src/pages/CaseView.tsx` | 960-967 | Suppression `setTimeout` + passage direct de `val` |
 
-## Ce qui ne change pas
-- Backend RPC `supersede_fact` : inchangé
-- Moteur `quotation-engine` / `run-pricing` : inchangé
-- Migration DB : aucune
-- RLS : inchangé
+## Impact
+
+- Zero nouveau composant
+- Zero changement backend
+- Corrige le bug intermittent de stale value sur Select
+- Les call sites Input et Button restent inchangés
+
