@@ -1407,14 +1407,25 @@ Deno.serve(async (req) => {
         .eq("is_current", true)
         .maybeSingle();
 
-      const hsDigitsDoc = (hsFactDoc?.value_text || "").replace(/\D/g, "");
+      const hsRawDocValue = (hsFactDoc?.value_text || "").trim();
+      const hsDigitsDoc = hsRawDocValue.replace(/\D/g, "");
+
+      // P1 fix: detect if existing value is already a multi-HS CSV
+      const docTokens = hsRawDocValue.split(/[;,]/).map((c) => c.trim()).filter(Boolean);
+      const existingDocIsMultiCsv = docTokens.length > 1 && docTokens.every((c) => /^\d{10}$/.test(c));
+      const hasDocsToScan = Array.isArray(caseDocuments) && caseDocuments.length > 0;
 
       let skipHsDocRegex = false;
-      if (hsDigitsDoc.length === 10) {
+      if (existingDocIsMultiCsv) {
+        console.log("[HS doc-regex] Existing HS is already multi-HS CSV, skip:", hsRawDocValue);
+        skipHsDocRegex = true;
+      } else if (hsDigitsDoc.length === 10) {
         const alreadyValid = await isExactHsMatch(serviceClient, hsDigitsDoc);
-        if (alreadyValid) {
-          console.log("[HS doc-regex] Existing HS already valid:", hsDigitsDoc);
+        if (alreadyValid && !hasDocsToScan) {
+          console.log("[HS doc-regex] Existing HS valid and no documents to scan:", hsDigitsDoc);
           skipHsDocRegex = true;
+        } else if (alreadyValid) {
+          console.log("[HS doc-regex] Existing HS valid but documents available to re-scan for multi-HS:", hsDigitsDoc);
         }
       }
 
@@ -1513,14 +1524,25 @@ Deno.serve(async (req) => {
         .eq("is_current", true)
         .maybeSingle();
 
-      const hsDigitsEmail = (hsFactEmail?.value_text || "").replace(/\D/g, "");
+      const hsRawEmailValue = (hsFactEmail?.value_text || "").trim();
+      const hsDigitsEmail = hsRawEmailValue.replace(/\D/g, "");
+
+      // P1 fix: detect if existing value is already a multi-HS CSV
+      const emailTokens = hsRawEmailValue.split(/[;,]/).map((c) => c.trim()).filter(Boolean);
+      const existingEmailIsMultiCsv = emailTokens.length > 1 && emailTokens.every((c) => /^\d{10}$/.test(c));
+      const hasEmailsToScan = Array.isArray(emails) && emails.length > 0;
 
       let skipHsEmailRegex = false;
-      if (hsDigitsEmail.length === 10) {
+      if (existingEmailIsMultiCsv) {
+        console.log("[HS email-regex] Existing HS is already multi-HS CSV, skip:", hsRawEmailValue);
+        skipHsEmailRegex = true;
+      } else if (hsDigitsEmail.length === 10) {
         const alreadyValid = await isExactHsMatch(serviceClient, hsDigitsEmail);
-        if (alreadyValid) {
-          console.log("[HS email-regex] Existing HS already valid:", hsDigitsEmail);
+        if (alreadyValid && !hasEmailsToScan) {
+          console.log("[HS email-regex] Existing HS valid and no emails to scan:", hsDigitsEmail);
           skipHsEmailRegex = true;
+        } else if (alreadyValid) {
+          console.log("[HS email-regex] Existing HS valid but emails available to re-scan for multi-HS:", hsDigitsEmail);
         }
       }
 
