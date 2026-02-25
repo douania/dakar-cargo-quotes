@@ -98,6 +98,52 @@ Deno.serve(async (req) => {
       return resp;
     }
 
+    // 4b. Structural validation for cargo.articles_detail (P2-D)
+    if (fact_key === "cargo.articles_detail" && value_json != null) {
+      if (!Array.isArray(value_json)) {
+        return respondError({ code: "VALIDATION_FAILED",
+          message: "cargo.articles_detail doit être un tableau JSON", correlationId });
+      }
+      if (value_json.length > 50) {
+        return respondError({ code: "VALIDATION_FAILED",
+          message: "Maximum 50 articles autorisés", correlationId });
+      }
+      for (const item of value_json as any[]) {
+        if (!item || typeof item !== 'object') {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "Chaque élément doit être un objet", correlationId });
+        }
+        if (item.hs_code !== undefined && typeof item.hs_code !== 'string') {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "hs_code doit être une chaîne", correlationId });
+        }
+        if (item.value !== undefined && (!Number.isFinite(item.value) || item.value < 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "value doit être un nombre fini >= 0", correlationId });
+        }
+        if (item.currency !== undefined && typeof item.currency !== 'string') {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "currency doit être une chaîne", correlationId });
+        }
+        if (item.description !== undefined && typeof item.description !== 'string') {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "description doit être une chaîne", correlationId });
+        }
+        if (item.quantity !== undefined && (!Number.isFinite(item.quantity) || item.quantity < 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "quantity doit être un nombre fini >= 0", correlationId });
+        }
+        if (item.unit_price !== undefined && (!Number.isFinite(item.unit_price) || item.unit_price < 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "unit_price doit être un nombre fini >= 0", correlationId });
+        }
+        if (item.line_total !== undefined && (!Number.isFinite(item.line_total) || item.line_total < 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "line_total doit être un nombre fini >= 0", correlationId });
+        }
+      }
+    }
+
     // 5. Category detection
     const factCategory = detectCategory(fact_key);
 

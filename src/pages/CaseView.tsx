@@ -40,6 +40,7 @@ import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TASK_STATUS_COLORS, SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -622,7 +623,12 @@ export default function CaseView() {
 
   const isLocked = caseData?.status === "PRICING_RUNNING";
 
-  function startEdit(fact: any) {
+   function startEdit(fact: any) {
+    if (fact.fact_key === "cargo.articles_detail" && fact.value_json) {
+      setEditingFactId(fact.id);
+      setEditValue(JSON.stringify(fact.value_json, null, 2));
+      return;
+    }
     const currentValue =
       fact.value_text ||
       (fact.value_number != null ? String(fact.value_number) : "") ||
@@ -649,7 +655,22 @@ export default function CaseView() {
         fact_key: fact.fact_key,
       };
 
-      if (isNumeric) {
+      // Special handling for cargo.articles_detail (JSON array)
+      if (fact.fact_key === "cargo.articles_detail") {
+        let parsed: any;
+        try { parsed = JSON.parse(editValue); } catch {
+          throw new Error("JSON invalide pour cargo.articles_detail");
+        }
+        if (!Array.isArray(parsed)) throw new Error("Doit être un tableau JSON");
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') throw new Error("Chaque élément doit être un objet");
+          if (item.hs_code !== undefined && typeof item.hs_code !== 'string') throw new Error("hs_code doit être une chaîne");
+          if (item.value !== undefined && (!Number.isFinite(item.value) || item.value < 0)) throw new Error("value doit être >= 0");
+        }
+        payload.value_json = parsed;
+        payload.value_text = null;
+        payload.value_number = null;
+      } else if (isNumeric) {
         const num = Number(editValue);
         if (!Number.isFinite(num) || num < 0) {
           throw new Error("Valeur numérique invalide");
@@ -1206,10 +1227,16 @@ export default function CaseView() {
                         <TableBody>
                           {catFacts.map((fact) => {
                             const isEditing = editingFactId === fact.id;
-                            const displayValue =
-                              fact.value_text ||
-                              (fact.value_number != null ? String(fact.value_number) : null) ||
-                              (fact.value_json ? JSON.stringify(fact.value_json) : "—");
+                            const displayValue = (() => {
+                              if (fact.fact_key === "cargo.articles_detail" && Array.isArray(fact.value_json)) {
+                                const articles = fact.value_json as any[];
+                                const hsCount = new Set(articles.map((a: any) => a.hs_code).filter(Boolean)).size;
+                                return `${articles.length} article(s) — ${hsCount} HS`;
+                              }
+                              return fact.value_text ||
+                                (fact.value_number != null ? String(fact.value_number) : null) ||
+                                (fact.value_json ? JSON.stringify(fact.value_json) : "—");
+                            })();
 
                             return (
                               <TableRow key={fact.id}>
@@ -1231,6 +1258,17 @@ export default function CaseView() {
                                           ))}
                                         </SelectContent>
                                       </Select>
+                                    ) : fact.fact_key === "cargo.articles_detail" ? (
+                                      <Textarea
+                                        value={editValue}
+                                        onChange={(e) => setEditValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Escape") cancelEdit();
+                                          // No save on Enter — needed for JSON newlines
+                                        }}
+                                        className="h-32 font-mono text-xs"
+                                        autoFocus
+                                      />
                                     ) : (
                                       <Input
                                         value={editValue}
