@@ -2658,11 +2658,11 @@ Deno.serve(async (req) => {
     }
 
     // 13. Update case
-    await serviceClient
+    const { error: updateError } = await serviceClient
       .from("quote_cases")
       .update({
         status: newStatus,
-        request_type: detectedType,
+        request_type: detectedType === "UNKNOWN" ? null : detectedType,
         facts_count: currentFactsCount || 0,
         gaps_count: openGapsCount || 0,
         puzzle_completeness: completeness,
@@ -2670,6 +2670,10 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       })
       .eq("id", case_id);
+
+    if (updateError) {
+      console.error(`[BuildPuzzle] Failed to update case ${case_id}: ${updateError.message}`);
+    }
 
     if (newStatus !== caseData.status) {
       await serviceClient.from("case_timeline_events").insert({
