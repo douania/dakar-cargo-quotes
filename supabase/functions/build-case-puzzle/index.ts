@@ -385,6 +385,10 @@ function extractHsCodesFromText(text: string): string[] {
     /Code\s*SH\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
     /HS\s*(?:Code)?\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
     /(\d{4}\.\d{2}\.\d{2}\.\d{2})/g,
+    // "Code Douanier" – standard French invoices/proformas
+    /Code\s*Douanier\s*:?\s*(\d{6,10})/gi,
+    // Standalone 10-digit HS codes (isolated block of exactly 10 digits)
+    /(?<!\d)(\d{10})(?!\d)/g,
   ];
 
   const seen = new Set<string>();
