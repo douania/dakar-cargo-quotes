@@ -59,6 +59,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
 import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
+import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 
 // ── Editable fact keys (must match set-case-fact whitelist) ──
 const EDITABLE_FACT_KEYS = new Set([
@@ -908,6 +909,42 @@ export default function CaseView() {
                         }
                       }
                       await handleRefresh();
+
+                      // ── P0.2: Auto-pricing si plus aucun gap bloquant ──
+                      if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED") {
+                        try {
+                          const { data: updatedGaps } = await supabase
+                            .from("quote_gaps")
+                            .select("id")
+                            .eq("case_id", caseId)
+                            .eq("status", "open")
+                            .eq("is_blocking", true);
+
+                          const noBlockingGaps = !updatedGaps || updatedGaps.length === 0;
+
+                          if (noBlockingGaps) {
+                            // Garde anti-double : vérifier qu'aucun run n'est déjà en cours ou récemment réussi
+                            const { data: recentRun } = await supabase
+                              .from("pricing_runs")
+                              .select("status")
+                              .eq("case_id", caseId)
+                              .order("created_at", { ascending: false })
+                              .limit(1)
+                              .maybeSingle();
+
+                            if (recentRun?.status !== "running" && recentRun?.status !== "success") {
+                              toast.info("Tous les gaps résolus — lancement automatique du pricing…");
+                              await supabase.functions.invoke("run-pricing", {
+                                body: { case_id: caseId },
+                              });
+                              toast.success("Pricing lancé automatiquement");
+                              handleRefresh();
+                            }
+                          }
+                        } catch (e) {
+                          console.warn("[handleSaveGap] auto run-pricing failed:", e);
+                        }
+                      }
                     } catch (err) {
                       toast.error((err as Error).message);
                     } finally {
@@ -948,6 +985,9 @@ export default function CaseView() {
             </AlertDescription>
           </Alert>
         )}
+
+        {/* P1.1: Multi-request lines panel */}
+        {caseId && <MultiRequestLinesPanel caseId={caseId} />}
 
         {/* Action Panel — visible for actionable statuses */}
         {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
