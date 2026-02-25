@@ -457,6 +457,74 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
     }
   }
 
+  // --- Fallback: "stacked labels" format (labels on separate lines from amounts) ---
+  if (!result.goodsValue && !result.freightValue && !result.totalValue) {
+    const labelPatterns: Array<{ key: keyof Pick<CargoValueExtraction, 'goodsValue' | 'freightValue' | 'totalValue'>; regex: RegExp }> = [
+      { key: 'goodsValue', regex: /Sous[- ]?total\s+HT/i },
+      { key: 'freightValue', regex: /Transport\s+(?:Export|International)/i },
+      { key: 'totalValue', regex: /(?:Montant|Total)\s+HT(?!\s*Hors)/i },
+    ];
+
+    // Find the anchor: first line matching any of our labels
+    let anchorIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (labelPatterns.some(lp => lp.regex.test(lines[i]))) {
+        anchorIdx = i;
+        break;
+      }
+    }
+
+    if (anchorIdx >= 0) {
+      // Count ALL non-numeric lines from anchor onwards (the label block)
+      const labelBlock: Array<{ lineIdx: number; matchedKey?: string }> = [];
+      let blockEnd = anchorIdx;
+      for (let i = anchorIdx; i < lines.length; i++) {
+        const trimLine = lines[i].trim();
+        if (!trimLine) continue; // skip blank lines
+        // Check if line is purely numeric (amount line)
+        const isNumericLine = /^[\s]*[0-9][0-9\s',.]*[0-9][\s]*$/.test(trimLine) || /^[\s]*[0-9]+[\s]*$/.test(trimLine);
+        if (isNumericLine) {
+          blockEnd = i;
+          break;
+        }
+        // It's a label line — check if it matches one of our patterns
+        let matchedKey: string | undefined;
+        for (const lp of labelPatterns) {
+          if (lp.regex.test(trimLine)) { matchedKey = lp.key; break; }
+        }
+        labelBlock.push({ lineIdx: i, matchedKey });
+      }
+
+      // Now collect the numeric block starting at blockEnd
+      const amounts: number[] = [];
+      for (let i = blockEnd; i < lines.length && amounts.length < labelBlock.length + 2; i++) {
+        const trimLine = lines[i].trim();
+        if (!trimLine) continue;
+        const numMatch = trimLine.match(/^([0-9][0-9\s',.]*[0-9])$/);
+        if (numMatch) {
+          const v = parseAmount(numMatch[1]);
+          if (v) amounts.push(v);
+        } else if (amounts.length > 0) {
+          break; // end of numeric block
+        }
+      }
+
+      // Map amounts to label positions
+      for (let i = 0; i < labelBlock.length && i < amounts.length; i++) {
+        const mk = labelBlock[i].matchedKey;
+        if (mk === 'goodsValue') {
+          result.goodsValue = amounts[i];
+          result.goodsSource = 'goods_from_sous_total_stacked';
+        } else if (mk === 'freightValue') {
+          result.freightValue = amounts[i];
+        } else if (mk === 'totalValue') {
+          result.totalValue = amounts[i];
+        }
+        // Non-matched labels (e.g. "Total TTC Hors Options EUR") are skipped but preserve position alignment
+      }
+    }
+  }
+
   // Fallback derivation: goods = total - freight
   if (!result.goodsValue && result.totalValue && result.freightValue) {
     const derived = result.totalValue - result.freightValue;
