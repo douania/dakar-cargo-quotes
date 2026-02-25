@@ -137,9 +137,32 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
         toast({ title: "Extraction texte échouée", description: "Vous pouvez relancer via backfill.", variant: "destructive" });
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
       toast({ title: "Document ajouté", description: "Le document a été uploadé avec succès." });
+
+      // Auto-lancer build-case-puzzle pour extraire les faits
+      try {
+        const { error } = await supabase.functions.invoke("build-case-puzzle", {
+          body: { case_id: caseId },
+        });
+        if (error) throw error;
+
+        // Invalider les 7 caches CaseView pour refléter les nouveaux faits
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["case-view", caseId] }),
+          queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] }),
+          queryClient.invalidateQueries({ queryKey: ["case-gaps", caseId] }),
+          queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
+          queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] }),
+        ]);
+        toast({ title: "Analyse terminée", description: "Le dossier a été réanalysé. Vérifiez l'onglet Faits." });
+      } catch (e) {
+        console.warn("Auto build-case-puzzle after upload failed:", e);
+        toast({ title: "Analyse automatique échouée", description: "Utilisez le bouton 'Relancer l'analyse'.", variant: "destructive" });
+      }
+
       setDialogOpen(false);
       setDocType("");
       setSelectedFile(null);
