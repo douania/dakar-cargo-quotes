@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
           message: "Maximum 50 articles autorisés", correlationId });
       }
       for (const item of value_json as any[]) {
-        if (!item || typeof item !== 'object') {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
           return respondError({ code: "VALIDATION_FAILED",
             message: "Chaque élément doit être un objet", correlationId });
         }
