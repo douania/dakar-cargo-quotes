@@ -433,6 +433,13 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
 
   const lines = text.split(/\n/);
   for (const line of lines) {
+    // Currency detection BEFORE numeric check (so lines like "Total TTC Hors Options EUR" are captured)
+    if (!result.currency) {
+      if (/\bEUR\b/i.test(line)) result.currency = 'EUR';
+      else if (/\bUSD\b/i.test(line)) result.currency = 'USD';
+      else if (/\bXOF\b|\bFCFA\b/i.test(line)) result.currency = 'XOF';
+    }
+
     // Take the LAST numeric amount on the line to avoid quantities/references
     const matches = [...line.matchAll(/([0-9][0-9\s',.]*[0-9])/g)];
     if (matches.length === 0) continue;
@@ -448,14 +455,9 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
       const v = parseAmount(lastMatch);
       if (v) result.totalValue = v;
     }
-
-    // Currency detection (line-level, first wins)
-    if (!result.currency) {
-      if (/\bEUR\b/i.test(line)) result.currency = 'EUR';
-      else if (/\bUSD\b/i.test(line)) result.currency = 'USD';
-      else if (/\bXOF\b|\bFCFA\b/i.test(line)) result.currency = 'XOF';
-    }
   }
+
+  console.log(`[cargo-value doc-regex] First pass results: goods=${result.goodsValue}, freight=${result.freightValue}, total=${result.totalValue}, currency=${result.currency}`);
 
   // --- Fallback: "stacked labels" format (labels on separate lines from amounts) ---
   if (!result.goodsValue && !result.freightValue && !result.totalValue) {
@@ -475,6 +477,7 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
     }
 
     if (anchorIdx >= 0) {
+      console.log(`[cargo-value doc-regex] Stacked anchor at line ${anchorIdx}: "${lines[anchorIdx]?.trim()}"`);
       // Count ALL non-numeric lines from anchor onwards (the label block)
       const labelBlock: Array<{ lineIdx: number; matchedKey?: string }> = [];
       let blockEnd = anchorIdx;
@@ -509,6 +512,7 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
         }
       }
 
+      console.log(`[cargo-value doc-regex] Label block: ${labelBlock.length} labels, amounts: ${amounts.length}`, JSON.stringify({ labels: labelBlock.map(l => l.matchedKey || '?'), amounts }));
       // Map amounts to label positions
       for (let i = 0; i < labelBlock.length && i < amounts.length; i++) {
         const mk = labelBlock[i].matchedKey;
@@ -1782,11 +1786,17 @@ Deno.serve(async (req) => {
       let bestDocName = '';
       for (const doc of (caseDocuments || [])) {
         if (!doc.extracted_text) continue;
+        console.log(`[cargo-value doc-regex] Text preview from "${doc.file_name || 'unknown'}":`, (doc.extracted_text || "").slice(0, 400));
         const candidate = extractCargoValueFromText(doc.extracted_text);
+        console.log(`[cargo-value doc-regex] Candidate from "${doc.file_name || 'unknown'}":`, JSON.stringify(candidate));
         if (candidate.goodsValue && (!bestCandidate?.goodsValue || candidate.goodsValue > bestCandidate.goodsValue)) {
           bestCandidate = candidate;
           bestDocName = doc.file_name || 'unknown';
         }
+      }
+
+      if (!bestCandidate) {
+        console.log("[cargo-value doc-regex] No candidate found in any document");
       }
 
       if (bestCandidate && (bestCandidate.goodsValue || bestCandidate.freightValue)) {
@@ -1821,8 +1831,10 @@ Deno.serve(async (req) => {
           sourceExcerpt: string
         ) => {
           const ex = existingFacts[factKey];
-          if (ex.source_type && PROTECTED_SOURCES.has(ex.source_type)) {
-            console.log(`[cargo-value doc-regex] SKIP ${factKey}: protected source '${ex.source_type}'`);
+          const hasRealValue = (ex.value_number !== null && Number.isFinite(ex.value_number))
+            || (typeof ex.value_text === 'string' && ex.value_text.trim() !== '');
+          if (ex.source_type && PROTECTED_SOURCES.has(ex.source_type) && hasRealValue) {
+            console.log(`[cargo-value doc-regex] SKIP ${factKey}: protected source '${ex.source_type}' with real value`);
             return false;
           }
           // Idempotence: skip if same value
