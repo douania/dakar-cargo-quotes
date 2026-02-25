@@ -1,64 +1,52 @@
 
 
-# Fix Patch C : existingDbKeys avant init + .maybeSingle() + validation stricte
+# Plan : 2 micro-hardenings CTO post-revue P2
 
-## Bug confirme
+Deux corrections chirurgicales identifiees dans la revue CTO. Aucun changement de logique metier.
 
-`existingDbKeys` utilise ligne 2448, declare ligne 2478 → `ReferenceError` runtime.
+## Hardening A — items selector robuste (build-case-puzzle)
 
-## Corrections (3 points sur le meme fichier)
+**Fichier** : `supabase/functions/build-case-puzzle/index.ts`  
+**Ligne 1164**
 
-### 1. Remonter + enrichir le chargement des facts (avant ligne 2438)
-
-Deplacer le bloc `existingDbFacts` de lignes 2472-2478 vers juste apres ligne 2436 (`let gapsIdentified = 0`). Enrichir le select avec `value_text` et ajouter la validation stricte :
-
+Actuellement :
 ```typescript
-let gapsIdentified = 0;
-
-// Load existing DB facts BEFORE any gap logic (mandatory/orphan/A1)
-const { data: existingDbFacts } = await serviceClient
-  .from("quote_facts")
-  .select("fact_key, value_text")
-  .eq("case_id", case_id)
-  .eq("is_current", true);
-
-const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
-
-const transportModeRaw = (existingDbFacts || [])
-  .find((f: { fact_key: string; value_text?: string | null }) => f.fact_key === "routing.transport_mode")
-  ?.value_text ?? null;
-
-const transportModeNormalized =
-  typeof transportModeRaw === "string" ? transportModeRaw.trim().toUpperCase() : "";
-
-const hasResolvedTransportMode =
-  transportModeNormalized === "AIR" ||
-  transportModeNormalized === "MARITIME" ||
-  transportModeNormalized === "ROUTE";
+const items = extractedInfo.items || extractedInfo.articles || extractedInfo.lignes;
 ```
 
-### 2. Supprimer le doublon lignes 2472-2478
+Probleme : si `extractedInfo.items` est un objet truthy non-tableau (ex: `{}`), le fallback vers `articles`/`lignes` ne se declenche pas, et `Array.isArray(items)` echoue silencieusement → aucun article extrait.
 
-Le bloc `existingDbFacts`/`existingDbKeys` qui reste a son ancien emplacement doit etre supprime.
+Correction :
+```typescript
+const items = Array.isArray(extractedInfo.items) ? extractedInfo.items
+  : Array.isArray((extractedInfo as any).articles) ? (extractedInfo as any).articles
+  : Array.isArray((extractedInfo as any).lignes) ? (extractedInfo as any).lignes
+  : [];
+```
 
-### 3. Remplacer les references
+## Hardening B — rejeter les tableaux imbriques (set-case-fact)
 
-- Ligne 2448 : `!existingDbKeys.includes(...)` → `!hasResolvedTransportMode`
-- Ligne 2482 : `existingDbKeys.includes(...)` → `hasResolvedTransportMode`
-- Ligne 2492 : `.single()` → `.maybeSingle()`
-- Ligne 2508 : `.single()` → `.maybeSingle()`
-- Ligne 2537 : `.single()` → `.maybeSingle()` (bonus, meme pattern fragile)
+**Fichier** : `supabase/functions/set-case-fact/index.ts`  
+**Ligne 112**
 
-## Fichier modifie
+Actuellement :
+```typescript
+if (!item || typeof item !== 'object') {
+```
 
-| Fichier | Action |
-|---------|--------|
-| `supabase/functions/build-case-puzzle/index.ts` | Remonter existingDbFacts avant orphan gaps, validation stricte transport_mode, .maybeSingle() partout |
+Probleme : `Array.isArray([])` retourne `true` et `typeof [] === 'object'` → un element `[]` passe le test.
 
-## Resultat attendu
+Correction :
+```typescript
+if (!item || typeof item !== 'object' || Array.isArray(item)) {
+```
 
-- Plus de `ReferenceError`
-- Validation stricte : seuls AIR/MARITIME/ROUTE ferment le gap
-- `.maybeSingle()` : pas d'erreur 406 si 0 ou 2+ lignes
-- Redeploiement automatique
+## Resume
+
+| Fichier | Ligne | Modification |
+|---------|-------|-------------|
+| `build-case-puzzle/index.ts` | 1164 | Cascade `Array.isArray` au lieu de `||` truthy |
+| `set-case-fact/index.ts` | 112 | Ajouter `|| Array.isArray(item)` |
+
+Deux changements d'une ligne chacun. Zero impact sur la logique metier ou la compatibilite moteur.
 
