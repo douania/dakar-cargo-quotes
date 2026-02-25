@@ -66,6 +66,15 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
       });
       
       if (fnError) throw fnError;
+
+      // Check for soft blockers (HTTP 200 but pricing blocked)
+      if (data?.pricing_blockers?.length > 0) {
+        const blockerMsg = data.message || 'Données manquantes pour le pricing';
+        setError(blockerMsg);
+        toast.error(blockerMsg);
+        setConfirmOpen(false);
+        return;
+      }
       
       toast.success(`Pricing lancé - ${data?.lines_count ?? 0} lignes calculées`);
       setConfirmOpen(false);

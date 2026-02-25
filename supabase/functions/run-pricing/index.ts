@@ -157,7 +157,11 @@ Deno.serve(async (req) => {
       .eq("is_current", true)
       .maybeSingle();
 
-    const hsDigits = (hsCodeFact?.value_text || "").replace(/\D/g, "");
+    // Support multi-value HS codes (comma-separated): take first valid 10-digit code
+    const rawHs = hsCodeFact?.value_text || "";
+    const hsCandidates = rawHs.split(",").map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
+    const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
+    const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
     let hsBlocker: string | null = null;
 
     if (!hsDigits || hsDigits.length !== 10) {
