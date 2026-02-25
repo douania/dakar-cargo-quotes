@@ -2444,8 +2444,10 @@ Deno.serve(async (req) => {
 
     if (allOpenGaps) {
       const mandatorySet = new Set(mandatoryFacts);
-      // Also keep transport_mode gap if UNKNOWN
-      if (detectedType === "UNKNOWN") mandatorySet.add("routing.transport_mode");
+      // Also keep transport_mode gap if UNKNOWN AND no manual fact exists
+      if (detectedType === "UNKNOWN" && !existingDbKeys.includes("routing.transport_mode")) {
+        mandatorySet.add("routing.transport_mode");
+      }
       const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
 
       for (const orphan of orphanGaps) {
@@ -2467,38 +2469,59 @@ Deno.serve(async (req) => {
       }
     }
 
-    // A1: For UNKNOWN request type, add a transport mode gap
-    if (detectedType === "UNKNOWN") {
-      const { data: existingModeGap } = await serviceClient
-        .from("quote_gaps")
-        .select("id")
-        .eq("case_id", case_id)
-        .eq("gap_key", "routing.transport_mode")
-        .eq("status", "open")
-        .single();
-
-      if (!existingModeGap) {
-        const modeGapInfo = GAP_QUESTIONS["routing.transport_mode"];
-        await serviceClient.from("quote_gaps").insert({
-          case_id,
-          gap_key: "routing.transport_mode",
-          gap_category: "routing",
-          question_fr: modeGapInfo.fr,
-          question_en: modeGapInfo.en,
-          priority: "critical",
-          is_blocking: true,
-        });
-        gapsIdentified++;
-      }
-    }
-
-    // Load existing DB facts to also consider manually injected facts
+    // Load existing DB facts BEFORE gap logic (needed for A1 check)
     const { data: existingDbFacts } = await serviceClient
       .from("quote_facts")
       .select("fact_key")
       .eq("case_id", case_id)
       .eq("is_current", true);
     const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
+
+    // A1: For UNKNOWN request type, add transport mode gap ONLY if no manual fact exists
+    if (detectedType === "UNKNOWN") {
+      const hasManualTransportMode = existingDbKeys.includes("routing.transport_mode");
+
+      if (hasManualTransportMode) {
+        // Resolve existing gap if operator already answered
+        const { data: openModeGap } = await serviceClient
+          .from("quote_gaps")
+          .select("id")
+          .eq("case_id", case_id)
+          .eq("gap_key", "routing.transport_mode")
+          .eq("status", "open")
+          .single();
+
+        if (openModeGap) {
+          await serviceClient.from("quote_gaps")
+            .update({ status: "resolved", resolved_at: new Date().toISOString() })
+            .eq("id", openModeGap.id);
+          console.log("[A1] Closed routing.transport_mode gap: manual fact exists");
+        }
+      } else {
+        // No fact → ensure gap exists
+        const { data: existingModeGap } = await serviceClient
+          .from("quote_gaps")
+          .select("id")
+          .eq("case_id", case_id)
+          .eq("gap_key", "routing.transport_mode")
+          .eq("status", "open")
+          .single();
+
+        if (!existingModeGap) {
+          const modeGapInfo = GAP_QUESTIONS["routing.transport_mode"];
+          await serviceClient.from("quote_gaps").insert({
+            case_id,
+            gap_key: "routing.transport_mode",
+            gap_category: "routing",
+            question_fr: modeGapInfo.fr,
+            question_en: modeGapInfo.en,
+            priority: "critical",
+            is_blocking: true,
+          });
+          gapsIdentified++;
+        }
+      }
+    }
 
     for (const requiredKey of mandatoryFacts) {
       const hasFact = extractedKeys.includes(requiredKey) || existingDbKeys.includes(requiredKey);
