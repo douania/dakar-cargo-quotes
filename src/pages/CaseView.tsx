@@ -55,6 +55,11 @@ const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }
     { value: "EUR", label: "EUR" },
     { value: "USD", label: "USD" },
   ],
+  "routing.transport_mode": [
+    { value: "AIR", label: "Air" },
+    { value: "MARITIME", label: "Maritime" },
+    { value: "ROUTE", label: "Route" },
+  ],
 };
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
@@ -84,6 +89,7 @@ const EDITABLE_FACT_KEYS = new Set([
   "cargo.freight_cost",
   "cargo.freight_currency",
   "cargo.freight_exchange_rate",
+  "routing.transport_mode",
 ]);
 
 const NUMERIC_FACT_KEYS = new Set([
