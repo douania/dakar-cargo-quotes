@@ -861,9 +861,9 @@ export default function CaseView() {
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
           // P0: Extracted saveGapAnswer with allowAutoPricing flag
-          const saveGapAnswer = async (g: any, allowAutoPricing: boolean) => {
+          const saveGapAnswer = async (g: any, allowAutoPricing: boolean, rawOverride?: string) => {
             if (!caseId) return;
-            const raw = gapInputs[g.gap_key] || "";
+            const raw = rawOverride ?? gapInputs[g.gap_key] ?? "";
             const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
             setSavingGapKey(g.gap_key);
             try {
@@ -959,12 +959,7 @@ export default function CaseView() {
                         value={gapInputs[g.gap_key] || ""}
                         onValueChange={(val) => {
                           setGapInputs((prev) => ({ ...prev, [g.gap_key]: val }));
-                          // Auto-save on select
-                          setTimeout(() => {
-                            const fakeG = g;
-                            setSavingGapKey(fakeG.gap_key);
-                            saveGapAnswer(fakeG, allowAutoPricing);
-                          }, 0);
+                          saveGapAnswer(g, allowAutoPricing, val);
                         }}
                         disabled={isSaving}
                       >
