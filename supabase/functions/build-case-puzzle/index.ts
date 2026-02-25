@@ -2435,6 +2435,27 @@ Deno.serve(async (req) => {
     
     let gapsIdentified = 0;
 
+    // Load existing DB facts BEFORE any gap logic (mandatory/orphan/A1)
+    const { data: existingDbFacts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text")
+      .eq("case_id", case_id)
+      .eq("is_current", true);
+
+    const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
+
+    const transportModeRaw = (existingDbFacts || [])
+      .find((f: { fact_key: string; value_text?: string | null }) => f.fact_key === "routing.transport_mode")
+      ?.value_text ?? null;
+
+    const transportModeNormalized =
+      typeof transportModeRaw === "string" ? transportModeRaw.trim().toUpperCase() : "";
+
+    const hasResolvedTransportMode =
+      transportModeNormalized === "AIR" ||
+      transportModeNormalized === "MARITIME" ||
+      transportModeNormalized === "ROUTE";
+
     // V4.2.1: Close orphan gaps not required for current request type
     const { data: allOpenGaps } = await serviceClient
       .from("quote_gaps")
@@ -2445,7 +2466,7 @@ Deno.serve(async (req) => {
     if (allOpenGaps) {
       const mandatorySet = new Set(mandatoryFacts);
       // Also keep transport_mode gap if UNKNOWN AND no manual fact exists
-      if (detectedType === "UNKNOWN" && !existingDbKeys.includes("routing.transport_mode")) {
+      if (detectedType === "UNKNOWN" && !hasResolvedTransportMode) {
         mandatorySet.add("routing.transport_mode");
       }
       const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
@@ -2469,17 +2490,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Load existing DB facts BEFORE gap logic (needed for A1 check)
-    const { data: existingDbFacts } = await serviceClient
-      .from("quote_facts")
-      .select("fact_key")
-      .eq("case_id", case_id)
-      .eq("is_current", true);
-    const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
-
     // A1: For UNKNOWN request type, add transport mode gap ONLY if no manual fact exists
     if (detectedType === "UNKNOWN") {
-      const hasManualTransportMode = existingDbKeys.includes("routing.transport_mode");
+      const hasManualTransportMode = hasResolvedTransportMode;
 
       if (hasManualTransportMode) {
         // Resolve existing gap if operator already answered
@@ -2489,7 +2502,7 @@ Deno.serve(async (req) => {
           .eq("case_id", case_id)
           .eq("gap_key", "routing.transport_mode")
           .eq("status", "open")
-          .single();
+          .maybeSingle();
 
         if (openModeGap) {
           await serviceClient.from("quote_gaps")
@@ -2505,7 +2518,7 @@ Deno.serve(async (req) => {
           .eq("case_id", case_id)
           .eq("gap_key", "routing.transport_mode")
           .eq("status", "open")
-          .single();
+          .maybeSingle();
 
         if (!existingModeGap) {
           const modeGapInfo = GAP_QUESTIONS["routing.transport_mode"];
@@ -2534,7 +2547,7 @@ Deno.serve(async (req) => {
         .eq("case_id", case_id)
         .eq("gap_key", requiredKey)
         .eq("status", "open")
-        .single();
+        .maybeSingle();
 
       if (!hasFact || hasAssumption) {
         if (!existingGap) {
