@@ -1777,6 +1777,7 @@ Deno.serve(async (req) => {
 
     // --- Cargo value doc-regex: deterministic extraction from case_documents ---
     try {
+      console.log(`[cargo-value doc-regex] Scanning ${(caseDocuments || []).filter(d => d.extracted_text).length} documents with extracted_text`);
       let bestCandidate: CargoValueExtraction | null = null;
       let bestDocName = '';
       for (const doc of (caseDocuments || [])) {
