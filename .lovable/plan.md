@@ -1,34 +1,40 @@
 
-# Phase C3.2-A — Backend-first multi-devis extraction ✅ DONE
 
-## Statut: IMPLEMENTÉ
+# Micro-patch post-review CTO : 2 corrections dans CaseView.tsx
 
-## Fichiers modifiés
-1. **Migration SQL** — table `quote_request_lines` + RPC `replace_quote_request_lines` + RLS/grants
-2. **`supabase/functions/build-case-puzzle/index.ts`** — helpers + integration multi-quote
+## Constat apres inspection du code deploye
 
-## Résumé des changements
+### P1.1 (MultiRequestLinesPanel) : OK, aucune correction necessaire
+Le JSX compile proprement. La condition `confidence >= 0.8` est correcte (ligne 86). Le `as any` est acceptable pour ce patch (la table n'est pas dans les types generes).
 
-### Migration DB
-- Table `quote_request_lines` (case_id FK, line_index CHECK >= 1, UNIQUE(case_id, line_index))
-- RPC `replace_quote_request_lines(UUID, JSONB)` — SECURITY DEFINER, advisory lock, atomic delete+insert
-- RLS: SELECT authenticated only
-- Grants: service_role EXECUTE only on RPC, authenticated SELECT only on table
-- source_email_id ON DELETE SET NULL (robustesse future)
-- Guards: extracted_facts_json type array, meta_json type object
+### P0.2 (Auto-pricing) : 2 micro-corrections a faire
 
-### Edge Function (build-case-puzzle)
-- `detectMultiQuoteMarkers(text)`: regex gate sur ≥2 marqueurs distincts (threadContext only)
-- `pickSourceEmailId(emails)`: dernier email is_quotation_request, sinon dernier email
-- `extractQuoteLinesWithAI(...)`: appel IA SÉPARÉ (gemini-2.5-flash), prompt dédié, context tronqué 8k
-- Validation stricte: max 8 lignes, min 2 facts, clés whitelistées, line_index 1-based
-- Mapping B3: extracted_facts → extracted_facts_json
-- Appel RPC: p_lines direct (pas de JSON.stringify) — fix B2
-- Bloc entièrement non-bloquant (try/catch)
-- Réponse: quote_request_lines_detected/stored/mode
+**Correction 1 — Ligne 941 : `handleRefresh()` sans `await`**
 
-## Ce qui n'a PAS changé
-- extractFactsWithAI: aucune modification
-- quote_facts / quote_gaps: aucune injection
-- run-pricing: zero impact
-- UI / Dashboard / CaseView: aucun changement
+Le dernier `handleRefresh()` apres le run-pricing n'a pas de `await`. Meme si handleRefresh n'est pas veritablement async, il faut etre coherent avec la ligne 911 qui utilise `await handleRefresh()`.
+
+```
+Avant : handleRefresh();
+Apres : await handleRefresh();
+```
+
+**Correction 2 — Ligne 914 : Ajouter garde anti-double PRICING_RUNNING**
+
+Le guard `!isLocked` depend du state React (potentiellement stale). Ajouter une verification directe sur `caseData?.status` pour couvrir le cas de latence reseau ou l'utilisateur resout 2 gaps rapidement.
+
+```
+Avant : if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED")
+Apres : if (caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING")
+```
+
+## Fichiers modifies
+
+| Fichier | Lignes | Action |
+|---------|--------|--------|
+| `src/pages/CaseView.tsx` | 914, 941 | 2 corrections chirurgicales |
+
+## Ce qui ne change pas
+- MultiRequestLinesPanel : inchange
+- Backend / edge functions : inchange
+- Logique metier : inchangee
+
