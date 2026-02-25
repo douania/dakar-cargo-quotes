@@ -1162,24 +1162,43 @@ async function injectAttachmentFacts(
       if (!extractedInfo) continue;
 
       const items = extractedInfo.items || extractedInfo.articles || extractedInfo.lignes;
-      if (!Array.isArray(items) || items.length < 2) continue;
+      if (!Array.isArray(items) || items.length === 0) continue;
 
-      // Build articles detail from items with values > 0
-      const articlesDetail: Array<{ hs_code: string; value: number; currency: string; description?: string }> = [];
+      // Build enriched articles detail (P2-A: schema riche + P2-B: calcul qty*unitPrice)
+      const articlesDetail: Array<{
+        hs_code: string; value: number; currency: string;
+        description?: string; quantity?: number; unit_price?: number; line_total?: number;
+      }> = [];
       for (const item of items) {
-        const value = parseFloat(item.total ?? item.unit_price ?? item.value ?? item.montant ?? 0);
-        const hsCode = item.hs_code || item.code_hs || item.codes_hs || '';
-        if (value > 0 && hsCode) {
+        const qty = parseRobustNumber(String(item.quantity ?? item.qty ?? '')) ?? 0;
+        const unitPrice = parseRobustNumber(String(item.unit_price ?? item.prix_unitaire ?? '')) ?? 0;
+        const lineTotal = parseRobustNumber(String(item.total ?? item.montant ?? '')) ?? 0;
+        const itemValue = parseRobustNumber(String(item.value ?? '')) ?? 0;
+        // Priority: lineTotal > qty*unitPrice > itemValue > unitPrice
+        const value = lineTotal > 0 ? lineTotal
+          : (qty > 0 && unitPrice > 0) ? qty * unitPrice
+          : itemValue > 0 ? itemValue
+          : unitPrice > 0 ? unitPrice : 0;
+
+        // Normalize HS BEFORE truthy check (avoid "N/A" → "")
+        const rawHs = String(item.hs_code || item.code_hs || item.codes_hs || '');
+        const normalizedHs = rawHs.replace(/\D/g, '').slice(0, 10);
+
+        if (value > 0 && normalizedHs) {
           articlesDetail.push({
-            hs_code: String(hsCode),
+            hs_code: normalizedHs,
             value,
-            currency: item.currency || item.devise || extractedInfo.devise || 'EUR',
-            description: item.description || item.designation || undefined,
+            currency: String(item.currency || item.devise || extractedInfo.devise || 'EUR').toUpperCase(),
+            description: typeof (item.description || item.designation) === 'string'
+              ? String(item.description || item.designation).slice(0, 200) : undefined,
+            quantity: qty > 0 ? qty : undefined,
+            unit_price: unitPrice > 0 ? unitPrice : undefined,
+            line_total: lineTotal > 0 ? lineTotal : undefined,
           });
         }
       }
 
-      if (articlesDetail.length >= 2 && !injectedKeys.has('cargo.articles_detail')) {
+      if (articlesDetail.length >= 1 && !injectedKeys.has('cargo.articles_detail')) {
         const existingSource = factSourceMap.get('cargo.articles_detail');
         if (existingSource !== 'operator') {
           const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
