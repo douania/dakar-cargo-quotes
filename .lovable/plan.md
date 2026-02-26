@@ -1,52 +1,79 @@
 
 
-# Plan : 2 micro-hardenings CTO post-revue P2
+# Plan : 2 fixes critiques + 2 hardenings M3.4c
 
-Deux corrections chirurgicales identifiees dans la revue CTO. Aucun changement de logique metier.
+Deux bugs runtime confirmes dans le bloc M3.4c actuel, plus deux hardenings optionnels. Aucun changement de logique metier.
 
-## Hardening A — items selector robuste (build-case-puzzle)
+---
 
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`  
-**Ligne 1164**
+## Fix critique #1 — Params RPC manquants (L1664-1675)
 
-Actuellement :
+**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
+
+La signature SQL de `supersede_fact` attend `p_source_email_id` et `p_source_attachment_id`. L'appel actuel ne les passe pas, ce qui peut provoquer une erreur RPC runtime.
+
+Ajouter dans l'appel `serviceClient.rpc("supersede_fact", {...})` :
+
 ```typescript
-const items = extractedInfo.items || extractedInfo.articles || extractedInfo.lignes;
+p_source_email_id: null,
+p_source_attachment_id: null,
 ```
 
-Probleme : si `extractedInfo.items` est un objet truthy non-tableau (ex: `{}`), le fallback vers `articles`/`lignes` ne se declenche pas, et `Array.isArray(items)` echoue silencieusement → aucun article extrait.
+## Fix critique #2 — event_type invalide (L1683)
 
-Correction :
-```typescript
-const items = Array.isArray(extractedInfo.items) ? extractedInfo.items
-  : Array.isArray((extractedInfo as any).articles) ? (extractedInfo as any).articles
-  : Array.isArray((extractedInfo as any).lignes) ? (extractedInfo as any).lignes
-  : [];
+**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
+
+Le CHECK constraint `case_timeline_events_event_type_check` autorise ces valeurs :
+
+```
+case_created, status_changed, fact_added, fact_updated, fact_superseded,
+gap_identified, gap_resolved, gap_waived, pricing_started, pricing_completed,
+pricing_failed, output_generated, human_approved, human_rejected, sent, archived,
+email_received, email_sent, attachment_analyzed, clarification_sent,
+manual_action, status_rollback, fact_insert_failed, document_uploaded,
+fact_injected_manual
 ```
 
-## Hardening B — rejeter les tableaux imbriques (set-case-fact)
+`fact_injected_from_document` n'est PAS dans cette liste → insert silencieusement rejecte.
 
-**Fichier** : `supabase/functions/set-case-fact/index.ts`  
-**Ligne 112**
-
-Actuellement :
+Remplacer L1683 :
 ```typescript
-if (!item || typeof item !== 'object') {
+event_type: "fact_updated",
 ```
 
-Probleme : `Array.isArray([])` retourne `true` et `typeof [] === 'object'` → un element `[]` passe le test.
+## Hardening A — Deduplication articles (L1663)
 
-Correction :
+**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
+
+Si plusieurs `case_documents` contiennent les memes lignes facture, les articles sont doubles. Ajouter un `Set` de cle composite avant le push dans la boucle d'extraction (vers L1640-1660) :
+
 ```typescript
-if (!item || typeof item !== 'object' || Array.isArray(item)) {
+const seen = new Set<string>();
+// dans la boucle, avant extracted.push(...):
+const dedupKey = `${hsAligned}|${value}|${description || ""}`;
+if (seen.has(dedupKey)) continue;
+seen.add(dedupKey);
 ```
 
-## Resume
+## Hardening B — Cap 50 articles (L1663)
 
-| Fichier | Ligne | Modification |
-|---------|-------|-------------|
-| `build-case-puzzle/index.ts` | 1164 | Cascade `Array.isArray` au lieu de `||` truthy |
-| `set-case-fact/index.ts` | 112 | Ajouter `|| Array.isArray(item)` |
+Coherent avec la validation serveur P2-D (set-case-fact max 50).
 
-Deux changements d'une ligne chacun. Zero impact sur la logique metier ou la compatibilite moteur.
+Avant l'appel supersede_fact :
+```typescript
+if (extracted.length > 50) extracted.length = 50;
+```
+
+---
+
+## Resume des modifications
+
+| Fichier | Ligne(s) | Type | Description |
+|---------|----------|------|-------------|
+| `build-case-puzzle/index.ts` | 1664-1675 | **Fix critique** | Ajouter `p_source_email_id: null, p_source_attachment_id: null` |
+| `build-case-puzzle/index.ts` | 1683 | **Fix critique** | Remplacer event_type par `fact_updated` |
+| `build-case-puzzle/index.ts` | ~1640-1660 | Hardening | Deduplication via Set composite |
+| `build-case-puzzle/index.ts` | ~1663 | Hardening | Cap 50 articles |
+
+Un seul fichier modifie. Zero impact sur la logique metier, le moteur, ou les composants UI.
 
