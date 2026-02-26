@@ -108,4 +108,68 @@ verify_jwt = false
 
 ---
 
-*Last updated: 2026-02-05 — Phase 15.2 COMPLETED*
+---
+
+## Fix Taleb — Proportionnalité HS (✅ VALIDATED)
+
+### Contexte
+
+- **Case ID** : `57f0043c-1316-4837-a38e-c07e055d2373`
+- **Run validé** : #8
+- **Fichier modifié** : `supabase/functions/build-case-puzzle/index.ts` (L1609-1619)
+- **Aucune modification** du `quotation-engine`
+
+### Cause racine
+
+L'ordre d'exécution M3.4c (article parser) / M3.4b (HS injection) créait un mismatch :
+
+1. M3.4c aligne les articles sur `9015301000` (hs10 exact du document) car `hsSet` ne contient pas encore `9015300000`
+2. M3.4b injecte ensuite `cargo.hs_code = 9015300000,9026100000`
+3. Le coverage guard du moteur fait un match exact 10 digits → `9015301000 ≠ 9015300000` → coverage 1/2 → répartition équitable
+
+### Fix appliqué
+
+Pré-enrichissement de `hsSet` avec les codes SH6+0000 dérivés des documents **avant** le scan M3.4c :
+
+```typescript
+// Pre-enrich hsSet with SH6+0000 derived from document HS codes (order-independent)
+for (const text of docTexts) {
+  const hsMatches = text.matchAll(/Code\s*Douanier\s*:\s*(\d{6,10})/gi);
+  for (const m of hsMatches) {
+    const raw = (m[1] || "").replace(/\D/g, "").slice(0, 10);
+    if (raw.length >= 6) {
+      hsSet.add(raw.slice(0, 6).padEnd(10, "0"));
+    }
+  }
+}
+```
+
+**Pourquoi uniquement hs6pad** : l'alignement fait `hsSet.has(hs10) ? hs10 : hsSet.has(hs6pad) ? hs6pad : hs10`. Si on ajoute hs10 brut, l'alignement le préfère → bug inchangé.
+
+### Résultat vérifié (Run #8)
+
+| Indicateur | Avant fix | Après fix |
+|------------|-----------|-----------|
+| HS aligned | `9015301000,9026100000` | `9015300000,9026100000` |
+| Coverage | 1/2 → équitable | 2/2 → proportionnel |
+| CAF split | 50/50 | ~60/40 (371M vs 248M XOF) |
+
+### Procédure de ré-extraction (si fact existant)
+
+Le garde "do not overwrite operator/email" empêche la ré-injection automatique. Procédure :
+
+1. Désactiver `cargo.articles_detail` (`is_current = false`)
+2. Relancer `build-case-puzzle`
+3. Relancer `run-pricing`
+
+### Hardening futur (Option B — documenté, pas implémenté)
+
+Un flag `force_articles_detail: true` dans le body de `build-case-puzzle` (admin-only) permettrait la ré-extraction sans manipulation SQL. Non prioritaire.
+
+### Checklist associée
+
+Voir `audit/checklists/proportionnalite_hs.md`
+
+---
+
+*Last updated: 2026-02-26 — Fix Taleb Proportionnalité HS VALIDATED*
