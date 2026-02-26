@@ -1,79 +1,44 @@
 
 
-# Plan : 2 fixes critiques + 2 hardenings M3.4c
+# Plan : Archiver la validation + créer la checklist proportionnalité HS
 
-Deux bugs runtime confirmes dans le bloc M3.4c actuel, plus deux hardenings optionnels. Aucun changement de logique metier.
+## Contexte
 
----
+Le fix Taleb est validé à 100% par le CTO. Deux livrables demandés :
 
-## Fix critique #1 — Params RPC manquants (L1664-1675)
+1. **Archiver la trace audit** dans les notes de release du projet
+2. **Créer la checklist standard "proportionnalité HS"** réutilisable pour tout futur dossier multi-HS sortant en "équitable"
 
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
+## Actions
 
-La signature SQL de `supersede_fact` attend `p_source_email_id` et `p_source_attachment_id`. L'appel actuel ne les passe pas, ce qui peut provoquer une erreur RPC runtime.
+### 1 — Créer/mettre à jour le fichier `.lovable/PHASE_15_NOTES.md`
 
-Ajouter dans l'appel `serviceClient.rpc("supersede_fact", {...})` :
+Ajouter une section "Fix Taleb — Proportionnalité HS" avec :
+- Case ID : `57f0043c-1316-4837-a38e-c07e055d2373`
+- Run validé : #8
+- Cause racine : ordre d'exécution M3.4c/M3.4b + match exact 10 digits
+- Fix : pré-enrichissement `hsSet` avec SH6+0000 depuis `docTexts`
+- Fichier modifié : `build-case-puzzle/index.ts` (L1609-1619)
+- Aucune modification du `quotation-engine`
 
-```typescript
-p_source_email_id: null,
-p_source_attachment_id: null,
-```
+### 2 — Créer le fichier `audit/checklists/proportionnalite_hs.md`
 
-## Fix critique #2 — event_type invalide (L1683)
+Checklist en 5 items applicable par tout opérateur/dev quand un dossier multi-HS sort en répartition équitable :
 
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
+1. Vérifier `cargo.hs_code` — contient-il bien N codes (N >= 2) ?
+2. Vérifier `cargo.articles_detail` — existe-t-il avec `is_current = true` ? Si absent → relancer `build-case-puzzle`
+3. Comparer les HS des articles vs les HS du dossier — match exact 10 digits ? Si mismatch (ex: `...1000` vs `...0000`) → le pré-enrichissement SH6 n'a pas fonctionné ou le fact n'a pas été rafraîchi
+4. Si fact existant bloque la ré-extraction → désactiver `cargo.articles_detail` (`is_current = false`) puis relancer `build-case-puzzle`
+5. Après `run-pricing` → vérifier que `duty_breakdown` contient des CAF différents entre HS et que la note mentionne "proportionnelle"
 
-Le CHECK constraint `case_timeline_events_event_type_check` autorise ces valeurs :
+### 3 — Hardening futur (Option B — documenté, pas implémenté)
 
-```
-case_created, status_changed, fact_added, fact_updated, fact_superseded,
-gap_identified, gap_resolved, gap_waived, pricing_started, pricing_completed,
-pricing_failed, output_generated, human_approved, human_rejected, sent, archived,
-email_received, email_sent, attachment_analyzed, clarification_sent,
-manual_action, status_rollback, fact_insert_failed, document_uploaded,
-fact_injected_manual
-```
+Documenter dans les notes qu'un flag `force_articles_detail: true` serait utile pour éviter les manipulations SQL manuelles. Non prioritaire.
 
-`fact_injected_from_document` n'est PAS dans cette liste → insert silencieusement rejecte.
+## Fichiers concernés
 
-Remplacer L1683 :
-```typescript
-event_type: "fact_updated",
-```
-
-## Hardening A — Deduplication articles (L1663)
-
-**Fichier** : `supabase/functions/build-case-puzzle/index.ts`
-
-Si plusieurs `case_documents` contiennent les memes lignes facture, les articles sont doubles. Ajouter un `Set` de cle composite avant le push dans la boucle d'extraction (vers L1640-1660) :
-
-```typescript
-const seen = new Set<string>();
-// dans la boucle, avant extracted.push(...):
-const dedupKey = `${hsAligned}|${value}|${description || ""}`;
-if (seen.has(dedupKey)) continue;
-seen.add(dedupKey);
-```
-
-## Hardening B — Cap 50 articles (L1663)
-
-Coherent avec la validation serveur P2-D (set-case-fact max 50).
-
-Avant l'appel supersede_fact :
-```typescript
-if (extracted.length > 50) extracted.length = 50;
-```
-
----
-
-## Resume des modifications
-
-| Fichier | Ligne(s) | Type | Description |
-|---------|----------|------|-------------|
-| `build-case-puzzle/index.ts` | 1664-1675 | **Fix critique** | Ajouter `p_source_email_id: null, p_source_attachment_id: null` |
-| `build-case-puzzle/index.ts` | 1683 | **Fix critique** | Remplacer event_type par `fact_updated` |
-| `build-case-puzzle/index.ts` | ~1640-1660 | Hardening | Deduplication via Set composite |
-| `build-case-puzzle/index.ts` | ~1663 | Hardening | Cap 50 articles |
-
-Un seul fichier modifie. Zero impact sur la logique metier, le moteur, ou les composants UI.
+| Fichier | Action |
+|---------|--------|
+| `.lovable/PHASE_15_NOTES.md` | Mise à jour (ajout section) |
+| `audit/checklists/proportionnalite_hs.md` | Création |
 
