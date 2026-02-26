@@ -1575,6 +1575,133 @@ Deno.serve(async (req) => {
     factsAdded += attachmentFactsResult.added;
     factsUpdated += attachmentFactsResult.updated;
 
+    // --- M3.4c: Deterministic cargo.articles_detail from case_documents (manual dossiers) ---
+    try {
+      // Guard: only proceed if cargo.articles_detail not already injected (email or operator)
+      const { data: existingArtFact } = await serviceClient
+        .from("quote_facts")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("fact_key", "cargo.articles_detail")
+        .eq("is_current", true)
+        .limit(1);
+
+      if (!existingArtFact || existingArtFact.length === 0) {
+        // Load cargo.hs_code for HS alignment (prevents equal-distribution fallback)
+        const { data: hsFact } = await serviceClient
+          .from("quote_facts")
+          .select("value_text")
+          .eq("case_id", case_id)
+          .eq("fact_key", "cargo.hs_code")
+          .eq("is_current", true)
+          .limit(1);
+
+        const hsSet = new Set(
+          (hsFact?.[0]?.value_text || "")
+            .split(/[,;]/)
+            .map((s: string) => s.trim().replace(/\D/g, ""))
+            .filter(Boolean)
+        );
+
+        // Scan case_documents extracted_text
+        const docTexts = (caseDocuments || [])
+          .map((d: any) => d.extracted_text)
+          .filter((t: any): t is string => typeof t === "string" && t.length > 50);
+
+        // Regex for pipe-separated invoice lines: desc | qty | unit_price | total [CUR] | Code Douanier: XXXXXXXXXX
+        const lineRegex =
+          /^\s*([^|]+?)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*([A-Z]{3})?\s*\|\s*Code\s*Douanier\s*:\s*(\d{8,10})\s*$/i;
+
+        const extracted: Array<{
+          hs_code: string; value: number; currency: string;
+          description?: string; quantity?: number; unit_price?: number; line_total?: number;
+        }> = [];
+
+        for (const text of docTexts) {
+          const lines = text.split(/\r?\n/);
+          for (const line of lines) {
+            const m = line.match(lineRegex);
+            if (!m) continue;
+
+            const description = m[1]?.trim();
+            const qty = parseRobustNumber(m[2]) ?? 0;
+            const unitPrice = parseRobustNumber(m[3]) ?? 0;
+            const lineTotal = parseRobustNumber(m[4]) ?? 0;
+            const cur = (m[5] || "EUR").toUpperCase();
+            const hsRawDigits = (m[6] || "").replace(/\D/g, "").slice(0, 10);
+
+            if (!hsRawDigits) continue;
+
+            // value priority: total > qty*unit > unit
+            const value =
+              lineTotal > 0 ? lineTotal :
+              (qty > 0 && unitPrice > 0) ? qty * unitPrice :
+              unitPrice > 0 ? unitPrice : 0;
+
+            if (!(value > 0)) continue;
+
+            // HS alignment: match against cargo.hs_code to ensure coverage guard passes
+            const hs10 = hsRawDigits.padEnd(10, "0");
+            const hs6pad = hsRawDigits.slice(0, 6).padEnd(10, "0");
+            const hsAligned =
+              hsSet.has(hs10) ? hs10 :
+              hsSet.has(hs6pad) ? hs6pad :
+              hs10; // fallback to raw if no match
+
+            extracted.push({
+              hs_code: hsAligned,
+              value,
+              currency: cur,
+              description: description ? description.slice(0, 200) : undefined,
+              quantity: qty > 0 ? qty : undefined,
+              unit_price: unitPrice > 0 ? unitPrice : undefined,
+              line_total: lineTotal > 0 ? lineTotal : undefined,
+            });
+          }
+        }
+
+        if (extracted.length >= 1) {
+          const { error: rpcErr } = await serviceClient.rpc("supersede_fact", {
+            p_case_id: case_id,
+            p_fact_key: "cargo.articles_detail",
+            p_fact_category: "cargo",
+            p_value_text: null,
+            p_value_number: null,
+            p_value_json: extracted,
+            p_value_date: null,
+            p_source_type: "document_regex",
+            p_source_excerpt: `[case_documents] ${extracted.length} articles extracted via regex`,
+            p_confidence: 0.95,
+          });
+
+          if (!rpcErr) {
+            factsAdded++;
+            console.log(`[M3.4c] Injected cargo.articles_detail from case_documents: ${extracted.length} articles, HS aligned to: ${Array.from(new Set(extracted.map(a => a.hs_code))).join(",")}`);
+
+            await serviceClient.from("case_timeline_events").insert({
+              case_id: case_id,
+              event_type: "fact_injected_from_document",
+              event_data: {
+                fact_key: "cargo.articles_detail",
+                source_type: "document_regex",
+                articles_count: extracted.length,
+                hs_distinct: Array.from(new Set(extracted.map(a => a.hs_code))).length,
+              },
+              actor_type: "system",
+            });
+          } else {
+            console.warn(`[M3.4c] Failed to inject cargo.articles_detail:`, rpcErr);
+          }
+        } else {
+          console.log(`[M3.4c] No articles extracted from case_documents (${docTexts.length} texts scanned)`);
+        }
+      } else {
+        console.log(`[M3.4c] cargo.articles_detail already exists, skipping document extraction`);
+      }
+    } catch (m34cErr) {
+      console.warn("[M3.4c] Error during document articles extraction:", m34cErr);
+    }
+
     // --- M3.4b: Deterministic HS extraction from case_documents (regex) ---
     try {
       // 1. Check if cargo.hs_code already exists and is valid 10-digit in DB
