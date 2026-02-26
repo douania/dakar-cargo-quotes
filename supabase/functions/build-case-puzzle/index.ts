@@ -1608,9 +1608,9 @@ Deno.serve(async (req) => {
           .map((d: any) => d.extracted_text)
           .filter((t: any): t is string => typeof t === "string" && t.length > 50);
 
-        // Regex for pipe-separated invoice lines: desc | qty | unit_price | total [CUR] | Code Douanier: XXXXXXXXXX
-        const lineRegex =
-          /^\s*([^|]+?)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*([A-Z]{3})?\s*\|\s*Code\s*Douanier\s*:\s*(\d{8,10})\s*$/i;
+        // M3.4c: Reverse-scan from "Code Douanier:" lines for multi-line invoice format (Taleb)
+        const codeDouanierRegex = /Code\s*Douanier\s*:\s*(\d{6,10})/i;
+        const qtyLineRegex = /^\s*([\d\s.,]+)\s*$/;
 
         const extracted: Array<{
           hs_code: string; value: number; currency: string;
@@ -1619,51 +1619,134 @@ Deno.serve(async (req) => {
 
         const seen = new Set<string>();
 
+        // Helper: check if a line is mostly numeric (no letters/symbols that indicate description)
+        const isMostlyNumeric = (s: string) =>
+          s.replace(/[\d\s.,\t]/g, "").trim().length === 0;
+
+        // Helper: extract numeric tokens from a line without depending on \t
+        const extractNumericTokens = (s: string): number[] => {
+          const parts = s.match(/[\d][\d\s.,]*/g) || [];
+          return parts
+            .map((p) => parseRobustNumber(p))
+            .filter((n): n is number => Number.isFinite(n!) && n! >= 0);
+        };
+
         for (const text of docTexts) {
           const lines = text.split(/\r?\n/);
-          for (const line of lines) {
-            const m = line.match(lineRegex);
-            if (!m) continue;
+          for (let i = 0; i < lines.length; i++) {
+            const hsMatch = lines[i].match(codeDouanierRegex);
+            if (!hsMatch) continue;
+            const hsRawDigits = (hsMatch[1] || "").replace(/\D/g, "").slice(0, 10);
+            if (!hsRawDigits || hsRawDigits.length < 6) continue;
 
-            const description = m[1]?.trim();
-            const qty = parseRobustNumber(m[2]) ?? 0;
-            const unitPrice = parseRobustNumber(m[3]) ?? 0;
-            const lineTotal = parseRobustNumber(m[4]) ?? 0;
-            const cur = (m[5] || "EUR").toUpperCase();
-            const hsRawDigits = (m[6] || "").replace(/\D/g, "").slice(0, 10);
+            let lineTotal = 0, unitPrice = 0, qty = 0;
+            let description = "";
+            let priceLineIdx = -1;
 
-            if (!hsRawDigits) continue;
+            // Look backwards for a mostly-numeric "price line" with >= 2 numeric tokens (within 12 lines)
+            for (let j = i - 1; j >= Math.max(0, i - 12); j--) {
+              const ln = lines[j];
+              if (!ln || !ln.trim()) continue;
+              if (!isMostlyNumeric(ln)) continue; // skip lines with letters (anti false-positive)
+              const nums = extractNumericTokens(ln);
+              if (nums.length >= 2) {
+                unitPrice = nums[0] ?? 0;
+                lineTotal = nums[nums.length - 1] ?? 0;
+                priceLineIdx = j;
+                break;
+              }
+            }
+            if (priceLineIdx < 0) continue;
+
+            // Look backwards from price line for standalone quantity (within 12 lines)
+            for (let j = priceLineIdx - 1; j >= Math.max(0, priceLineIdx - 12); j--) {
+              const qm = lines[j].match(qtyLineRegex);
+              if (!qm) continue;
+              const candidate = parseRobustNumber(qm[1]);
+              if (candidate && candidate > 0) {
+                qty = candidate;
+                // Description: look up to 10 lines for non-numeric text
+                for (let k = j - 1; k >= Math.max(0, j - 10); k--) {
+                  const t = (lines[k] || "").trim();
+                  if (!t) continue;
+                  if (/^[\d\s.,]+$/.test(t)) continue;
+                  if (/Code\s*Douanier/i.test(t)) continue;
+                  description = t;
+                  // Prefer a shorter line above (often the product code/name)
+                  for (let n = k - 1; n >= Math.max(0, k - 8); n--) {
+                    const cand = (lines[n] || "").trim();
+                    if (!cand) continue;
+                    if (/^[\d\s.,]+$/.test(cand)) continue;
+                    if (/Code\s*Douanier/i.test(cand)) continue;
+                    if (cand.length < 60) description = cand;
+                    else break;
+                  }
+                  break;
+                }
+                break;
+              }
+            }
 
             // value priority: total > qty*unit > unit
-            const value =
-              lineTotal > 0 ? lineTotal :
-              (qty > 0 && unitPrice > 0) ? qty * unitPrice :
-              unitPrice > 0 ? unitPrice : 0;
-
+            const value = lineTotal > 0 ? lineTotal
+              : (qty > 0 && unitPrice > 0) ? qty * unitPrice
+              : unitPrice > 0 ? unitPrice : 0;
             if (!(value > 0)) continue;
 
             // HS alignment: match against cargo.hs_code to ensure coverage guard passes
             const hs10 = hsRawDigits.padEnd(10, "0");
             const hs6pad = hsRawDigits.slice(0, 6).padEnd(10, "0");
-            const hsAligned =
-              hsSet.has(hs10) ? hs10 :
-              hsSet.has(hs6pad) ? hs6pad :
-              hs10; // fallback to raw if no match
+            const hsAligned = hsSet.has(hs10) ? hs10
+              : hsSet.has(hs6pad) ? hs6pad : hs10;
 
-            // Hardening A: deduplication
-            const dedupKey = `${hsAligned}|${value}|${description || ""}`;
+            // Dedup with stabilized value key
+            const valueKey = Number.isFinite(value) ? value.toFixed(2) : String(value);
+            const dedupKey = `${hsAligned}|${valueKey}|${(description || "").trim()}`;
             if (seen.has(dedupKey)) continue;
             seen.add(dedupKey);
 
             extracted.push({
               hs_code: hsAligned,
               value,
-              currency: cur,
+              currency: "EUR",
               description: description ? description.slice(0, 200) : undefined,
               quantity: qty > 0 ? qty : undefined,
               unit_price: unitPrice > 0 ? unitPrice : undefined,
               line_total: lineTotal > 0 ? lineTotal : undefined,
             });
+          }
+        }
+
+        // Fallback: try pipe-separated format if reverse-scan found nothing
+        if (extracted.length === 0) {
+          const pipeRegex =
+            /^\s*([^|]+?)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*\|\s*([\d\s.,]+)\s*([A-Z]{3})?\s*\|\s*Code\s*Douanier\s*:\s*(\d{8,10})\s*$/i;
+          for (const text of docTexts) {
+            for (const line of text.split(/\r?\n/)) {
+              const m = line.match(pipeRegex);
+              if (!m) continue;
+              const desc = m[1]?.trim();
+              const q = parseRobustNumber(m[2]) ?? 0;
+              const up = parseRobustNumber(m[3]) ?? 0;
+              const lt = parseRobustNumber(m[4]) ?? 0;
+              const hsRaw = (m[6] || "").replace(/\D/g, "").slice(0, 10);
+              if (!hsRaw) continue;
+              const val = lt > 0 ? lt : (q > 0 && up > 0) ? q * up : up > 0 ? up : 0;
+              if (!(val > 0)) continue;
+              const h10 = hsRaw.padEnd(10, "0");
+              const h6 = hsRaw.slice(0, 6).padEnd(10, "0");
+              const ha = hsSet.has(h10) ? h10 : hsSet.has(h6) ? h6 : h10;
+              const dk = `${ha}|${val.toFixed(2)}|${(desc || "").trim()}`;
+              if (seen.has(dk)) continue;
+              seen.add(dk);
+              extracted.push({
+                hs_code: ha, value: val, currency: (m[5] || "EUR").toUpperCase(),
+                description: desc ? desc.slice(0, 200) : undefined,
+                quantity: q > 0 ? q : undefined,
+                unit_price: up > 0 ? up : undefined,
+                line_total: lt > 0 ? lt : undefined,
+              });
+            }
           }
         }
 
