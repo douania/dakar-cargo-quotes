@@ -1608,6 +1608,18 @@ Deno.serve(async (req) => {
           .map((d: any) => d.extracted_text)
           .filter((t: any): t is string => typeof t === "string" && t.length > 50);
 
+        // Pre-enrich hsSet with SH6+0000 derived from document HS codes (order-independent)
+        // IMPORTANT: add only hs6pad to avoid preferring 10-digit hs10 in alignment
+        for (const text of docTexts) {
+          const hsMatches = text.matchAll(/Code\s*Douanier\s*:\s*(\d{6,10})/gi);
+          for (const m of hsMatches) {
+            const raw = (m[1] || "").replace(/\D/g, "").slice(0, 10);
+            if (raw.length >= 6) {
+              hsSet.add(raw.slice(0, 6).padEnd(10, "0"));
+            }
+          }
+        }
+
         // M3.4c: Reverse-scan from "Code Douanier:" lines for multi-line invoice format (Taleb)
         const codeDouanierRegex = /Code\s*Douanier\s*:\s*(\d{6,10})/i;
         const qtyLineRegex = /^\s*([\d\s.,]+)\s*$/;
