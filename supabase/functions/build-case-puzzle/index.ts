@@ -1623,12 +1623,18 @@ Deno.serve(async (req) => {
         const isMostlyNumeric = (s: string) =>
           s.replace(/[\d\s.,\t]/g, "").trim().length === 0;
 
-        // Helper: extract numeric tokens from a line without depending on \t
+        // Helper: extract numeric tokens from a line — split on tabs/multiple-spaces first
         const extractNumericTokens = (s: string): number[] => {
-          const parts = s.match(/[\d][\d\s.,]*/g) || [];
-          return parts
-            .map((p) => parseRobustNumber(p))
-            .filter((n): n is number => Number.isFinite(n!) && n! >= 0);
+          // Split on tabs or 2+ spaces to separate columns, then extract numbers from each segment
+          const segments = s.split(/\t|  +/).filter(seg => seg.trim().length > 0);
+          const nums: number[] = [];
+          for (const seg of segments) {
+            const n = parseRobustNumber(seg.trim());
+            if (n !== null && Number.isFinite(n) && n >= 0) {
+              nums.push(n);
+            }
+          }
+          return nums;
         };
 
         for (const text of docTexts) {
