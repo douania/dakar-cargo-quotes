@@ -1617,6 +1617,8 @@ Deno.serve(async (req) => {
           description?: string; quantity?: number; unit_price?: number; line_total?: number;
         }> = [];
 
+        const seen = new Set<string>();
+
         for (const text of docTexts) {
           const lines = text.split(/\r?\n/);
           for (const line of lines) {
@@ -1648,6 +1650,11 @@ Deno.serve(async (req) => {
               hsSet.has(hs6pad) ? hs6pad :
               hs10; // fallback to raw if no match
 
+            // Hardening A: deduplication
+            const dedupKey = `${hsAligned}|${value}|${description || ""}`;
+            if (seen.has(dedupKey)) continue;
+            seen.add(dedupKey);
+
             extracted.push({
               hs_code: hsAligned,
               value,
@@ -1660,6 +1667,9 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Hardening B: cap 50 articles
+        if (extracted.length > 50) extracted.length = 50;
+
         if (extracted.length >= 1) {
           const { error: rpcErr } = await serviceClient.rpc("supersede_fact", {
             p_case_id: case_id,
@@ -1670,6 +1680,8 @@ Deno.serve(async (req) => {
             p_value_json: extracted,
             p_value_date: null,
             p_source_type: "document_regex",
+            p_source_email_id: null,
+            p_source_attachment_id: null,
             p_source_excerpt: `[case_documents] ${extracted.length} articles extracted via regex`,
             p_confidence: 0.95,
           });
@@ -1680,7 +1692,7 @@ Deno.serve(async (req) => {
 
             await serviceClient.from("case_timeline_events").insert({
               case_id: case_id,
-              event_type: "fact_injected_from_document",
+              event_type: "fact_updated",
               event_data: {
                 fact_key: "cargo.articles_detail",
                 source_type: "document_regex",
