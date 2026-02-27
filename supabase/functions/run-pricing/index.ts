@@ -131,8 +131,6 @@ Deno.serve(async (req) => {
     const isFinalized = ["SENT", "QUOTED_VERSIONED"].includes(previousStatus);
 
     // 4. Phase 15.6: Scope query — determine scopeWantsDuties BEFORE hard guard
-    const POLICY_GAP_KEYS = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost", "cargo.freight_exchange_rate"];
-
     const { data: scopeFacts } = await serviceClient
       .from("quote_facts")
       .select("fact_key, value_text")
@@ -169,7 +167,7 @@ Deno.serve(async (req) => {
     // 4b. Phase 15.6 — HS Code scope-aware guard
     if (scopeWantsDuties) {
       const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
-      const hsCandidates = rawHs.split(",").map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
+      const hsCandidates = rawHs.split(/[;,]/).map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
       const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
       const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
       let hsBlocker: string | null = null;
