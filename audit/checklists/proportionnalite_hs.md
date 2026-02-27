@@ -16,8 +16,8 @@
 Le fact `cargo.hs_code` contient-il bien N codes (N ≥ 2) séparés par des virgules ?
 
 ```sql
-SELECT value FROM quote_facts
-WHERE case_id = '<CASE_ID>' AND category = 'cargo' AND field = 'hs_code' AND is_current = true;
+SELECT value_text FROM quote_facts
+WHERE case_id = '<CASE_ID>' AND fact_category = 'cargo' AND fact_key = 'cargo.hs_code' AND is_current = true;
 ```
 
 - ✅ Contient 2+ codes → continuer
@@ -28,8 +28,8 @@ WHERE case_id = '<CASE_ID>' AND category = 'cargo' AND field = 'hs_code' AND is_
 Le fact `cargo.articles_detail` existe-t-il avec `is_current = true` ?
 
 ```sql
-SELECT id, value, source_type FROM quote_facts
-WHERE case_id = '<CASE_ID>' AND category = 'cargo' AND field = 'articles_detail' AND is_current = true;
+SELECT id, value_json, source_type FROM quote_facts
+WHERE case_id = '<CASE_ID>' AND fact_category = 'cargo' AND fact_key = 'cargo.articles_detail' AND is_current = true;
 ```
 
 - ✅ Existe → continuer
@@ -48,16 +48,26 @@ Exemple de mismatch :
 
 ### 4. Rafraîchir le fact si nécessaire
 
-Si un fact `cargo.articles_detail` existant bloque la ré-extraction :
+**Option A (Phase 15.4 — recommandée si `source_type != "manual_input"`)** :
+
+Relancer `build-case-puzzle` avec le flag admin :
+
+```json
+{ "case_id": "<CASE_ID>", "force_articles_detail": true }
+```
+
+Ou utiliser le bouton **"Admin — Forcer refresh articles"** dans la vue dossier.
+
+> ⚠️ Nécessite que l'utilisateur soit dans `ADMIN_EMAIL_ALLOWLIST`. Si `source_type === "manual_input"`, le flag sera ignoré (protection des overrides opérateur).
+
+**Option B (fallback SQL, si `source_type === "manual_input"`)** :
 
 ```sql
 UPDATE quote_facts SET is_current = false
-WHERE case_id = '<CASE_ID>' AND category = 'cargo' AND field = 'articles_detail';
+WHERE case_id = '<CASE_ID>' AND fact_category = 'cargo' AND fact_key = 'cargo.articles_detail';
 ```
 
 Puis relancer `build-case-puzzle` pour le case.
-
-> **Note** : Un flag `force_articles_detail: true` est envisagé pour éviter cette manipulation SQL (voir PHASE_15_NOTES.md).
 
 ### 5. Vérifier le résultat après `run-pricing`
 
@@ -78,6 +88,6 @@ WHERE case_id = '<CASE_ID>' ORDER BY created_at DESC LIMIT 1;
 
 ## Référence
 
-- **Fix source** : `supabase/functions/build-case-puzzle/index.ts` (L1609-1619)
+- **Fix source** : `supabase/functions/build-case-puzzle/index.ts` (bloc M3.4c)
 - **Case de référence** : Taleb `57f0043c-1316-4837-a38e-c07e055d2373` (Run #8)
 - **Notes** : `.lovable/PHASE_15_NOTES.md` → section "Fix Taleb — Proportionnalité HS"

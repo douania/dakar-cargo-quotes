@@ -234,6 +234,7 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
 interface BuildPuzzleRequest {
   case_id: string;
   force_refresh?: boolean;
+  force_articles_detail?: boolean;
 }
 
 interface ExtractedFact {
@@ -1288,13 +1289,27 @@ Deno.serve(async (req) => {
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
-    const { case_id, force_refresh = false }: BuildPuzzleRequest = await req.json();
+    const { case_id, force_refresh = false, force_articles_detail = false }: BuildPuzzleRequest = await req.json();
 
     if (!case_id) {
       return new Response(
         JSON.stringify({ error: "case_id is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Phase 15.4: Admin guard for force_articles_detail
+    if (force_articles_detail) {
+      const allowlistRaw = Deno.env.get("ADMIN_EMAIL_ALLOWLIST") || "";
+      const allowed = allowlistRaw.split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
+      const userEmail = (userData.user.email || "").toLowerCase();
+      if (allowed.length === 0 || !allowed.includes(userEmail)) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: admin access required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.log(`[Admin] force_articles_detail requested by ${userEmail}`);
     }
 
     // 3. Load case and verify ownership
@@ -1580,13 +1595,30 @@ Deno.serve(async (req) => {
       // Guard: only proceed if cargo.articles_detail not already injected (email or operator)
       const { data: existingArtFact } = await serviceClient
         .from("quote_facts")
-        .select("id")
+        .select("id, source_type")
         .eq("case_id", case_id)
         .eq("fact_key", "cargo.articles_detail")
         .eq("is_current", true)
         .limit(1);
 
-      if (!existingArtFact || existingArtFact.length === 0) {
+      const hasExisting = existingArtFact && existingArtFact.length > 0;
+      let proceedWithExtraction = false;
+
+      if (!hasExisting) {
+        proceedWithExtraction = true;
+      } else if (force_articles_detail) {
+        const existingSourceType = existingArtFact[0]?.source_type;
+        if (existingSourceType === "manual_input") {
+          console.log(`[M3.4c] force requested but current fact is manual_input; skipping`);
+        } else {
+          console.log(`[M3.4c] force overwrite enabled (source_type=${existingSourceType})`);
+          proceedWithExtraction = true;
+        }
+      } else {
+        console.log(`[M3.4c] cargo.articles_detail already exists, skipping document extraction`);
+      }
+
+      if (proceedWithExtraction) {
         // Load cargo.hs_code for HS alignment (prevents equal-distribution fallback)
         const { data: hsFact } = await serviceClient
           .from("quote_facts")
@@ -1799,6 +1831,7 @@ Deno.serve(async (req) => {
                 source_type: "document_regex",
                 articles_count: extracted.length,
                 hs_distinct: Array.from(new Set(extracted.map(a => a.hs_code))).length,
+                forced: !!force_articles_detail,
               },
               actor_type: "system",
             });
@@ -1808,8 +1841,6 @@ Deno.serve(async (req) => {
         } else {
           console.log(`[M3.4c] No articles extracted from case_documents (${docTexts.length} texts scanned)`);
         }
-      } else {
-        console.log(`[M3.4c] cargo.articles_detail already exists, skipping document extraction`);
       }
     } catch (m34cErr) {
       console.warn("[M3.4c] Error during document articles extraction:", m34cErr);
