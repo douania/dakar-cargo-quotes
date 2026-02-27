@@ -596,6 +596,7 @@ export default function CaseView() {
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
+  const hasArticlesDetail = facts.some((f: any) => f.fact_key === "cargo.articles_detail");
 
   function handleRefresh() {
     refetchCase();
@@ -618,6 +619,33 @@ export default function CaseView() {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  const [isForceRefreshing, setIsForceRefreshing] = React.useState(false);
+
+  async function handleForceRefreshArticles() {
+    if (!caseId || isForceRefreshing) return;
+    setIsForceRefreshing(true);
+    try {
+      const { error } = await supabase.functions.invoke("build-case-puzzle", {
+        body: { case_id: caseId, force_articles_detail: true },
+      });
+      if (error) {
+        const status = (error as any)?.context?.status ?? (error as any)?.status;
+        if (status === 403) {
+          toast.error("Accès admin requis (ADMIN_EMAIL_ALLOWLIST)");
+        } else {
+          throw error;
+        }
+        return;
+      }
+      toast.success("Refresh articles forcé avec succès");
+      handleRefresh();
+    } catch (err) {
+      toast.error("Erreur : " + (err as Error).message);
+    } finally {
+      setIsForceRefreshing(false);
     }
   }
 
@@ -1093,6 +1121,20 @@ export default function CaseView() {
                   ? 'Relancer l\'analyse'
                   : 'Lancer l\'analyse'}
               </Button>
+              {hasArticlesDetail && (
+                <Button
+                  variant="outline"
+                  onClick={handleForceRefreshArticles}
+                  disabled={isForceRefreshing || isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+                >
+                  {isForceRefreshing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Admin — Forcer refresh articles
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}

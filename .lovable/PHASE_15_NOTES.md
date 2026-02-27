@@ -162,9 +162,16 @@ Le garde "do not overwrite operator/email" empêche la ré-injection automatique
 2. Relancer `build-case-puzzle`
 3. Relancer `run-pricing`
 
-### Hardening futur (Option B — documenté, pas implémenté)
+### Option B — implémentée (Phase 15.4)
 
-Un flag `force_articles_detail: true` dans le body de `build-case-puzzle` (admin-only) permettrait la ré-extraction sans manipulation SQL. Non prioritaire.
+Un flag admin-only `force_articles_detail: true` dans le body de `build-case-puzzle` permet la ré-extraction de `cargo.articles_detail` depuis `case_documents` sans manipulation SQL.
+
+**Contraintes de sécurité :**
+- Admin-only via `ADMIN_EMAIL_ALLOWLIST` (403 si non autorisé)
+- Ne pas écraser si `source_type === "manual_input"` (protection des overrides opérateur)
+- Timeline event enrichi avec `forced: true/false`
+
+**Bouton UI** : "Admin — Forcer refresh articles" dans l'Action Panel de CaseView.tsx (visible uniquement si `cargo.articles_detail` existe).
 
 ### Checklist associée
 
@@ -172,4 +179,4 @@ Voir `audit/checklists/proportionnalite_hs.md`
 
 ---
 
-*Last updated: 2026-02-26 — Fix Taleb Proportionnalité HS VALIDATED*
+*Last updated: 2026-02-27 — Phase 15.4 force_articles_detail implemented*
