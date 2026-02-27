@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -156,10 +157,14 @@ Réponds en JSON structuré avec les champs trouvés.`;
     const aiData = await aiResponse.json();
     const analysisResult = aiData.choices?.[0]?.message?.content;
 
-    // Parse JSON result
+    // Parse JSON result (robust helper; keep raw fallback)
     let parsedAnalysis = null;
     try {
-      parsedAnalysis = JSON.parse(analysisResult);
+      parsedAnalysis = extractAndParseJSON<any>(analysisResult ?? "", {
+        label: "analyze-document",
+        maxLogChars: 500,
+        expectRoot: "object",
+      });
     } catch {
       parsedAnalysis = { raw_analysis: analysisResult };
     }

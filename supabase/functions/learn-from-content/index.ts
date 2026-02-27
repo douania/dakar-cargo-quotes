@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -265,10 +266,14 @@ ${att.extracted_data ? JSON.stringify(att.extracted_data, null, 2) : '(aucune do
     
     let extractions = [];
     try {
-      const parsed = JSON.parse(content_result);
+      const parsed = extractAndParseJSON<any>(content_result ?? "", {
+        label: "learn-from-content",
+        maxLogChars: 500,
+        expectRoot: "object",
+      });
       extractions = parsed.extractions || [];
     } catch (e) {
-      console.error("Failed to parse AI response:", content_result);
+      console.error("Failed to parse AI response (learn-from-content):", (e as Error).message);
       extractions = [];
     }
 

@@ -9,6 +9,7 @@ import {
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1622,17 +1623,20 @@ Réponds en JSON:
             const aiResult = await aiAnalysisResponse.json();
             const analysisContent = aiResult.choices?.[0]?.message?.content || '';
             
-            let extractedData = {};
+            let extractedData: any = {};
             let extractedText = analysisContent;
             
             try {
-              const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
-              if (jsonMatch) {
-                extractedData = JSON.parse(jsonMatch[0]);
-                extractedText = (extractedData as any).summary_text || analysisContent;
-              }
-            } catch (e) {
+              extractedData = extractAndParseJSON<any>(analysisContent, {
+                label: "generate-response:attachment-analysis",
+                maxLogChars: 500,
+                expectRoot: "object",
+              });
+              extractedText = extractedData.summary_text || analysisContent;
+            } catch (_e) {
               console.log("Could not parse JSON from analysis, using raw text");
+              extractedData = {};
+              extractedText = analysisContent;
             }
             
             await supabase
@@ -2725,11 +2729,15 @@ RAPPELS CRITIQUES:
     
     console.log("AI response received, parsing...");
     
-    let parsedResponse;
+    let parsedResponse: any;
     try {
-      parsedResponse = JSON.parse(generatedContent);
-    } catch (e) {
-      console.error("Parse error, raw content:", generatedContent?.substring(0, 500));
+      parsedResponse = extractAndParseJSON<any>(generatedContent ?? "", {
+        label: "generate-response",
+        maxLogChars: 500,
+        expectRoot: "object",
+      });
+    } catch (_e) {
+      console.error("Parse error in generate-response (len):", (generatedContent ?? "").length);
       throw new Error("Erreur de parsing de la réponse");
     }
 

@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -146,24 +147,16 @@ serve(async (req) => {
     
     console.log('[analyze-tender] AI response received, length:', responseText.length);
 
-    // Parse the JSON response
+    // Parse the JSON response (robust helper)
     let extractedData;
     try {
-      // Clean the response - remove markdown code blocks if present
-      let cleanedResponse = responseText.trim();
-      if (cleanedResponse.startsWith('```json')) {
-        cleanedResponse = cleanedResponse.slice(7);
-      }
-      if (cleanedResponse.startsWith('```')) {
-        cleanedResponse = cleanedResponse.slice(3);
-      }
-      if (cleanedResponse.endsWith('```')) {
-        cleanedResponse = cleanedResponse.slice(0, -3);
-      }
-      
-      extractedData = JSON.parse(cleanedResponse.trim());
-    } catch (parseError) {
-      console.error('[analyze-tender] Failed to parse AI response:', responseText.substring(0, 500));
+      extractedData = extractAndParseJSON<any>(responseText, {
+        label: "analyze-tender",
+        maxLogChars: 500,
+        expectRoot: "object",
+      });
+    } catch (_parseError) {
+      console.error('[analyze-tender] Failed to parse AI response (len):', responseText.length);
       throw new Error('Failed to parse tender extraction response');
     }
 
