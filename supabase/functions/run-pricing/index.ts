@@ -24,6 +24,7 @@ interface PricingInputs {
   destinationAirport?: string;
   finalDestination?: string;
   incoterm?: string;
+  servicePackage?: string; // Phase 15.6
   containers?: Array<{ type: string; quantity: number; coc_soc?: string }>;
   cargoWeight?: number;
   cargoVolume?: number;
@@ -40,7 +41,7 @@ interface PricingInputs {
   // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
   freightCost?: number;
   freightCurrency?: string;
-  
+  freightExchangeRate?: number; // Phase 15.6
 }
 
 Deno.serve(async (req) => {
@@ -129,13 +130,30 @@ Deno.serve(async (req) => {
     const previousStatus = caseData.status;
     const isFinalized = ["SENT", "QUOTED_VERSIONED"].includes(previousStatus);
 
-    // 4. CTO FIX: Guard-fou - Revérifier les gaps bloquants même si status READY_TO_PRICE
+    // 4. Phase 15.6: Scope query — determine scopeWantsDuties BEFORE hard guard
+    const POLICY_GAP_KEYS = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost", "cargo.freight_exchange_rate"];
+
+    const { data: scopeFacts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", ["service.package", "routing.incoterm", "cargo.hs_code"]);
+
+    const servicePackageRaw = (scopeFacts || []).find((f: any) => f.fact_key === "service.package")?.value_text ?? "";
+    const pkg = String(servicePackageRaw ?? "").trim().toUpperCase();
+    const incotermEarlyRaw = (scopeFacts || []).find((f: any) => f.fact_key === "routing.incoterm")?.value_text ?? "";
+    const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
+    const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
+
+    // 4a. Hard guard — blocking gaps EXCLUDING policy gap keys (handled by soft-blockers below)
     const { count: blockingGapsCount } = await serviceClient
       .from("quote_gaps")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id)
       .eq("is_blocking", true)
-      .eq("status", "open");
+      .eq("status", "open")
+      .not("gap_key", "in", '("cargo.hs_code","customs.regime_code","cargo.freight_cost","cargo.freight_exchange_rate")');
 
     if (blockingGapsCount && blockingGapsCount > 0) {
       return new Response(
@@ -148,123 +166,193 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4b. HS Code strict guard: require valid 10-digit code verified in hs_codes
-    const { data: hsCodeFact } = await serviceClient
-      .from("quote_facts")
-      .select("value_text")
-      .eq("case_id", case_id)
-      .eq("fact_key", "cargo.hs_code")
-      .eq("is_current", true)
-      .maybeSingle();
+    // 4b. Phase 15.6 — HS Code scope-aware guard
+    if (scopeWantsDuties) {
+      const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
+      const hsCandidates = rawHs.split(",").map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
+      const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
+      const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
+      let hsBlocker: string | null = null;
 
-    // Support multi-value HS codes (comma-separated): take first valid 10-digit code
-    const rawHs = hsCodeFact?.value_text || "";
-    const hsCandidates = rawHs.split(",").map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
-    const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
-    const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
-    let hsBlocker: string | null = null;
+      if (!hsDigits || hsDigits.length !== 10) {
+        hsBlocker = "HS_CODE_REQUIRED";
+      } else {
+        const { data: hsRow } = await serviceClient
+          .from("hs_codes")
+          .select("code_normalized")
+          .eq("code_normalized", hsDigits)
+          .limit(1)
+          .maybeSingle();
+        if (!hsRow) hsBlocker = "HS_CODE_UNKNOWN";
+      }
 
-    if (!hsDigits || hsDigits.length !== 10) {
-      hsBlocker = "HS_CODE_REQUIRED";
-    } else {
-      // Verify the 10-digit code actually exists in hs_codes table
-      const { data: hsRow } = await serviceClient
-        .from("hs_codes")
-        .select("code_normalized")
-        .eq("code_normalized", hsDigits)
-        .limit(1)
-        .maybeSingle();
-      if (!hsRow) {
-        hsBlocker = "HS_CODE_UNKNOWN";
+      if (hsBlocker) {
+        // Idempotent gap upsert for cargo.hs_code
+        const { data: hsGap } = await serviceClient
+          .from("quote_gaps")
+          .select("id, is_blocking")
+          .eq("case_id", case_id)
+          .eq("gap_key", "cargo.hs_code")
+          .eq("status", "open")
+          .maybeSingle();
+
+        if (!hsGap?.id) {
+          await serviceClient.from("quote_gaps").insert({
+            case_id,
+            gap_key: "cargo.hs_code",
+            gap_category: "cargo",
+            question_fr: "DDP : Code HS 10 chiffres UEMOA requis pour chiffrer droits & taxes. Veuillez saisir le code HS exact.",
+            question_en: "DDP: 10-digit UEMOA HS code required to compute duties & taxes. Please provide the exact HS code.",
+            priority: "high",
+            is_blocking: true,
+          });
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_identified",
+            event_data: { gap_key: "cargo.hs_code", reason: "Phase 15.6 policy — DDP scope" },
+            actor_type: "system",
+          });
+        } else if (hsGap.is_blocking === false) {
+          await serviceClient.from("quote_gaps")
+            .update({ is_blocking: true, priority: "high" })
+            .eq("id", hsGap.id);
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_identified",
+            event_data: { gap_key: "cargo.hs_code", reason: "Phase 15.6 policy — upgraded to blocking" },
+            actor_type: "system",
+          });
+        }
+        // else: already blocking → no-op
+
+        const { data: blockerRunNumber } = await serviceClient
+          .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+        const blockerOutputs = {
+          pricing_blockers: [hsBlocker],
+          message: hsBlocker === "HS_CODE_REQUIRED"
+            ? "DDP : Code HS 10 chiffres UEMOA requis pour chiffrer droits & taxes. Renseignez cargo.hs_code."
+            : `DDP : Code HS "${rawHs}" (${hsDigits}) introuvable dans la nomenclature UEMOA.`,
+          current_hs_code: rawHs || null,
+          scope: { servicePackage: pkg, incoterm: incotermEarly },
+        };
+
+        await serviceClient
+          .from("pricing_runs")
+          .insert({
+            case_id,
+            run_number: blockerRunNumber || 1,
+            inputs_json: { servicePackage: pkg, incoterm: incotermEarly, hsCode: rawHs || null },
+            facts_snapshot: [],
+            status: "blocked",
+            error_message: blockerOutputs.message,
+            outputs_json: blockerOutputs,
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+            created_by: userId,
+          });
+
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: blockerOutputs.pricing_blockers,
+            message: blockerOutputs.message,
+            run_number: blockerRunNumber || 1,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
     }
+    // If !scopeWantsDuties → skip HS guard entirely
 
-    if (hsBlocker) {
-      // Soft blocker: create a pricing_run with blocker instead of HTTP 400
-      const { data: blockerRunNumber } = await serviceClient
-        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+    // 4c. Phase 15.6: Regime soft blocker — conditional on scopeWantsDuties
+    if (scopeWantsDuties) {
+      const { data: regimeCheckFacts } = await serviceClient
+        .from("quote_facts")
+        .select("fact_key, value_text")
+        .eq("case_id", case_id)
+        .eq("is_current", true)
+        .in("fact_key", ["customs.regime_code", "regulatory.exemption_title"]);
 
-      const blockerOutputs = {
-        pricing_blockers: [hsBlocker],
-        message: hsBlocker === "HS_CODE_REQUIRED"
-          ? "Code HS 10 chiffres UEMOA requis pour tarifer. Injectez cargo.hs_code via set-case-fact."
-          : `Code HS "${hsCodeFact?.value_text}" (${hsDigits}) introuvable dans la nomenclature UEMOA.`,
-        current_hs_code: hsCodeFact?.value_text || null,
-      };
+      const regimeCheckMap = new Map((regimeCheckFacts || []).map((f: any) => [f.fact_key, f.value_text]));
+      const hasExemptionTitle = !!regimeCheckMap.get("regulatory.exemption_title");
+      const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
 
-      await serviceClient
-        .from("pricing_runs")
-        .insert({
-          case_id,
-          run_number: blockerRunNumber || 1,
-          inputs_json: { hsCode: hsCodeFact?.value_text || null },
-          facts_snapshot: [],
-          status: "blocked",
-          error_message: blockerOutputs.message,
-          outputs_json: blockerOutputs,
-          started_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-          created_by: userId,
-        });
+      if (hasExemptionTitle && !hasRegimeCode) {
+        // Idempotent gap upsert for customs.regime_code
+        const { data: regimeGap } = await serviceClient
+          .from("quote_gaps")
+          .select("id, is_blocking")
+          .eq("case_id", case_id)
+          .eq("gap_key", "customs.regime_code")
+          .eq("status", "open")
+          .maybeSingle();
 
-      return new Response(
-        JSON.stringify({
-          pricing_blockers: blockerOutputs.pricing_blockers,
-          message: blockerOutputs.message,
-          run_number: blockerRunNumber || 1,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+        if (!regimeGap?.id) {
+          await serviceClient.from("quote_gaps").insert({
+            case_id,
+            gap_key: "customs.regime_code",
+            gap_category: "customs",
+            question_fr: "DDP : Un titre d'exonération est détecté — renseignez le régime douanier pour appliquer l'exonération.",
+            question_en: "DDP: Exemption title detected — please provide the customs regime to apply the exemption.",
+            priority: "high",
+            is_blocking: true,
+          });
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_identified",
+            event_data: { gap_key: "customs.regime_code", reason: "Phase 15.6 policy — DDP exemption" },
+            actor_type: "system",
+          });
+        } else if (regimeGap.is_blocking === false) {
+          await serviceClient.from("quote_gaps")
+            .update({ is_blocking: true, priority: "high" })
+            .eq("id", regimeGap.id);
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_identified",
+            event_data: { gap_key: "customs.regime_code", reason: "Phase 15.6 policy — upgraded to blocking" },
+            actor_type: "system",
+          });
+        }
+
+        const { data: regimeBlockerRunNumber } = await serviceClient
+          .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+        const regimeBlockerOutputs = {
+          pricing_blockers: ["REGIME_REQUIRED_FOR_EXEMPTION"],
+          message: "DDP : Titre d'exonération détecté — renseignez le régime douanier pour calculer les exonérations.",
+          exemption_title: regimeCheckMap.get("regulatory.exemption_title"),
+          scope: { servicePackage: pkg, incoterm: incotermEarly },
+        };
+
+        await serviceClient
+          .from("pricing_runs")
+          .insert({
+            case_id,
+            run_number: regimeBlockerRunNumber || 1,
+            inputs_json: { exemptionTitle: regimeCheckMap.get("regulatory.exemption_title") },
+            facts_snapshot: [],
+            status: "blocked",
+            error_message: regimeBlockerOutputs.message,
+            outputs_json: regimeBlockerOutputs,
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+            created_by: userId,
+          });
+
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: regimeBlockerOutputs.pricing_blockers,
+            message: regimeBlockerOutputs.message,
+            run_number: regimeBlockerRunNumber || 1,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
-
-    // 4c. Regime soft blocker: load facts early to check exemptionTitle vs regimeCode
-    const { data: regimeCheckFacts } = await serviceClient
-      .from("quote_facts")
-      .select("fact_key, value_text")
-      .eq("case_id", case_id)
-      .eq("is_current", true)
-      .in("fact_key", ["customs.regime_code", "regulatory.exemption_title"]);
-
-    const regimeCheckMap = new Map((regimeCheckFacts || []).map(f => [f.fact_key, f.value_text]));
-    const hasExemptionTitle = !!regimeCheckMap.get("regulatory.exemption_title");
-    const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
-
-    if (hasExemptionTitle && !hasRegimeCode) {
-      const { data: regimeBlockerRunNumber } = await serviceClient
-        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
-
-      const regimeBlockerOutputs = {
-        pricing_blockers: ["REGIME_REQUIRED_FOR_EXEMPTION"],
-        message: "Titre d'exonération détecté — renseignez le régime douanier pour calculer les exonérations.",
-        exemption_title: regimeCheckMap.get("regulatory.exemption_title"),
-      };
-
-      await serviceClient
-        .from("pricing_runs")
-        .insert({
-          case_id,
-          run_number: regimeBlockerRunNumber || 1,
-          inputs_json: { exemptionTitle: regimeCheckMap.get("regulatory.exemption_title") },
-          facts_snapshot: [],
-          status: "blocked",
-          error_message: regimeBlockerOutputs.message,
-          outputs_json: regimeBlockerOutputs,
-          started_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-          duration_ms: Date.now() - startTime,
-          created_by: userId,
-        });
-
-      return new Response(
-        JSON.stringify({
-          pricing_blockers: regimeBlockerOutputs.pricing_blockers,
-          message: regimeBlockerOutputs.message,
-          run_number: regimeBlockerRunNumber || 1,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // If !scopeWantsDuties → skip regime guard entirely
 
     // 5. Transition to PRICING_RUNNING (skip for finalized cases)
     if (!isFinalized) {
@@ -315,11 +403,11 @@ Deno.serve(async (req) => {
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
 
-    // 8b. P0 CAF strict: Soft blocker FOB freight requirement
+    // 8b. Phase 15.6: FOB freight guard — conditional on scopeWantsDuties
     const incoterm = String(inputs.incoterm ?? '').trim().toUpperCase();
     const isFobType = ['FOB', 'FCA', 'FAS', 'EXW'].includes(incoterm);
 
-    if (isFobType) {
+    if (scopeWantsDuties && isFobType) {
       const fobBlockers: string[] = [];
 
       if (!inputs.freightCost || inputs.freightCost <= 0) {
@@ -332,23 +420,64 @@ Deno.serve(async (req) => {
       }
 
       if (fobBlockers.length > 0) {
+        // Idempotent gap upserts for freight blockers
+        for (const blocker of fobBlockers) {
+          const gapKey = blocker === "FREIGHT_REQUIRED_FOR_FOB" ? "cargo.freight_cost" : "cargo.freight_exchange_rate";
+          const frMsg = blocker === "FREIGHT_REQUIRED_FOR_FOB"
+            ? "FOB/FCA/FAS/EXW (DDP) : le fret international réel est requis pour calculer la valeur CAF douanière."
+            : "FOB/FCA/FAS/EXW (DDP) : fret en USD — renseignez le taux USD/XOF douane.";
+          const enMsg = blocker === "FREIGHT_REQUIRED_FOR_FOB"
+            ? "FOB/FCA/FAS/EXW (DDP): actual international freight amount is required to compute CAF customs value."
+            : "FOB/FCA/FAS/EXW (DDP): freight in USD — please provide the customs USD/XOF exchange rate.";
+
+          const { data: fobGap } = await serviceClient
+            .from("quote_gaps")
+            .select("id, is_blocking")
+            .eq("case_id", case_id)
+            .eq("gap_key", gapKey)
+            .eq("status", "open")
+            .maybeSingle();
+
+          if (!fobGap?.id) {
+            await serviceClient.from("quote_gaps").insert({
+              case_id, gap_key: gapKey, gap_category: "cargo",
+              question_fr: frMsg, question_en: enMsg,
+              priority: "high", is_blocking: true,
+            });
+            await serviceClient.from("case_timeline_events").insert({
+              case_id, event_type: "gap_identified",
+              event_data: { gap_key: gapKey, reason: "Phase 15.6 policy — FOB DDP freight" },
+              actor_type: "system",
+            });
+          } else if (fobGap.is_blocking === false) {
+            await serviceClient.from("quote_gaps")
+              .update({ is_blocking: true, priority: "high" })
+              .eq("id", fobGap.id);
+            await serviceClient.from("case_timeline_events").insert({
+              case_id, event_type: "gap_identified",
+              event_data: { gap_key: gapKey, reason: "Phase 15.6 policy — upgraded to blocking" },
+              actor_type: "system",
+            });
+          }
+        }
+
         const { data: fobBlockerRunNumber } = await serviceClient
           .rpc('get_next_pricing_run_number', { p_case_id: case_id });
 
         const fobBlockerMessage = fobBlockers.includes("FREIGHT_REQUIRED_FOR_FOB")
-          ? "Incoterm FOB/FCA/FAS/EXW : le montant du fret réel est obligatoire pour le calcul CAF douanier."
-          : "Fret en USD : le taux officiel USD/XOF douane doit être saisi par l'opérateur.";
+          ? "DDP + FOB/FCA/FAS/EXW : le montant du fret réel est obligatoire pour le calcul CAF douanier."
+          : "DDP + Fret en USD : le taux officiel USD/XOF douane doit être saisi par l'opérateur.";
 
         await serviceClient
           .from("pricing_runs")
           .insert({
             case_id,
             run_number: fobBlockerRunNumber || 1,
-            inputs_json: { incoterm, freightCost: inputs.freightCost, freightCurrency: inputs.freightCurrency },
+            inputs_json: { incoterm, freightCost: inputs.freightCost, freightCurrency: inputs.freightCurrency, scope: { servicePackage: pkg } },
             facts_snapshot: factsSnapshot,
             status: "blocked",
             error_message: fobBlockerMessage,
-            outputs_json: { pricing_blockers: fobBlockers, message: fobBlockerMessage },
+            outputs_json: { pricing_blockers: fobBlockers, message: fobBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly } },
             started_at: new Date().toISOString(),
             completed_at: new Date().toISOString(),
             duration_ms: Date.now() - startTime,
@@ -369,6 +498,7 @@ Deno.serve(async (req) => {
         );
       }
     }
+    // If !scopeWantsDuties or !isFobType → skip FOB freight guard
 
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
@@ -770,6 +900,16 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "cargo.freight_currency":
         inputs.freightCurrency = String(value);
         break;
+      case "service.package":
+        inputs.servicePackage = String(value);
+        break;
+      case "cargo.freight_exchange_rate": {
+        const rawFxr = String(value ?? "").trim();
+        const normalizedFxr = rawFxr.replace(/\s/g, "").replace(/,/g, ".");
+        const nFxr = Number(normalizedFxr);
+        inputs.freightExchangeRate = Number.isFinite(nFxr) ? nFxr : undefined;
+        break;
+      }
     }
   }
 

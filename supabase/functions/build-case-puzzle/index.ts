@@ -2731,11 +2731,51 @@ Deno.serve(async (req) => {
     // Load existing DB facts BEFORE any gap logic (mandatory/orphan/A1)
     const { data: existingDbFacts } = await serviceClient
       .from("quote_facts")
-      .select("fact_key, value_text")
+      .select("fact_key, value_text, value_number")
       .eq("case_id", case_id)
       .eq("is_current", true);
 
     const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
+
+    // Phase 15.6: helpers for policy required keys
+    const getText156 = (k: string) =>
+      String((existingDbFacts || []).find((f: any) => f.fact_key === k)?.value_text ?? "").trim();
+    const getNumber156 = (k: string) => {
+      const row = (existingDbFacts || []).find((f: any) => f.fact_key === k);
+      if (row && Number.isFinite(row.value_number)) return Number(row.value_number);
+      const raw = String(row?.value_text ?? "").trim();
+      if (!raw) return NaN;
+      const n = Number(raw.replace(/\s/g, "").replace(/,/g, "."));
+      return Number.isFinite(n) ? n : NaN;
+    };
+
+    const pkg156 = getText156("service.package").toUpperCase();
+    const incotermPolicy = getText156("routing.incoterm").toUpperCase();
+    const scopeWantsDuties = pkg156.endsWith("_DDP") || pkg156 === "DDP" || incotermPolicy === "DDP";
+
+    const hsRaw156 = getText156("cargo.hs_code");
+    const hsHasValid10 = hsRaw156.split(/[;,]/)
+      .map((t: string) => t.trim().replace(/\D/g, ""))
+      .some((d: string) => d.length === 10);
+
+    const hasExemptionTitle156 = getText156("regulatory.exemption_title").length > 0;
+    const hasRegimeCode156 = getText156("customs.regime_code").length > 0;
+
+    const isFobType156 = ["FOB", "FCA", "FAS", "EXW"].includes(incotermPolicy);
+    const freightCost156 = getNumber156("cargo.freight_cost");
+    const hasFreightCost156 = Number.isFinite(freightCost156) && freightCost156 > 0;
+    const freightCurrency156 = getText156("cargo.freight_currency").toUpperCase();
+    const freightExchangeRate156 = getNumber156("cargo.freight_exchange_rate");
+    const needsUsdRate156 = freightCurrency156 === "USD";
+    const hasUsdRate156 = Number.isFinite(freightExchangeRate156) && freightExchangeRate156 > 0;
+
+    const policyRequiredKeys = new Set<string>();
+    if (scopeWantsDuties) {
+      if (!hsHasValid10) policyRequiredKeys.add("cargo.hs_code");
+      if (hasExemptionTitle156 && !hasRegimeCode156) policyRequiredKeys.add("customs.regime_code");
+      if (isFobType156 && !hasFreightCost156) policyRequiredKeys.add("cargo.freight_cost");
+      if (isFobType156 && needsUsdRate156 && !hasUsdRate156) policyRequiredKeys.add("cargo.freight_exchange_rate");
+    }
 
     const transportModeRaw = (existingDbFacts || [])
       .find((f: { fact_key: string; value_text?: string | null }) => f.fact_key === "routing.transport_mode")
@@ -2762,6 +2802,14 @@ Deno.serve(async (req) => {
       if (detectedType === "UNKNOWN" && !hasResolvedTransportMode) {
         mandatorySet.add("routing.transport_mode");
       }
+      // Phase 15.6: ALWAYS protect policy gap keys from orphan closure
+      // (2D/2E manage blocking vs non-blocking state)
+      const policyKeysAll = new Set([
+        "cargo.hs_code", "customs.regime_code",
+        "cargo.freight_cost", "cargo.freight_exchange_rate",
+      ]);
+      for (const k of policyKeysAll) mandatorySet.add(k);
+
       const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
 
       for (const orphan of orphanGaps) {
@@ -2825,6 +2873,93 @@ Deno.serve(async (req) => {
             is_blocking: true,
           });
           gapsIdentified++;
+        }
+      }
+    }
+
+    // Phase 15.6 — Patch 2D: Create/upgrade blocking gaps for policy-required keys
+    async function ensureBlockingGap156(gap_key: string, fr: string, en: string, category: string) {
+      const { data: g } = await serviceClient
+        .from("quote_gaps")
+        .select("id, is_blocking")
+        .eq("case_id", case_id)
+        .eq("gap_key", gap_key)
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (!g?.id) {
+        await serviceClient.from("quote_gaps").insert({
+          case_id, gap_key, gap_category: category,
+          question_fr: fr, question_en: en,
+          priority: "high", is_blocking: true,
+        });
+        gapsIdentified++;
+        await serviceClient.from("case_timeline_events").insert({
+          case_id, event_type: "gap_identified",
+          event_data: { gap_key, reason: "Phase 15.6 policy" },
+          actor_type: "system",
+        });
+      } else if (g.is_blocking === false) {
+        await serviceClient.from("quote_gaps")
+          .update({ is_blocking: true, priority: "high" })
+          .eq("id", g.id);
+        await serviceClient.from("case_timeline_events").insert({
+          case_id, event_type: "gap_identified",
+          event_data: { gap_key, reason: "Phase 15.6 policy — upgraded to blocking" },
+          actor_type: "system",
+        });
+      }
+      // else: already open + blocking → no-op (idempotent)
+    }
+
+    if (scopeWantsDuties) {
+      if (policyRequiredKeys.has("cargo.hs_code")) {
+        await ensureBlockingGap156("cargo.hs_code",
+          "DDP : Code HS 10 chiffres UEMOA requis pour chiffrer droits & taxes.",
+          "DDP: 10-digit UEMOA HS code required to compute duties & taxes.",
+          "cargo");
+      }
+      if (policyRequiredKeys.has("customs.regime_code")) {
+        await ensureBlockingGap156("customs.regime_code",
+          "DDP : Un titre d'exonération est détecté — renseignez le régime douanier.",
+          "DDP: Exemption title detected — please provide the customs regime.",
+          "customs");
+      }
+      if (policyRequiredKeys.has("cargo.freight_cost")) {
+        await ensureBlockingGap156("cargo.freight_cost",
+          "FOB/FCA/FAS/EXW (DDP) : le fret international réel est requis pour calculer la valeur CAF douanière.",
+          "FOB/FCA/FAS/EXW (DDP): actual international freight amount is required to compute CAF customs value.",
+          "cargo");
+      }
+      if (policyRequiredKeys.has("cargo.freight_exchange_rate")) {
+        await ensureBlockingGap156("cargo.freight_exchange_rate",
+          "FOB/FCA/FAS/EXW (DDP) : fret en USD — renseignez le taux USD/XOF douane.",
+          "FOB/FCA/FAS/EXW (DDP): freight in USD — please provide the customs USD/XOF exchange rate.",
+          "cargo");
+      }
+    }
+
+    // Phase 15.6 — Patch 2E: Downgrade policy gaps when scope is NOT DDP
+    if (!scopeWantsDuties) {
+      const policyDowngradeKeys = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost", "cargo.freight_exchange_rate"];
+      for (const k of policyDowngradeKeys) {
+        // Only downgrade if key is NOT in mandatoryFacts (guard against future mandatory additions)
+        if (!mandatoryFacts.includes(k)) {
+          const { data: pGap } = await serviceClient
+            .from("quote_gaps")
+            .select("id, is_blocking")
+            .eq("case_id", case_id)
+            .eq("gap_key", k)
+            .eq("status", "open")
+            .eq("is_blocking", true)
+            .maybeSingle();
+
+          if (pGap?.id) {
+            await serviceClient.from("quote_gaps")
+              .update({ is_blocking: false })
+              .eq("id", pGap.id);
+            console.log(`[Phase 15.6] Downgraded gap ${k} to non-blocking (scope non-DDP)`);
+          }
         }
       }
     }
