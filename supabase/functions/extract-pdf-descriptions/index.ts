@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -154,30 +155,22 @@ IMPORTANT:
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content || '';
       
-      // Clean the response - remove markdown code blocks if present
-      let jsonStr = content.trim();
-      if (jsonStr.startsWith('```json')) {
-        jsonStr = jsonStr.slice(7);
-      } else if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.slice(3);
-      }
-      if (jsonStr.endsWith('```')) {
-        jsonStr = jsonStr.slice(0, -3);
-      }
-      jsonStr = jsonStr.trim();
-      
+      // Robust JSON extraction/parsing from LLM response
       try {
-        const parsed = JSON.parse(jsonStr);
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            if (item.code && item.description) {
-              const normalized = normalizeCode(item.code);
-              allCodes.push({
-                code: item.code,
-                codeNormalized: normalized,
-                description: item.description
-              });
-            }
+        const parsed = extractAndParseJSON<any[]>(content, {
+          label: "extract-pdf-descriptions",
+          maxLogChars: 500,
+          expectRoot: "array",
+        });
+
+        for (const item of parsed) {
+          if (item.code && item.description) {
+            const normalized = normalizeCode(item.code);
+            allCodes.push({
+              code: item.code,
+              codeNormalized: normalized,
+              description: item.description
+            });
           }
         }
       } catch (parseError) {

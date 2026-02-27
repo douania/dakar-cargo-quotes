@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1094,12 +1095,12 @@ async function runPhase(
   const content = data.choices?.[0]?.message?.content || "{}";
 
   try {
-    return JSON.parse(content);
-  } catch {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
+    return extractAndParseJSON<any>(content ?? "{}", {
+      label: "learn-quotation-puzzle",
+      maxLogChars: 500,
+      expectRoot: "object",
+    });
+  } catch (e) {
     throw new Error("Invalid JSON response from AI");
   }
 }

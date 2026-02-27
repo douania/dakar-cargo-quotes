@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1096,9 +1097,13 @@ ${email.body_text || '(Pas de contenu texte)'}
     const content = aiResult.choices?.[0]?.message?.content;
     
     try {
-      return JSON.parse(content);
+      return extractAndParseJSON<any>(content ?? "", {
+        label: "import-thread",
+        maxLogChars: 500,
+        expectRoot: "object",
+      });
     } catch (e) {
-      console.error("Failed to parse AI response:", content);
+      console.error("Failed to parse AI response (import-thread):", (e as Error).message);
       return null;
     }
   } catch (error) {
