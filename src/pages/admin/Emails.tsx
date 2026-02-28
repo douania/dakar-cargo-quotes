@@ -590,7 +590,7 @@ export default function Emails() {
       await Promise.all(batch.map(async (att) => {
         try {
           const { data, error } = await supabase.functions.invoke('analyze-attachments', {
-            body: { attachmentId: att.id, background: true }
+            body: { attachmentId: att.id, mode: "start" }
           });
           
           if (error) throw error;

@@ -277,6 +277,43 @@ export default function QuotationSheet() {
   }>>([]);
   const [isLoadingClarification, setIsLoadingClarification] = useState(false);
 
+  // ── Phase 15.8.2: Async helper for build-case-puzzle ──
+  const runBuildCasePuzzleAsync = useCallback(async (
+    targetCaseId: string,
+    opts?: { force_refresh?: boolean; force_articles_detail?: boolean }
+  ): Promise<Record<string, unknown>> => {
+    const { data: startData, error: startErr } = await supabase.functions.invoke("build-case-puzzle", {
+      body: { case_id: targetCaseId, ...opts, mode: "start" },
+    });
+    if (startErr) throw startErr;
+    const jobId = startData?.job_id;
+    if (!jobId) throw new Error("No job_id returned");
+
+    const deadline = Date.now() + 5 * 60_000;
+    let delay = 3000;
+
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        const { data, error } = await supabase.functions.invoke("build-case-puzzle", {
+          body: { job_id: jobId, mode: "poll" },
+        });
+        if (error) { delay = Math.min(delay * 2, 30_000); continue; }
+        if (data.status === "completed") return (data.final_result as Record<string, unknown>) || {};
+        if (data.status === "failed") throw new Error(data.error_message || "Job failed");
+        if (data.status === "cancelled") throw new Error("Job cancelled");
+        if (data.is_stale && data.can_resume) {
+          await supabase.functions.invoke("build-case-puzzle", { body: { job_id: jobId, mode: "tick" } });
+        }
+        delay = 3000;
+      } catch (e: unknown) {
+        if (e instanceof Error && (e.message.includes("Job failed") || e.message.includes("cancelled"))) throw e;
+        delay = Math.min(delay * 2, 30_000);
+      }
+    }
+    throw new Error("Timeout (5 min)");
+  }, []);
+
   /**
    * Phase 8.8: Générer un brouillon de clarification via edge function
    * GARDE-FOU CTO #1: Edge function STATEless - aucune persistance DB
@@ -294,22 +331,19 @@ export default function QuotationSheet() {
     setDetectedAmbiguities([]);
 
     try {
-      // ═══ Étape 1: Lancer build-case-puzzle (M3.5.1 hypotheses) ═══
+      // ═══ Étape 1: Lancer build-case-puzzle async (M3.5.1 hypotheses) ═══
       const caseId = quoteCase?.id;
       if (caseId) {
         toast.info('Analyse du dossier (hypothèses M3.5.1)...');
-        const { data: puzzleData, error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
-          body: { case_id: caseId }
-        });
-
-        if (puzzleError) {
-          console.warn('[build-case-puzzle] Error during clarification flow:', puzzleError);
-        } else {
-          const flowType = puzzleData?.assumption_result?.flowType || 'UNKNOWN';
+        try {
+          const puzzleData = await runBuildCasePuzzleAsync(caseId);
+          const flowType = (puzzleData?.assumption_result as any)?.flowType || 'UNKNOWN';
           console.log('[build-case-puzzle] flowType:', flowType, 'facts_added:', puzzleData?.facts_added);
           if (flowType !== 'UNKNOWN') {
             toast.success(`Flow détecté: ${flowType}`);
           }
+        } catch (puzzleError) {
+          console.warn('[build-case-puzzle] Error during clarification flow:', puzzleError);
         }
 
         // Invalider les caches pour récupérer les gaps mis à jour
@@ -425,22 +459,13 @@ L'équipe SODATRA`;
         setIsBuildingPuzzle(true);
         toast.info('Extraction des faits en cours...');
         
-        const { data: puzzleData, error: puzzleError } = await supabase.functions.invoke('build-case-puzzle', {
-          body: { case_id: caseId }
-        });
-        
-        if (puzzleError) {
-          console.error('[build-case-puzzle] Error:', puzzleError);
-          // Phase M3.3.1: Distinguish 207 partial success from real errors
-          const isPartialSuccess = puzzleData?.facts_added > 0;
-          if (isPartialSuccess) {
-            toast.info(`Extraction partielle: ${puzzleData.facts_added} faits extraits`);
-          } else {
-            toast.warning('Extraction des faits échouée');
-          }
-        } else {
+        try {
+          const puzzleData = await runBuildCasePuzzleAsync(caseId);
           toast.success(`Extraction terminée: ${puzzleData?.facts_added || 0} faits`);
           console.log('[build-case-puzzle] Success:', puzzleData);
+        } catch (puzzleError) {
+          console.error('[build-case-puzzle] Error:', puzzleError);
+          toast.warning('Extraction des faits échouée');
         }
         
         // Invalider caches React Query pour faits et gaps
@@ -473,17 +498,15 @@ L'équipe SODATRA`;
     toast.info('Re-analyse en cours (M3.5.1)...');
     
     try {
-      const { data, error } = await supabase.functions.invoke('build-case-puzzle', {
-        body: { case_id: caseId }
-      });
+      const { data, error } = await runBuildCasePuzzleAsync(caseId).then(
+        (result) => ({ data: result, error: null }),
+        (err) => ({ data: null, error: err })
+      );
       
       if (error) {
-        const isPartial = data?.facts_added > 0;
-        toast[isPartial ? 'info' : 'warning'](
-          isPartial ? `Re-analyse partielle: ${data.facts_added} faits` : 'Re-analyse échouée'
-        );
+        toast.warning('Re-analyse échouée');
       } else {
-        toast.success(`Re-analyse terminée: ${data?.facts_added || 0} faits, flow: ${data?.assumption_result?.flowType || '?'}`);
+        toast.success(`Re-analyse terminée: ${data?.facts_added || 0} faits, flow: ${(data?.assumption_result as any)?.flowType || '?'}`);
       }
       
       queryClient.invalidateQueries({ queryKey: ['quote_facts', caseId] });

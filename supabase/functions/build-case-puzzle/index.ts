@@ -233,9 +233,11 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
 };
 
 interface BuildPuzzleRequest {
-  case_id: string;
+  case_id?: string;
   force_refresh?: boolean;
   force_articles_detail?: boolean;
+  mode?: "sync" | "start" | "poll" | "tick" | "cancel";
+  job_id?: string;
 }
 
 interface ExtractedFact {
@@ -1293,8 +1295,182 @@ Deno.serve(async (req) => {
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
-    const { case_id, force_refresh = false, force_articles_detail = false }: BuildPuzzleRequest = await req.json();
+    const body = await req.json();
+    const { case_id, force_refresh = false, force_articles_detail = false, mode = "sync", job_id }: BuildPuzzleRequest = body;
 
+    // ── Phase 15.8.2: Async job modes (poll/tick/cancel) — no case_id needed ──
+    if (mode === "poll" && job_id) {
+      const { data: jobData, error: jobErr } = await serviceClient
+        .from("case_puzzle_jobs")
+        .select("*")
+        .eq("id", job_id)
+        .eq("created_by", userId)
+        .maybeSingle();
+      if (jobErr || !jobData) {
+        return new Response(JSON.stringify({ error: "Job not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const isStale = jobData.status === "running" &&
+        (Date.now() - new Date(jobData.last_heartbeat).getTime() > 120_000);
+      return new Response(JSON.stringify({
+        ...jobData,
+        is_stale: isStale,
+        can_resume: isStale && jobData.attempt < 3,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (mode === "cancel" && job_id) {
+      await serviceClient.from("case_puzzle_jobs")
+        .update({ status: "cancelled", completed_at: new Date().toISOString() })
+        .eq("id", job_id)
+        .eq("created_by", userId);
+      return new Response(JSON.stringify({ status: "cancelled", job_id }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (mode === "tick" && job_id) {
+      const { data: tickJob } = await serviceClient.from("case_puzzle_jobs")
+        .select("*").eq("id", job_id).eq("created_by", userId).maybeSingle();
+      if (!tickJob) {
+        return new Response(JSON.stringify({ error: "Job not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const tickStale = tickJob.status === "running" &&
+        (Date.now() - new Date(tickJob.last_heartbeat).getTime() > 120_000);
+      if (!tickStale || tickJob.attempt >= 3) {
+        return new Response(JSON.stringify({ job_id, status: tickJob.status, message: "Not stale or max attempts" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const newAttempt = tickJob.attempt + 1;
+      await serviceClient.from("case_puzzle_jobs")
+        .update({ attempt: newAttempt, last_heartbeat: new Date().toISOString() })
+        .eq("id", job_id);
+
+      // Re-launch self-fetch with stored request_params
+      const params = (tickJob.request_params as Record<string, unknown>) || {};
+      const tickWork = (async () => {
+        const startMs = Date.now();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 290_000);
+        try {
+          const resp = await fetch(`${supabaseUrl}/functions/v1/build-case-puzzle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": authHeader },
+            body: JSON.stringify({
+              case_id: tickJob.case_id,
+              force_refresh: params.force_refresh || false,
+              force_articles_detail: params.force_articles_detail || false,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!resp.ok) {
+            const errText = await resp.text().catch(() => "unknown");
+            throw new Error(`Self-fetch ${resp.status}: ${errText.substring(0, 500)}`);
+          }
+          let result: Record<string, unknown> = {};
+          try { result = await resp.json(); } catch { result = { raw: "JSON parse failed" }; }
+          const durationMs = Date.now() - startMs;
+          await serviceClient.from("case_puzzle_jobs").update({
+            status: "completed", final_result: result,
+            completed_at: new Date().toISOString(), duration_ms: durationMs,
+            last_heartbeat: new Date().toISOString(),
+          }).eq("id", job_id);
+        } catch (e: unknown) {
+          clearTimeout(timeoutId);
+          const durationMs = Date.now() - startMs;
+          const msg = e instanceof Error ? e.message : "unknown";
+          await serviceClient.from("case_puzzle_jobs").update({
+            status: "failed", error_message: (msg.includes("abort") ? "timeout (290s)" : msg).substring(0, 500),
+            completed_at: new Date().toISOString(), duration_ms: durationMs,
+            last_heartbeat: new Date().toISOString(),
+          }).eq("id", job_id);
+        }
+      })();
+      (globalThis as any).EdgeRuntime?.waitUntil?.(tickWork);
+      return new Response(JSON.stringify({ job_id, status: "restarted", attempt: newAttempt }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (mode === "start") {
+      if (!case_id) {
+        return new Response(JSON.stringify({ error: "case_id is required for mode start" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Check existing active job
+      const { data: existingJob } = await serviceClient.from("case_puzzle_jobs")
+        .select("id, status")
+        .eq("created_by", userId)
+        .eq("case_id", case_id)
+        .in("status", ["pending", "running"])
+        .maybeSingle();
+      if (existingJob) {
+        return new Response(JSON.stringify({ job_id: existingJob.id, status: "already_running" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Insert new job
+      const requestParams = { force_refresh, force_articles_detail };
+      const { data: newJob, error: insertErr } = await serviceClient.from("case_puzzle_jobs")
+        .insert({
+          case_id, created_by: userId, status: "pending",
+          request_params: requestParams,
+        })
+        .select("id")
+        .single();
+      if (insertErr || !newJob) {
+        return new Response(JSON.stringify({ error: "Failed to create job: " + (insertErr?.message || "unknown") }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const newJobId = newJob.id;
+
+      // Launch background worker
+      const bgWork = (async () => {
+        const startMs = Date.now();
+        await serviceClient.from("case_puzzle_jobs").update({
+          status: "running", started_at: new Date().toISOString(),
+          last_heartbeat: new Date().toISOString(),
+        }).eq("id", newJobId);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 290_000);
+        try {
+          const resp = await fetch(`${supabaseUrl}/functions/v1/build-case-puzzle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": authHeader },
+            body: JSON.stringify({ case_id, force_refresh, force_articles_detail }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!resp.ok) {
+            const errText = await resp.text().catch(() => "unknown");
+            throw new Error(`Self-fetch ${resp.status}: ${errText.substring(0, 500)}`);
+          }
+          let result: Record<string, unknown> = {};
+          try { result = await resp.json(); } catch { result = { raw: "JSON parse failed" }; }
+          const durationMs = Date.now() - startMs;
+          await serviceClient.from("case_puzzle_jobs").update({
+            status: "completed", final_result: result,
+            completed_at: new Date().toISOString(), duration_ms: durationMs,
+            last_heartbeat: new Date().toISOString(),
+          }).eq("id", newJobId);
+        } catch (e: unknown) {
+          clearTimeout(timeoutId);
+          const durationMs = Date.now() - startMs;
+          const msg = e instanceof Error ? e.message : "unknown";
+          await serviceClient.from("case_puzzle_jobs").update({
+            status: "failed", error_message: (msg.includes("abort") ? "timeout (290s)" : msg).substring(0, 500),
+            completed_at: new Date().toISOString(), duration_ms: durationMs,
+            last_heartbeat: new Date().toISOString(),
+          }).eq("id", newJobId);
+        }
+      })();
+      (globalThis as any).EdgeRuntime?.waitUntil?.(bgWork);
+
+      return new Response(JSON.stringify({ job_id: newJobId, status: "started" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── mode "sync" (default) — original logic continues below ──
     if (!case_id) {
       return new Response(
         JSON.stringify({ error: "case_id is required" }),
