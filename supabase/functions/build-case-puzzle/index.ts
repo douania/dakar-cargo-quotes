@@ -5,6 +5,7 @@
  * A1: AIR detection priority, cargo extraction, chargeable weight, incoterm fix
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
 function extractPlainTextFromMime(rawBody: string): string {
@@ -673,11 +674,14 @@ Rules:
     const data = await response.json();
     const rawContent = data.choices?.[0]?.message?.content || "";
 
-    // Parse JSON from response (handle markdown code blocks)
-    const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, rawContent];
+    // Parse JSON from response
     let parsed: any;
     try {
-      parsed = JSON.parse(jsonMatch[1]?.trim() || rawContent.trim());
+      parsed = extractAndParseJSON<any>(rawContent, {
+        label: "build-case-puzzle:M3.5",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
     } catch {
       console.warn("[M3.5 multi-quote] Failed to parse AI JSON response");
       return null;
@@ -3233,11 +3237,14 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
     const content = data.choices?.[0]?.message?.content || "";
 
     // Parse JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*"facts"[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const facts = parsed.facts || [];
-      
+    try {
+      const parsed = extractAndParseJSON<any>(content, {
+        label: "build-case-puzzle:facts",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
+      const facts = Array.isArray(parsed?.facts) ? parsed.facts : [];
+
       // Enrich with source email IDs + V4.1.5: ensure JSON values are objects not strings
       return facts.map((f: any) => {
         let value = f.value;
@@ -3252,9 +3259,9 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
           sourceEmailId: emails[0]?.id,
         };
       });
+    } catch {
+      return extractFactsBasic(emails, attachments);
     }
-
-    return extractFactsBasic(emails, attachments);
   } catch (error) {
     console.error("AI extraction error:", error);
     return extractFactsBasic(emails, attachments);

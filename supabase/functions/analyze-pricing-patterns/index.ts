@@ -1,6 +1,7 @@
 import { requireUser } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const PRICING_ANALYSIS_PROMPT = `Tu es un expert en analyse de structures de prix et cotations logistiques maritimes.
 
@@ -213,12 +214,12 @@ Identifie les patterns de pricing, les ratios entre postes de coûts, et où les
     // 7. Parse and store the patterns
     let pricingPatterns: any = null;
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        pricingPatterns = JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.log('Could not parse JSON, storing raw response');
+      pricingPatterns = extractAndParseJSON<any>(content, {
+        label: "analyze-pricing-patterns",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
+    } catch {
       pricingPatterns = { raw_analysis: content };
     }
     

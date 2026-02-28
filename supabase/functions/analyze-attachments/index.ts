@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -682,15 +683,13 @@ ${excelText}`;
       console.log(`[BG] AI response received (${content.length} chars)`);
       
       try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          extractedData = JSON.parse(jsonMatch[0]);
-          extractedText = `Excel analysé: ${sheets.length} onglets`;
-        } else {
-          extractedData = { type: 'quotation_excel', raw_response: content };
-          extractedText = content.substring(0, 500);
-        }
-      } catch (e) {
+        extractedData = extractAndParseJSON<any>(content, {
+          label: "analyze-attachments:excel-bg",
+          expectRoot: "object",
+          maxLogChars: 500,
+        });
+        extractedText = `Excel analysé: ${sheets.length} onglets`;
+      } catch {
         extractedData = { type: 'quotation_excel', raw_response: content };
         extractedText = content.substring(0, 500);
       }
@@ -762,10 +761,14 @@ REGLES CRITIQUES :
         const aiData = await aiResponse.json();
         const content = aiData.choices?.[0]?.message?.content || '';
         try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) extractedData = JSON.parse(jsonMatch[0]);
-          else extractedData = { raw_response: content };
-        } catch { extractedData = { raw_response: content }; }
+          extractedData = extractAndParseJSON<any>(content, {
+            label: "analyze-attachments:image-pdf",
+            expectRoot: "object",
+            maxLogChars: 500,
+          });
+        } catch {
+          extractedData = { raw_response: content };
+        }
         extractedText = extractedData.text_content || '';
       }
     }
@@ -1162,18 +1165,16 @@ ${excelText.substring(0, 50000)}`;
           const aiData = await aiResponse.json();
           const content = aiData.choices?.[0]?.message?.content || '';
           
-          console.log(`AI response for Excel (first 800 chars):`, content.substring(0, 800));
+          console.log(`AI response for Excel (first 500 chars):`, content.substring(0, 500));
           
           // Parse AI response
           try {
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              extractedData = JSON.parse(jsonMatch[0]);
-              extractedText = `Excel analysé: ${extractedData.sheetNames?.join(', ') || 'onglets détectés'}`;
-            } else {
-              extractedData = { type: 'quotation_excel', raw_response: content };
-              extractedText = content.substring(0, 1000);
-            }
+            extractedData = extractAndParseJSON<any>(content, {
+              label: "analyze-attachments:excel-main",
+              expectRoot: "object",
+              maxLogChars: 500,
+            });
+            extractedText = `Excel analysé: ${extractedData.sheetNames?.join(', ') || 'onglets détectés'}`;
           } catch (parseError) {
             console.error('Failed to parse AI JSON response:', parseError);
             extractedData = { type: 'quotation_excel', raw_response: content };
@@ -1246,17 +1247,16 @@ Réponds en JSON avec cette structure:
           
           console.log(`AI response for ${attachment.filename}:`, content.substring(0, 300));
           
-          extractedData = { raw_response: content };
-          
           try {
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              extractedData = JSON.parse(jsonMatch[0]);
-              extractedText = extractedData.text_content || extractedData.description || '';
-            }
-          } catch (parseError) {
-            console.log('Could not parse JSON, using raw response');
-            extractedText = content;
+            extractedData = extractAndParseJSON<any>(content, {
+              label: "analyze-attachments:doc-main",
+              expectRoot: "object",
+              maxLogChars: 500,
+            });
+            extractedText = extractedData.text_content || extractedData.description || '';
+          } catch {
+            extractedData = { raw_response: content };
+            extractedText = content.substring(0, 500);
           }
         }
         
