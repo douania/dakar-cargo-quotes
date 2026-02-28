@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -154,11 +155,12 @@ serve(async (req) => {
 
         let detections = [];
         try {
-          const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            detections = parsed.detections || [];
-          }
+          const parsed = extractAndParseJSON<any>(analysisContent || "", {
+            label: "market-surveillance",
+            expectRoot: "object",
+            maxLogChars: 500,
+          });
+          detections = parsed.detections || [];
         } catch (e) {
           console.error(`Failed to parse analysis for ${source.name}:`, e);
         }

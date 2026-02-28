@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -239,10 +240,11 @@ ${email.body_text?.substring(0, 2500) || '(contenu vide)'}
 
     let analysisResult = null;
     try {
-      const jsonMatch = contentResult.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
-      }
+      analysisResult = extractAndParseJSON<any>(contentResult || "", {
+        label: "learn-from-expert",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
     } catch (e) {
       console.error("Failed to parse AI response:", e);
       throw new Error("Impossible de parser la réponse IA");
