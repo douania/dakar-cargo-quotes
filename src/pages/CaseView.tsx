@@ -605,15 +605,52 @@ export default function CaseView() {
     refetchGaps();
   }
 
+  // ── Phase 15.8.2: Async helper for build-case-puzzle ──
+  async function runBuildCasePuzzleAsync(
+    targetCaseId: string,
+    opts?: { force_refresh?: boolean; force_articles_detail?: boolean }
+  ): Promise<Record<string, unknown>> {
+    const { data: startData, error: startErr } = await supabase.functions.invoke("build-case-puzzle", {
+      body: { case_id: targetCaseId, ...opts, mode: "start" },
+    });
+    if (startErr) throw startErr;
+    const jobId = startData?.job_id;
+    if (!jobId) throw new Error("No job_id returned");
+    if (startData.status === "already_running") {
+      // Poll existing job
+    }
+
+    const deadline = Date.now() + 5 * 60_000;
+    let delay = 3000;
+
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        const { data, error } = await supabase.functions.invoke("build-case-puzzle", {
+          body: { job_id: jobId, mode: "poll" },
+        });
+        if (error) { delay = Math.min(delay * 2, 30_000); continue; }
+        if (data.status === "completed") return (data.final_result as Record<string, unknown>) || {};
+        if (data.status === "failed") throw new Error(data.error_message || "Job failed");
+        if (data.status === "cancelled") throw new Error("Job cancelled");
+        if (data.is_stale && data.can_resume) {
+          await supabase.functions.invoke("build-case-puzzle", { body: { job_id: jobId, mode: "tick" } });
+        }
+        delay = 3000;
+      } catch (e: unknown) {
+        if (e instanceof Error && (e.message.includes("Job failed") || e.message.includes("cancelled"))) throw e;
+        delay = Math.min(delay * 2, 30_000);
+      }
+    }
+    throw new Error("Timeout (5 min)");
+  }
+
   async function handleLaunchAnalysis() {
     if (!caseId || isAnalyzing) return;
     setIsAnalyzing(true);
     try {
-      const { error } = await supabase.functions.invoke("build-case-puzzle", {
-        body: { case_id: caseId },
-      });
-      if (error) throw error;
-      toast.success("Analyse lancée avec succès");
+      await runBuildCasePuzzleAsync(caseId);
+      toast.success("Analyse terminée avec succès");
       handleRefresh();
     } catch (err) {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
@@ -628,22 +665,16 @@ export default function CaseView() {
     if (!caseId || isForceRefreshing) return;
     setIsForceRefreshing(true);
     try {
-      const { error } = await supabase.functions.invoke("build-case-puzzle", {
-        body: { case_id: caseId, force_articles_detail: true },
-      });
-      if (error) {
-        const status = (error as any)?.context?.status ?? (error as any)?.status;
-        if (status === 403) {
-          toast.error("Accès admin requis (ADMIN_EMAIL_ALLOWLIST)");
-        } else {
-          throw error;
-        }
-        return;
-      }
+      await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true });
       toast.success("Refresh articles forcé avec succès");
       handleRefresh();
     } catch (err) {
-      toast.error("Erreur : " + (err as Error).message);
+      const msg = (err as Error).message;
+      if (msg.includes("403") || msg.includes("Forbidden")) {
+        toast.error("Accès admin requis (ADMIN_EMAIL_ALLOWLIST)");
+      } else {
+        toast.error("Erreur : " + msg);
+      }
     } finally {
       setIsForceRefreshing(false);
     }
@@ -942,18 +973,11 @@ export default function CaseView() {
               if (error) throw error;
               toast.success(`${g.gap_key} enregistré`);
               setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
-              // Relancer build-case-puzzle pour recalculer/fermer les gaps
+              // Relancer build-case-puzzle async (fire-and-forget)
               if (caseId) {
-                try {
-                  const { error: puzzleErr } = await supabase.functions.invoke("build-case-puzzle", {
-                    body: { case_id: caseId },
-                  });
-                  if (puzzleErr) {
-                    console.warn("[saveGapAnswer] build-case-puzzle non-blocking error:", puzzleErr.message);
-                  }
-                } catch (e) {
-                  console.warn("[saveGapAnswer] build-case-puzzle invoke exception:", e);
-                }
+                supabase.functions.invoke("build-case-puzzle", {
+                  body: { case_id: caseId, mode: "start" },
+                }).catch(e => console.warn("[saveGapAnswer] build-case-puzzle start:", e));
               }
               await handleRefresh();
 

@@ -830,7 +830,7 @@ serve(async (req) => {
     const auth = await requireUser(req);
     if (auth instanceof Response) return auth;
 
-    const { attachmentId, background = true } = await req.json();
+    const { attachmentId, background = true, mode = "sync" } = await req.json();
     
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -920,8 +920,40 @@ serve(async (req) => {
       );
     }
     
-    console.log(`Analyzing ${attachments.length} attachment(s) (background: ${background})...`);
-    
+    console.log(`Analyzing ${attachments.length} attachment(s) (background: ${background}, mode: ${mode})...`);
+
+    // ── Phase 15.8.1: mode "start" → full async via EdgeRuntime.waitUntil ──
+    if (mode === "start") {
+      if (!lovableApiKey) {
+        return new Response(
+          JSON.stringify({ success: false, error: "LOVABLE_API_KEY not configured — cannot start async analysis" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const work = (async () => {
+        try {
+          await processAttachmentsLoop(supabase, attachments, lovableApiKey);
+        } catch (e) {
+          console.error("[analyze-attachments start] background failed:", e);
+        }
+      })();
+
+      (globalThis as any).EdgeRuntime?.waitUntil?.(work);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: "processing",
+          queued: attachments.length,
+          skipped: skippedFiles.length,
+          attachments: attachments.map(a => ({ id: a.id, filename: a.filename })),
+          message: `${attachments.length} pièce(s) jointe(s) lancée(s) en analyse (async). Rafraîchissez dans quelques secondes.`
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Use background processing for Excel files to avoid timeout
     if (background) {
       const excelAttachments = attachments.filter(a => 
@@ -952,7 +984,34 @@ serve(async (req) => {
     }
     
     // For non-Excel or non-background: process synchronously
-    const results = [];
+    const results = await processAttachmentsLoop(supabase, attachments, lovableApiKey!);
+    
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        analyzed: results.filter((r: any) => r.success).length,
+        total: attachments.length,
+        results 
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+    
+  } catch (error) {
+    console.error('Error in analyze-attachments:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
+
+// ── Phase 15.8.1: Extracted sync processing loop ──
+async function processAttachmentsLoop(
+  supabase: any,
+  attachments: any[],
+  lovableApiKey: string
+): Promise<any[]> {
+    const results: any[] = [];
     
     for (const attachment of attachments) {
       try {
@@ -1429,21 +1488,5 @@ Réponds en JSON avec cette structure:
       }
     }
     
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        analyzed: results.filter(r => r.success).length,
-        total: attachments.length,
-        results 
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-    
-  } catch (error) {
-    console.error('Error in analyze-attachments:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-});
+    return results;
+}

@@ -173,6 +173,65 @@ export type Database = {
         }
         Relationships: []
       }
+      case_puzzle_jobs: {
+        Row: {
+          attempt: number
+          case_id: string
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          duration_ms: number | null
+          error_message: string | null
+          final_result: Json | null
+          id: string
+          last_heartbeat: string
+          progress: number
+          request_params: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          attempt?: number
+          case_id: string
+          completed_at?: string | null
+          created_at?: string
+          created_by: string
+          duration_ms?: number | null
+          error_message?: string | null
+          final_result?: Json | null
+          id?: string
+          last_heartbeat?: string
+          progress?: number
+          request_params?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempt?: number
+          case_id?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          final_result?: Json | null
+          id?: string
+          last_heartbeat?: string
+          progress?: number
+          request_params?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_puzzle_jobs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       case_timeline_events: {
         Row: {
           actor_type: string | null
