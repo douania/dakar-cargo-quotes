@@ -1,52 +1,51 @@
 
 
-# Phase 15.7 Batch 1 — Robust AI JSON Parsing (4 fichiers)
+# Phase 15.7 Batch 2 — Robust AI JSON Parsing (5 fichiers)
 
-Remplacer tous les `jsonMatch + JSON.parse` sur contenu IA par `extractAndParseJSON` avec `maxLogChars: 500` partout.
+Remplacer les 5 dernières occurrences `jsonMatch + JSON.parse` sur contenu IA par `extractAndParseJSON` avec `maxLogChars: 500`.
 
-## Fichier 1: `supabase/functions/analyze-attachments/index.ts`
-
-### Import (L4)
-Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";`
-
-### Occurrence 1 — Excel background (L684-696)
-Remplacer le bloc `jsonMatch + JSON.parse` par `extractAndParseJSON<any>(content, { label: "analyze-attachments:excel-bg", expectRoot: "object", maxLogChars: 500 })` avec fallback `{ type: "quotation_excel", raw_response: content }`.
-
-### Occurrence 2 — Image/PDF (L764-769)
-Remplacer par `extractAndParseJSON<any>(content, { label: "analyze-attachments:image-pdf", expectRoot: "object", maxLogChars: 500 })` avec fallback `{ raw_response: content }`.
-
-### Occurrence 3 — Excel main (L1165-1181)
-Réduire le log L1165 de 800→500 chars. Remplacer le parsing par `extractAndParseJSON<any>(content, { label: "analyze-attachments:excel-main", expectRoot: "object", maxLogChars: 500 })` avec même fallback.
-
-### Occurrence 4 — Doc main (L1251-1260)
-Remplacer par `extractAndParseJSON<any>(content, { label: "analyze-attachments:doc-main", expectRoot: "object", maxLogChars: 500 })` avec fallback `{ raw_response: content }` + `extractedText = content.substring(0, 500)`.
-
-## Fichier 2: `supabase/functions/analyze-pricing-patterns/index.ts`
+## Fichier 1: `supabase/functions/learn-from-contact/index.ts`
 
 ### Import (L3)
-Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";`
+Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";` après `requireUser`.
 
-### Parsing (L214-223)
-Remplacer le bloc `jsonMatch + JSON.parse` par `extractAndParseJSON<any>(content, { label: "analyze-pricing-patterns", expectRoot: "object", maxLogChars: 500 })` avec fallback `{ raw_analysis: content }`.
+### Parsing (L162-166)
+Remplacer le bloc `jsonMatch + JSON.parse` par `extractAndParseJSON<any>(contentResult || "", { label: "learn-from-contact", expectRoot: "object", maxLogChars: 500 })`. Catch existant conservé (fallback `{ extractions: [], summary: contentResult }`).
 
-## Fichier 3: `supabase/functions/build-case-puzzle/index.ts`
+## Fichier 2: `supabase/functions/learn-from-expert/index.ts`
 
-### Import (L7)
-Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";`
+### Import (L3)
+Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";` après `requireUser`.
 
-### M3.5 multi-quote (L677-684)
-Remplacer le regex code-fence + `JSON.parse` par `extractAndParseJSON<any>(rawContent, { label: "build-case-puzzle:M3.5", expectRoot: "object", maxLogChars: 500 })` avec même fallback `return null`.
+### Parsing (L242-245)
+Remplacer par `extractAndParseJSON<any>(contentResult || "", { label: "learn-from-expert", expectRoot: "object", maxLogChars: 500 })`. Catch existant conservé (rethrow `"Impossible de parser la réponse IA"`).
 
-### Facts extraction (L3236-3257)
-Remplacer `jsonMatch + JSON.parse` par `extractAndParseJSON<any>(content, { label: "build-case-puzzle:facts", expectRoot: "object", maxLogChars: 500 })` puis `Array.isArray(parsed?.facts) ? parsed.facts : []`. Conserver le `f.valueType === "json"` inner parse inchangé. Fallback `extractFactsBasic(emails, attachments)`.
+## Fichier 3: `supabase/functions/market-surveillance/index.ts`
 
-## Fichier 4: `supabase/functions/generate-case-outputs/index.ts`
+### Import (L3)
+Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";` après `requireUser`.
 
-### Import (L15)
-Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";`
+### Parsing (L157-161)
+Remplacer par `extractAndParseJSON<any>(analysisContent || "", { label: "market-surveillance", expectRoot: "object", maxLogChars: 500 })` puis `detections = parsed.detections || []`. Catch existant conservé (`detections` reste `[]`).
 
-### Email parsing (L462-472)
-Remplacer `jsonMatch + JSON.parse` par `extractAndParseJSON<any>(content, { label: "generate-case-outputs:email", expectRoot: "object", maxLogChars: 500 })`. Si `parsed?.subject || parsed?.body` → return objet. Sinon fallback `generateEmailTemplate(...)`.
+## Fichier 4: `supabase/functions/qualify-quotation-minimal/index.ts`
+
+### Import (L19-20)
+Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";` après `corsHeaders`.
+
+### Parsing (L289-294)
+Remplacer `jsonMatch` + `JSON.parse` par `extractAndParseJSON<QualifyMinimalResult>(aiContent || "", { label: "qualify-quotation-minimal", expectRoot: "object", maxLogChars: 500 })`.
+
+### Supprimer log brut (L297)
+Supprimer `console.error('AI content:', aiContent);`. Fallback existant (construction depuis `existingGaps`) inchangé.
+
+## Fichier 5: `supabase/functions/suggest-decisions/index.ts`
+
+### Import (L23-24)
+Ajouter `import { extractAndParseJSON } from "../_shared/json-parser.ts";` après `corsHeaders`.
+
+### parseAIOptions (L202-211)
+Remplacer par un `try { parsed = extractAndParseJSON<any>(...) } catch { return createFallbackOptions(decisionType) }` avec label dynamique `suggest-decisions:${decisionType}`. Logique de validation post-parse (min 2 options, confidence enum, etc.) inchangée.
 
 ## Aucun autre fichier modifié.
 
