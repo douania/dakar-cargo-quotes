@@ -13,6 +13,7 @@ import {
   respondError, 
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -460,14 +461,19 @@ Incoterm: ${factsMap["routing.incoterm"] || "N/A"}`;
     const content = data.choices?.[0]?.message?.content || "";
 
     // Parse JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*"subject"[\s\S]*"body"[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        subject: parsed.subject || `Re: ${threadSubject}`,
-        body: parsed.body || "",
-      };
-    }
+    try {
+      const parsed = extractAndParseJSON<any>(content, {
+        label: "generate-case-outputs:email",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
+      if (parsed?.subject || parsed?.body) {
+        return {
+          subject: parsed.subject || `Re: ${threadSubject}`,
+          body: parsed.body || "",
+        };
+      }
+    } catch { /* fallback below */ }
 
     return generateEmailTemplate(outputsJson, factsMap, originalEmail);
   } catch (error) {
