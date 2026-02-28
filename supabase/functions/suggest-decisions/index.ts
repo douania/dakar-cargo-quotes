@@ -21,6 +21,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 // ============================================================================
 // TYPES
@@ -199,14 +200,18 @@ function buildContextFromFacts(facts: QuoteFact[], gaps: QuoteGap[]): string {
 
 function parseAIOptions(aiContent: string, decisionType: DecisionType): { options: DecisionOption[]; missing: string[] } {
   try {
-    // Extract JSON from response (may be wrapped in markdown)
-    const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error(`[suggest-decisions] No JSON found in AI response for ${decisionType}`);
+    let parsed: any;
+    try {
+      parsed = extractAndParseJSON<any>(aiContent || "", {
+        label: `suggest-decisions:${decisionType}`,
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
+    } catch (error) {
+      console.error(`[suggest-decisions] Error parsing AI response for ${decisionType}:`, error);
       return createFallbackOptions(decisionType);
     }
-    
-    const parsed = JSON.parse(jsonMatch[0]);
+
     const options: DecisionOption[] = parsed.options || [];
     const missing: string[] = parsed.missing_info || [];
     

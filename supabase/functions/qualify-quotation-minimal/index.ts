@@ -17,6 +17,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
 interface DetectedAmbiguity {
   type: 'temporary_import' | 'multi_destination' | 'unclear_incoterm' | 'service_scope' | 'cargo_detail' | 'timing';
@@ -286,15 +287,13 @@ ${bodyText}
     // Parser la réponse JSON
     let result: QualifyMinimalResult;
     try {
-      // Extraire le JSON de la réponse (peut être entouré de markdown)
-      const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Pas de JSON trouvé dans la réponse IA');
-      }
-      result = JSON.parse(jsonMatch[0]);
+      result = extractAndParseJSON<QualifyMinimalResult>(aiContent || "", {
+        label: "qualify-quotation-minimal",
+        expectRoot: "object",
+        maxLogChars: 500,
+      });
     } catch (parseError) {
       console.error('Error parsing AI response:', parseError);
-      console.error('AI content:', aiContent);
       
       // Fallback: construire une réponse basique à partir des gaps existants
       result = {
