@@ -66,6 +66,8 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
 import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
+import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
+import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 
 // ── Editable fact keys (must match set-case-fact whitelist) ──
@@ -1174,6 +1176,20 @@ export default function CaseView() {
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
           <div className="mb-6">
             <PricingResultPanel caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+          </div>
+        )}
+
+        {/* Phase 12: Quotation versions */}
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+          <div className="mb-6">
+            <QuotationVersionCard caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+          </div>
+        )}
+
+        {/* Phase 19A: Send quotation */}
+        {['QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+          <div className="mb-6">
+            <SendQuotationPanel caseId={caseId!} />
           </div>
         )}
 
