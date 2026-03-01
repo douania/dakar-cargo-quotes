@@ -1351,8 +1351,21 @@ Deno.serve(async (req) => {
       const tickWork = (async () => {
         const startMs = Date.now();
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 290_000);
+        let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => controller.abort(), 290_000);
+        let hbInterval: ReturnType<typeof setInterval> | undefined;
         try {
+          // Start heartbeat only after job is confirmed running (attempt update succeeded above)
+          hbInterval = setInterval(() => {
+            void serviceClient
+              .from("case_puzzle_jobs")
+              .update({ last_heartbeat: new Date().toISOString() })
+              .eq("id", job_id)
+              .eq("status", "running")
+              .then(({ error }) => {
+                if (error) console.warn("[tickWork] heartbeat failed:", error);
+              });
+          }, 30_000);
+
           const resp = await fetch(`${supabaseUrl}/functions/v1/build-case-puzzle`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": authHeader },
@@ -1363,7 +1376,6 @@ Deno.serve(async (req) => {
             }),
             signal: controller.signal,
           });
-          clearTimeout(timeoutId);
           if (!resp.ok) {
             const errText = await resp.text().catch(() => "unknown");
             throw new Error(`Self-fetch ${resp.status}: ${errText.substring(0, 500)}`);
@@ -1375,16 +1387,18 @@ Deno.serve(async (req) => {
             status: "completed", final_result: result,
             completed_at: new Date().toISOString(), duration_ms: durationMs,
             last_heartbeat: new Date().toISOString(),
-          }).eq("id", job_id);
+          }).eq("id", job_id).eq("status", "running");
         } catch (e: unknown) {
-          clearTimeout(timeoutId);
           const durationMs = Date.now() - startMs;
           const msg = e instanceof Error ? e.message : "unknown";
           await serviceClient.from("case_puzzle_jobs").update({
             status: "failed", error_message: (msg.includes("abort") ? "timeout (290s)" : msg).substring(0, 500),
             completed_at: new Date().toISOString(), duration_ms: durationMs,
             last_heartbeat: new Date().toISOString(),
-          }).eq("id", job_id);
+          }).eq("id", job_id).eq("status", "running");
+        } finally {
+          if (hbInterval) clearInterval(hbInterval);
+          if (timeoutId) clearTimeout(timeoutId);
         }
       })();
       (globalThis as any).EdgeRuntime?.waitUntil?.(tickWork);
@@ -1426,13 +1440,29 @@ Deno.serve(async (req) => {
       // Launch background worker
       const bgWork = (async () => {
         const startMs = Date.now();
-        await serviceClient.from("case_puzzle_jobs").update({
+        const { error: runErr } = await serviceClient.from("case_puzzle_jobs").update({
           status: "running", started_at: new Date().toISOString(),
           last_heartbeat: new Date().toISOString(),
         }).eq("id", newJobId);
 
+        if (runErr) {
+          console.error("[bgWork] failed to set running:", runErr);
+          return; // Don't start heartbeat or self-fetch if job couldn't be set to running
+        }
+
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 290_000);
+        let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => controller.abort(), 290_000);
+        let hbInterval: ReturnType<typeof setInterval> | undefined = setInterval(() => {
+          void serviceClient
+            .from("case_puzzle_jobs")
+            .update({ last_heartbeat: new Date().toISOString() })
+            .eq("id", newJobId)
+            .eq("status", "running")
+            .then(({ error }) => {
+              if (error) console.warn("[bgWork] heartbeat failed:", error);
+            });
+        }, 30_000);
+
         try {
           const resp = await fetch(`${supabaseUrl}/functions/v1/build-case-puzzle`, {
             method: "POST",
@@ -1440,7 +1470,6 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ case_id, force_refresh, force_articles_detail }),
             signal: controller.signal,
           });
-          clearTimeout(timeoutId);
           if (!resp.ok) {
             const errText = await resp.text().catch(() => "unknown");
             throw new Error(`Self-fetch ${resp.status}: ${errText.substring(0, 500)}`);
@@ -1452,16 +1481,18 @@ Deno.serve(async (req) => {
             status: "completed", final_result: result,
             completed_at: new Date().toISOString(), duration_ms: durationMs,
             last_heartbeat: new Date().toISOString(),
-          }).eq("id", newJobId);
+          }).eq("id", newJobId).eq("status", "running");
         } catch (e: unknown) {
-          clearTimeout(timeoutId);
           const durationMs = Date.now() - startMs;
           const msg = e instanceof Error ? e.message : "unknown";
           await serviceClient.from("case_puzzle_jobs").update({
             status: "failed", error_message: (msg.includes("abort") ? "timeout (290s)" : msg).substring(0, 500),
             completed_at: new Date().toISOString(), duration_ms: durationMs,
             last_heartbeat: new Date().toISOString(),
-          }).eq("id", newJobId);
+          }).eq("id", newJobId).eq("status", "running");
+        } finally {
+          if (hbInterval) clearInterval(hbInterval);
+          if (timeoutId) clearTimeout(timeoutId);
         }
       })();
       (globalThis as any).EdgeRuntime?.waitUntil?.(bgWork);
