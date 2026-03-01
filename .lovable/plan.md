@@ -17,3 +17,28 @@
 - UI: local `runBuildCasePuzzleAsync` helper in CaseView + QuotationSheet
 - Polling: 3s normal, x2 backoff on error (max 30s), 5 min global timeout
 - `saveGapAnswer`: fire-and-forget `mode: "start"` (non-blocking)
+
+# Phase 18 E2E — Unblock "Envoyer le devis" (IMPLEMENTED)
+
+## Patch A — RLS email_drafts authenticated-only ✅
+- Dropped 4 owner-based policies (select/insert/update/delete)
+- Created 4 authenticated-only policies (mono-tenant back-office)
+- Added unique partial index `email_drafts_one_per_version_active` on `(quotation_version_id) WHERE status IN ('draft','sent')`
+- Ensures RLS enabled with `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+
+## Patch B — create-quotation-email-draft Edge Function ✅
+- New function: `supabase/functions/create-quotation-email-draft/index.ts`
+- Auth via `requireUser(req)` (project standard verify_jwt=false)
+- Defensive body parse with try/catch + validation case_id/version_id non-empty strings
+- Reads `quotation_versions` via userClient (RLS) with `.eq("id", versionId).eq("case_id", caseId)`
+- Idempotence: checks existing draft with `quotation_version_id=versionId AND status IN ('draft','sent')`
+- Insert via serviceClient with `created_by = user.id`
+- Fallback on unique constraint violation (error.code === "23505"): re-select existing draft
+- Extracts client email from `snapshot.client.email` for `to_addresses`
+
+## Patch C — UI SendQuotationPanel "Générer brouillon" ✅
+- When `selectedVersion` exists but `ownerDraft` is null: shows "Générer un brouillon" button
+- Invokes `create-quotation-email-draft` with `{ case_id, version_id }`
+- Local `isGenerating` state for loading spinner
+- On success: invalidates `['send-quotation-data', caseId]` query + toast
+- Existing send flow and `canSend` guard unchanged
