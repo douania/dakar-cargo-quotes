@@ -6,20 +6,27 @@
  * Guards: button disabled during loading, after sent, or if prerequisites missing
  */
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Send, Loader2, CheckCircle2, Mail, AlertTriangle } from 'lucide-react';
+import { Send, Loader2, CheckCircle2, Mail, FileEdit } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useSendQuotation } from '@/hooks/useSendQuotation';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 interface SendQuotationPanelProps {
   caseId: string;
 }
 
 export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
+  const queryClient = useQueryClient();
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const {
     ownerDraft,
     selectedVersion,
@@ -111,14 +118,49 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
           )}
         </div>
 
-        {/* Missing prerequisites warning */}
-        {!isSent && (!ownerDraft || !selectedVersion) && (
+        {/* Generate draft button when missing */}
+        {!isSent && selectedVersion && !ownerDraft && (
+          <Button
+            variant="outline"
+            className="w-full gap-2"
+            disabled={isGenerating}
+            onClick={async () => {
+              setIsGenerating(true);
+              try {
+                const { data, error } = await supabase.functions.invoke('create-quotation-email-draft', {
+                  body: { case_id: caseId, version_id: selectedVersion.id },
+                });
+                if (error) throw error;
+                if (!data?.ok) throw new Error(data?.error || 'Échec de la création du brouillon');
+                queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
+                toast.success(data.idempotent ? 'Brouillon existant récupéré' : 'Brouillon créé avec succès');
+              } catch (err) {
+                console.error('[create-draft]', err);
+                toast.error('Erreur lors de la création du brouillon');
+              } finally {
+                setIsGenerating(false);
+              }
+            }}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Génération...
+              </>
+            ) : (
+              <>
+                <FileEdit className="h-4 w-4" />
+                Générer un brouillon
+              </>
+            )}
+          </Button>
+        )}
+
+        {/* Missing version warning */}
+        {!isSent && !selectedVersion && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-amber-800 dark:text-amber-200">
-              {!selectedVersion && <p>Aucune version de devis sélectionnée.</p>}
-              {!ownerDraft && <p>Aucun brouillon d'email disponible.</p>}
-            </div>
+            <Mail className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-800 dark:text-amber-200">Aucune version de devis sélectionnée.</p>
           </div>
         )}
 
