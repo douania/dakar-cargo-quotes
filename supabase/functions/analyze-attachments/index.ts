@@ -837,7 +837,10 @@ serve(async (req) => {
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
     
     if (!lovableApiKey) {
-      throw new Error('LOVABLE_API_KEY not configured');
+      return new Response(
+        JSON.stringify({ success: false, error: "LOVABLE_API_KEY not configured" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -924,13 +927,6 @@ serve(async (req) => {
 
     // ── Phase 15.8.1: mode "start" → full async via EdgeRuntime.waitUntil ──
     if (mode === "start") {
-      if (!lovableApiKey) {
-        return new Response(
-          JSON.stringify({ success: false, error: "LOVABLE_API_KEY not configured — cannot start async analysis" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
       const work = (async () => {
         try {
           await processAttachmentsLoop(supabase, attachments, lovableApiKey);
