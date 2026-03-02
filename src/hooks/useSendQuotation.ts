@@ -87,7 +87,8 @@ export function useSendQuotation(caseId: string | undefined) {
   const canSend = !!ownerDraft
     && !!selectedVersion
     && ownerDraft.status !== 'sent'
-    && caseStatus === 'QUOTED_VERSIONED';
+    && caseStatus === 'QUOTED_VERSIONED'
+    && (ownerDraft.to_addresses?.length ?? 0) > 0;
 
   const isSent = ownerDraft?.status === 'sent';
   const isCaseSent = caseStatus === 'SENT';
