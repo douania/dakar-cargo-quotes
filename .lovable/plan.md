@@ -1,44 +1,29 @@
 
-# Phase 15.8 — Async / Anti-timeout (IMPLEMENTED)
 
-## 15.8.1 — analyze-attachments async ✅
-- Extracted sync loop into `processAttachmentsLoop()` function
-- Added `mode: "start"` path with `EdgeRuntime.waitUntil` for full async
-- Added `lovableApiKey` guard before async launch (returns 400 if missing)
-- UI callers updated: `AttachmentStatusPanel.tsx` + `Emails.tsx` → `mode: "start"`
+## Correctif P0 — Refresh gaps après soft blocker pricing
 
-## 15.8.2 — build-case-puzzle Jobs ✅
-- Migration: `case_puzzle_jobs` table with owner-only RLS, unique partial index
-- Backend: switch(mode) BEFORE case_id validation (poll/tick/cancel use job_id only)
-- Self-fetch uses user's `authHeader` (NOT service_role)
-- `serviceClient` used only for writing job state (bypass RLS)
-- `tick` reads `request_params` from job row for self-fetch body
-- Self-fetch: `AbortController` 290s timeout + `resp.ok` check + defensive JSON parse
-- UI: local `runBuildCasePuzzleAsync` helper in CaseView + QuotationSheet
-- Polling: 3s normal, x2 backoff on error (max 30s), 5 min global timeout
-- `saveGapAnswer`: fire-and-forget `mode: "start"` (non-blocking)
+### Probleme
+Quand `run-pricing` retourne un soft blocker (HTTP 200 + `pricing_blockers`), il cree le gap en base mais le panel fait `return` sans appeler `onComplete`. L'UI reste stale avec "0 gaps".
 
-# Phase 18 E2E — Unblock "Envoyer le devis" (IMPLEMENTED)
+### Modification unique
 
-## Patch A — RLS email_drafts authenticated-only ✅
-- Dropped 4 owner-based policies (select/insert/update/delete)
-- Created 4 authenticated-only policies (mono-tenant back-office)
-- Added unique partial index `email_drafts_one_per_version_active` on `(quotation_version_id) WHERE status IN ('draft','sent')`
-- Ensures RLS enabled with `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+**Fichier** : `src/components/puzzle/PricingLaunchPanel.tsx`, ligne 82
 
-## Patch B — create-quotation-email-draft Edge Function ✅
-- New function: `supabase/functions/create-quotation-email-draft/index.ts`
-- Auth via `requireUser(req)` (project standard verify_jwt=false)
-- Defensive body parse with try/catch + validation case_id/version_id non-empty strings
-- Reads `quotation_versions` via userClient (RLS) with `.eq("id", versionId).eq("case_id", caseId)`
-- Idempotence: checks existing draft with `quotation_version_id=versionId AND status IN ('draft','sent')`
-- Insert via serviceClient with `created_by = user.id`
-- Fallback on unique constraint violation (error.code === "23505"): re-select existing draft
-- Extracts client email from `snapshot.client.email` for `to_addresses`
+Dans le bloc `if (data?.pricing_blockers?.length > 0)`, ajouter `onComplete?.()` avant le `return` pour declencher le refresh des facts/gaps.
 
-## Patch C — UI SendQuotationPanel "Générer brouillon" ✅
-- When `selectedVersion` exists but `ownerDraft` is null: shows "Générer un brouillon" button
-- Invokes `create-quotation-email-draft` with `{ case_id, version_id }`
-- Local `isGenerating` state for loading spinner
-- On success: invalidates `['send-quotation-data', caseId]` query + toast
-- Existing send flow and `canSend` guard unchanged
+```typescript
+if (data?.pricing_blockers?.length > 0) {
+  const blockerMsg = data.message || 'Données manquantes pour le pricing';
+  setError(blockerMsg);
+  toast.error(blockerMsg);
+  setConfirmOpen(false);
+  onComplete?.();  // ← refresh facts/gaps after run-pricing created blockers
+  return;
+}
+```
+
+### Impact
+- 1 ligne ajoutee
+- Zero changement DB / RLS / moteur
+- Le gap `cargo.hs_code` (ou autre) cree par `run-pricing` apparait immediatement dans le `BlockingGapsPanel`
+
