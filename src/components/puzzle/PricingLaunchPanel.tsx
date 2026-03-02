@@ -72,8 +72,9 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
         const blockerMsg = data.message || 'Données manquantes pour le pricing';
         setError(blockerMsg);
         toast.error(blockerMsg);
-        setConfirmOpen(false);
-        return;
+      setConfirmOpen(false);
+      onComplete?.();  // refresh facts/gaps after run-pricing created blockers
+      return;
       }
       
       toast.success(`Pricing lancé - ${data?.lines_count ?? 0} lignes calculées`);
