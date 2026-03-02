@@ -77,11 +77,37 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ ok: true, draft_id: existingDraft.id, idempotent: true });
   }
 
-  // 6. Extract client email from snapshot
+  // 6. Extract client email: snapshot first, then fallback to email_threads
   const snapshot = version.snapshot as Record<string, unknown> | null;
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
-  const clientEmail = typeof clientBlock?.email === "string" ? clientBlock.email : null;
-  const toAddresses = clientEmail ? [clientEmail] : [];
+  let clientEmailFinal = typeof clientBlock?.email === "string" ? clientBlock.email : null;
+
+  // Fallback: email_threads.client_email via case → thread link
+  if (!clientEmailFinal) {
+    const { data: caseData, error: caseErr } = await userClient
+      .from("quote_cases")
+      .select("thread_id")
+      .eq("id", caseId)
+      .maybeSingle();
+
+    if (caseErr) console.warn("[create-quotation-email-draft] thread_id lookup failed", { caseId, error: String(caseErr?.message ?? caseErr) });
+
+    if (caseData?.thread_id) {
+      const { data: threadData, error: threadErr } = await userClient
+        .from("email_threads")
+        .select("client_email")
+        .eq("id", caseData.thread_id)
+        .maybeSingle();
+
+      if (threadErr) console.warn("[create-quotation-email-draft] client_email lookup failed", { caseId, threadId: caseData.thread_id, error: String(threadErr?.message ?? threadErr) });
+
+      if (typeof threadData?.client_email === "string" && threadData.client_email) {
+        clientEmailFinal = threadData.client_email;
+      }
+    }
+  }
+
+  const toAddresses = clientEmailFinal ? [clientEmailFinal] : [];
 
   const subject = `Devis v${version.version_number}`;
   const bodyText = [
