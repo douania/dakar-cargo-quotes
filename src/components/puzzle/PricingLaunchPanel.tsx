@@ -101,10 +101,11 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
       } else if (message.includes('Access denied')) {
         setError('Vous n\'avez pas accès à ce dossier');
       } else {
-        setError(message);
+      setError(message);
       }
       
       toast.error('Erreur lors du lancement du pricing');
+      onComplete?.();  // refresh gaps after hard guard 400
     } finally {
       setIsLoading(false);
     }

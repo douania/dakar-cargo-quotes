@@ -2976,16 +2976,14 @@ Deno.serve(async (req) => {
     const freightCost156 = getNumber156("cargo.freight_cost");
     const hasFreightCost156 = Number.isFinite(freightCost156) && freightCost156 > 0;
     const freightCurrency156 = getText156("cargo.freight_currency").toUpperCase();
-    const freightExchangeRate156 = getNumber156("cargo.freight_exchange_rate");
-    const needsUsdRate156 = freightCurrency156 === "USD";
-    const hasUsdRate156 = Number.isFinite(freightExchangeRate156) && freightExchangeRate156 > 0;
+    // Phase 16: cargo.freight_exchange_rate removed — exchange_rates table is source of truth
 
     const policyRequiredKeys = new Set<string>();
     if (scopeWantsDuties) {
       if (!hsHasValid10) policyRequiredKeys.add("cargo.hs_code");
       if (hasExemptionTitle156 && !hasRegimeCode156) policyRequiredKeys.add("customs.regime_code");
       if (isFobType156 && !hasFreightCost156) policyRequiredKeys.add("cargo.freight_cost");
-      if (isFobType156 && needsUsdRate156 && !hasUsdRate156) policyRequiredKeys.add("cargo.freight_exchange_rate");
+      // Phase 16: cargo.freight_exchange_rate removed from policy keys
     }
 
     const transportModeRaw = (existingDbFacts || [])
@@ -3017,7 +3015,7 @@ Deno.serve(async (req) => {
       // (2D/2E manage blocking vs non-blocking state)
       const policyKeysAll = new Set([
         "cargo.hs_code", "customs.regime_code",
-        "cargo.freight_cost", "cargo.freight_exchange_rate",
+        "cargo.freight_cost",
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
 
@@ -3142,17 +3140,12 @@ Deno.serve(async (req) => {
           "FOB/FCA/FAS/EXW (DDP): actual international freight amount is required to compute CAF customs value.",
           "cargo");
       }
-      if (policyRequiredKeys.has("cargo.freight_exchange_rate")) {
-        await ensureBlockingGap156("cargo.freight_exchange_rate",
-          "FOB/FCA/FAS/EXW (DDP) : fret en USD — renseignez le taux USD/XOF douane.",
-          "FOB/FCA/FAS/EXW (DDP): freight in USD — please provide the customs USD/XOF exchange rate.",
-          "cargo");
-      }
+      // Phase 16: cargo.freight_exchange_rate block removed
     }
 
     // Phase 15.6 — Patch 2E: Downgrade policy gaps when scope is NOT DDP
     if (!scopeWantsDuties) {
-      const policyDowngradeKeys = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost", "cargo.freight_exchange_rate"];
+      const policyDowngradeKeys = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost"];
       for (const k of policyDowngradeKeys) {
         // Only downgrade if key is NOT in mandatoryFacts (guard against future mandatory additions)
         if (!mandatoryFacts.includes(k)) {

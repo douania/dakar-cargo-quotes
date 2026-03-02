@@ -3,6 +3,7 @@
  * Executes deterministic pricing via quotation-engine
  * CTO Update: Now requires ACK_READY_FOR_PRICING status (Phase 10 gate)
  * CTO Fixes: Atomic run_number, Status rollback compensation, Blocking gaps guard
+ * Phase 16: Hard guard unifié + coherence checks (no gap upsert, audit trail preserved)
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -24,7 +25,7 @@ interface PricingInputs {
   destinationAirport?: string;
   finalDestination?: string;
   incoterm?: string;
-  servicePackage?: string; // Phase 15.6
+  servicePackage?: string;
   containers?: Array<{ type: string; quantity: number; coc_soc?: string }>;
   cargoWeight?: number;
   cargoVolume?: number;
@@ -41,7 +42,6 @@ interface PricingInputs {
   // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
   freightCost?: number;
   freightCurrency?: string;
-  freightExchangeRate?: number; // Phase 15.6
 }
 
 Deno.serve(async (req) => {
@@ -144,14 +144,13 @@ Deno.serve(async (req) => {
     const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
     const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
 
-    // 4a. Hard guard — blocking gaps EXCLUDING policy gap keys (handled by soft-blockers below)
+    // 4a. Hard guard — ALL blocking gaps must be resolved (unified, no exclusions)
     const { count: blockingGapsCount } = await serviceClient
       .from("quote_gaps")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id)
       .eq("is_blocking", true)
-      .eq("status", "open")
-      .not("gap_key", "in", '("cargo.hs_code","customs.regime_code","cargo.freight_cost","cargo.freight_exchange_rate")');
+      .eq("status", "open");
 
     if (blockingGapsCount && blockingGapsCount > 0) {
       return new Response(
@@ -164,7 +163,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4b. Phase 15.6 — HS Code scope-aware guard
+    // 4b. Coherence check — HS Code (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
       const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
       const hsCandidates = rawHs.split(/[;,]/).map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
@@ -185,43 +184,7 @@ Deno.serve(async (req) => {
       }
 
       if (hsBlocker) {
-        // Idempotent gap upsert for cargo.hs_code
-        const { data: hsGap } = await serviceClient
-          .from("quote_gaps")
-          .select("id, is_blocking")
-          .eq("case_id", case_id)
-          .eq("gap_key", "cargo.hs_code")
-          .eq("status", "open")
-          .maybeSingle();
-
-        if (!hsGap?.id) {
-          await serviceClient.from("quote_gaps").insert({
-            case_id,
-            gap_key: "cargo.hs_code",
-            gap_category: "cargo",
-            question_fr: "DDP : Code HS 10 chiffres UEMOA requis pour chiffrer droits & taxes. Veuillez saisir le code HS exact.",
-            question_en: "DDP: 10-digit UEMOA HS code required to compute duties & taxes. Please provide the exact HS code.",
-            priority: "high",
-            is_blocking: true,
-          });
-          await serviceClient.from("case_timeline_events").insert({
-            case_id,
-            event_type: "gap_identified",
-            event_data: { gap_key: "cargo.hs_code", reason: "Phase 15.6 policy — DDP scope" },
-            actor_type: "system",
-          });
-        } else if (hsGap.is_blocking === false) {
-          await serviceClient.from("quote_gaps")
-            .update({ is_blocking: true, priority: "high" })
-            .eq("id", hsGap.id);
-          await serviceClient.from("case_timeline_events").insert({
-            case_id,
-            event_type: "gap_identified",
-            event_data: { gap_key: "cargo.hs_code", reason: "Phase 15.6 policy — upgraded to blocking" },
-            actor_type: "system",
-          });
-        }
-        // else: already blocking → no-op
+        console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.hs_code", blocker: hsBlocker, scopeWantsDuties, incoterm: incotermEarly, pkg });
 
         const { data: blockerRunNumber } = await serviceClient
           .rpc('get_next_pricing_run_number', { p_case_id: case_id });
@@ -233,6 +196,7 @@ Deno.serve(async (req) => {
             : `DDP : Code HS "${rawHs}" (${hsDigits}) introuvable dans la nomenclature UEMOA.`,
           current_hs_code: rawHs || null,
           scope: { servicePackage: pkg, incoterm: incotermEarly },
+          coherence_drift: true,
         };
 
         await serviceClient
@@ -261,9 +225,9 @@ Deno.serve(async (req) => {
         );
       }
     }
-    // If !scopeWantsDuties → skip HS guard entirely
+    // If !scopeWantsDuties → skip HS coherence check
 
-    // 4c. Phase 15.6: Regime soft blocker — conditional on scopeWantsDuties
+    // 4c. Coherence check — Regime (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
       const { data: regimeCheckFacts } = await serviceClient
         .from("quote_facts")
@@ -277,42 +241,7 @@ Deno.serve(async (req) => {
       const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
 
       if (hasExemptionTitle && !hasRegimeCode) {
-        // Idempotent gap upsert for customs.regime_code
-        const { data: regimeGap } = await serviceClient
-          .from("quote_gaps")
-          .select("id, is_blocking")
-          .eq("case_id", case_id)
-          .eq("gap_key", "customs.regime_code")
-          .eq("status", "open")
-          .maybeSingle();
-
-        if (!regimeGap?.id) {
-          await serviceClient.from("quote_gaps").insert({
-            case_id,
-            gap_key: "customs.regime_code",
-            gap_category: "customs",
-            question_fr: "DDP : Un titre d'exonération est détecté — renseignez le régime douanier pour appliquer l'exonération.",
-            question_en: "DDP: Exemption title detected — please provide the customs regime to apply the exemption.",
-            priority: "high",
-            is_blocking: true,
-          });
-          await serviceClient.from("case_timeline_events").insert({
-            case_id,
-            event_type: "gap_identified",
-            event_data: { gap_key: "customs.regime_code", reason: "Phase 15.6 policy — DDP exemption" },
-            actor_type: "system",
-          });
-        } else if (regimeGap.is_blocking === false) {
-          await serviceClient.from("quote_gaps")
-            .update({ is_blocking: true, priority: "high" })
-            .eq("id", regimeGap.id);
-          await serviceClient.from("case_timeline_events").insert({
-            case_id,
-            event_type: "gap_identified",
-            event_data: { gap_key: "customs.regime_code", reason: "Phase 15.6 policy — upgraded to blocking" },
-            actor_type: "system",
-          });
-        }
+        console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "customs.regime_code", scopeWantsDuties, incoterm: incotermEarly, pkg });
 
         const { data: regimeBlockerRunNumber } = await serviceClient
           .rpc('get_next_pricing_run_number', { p_case_id: case_id });
@@ -322,6 +251,7 @@ Deno.serve(async (req) => {
           message: "DDP : Titre d'exonération détecté — renseignez le régime douanier pour calculer les exonérations.",
           exemption_title: regimeCheckMap.get("regulatory.exemption_title"),
           scope: { servicePackage: pkg, incoterm: incotermEarly },
+          coherence_drift: true,
         };
 
         await serviceClient
@@ -350,7 +280,7 @@ Deno.serve(async (req) => {
         );
       }
     }
-    // If !scopeWantsDuties → skip regime guard entirely
+    // If !scopeWantsDuties → skip regime coherence check
 
     // 5. Transition to PRICING_RUNNING (skip for finalized cases)
     if (!isFinalized) {
@@ -401,70 +331,18 @@ Deno.serve(async (req) => {
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
 
-    // 8b. Phase 15.6: FOB freight guard — conditional on scopeWantsDuties
+    // 8b. Coherence check — FOB freight (last-resort drift detection, NO gap upsert)
     const incoterm = String(inputs.incoterm ?? '').trim().toUpperCase();
     const isFobType = ['FOB', 'FCA', 'FAS', 'EXW'].includes(incoterm);
 
     if (scopeWantsDuties && isFobType) {
-      const fobBlockers: string[] = [];
-
       if (!inputs.freightCost || inputs.freightCost <= 0) {
-        fobBlockers.push("FREIGHT_REQUIRED_FOR_FOB");
-      }
-
-      const freightCur = String(inputs.freightCurrency ?? '').trim().toUpperCase();
-      if (freightCur === 'USD' && (!inputs.freightExchangeRate || inputs.freightExchangeRate <= 0)) {
-        fobBlockers.push("USD_EXCHANGE_RATE_REQUIRED");
-      }
-
-      if (fobBlockers.length > 0) {
-        // Idempotent gap upserts for freight blockers
-        for (const blocker of fobBlockers) {
-          const gapKey = blocker === "FREIGHT_REQUIRED_FOR_FOB" ? "cargo.freight_cost" : "cargo.freight_exchange_rate";
-          const frMsg = blocker === "FREIGHT_REQUIRED_FOR_FOB"
-            ? "FOB/FCA/FAS/EXW (DDP) : le fret international réel est requis pour calculer la valeur CAF douanière."
-            : "FOB/FCA/FAS/EXW (DDP) : fret en USD — renseignez le taux USD/XOF douane.";
-          const enMsg = blocker === "FREIGHT_REQUIRED_FOR_FOB"
-            ? "FOB/FCA/FAS/EXW (DDP): actual international freight amount is required to compute CAF customs value."
-            : "FOB/FCA/FAS/EXW (DDP): freight in USD — please provide the customs USD/XOF exchange rate.";
-
-          const { data: fobGap } = await serviceClient
-            .from("quote_gaps")
-            .select("id, is_blocking")
-            .eq("case_id", case_id)
-            .eq("gap_key", gapKey)
-            .eq("status", "open")
-            .maybeSingle();
-
-          if (!fobGap?.id) {
-            await serviceClient.from("quote_gaps").insert({
-              case_id, gap_key: gapKey, gap_category: "cargo",
-              question_fr: frMsg, question_en: enMsg,
-              priority: "high", is_blocking: true,
-            });
-            await serviceClient.from("case_timeline_events").insert({
-              case_id, event_type: "gap_identified",
-              event_data: { gap_key: gapKey, reason: "Phase 15.6 policy — FOB DDP freight" },
-              actor_type: "system",
-            });
-          } else if (fobGap.is_blocking === false) {
-            await serviceClient.from("quote_gaps")
-              .update({ is_blocking: true, priority: "high" })
-              .eq("id", fobGap.id);
-            await serviceClient.from("case_timeline_events").insert({
-              case_id, event_type: "gap_identified",
-              event_data: { gap_key: gapKey, reason: "Phase 15.6 policy — upgraded to blocking" },
-              actor_type: "system",
-            });
-          }
-        }
+        console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.freight_cost", scopeWantsDuties, incoterm, pkg });
 
         const { data: fobBlockerRunNumber } = await serviceClient
           .rpc('get_next_pricing_run_number', { p_case_id: case_id });
 
-        const fobBlockerMessage = fobBlockers.includes("FREIGHT_REQUIRED_FOR_FOB")
-          ? "DDP + FOB/FCA/FAS/EXW : le montant du fret réel est obligatoire pour le calcul CAF douanier."
-          : "DDP + Fret en USD : le taux officiel USD/XOF douane doit être saisi par l'opérateur.";
+        const fobBlockerMessage = "DDP + FOB/FCA/FAS/EXW : le montant du fret réel est obligatoire pour le calcul CAF douanier.";
 
         await serviceClient
           .from("pricing_runs")
@@ -475,7 +353,7 @@ Deno.serve(async (req) => {
             facts_snapshot: factsSnapshot,
             status: "blocked",
             error_message: fobBlockerMessage,
-            outputs_json: { pricing_blockers: fobBlockers, message: fobBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly } },
+            outputs_json: { pricing_blockers: ["FREIGHT_REQUIRED_FOR_FOB"], message: fobBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly }, coherence_drift: true },
             started_at: new Date().toISOString(),
             completed_at: new Date().toISOString(),
             duration_ms: Date.now() - startTime,
@@ -488,7 +366,7 @@ Deno.serve(async (req) => {
 
         return new Response(
           JSON.stringify({
-            pricing_blockers: fobBlockers,
+            pricing_blockers: ["FREIGHT_REQUIRED_FOR_FOB"],
             message: fobBlockerMessage,
             run_number: fobBlockerRunNumber || 1,
           }),
@@ -496,7 +374,7 @@ Deno.serve(async (req) => {
         );
       }
     }
-    // If !scopeWantsDuties or !isFobType → skip FOB freight guard
+    // If !scopeWantsDuties or !isFobType → skip FOB freight coherence check
 
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
@@ -653,9 +531,6 @@ Deno.serve(async (req) => {
     const incotermUpper = (inputs.incoterm || "").toUpperCase();
 
     // --- P0 FIX: Agregation correcte HT / TTC ---
-    // Honoraires SODATRA = HT, soumis a TVA 18%
-    // Debours douaniers = deja TTC (TVA incluse dans duty_breakdown)
-    // DAP = operationnel + honoraires + border + terminal (NE PAS utiliser comme base TVA)
     const honoraires_ht  = engineTotals?.honoraires ?? 0;
     const debours        = engineTotals?.debours ?? 0;
     const TVA_RATE       = 0.18;
@@ -901,13 +776,6 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "service.package":
         inputs.servicePackage = String(value);
         break;
-      case "cargo.freight_exchange_rate": {
-        const rawFxr = String(value ?? "").trim();
-        const normalizedFxr = rawFxr.replace(/\s/g, "").replace(/,/g, ".");
-        const nFxr = Number(normalizedFxr);
-        inputs.freightExchangeRate = Number.isFinite(nFxr) ? nFxr : undefined;
-        break;
-      }
     }
   }
 
