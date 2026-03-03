@@ -123,6 +123,7 @@ export default function Emails() {
   // Multi-selection state
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [analyzingIntentId, setAnalyzingIntentId] = useState<string | null>(null);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
   const [isMergingThreads, setIsMergingThreads] = useState(false);
@@ -474,6 +475,26 @@ export default function Emails() {
       toast.error('Erreur de purge');
     }
     setIsDeleting(false);
+  };
+
+  const analyzeIntent = async (emailId: string) => {
+    setAnalyzingIntentId(emailId);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-thread-event', {
+        body: { email_id: emailId },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        const intent = data.intent?.intent_type ?? data.intent ?? 'inconnu';
+        const confidence = data.intent?.confidence ?? data.confidence ?? '?';
+        toast.success(`Intent: ${intent} (confiance: ${confidence})${data.idempotent ? ' [déjà analysé]' : ''}`);
+      } else {
+        toast.error(`Erreur: ${data?.error || 'Analyse échouée'}`);
+      }
+    } catch (err: unknown) {
+      toast.error(`Erreur d'analyse intent: ${(err as Error).message}`);
+    }
+    setAnalyzingIntentId(null);
   };
 
   const reclassifyEmails = async () => {
@@ -1340,8 +1361,16 @@ export default function Emails() {
                         <Brain className="h-4 w-4 mr-1" />
                         Apprendre
                       </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        onClick={() => analyzeIntent(email.id)}
+                        disabled={analyzingIntentId === email.id}
+                      >
+                        <Search className="h-4 w-4 mr-1" />
+                        {analyzingIntentId === email.id ? '...' : 'Intent'}
+                      </Button>
                       <Button
-                        size="sm"
                         variant="ghost"
                         className="text-destructive hover:text-destructive"
                         onClick={(e) => deleteEmail(email.id, e)}
@@ -1467,6 +1496,14 @@ export default function Emails() {
                       Apprendre
                     </Button>
                     <Button 
+                      variant="outline"
+                      onClick={() => analyzeIntent(selectedEmail.id)}
+                      disabled={analyzingIntentId === selectedEmail.id}
+                    >
+                      <Search className="h-4 w-4 mr-2" />
+                      {analyzingIntentId === selectedEmail.id ? 'Analyse...' : 'Analyser intent'}
+                    </Button>
+                    <Button
                       variant="destructive" 
                       onClick={() => deleteEmail(selectedEmail.id)}
                       disabled={isDeleting}
