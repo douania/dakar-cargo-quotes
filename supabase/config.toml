@@ -170,3 +170,6 @@ verify_jwt = false
 
 [functions.apply-thread-intent-v1]
 verify_jwt = false
+
+[functions.close-manual-action]
+verify_jwt = false

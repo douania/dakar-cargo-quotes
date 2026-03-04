@@ -35,6 +35,7 @@ import {
   X,
   Calculator,
   Clock,
+  CheckCircle,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -508,6 +509,7 @@ export default function CaseView() {
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
   const [isApplyingIntent, setIsApplyingIntent] = React.useState(false);
+  const [closingActionKey, setClosingActionKey] = useState<string | null>(null);
   // ── Gap inline resolution state ──
   const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
@@ -659,6 +661,43 @@ export default function CaseView() {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  // ── Open actions (append-only: group by dedupe_key, keep latest, filter open) ──
+  const openActions = useMemo(() => {
+    const byKey = new Map<string, any>();
+    for (const e of events ?? []) {
+      if (e.event_type !== "manual_action") continue;
+      const ed = e.event_data as Record<string, unknown> | null;
+      const key = ed?.dedupe_key as string | undefined;
+      if (!key) continue;
+      if (!byKey.has(key)) byKey.set(key, e); // first = latest (events are desc)
+    }
+    return Array.from(byKey.values()).filter((e: any) => {
+      const status = ((e.event_data as Record<string, unknown> | null)?.status as string) ?? "open";
+      return status === "open";
+    });
+  }, [events]);
+
+  async function closeAction(dedupeKey: string) {
+    if (!caseId) return;
+    setClosingActionKey(dedupeKey);
+    try {
+      const { data, error } = await supabase.functions.invoke("close-manual-action", {
+        body: { case_id: caseId, dedupe_key: dedupeKey },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success(data.idempotent ? "Action déjà clôturée" : "Action clôturée");
+        refetchEvents();
+      } else {
+        toast.error(`Erreur: ${data?.error ?? "Clôture échouée"}`);
+      }
+    } catch (e: any) {
+      toast.error(`Erreur clôture: ${e?.message ?? "unknown"}`);
+    } finally {
+      setClosingActionKey(null);
     }
   }
 
@@ -1010,6 +1049,57 @@ export default function CaseView() {
             <p className="text-xs text-muted-foreground mb-4">Aucun intent analysé</p>
           );
         })()}
+
+        {/* ── Open Actions (C2/P0.3) ── */}
+        <Card className="mb-6">
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              Actions
+              {openActions.length > 0 && (
+                <Badge variant="secondary" className="text-[10px] ml-1">{openActions.length}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 px-4">
+            {openActions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Aucune action ouverte</p>
+            ) : (
+              <div className="space-y-2">
+                {openActions.map((action: any) => {
+                  const ed = action.event_data as Record<string, unknown> | null;
+                  const dedupeKey = ed?.dedupe_key as string;
+                  return (
+                    <div key={dedupeKey} className="flex items-center justify-between border rounded p-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {(ed?.title_fr as string) ?? (ed?.action_code as string) ?? "Action"}
+                        </p>
+                        {ed?.description_fr && (
+                          <p className="text-xs text-muted-foreground truncate">{ed.description_fr as string}</p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 shrink-0"
+                        disabled={closingActionKey === dedupeKey}
+                        onClick={() => closeAction(dedupeKey)}
+                      >
+                        {closingActionKey === dedupeKey ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Check className="mr-1 h-3 w-3" />
+                        )}
+                        Marquer comme fait
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
