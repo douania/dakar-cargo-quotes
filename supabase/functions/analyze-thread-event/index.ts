@@ -76,7 +76,7 @@ serve(async (req: Request) => {
     const { data: thread, error: threadErr } = await userClient
       .from("email_threads")
       .select("id")
-      .eq("thread_ref", email.thread_ref)
+      .eq("id", email.thread_ref)
       .maybeSingle();
 
     if (threadErr || !thread) {
