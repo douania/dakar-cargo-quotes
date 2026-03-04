@@ -673,12 +673,12 @@ export default function CaseView() {
     for (const e of events ?? []) {
       if (e.event_type !== "manual_action") continue;
       const ed = e.event_data as Record<string, unknown> | null;
-      const key = ed?.dedupe_key as string | undefined;
+      const key = ed?.["dedupe_key"] as string | undefined;
       if (!key) continue;
       if (!byKey.has(key)) byKey.set(key, e); // first = latest (events are desc)
     }
     return Array.from(byKey.values()).filter((e: any) => {
-      const status = ((e.event_data as Record<string, unknown> | null)?.status as string) ?? "open";
+      const status = ((e.event_data as Record<string, unknown> | null)?.["status"] as string) ?? "open";
       return status === "open";
     });
   }, [events]);
@@ -707,9 +707,9 @@ export default function CaseView() {
     for (const e of events ?? []) {
       if (e.event_type !== "output_generated") continue;
       const ed = e.event_data as Record<string, unknown> | null;
-      if (ed?.kind !== "reply_draft_v1") continue;
-      const sourceKey = ed?.source_action_dedupe_key as string | undefined;
-      const draft = ed?.draft_reply as { subject: string; body: string } | undefined;
+      if (ed?.["kind"] !== "reply_draft_v1") continue;
+      const sourceKey = ed?.["source_action_dedupe_key"] as string | undefined;
+      const draft = ed?.["draft_reply"] as { subject: string; body: string } | undefined;
       if (sourceKey && draft) {
         map.set(sourceKey, draft);
       }
@@ -1152,8 +1152,8 @@ export default function CaseView() {
               <div className="space-y-3">
                 {openActions.map((action: any) => {
                   const ed = action.event_data as Record<string, unknown> | null;
-                  const dedupeKey = ed?.dedupe_key as string;
-                  const actionCode = ed?.action_code as string | undefined;
+                   const dedupeKey = ed?.["dedupe_key"] as string;
+                   const actionCode = ed?.["action_code"] as string | undefined;
                   const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT";
                   const existingDraft = draftsByActionKey.get(dedupeKey);
 
@@ -1162,10 +1162,10 @@ export default function CaseView() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">
-                            {(ed?.title_fr as string) ?? actionCode ?? "Action"}
+                            {(ed?.["title_fr"] as string) ?? actionCode ?? "Action"}
                           </p>
-                          {ed?.description_fr && (
-                            <p className="text-xs text-muted-foreground truncate">{ed.description_fr as string}</p>
+                          {ed?.["description_fr"] && (
+                            <p className="text-xs text-muted-foreground truncate">{ed["description_fr"] as string}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 ml-2 shrink-0">

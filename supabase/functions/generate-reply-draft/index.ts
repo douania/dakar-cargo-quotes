@@ -128,9 +128,30 @@ serve(async (req: Request) => {
     .order("created_at", { ascending: false })
     .limit(1);
   if (intentEvents?.[0]) {
-    const id = intentEvents[0].event_data as Record<string, unknown> | null;
-    if (id?.intent_type) {
-      intentContext = `\nIntent détecté: ${id.intent_type} (confiance: ${id.confidence ?? "?"})`;
+    const ed = (intentEvents[0].event_data ?? null) as Record<string, unknown> | null;
+    const intentObj = (ed?.["intent"] ?? null) as Record<string, unknown> | null;
+
+    const intentType =
+      (intentObj?.["intent_type"] as string | undefined) ??
+      (ed?.["intent_type"] as string | undefined);
+
+    const confidence =
+      (intentObj?.["confidence"] as number | undefined) ??
+      (ed?.["confidence"] as number | undefined);
+
+    const riskLevel = (intentObj?.["risk_level"] as string | undefined) ?? undefined;
+    const replyRecommended = (intentObj?.["reply_recommended"] as boolean | undefined) ?? undefined;
+    const rawMissing = intentObj?.["missing_fields"] ?? ed?.["missing_fields"] ?? undefined;
+    const missingStr = rawMissing ? JSON.stringify(rawMissing).slice(0, 1000) : undefined;
+
+    if (intentType) {
+      intentContext =
+        `\n\n[THREAD_INTENT]\n- intent_type: ${intentType}` +
+        (confidence !== undefined ? `\n- confidence: ${confidence}` : "") +
+        (riskLevel ? `\n- risk_level: ${riskLevel}` : "") +
+        (replyRecommended !== undefined ? `\n- reply_recommended: ${replyRecommended}` : "") +
+        (missingStr ? `\n- missing_fields: ${missingStr}` : "") +
+        `\n[/THREAD_INTENT]\n`;
     }
   }
 

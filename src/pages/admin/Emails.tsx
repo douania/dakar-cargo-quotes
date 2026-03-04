@@ -488,6 +488,7 @@ export default function Emails() {
         const intent = data.intent?.intent_type ?? data.intent ?? 'inconnu';
         const confidence = data.intent?.confidence ?? data.confidence ?? '?';
         toast.success(`Intent: ${intent} (confiance: ${confidence})${data.idempotent ? ' [déjà analysé]' : ''}`);
+        await loadData();
       } else {
         toast.error(`Erreur: ${data?.error || 'Analyse échouée'}`);
       }
