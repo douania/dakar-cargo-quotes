@@ -1,5 +1,5 @@
 
-## Plan d'exécution — Phase C2/P0.3 — Actions opérateur (Open → Done)
+## Plan d'exécution — Phase C2/P0.4 — Réponse brouillon (safe, non envoyée)
 
 ### STATUS: ✅ DONE
 
@@ -7,18 +7,24 @@
 
 | Fichier | Action |
 |---------|--------|
-| `supabase/functions/close-manual-action/index.ts` | Création — edge function append-only |
+| `supabase/functions/generate-reply-draft/index.ts` | Création — edge function AI draft |
 | `supabase/config.toml` | +1 entrée `verify_jwt = false` |
-| `src/pages/CaseView.tsx` | +openActions memo, +closeAction handler, +section Actions UI |
+| `src/pages/CaseView.tsx` | +bouton "Générer brouillon", +affichage draft, +copier clipboard |
 
 ### Fonctionnalités
 
-1. **Edge function `close-manual-action`** : append-only, idempotente, `related_email_id` au niveau row
-2. **UI Actions** : section affichant les `manual_action` open avec bouton "Marquer comme fait"
-3. **Idempotence** : re-cliquer → `idempotent: true`, 0 doublon
-4. **Typage** : `Record<string, unknown> | null` partout, JSX validé
+1. **Edge function `generate-reply-draft`** : AI draft via gemini-2.5-flash, append-only, idempotente
+2. **Guard action_code** : refuse si action ≠ PREPARE_CLIENT_REPLY_DRAFT (micro-ajustement #1)
+3. **Idempotence stricte** : match dedupe_key + kind (micro-ajustement #2)
+4. **Validation stricte** : subject ≥ 3 chars, body ≥ 20 chars (micro-ajustement #3)
+5. **Clipboard fallback** : try/catch + toast erreur (micro-ajustement #4)
+6. **UI** : bouton "Générer brouillon" + affichage inline (subject + body) + bouton "Copier"
+7. **0 envoi email** : copier/coller uniquement
 
-### Audit P0
+### Done Criteria
 
-- P0 #1 (Record générique) : ✅ déjà correct
-- P0 #2 (JSX bouton) : ✅ déjà correct
+- [x] Bouton "Générer brouillon" visible sur action PREPARE_CLIENT_REPLY_DRAFT
+- [x] Click → draft généré, stocké en DB, affiché dans CaseView
+- [x] Re-click → idempotent true (pas de doublon)
+- [x] Copier → clipboard OK (ou toast erreur si permissions)
+- [x] Aucun envoi email automatique
