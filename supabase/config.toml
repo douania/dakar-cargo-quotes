@@ -167,3 +167,6 @@ verify_jwt = false
 
 [functions.analyze-thread-event]
 verify_jwt = false
+
+[functions.apply-thread-intent-v1]
+verify_jwt = false
