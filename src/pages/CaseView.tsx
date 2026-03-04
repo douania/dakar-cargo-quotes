@@ -689,13 +689,13 @@ export default function CaseView() {
     for (const e of events ?? []) {
       if (e.event_type !== "manual_action") continue;
       const ed = e.event_data as Record<string, unknown> | null;
-      const key = ed?.dedupe_key as string | undefined;
+      const key = ed?.["dedupe_key"] as string | undefined;
       if (!key) continue;
       if (!byKey.has(key)) byKey.set(key, e);
     }
     return Array.from(byKey.values())
       .filter((e: any) => {
-        const status = ((e.event_data as Record<string, unknown> | null)?.status as string) ?? "open";
+        const status = ((e.event_data as Record<string, unknown> | null)?.["status"] as string) ?? "open";
         return status === "done";
       })
       .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
