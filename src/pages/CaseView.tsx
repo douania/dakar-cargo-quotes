@@ -508,6 +508,7 @@ export default function CaseView() {
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
   const [isApplyingIntent, setIsApplyingIntent] = React.useState(false);
+  const [closingActionKey, setClosingActionKey] = useState<string | null>(null);
   // ── Gap inline resolution state ──
   const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
