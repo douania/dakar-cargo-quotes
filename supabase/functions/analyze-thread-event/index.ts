@@ -39,13 +39,16 @@ serve(async (req: Request) => {
     const { email_id } = await req.json();
     if (!email_id) return errorResponse("email_id is required", 400);
 
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return errorResponse("Missing Authorization header", 401);
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // userClient for RLS-respecting reads
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: req.headers.get("Authorization")! } },
+      global: { headers: { Authorization: authHeader } },
       auth: { persistSession: false },
     });
 
@@ -73,7 +76,7 @@ serve(async (req: Request) => {
     const { data: thread, error: threadErr } = await userClient
       .from("email_threads")
       .select("id")
-      .eq("id", email.thread_ref)
+      .eq("thread_ref", email.thread_ref)
       .maybeSingle();
 
     if (threadErr || !thread) {
@@ -109,8 +112,8 @@ serve(async (req: Request) => {
       return jsonResponse({
         ok: true,
         idempotent: true,
-        intent: intentData?.intent ?? null,
-        confidence: intentData?.confidence ?? null,
+        intent: intentData ? (intentData["intent"] as unknown) ?? null : null,
+        confidence: intentData ? (intentData["confidence"] as unknown) ?? null : null,
       });
     }
 
@@ -141,12 +144,12 @@ serve(async (req: Request) => {
     }
 
     const intent = {
-      intent_type: parsed.intent_type || "other",
-      risk_level: parsed.risk_level || "low",
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-      case_updates: Array.isArray(parsed.case_updates) ? parsed.case_updates : [],
-      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : [],
-      reply_recommended: !!parsed.reply_recommended,
+      intent_type: typeof parsed["intent_type"] === "string" ? parsed["intent_type"] : "other",
+      risk_level: typeof parsed["risk_level"] === "string" ? parsed["risk_level"] : "low",
+      confidence: typeof parsed["confidence"] === "number" ? parsed["confidence"] : 0.5,
+      case_updates: Array.isArray(parsed["case_updates"]) ? parsed["case_updates"] : [],
+      open_questions: Array.isArray(parsed["open_questions"]) ? parsed["open_questions"] : [],
+      reply_recommended: Boolean(parsed["reply_recommended"]),
     };
 
     // 7. Insert timeline event
