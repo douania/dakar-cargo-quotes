@@ -696,7 +696,23 @@ export default function CaseView() {
         map.set(sourceKey, draft);
       }
     }
-    return map;
+   return map;
+  }, [events]);
+
+  // ── All drafts (visible even after action closed) ──
+  const allDrafts = useMemo(() => {
+    return (events ?? [])
+      .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1")
+      .map(e => {
+        const ed = e.event_data as Record<string, unknown>;
+        const draftReply = (ed["draft_reply"] as any) ?? null;
+        const subject = typeof draftReply?.subject === "string" ? draftReply.subject : null;
+        const body = typeof draftReply?.body === "string" ? draftReply.body : null;
+        if (!subject || !body) return null;
+        return { id: e.id, draft: { subject, body }, createdAt: e.created_at };
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string }[];
   }, [events]);
 
   async function closeAction(dedupeKey: string) {
@@ -1192,6 +1208,41 @@ export default function CaseView() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Brouillons de réponse (always visible) ── */}
+        {allDrafts.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-accent" />
+                <CardTitle className="text-lg">Brouillons de réponse</CardTitle>
+                <Badge variant="secondary">{allDrafts.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {allDrafts.map(d => (
+                <div key={d.id} className="bg-muted rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{d.draft.subject}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={() => copyDraftToClipboard(d.draft)}
+                      >
+                        <Copy className="mr-1 h-3 w-3" />
+                        Copier
+                      </Button>
+                    </div>
+                  </div>
+                  <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{d.draft.body}</pre>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
