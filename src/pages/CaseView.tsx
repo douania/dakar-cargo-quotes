@@ -683,6 +683,22 @@ export default function CaseView() {
     });
   }, [events]);
 
+  // ── Drafts indexed by source action dedupe_key ──
+  const draftsByActionKey = useMemo(() => {
+    const map = new Map<string, { subject: string; body: string }>();
+    for (const e of events ?? []) {
+      if (e.event_type !== "output_generated") continue;
+      const ed = e.event_data as Record<string, unknown> | null;
+      if (ed?.kind !== "reply_draft_v1") continue;
+      const sourceKey = ed?.source_action_dedupe_key as string | undefined;
+      const draft = ed?.draft_reply as { subject: string; body: string } | undefined;
+      if (sourceKey && draft) {
+        map.set(sourceKey, draft);
+      }
+    }
+    return map;
+  }, [events]);
+
   async function closeAction(dedupeKey: string) {
     if (!caseId) return;
     setClosingActionKey(dedupeKey);
@@ -701,6 +717,37 @@ export default function CaseView() {
       toast.error(`Erreur clôture: ${e?.message ?? "unknown"}`);
     } finally {
       setClosingActionKey(null);
+    }
+  }
+
+  async function generateDraft(dedupeKey: string) {
+    if (!caseId) return;
+    setGeneratingDraftKey(dedupeKey);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-reply-draft", {
+        body: { case_id: caseId, action_dedupe_key: dedupeKey },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success(data.idempotent ? "Brouillon déjà généré" : "Brouillon généré");
+        refetchEvents();
+      } else {
+        toast.error(`Erreur: ${data?.error ?? "Génération échouée"}`);
+      }
+    } catch (e: any) {
+      toast.error(`Erreur génération: ${e?.message ?? "unknown"}`);
+    } finally {
+      setGeneratingDraftKey(null);
+    }
+  }
+
+  async function copyDraftToClipboard(draft: { subject: string; body: string }) {
+    const text = `Subject: ${draft.subject}\n\n${draft.body}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Brouillon copié");
+    } catch {
+      toast.error("Impossible de copier (permissions navigateur)");
     }
   }
 
