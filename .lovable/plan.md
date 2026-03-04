@@ -1,5 +1,5 @@
 
-## Plan d'exécution — Phase C2/P0.2 — Exploiter `thread_intent_v1` dans le dossier
+## Plan d'exécution — Phase C2/P0.3 — Actions opérateur (Open → Done)
 
 ### STATUS: ✅ DONE
 
@@ -7,14 +7,18 @@
 
 | Fichier | Action |
 |---------|--------|
-| `supabase/functions/apply-thread-intent-v1/index.ts` | Création — edge function idempotente |
+| `supabase/functions/close-manual-action/index.ts` | Création — edge function append-only |
 | `supabase/config.toml` | +1 entrée `verify_jwt = false` |
-| `src/pages/CaseView.tsx` | Intent display + bouton "Appliquer intent" |
+| `src/pages/CaseView.tsx` | +openActions memo, +closeAction handler, +section Actions UI |
 
 ### Fonctionnalités
 
-1. **Affichage intent** : Badge intent_type + confiance + risque dans CaseView (dérivé des events existants)
-2. **Bouton "Appliquer intent"** : crée des `manual_action` dans la timeline via edge function
-3. **Idempotence** : dedupe_key `apply_intent_v1:{eventId}:{action_code}` — relancer = 0 doublons
-4. **Mapping P0** : `provide_missing_info` → 2 actions, `new_quote_request` → 1 action, default → 1 action
-5. **Sécurité** : userClient (JWT/RLS) pour lectures, serviceClient pour inserts, intent_event_id vérifié contre case_id
+1. **Edge function `close-manual-action`** : append-only, idempotente, `related_email_id` au niveau row
+2. **UI Actions** : section affichant les `manual_action` open avec bouton "Marquer comme fait"
+3. **Idempotence** : re-cliquer → `idempotent: true`, 0 doublon
+4. **Typage** : `Record<string, unknown> | null` partout, JSX validé
+
+### Audit P0
+
+- P0 #1 (Record générique) : ✅ déjà correct
+- P0 #2 (JSX bouton) : ✅ déjà correct
