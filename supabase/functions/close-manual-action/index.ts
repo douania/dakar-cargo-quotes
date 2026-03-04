@@ -74,7 +74,7 @@ serve(async (req: Request) => {
       .insert({
         case_id,
         event_type: "manual_action",
-        actor_type: "human",
+        actor_type: "operator",
         related_email_id: latest.related_email_id ?? null,
         event_data: {
           ...(ed ?? {}),

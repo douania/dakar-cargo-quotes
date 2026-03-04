@@ -1,27 +1,24 @@
 
+## Plan d'exécution — Phase C2/P0.3 — Actions opérateur (Open → Done)
 
-## Fix P0.3 — `actor_type` constraint violation
+### STATUS: ✅ DONE
 
-### Problème identifié
+### Fichiers créés/modifiés
 
-L'edge function `close-manual-action` insère avec `actor_type: "human"`, mais la contrainte CHECK sur `case_timeline_events.actor_type` n'autorise que : `system`, `user`, `ai`, `operator`.
+| Fichier | Action |
+|---------|--------|
+| `supabase/functions/close-manual-action/index.ts` | Création — edge function append-only |
+| `supabase/config.toml` | +1 entrée `verify_jwt = false` |
+| `src/pages/CaseView.tsx` | +openActions memo, +closeAction handler, +section Actions UI |
 
-**Erreur exacte** (logs) :
-```
-new row for relation "case_timeline_events" violates check constraint "case_timeline_events_actor_type_check"
-```
+### Fonctionnalités
 
-### Fix (1 ligne)
+1. **Edge function `close-manual-action`** : append-only, idempotente, `related_email_id` au niveau row
+2. **UI Actions** : section affichant les `manual_action` open avec bouton "Marquer comme fait"
+3. **Idempotence** : re-cliquer → `idempotent: true`, 0 doublon
+4. **Typage** : `Record<string, unknown> | null` partout, JSX validé
 
-**Fichier** : `supabase/functions/close-manual-action/index.ts`
+### Audit P0
 
-Remplacer `actor_type: "human"` par `actor_type: "operator"` dans l'insert (ligne 73).
-
-C'est le seul changement nécessaire. Le reste du code (UI, idempotence, typing) est correct.
-
-### Validation après fix
-
-1. Re-tester `close-manual-action` sur le case `18accd26...` → devrait retourner `{ ok: true, idempotent: false }`
-2. Re-tester → `{ ok: true, idempotent: true }`
-3. Vérifier en DB que l'event `done` est bien inséré
-
+- P0 #1 (Record générique) : ✅ déjà correct
+- P0 #2 (JSX bouton) : ✅ déjà correct
