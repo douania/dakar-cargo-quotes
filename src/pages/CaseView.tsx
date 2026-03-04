@@ -507,6 +507,7 @@ export default function CaseView() {
   const [isSavingFact, setIsSavingFact] = React.useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
+  const [isApplyingIntent, setIsApplyingIntent] = React.useState(false);
   // ── Gap inline resolution state ──
   const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
@@ -945,6 +946,70 @@ export default function CaseView() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* ── Thread Intent Display ── */}
+        {(() => {
+          const latestIntentEvent = events.find((e: any) => e.event_type === "thread_intent_v1") ?? null;
+          const intentObj = (latestIntentEvent?.event_data as any)?.intent ?? null;
+          const intentType = intentObj?.intent_type ?? (latestIntentEvent?.event_data as any)?.intent_type ?? null;
+          const intentConfidence = intentObj?.confidence ?? (latestIntentEvent?.event_data as any)?.confidence ?? null;
+          const intentRisk = intentObj?.risk_level ?? (latestIntentEvent?.event_data as any)?.risk_level ?? null;
+
+          const applyIntentToCase = async () => {
+            if (!caseId || !latestIntentEvent?.id) {
+              toast.error("Aucun intent à appliquer");
+              return;
+            }
+            setIsApplyingIntent(true);
+            try {
+              const { data, error } = await supabase.functions.invoke("apply-thread-intent-v1", {
+                body: { case_id: caseId, intent_event_id: latestIntentEvent.id },
+              });
+              if (error) throw error;
+              if (data?.ok) {
+                toast.success(`Intent appliqué : ${data.applied_count} action(s) créée(s), ${data.skipped_count} ignorée(s)`);
+                refetchEvents();
+              } else {
+                toast.error(`Erreur : ${data?.error ?? "Apply intent échoué"}`);
+              }
+            } catch (e: any) {
+              toast.error(`Erreur apply intent : ${e?.message ?? "unknown"}`);
+            } finally {
+              setIsApplyingIntent(false);
+            }
+          };
+
+          return latestIntentEvent ? (
+            <Card className="mb-6 border-accent/30 bg-accent/5">
+              <CardContent className="py-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <Badge variant="secondary">Intent : {intentType ?? "—"}</Badge>
+                  {intentConfidence != null && (
+                    <span className="text-xs text-muted-foreground">
+                      Confiance : {Math.round(intentConfidence * 100)}%
+                    </span>
+                  )}
+                  {intentRisk && (
+                    <Badge variant={intentRisk === "high" ? "destructive" : "outline"} className="text-[10px]">
+                      Risque : {intentRisk}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={applyIntentToCase}
+                  disabled={isApplyingIntent}
+                >
+                  {isApplyingIntent ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Play className="mr-2 h-3 w-3" />}
+                  Appliquer intent
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <p className="text-xs text-muted-foreground mb-4">Aucun intent analysé</p>
+          );
+        })()}
 
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
