@@ -1115,34 +1115,76 @@ export default function CaseView() {
             {openActions.length === 0 ? (
               <p className="text-xs text-muted-foreground">Aucune action ouverte</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {openActions.map((action: any) => {
                   const ed = action.event_data as Record<string, unknown> | null;
                   const dedupeKey = ed?.dedupe_key as string;
+                  const actionCode = ed?.action_code as string | undefined;
+                  const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT";
+                  const existingDraft = draftsByActionKey.get(dedupeKey);
+
                   return (
-                    <div key={dedupeKey} className="flex items-center justify-between border rounded p-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {(ed?.title_fr as string) ?? (ed?.action_code as string) ?? "Action"}
-                        </p>
-                        {ed?.description_fr && (
-                          <p className="text-xs text-muted-foreground truncate">{ed.description_fr as string}</p>
-                        )}
+                    <div key={dedupeKey} className="border rounded p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {(ed?.title_fr as string) ?? actionCode ?? "Action"}
+                          </p>
+                          {ed?.description_fr && (
+                            <p className="text-xs text-muted-foreground truncate">{ed.description_fr as string}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 ml-2 shrink-0">
+                          {isPrepareReply && !existingDraft && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={generatingDraftKey === dedupeKey}
+                              onClick={() => generateDraft(dedupeKey)}
+                            >
+                              {generatingDraftKey === dedupeKey ? (
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                              ) : (
+                                <Mail className="mr-1 h-3 w-3" />
+                              )}
+                              Générer brouillon
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={closingActionKey === dedupeKey}
+                            onClick={() => closeAction(dedupeKey)}
+                          >
+                            {closingActionKey === dedupeKey ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 h-3 w-3" />
+                            )}
+                            Marquer comme fait
+                          </Button>
+                        </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="ml-2 shrink-0"
-                        disabled={closingActionKey === dedupeKey}
-                        onClick={() => closeAction(dedupeKey)}
-                      >
-                        {closingActionKey === dedupeKey ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Check className="mr-1 h-3 w-3" />
-                        )}
-                        Marquer comme fait
-                      </Button>
+
+                      {/* Draft display */}
+                      {existingDraft && (
+                        <div className="bg-muted rounded p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-muted-foreground">Brouillon généré</p>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2"
+                              onClick={() => copyDraftToClipboard(existingDraft)}
+                            >
+                              <Copy className="mr-1 h-3 w-3" />
+                              Copier
+                            </Button>
+                          </div>
+                          <p className="text-sm font-medium">{existingDraft.subject}</p>
+                          <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{existingDraft.body}</pre>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
