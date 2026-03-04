@@ -36,6 +36,8 @@ import {
   Calculator,
   Clock,
   CheckCircle,
+  Copy,
+  Mail,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
