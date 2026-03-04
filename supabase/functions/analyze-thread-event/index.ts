@@ -152,10 +152,10 @@ serve(async (req: Request) => {
       reply_recommended: Boolean(parsed["reply_recommended"]),
     };
 
-    // 7. Insert timeline event
+    // 7. Insert timeline event (with returning id for auto-apply)
     const dedupe_key = `${case_id}_thread_intent_v1_${email_id}`;
 
-    const { error: insertErr } = await serviceClient
+    const { data: inserted, error: insertErr } = await serviceClient
       .from("case_timeline_events")
       .insert({
         case_id,
@@ -170,11 +170,40 @@ serve(async (req: Request) => {
           confidence: intent.confidence,
           model_meta: { model: "google/gemini-2.5-flash", version: "v1" },
         },
-      });
+      })
+      .select("id")
+      .single();
 
-    if (insertErr) {
-      console.warn("[analyze-thread-event] Timeline insert failed:", insertErr.message);
+    if (insertErr || !inserted) {
+      console.warn("[analyze-thread-event] Timeline insert failed:", insertErr?.message);
       return jsonResponse({ ok: false, error: "TIMELINE_INSERT_FAILED" }, 200);
+    }
+
+    // 8. Auto-apply for trivial intents (non-blocking, timeout 2.5s)
+    const AUTO_APPLY_INTENTS = new Set(["provide_missing_info"]);
+
+    if (AUTO_APPLY_INTENTS.has(intent.intent_type)) {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 2500);
+      try {
+        const resp = await fetch(`${supabaseUrl}/functions/v1/apply-thread-intent-v1`, {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ case_id, intent_event_id: inserted.id }),
+          signal: controller.signal,
+        });
+        if (!resp.ok) {
+          console.warn("[analyze-thread-event] Auto-apply non-blocking HTTP:", resp.status);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn("[analyze-thread-event] Auto-apply failed (non-blocking):", msg);
+      } finally {
+        clearTimeout(t);
+      }
     }
 
     return jsonResponse({
@@ -183,6 +212,7 @@ serve(async (req: Request) => {
       thread_id,
       email_id,
       intent,
+      intent_event_id: inserted.id,
       idempotent: false,
     });
   } catch (err) {
