@@ -1,30 +1,31 @@
 
-## Plan d'exécution — Phase C2/P0.4 — Réponse brouillon (safe, non envoyée)
+## Plan d'exécution — Phase C2/P0.5 + P0.7
 
 ### STATUS: ✅ DONE
 
-### Fichiers créés/modifiés
+### Fichiers modifiés
 
-| Fichier | Action |
-|---------|--------|
-| `supabase/functions/generate-reply-draft/index.ts` | Création — edge function AI draft |
-| `supabase/config.toml` | +1 entrée `verify_jwt = false` |
-| `src/pages/CaseView.tsx` | +bouton "Générer brouillon", +affichage draft, +copier clipboard |
+| Fichier | Action | Phase |
+|---------|--------|-------|
+| `src/pages/CaseView.tsx` | +`doneActions` memo + Card "Actions clôturées" | P0.5 |
+| `supabase/functions/analyze-thread-event/index.ts` | +auto-apply `provide_missing_info` avec timeout 2.5s | P0.7 |
 
-### Fonctionnalités
+### P0.5 — Actions clôturées (UX)
 
-1. **Edge function `generate-reply-draft`** : AI draft via gemini-2.5-flash, append-only, idempotente
-2. **Guard action_code** : refuse si action ≠ PREPARE_CLIENT_REPLY_DRAFT (micro-ajustement #1)
-3. **Idempotence stricte** : match dedupe_key + kind (micro-ajustement #2)
-4. **Validation stricte** : subject ≥ 3 chars, body ≥ 20 chars (micro-ajustement #3)
-5. **Clipboard fallback** : try/catch + toast erreur (micro-ajustement #4)
-6. **UI** : bouton "Générer brouillon" + affichage inline (subject + body) + bouton "Copier"
-7. **0 envoi email** : copier/coller uniquement
+- [x] Memo `doneActions` (group by dedupe_key, keep latest, filter `status === "done"`, sort desc)
+- [x] Card "Actions clôturées" avec Badge count, CheckCircle vert, title_fr (fallback action_code), date created_at
+- [x] Affiché seulement si `doneActions.length > 0`, top 10
 
-### Done Criteria
+### P0.6 — Bouton "Insérer dans réponse"
 
-- [x] Bouton "Générer brouillon" visible sur action PREPARE_CLIENT_REPLY_DRAFT
-- [x] Click → draft généré, stocké en DB, affiché dans CaseView
-- [x] Re-click → idempotent true (pas de doublon)
-- [x] Copier → clipboard OK (ou toast erreur si permissions)
-- [x] Aucun envoi email automatique
+- [x] **NON IMPLÉMENTÉ** — doublon du bouton "Copier" existant. Revisité lors ajout composeur email in-app.
+
+### P0.7 — Auto-apply provide_missing_info
+
+- [x] `.insert(...).select("id").single()` pour récupérer inserted.id
+- [x] Auto-apply via fetch interne si `intent_type ∈ AUTO_APPLY_INTENTS`
+- [x] AbortController timeout 2.5s + clearTimeout cleanup (P0-A)
+- [x] Safe error logging `e instanceof Error` (P0-B)
+- [x] Check `resp.ok` non-bloquant (P0-C)
+- [x] `intent_event_id` passé dans le body (évite race condition)
+- [x] Retour enrichi avec `intent_event_id`
