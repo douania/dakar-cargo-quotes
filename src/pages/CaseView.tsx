@@ -683,6 +683,24 @@ export default function CaseView() {
     });
   }, [events]);
 
+  // ── Done actions (append-only: group by dedupe_key, keep latest, filter done) ──
+  const doneActions = useMemo(() => {
+    const byKey = new Map<string, any>();
+    for (const e of events ?? []) {
+      if (e.event_type !== "manual_action") continue;
+      const ed = e.event_data as Record<string, unknown> | null;
+      const key = ed?.dedupe_key as string | undefined;
+      if (!key) continue;
+      if (!byKey.has(key)) byKey.set(key, e);
+    }
+    return Array.from(byKey.values())
+      .filter((e: any) => {
+        const status = ((e.event_data as Record<string, unknown> | null)?.status as string) ?? "open";
+        return status === "done";
+      })
+      .sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+  }, [events]);
+
   // ── Drafts indexed by source action dedupe_key ──
   const draftsByActionKey = useMemo(() => {
     const map = new Map<string, { subject: string; body: string }>();
@@ -1208,6 +1226,33 @@ export default function CaseView() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Actions clôturées ── */}
+        {doneActions.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                <CardTitle className="text-lg">Actions clôturées</CardTitle>
+                <Badge variant="secondary">{doneActions.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {doneActions.slice(0, 10).map((action: any) => {
+                const ed = action.event_data as Record<string, unknown>;
+                const label = (ed["title_fr"] as string) ?? (ed["action_code"] as string) ?? "Action";
+                const createdAt = action.created_at ? new Date(action.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
+                return (
+                  <div key={action.id} className="flex items-center gap-2 py-1">
+                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                    <span className="text-sm">{label}</span>
+                    {createdAt && <span className="text-xs text-muted-foreground ml-auto">{createdAt}</span>}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── Brouillons de réponse (always visible) ── */}
         {allDrafts.length > 0 && (
