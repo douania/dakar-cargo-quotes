@@ -379,6 +379,49 @@ Deno.serve(async (req) => {
     }
     // If !scopeWantsDuties or !isFobType → skip FOB freight coherence check
 
+    // 8c. Coherence check — Cargo Value for DDP (last-resort drift detection, NO gap upsert)
+    if (scopeWantsDuties) {
+      if (!inputs.cargoValue || inputs.cargoValue <= 0) {
+        console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.value", scopeWantsDuties, incoterm, pkg });
+
+        const { data: cvBlockerRunNumber } = await serviceClient
+          .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+        const cvBlockerMessage = "DDP : Valeur marchandise (cargo.value) requise pour calculer droits et taxes.";
+
+        await serviceClient
+          .from("pricing_runs")
+          .insert({
+            case_id,
+            run_number: cvBlockerRunNumber || 1,
+            inputs_json: { cargoValue: inputs.cargoValue, scope: { servicePackage: pkg, incoterm: incotermEarly } },
+            facts_snapshot: factsSnapshot,
+            status: "blocked",
+            error_message: cvBlockerMessage,
+            outputs_json: { pricing_blockers: ["CARGO_VALUE_REQUIRED"], message: cvBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties }, coherence_drift: true },
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+            created_by: userId,
+          });
+
+        if (!isFinalized) {
+          await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "cargo_value_blocker");
+        }
+
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: ["CARGO_VALUE_REQUIRED"],
+            message: cvBlockerMessage,
+            run_number: cvBlockerRunNumber || 1,
+            scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // If !scopeWantsDuties → skip cargo value coherence check
+
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
       .rpc('get_next_pricing_run_number', { p_case_id: case_id });

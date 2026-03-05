@@ -2425,8 +2425,16 @@ Deno.serve(async (req) => {
         }
         
         if (!request.cargoValue || request.cargoValue <= 0) {
+          const incotermUpper = String(request.incoterm ?? "").trim().toUpperCase();
+          const isDDP = incotermUpper === "DDP";
           request.cargoValue = 1;
-          earlyWarnings.push('Valeur marchandise non spécifiée — calculs CAF/assurance approximatifs');
+          if (isDDP) {
+            earlyWarnings.push(
+              "⚠️ CRITIQUE: Valeur marchandise absente en DDP — droits/taxes calculés sur 1 FCFA (NON FIABLE). Renseignez cargo.value."
+            );
+          } else {
+            earlyWarnings.push("Valeur marchandise non spécifiée — calculs CAF/assurance approximatifs");
+          }
         }
         
         // Générer les lignes de cotation
