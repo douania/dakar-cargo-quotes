@@ -1,32 +1,48 @@
 
-## Plan d'exécution — Phase C3/P0 (Reply Analysis v1)
 
-### STATUS: ✅ DONE
+## Diagnostic
 
-### Fichiers modifiés
+| Élément | Valeur |
+|---------|--------|
+| Case ID | `ae8a1acc-9913-4bce-a1ee-9d0b6ee3af64` |
+| Statut actuel | `READY_TO_PRICE` |
+| Gate UI (après Patch 1) | `ACK_READY_FOR_PRICING` uniquement |
+| Gate backend (après Patch 1) | `ACK_READY_FOR_PRICING` uniquement |
 
-| Fichier | Action | Phase |
-|---------|--------|-------|
-| `supabase/functions/analyze-reply-event/index.ts` | Créé — edge function analyse réponse client | C3/P0 |
-| `supabase/config.toml` | Ajout `[functions.analyze-reply-event] verify_jwt = false` | C3/P0 |
-| `src/pages/admin/Emails.tsx` | +state `analyzingReplyId`, +handler `analyzeReply`, +2 boutons | C3/P0 |
-| `src/pages/CaseView.tsx` | +affichage Card "Analyse dernière réponse client" | C3/P0 |
+**Cause** : Le Patch 1 a retiré `READY_TO_PRICE` des statuts autorisés, mais les dossiers existants dans ce statut n'ont jamais transité par `ack-pricing-ready` (qui exige `DECISIONS_COMPLETE`). Résultat : impasse.
 
-### C3/P0 — Reply Analysis v1
+## Fix — Rétablir la compatibilité ascendante (2 fichiers, 0 migration)
 
-- [x] Edge function `analyze-reply-event` : auth, email→thread→case, idempotence (JS filter kind=reply_analysis_v1, limit 50), AI call, parse JSON, normalize (clamp confidence, skip empty facts), insert `output_generated` timeline event, generate 1-3 `manual_action` idempotentes
-- [x] Idempotence actions : filtre par `case_id` + Set de dedupe_keys
-- [x] dedupe_key = `reply_analysis_v1:${case_id}:${email_id}` (basé sur email, pas sur event_id)
-- [x] Actions : APPLY_FACT_PROPOSALS (toujours), PREPARE_CLIENT_REPLY_DRAFT (si reply_recommended), LAUNCH_PRICING (si ready_to_price)
-- [x] UI Admin : bouton "Réponse" dans liste emails + dialog détail, avec toast + refresh
-- [x] UI CaseView : Card compacte après "Actions clôturées" — chips ready_to_price/reply_recommended, proposed_facts (max 10), open_questions
-- [x] Bracket notation systématique sur tous les accès Record<string, unknown>
-- [x] Comment SECURITY dans edge function
+### 1. `src/pages/CaseView.tsx` — ligne 1687
 
-### Historique phases précédentes
+Accepter les deux statuts pour afficher le panel pricing :
 
-- P0.1 — Fix intentContext dans generate-reply-draft ✅
-- P0.2 — Refresh après analyze-thread-event ✅  
-- P0.3 — Bracket notation CaseView.tsx ✅
-- P0.5 — Actions clôturées (UX) ✅
-- P0.7 — Auto-apply provide_missing_info ✅
+```typescript
+// AVANT
+{caseData.status === 'ACK_READY_FOR_PRICING' && (
+
+// APRÈS
+{['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
+```
+
+### 2. `supabase/functions/run-pricing/index.ts` — `pricingAllowedStatuses`
+
+Remettre `READY_TO_PRICE` dans la liste :
+
+```typescript
+const pricingAllowedStatuses = [
+  "READY_TO_PRICE",           // legacy — dossiers pré-ACK
+  "ACK_READY_FOR_PRICING",    // nouveau flow avec gate ACK
+  "PRICED_DRAFT",
+  "HUMAN_REVIEW",
+  "QUOTED_VERSIONED",
+  "SENT",
+];
+```
+
+### Pourquoi c'est safe
+
+- Les dossiers **nouveaux** passent par le flow complet (decisions → ACK → pricing)
+- Les dossiers **existants** déjà `READY_TO_PRICE` peuvent être chiffrés sans blocage
+- Zéro migration, zéro RLS, compatibilité totale
+
