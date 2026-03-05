@@ -1254,7 +1254,84 @@ export default function CaseView() {
           </Card>
         )}
 
-        {/* ── Brouillons de réponse (always visible) ── */}
+        {/* ── Analyse dernière réponse client (C3/P0) ── */}
+        {(() => {
+          const replyAnalysisEvent = events.find((e: any) => {
+            if (e.event_type !== "output_generated") return false;
+            const ed = e.event_data as Record<string, unknown> | null;
+            return ed?.["kind"] === "reply_analysis_v1";
+          }) ?? null;
+
+          if (!replyAnalysisEvent) return null;
+
+          const ed = replyAnalysisEvent.event_data as Record<string, unknown> | null;
+          const analysis = (ed?.["analysis"] ?? null) as Record<string, unknown> | null;
+          if (!analysis) return null;
+
+          const proposedFacts = Array.isArray(analysis["proposed_facts"]) ? analysis["proposed_facts"] as Record<string, unknown>[] : [];
+          const openQuestions = Array.isArray(analysis["open_questions"]) ? analysis["open_questions"] as string[] : [];
+          const readyToPrice = Boolean(analysis["ready_to_price"]);
+          const replyRecommended = Boolean(analysis["reply_recommended"]);
+
+          const displayValue = (f: Record<string, unknown>) => {
+            if (typeof f["value_text"] === "string" && f["value_text"]) return f["value_text"];
+            if (typeof f["value_num"] === "number") return String(f["value_num"]);
+            if (f["value_json"] != null) return JSON.stringify(f["value_json"]).slice(0, 200);
+            return "—";
+          };
+
+          return (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-accent" />
+                  <CardTitle className="text-lg">Analyse dernière réponse client</CardTitle>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant={readyToPrice ? "default" : "secondary"}>
+                    {readyToPrice ? "Prêt à chiffrer" : "Infos incomplètes"}
+                  </Badge>
+                  {replyRecommended && (
+                    <Badge variant="outline">Réponse recommandée</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {proposedFacts.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">Faits proposés ({proposedFacts.length})</p>
+                    <div className="space-y-1">
+                      {proposedFacts.slice(0, 10).map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {String(f["fact_key"] ?? "")}
+                          </Badge>
+                          <span className="truncate">{displayValue(f)}</span>
+                          {typeof f["confidence"] === "number" && (
+                            <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                              {Math.round((f["confidence"] as number) * 100)}%
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {openQuestions.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">Questions ouvertes</p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
+                      {openQuestions.map((q, i) => (
+                        <li key={i}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {allDrafts.length > 0 && (
           <Card>
             <CardHeader className="pb-3">
