@@ -1683,8 +1683,8 @@ export default function CaseView() {
           </Card>
         )}
 
-        {/* Pricing Launch Panel — visible for READY_TO_PRICE */}
-        {caseData.status === 'READY_TO_PRICE' && (
+        {/* Pricing Launch Panel — visible only after ACK */}
+        {caseData.status === 'ACK_READY_FOR_PRICING' && (
           <div className="mb-6">
             <PricingLaunchPanel caseId={caseId!} onComplete={handleRefresh} />
           </div>

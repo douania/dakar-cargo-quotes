@@ -3285,6 +3285,57 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 10b. Final sync — close phantom gaps where a valid fact exists
+    {
+      const { data: openGapsForSync } = await serviceClient
+        .from("quote_gaps")
+        .select("id, gap_key, status")
+        .eq("case_id", case_id)
+        .eq("status", "open");
+
+      const factsMapForSync = new Map(
+        (existingDbFacts || []).map((f: any) => [f["fact_key"], f])
+      );
+      let gapsSyncResolved = 0;
+
+      for (const gap of (openGapsForSync || [])) {
+        const fact = factsMapForSync.get(gap["gap_key"]);
+        if (!fact) continue;
+
+        let isValid = false;
+        const gapKey = String(gap["gap_key"]);
+        if (gapKey === "cargo.hs_code") {
+          isValid = /^\d{10}$/.test(String(fact["value_text"] ?? "").trim());
+        } else if (gapKey === "cargo.freight_cost") {
+          isValid = fact["value_number"] != null && Number(fact["value_number"]) > 0;
+        } else {
+          isValid = (String(fact["value_text"] ?? "").trim().length > 0) || (fact["value_number"] != null);
+        }
+
+        if (isValid) {
+          const { error: syncUpdateErr } = await serviceClient
+            .from("quote_gaps")
+            .update({ status: "resolved", resolved_at: new Date().toISOString() })
+            .eq("id", gap["id"]);
+          if (syncUpdateErr) {
+            console.error(`[FinalSync] Failed to resolve gap ${gap["id"]}:`, syncUpdateErr.message);
+            continue;
+          }
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_resolved",
+            event_data: { gap_key: gapKey, reason: "final_sync", phase: "final" },
+            related_gap_id: gap["id"],
+            actor_type: "system",
+          });
+          gapsSyncResolved++;
+        }
+      }
+      if (gapsSyncResolved > 0) {
+        console.log(`[FinalSync] Resolved ${gapsSyncResolved} phantom gaps for case ${case_id}`);
+      }
+    }
+
     // 11. Calculate completeness
     const { count: currentFactsCount } = await serviceClient
       .from("quote_facts")
