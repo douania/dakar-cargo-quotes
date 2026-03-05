@@ -1379,7 +1379,7 @@ export default function CaseView() {
                     <div className="space-y-1">
                     {proposedFacts.slice(0, 10).map((f, i) => {
                         const alreadyApplied = isFactAlreadyApplied(f);
-                        const factKey = String(f["fact_key"] ?? "");
+                        const factKey = String(f["fact_key"] ?? "").trim();
                         const isApplying = applyingFactKey === factKey;
                         return (
                           <div key={i} className="flex items-center gap-2 text-sm">
