@@ -613,6 +613,82 @@ export default function CaseView() {
     refetchGaps();
   }
 
+  // ── C3/P1: Apply proposed facts from reply_analysis_v1 ──
+  const [applyingFactKey, setApplyingFactKey] = useState<string | null>(null);
+
+  function toFactPayload(f: Record<string, unknown>) {
+    const factKey = String(f["fact_key"] ?? "").trim();
+    if (!factKey) return null;
+
+    // value_number: strict typeof check (no string coercion)
+    let valueNumber: number | null = null;
+    if (typeof f["value_num"] === "number" && Number.isFinite(f["value_num"])) {
+      valueNumber = f["value_num"];
+    } else if (typeof f["value_number"] === "number" && Number.isFinite(f["value_number"])) {
+      valueNumber = f["value_number"];
+    }
+
+    // value_text: never send empty string, force null if value_number is set
+    let valueText: string | null = null;
+    if (valueNumber === null) {
+      const vt = typeof f["value_text"] === "string" ? f["value_text"].trim() : "";
+      valueText = vt || null;
+    }
+
+    // value_json: object non-null only
+    const valueJson = (typeof f["value_json"] === "object" && f["value_json"] !== null && !Array.isArray(f["value_json"]))
+      ? f["value_json"]
+      : (Array.isArray(f["value_json"]) ? f["value_json"] : null);
+
+    return { fact_key: factKey, value_text: valueText, value_number: valueNumber, value_json: valueJson };
+  }
+
+  function isFactAlreadyApplied(f: Record<string, unknown>): boolean {
+    const payload = toFactPayload(f);
+    if (!payload) return false;
+    return facts.some((existing: any) => {
+      if (existing.fact_key !== payload.fact_key) return false;
+      if (payload.value_number !== null) {
+        return Number(existing.value_number) === Number(payload.value_number);
+      }
+      if (payload.value_text !== null) {
+        return String(existing.value_text ?? "").trim() === payload.value_text;
+      }
+      return false;
+    });
+  }
+
+  async function applyProposedFact(f: Record<string, unknown>) {
+    const payload = toFactPayload(f);
+    if (!payload || !payload.fact_key) return;
+
+    setApplyingFactKey(payload.fact_key);
+    try {
+      const body: Record<string, unknown> = {
+        case_id: caseId,
+        fact_key: payload.fact_key,
+        value_text: payload.value_text,
+        value_number: payload.value_number,
+      };
+      if (payload.value_json != null) {
+        body.value_json = payload.value_json;
+      }
+
+      const { data, error } = await supabase.functions.invoke("set-case-fact", { body });
+      if (error) throw error;
+      if (data?.ok === false) {
+        throw new Error(data?.error || "set-case-fact a échoué");
+      }
+
+      toast.success(`Fact appliqué : ${payload.fact_key}`);
+      handleRefresh();
+    } catch (e: any) {
+      toast.error(`Impossible d'appliquer ${payload.fact_key} : ${e.message}`);
+    } finally {
+      setApplyingFactKey(null);
+    }
+  }
+
   // ── Phase 15.8.2: Async helper for build-case-puzzle ──
   async function runBuildCasePuzzleAsync(
     targetCaseId: string,
@@ -1301,19 +1377,39 @@ export default function CaseView() {
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground mb-1">Faits proposés ({proposedFacts.length})</p>
                     <div className="space-y-1">
-                      {proposedFacts.slice(0, 10).map((f, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm">
-                          <Badge variant="outline" className="text-[10px] shrink-0">
-                            {String(f["fact_key"] ?? "")}
-                          </Badge>
-                          <span className="truncate">{displayValue(f)}</span>
-                          {typeof f["confidence"] === "number" && (
-                            <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                              {Math.round((f["confidence"] as number) * 100)}%
+                    {proposedFacts.slice(0, 10).map((f, i) => {
+                        const alreadyApplied = isFactAlreadyApplied(f);
+                        const factKey = String(f["fact_key"] ?? "");
+                        const isApplying = applyingFactKey === factKey;
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              {factKey}
+                            </Badge>
+                            <span className="truncate">{displayValue(f)}</span>
+                            {typeof f["confidence"] === "number" && (
+                              <span className="text-xs text-muted-foreground shrink-0">
+                                {Math.round((f["confidence"] as number) * 100)}%
+                              </span>
+                            )}
+                            <span className="ml-auto shrink-0">
+                              {alreadyApplied ? (
+                                <Badge variant="secondary" className="text-[10px]">✓ Appliqué</Badge>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  disabled={isApplying}
+                                  onClick={() => applyProposedFact(f)}
+                                >
+                                  {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : "Insérer"}
+                                </Button>
+                              )}
                             </span>
-                          )}
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
