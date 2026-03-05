@@ -1,62 +1,32 @@
 
+## Plan d'exécution — Phase C3/P0 (Reply Analysis v1)
 
-## Diagnostic confirmé
+### STATUS: ✅ DONE
 
-`mode: "start"` retourne immédiatement `{ job_id, status: "started" }` (ligne 1500). Le puzzle tourne en background via `EdgeRuntime.waitUntil`. Donc `await invoke(...)` n'attend **pas** la fin du puzzle — exactement comme tu l'as pressenti.
+### Fichiers modifiés
 
-**Bonne nouvelle** : `runBuildCasePuzzleAsync` existe déjà (lignes 692-730). C'est un helper qui :
-1. Lance `mode: "start"`
-2. Poll `mode: "poll"` toutes les 3s avec backoff
-3. Gère `tick` si stale
-4. Retourne quand `status === "completed"`
+| Fichier | Action | Phase |
+|---------|--------|-------|
+| `supabase/functions/analyze-reply-event/index.ts` | Créé — edge function analyse réponse client | C3/P0 |
+| `supabase/config.toml` | Ajout `[functions.analyze-reply-event] verify_jwt = false` | C3/P0 |
+| `src/pages/admin/Emails.tsx` | +state `analyzingReplyId`, +handler `analyzeReply`, +2 boutons | C3/P0 |
+| `src/pages/CaseView.tsx` | +affichage Card "Analyse dernière réponse client" | C3/P0 |
 
-Ce helper est déjà utilisé par `handleLaunchAnalysis` (ligne 736) et le refresh articles (ligne 870). Il suffit de l'utiliser dans `saveGapAnswer`.
+### C3/P0 — Reply Analysis v1
 
-## Fix — Option A (la plus propre, 3 lignes changées)
+- [x] Edge function `analyze-reply-event` : auth, email→thread→case, idempotence (JS filter kind=reply_analysis_v1, limit 50), AI call, parse JSON, normalize (clamp confidence, skip empty facts), insert `output_generated` timeline event, generate 1-3 `manual_action` idempotentes
+- [x] Idempotence actions : filtre par `case_id` + Set de dedupe_keys
+- [x] dedupe_key = `reply_analysis_v1:${case_id}:${email_id}` (basé sur email, pas sur event_id)
+- [x] Actions : APPLY_FACT_PROPOSALS (toujours), PREPARE_CLIENT_REPLY_DRAFT (si reply_recommended), LAUNCH_PRICING (si ready_to_price)
+- [x] UI Admin : bouton "Réponse" dans liste emails + dialog détail, avec toast + refresh
+- [x] UI CaseView : Card compacte après "Actions clôturées" — chips ready_to_price/reply_recommended, proposed_facts (max 10), open_questions
+- [x] Bracket notation systématique sur tous les accès Record<string, unknown>
+- [x] Comment SECURITY dans edge function
 
-**Fichier** : `src/pages/CaseView.tsx`
+### Historique phases précédentes
 
-**Lignes 1494-1500** — Remplacer le fire-and-forget par `await runBuildCasePuzzleAsync` :
-
-```text
-AVANT (lignes 1494-1500):
-  // Relancer build-case-puzzle async (fire-and-forget)
-  if (caseId) {
-    supabase.functions.invoke("build-case-puzzle", {
-      body: { case_id: caseId, mode: "start" },
-    }).catch(e => console.warn("[saveGapAnswer] build-case-puzzle start:", e));
-  }
-  await handleRefresh();
-
-APRÈS:
-  // Relancer build-case-puzzle et attendre la fin avant refresh
-  if (caseId) {
-    try {
-      await runBuildCasePuzzleAsync(caseId);
-    } catch (e) {
-      console.warn("[saveGapAnswer] build-case-puzzle:", e);
-    }
-  }
-  await handleRefresh();
-```
-
-### Pourquoi c'est safe
-
-| Point | Analyse |
-|-------|---------|
-| `runBuildCasePuzzleAsync` déjà testé | Utilisé par 2 autres flows (analyse, force-refresh) |
-| Timeout 5 min intégré | Pas de blocage infini |
-| UX | Le bouton reste en loading (`setSavingGapKey`) — feedback correct |
-| Auto-pricing en aval | L'auto-pricing (lignes 1502-1535) query `quote_gaps` **après** le puzzle → verra les gaps résolus |
-| `handleRefresh` | Appelé après completion → gaps à jour |
-
-### Pas besoin de toucher `handleRefresh`
-
-`handleRefresh` appelle `refetchGaps()` qui est un `useQuery` refetch. Comme le puzzle sera terminé quand on arrive là, les données seront correctes. Le `staleTime: 30000` n'empêche pas un `refetch()` explicite — il empêche seulement les re-fetch automatiques sur mount/focus.
-
-### Résumé
-
-- **1 fichier** : `CaseView.tsx`
-- **3 lignes** changées (fire-and-forget → await helper existant)
-- **0 migration, 0 RLS, 0 nouveau code**
-
+- P0.1 — Fix intentContext dans generate-reply-draft ✅
+- P0.2 — Refresh après analyze-thread-event ✅  
+- P0.3 — Bracket notation CaseView.tsx ✅
+- P0.5 — Actions clôturées (UX) ✅
+- P0.7 — Auto-apply provide_missing_info ✅
