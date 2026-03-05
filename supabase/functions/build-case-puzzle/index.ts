@@ -2979,11 +2979,15 @@ Deno.serve(async (req) => {
     const freightCurrency156 = getText156("cargo.freight_currency").toUpperCase();
     // Phase 16: cargo.freight_exchange_rate removed — exchange_rates table is source of truth
 
+    const cargoValue156 = getNumber156("cargo.value");
+    const hasCargoValue156 = Number.isFinite(cargoValue156) && cargoValue156 > 0;
+
     const policyRequiredKeys = new Set<string>();
     if (scopeWantsDuties) {
       if (!hsHasValid10) policyRequiredKeys.add("cargo.hs_code");
       if (hasExemptionTitle156 && !hasRegimeCode156) policyRequiredKeys.add("customs.regime_code");
       if (isFobType156 && !hasFreightCost156) policyRequiredKeys.add("cargo.freight_cost");
+      if (!hasCargoValue156) policyRequiredKeys.add("cargo.value");
       // Phase 16: cargo.freight_exchange_rate removed from policy keys
     }
 
@@ -3016,7 +3020,7 @@ Deno.serve(async (req) => {
       // (2D/2E manage blocking vs non-blocking state)
       const policyKeysAll = new Set([
         "cargo.hs_code", "customs.regime_code",
-        "cargo.freight_cost",
+        "cargo.freight_cost", "cargo.value",
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
 
@@ -3176,11 +3180,20 @@ Deno.serve(async (req) => {
         await resolveStalePolicyGap156("cargo.freight_cost", "Phase 15.6 — freight cost provided");
       }
       // Phase 16: cargo.freight_exchange_rate block removed
+
+      if (policyRequiredKeys.has("cargo.value")) {
+        await ensureBlockingGap156("cargo.value",
+          "DDP : Quelle est la valeur marchandise (EXW/FOB) ? Indispensable pour le calcul des droits et taxes.",
+          "DDP: What is the merchandise value (EXW/FOB)? Required for duties & taxes calculation.",
+          "cargo");
+      } else if (hasCargoValue156) {
+        await resolveStalePolicyGap156("cargo.value", "Phase 15.6 — cargo value provided");
+      }
     }
 
     // Phase 15.6 — Patch 2E: Downgrade policy gaps when scope is NOT DDP
     if (!scopeWantsDuties) {
-      const policyDowngradeKeys = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost"];
+      const policyDowngradeKeys = ["cargo.hs_code", "customs.regime_code", "cargo.freight_cost", "cargo.value"];
       for (const k of policyDowngradeKeys) {
         // Only downgrade if key is NOT in mandatoryFacts (guard against future mandatory additions)
         if (!mandatoryFacts.includes(k)) {
@@ -3307,6 +3320,8 @@ Deno.serve(async (req) => {
         if (gapKey === "cargo.hs_code") {
           isValid = /^\d{10}$/.test(String(fact["value_text"] ?? "").trim());
         } else if (gapKey === "cargo.freight_cost") {
+          isValid = fact["value_number"] != null && Number(fact["value_number"]) > 0;
+        } else if (gapKey === "cargo.value") {
           isValid = fact["value_number"] != null && Number(fact["value_number"]) > 0;
         } else {
           isValid = (String(fact["value_text"] ?? "").trim().length > 0) || (fact["value_number"] != null);
