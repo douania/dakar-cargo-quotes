@@ -1,5 +1,5 @@
 
-## Plan d'exécution — Phase C2/P0.1 + P0.2 + P0.3
+## Plan d'exécution — Phase C3/P0 (Reply Analysis v1)
 
 ### STATUS: ✅ DONE
 
@@ -7,37 +7,26 @@
 
 | Fichier | Action | Phase |
 |---------|--------|-------|
-| `supabase/functions/generate-reply-draft/index.ts` | Fix lecture `event_data.intent` + enrichissement prompt `[THREAD_INTENT]` | P0.1 |
-| `src/pages/admin/Emails.tsx` | +`await loadData()` après succès analyze-thread-event | P0.2 |
-| `src/pages/CaseView.tsx` | Bracket notation sur tous les accès `Record<string, unknown>` | P0.3 |
+| `supabase/functions/analyze-reply-event/index.ts` | Créé — edge function analyse réponse client | C3/P0 |
+| `supabase/config.toml` | Ajout `[functions.analyze-reply-event] verify_jwt = false` | C3/P0 |
+| `src/pages/admin/Emails.tsx` | +state `analyzingReplyId`, +handler `analyzeReply`, +2 boutons | C3/P0 |
+| `src/pages/CaseView.tsx` | +affichage Card "Analyse dernière réponse client" | C3/P0 |
 
-### P0.1 — Fix intentContext dans generate-reply-draft
+### C3/P0 — Reply Analysis v1
 
-- [x] Descendre dans `event_data.intent` (objet imbriqué par analyze-thread-event)
-- [x] Fallback direct sur `event_data.intent_type` si structure plate
-- [x] Enrichir prompt avec `risk_level`, `reply_recommended`, `missing_fields`
-- [x] Guard `missing_fields` via `JSON.stringify().slice(0, 1000)` (stabilité prompt)
-- [x] Format structuré `[THREAD_INTENT]...[/THREAD_INTENT]`
-
-### P0.2 — Refresh après analyze-thread-event
-
-- [x] `await loadData()` ajouté après toast succès, avant `setAnalyzingIntentId(null)`
-
-### P0.3 — Bracket notation CaseView.tsx
-
-- [x] `ed?.dedupe_key` → `ed?.["dedupe_key"]` (openActions memo)
-- [x] `?.status` → `?.["status"]` (openActions filter)
-- [x] `ed?.kind` → `ed?.["kind"]` (draftsByActionKey)
-- [x] `ed?.source_action_dedupe_key` → `ed?.["source_action_dedupe_key"]`
-- [x] `ed?.draft_reply` → `ed?.["draft_reply"]`
-- [x] `ed?.dedupe_key` → `ed?.["dedupe_key"]` (UI openActions render)
-- [x] `ed?.action_code` → `ed?.["action_code"]`
-- [x] `ed?.title_fr` → `ed?.["title_fr"]`
-- [x] `ed?.description_fr` → `ed?.["description_fr"]`
-- [x] `ed.description_fr` → `ed["description_fr"]`
+- [x] Edge function `analyze-reply-event` : auth, email→thread→case, idempotence (JS filter kind=reply_analysis_v1, limit 50), AI call, parse JSON, normalize (clamp confidence, skip empty facts), insert `output_generated` timeline event, generate 1-3 `manual_action` idempotentes
+- [x] Idempotence actions : filtre par `case_id` + Set de dedupe_keys
+- [x] dedupe_key = `reply_analysis_v1:${case_id}:${email_id}` (basé sur email, pas sur event_id)
+- [x] Actions : APPLY_FACT_PROPOSALS (toujours), PREPARE_CLIENT_REPLY_DRAFT (si reply_recommended), LAUNCH_PRICING (si ready_to_price)
+- [x] UI Admin : bouton "Réponse" dans liste emails + dialog détail, avec toast + refresh
+- [x] UI CaseView : Card compacte après "Actions clôturées" — chips ready_to_price/reply_recommended, proposed_facts (max 10), open_questions
+- [x] Bracket notation systématique sur tous les accès Record<string, unknown>
+- [x] Comment SECURITY dans edge function
 
 ### Historique phases précédentes
 
+- P0.1 — Fix intentContext dans generate-reply-draft ✅
+- P0.2 — Refresh après analyze-thread-event ✅  
+- P0.3 — Bracket notation CaseView.tsx ✅
 - P0.5 — Actions clôturées (UX) ✅
-- P0.6 — Bouton "Insérer dans réponse" — NON IMPLÉMENTÉ (doublon Copier)
 - P0.7 — Auto-apply provide_missing_info ✅
