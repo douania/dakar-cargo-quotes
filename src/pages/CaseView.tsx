@@ -1394,7 +1394,7 @@ export default function CaseView() {
                             )}
                             <span className="ml-auto shrink-0">
                               {alreadyApplied ? (
-                                <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700">✓ Appliqué</Badge>
+                                <Badge variant="secondary" className="text-[10px]">✓ Appliqué</Badge>
                               ) : (
                                 <Button
                                   size="sm"
