@@ -124,6 +124,7 @@ export default function Emails() {
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [analyzingIntentId, setAnalyzingIntentId] = useState<string | null>(null);
+  const [analyzingReplyId, setAnalyzingReplyId] = useState<string | null>(null);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
   const [isMergingThreads, setIsMergingThreads] = useState(false);
@@ -496,6 +497,27 @@ export default function Emails() {
       toast.error(`Erreur d'analyse intent: ${(err as Error).message}`);
     }
     setAnalyzingIntentId(null);
+  };
+
+  const analyzeReply = async (emailId: string) => {
+    setAnalyzingReplyId(emailId);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-reply-event', {
+        body: { email_id: emailId },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        const factsCount = data.analysis?.proposed_facts?.length ?? 0;
+        toast.success(`Analyse reply OK — ${factsCount} fait(s) proposé(s)${data.idempotent ? ' [déjà analysé]' : ''}`);
+        await loadData();
+      } else {
+        toast.error(`Erreur: ${data?.error || 'Analyse échouée'}`);
+      }
+    } catch (err: unknown) {
+      toast.error(`Erreur analyse reply: ${(err as Error).message}`);
+    } finally {
+      setAnalyzingReplyId(null);
+    }
   };
 
   const reclassifyEmails = async () => {
@@ -1371,6 +1393,15 @@ export default function Emails() {
                         <Search className="h-4 w-4 mr-1" />
                         {analyzingIntentId === email.id ? '...' : 'Intent'}
                       </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        onClick={() => analyzeReply(email.id)}
+                        disabled={analyzingReplyId === email.id}
+                      >
+                        <MessageSquare className="h-4 w-4 mr-1" />
+                        {analyzingReplyId === email.id ? '...' : 'Réponse'}
+                      </Button>
                       <Button
                         variant="ghost"
                         className="text-destructive hover:text-destructive"
@@ -1503,6 +1534,14 @@ export default function Emails() {
                     >
                       <Search className="h-4 w-4 mr-2" />
                       {analyzingIntentId === selectedEmail.id ? 'Analyse...' : 'Analyser intent'}
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      onClick={() => analyzeReply(selectedEmail.id)}
+                      disabled={analyzingReplyId === selectedEmail.id}
+                    >
+                      <MessageSquare className="h-4 w-4 mr-2" />
+                      {analyzingReplyId === selectedEmail.id ? 'Analyse...' : 'Analyser réponse'}
                     </Button>
                     <Button
                       variant="destructive" 

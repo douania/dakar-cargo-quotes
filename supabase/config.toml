@@ -174,5 +174,8 @@ verify_jwt = false
 [functions.close-manual-action]
 verify_jwt = false
 
+[functions.analyze-reply-event]
+verify_jwt = false
+
 [functions.generate-reply-draft]
 verify_jwt = false
