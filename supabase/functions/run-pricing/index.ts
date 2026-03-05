@@ -110,6 +110,7 @@ Deno.serve(async (req) => {
 
     // Allow re-pricing from PRICED_DRAFT (corrections) and HUMAN_REVIEW
     const pricingAllowedStatuses = [
+      "READY_TO_PRICE",           // legacy — dossiers pré-ACK
       "ACK_READY_FOR_PRICING",
       "PRICED_DRAFT",
       "HUMAN_REVIEW",
