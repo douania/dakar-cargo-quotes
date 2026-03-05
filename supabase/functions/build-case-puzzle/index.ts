@@ -1654,6 +1654,7 @@ Deno.serve(async (req) => {
     let factsAdded = 0;
     let factsUpdated = 0;
     let factsSkipped = 0;
+    let gapsIdentified = 0; // Declared early: used by doc-regex, HS Post-Attach, and Identify gaps
     let multiQuoteResult: { detected: boolean; stored: number; mode: string | null } | null = null;
     const factErrors: Array<{ key: string; error: string; isCritical: boolean }> = [];
     
@@ -2937,7 +2938,7 @@ Deno.serve(async (req) => {
     const mandatoryFacts = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.UNKNOWN;
     const extractedKeys = extractedFacts.map((f) => f.key);
     
-    let gapsIdentified = 0;
+    // gapsIdentified already initialized above (before doc-regex block)
 
     // Load existing DB facts BEFORE any gap logic (mandatory/orphan/A1)
     const { data: existingDbFacts } = await serviceClient
