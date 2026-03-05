@@ -1491,11 +1491,13 @@ export default function CaseView() {
               if (error) throw error;
               toast.success(`${g.gap_key} enregistré`);
               setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
-              // Relancer build-case-puzzle async (fire-and-forget)
+              // Relancer build-case-puzzle et attendre la fin avant refresh
               if (caseId) {
-                supabase.functions.invoke("build-case-puzzle", {
-                  body: { case_id: caseId, mode: "start" },
-                }).catch(e => console.warn("[saveGapAnswer] build-case-puzzle start:", e));
+                try {
+                  await runBuildCasePuzzleAsync(caseId);
+                } catch (e) {
+                  console.warn("[saveGapAnswer] build-case-puzzle:", e);
+                }
               }
               await handleRefresh();
 
