@@ -3121,24 +3121,58 @@ Deno.serve(async (req) => {
       // else: already open + blocking → no-op (idempotent)
     }
 
+    // Phase 15.6 — Patch P0: Resolve stale policy gaps when condition is now satisfied
+    async function resolveStalePolicyGap156(gap_key: string, reason: string) {
+      const { data: g } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", gap_key)
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (!g?.id) return;
+
+      await serviceClient
+        .from("quote_gaps")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("id", g.id);
+
+      await serviceClient.from("case_timeline_events").insert({
+        case_id,
+        event_type: "gap_resolved",
+        event_data: { gap_key, reason, phase: "15.6" },
+        actor_type: "system",
+      });
+      console.log(`[Phase 15.6] Resolved stale gap ${gap_key}: ${reason}`);
+    }
+
     if (scopeWantsDuties) {
       if (policyRequiredKeys.has("cargo.hs_code")) {
         await ensureBlockingGap156("cargo.hs_code",
           "DDP : Code HS 10 chiffres UEMOA requis pour chiffrer droits & taxes.",
           "DDP: 10-digit UEMOA HS code required to compute duties & taxes.",
           "cargo");
+      } else if (hsHasValid10) {
+        await resolveStalePolicyGap156("cargo.hs_code", "Phase 15.6 — HS valid 10-digit found");
       }
+
       if (policyRequiredKeys.has("customs.regime_code")) {
         await ensureBlockingGap156("customs.regime_code",
           "DDP : Un titre d'exonération est détecté — renseignez le régime douanier.",
           "DDP: Exemption title detected — please provide the customs regime.",
           "customs");
+      } else if (hasExemptionTitle156 && hasRegimeCode156) {
+        await resolveStalePolicyGap156("customs.regime_code", "Phase 15.6 — regime code provided");
       }
+
       if (policyRequiredKeys.has("cargo.freight_cost")) {
         await ensureBlockingGap156("cargo.freight_cost",
           "FOB/FCA/FAS/EXW (DDP) : le fret international réel est requis pour calculer la valeur CAF douanière.",
           "FOB/FCA/FAS/EXW (DDP): actual international freight amount is required to compute CAF customs value.",
           "cargo");
+      } else if (isFobType156 && hasFreightCost156) {
+        await resolveStalePolicyGap156("cargo.freight_cost", "Phase 15.6 — freight cost provided");
       }
       // Phase 16: cargo.freight_exchange_rate block removed
     }
