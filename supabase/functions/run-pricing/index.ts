@@ -110,7 +110,6 @@ Deno.serve(async (req) => {
 
     // Allow re-pricing from PRICED_DRAFT (corrections) and HUMAN_REVIEW
     const pricingAllowedStatuses = [
-      "READY_TO_PRICE",
       "ACK_READY_FOR_PRICING",
       "PRICED_DRAFT",
       "HUMAN_REVIEW",
@@ -220,6 +219,7 @@ Deno.serve(async (req) => {
             pricing_blockers: blockerOutputs.pricing_blockers,
             message: blockerOutputs.message,
             run_number: blockerRunNumber || 1,
+            scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -275,6 +275,7 @@ Deno.serve(async (req) => {
             pricing_blockers: regimeBlockerOutputs.pricing_blockers,
             message: regimeBlockerOutputs.message,
             run_number: regimeBlockerRunNumber || 1,
+            scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -369,6 +370,7 @@ Deno.serve(async (req) => {
             pricing_blockers: ["FREIGHT_REQUIRED_FOR_FOB"],
             message: fobBlockerMessage,
             run_number: fobBlockerRunNumber || 1,
+            scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
