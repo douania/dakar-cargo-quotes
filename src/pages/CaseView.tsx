@@ -1684,7 +1684,7 @@ export default function CaseView() {
         )}
 
         {/* Pricing Launch Panel — visible only after ACK */}
-        {caseData.status === 'ACK_READY_FOR_PRICING' && (
+        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
           <div className="mb-6">
             <PricingLaunchPanel caseId={caseId!} onComplete={handleRefresh} />
           </div>
