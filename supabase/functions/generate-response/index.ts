@@ -2732,6 +2732,7 @@ ${expertContext}
 ${quotationContext}
 ${cgvContext}
 ${sodatraFeesContext}
+${intentContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
