@@ -742,6 +742,33 @@ export default function CaseView() {
       } catch (syncErr) {
         console.warn("[P0-E] sync-gap-client-actions:", syncErr);
       }
+
+      // Phase 16: Trigger intent analysis after puzzle (non-blocking, anti-doublon)
+      try {
+        // Check if intent already exists for this case
+        const intentAlreadyPresent = (events ?? []).some(
+          (e: any) => e.event_type === "thread_intent_v1"
+        );
+        if (!intentAlreadyPresent && caseData?.thread_id) {
+          // Find the latest email in the thread
+          const { data: latestEmail } = await supabase
+            .from("emails")
+            .select("id")
+            .eq("thread_ref", caseData.thread_id)
+            .order("received_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestEmail) {
+            await supabase.functions.invoke("analyze-thread-event", {
+              body: { email_id: latestEmail.id },
+            });
+          }
+        }
+      } catch (intentErr) {
+        console.warn("[Phase16] Intent analysis (non-blocking):", intentErr);
+      }
+
       toast.success("Analyse terminée avec succès");
       handleRefresh();
     } catch (err) {
@@ -1119,6 +1146,35 @@ export default function CaseView() {
             {caseData.request_type && (
               <Badge variant="outline">{caseData.request_type}</Badge>
             )}
+            {/* Phase 16: Intent badge */}
+            {(() => {
+              const ie = events.find((e: any) => e.event_type === "thread_intent_v1");
+              const iObj = (ie?.event_data as any)?.intent ?? null;
+              const iType = iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? null;
+              const iReasoning = iObj?.reasoning ?? "";
+              if (iType === "opportunity_check") {
+                return (
+                  <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200" title={iReasoning}>
+                    💡 Opportunity Check
+                  </Badge>
+                );
+              }
+              if (iType === "general_inquiry") {
+                return (
+                  <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" title={iReasoning}>
+                    ❓ Demande générale
+                  </Badge>
+                );
+              }
+              if (iType === "send_document") {
+                return (
+                  <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" title={iReasoning}>
+                    📄 Envoi document
+                  </Badge>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 
@@ -1702,7 +1758,17 @@ export default function CaseView() {
         {/* Pricing Launch Panel — visible only after ACK */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingLaunchPanel caseId={caseId!} onComplete={handleRefresh} />
+            <PricingLaunchPanel
+              caseId={caseId!}
+              onComplete={handleRefresh}
+              blockedByIntent={(() => {
+                const ie = events.find((e: any) => e.event_type === "thread_intent_v1");
+                const iObj = (ie?.event_data as any)?.intent ?? null;
+                const iType = iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? null;
+                const blockers = new Set(["opportunity_check", "general_inquiry", "send_document"]);
+                return iType && blockers.has(iType) ? iType : undefined;
+              })()}
+            />
           </div>
         )}
 

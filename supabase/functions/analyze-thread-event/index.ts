@@ -13,8 +13,17 @@ const INTENT_TYPES = [
   "reject_quote",
   "follow_up",
   "send_document",
+  "opportunity_check",
+  "general_inquiry",
   "other",
 ] as const;
+
+// Phase 16: Intents that block pricing
+const PRICING_BLOCKED_INTENTS = new Set([
+  "opportunity_check",
+  "general_inquiry",
+  "send_document",
+]);
 
 const SYSTEM_PROMPT = `Tu es un classificateur d'intentions pour des emails de transit/logistique.
 Analyse l'email et retourne un JSON strict avec ces champs :
@@ -24,6 +33,17 @@ Analyse l'email et retourne un JSON strict avec ces champs :
 - case_updates: tableau de strings décrivant les mises à jour potentielles du dossier
 - open_questions: tableau de strings avec les questions non résolues
 - reply_recommended: boolean indiquant si une réponse est recommandée
+- pricing_gate: boolean — true si le pricing est autorisé, false si bloqué
+- reasoning: string — explication courte de la classification
+
+Règles de classification :
+- "new_quote_request" : le client demande explicitement un devis, une cotation, un prix
+- "opportunity_check" : demande commerciale qui n'est PAS une cotation (contacter un réceptionnaire, organiser une remise documentaire HBL, demander un suivi, etc.)
+- "general_inquiry" : question générale sans demande d'action commerciale spécifique
+- "send_document" : le client envoie uniquement des documents (PI, BL, etc.) sans demande de prix
+- "provide_missing_info" : réponse à une question posée, complément d'information
+- pricing_gate = true UNIQUEMENT pour : new_quote_request, provide_missing_info, change_instructions, accept_quote
+- pricing_gate = false pour : opportunity_check, general_inquiry, send_document, follow_up, reject_quote, other
 
 Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 
@@ -143,13 +163,18 @@ serve(async (req: Request) => {
       return jsonResponse({ ok: false, error: "AI_JSON_PARSE_FAILED" }, 200);
     }
 
+    const intentType = typeof parsed["intent_type"] === "string" ? parsed["intent_type"] : "other";
     const intent = {
-      intent_type: typeof parsed["intent_type"] === "string" ? parsed["intent_type"] : "other",
+      intent_type: intentType,
       risk_level: typeof parsed["risk_level"] === "string" ? parsed["risk_level"] : "low",
       confidence: typeof parsed["confidence"] === "number" ? parsed["confidence"] : 0.5,
       case_updates: Array.isArray(parsed["case_updates"]) ? parsed["case_updates"] : [],
       open_questions: Array.isArray(parsed["open_questions"]) ? parsed["open_questions"] : [],
       reply_recommended: Boolean(parsed["reply_recommended"]),
+      pricing_gate: typeof parsed["pricing_gate"] === "boolean"
+        ? parsed["pricing_gate"]
+        : !PRICING_BLOCKED_INTENTS.has(intentType),
+      reasoning: typeof parsed["reasoning"] === "string" ? parsed["reasoning"] : "",
     };
 
     // 7. Insert timeline event (with returning id for auto-apply)

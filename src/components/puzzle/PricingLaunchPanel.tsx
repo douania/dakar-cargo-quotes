@@ -41,9 +41,10 @@ import { toast } from 'sonner';
 interface PricingLaunchPanelProps {
   caseId: string;
   onComplete?: () => void;
+  blockedByIntent?: string;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +161,16 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
         </CardHeader>
         
         <CardContent className="space-y-4">
+          {blockedByIntent && (
+            <Alert className="border-indigo-300 bg-indigo-50 dark:bg-indigo-950/30">
+              <AlertTriangle className="h-4 w-4 text-indigo-600" />
+              <AlertDescription className="text-sm text-indigo-800 dark:text-indigo-200">
+                Le pricing est bloqué : ce dossier est identifié comme <strong>{blockedByIntent}</strong>.
+                Clarifiez l'intention commerciale avant de tarifer.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Alert className="border-primary/30 bg-primary/5">
             <Info className="h-4 w-4 text-primary" />
             <AlertDescription className="text-sm text-primary">
@@ -177,7 +188,7 @@ export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelPro
           
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={isLoading}
+            disabled={isLoading || !!blockedByIntent}
             className="w-full gap-2"
             variant="default"
           >

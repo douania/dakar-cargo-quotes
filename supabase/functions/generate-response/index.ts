@@ -2644,6 +2644,61 @@ ${aiExtracted.questions_to_ask.map(q => `   • ${q}`).join('\n')}
    • Valeur: ${aiExtracted.value ? aiExtracted.value + ' ' + (aiExtracted.currency || '') : 'NON'}
 ${v5AnalysisContext}`;
 
+    // ============ Phase 16: COMMERCIAL INTENT CONTEXT ============
+    let intentContext = '';
+    if (emailId && emailThreadRef) {
+      try {
+        // Find the case linked to this thread
+        const { data: linkedCase } = await supabase
+          .from("quote_cases")
+          .select("id")
+          .eq("thread_id", emailThreadRef)
+          .maybeSingle();
+
+        if (linkedCase) {
+          const { data: latestIntentEvent } = await supabase
+            .from("case_timeline_events")
+            .select("event_data")
+            .eq("case_id", linkedCase.id)
+            .eq("event_type", "thread_intent_v1")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestIntentEvent) {
+            const ied = latestIntentEvent.event_data as Record<string, unknown> | null;
+            const intentObj = (ied?.["intent"] as Record<string, unknown>) ?? null;
+            const detectedIntent = (intentObj?.["intent_type"] as string) ?? (ied?.["intent_type"] as string) ?? null;
+            const intentReasoning = (intentObj?.["reasoning"] as string) ?? "";
+            const pricingGate = intentObj?.["pricing_gate"] ?? ied?.["pricing_gate"] ?? true;
+
+            if (detectedIntent && pricingGate === false) {
+              intentContext = `\n\n=== [COMMERCIAL_INTENT] ===
+⚠️ INTENTION COMMERCIALE DÉTECTÉE : ${detectedIntent}
+Raisonnement IA : ${intentReasoning}
+
+RÈGLES STRICTES :
+- NE PAS générer de prix ni de cotation
+- NE PAS mentionner de montants
+- Montrer que les documents et la demande ont été compris
+- Utiliser les faits extraits pour prouver la compréhension
+- Poser des questions de clarification commerciale
+- Proposer les prochaines étapes possibles
+
+EXEMPLE DE STRUCTURE :
+1. Accusé de réception montrant la compréhension du dossier
+2. Résumé des éléments compris (cargo, routing, documents)
+3. Questions de clarification sur l'intention réelle
+4. Propositions d'actions possibles (cotation, remise documentaire, contact réceptionnaire, etc.)
+`;
+            }
+          }
+        }
+      } catch (intentErr) {
+        console.warn("[Phase16] Intent context injection (non-blocking):", intentErr);
+      }
+    }
+
     // ============ BUILD PROMPT ============
     const userPrompt = `
 === PARAMÈTRES CRITIQUES ===
@@ -2677,6 +2732,7 @@ ${expertContext}
 ${quotationContext}
 ${cgvContext}
 ${sodatraFeesContext}
+${intentContext}
 
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
