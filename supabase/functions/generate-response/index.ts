@@ -2244,8 +2244,8 @@ Réponds en JSON:
           },
           body: JSON.stringify({
             incoterm: aiExtracted.incoterm,
-            origin_country: aiExtracted.origin,
-            destination_country: aiExtracted.destination,
+            origin_country: aiExtracted.origin_country ?? aiExtracted.origin,
+            destination_country: aiExtracted.destination_country ?? aiExtracted.destination,
             fob_value: aiExtracted.value,
             currency: aiExtracted.currency,
           }),

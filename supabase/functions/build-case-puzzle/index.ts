@@ -1569,7 +1569,7 @@ Deno.serve(async (req) => {
     // Ownership check removed — JWT auth is sufficient
 
     // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
-    const FROZEN_STATUSES = ["PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
+    const FROZEN_STATUSES = ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
     const isFrozenCase = FROZEN_STATUSES.includes(caseData.status);
 
     if (isFrozenCase && !force_refresh) {

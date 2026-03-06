@@ -493,7 +493,7 @@ function generateEmailTemplate(
 
   const clientName = factsMap["contacts.client_email"]?.split("@")[0] || "Client";
   const origin = routing.origin || factsMap["routing.origin_port"] || factsMap["routing.origin_airport"] || "Origin";
-  const destination = routing.destination || factsMap["routing.destination_city"] || "Destination";
+  const destination = routing.destination || factsMap["routing.destination_city"] || factsMap["routing.destination_country"] || "Destination";
   const incoterm = routing.incoterm || factsMap["routing.incoterm"] || "";
 
   const linesText = lines

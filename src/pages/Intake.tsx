@@ -336,7 +336,18 @@ export default function Intake() {
       facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
     }
     if (destination) {
-      facts.push({ fact_key: "routing.destination_city", value_text: destination });
+      const KNOWN_COUNTRIES = new Set([
+        'MALI','SENEGAL','SÉNÉGAL','GUINEE','GUINÉE','GAMBIE',
+        'MAURITANIE','BURKINA','BURKINA FASO','NIGER',
+        "COTE D'IVOIRE","CÔTE D'IVOIRE",'GHANA','TOGO',
+        'BENIN','BÉNIN','NIGERIA','CAMEROUN',
+      ]);
+      const upper = destination.toUpperCase().trim();
+      if (KNOWN_COUNTRIES.has(upper)) {
+        facts.push({ fact_key: "routing.destination_country", value_text: destination });
+      } else {
+        facts.push({ fact_key: "routing.destination_city", value_text: destination });
+      }
     }
 
     for (const fact of facts) {
