@@ -105,6 +105,39 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Phase 16: Intent gate — check latest thread_intent_v1
+    const { data: latestIntent } = await serviceClient
+      .from("case_timeline_events")
+      .select("event_data")
+      .eq("case_id", case_id)
+      .eq("event_type", "thread_intent_v1")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestIntent) {
+      const ed = latestIntent.event_data as Record<string, unknown> | null;
+      const intentObj = (ed?.["intent"] as Record<string, unknown>) ?? null;
+      const intentType = (intentObj?.["intent_type"] as string) ?? (ed?.["intent_type"] as string) ?? null;
+      const pricingGate = intentObj?.["pricing_gate"] ?? ed?.["pricing_gate"] ?? null;
+
+      // Block if pricing_gate is explicitly false OR intent is a blocking type
+      const BLOCKING_INTENTS = new Set(["opportunity_check", "general_inquiry", "send_document"]);
+      if (pricingGate === false || (intentType && BLOCKING_INTENTS.has(intentType))) {
+        console.log(`[Phase16] Pricing blocked by intent: ${intentType}, pricing_gate: ${pricingGate}`);
+        return new Response(
+          JSON.stringify({
+            error: "Pricing blocked by intent",
+            blocked_by_intent: true,
+            blocking_reason: intentType || "non_pricing_intent",
+            hint: "This case requires clarification before pricing",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // If no intent event exists → continue normally (no block)
+
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 
