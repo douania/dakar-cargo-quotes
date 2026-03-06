@@ -188,7 +188,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent }: Pric
           
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={isLoading}
+            disabled={isLoading || !!blockedByIntent}
             className="w-full gap-2"
             variant="default"
           >
