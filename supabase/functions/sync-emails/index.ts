@@ -1518,7 +1518,7 @@ serve(async (req) => {
 
               if (existingCase) {
                 // Statuts qui peuvent être réouverts (attente d'info ou prêt à tarifer)
-                const REOPENABLE_STATUSES = ["NEED_INFO", "READY_TO_PRICE"];
+                const REOPENABLE_STATUSES = ["NEED_INFO", "READY_TO_PRICE", "ACK_READY_FOR_PRICING"];
                 // Statuts figés (devis déjà généré)
                 const FROZEN_STATUSES = ["PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
                 
