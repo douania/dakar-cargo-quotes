@@ -1758,7 +1758,17 @@ export default function CaseView() {
         {/* Pricing Launch Panel — visible only after ACK */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingLaunchPanel caseId={caseId!} onComplete={handleRefresh} />
+            <PricingLaunchPanel
+              caseId={caseId!}
+              onComplete={handleRefresh}
+              blockedByIntent={(() => {
+                const ie = events.find((e: any) => e.event_type === "thread_intent_v1");
+                const iObj = (ie?.event_data as any)?.intent ?? null;
+                const iType = iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? null;
+                const blockers = new Set(["opportunity_check", "general_inquiry", "send_document"]);
+                return iType && blockers.has(iType) ? iType : undefined;
+              })()}
+            />
           </div>
         )}
 
