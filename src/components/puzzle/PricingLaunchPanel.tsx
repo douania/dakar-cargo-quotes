@@ -41,6 +41,7 @@ import { toast } from 'sonner';
 interface PricingLaunchPanelProps {
   caseId: string;
   onComplete?: () => void;
+  blockedByIntent?: string;
 }
 
 export function PricingLaunchPanel({ caseId, onComplete }: PricingLaunchPanelProps) {
