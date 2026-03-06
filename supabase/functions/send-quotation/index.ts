@@ -256,26 +256,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 10. Idempotence
-    if (draftData.sent_at !== null) {
-      const durationMs = Date.now() - t0;
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: FUNCTION_NAME,
-        op: "idempotent_hit",
-        userId,
-        status: "ok",
-        httpStatus: 200,
-        durationMs,
-        meta: { draft_id, case_id, version_id },
-      });
-      return respondOk(
-        { idempotent: true, draft_id, case_id, version_id, sent_at: draftData.sent_at },
-        correlationId,
-      );
-    }
-
-    // 11. P1 — Update draft via userClient (RLS guarantees ownership)
+    // 10. Update draft (idempotence already handled above in 9d)
     const sentAt = new Date().toISOString();
     const { data: updatedDraft, error: updateError } = await userClient
       .from("email_drafts")

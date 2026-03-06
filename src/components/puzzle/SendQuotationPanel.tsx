@@ -189,9 +189,9 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         {!isSent && ownerDraft && (
           <div className="p-3 bg-muted/30 rounded-lg space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Pré-vérifications</p>
-            <PreCheckItem ok={hasRecipient} label={hasRecipient ? 'Destinataire renseigné' : 'Destinataire manquant'} />
-            <PreCheckItem ok={hasSubject} label={hasSubject ? 'Sujet renseigné' : 'Sujet manquant'} />
-            <PreCheckItem ok={hasBody} label={hasBody ? 'Corps du message renseigné' : 'Corps du message manquant'} />
+            <PreCheckItem ok={localHasRecipient} label={localHasRecipient ? 'Destinataire renseigné' : 'Destinataire manquant'} />
+            <PreCheckItem ok={localHasSubject} label={localHasSubject ? 'Sujet renseigné' : 'Sujet manquant'} />
+            <PreCheckItem ok={localHasBody} label={localHasBody ? 'Corps du message renseigné' : 'Corps du message manquant'} />
             <PreCheckItem ok={hasPdf} label={hasPdf ? 'PDF détecté côté interface' : 'PDF non détecté côté interface'} />
           </div>
         )}
