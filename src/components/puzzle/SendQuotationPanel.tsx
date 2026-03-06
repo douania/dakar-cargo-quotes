@@ -310,13 +310,23 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
           </div>
         )}
 
+        {/* Unsaved changes warning */}
+        {!isSent && ownerDraft && hasUnsavedChanges && (
+          <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              Enregistrez le brouillon pour pouvoir marquer comme envoyé.
+            </p>
+          </div>
+        )}
+
         {/* Mark as sent button with confirmation */}
         {!isSent && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
                 className="w-full gap-2"
-                disabled={!canSend || sendMutation.isPending}
+                disabled={!canSend || sendMutation.isPending || hasUnsavedChanges}
               >
                 {sendMutation.isPending ? (
                   <>
