@@ -111,7 +111,93 @@ serve(async (req: Request) => {
     });
   }
 
-  // ── Load source email (non-blocking) ──
+  // ══════════════════════════════════════════════════════════════
+  // P0-C: Deterministic branch for REQUEST_CLIENT_INFO_FOR_GAPS
+  // Skips AI entirely — builds draft from gap policy whitelist
+  // ══════════════════════════════════════════════════════════════
+  if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
+    // 1. Get requested gap keys from action event_data
+    const requestedGapKeys = (actionData?.["requested_gap_keys"] as string[]) ?? [];
+
+    // 2. Load open gaps for this case
+    const { data: openGaps, error: gapsErr } = await userClient
+      .from("quote_gaps")
+      .select("gap_key")
+      .eq("case_id", caseId)
+      .eq("status", "open");
+
+    if (gapsErr) {
+      console.error("Failed to load gaps:", gapsErr.message);
+      return jsonResponse({ ok: false, error: "GAPS_LOAD_FAILED" }, 200);
+    }
+
+    // 3. Filter: still open + client-resolvable + in requested set
+    const requestedSet = new Set(requestedGapKeys);
+    const relevantGaps = (openGaps ?? []).filter((g: Record<string, unknown>) => {
+      const key = g["gap_key"] as string;
+      return isClientResolvableGap(key) && requestedSet.has(key);
+    });
+
+    if (relevantGaps.length === 0) {
+      return jsonResponse({ ok: false, error: "NO_RELEVANT_GAPS" }, 200);
+    }
+
+    // 4. Build deterministic questions (sorted + deduped)
+    const normalizedKeys = normalizeGapKeys(
+      relevantGaps.map((g: Record<string, unknown>) => g["gap_key"] as string)
+    );
+    const questions = buildClientQuestionsFromGaps(
+      normalizedKeys.map((k) => ({ gap_key: k }))
+    );
+
+    // 5. Build deterministic email
+    const draftSubject = "Informations complémentaires pour votre cotation";
+    const draftBody = `Bonjour,
+
+Afin de finaliser votre cotation logistique, nous avons besoin de quelques informations complémentaires :
+
+${questions.map((q) => "- " + q).join("\n")}
+
+Dès réception de ces informations, nous pourrons finaliser votre devis rapidement.
+
+Cordialement,
+Service Cotation
+SODATRA`;
+
+    const draft = { subject: draftSubject, body: draftBody };
+
+    // 6. Insert timeline event (same pattern as AI branch)
+    const { error: insertErr } = await serviceClient
+      .from("case_timeline_events")
+      .insert({
+        case_id: caseId,
+        event_type: "output_generated",
+        actor_type: "system",
+        related_email_id: relatedEmailId,
+        event_data: {
+          dedupe_key: draftDedupeKey,
+          source_action_dedupe_key: actionDedupeKey,
+          kind: "reply_draft_v1",
+          draft_reply: draft,
+          requested_gap_keys: normalizedKeys,
+          deterministic: true,
+        },
+      });
+
+    if (insertErr) {
+      console.error("Timeline insert failed:", insertErr.message);
+      return jsonResponse({ ok: false, error: "TIMELINE_INSERT_FAILED" }, 200);
+    }
+
+    return jsonResponse({
+      ok: true,
+      idempotent: false,
+      draft,
+      dedupe_key: draftDedupeKey,
+      deterministic: true,
+    });
+  }
+
   let emailContext = "";
   if (relatedEmailId) {
     const { data: emailRow } = await userClient
