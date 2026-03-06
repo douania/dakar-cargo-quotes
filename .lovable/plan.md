@@ -30,3 +30,4 @@
 - P0.5 — Actions clôturées (UX) ✅
 - P0.7 — Auto-apply provide_missing_info ✅
 - C3/P0 — Reply Analysis v1 ✅
+- P0-E — Branchement sync-gap-client-actions dans CaseView ✅
