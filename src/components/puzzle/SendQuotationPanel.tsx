@@ -64,7 +64,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   const [editSubject, setEditSubject] = useState('');
   const [editBody, setEditBody] = useState('');
 
-  // Sync local state when draft loads
+  // Sync local state when draft loads or after save
   useEffect(() => {
     if (ownerDraft) {
       setEditTo(ownerDraft.to_addresses?.[0] ?? '');
@@ -72,7 +72,18 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
       // body_text priority, never render raw HTML in textarea
       setEditBody(ownerDraft.body_text ?? '');
     }
-  }, [ownerDraft?.id]);
+  }, [ownerDraft?.id, ownerDraft?.subject, ownerDraft?.body_text, ownerDraft?.to_addresses?.[0]]);
+
+  // Local flags derived from edit state (Option B CTO)
+  const localHasRecipient = !!editTo.trim();
+  const localHasSubject = !!editSubject.trim();
+  const localHasBody = !!editBody.trim();
+
+  const hasUnsavedChanges = !!ownerDraft && (
+    editTo.trim() !== (ownerDraft.to_addresses?.[0] ?? '') ||
+    editSubject.trim() !== (ownerDraft.subject ?? '') ||
+    editBody.trim() !== (ownerDraft.body_text ?? '')
+  );
 
   if (isLoading) {
     return (

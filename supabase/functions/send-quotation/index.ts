@@ -184,7 +184,28 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 9d. P0 — Content validations
+    // 9d. Idempotence — BEFORE content/PDF validations
+    // Historical drafts already marked sent must return idempotent
+    // without being re-qualified by newer validation rules.
+    if (draftData.sent_at !== null) {
+      const durationMs = Date.now() - t0;
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: FUNCTION_NAME,
+        op: "idempotent_hit",
+        userId,
+        status: "ok",
+        httpStatus: 200,
+        durationMs,
+        meta: { draft_id, case_id, version_id },
+      });
+      return respondOk(
+        { idempotent: true, draft_id, case_id, version_id, sent_at: draftData.sent_at },
+        correlationId,
+      );
+    }
+
+    // 9e. P0 — Content validations
     const toAddresses = draftData.to_addresses as string[] | null;
     if (!toAddresses || toAddresses.length === 0 || !toAddresses[0]?.trim()) {
       return await fail(
