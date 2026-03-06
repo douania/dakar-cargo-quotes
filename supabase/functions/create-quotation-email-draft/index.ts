@@ -109,11 +109,14 @@ Deno.serve(async (req: Request) => {
 
   const toAddresses = clientEmailFinal ? [clientEmailFinal] : [];
 
-  const subject = `Devis v${version.version_number}`;
+  const subject = `Votre devis SODATRA - version v${version.version_number}`;
+  // Base opérateur : ce brouillon est à relire et personnaliser avant marquage comme envoyé
   const bodyText = [
     "Bonjour,",
     "",
-    `Veuillez trouver ci-joint notre devis v${version.version_number}.`,
+    `Veuillez trouver ci-joint notre devis SODATRA, version v${version.version_number}.`,
+    "",
+    "Merci de bien vouloir le relire et revenir vers nous pour toute précision complémentaire.",
     "",
     "Cordialement,",
     "L'équipe SODATRA",
