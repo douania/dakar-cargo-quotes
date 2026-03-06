@@ -1,5 +1,5 @@
 
-## Plan d'exécution — Phase C3/P0 (Reply Analysis v1)
+## Plan d'exécution — Phase P0 (Gap-based Client Info Requests)
 
 ### STATUS: ✅ DONE
 
@@ -7,21 +7,20 @@
 
 | Fichier | Action | Phase |
 |---------|--------|-------|
-| `supabase/functions/analyze-reply-event/index.ts` | Créé — edge function analyse réponse client | C3/P0 |
-| `supabase/config.toml` | Ajout `[functions.analyze-reply-event] verify_jwt = false` | C3/P0 |
-| `src/pages/admin/Emails.tsx` | +state `analyzingReplyId`, +handler `analyzeReply`, +2 boutons | C3/P0 |
-| `src/pages/CaseView.tsx` | +affichage Card "Analyse dernière réponse client" | C3/P0 |
+| `supabase/functions/_shared/client-gap-policy.ts` | Créé — whitelist déterministe gaps client | P0-A |
+| `supabase/functions/sync-gap-client-actions/index.ts` | Créé — edge function sync actions idempotentes | P0-B |
+| `supabase/functions/generate-reply-draft/index.ts` | Modifié — branche déterministe REQUEST_CLIENT_INFO_FOR_GAPS | P0-C |
+| `src/pages/CaseView.tsx` | Modifié — bouton Générer brouillon étendu | P0-D |
+| `supabase/config.toml` | Ajout `[functions.sync-gap-client-actions] verify_jwt = false` | P0-B |
 
-### C3/P0 — Reply Analysis v1
+### Corrections appliquées vs prompt original
 
-- [x] Edge function `analyze-reply-event` : auth, email→thread→case, idempotence (JS filter kind=reply_analysis_v1, limit 50), AI call, parse JSON, normalize (clamp confidence, skip empty facts), insert `output_generated` timeline event, generate 1-3 `manual_action` idempotentes
-- [x] Idempotence actions : filtre par `case_id` + Set de dedupe_keys
-- [x] dedupe_key = `reply_analysis_v1:${case_id}:${email_id}` (basé sur email, pas sur event_id)
-- [x] Actions : APPLY_FACT_PROPOSALS (toujours), PREPARE_CLIENT_REPLY_DRAFT (si reply_recommended), LAUNCH_PRICING (si ready_to_price)
-- [x] UI Admin : bouton "Réponse" dans liste emails + dialog détail, avec toast + refresh
-- [x] UI CaseView : Card compacte après "Actions clôturées" — chips ready_to_price/reply_recommended, proposed_facts (max 10), open_questions
-- [x] Bracket notation systématique sur tous les accès Record<string, unknown>
-- [x] Comment SECURITY dans edge function
+- `dedupe_key` dans `event_data` JSONB (pas colonne top-level)
+- `event_type: "manual_action"` (pas `manual_action_created`)
+- Import `jsr:@supabase/supabase-js@2` (pas `esm.sh`)
+- `serve()` + CORS + `requireUser` (pattern projet)
+- Tri + déduplication des gap_keys pour idempotence stable
+- Double guard idempotence : dedupe_key exact + action ouverte équivalente
 
 ### Historique phases précédentes
 
@@ -30,3 +29,4 @@
 - P0.3 — Bracket notation CaseView.tsx ✅
 - P0.5 — Actions clôturées (UX) ✅
 - P0.7 — Auto-apply provide_missing_info ✅
+- C3/P0 — Reply Analysis v1 ✅
