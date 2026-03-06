@@ -1250,6 +1250,7 @@ ${excelText.substring(0, 50000)}`;
 Analyse l'image/document fourni et extrais toutes les informations pertinentes.
 Pour les cotations et tarifs: identifie les lignes de services avec montants, devises, unités.
 Pour les documents: identifie le type, les données clés.
+Sépare toujours ville et pays dans des champs distincts. Si tu ne peux pas distinguer ville et pays, mets la valeur dans le champ pays.
 Réponds en JSON avec cette structure:
 {
   "type": "quotation|invoice|document|signature|logo|unknown",
