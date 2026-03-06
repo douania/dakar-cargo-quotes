@@ -278,6 +278,9 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'volume_cbm': { factKey: 'cargo.volume_cbm', category: 'cargo', valueType: 'number' },
   'origine': { factKey: 'routing.origin_port', category: 'routing', valueType: 'text' },
   'destination': { factKey: 'routing.destination_city', category: 'routing', valueType: 'text' },
+  'destination_city': { factKey: 'routing.destination_city', category: 'routing', valueType: 'text' },
+  'destination_country': { factKey: 'routing.destination_country', category: 'routing', valueType: 'text' },
+  'origine_country': { factKey: 'routing.origin_country', category: 'routing', valueType: 'text' },
   'incoterm': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
   'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
   'devise': { factKey: 'cargo.value_currency', category: 'cargo', valueType: 'text' },
@@ -1117,11 +1120,36 @@ async function injectAttachmentFacts(
         }
       }
 
+      // --- P0-F Patch C: Country validation guard ---
+      const KNOWN_COUNTRIES = new Set([
+        'MALI','SENEGAL','SÉNÉGAL','GUINEE','GUINÉE','GAMBIE','GAMBIA',
+        'MAURITANIE','BURKINA','BURKINA FASO','NIGER',
+        "COTE D'IVOIRE","CÔTE D'IVOIRE",'GHANA','TOGO',
+        'BENIN','BÉNIN','NIGERIA','CAMEROUN','CAMEROON',
+      ]);
+
+      let effectiveFactKey = mapping.factKey;
+      let effectiveCategory = mapping.category;
+
+      if (mapping.factKey === 'routing.destination_city') {
+        const upper = valueText?.toUpperCase().trim();
+        if (upper && KNOWN_COUNTRIES.has(upper)) {
+          console.log(`[VALIDATION] "${valueText}" is a country name, redirecting to routing.destination_country`);
+          if (!injectedKeys.has('routing.destination_country')) {
+            effectiveFactKey = 'routing.destination_country';
+            effectiveCategory = 'routing';
+          } else {
+            result.skipped++;
+            continue; // don't block a real city later in the same loop
+          }
+        }
+      }
+
       // Call supersede_fact RPC
       const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
         p_case_id: caseId,
-        p_fact_key: mapping.factKey,
-        p_fact_category: mapping.category,
+        p_fact_key: effectiveFactKey,
+        p_fact_category: effectiveCategory,
         p_value_text: valueText,
         p_value_number: valueNumber,
         p_value_json: valueJson,
@@ -1143,7 +1171,7 @@ async function injectAttachmentFacts(
         case_id: caseId,
         event_type: 'fact_injected_from_attachment',
         event_data: {
-          fact_key: mapping.factKey,
+          fact_key: effectiveFactKey,
           attachment_id: attachment.id,
           filename: attachment.filename,
           source_field: rawKey,
@@ -1157,8 +1185,8 @@ async function injectAttachmentFacts(
         result.added++;
       }
 
-      injectedKeys.add(mapping.factKey);
-      factSourceMap.set(mapping.factKey, 'attachment_extracted');
+      injectedKeys.add(effectiveFactKey);
+      factSourceMap.set(effectiveFactKey, 'attachment_extracted');
     }
   }
 

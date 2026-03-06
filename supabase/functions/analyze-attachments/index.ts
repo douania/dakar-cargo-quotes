@@ -724,8 +724,12 @@ Analyse ce document et extrais les informations en JSON avec cette structure :
   "valeur_caf": montant_total_numerique_ou_null,
   "codes_hs": ["code1", "code2"],
   "incoterm": "CIF|FOB|DAP|...|null",
-  "destination": "ville ou null",
-  "origine": "ville ou pays ou null",
+  "destination_city": "ville de destination ou null",
+  "destination_country": "pays de destination ou null",
+  "origine_city": "ville d'origine ou null",
+  "origine_country": "pays d'origine ou null",
+  "destination": "ville ou null (champ legacy, remplir aussi les champs séparés ci-dessus)",
+  "origine": "ville ou pays ou null (champ legacy)",
   "fournisseur": "nom ou null",
   "poids_brut_kg": nombre_ou_null,
   "volume_cbm": nombre_ou_null,
@@ -745,6 +749,8 @@ Analyse ce document et extrais les informations en JSON avec cette structure :
 }
 
 REGLES CRITIQUES :
+- Sépare toujours ville et pays dans des champs distincts (destination_city vs destination_country, origine_city vs origine_country)
+- Si tu ne peux pas distinguer ville et pays, mets la valeur dans le champ pays
 - Pour chaque ligne d'article, extrais le prix unitaire ET le total si visibles sur le document
 - Si un code HS est mentionné, associe-le à l'article correspondant
 - Ne jamais inventer de prix ou de codes HS non visibles
@@ -1244,6 +1250,7 @@ ${excelText.substring(0, 50000)}`;
 Analyse l'image/document fourni et extrais toutes les informations pertinentes.
 Pour les cotations et tarifs: identifie les lignes de services avec montants, devises, unités.
 Pour les documents: identifie le type, les données clés.
+Sépare toujours ville et pays dans des champs distincts. Si tu ne peux pas distinguer ville et pays, mets la valeur dans le champ pays.
 Réponds en JSON avec cette structure:
 {
   "type": "quotation|invoice|document|signature|logo|unknown",
@@ -1251,7 +1258,15 @@ Réponds en JSON avec cette structure:
   "tariff_lines": [
     { "service": "nom du service", "amount": 1234, "currency": "FCFA", "unit": "EVP" }
   ],
-  "extracted_info": { /* autres informations */ },
+  "extracted_info": {
+    "destination_city": "ville de destination ou null",
+    "destination_country": "pays de destination ou null",
+    "origine_city": "ville d'origine ou null",
+    "origine_country": "pays d'origine ou null",
+    "destination": "ville ou null (champ legacy)",
+    "origine": "ville ou pays ou null (champ legacy)"
+    /* autres informations */
+  },
   "text_content": "tout texte visible",
   "confidence": 0.0-1.0
 }`;
