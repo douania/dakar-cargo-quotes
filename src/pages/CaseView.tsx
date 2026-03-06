@@ -743,13 +743,9 @@ export default function CaseView() {
         console.warn("[P0-E] sync-gap-client-actions:", syncErr);
       }
 
-      // Phase 16: Trigger intent analysis after puzzle (non-blocking, anti-doublon)
+      // Phase 16: Trigger intent analysis after puzzle (non-blocking, per-email anti-doublon)
       try {
-        // Check if intent already exists for this case
-        const intentAlreadyPresent = (events ?? []).some(
-          (e: any) => e.event_type === "thread_intent_v1"
-        );
-        if (!intentAlreadyPresent && caseData?.thread_id) {
+        if (caseData?.thread_id) {
           // Find the latest email in the thread
           const { data: latestEmail } = await supabase
             .from("emails")
@@ -760,9 +756,18 @@ export default function CaseView() {
             .maybeSingle();
 
           if (latestEmail) {
-            await supabase.functions.invoke("analyze-thread-event", {
-              body: { email_id: latestEmail.id },
-            });
+            // Check if this specific email already has an intent classification
+            const intentAlreadyPresent = (events ?? []).some(
+              (e: any) =>
+                e.event_type === "thread_intent_v1" &&
+                e.related_email_id === latestEmail.id
+            );
+
+            if (!intentAlreadyPresent) {
+              await supabase.functions.invoke("analyze-thread-event", {
+                body: { email_id: latestEmail.id },
+              });
+            }
           }
         }
       } catch (intentErr) {
@@ -1762,11 +1767,19 @@ export default function CaseView() {
               caseId={caseId!}
               onComplete={handleRefresh}
               blockedByIntent={(() => {
-                const ie = events.find((e: any) => e.event_type === "thread_intent_v1");
+                const intentEvents = events
+                  .filter((e: any) => e.event_type === "thread_intent_v1")
+                  .sort((a: any, b: any) =>
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  );
+                const ie = intentEvents[0];
+                if (!ie) return undefined;
                 const iObj = (ie?.event_data as any)?.intent ?? null;
-                const iType = iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? null;
-                const blockers = new Set(["opportunity_check", "general_inquiry", "send_document"]);
-                return iType && blockers.has(iType) ? iType : undefined;
+                const pricingGate = iObj?.pricing_gate ?? (ie?.event_data as any)?.pricing_gate;
+                if (pricingGate === false) {
+                  return iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? "blocked";
+                }
+                return undefined;
               })()}
             />
           </div>
