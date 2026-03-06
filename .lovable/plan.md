@@ -54,3 +54,30 @@ Le pipeline confondait ville et pays : `analyze-attachments` renvoyait un champ 
 - Variables locales `effectiveFactKey`/`effectiveCategory` au lieu de mutation de `mapping`
 - Pas de `injectedKeys.add('routing.destination_city')` dans le cas skip
 - Timeline log et `injectedKeys.add` utilisent `effectiveFactKey` partout
+
+---
+
+## P0-G — 7 bugs invisibles, patchs chirurgicaux ✅
+
+### Lot 1 — P0 critiques
+
+| Bug | Fichier | Patch |
+|-----|---------|-------|
+| 1 | `build-case-puzzle/index.ts:1572` | `ACK_READY_FOR_PRICING` ajouté à `FROZEN_STATUSES` |
+| 2 | `sync-emails/index.ts:1521` | `ACK_READY_FOR_PRICING` ajouté à `REOPENABLE_STATUSES` |
+| 7 | `_shared/client-gap-policy.ts` | Clés réalignées : `cargo.weight_kg`, `cargo.volume_cbm`, `cargo.hs_code`, `cargo.pieces_count`, `routing.destination_country`. Supprimé : `cargo.currency`, `cargo.weight`, `cargo.volume`, `goods.hs_code`, `goods.quantity` |
+| 3 | `set-case-fact/index.ts:14-36` | `routing.destination_country` et `routing.origin_country` ajoutés à `ALLOWED_FACT_KEYS` |
+| 5 | `generate-response/index.ts:2247-2248` | Fallback P0-F : `origin_country ?? origin`, `destination_country ?? destination` |
+
+### Lot 2 — P1 finition
+
+| Bug | Fichier | Patch |
+|-----|---------|-------|
+| 4 | `src/pages/Intake.tsx:338-340` | Garde anti-pays `KNOWN_COUNTRIES` avant injection `routing.destination_city` |
+| 6 | `generate-case-outputs/index.ts:496` | Fallback `routing.destination_country` ajouté dans template |
+
+### Vérification transversale consommateurs
+
+- `sync-gap-client-actions` : consomme `quote_gaps.gap_key` depuis la DB → clés canoniques produites par `build-case-puzzle` → cohérent ✅
+- `generate-reply-draft` : consomme via `buildClientQuestionsFromGaps` depuis policy → réaligné ✅
+- Aucun module consommateur ne hardcode les anciennes clés legacy
