@@ -4,6 +4,11 @@ import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import {
+  isClientResolvableGap,
+  buildClientQuestionsFromGaps,
+  normalizeGapKeys,
+} from "../_shared/client-gap-policy.ts";
 
 serve(async (req: Request) => {
   const cors = handleCors(req);
@@ -71,8 +76,10 @@ serve(async (req: Request) => {
 
   // ── Micro-ajustement #1: guard action_code ──
   const actionData = actionEvent.event_data as Record<string, unknown> | null;
-  if (actionData?.action_code !== "PREPARE_CLIENT_REPLY_DRAFT") {
-    return errorResponse("Action is not PREPARE_CLIENT_REPLY_DRAFT", 400);
+  const actionCode = actionData?.["action_code"] as string | undefined;
+  const ALLOWED_ACTIONS = ["PREPARE_CLIENT_REPLY_DRAFT", "REQUEST_CLIENT_INFO_FOR_GAPS"];
+  if (!actionCode || !ALLOWED_ACTIONS.includes(actionCode)) {
+    return errorResponse("Action code not supported for draft generation", 400);
   }
 
   const relatedEmailId = actionEvent.related_email_id as string | null;

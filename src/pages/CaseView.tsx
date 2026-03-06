@@ -1230,7 +1230,7 @@ export default function CaseView() {
                   const ed = action.event_data as Record<string, unknown> | null;
                    const dedupeKey = ed?.["dedupe_key"] as string;
                    const actionCode = ed?.["action_code"] as string | undefined;
-                  const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT";
+                  const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT" || actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS";
                   const existingDraft = draftsByActionKey.get(dedupeKey);
 
                   return (
