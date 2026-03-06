@@ -724,8 +724,12 @@ Analyse ce document et extrais les informations en JSON avec cette structure :
   "valeur_caf": montant_total_numerique_ou_null,
   "codes_hs": ["code1", "code2"],
   "incoterm": "CIF|FOB|DAP|...|null",
-  "destination": "ville ou null",
-  "origine": "ville ou pays ou null",
+  "destination_city": "ville de destination ou null",
+  "destination_country": "pays de destination ou null",
+  "origine_city": "ville d'origine ou null",
+  "origine_country": "pays d'origine ou null",
+  "destination": "ville ou null (champ legacy, remplir aussi les champs séparés ci-dessus)",
+  "origine": "ville ou pays ou null (champ legacy)",
   "fournisseur": "nom ou null",
   "poids_brut_kg": nombre_ou_null,
   "volume_cbm": nombre_ou_null,
@@ -1251,7 +1255,15 @@ Réponds en JSON avec cette structure:
   "tariff_lines": [
     { "service": "nom du service", "amount": 1234, "currency": "FCFA", "unit": "EVP" }
   ],
-  "extracted_info": { /* autres informations */ },
+  "extracted_info": {
+    "destination_city": "ville de destination ou null",
+    "destination_country": "pays de destination ou null",
+    "origine_city": "ville d'origine ou null",
+    "origine_country": "pays d'origine ou null",
+    "destination": "ville ou null (champ legacy)",
+    "origine": "ville ou pays ou null (champ legacy)"
+    /* autres informations */
+  },
   "text_content": "tout texte visible",
   "confidence": 0.0-1.0
 }`;
