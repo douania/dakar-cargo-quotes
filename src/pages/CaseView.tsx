@@ -734,6 +734,14 @@ export default function CaseView() {
     setIsAnalyzing(true);
     try {
       await runBuildCasePuzzleAsync(caseId);
+      // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
+      try {
+        await supabase.functions.invoke("sync-gap-client-actions", {
+          body: { case_id: caseId },
+        });
+      } catch (syncErr) {
+        console.warn("[P0-E] sync-gap-client-actions:", syncErr);
+      }
       toast.success("Analyse terminée avec succès");
       handleRefresh();
     } catch (err) {
@@ -868,6 +876,14 @@ export default function CaseView() {
     setIsForceRefreshing(true);
     try {
       await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true });
+      // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
+      try {
+        await supabase.functions.invoke("sync-gap-client-actions", {
+          body: { case_id: caseId },
+        });
+      } catch (syncErr) {
+        console.warn("[P0-E] sync-gap-client-actions:", syncErr);
+      }
       toast.success("Refresh articles forcé avec succès");
       handleRefresh();
     } catch (err) {
