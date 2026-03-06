@@ -749,6 +749,8 @@ Analyse ce document et extrais les informations en JSON avec cette structure :
 }
 
 REGLES CRITIQUES :
+- Sépare toujours ville et pays dans des champs distincts (destination_city vs destination_country, origine_city vs origine_country)
+- Si tu ne peux pas distinguer ville et pays, mets la valeur dans le champ pays
 - Pour chaque ligne d'article, extrais le prix unitaire ET le total si visibles sur le document
 - Si un code HS est mentionné, associe-le à l'article correspondant
 - Ne jamais inventer de prix ou de codes HS non visibles
