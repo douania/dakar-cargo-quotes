@@ -1,13 +1,17 @@
 /**
- * Phase 18C: send-quotation (email stub)
+ * Phase 18C P0 Hardening: send-quotation (manual marking)
  *
- * Marks an email draft as "sent" and transitions the case FSM to SENT.
- * No actual email is dispatched — this is a stub for FSM validation.
+ * Marks a quotation draft as manually sent after human validation.
+ * This function does NOT dispatch any email.
+ * It requires a selected version, a linked draft, and an exported PDF trace.
  *
  * CTO corrections applied:
  * - P1: Draft update via userClient (RLS ownership guarantee)
  * - P2: Explicit ownership guard on quote_cases
  * - P3: FSM guard accepts QUOTED_VERSIONED + SENT (idempotence)
+ * - P0: Strict version match (rejects null quotation_version_id)
+ * - P0: Mandatory PDF validation via serviceClient
+ * - P0: Content validations (to_addresses, subject, body)
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -65,7 +69,7 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   const correlationId = getCorrelationId(req);
 
-  // 2. Service client (logging + FSM transition)
+  // 2. Service client (logging + FSM transition + PDF check)
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -118,9 +122,6 @@ Deno.serve(async (req) => {
       return await fail(serviceClient, "VALIDATION_FAILED", "Quote case not found", correlationId, t0, userId, { case_id });
     }
 
-    // Mono-tenant app: all authenticated users can access all cases
-    // Ownership check removed — JWT auth is sufficient
-
     // 7. P3 — FSM guard (idempotent: accept SENT too)
     const allowedStatuses = ["QUOTED_VERSIONED", "SENT"];
     if (!allowedStatuses.includes(caseData.status)) {
@@ -152,7 +153,7 @@ Deno.serve(async (req) => {
     // 9. Load draft via userClient (RLS ownership)
     const { data: draftData, error: draftError } = await userClient
       .from("email_drafts")
-      .select("id, sent_at, status, quotation_version_id")
+      .select("id, sent_at, status, quotation_version_id, to_addresses, subject, body_text, body_html")
       .eq("id", draft_id)
       .single();
 
@@ -160,8 +161,8 @@ Deno.serve(async (req) => {
       return await fail(serviceClient, "VALIDATION_FAILED", "Email draft not found", correlationId, t0, userId, { draft_id });
     }
 
-    // 9b. C2.1-B — Validate draft belongs to the target version (defense in depth)
-    if (draftData.quotation_version_id && draftData.quotation_version_id !== version_id) {
+    // 9b. P0 — Strict version match (rejects null and mismatched)
+    if (draftData.quotation_version_id !== version_id) {
       return await fail(
         serviceClient,
         "VALIDATION_FAILED",
@@ -171,7 +172,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 9c. C2.1-B — Reject unexpected draft status
+    // 9c. Reject unexpected draft status
     const allowedDraftStatuses = ["draft", "sent"];
     if (draftData.status && !allowedDraftStatuses.includes(draftData.status)) {
       return await fail(
@@ -180,6 +181,57 @@ Deno.serve(async (req) => {
         `Invalid draft status: ${draftData.status}. Expected: draft or sent`,
         correlationId, t0, userId,
         { draft_id, draft_status: draftData.status },
+      );
+    }
+
+    // 9d. P0 — Content validations
+    const toAddresses = draftData.to_addresses as string[] | null;
+    if (!toAddresses || toAddresses.length === 0 || !toAddresses[0]?.trim()) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        "At least one recipient is required",
+        correlationId, t0, userId, { draft_id },
+      );
+    }
+
+    const subject = draftData.subject as string | null;
+    if (!subject?.trim()) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        "Subject is required",
+        correlationId, t0, userId, { draft_id },
+      );
+    }
+
+    const bodyText = draftData.body_text as string | null;
+    const bodyHtml = draftData.body_html as string | null;
+    if (!bodyText?.trim() && !bodyHtml?.trim()) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        "Email body is required (text or HTML)",
+        correlationId, t0, userId, { draft_id },
+      );
+    }
+
+    // 9e. P0 — Mandatory PDF validation via serviceClient (bypasses RLS)
+    const { data: pdfDoc } = await serviceClient
+      .from("quotation_documents")
+      .select("id, file_path")
+      .eq("quotation_version_id", version_id)
+      .eq("document_type", "pdf")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!pdfDoc) {
+      return await fail(
+        serviceClient,
+        "VALIDATION_FAILED",
+        "A generated PDF is required before marking quotation as sent",
+        correlationId, t0, userId, { version_id },
       );
     }
 
@@ -227,7 +279,7 @@ Deno.serve(async (req) => {
         .eq("id", case_id);
     }
 
-    // 13. Timeline event (best-effort)
+    // 13. Timeline event (best-effort) with manual_confirmed tracing
     try {
       await serviceClient.from("case_timeline_events").insert({
         case_id,
@@ -239,6 +291,9 @@ Deno.serve(async (req) => {
           draft_id,
           version_id,
           sent_at: sentAt,
+          delivery_mode: "manual_confirmed",
+          transport: "external_to_app",
+          pdf_document_id: pdfDoc.id,
         },
       });
     } catch (_) {
@@ -265,6 +320,9 @@ Deno.serve(async (req) => {
         draft_id,
         sent_at: sentAt,
         status_after: "SENT",
+        delivery_mode: "manual_confirmed",
+        email_dispatched: false,
+        pdf_document_id: pdfDoc.id,
       },
       correlationId,
     );

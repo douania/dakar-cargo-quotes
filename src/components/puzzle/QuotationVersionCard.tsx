@@ -74,7 +74,7 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
         window.open(data.url, '_blank');
         
         toast.success(`PDF v${version.version_number} généré`, {
-          description: 'Document DRAFT',
+          description: 'PDF exporté. Vous pouvez maintenant finaliser la revue du brouillon avant marquage comme envoyé.',
         });
       } else {
         throw new Error(data?.error || 'Échec de génération');
