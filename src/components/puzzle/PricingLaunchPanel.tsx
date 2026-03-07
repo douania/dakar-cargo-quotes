@@ -51,7 +51,7 @@ interface PricingLaunchPanelProps {
   pricingPrechecks?: PricingPrecheck[];
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [] }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
