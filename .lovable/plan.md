@@ -81,3 +81,28 @@ Le pipeline confondait ville et pays : `analyze-attachments` renvoyait un champ 
 - `sync-gap-client-actions` : consomme `quote_gaps.gap_key` depuis la DB → clés canoniques produites par `build-case-puzzle` → cohérent ✅
 - `generate-reply-draft` : consomme via `buildClientQuestionsFromGaps` depuis policy → réaligné ✅
 - Aucun module consommateur ne hardcode les anciennes clés legacy
+
+---
+
+## P1 — Bouton "Préparer demande client" dans gap rows ✅
+
+### Objectif
+
+Permettre à l'opérateur de lancer directement depuis une gap row la génération d'un brouillon d'email client pour tous les gaps client-résolvables ouverts du dossier.
+
+### Patchs appliqués
+
+| Patch | Fichier | Description |
+|-------|---------|-------------|
+| 1 | `src/pages/CaseView.tsx` L76-84 | Whitelist locale `CLIENT_RESOLVABLE_GAP_KEYS` (miroir de `_shared/client-gap-policy.ts`) |
+| 2 | `src/pages/CaseView.tsx` L519 | État `askingClientForGaps` |
+| 3 | `src/pages/CaseView.tsx` L894-955 | Fonction `askClientForGaps()` : sync → lookup DB direct → generate-reply-draft → toast + refresh |
+| 4 | `src/pages/CaseView.tsx` renderGapRow | Bouton "Préparer demande client" avec tooltip explicite, visible si gap client-résolvable et dossier non verrouillé |
+
+### Corrections CTO intégrées
+
+- Wording honnête : "Préparer demande client" + tooltip "Génère un brouillon pour tous les gaps client-résolvables ouverts du dossier"
+- Lookup DB direct : requête `case_timeline_events` filtrée sur `event_type=manual_action`, `action_code=REQUEST_CLIENT_INFO_FOR_GAPS`, `status=open`
+- Garde-fou : message d'erreur explicite si aucune action trouvée ou dedupe_key manquant
+- Toast adapté à l'idempotence : "Brouillon déjà disponible" vs "Brouillon de demande client généré"
+- Whitelist marquée comme miroir backend avec commentaire
