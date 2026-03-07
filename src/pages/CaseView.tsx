@@ -73,6 +73,13 @@ import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 
+// ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
+type PricingPrecheck = {
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED";
+  key: string;
+  label: string;
+};
+
 // Mirror of supabase/functions/_shared/client-gap-policy.ts
 // Keep in sync with backend client-resolvable gap keys.
 const CLIENT_RESOLVABLE_GAP_KEYS = new Set([
@@ -1848,29 +1855,74 @@ export default function CaseView() {
         )}
 
         {/* Pricing Launch Panel — visible only after ACK */}
-        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
-          <div className="mb-6">
-            <PricingLaunchPanel
-              caseId={caseId!}
-              onComplete={handleRefresh}
-              blockedByIntent={(() => {
-                const intentEvents = events
-                  .filter((e: any) => e.event_type === "thread_intent_v1")
-                  .sort((a: any, b: any) =>
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                  );
-                const ie = intentEvents[0];
-                if (!ie) return undefined;
-                const iObj = (ie?.event_data as any)?.intent ?? null;
-                const pricingGate = iObj?.pricing_gate ?? (ie?.event_data as any)?.pricing_gate;
-                if (pricingGate === false) {
-                  return iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? "blocked";
-                }
-                return undefined;
-              })()}
-            />
-          </div>
-        )}
+        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (() => {
+          // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
+          const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
+
+          const pkg = String(getFact("service.package")?.value_text ?? "").trim().toUpperCase();
+          const incoterm = String(getFact("routing.incoterm")?.value_text ?? "").trim().toUpperCase();
+          const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
+
+          const prechecks: PricingPrecheck[] = [];
+
+          if (scopeWantsDuties) {
+            // 1. HS_CODE_REQUIRED
+            const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
+            const hsCandidates = rawHs.split(/[;,]/).map(c => c.trim().replace(/\D/g, "")).filter(Boolean);
+            const firstValid10 = hsCandidates.find(c => c.length === 10);
+            const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
+            if (!hsDigits || hsDigits.length !== 10) {
+              prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
+            }
+
+            // 2. REGIME_REQUIRED_FOR_EXEMPTION
+            const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
+            const hasRegime = !!String(getFact("customs.regime_code")?.value_text ?? "").trim();
+            if (hasExemption && !hasRegime) {
+              prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
+            }
+
+            // 3. FREIGHT_REQUIRED_FOR_FOB
+            const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
+            if (isFobType) {
+              const freightCost = getFact("cargo.freight_cost")?.value_number;
+              if (!freightCost || freightCost <= 0) {
+                prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
+              }
+            }
+
+            // 4. CARGO_VALUE_REQUIRED
+            const cargoValue = getFact("cargo.value")?.value_number;
+            if (!cargoValue || cargoValue <= 0) {
+              prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
+            }
+          }
+
+          return (
+            <div className="mb-6">
+              <PricingLaunchPanel
+                caseId={caseId!}
+                onComplete={handleRefresh}
+                blockedByIntent={(() => {
+                  const intentEvents = events
+                    .filter((e: any) => e.event_type === "thread_intent_v1")
+                    .sort((a: any, b: any) =>
+                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    );
+                  const ie = intentEvents[0];
+                  if (!ie) return undefined;
+                  const iObj = (ie?.event_data as any)?.intent ?? null;
+                  const pricingGate = iObj?.pricing_gate ?? (ie?.event_data as any)?.pricing_gate;
+                  if (pricingGate === false) {
+                    return iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? "blocked";
+                  }
+                  return undefined;
+                })()}
+                pricingPrechecks={prechecks}
+              />
+            </div>
+          );
+        })()}
 
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
