@@ -1882,18 +1882,34 @@ export default function CaseView() {
               prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
             }
 
+            // Mirror current run-pricing numeric resolution for pricing prechecks
+            const resolveFactRaw = (f: any) => {
+              if (!f) return undefined;
+              return f.value_json ?? f.value_number ?? f.value_text;
+            };
+            const resolveFreightCost = (f: any): number | undefined => {
+              const raw = resolveFactRaw(f);
+              if (raw == null) return undefined;
+              const n = Number(String(raw).trim().replace(/\s/g, "").replace(/,/g, "."));
+              return Number.isFinite(n) && n > 0 ? n : undefined;
+            };
+            const resolveCargoValue = (f: any): number | undefined => {
+              const raw = resolveFactRaw(f);
+              if (raw == null) return undefined;
+              const n = Number(raw);
+              return Number.isFinite(n) && n > 0 ? n : undefined;
+            };
+
             // 3. FREIGHT_REQUIRED_FOR_FOB
             const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
             if (isFobType) {
-              const freightCost = getFact("cargo.freight_cost")?.value_number;
-              if (!freightCost || freightCost <= 0) {
+              if (!resolveFreightCost(getFact("cargo.freight_cost"))) {
                 prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
               }
             }
 
             // 4. CARGO_VALUE_REQUIRED
-            const cargoValue = getFact("cargo.value")?.value_number;
-            if (!cargoValue || cargoValue <= 0) {
+            if (!resolveCargoValue(getFact("cargo.value"))) {
               prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
             }
           }
