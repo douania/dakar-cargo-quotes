@@ -178,6 +178,18 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             </Alert>
           )}
 
+          {pricingPrechecks.length > 0 && (
+            <Alert className="border-orange-300 bg-orange-50 dark:bg-orange-950/30">
+              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              <AlertDescription>
+                <p className="font-medium text-sm mb-1">Préchecks pricing — données manquantes</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  {pricingPrechecks.map(b => <li key={b.code}>{b.label}</li>)}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Alert className="border-primary/30 bg-primary/5">
             <Info className="h-4 w-4 text-primary" />
             <AlertDescription className="text-sm text-primary">
@@ -195,7 +207,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={isLoading || !!blockedByIntent}
+            disabled={isLoading || !!blockedByIntent || pricingPrechecks.length > 0}
             className="w-full gap-2"
             variant="default"
           >
