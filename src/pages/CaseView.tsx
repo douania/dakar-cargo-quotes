@@ -73,6 +73,15 @@ import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 
+// Mirror of supabase/functions/_shared/client-gap-policy.ts
+// Keep in sync with backend client-resolvable gap keys.
+const CLIENT_RESOLVABLE_GAP_KEYS = new Set([
+  "cargo.description", "cargo.value", "cargo.weight_kg", "cargo.volume_cbm",
+  "cargo.hs_code", "cargo.pieces_count", "routing.origin_port",
+  "routing.destination_port", "routing.destination_city",
+  "routing.destination_country", "routing.transport_mode",
+]);
+
 // ── Editable fact keys (must match set-case-fact whitelist) ──
 const EDITABLE_FACT_KEYS = new Set([
   "cargo.weight_kg",
@@ -516,6 +525,7 @@ export default function CaseView() {
   // ── Gap inline resolution state ──
   const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
+  const [askingClientForGaps, setAskingClientForGaps] = useState(false);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -888,6 +898,66 @@ export default function CaseView() {
       toast.error(`Erreur génération: ${e?.message ?? "unknown"}`);
     } finally {
       setGeneratingDraftKey(null);
+    }
+  }
+
+  // ── P1: Ask client for all open client-resolvable gaps ──
+  async function askClientForGaps() {
+    if (!caseId || askingClientForGaps) return;
+    setAskingClientForGaps(true);
+    try {
+      // 1. Sync gap-based action (idempotent)
+      const { error: syncErr } = await supabase.functions.invoke("sync-gap-client-actions", {
+        body: { case_id: caseId },
+      });
+      if (syncErr) throw syncErr;
+
+      // 2. Direct DB lookup for the open REQUEST_CLIENT_INFO_FOR_GAPS action
+      const { data: actionRows, error: lookupErr } = await supabase
+        .from("case_timeline_events")
+        .select("id, event_data")
+        .eq("case_id", caseId)
+        .eq("event_type", "manual_action")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (lookupErr) throw lookupErr;
+
+      const openAction = (actionRows ?? []).find((row: any) => {
+        const ed = row.event_data as Record<string, unknown> | null;
+        return (
+          ed?.["action_code"] === "REQUEST_CLIENT_INFO_FOR_GAPS" &&
+          ed?.["status"] === "open"
+        );
+      });
+
+      if (!openAction) {
+        toast.error("Impossible de retrouver l'action de demande client pour les gaps ouverts.");
+        return;
+      }
+
+      const dedupeKey = (openAction.event_data as Record<string, unknown>)?.["dedupe_key"] as string;
+      if (!dedupeKey) {
+        toast.error("Action trouvée mais dedupe_key manquant.");
+        return;
+      }
+
+      // 3. Generate reply draft
+      const { data: draftData, error: draftErr } = await supabase.functions.invoke("generate-reply-draft", {
+        body: { case_id: caseId, action_dedupe_key: dedupeKey },
+      });
+      if (draftErr) throw draftErr;
+
+      if (draftData?.ok) {
+        toast.success(draftData.idempotent ? "Brouillon déjà disponible" : "Brouillon de demande client généré");
+        refetchEvents();
+      } else {
+        toast.error(`Erreur: ${draftData?.error ?? "Génération échouée"}`);
+      }
+    } catch (e: any) {
+      toast.error(`Erreur demande client: ${e?.message ?? "unknown"}`);
+    } finally {
+      setAskingClientForGaps(false);
     }
   }
 
@@ -1670,6 +1740,23 @@ export default function CaseView() {
                       {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                     </Button>
                   </div>
+                )}
+                {CLIENT_RESOLVABLE_GAP_KEYS.has(g.gap_key) && !isLocked && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => askClientForGaps()}
+                    disabled={askingClientForGaps}
+                    title="Génère un brouillon pour tous les gaps client-résolvables ouverts du dossier"
+                  >
+                    {askingClientForGaps ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Mail className="mr-1 h-3 w-3" />
+                    )}
+                    Préparer demande client
+                  </Button>
                 )}
               </li>
             );
