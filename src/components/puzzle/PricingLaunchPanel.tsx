@@ -38,10 +38,17 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+type PricingPrecheck = {
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED";
+  key: string;
+  label: string;
+};
+
 interface PricingLaunchPanelProps {
   caseId: string;
   onComplete?: () => void;
   blockedByIntent?: string;
+  pricingPrechecks?: PricingPrecheck[];
 }
 
 export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent }: PricingLaunchPanelProps) {
