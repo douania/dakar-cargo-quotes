@@ -162,6 +162,8 @@ serve(async (req: Request) => {
 
     const rawText = await parseAIResponse(aiResponse);
 
+    const modelMeta = { model: "google/gemini-2.5-flash", version: "v1" };
+
     let parsed: { scope: Record<string, unknown>; reasoning: Record<string, unknown> };
     try {
       parsed = extractAndParseJSON<typeof parsed>(rawText, {
