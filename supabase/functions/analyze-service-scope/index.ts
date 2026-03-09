@@ -220,6 +220,7 @@ serve(async (req: Request) => {
           event_data: {
             ...parsed.reasoning,
             dedupe_key: reasoningDedupeKey,
+            model_meta: modelMeta,
           },
         });
 
