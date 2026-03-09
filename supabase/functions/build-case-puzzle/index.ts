@@ -3981,7 +3981,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
       if (INCOTERM_CODES.has(code1) || INCOTERM_CODES.has(code2)) continue;
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA from-to: ${code1}-${code2})`);
-        return "AIR_IMPORT";
+        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
       }
     }
   } else {
@@ -3990,7 +3990,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
 
   // Step 6: Default = UNKNOWN
   console.log(`[Detection] UNKNOWN (no explicit mode detected)`);
-  return "UNKNOWN";
+  return { type: "UNKNOWN", ambiguous_lcl_fcl: false };
 }
 
 function getFactValue(fact: ExtractedFact): string | number | object {
