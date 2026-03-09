@@ -3926,7 +3926,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
     (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
   if (lclStandalonePatterns.some(p => lowerContext.includes(p)) || isStandaloneLclByPartOf) {
     console.log(`[Detection] SEA_LCL_IMPORT (standalone LCL pattern)`);
-    return "SEA_LCL_IMPORT";
+    return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 3: Breakbulk patterns (Action 3: expanded with crane, lifting, rigging)
