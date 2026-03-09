@@ -3969,7 +3969,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
       // At least one must be a known airport
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA codes: ${code1}-${code2})`);
-        return "AIR_IMPORT";
+        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
       }
     }
 
