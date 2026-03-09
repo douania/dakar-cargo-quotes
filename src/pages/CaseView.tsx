@@ -1798,6 +1798,20 @@ export default function CaseView() {
 
           return (
             <>
+              <div className="mb-3 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAnalyzeServiceScope}
+                  disabled={isServiceScopeAnalyzing || !caseId}
+                >
+                  {isServiceScopeAnalyzing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Analyser la demande
+                </Button>
+              </div>
+
               {/* Phase 1: Service scope understanding panel */}
               <CaseUnderstandingPanel events={events as any} />
               {/* Blocking gaps alert */}
