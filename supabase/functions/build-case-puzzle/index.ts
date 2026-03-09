@@ -3053,6 +3053,8 @@ Deno.serve(async (req) => {
         "cargo.freight_cost", "cargo.value",
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
+      // P1: Protect clarification gap from orphan closure when ambiguity is active
+      if (isAmbiguousLclFcl) mandatorySet.add("routing.shipment_mode_clarification");
 
       const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
 
