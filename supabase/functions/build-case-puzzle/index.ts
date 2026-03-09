@@ -3888,16 +3888,36 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
 
   // Step 2: Maritime on strong indicators
   if (hasStrongMaritime) {
-    // Step 2b: LCL detection (before FCL default)
+    // Step 2a: Separate LCL and explicit container signals
     const lclPatterns = ["lcl", "less than container", "groupage", "consolidation"];
     const isLclByPartOf = lowerContext.includes("part of") &&
       (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
-    if (lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf) {
-      console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
-      return "SEA_LCL_IMPORT";
+    const hasLclSignal = lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf;
+
+    // P1: Explicit container patterns (20ft, 40HC, etc.)
+    const explicitContainerPatterns = [
+      /\b(?:\d+\s*x?\s*)?(?:20|40|45)\s*(?:ft|'|hc|dv|gp|rf|ot|fr)\b/i,
+      /\b(?:20|40|45)\s*(?:ft|')\s*container/i,
+      /\bcontainer\s+(?:20|40|45)/i,
+      /\b(?:20gp|40gp|20dv|40dv|40hc|40hq|20rf|40rf|40ot|40fr)\b/i,
+    ];
+    const hasExplicitContainer = explicitContainerPatterns.some(r => r.test(lowerContext))
+      || hasValidContainerFact;
+
+    // P1: Ambiguity detection
+    if (hasLclSignal && hasExplicitContainer) {
+      console.log(`[Detection] SEA_FCL_IMPORT (AMBIGUOUS: both LCL keyword and explicit container — defaulting to FCL)`);
+      return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: true };
     }
+
+    // Step 2b: LCL detection (no container contradiction)
+    if (hasLclSignal) {
+      console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
+      return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: false };
+    }
+
     console.log(`[Detection] SEA_FCL_IMPORT (strong maritime pattern)`);
-    return "SEA_FCL_IMPORT";
+    return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 2c: LCL without strong maritime (standalone LCL mention)
