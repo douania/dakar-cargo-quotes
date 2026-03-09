@@ -3839,7 +3839,8 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
 // Action 2: IATA whitelist + incoterm exclusion
 // Action 3: Breakbulk patterns expanded
 // Action 4: Post-detection coherence guard
-function detectRequestType(context: string, facts: ExtractedFact[]): string {
+// P1: Returns { type, ambiguous_lcl_fcl } to flag contradictory LCL+container signals
+function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
   const lowerContext = context.toLowerCase();
 
   // === PRE-SCAN: Strong maritime indicators (Action 1) ===
