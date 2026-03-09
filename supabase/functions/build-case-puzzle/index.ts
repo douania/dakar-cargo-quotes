@@ -1653,7 +1653,9 @@ Deno.serve(async (req) => {
 
     // 8. Detect request type from content (include attachment text for Intake cases)
     const fullDetectionContext = [threadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
-    let detectedType = detectRequestType(fullDetectionContext, extractedFacts);
+    const detectionResult = detectRequestType(fullDetectionContext, extractedFacts);
+    let detectedType = detectionResult.type;
+    const isAmbiguousLclFcl = detectionResult.ambiguous_lcl_fcl;
 
     // Action 4: Post-detection coherence guard
     // If AIR_IMPORT but extracted facts contain valid containers → force SEA_FCL_IMPORT
