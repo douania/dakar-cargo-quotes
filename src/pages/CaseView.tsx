@@ -1723,14 +1723,14 @@ export default function CaseView() {
             }
           };
 
-          const renderGapRow = (g: any, allowAutoPricing: boolean) => {
+          const renderGapRow = (g: any, allowAutoPricing: boolean, textColorClass = "text-foreground") => {
             const isEditable = EDITABLE_FACT_KEYS.has(g.gap_key);
             const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
             const isSaving = savingGapKey === g.gap_key;
             const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
 
             return (
-              <li key={g.id} className="flex items-center gap-2 text-sm text-foreground">
+              <li key={g.id} className={`flex items-center gap-2 text-sm ${textColorClass}`}>
                 <span className="flex-1">{g.question_fr || g.gap_key}</span>
                 {isEditable && !isLocked && (
                   <div className="flex items-center gap-1.5">
@@ -1823,7 +1823,7 @@ export default function CaseView() {
                       {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
                     </p>
                     <ul className="space-y-3">
-                      {blockingGaps.map((g: any) => renderGapRow(g, true))}
+                      {blockingGaps.map((g: any) => renderGapRow(g, true, "text-red-800"))}
                     </ul>
                   </AlertDescription>
                 </Alert>
@@ -1838,7 +1838,7 @@ export default function CaseView() {
                       {nonBlockingOpenGaps.length} question{nonBlockingOpenGaps.length > 1 ? 's' : ''} ouverte{nonBlockingOpenGaps.length > 1 ? 's' : ''} (non bloquante{nonBlockingOpenGaps.length > 1 ? 's' : ''})
                     </p>
                     <ul className="space-y-3">
-                      {nonBlockingOpenGaps.map((g: any) => renderGapRow(g, false))}
+                      {nonBlockingOpenGaps.map((g: any) => renderGapRow(g, false, "text-blue-800"))}
                     </ul>
                   </AlertDescription>
                 </Alert>
