@@ -1782,7 +1782,7 @@ export default function CaseView() {
                     <p className="font-semibold mb-2">
                       {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
                     </p>
-                    <ul className="space-y-3 text-orange-900">
+                    <ul className="space-y-3">
                       {blockingGaps.map((g: any) => renderGapRow(g, true))}
                     </ul>
                   </AlertDescription>
