@@ -198,6 +198,7 @@ serve(async (req: Request) => {
           event_data: {
             ...parsed.scope,
             dedupe_key: scopeDedupeKey,
+            model_meta: modelMeta,
           },
         });
 
