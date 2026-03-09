@@ -1653,7 +1653,9 @@ Deno.serve(async (req) => {
 
     // 8. Detect request type from content (include attachment text for Intake cases)
     const fullDetectionContext = [threadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
-    let detectedType = detectRequestType(fullDetectionContext, extractedFacts);
+    const detectionResult = detectRequestType(fullDetectionContext, extractedFacts);
+    let detectedType = detectionResult.type;
+    const isAmbiguousLclFcl = detectionResult.ambiguous_lcl_fcl;
 
     // Action 4: Post-detection coherence guard
     // If AIR_IMPORT but extracted facts contain valid containers → force SEA_FCL_IMPORT
@@ -3051,6 +3053,8 @@ Deno.serve(async (req) => {
         "cargo.freight_cost", "cargo.value",
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
+      // P1: Protect clarification gap from orphan closure when ambiguity is active
+      if (isAmbiguousLclFcl) mandatorySet.add("routing.shipment_mode_clarification");
 
       const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
 
@@ -3323,6 +3327,43 @@ Deno.serve(async (req) => {
           related_gap_id: existingGap.id,
           actor_type: "ai",
         });
+      }
+    }
+
+    // P1: Inject non-blocking clarification gap when LCL + explicit container signals are contradictory
+    if (isAmbiguousLclFcl) {
+      const clarificationGapKey = "routing.shipment_mode_clarification";
+      const { data: existingClarGap } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", clarificationGapKey)
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (!existingClarGap?.id) {
+        await serviceClient.from("quote_gaps").insert({
+          case_id,
+          gap_key: clarificationGapKey,
+          gap_category: "routing",
+          question_fr: "Le dossier mentionne à la fois un mode LCL (groupage) et un conteneur complet (20ft/40ft). Pouvez-vous confirmer si l'expédition est en LCL (groupage) ou en FCL (conteneur complet) ?",
+          question_en: "The request mentions both LCL (consolidation) and a full container (20ft/40ft). Can you confirm whether the shipment is LCL (consolidation) or FCL (full container)?",
+          priority: "high",
+          is_blocking: false,
+        });
+        gapsIdentified++;
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "gap_identified",
+          event_data: {
+            gap_key: clarificationGapKey,
+            reason: "Contradictory LCL + explicit container signals detected",
+            detected_type: detectedType,
+          },
+          actor_type: "system",
+        });
+        console.log(`[P1] Created non-blocking clarification gap: ${clarificationGapKey}`);
       }
     }
 
@@ -3839,7 +3880,8 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
 // Action 2: IATA whitelist + incoterm exclusion
 // Action 3: Breakbulk patterns expanded
 // Action 4: Post-detection coherence guard
-function detectRequestType(context: string, facts: ExtractedFact[]): string {
+// P1: Returns { type, ambiguous_lcl_fcl } to flag contradictory LCL+container signals
+function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
   const lowerContext = context.toLowerCase();
 
   // === PRE-SCAN: Strong maritime indicators (Action 1) ===
@@ -3873,13 +3915,13 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
       console.log(`[Detection] WARNING: Explicit AIR pattern found WITH maritime signals. Respecting explicit AIR.`);
     }
     console.log(`[Detection] AIR_IMPORT (explicit air pattern)`);
-    return "AIR_IMPORT";
+    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 1b: Airport fact — ONLY if no strong maritime signal (Action 1)
   if (facts.some(f => f.key === "routing.origin_airport") && !maritimeSignal) {
     console.log(`[Detection] AIR_IMPORT (airport fact, no maritime conflict)`);
-    return "AIR_IMPORT";
+    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
   }
   if (facts.some(f => f.key === "routing.origin_airport") && maritimeSignal) {
     console.log(`[Detection] Airport fact IGNORED — strong maritime signals present`);
@@ -3887,16 +3929,36 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
   // Step 2: Maritime on strong indicators
   if (hasStrongMaritime) {
-    // Step 2b: LCL detection (before FCL default)
+    // Step 2a: Separate LCL and explicit container signals
     const lclPatterns = ["lcl", "less than container", "groupage", "consolidation"];
     const isLclByPartOf = lowerContext.includes("part of") &&
       (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
-    if (lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf) {
-      console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
-      return "SEA_LCL_IMPORT";
+    const hasLclSignal = lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf;
+
+    // P1: Explicit container patterns (20ft, 40HC, etc.)
+    const explicitContainerPatterns = [
+      /\b(?:\d+\s*x?\s*)?(?:20|40|45)\s*(?:ft|'|hc|dv|gp|rf|ot|fr)\b/i,
+      /\b(?:20|40|45)\s*(?:ft|')\s*container/i,
+      /\bcontainer\s+(?:20|40|45)/i,
+      /\b(?:20gp|40gp|20dv|40dv|40hc|40hq|20rf|40rf|40ot|40fr)\b/i,
+    ];
+    const hasExplicitContainer = explicitContainerPatterns.some(r => r.test(lowerContext))
+      || hasValidContainerFact;
+
+    // P1: Ambiguity detection
+    if (hasLclSignal && hasExplicitContainer) {
+      console.log(`[Detection] SEA_FCL_IMPORT (AMBIGUOUS: both LCL keyword and explicit container — defaulting to FCL)`);
+      return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: true };
     }
+
+    // Step 2b: LCL detection (no container contradiction)
+    if (hasLclSignal) {
+      console.log(`[Detection] SEA_LCL_IMPORT (LCL pattern within maritime context)`);
+      return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: false };
+    }
+
     console.log(`[Detection] SEA_FCL_IMPORT (strong maritime pattern)`);
-    return "SEA_FCL_IMPORT";
+    return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 2c: LCL without strong maritime (standalone LCL mention)
@@ -3905,7 +3967,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
     (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
   if (lclStandalonePatterns.some(p => lowerContext.includes(p)) || isStandaloneLclByPartOf) {
     console.log(`[Detection] SEA_LCL_IMPORT (standalone LCL pattern)`);
-    return "SEA_LCL_IMPORT";
+    return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 3: Breakbulk patterns (Action 3: expanded with crane, lifting, rigging)
@@ -3915,13 +3977,13 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
   ];
   if (breakbulkPatterns.some(p => lowerContext.includes(p))) {
     console.log(`[Detection] SEA_BREAKBULK_IMPORT (breakbulk pattern)`);
-    return "SEA_BREAKBULK_IMPORT";
+    return { type: "SEA_BREAKBULK_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 4: Container fact (already checked in pre-scan, but handle edge cases)
   if (hasValidContainerFact) {
     console.log(`[Detection] SEA_FCL_IMPORT (container fact with valid items)`);
-    return "SEA_FCL_IMPORT";
+    return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 5: IATA codes — ONLY if no maritime signal (Action 1 + Action 2)
@@ -3948,7 +4010,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
       // At least one must be a known airport
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA codes: ${code1}-${code2})`);
-        return "AIR_IMPORT";
+        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
       }
     }
 
@@ -3960,7 +4022,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
       if (INCOTERM_CODES.has(code1) || INCOTERM_CODES.has(code2)) continue;
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA from-to: ${code1}-${code2})`);
-        return "AIR_IMPORT";
+        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
       }
     }
   } else {
@@ -3969,7 +4031,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): string {
 
   // Step 6: Default = UNKNOWN
   console.log(`[Detection] UNKNOWN (no explicit mode detected)`);
-  return "UNKNOWN";
+  return { type: "UNKNOWN", ambiguous_lcl_fcl: false };
 }
 
 function getFactValue(fact: ExtractedFact): string | number | object {
