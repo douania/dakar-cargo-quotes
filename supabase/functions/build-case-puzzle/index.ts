@@ -3947,8 +3947,8 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
 
     // P1: Ambiguity detection
     if (hasLclSignal && hasExplicitContainer) {
-      console.log(`[Detection] SEA_FCL_IMPORT (AMBIGUOUS: both LCL keyword and explicit container — defaulting to FCL)`);
-      return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: true };
+      console.log(`[Detection] SEA_LCL_IMPORT (ambiguous: both LCL signal and explicit container — pending client clarification)`);
+      return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: true };
     }
 
     // Step 2b: LCL detection (no container contradiction)
