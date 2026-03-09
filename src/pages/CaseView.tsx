@@ -522,6 +522,7 @@ function ServiceOverridePanel({
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const [isSavingFact, setIsSavingFact] = React.useState(false);
@@ -629,6 +630,31 @@ export default function CaseView() {
     refetchFacts();
     refetchEvents();
     refetchGaps();
+  }
+
+  async function handleAnalyzeServiceScope() {
+    if (!caseId || isServiceScopeAnalyzing) return;
+
+    setIsServiceScopeAnalyzing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-service-scope", {
+        body: { case_id: caseId },
+      });
+
+      if (error) throw error;
+
+      if (data?.ok === false) {
+        toast.error("Analyse impossible pour ce dossier");
+        return;
+      }
+
+      await refetchEvents();
+    } catch (err) {
+      console.error("[Phase2] analyze-service-scope failed:", err);
+      toast.error("Analyse impossible pour ce dossier");
+    } finally {
+      setIsServiceScopeAnalyzing(false);
+    }
   }
 
   // ── C3/P1: Apply proposed facts from reply_analysis_v1 ──
@@ -1772,6 +1798,20 @@ export default function CaseView() {
 
           return (
             <>
+              <div className="mb-3 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAnalyzeServiceScope}
+                  disabled={isServiceScopeAnalyzing || !caseId}
+                >
+                  {isServiceScopeAnalyzing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Analyser la demande
+                </Button>
+              </div>
+
               {/* Phase 1: Service scope understanding panel */}
               <CaseUnderstandingPanel events={events as any} />
               {/* Blocking gaps alert */}
