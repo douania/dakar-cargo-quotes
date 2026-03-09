@@ -632,6 +632,31 @@ export default function CaseView() {
     refetchGaps();
   }
 
+  async function handleAnalyzeServiceScope() {
+    if (!caseId || isServiceScopeAnalyzing) return;
+
+    setIsServiceScopeAnalyzing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-service-scope", {
+        body: { case_id: caseId },
+      });
+
+      if (error) throw error;
+
+      if (data?.ok === false) {
+        toast.error("Analyse impossible pour ce dossier");
+        return;
+      }
+
+      await refetchEvents();
+    } catch (err) {
+      console.error("[Phase2] analyze-service-scope failed:", err);
+      toast.error("Analyse impossible pour ce dossier");
+    } finally {
+      setIsServiceScopeAnalyzing(false);
+    }
+  }
+
   // ── C3/P1: Apply proposed facts from reply_analysis_v1 ──
   const [applyingFactKey, setApplyingFactKey] = useState<string | null>(null);
 
