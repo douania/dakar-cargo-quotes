@@ -3880,7 +3880,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
   // Step 1b: Airport fact — ONLY if no strong maritime signal (Action 1)
   if (facts.some(f => f.key === "routing.origin_airport") && !maritimeSignal) {
     console.log(`[Detection] AIR_IMPORT (airport fact, no maritime conflict)`);
-    return "AIR_IMPORT";
+    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
   }
   if (facts.some(f => f.key === "routing.origin_airport") && maritimeSignal) {
     console.log(`[Detection] Airport fact IGNORED — strong maritime signals present`);
