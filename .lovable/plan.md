@@ -1,4 +1,3 @@
-
 ## Plan d'exécution — Phase P0 (Gap-based Client Info Requests)
 
 ### STATUS: ✅ DONE
@@ -106,3 +105,61 @@ Permettre à l'opérateur de lancer directement depuis une gap row la générati
 - Garde-fou : message d'erreur explicite si aucune action trouvée ou dedupe_key manquant
 - Toast adapté à l'idempotence : "Brouillon déjà disponible" vs "Brouillon de demande client généré"
 - Whitelist marquée comme miroir backend avec commentaire
+
+---
+
+## Phase 1 — Service Scope + Case Reasoning (MVP Safe) ✅
+
+### Objectif
+
+Introduire une couche légère et additive de compréhension métier avant les gaps/pricing :
+- `service_scope_v1` : détection du scope de service (fret, douane, transit, document)
+- `case_reasoning_v1` : mini raisonnement métier structuré
+
+### Patchs appliqués
+
+| Fichier | Action | Description |
+|---------|--------|-------------|
+| Migration SQL | Créé | Ajout `service_scope_v1` et `case_reasoning_v1` à la CHECK constraint (29 → 31 valeurs) |
+| `supabase/functions/analyze-service-scope/index.ts` | Créé | Nouvelle edge function additive |
+| `src/components/case/CaseUnderstandingPanel.tsx` | Créé | Panneau read-only de compréhension du dossier |
+| `src/pages/CaseView.tsx` | Modifié | Import + insertion du panel avant les gaps (~3 lignes) |
+
+### Architecture edge function
+
+1. Auth via `requireUser(req)`
+2. Input : `{ case_id }`
+3. Résout thread → charge les 5 derniers emails
+4. **Idempotence duale** : vérifie les 2 events (`service_scope_v1` + `case_reasoning_v1`) pour le `related_email_id` du dernier email
+   - Si les 2 existent → retour idempotent
+   - Sinon → 1 seul appel IA → insert uniquement les events manquants
+5. Contexte LLM structuré : `[LATEST_EMAIL]` prioritaire + `[PREVIOUS_CONTEXT]` tronqué (500 chars)
+6. Pas de lecture des `quote_facts` — raisonnement indépendant basé sur les emails
+7. 0 side effect sur facts/gaps/pricing
+
+### UI Panel
+
+- Affiche : Type, Fret principal, Douane, Transit intérieur, Résumé
+- Timestamp : "Analyse générée il y a X"
+- Matching `related_email_id` entre scope et reasoning pour cohérence
+- Si aucun event → ne rend rien
+
+### Liste complète des event_type (31 valeurs)
+
+```
+case_created, status_changed, fact_added, fact_updated, fact_superseded,
+gap_identified, gap_resolved, gap_waived, pricing_started, pricing_completed,
+pricing_failed, output_generated, human_approved, human_rejected, sent,
+archived, email_received, email_sent, attachment_analyzed, clarification_sent,
+manual_action, status_rollback, fact_insert_failed, document_uploaded,
+fact_injected_manual, assumption_applied, detection_corrected,
+fact_injected_from_attachment, thread_intent_v1,
+service_scope_v1, case_reasoning_v1
+```
+
+### Hors périmètre (Phase 1)
+
+- Déclenchement automatique de `analyze-service-scope`
+- Modification des gaps conditionnels basée sur le scope
+- Impact sur pricing / facts / build-case-puzzle
+- Bouton UI pour déclencher l'analyse (sera Phase 2)
