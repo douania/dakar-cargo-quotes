@@ -3874,7 +3874,7 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
       console.log(`[Detection] WARNING: Explicit AIR pattern found WITH maritime signals. Respecting explicit AIR.`);
     }
     console.log(`[Detection] AIR_IMPORT (explicit air pattern)`);
-    return "AIR_IMPORT";
+    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 1b: Airport fact — ONLY if no strong maritime signal (Action 1)
