@@ -21,10 +21,10 @@ interface CaseUnderstandingPanelProps {
 // ── Scope indicator icon ──
 function ScopeIcon({ value }: { value: unknown }) {
   if (value === true)
-    return <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 inline mr-1" />;
+    return <CheckCircle className="h-4 w-4 text-primary inline mr-1" />;
   if (value === false)
-    return <XCircle className="h-4 w-4 text-red-500 dark:text-red-400 inline mr-1" />;
-  return <HelpCircle className="h-4 w-4 text-amber-500 dark:text-amber-400 inline mr-1" />;
+    return <XCircle className="h-4 w-4 text-destructive inline mr-1" />;
+  return <HelpCircle className="h-4 w-4 text-muted-foreground inline mr-1" />;
 }
 
 function scopeLabel(value: unknown): string {
