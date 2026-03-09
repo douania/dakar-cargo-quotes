@@ -3732,7 +3732,7 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
     }
 
     // A1: Extract cargo.dimensions (value_text)
-    const dimMatch = body.match(/(\d+)\s*[*x×]\s*(\d+)\s*[*x×]\s*(\d+)\s*(?:cm|mm)?/i);
+    const dimMatch = body.match(/(\d+(?:[.,]\d+)?)\s*[*x×]\s*(\d+(?:[.,]\d+)?)\s*[*x×]\s*(\d+(?:[.,]\d+)?)(?:\s*(mm|cm|m)\b)?/i);
     if (dimMatch) {
       facts.push({
         key: "cargo.dimensions",
@@ -3744,6 +3744,37 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
         sourceExcerpt: dimMatch[0],
         confidence: 0.8,
       });
+
+      // P0: Auto-calc cargo.volume_cbm from cargo.dimensions if unit is explicit
+      if (!facts.some(f => f.key === "cargo.volume_cbm")) {
+        const dL = parseFloat(dimMatch[1].replace(",", "."));
+        const dW = parseFloat(dimMatch[2].replace(",", "."));
+        const dH = parseFloat(dimMatch[3].replace(",", "."));
+        const unitStr = dimMatch[4]?.toLowerCase();
+
+        let divisor: number | null = null;
+        if (unitStr === "mm") divisor = 1000;
+        else if (unitStr === "cm") divisor = 100;
+        else if (unitStr === "m") divisor = 1;
+
+        if (divisor !== null) {
+          const volM3 = Math.round((dL / divisor) * (dW / divisor) * (dH / divisor) * 100) / 100;
+
+          if (volM3 > 0 && volM3 < 10000) {
+            facts.push({
+              key: "cargo.volume_cbm",
+              category: "cargo",
+              value: volM3,
+              valueType: "number",
+              sourceType: "deterministic_calc",
+              sourceEmailId: firstEmail.id,
+              sourceExcerpt: `${dimMatch[0]} → ${dL}/${divisor} × ${dW}/${divisor} × ${dH}/${divisor} = ${volM3} m³`,
+              confidence: 0.90,
+            });
+            console.log(`[P0] Auto-calc volume from dimensions: ${volM3} m³`);
+          }
+        }
+      }
     }
 
     // A1: Extract cargo.description
