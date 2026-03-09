@@ -1723,14 +1723,14 @@ export default function CaseView() {
             }
           };
 
-          const renderGapRow = (g: any, allowAutoPricing: boolean) => {
+          const renderGapRow = (g: any, allowAutoPricing: boolean, textColorClass = "text-foreground") => {
             const isEditable = EDITABLE_FACT_KEYS.has(g.gap_key);
             const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
             const isSaving = savingGapKey === g.gap_key;
             const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
 
             return (
-              <li key={g.id} className="flex items-center gap-2 text-sm text-foreground">
+              <li key={g.id} className={`flex items-center gap-2 text-sm ${textColorClass}`}>
                 <span className="flex-1">{g.question_fr || g.gap_key}</span>
                 {isEditable && !isLocked && (
                   <div className="flex items-center gap-1.5">
