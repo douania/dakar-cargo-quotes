@@ -162,6 +162,8 @@ serve(async (req: Request) => {
 
     const rawText = await parseAIResponse(aiResponse);
 
+    const modelMeta = { model: "google/gemini-2.5-flash", version: "v1" };
+
     let parsed: { scope: Record<string, unknown>; reasoning: Record<string, unknown> };
     try {
       parsed = extractAndParseJSON<typeof parsed>(rawText, {
@@ -196,6 +198,7 @@ serve(async (req: Request) => {
           event_data: {
             ...parsed.scope,
             dedupe_key: scopeDedupeKey,
+            model_meta: modelMeta,
           },
         });
 
@@ -217,6 +220,7 @@ serve(async (req: Request) => {
           event_data: {
             ...parsed.reasoning,
             dedupe_key: reasoningDedupeKey,
+            model_meta: modelMeta,
           },
         });
 

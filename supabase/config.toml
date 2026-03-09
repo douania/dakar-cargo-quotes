@@ -182,3 +182,6 @@ verify_jwt = false
 
 [functions.sync-gap-client-actions]
 verify_jwt = false
+
+[functions.analyze-service-scope]
+verify_jwt = false
