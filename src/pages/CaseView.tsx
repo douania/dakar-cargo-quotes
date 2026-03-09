@@ -1730,7 +1730,7 @@ export default function CaseView() {
             const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
 
             return (
-              <li key={g.id} className="flex items-center gap-2 text-sm">
+              <li key={g.id} className="flex items-center gap-2 text-sm text-foreground">
                 <span className="flex-1">{g.question_fr || g.gap_key}</span>
                 {isEditable && !isLocked && (
                   <div className="flex items-center gap-1.5">
