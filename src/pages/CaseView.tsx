@@ -1838,7 +1838,7 @@ export default function CaseView() {
                       {nonBlockingOpenGaps.length} question{nonBlockingOpenGaps.length > 1 ? 's' : ''} ouverte{nonBlockingOpenGaps.length > 1 ? 's' : ''} (non bloquante{nonBlockingOpenGaps.length > 1 ? 's' : ''})
                     </p>
                     <ul className="space-y-3">
-                      {nonBlockingOpenGaps.map((g: any) => renderGapRow(g, false))}
+                      {nonBlockingOpenGaps.map((g: any) => renderGapRow(g, false, "text-blue-800"))}
                     </ul>
                   </AlertDescription>
                 </Alert>
