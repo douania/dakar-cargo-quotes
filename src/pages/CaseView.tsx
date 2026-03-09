@@ -1823,7 +1823,7 @@ export default function CaseView() {
                       {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
                     </p>
                     <ul className="space-y-3">
-                      {blockingGaps.map((g: any) => renderGapRow(g, true))}
+                      {blockingGaps.map((g: any) => renderGapRow(g, true, "text-red-800"))}
                     </ul>
                   </AlertDescription>
                 </Alert>
