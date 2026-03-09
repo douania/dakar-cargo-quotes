@@ -3328,6 +3328,43 @@ Deno.serve(async (req) => {
       }
     }
 
+    // P1: Inject non-blocking clarification gap when LCL + explicit container signals are contradictory
+    if (isAmbiguousLclFcl) {
+      const clarificationGapKey = "routing.shipment_mode_clarification";
+      const { data: existingClarGap } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", clarificationGapKey)
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (!existingClarGap?.id) {
+        await serviceClient.from("quote_gaps").insert({
+          case_id,
+          gap_key: clarificationGapKey,
+          gap_category: "routing",
+          question_fr: "Le dossier mentionne à la fois un mode LCL (groupage) et un conteneur complet (20ft/40ft). Pouvez-vous confirmer si l'expédition est en LCL (groupage) ou en FCL (conteneur complet) ?",
+          question_en: "The request mentions both LCL (consolidation) and a full container (20ft/40ft). Can you confirm whether the shipment is LCL (consolidation) or FCL (full container)?",
+          priority: "high",
+          is_blocking: false,
+        });
+        gapsIdentified++;
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "gap_identified",
+          event_data: {
+            gap_key: clarificationGapKey,
+            reason: "Contradictory LCL + explicit container signals detected",
+            detected_type: detectedType,
+          },
+          actor_type: "system",
+        });
+        console.log(`[P1] Created non-blocking clarification gap: ${clarificationGapKey}`);
+      }
+    }
+
     // 10b. Final sync — close phantom gaps where a valid fact exists
     {
       const { data: openGapsForSync } = await serviceClient
