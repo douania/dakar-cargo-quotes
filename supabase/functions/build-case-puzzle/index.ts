@@ -3936,13 +3936,13 @@ function detectRequestType(context: string, facts: ExtractedFact[]): { type: str
   ];
   if (breakbulkPatterns.some(p => lowerContext.includes(p))) {
     console.log(`[Detection] SEA_BREAKBULK_IMPORT (breakbulk pattern)`);
-    return "SEA_BREAKBULK_IMPORT";
+    return { type: "SEA_BREAKBULK_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 4: Container fact (already checked in pre-scan, but handle edge cases)
   if (hasValidContainerFact) {
     console.log(`[Detection] SEA_FCL_IMPORT (container fact with valid items)`);
-    return "SEA_FCL_IMPORT";
+    return { type: "SEA_FCL_IMPORT", ambiguous_lcl_fcl: false };
   }
 
   // Step 5: IATA codes — ONLY if no maritime signal (Action 1 + Action 2)
