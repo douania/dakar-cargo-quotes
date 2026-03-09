@@ -1772,6 +1772,8 @@ export default function CaseView() {
 
           return (
             <>
+              {/* Phase 1: Service scope understanding panel */}
+              <CaseUnderstandingPanel events={events as any} />
               {/* Blocking gaps alert */}
               {blockingGaps.length > 0 && (
                 <Alert variant="destructive" className="mb-6">
