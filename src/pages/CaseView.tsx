@@ -522,6 +522,7 @@ function ServiceOverridePanel({
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const [isSavingFact, setIsSavingFact] = React.useState(false);
