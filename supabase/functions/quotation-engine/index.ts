@@ -13,6 +13,7 @@ import {
   calculateSodatraFees,
   calculateHistoricalMatchScore,
   SOURCE_CONFIDENCE,
+  normalizeIncoterm,
   type IncotermRule,
   type ZoneConfig,
   type DataSourceType,
@@ -2117,7 +2118,7 @@ async function generateQuotationLines(
     }
 
     // Calcul CAF
-    const incotermRule = dbIncoterms[request.incoterm?.toUpperCase() || 'CIF'];
+    const incotermRule = dbIncoterms[normalizeIncoterm(request.incoterm) ?? 'CIF'];
     const caf = calculateCAF({
       incoterm: request.incoterm || 'CIF',
       invoiceValue: cargoValueFCFA,
@@ -2466,7 +2467,7 @@ Deno.serve(async (req) => {
         // Métadonnées — use DB-backed rules for consistency
         const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
         const dbZonesMeta = await loadDeliveryZonesFromDB(supabase);
-        const incotermRule = dbIncotermsMeta[request.incoterm?.toUpperCase() || 'CIF'];
+        const incotermRule = dbIncotermsMeta[normalizeIncoterm(request.incoterm) ?? 'CIF'];
         const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
@@ -2571,7 +2572,7 @@ Deno.serve(async (req) => {
           issues.push(`Type conteneur inconnu: ${request.containerType}`);
         }
         
-        if (request.incoterm && !INCOTERMS_MATRIX[request.incoterm.toUpperCase()]) {
+        if (request.incoterm && !INCOTERMS_MATRIX[normalizeIncoterm(request.incoterm) ?? request.incoterm.toUpperCase()]) {
           issues.push(`Incoterm inconnu: ${request.incoterm}`);
         }
         
