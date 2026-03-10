@@ -2118,7 +2118,7 @@ async function generateQuotationLines(
     }
 
     // Calcul CAF
-    const incotermRule = dbIncoterms[request.incoterm?.toUpperCase() || 'CIF'];
+    const incotermRule = dbIncoterms[normalizeIncoterm(request.incoterm) ?? 'CIF'];
     const caf = calculateCAF({
       incoterm: request.incoterm || 'CIF',
       invoiceValue: cargoValueFCFA,
