@@ -315,6 +315,11 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
     { key: 'service.package', value: 'LCL_IMPORT_DAP', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
+  // STRUCTURAL_PATCH: Transit régional via Dakar vers pays enclavés
+  TRANSIT_REGIONAL_VIA_DAKAR: [
+    { key: 'service.package', value: 'TRANSIT_REGIONAL_VIA_DAKAR', confidence: 0.7 },
+    { key: 'border.fee_expected', value: 'true', confidence: 0.6 },
+  ],
 };
 
 // Sources that cannot be overwritten by assumptions
