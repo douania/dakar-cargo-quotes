@@ -833,6 +833,23 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
     return 'TRANSIT_GAMBIA';
   }
 
+  // Rule 1b: Transit régional via Dakar (pays enclavés ML/BF/NE)
+  const INLAND_TRANSIT_COUNTRIES = new Set(['ML', 'BF', 'NE']);
+  const INLAND_TRANSIT_CITIES = ['BAMAKO', 'OUAGADOUGOU', 'NIAMEY'];
+  const destPort = factMap.get('routing.destination_port')?.value?.toUpperCase() || '';
+  const destCity = factMap.get('routing.destination_city')?.value?.toUpperCase() || '';
+  const isGatewayDakar =
+    destPort.includes('DAKAR') ||
+    destPort.includes('DKR') ||
+    destCity.includes('DAKAR');
+  const inlandCountry = PORT_COUNTRY_MAP[finalDest] || PORT_COUNTRY_MAP[destCity] || '';
+  const isInlandTransit =
+    INLAND_TRANSIT_COUNTRIES.has(inlandCountry) ||
+    INLAND_TRANSIT_CITIES.some(c => finalDest.includes(c) || destCity.includes(c));
+  if (isGatewayDakar && isInlandTransit && originCountry !== 'SN') {
+    return 'TRANSIT_REGIONAL_VIA_DAKAR';
+  }
+
   // Rule 2: Export Senegal
   const isOriginSN = originCountry === 'SN' || originPort.includes('DKR') || originPort.includes('DAKAR');
   if (isOriginSN && destCountry && destCountry !== 'SN') {
