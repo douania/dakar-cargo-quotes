@@ -27,6 +27,8 @@ const PRICING_BLOCKED_INTENTS = new Set([
 
 const SYSTEM_PROMPT = `Tu es un classificateur d'intentions pour des emails de transit/logistique.
 Analyse l'email et retourne un JSON strict avec ces champs :
+
+— Champs de classification —
 - intent_type: une valeur parmi ${INTENT_TYPES.join(", ")}
 - risk_level: "low" | "medium" | "high"
 - confidence: nombre entre 0 et 1
@@ -36,6 +38,22 @@ Analyse l'email et retourne un JSON strict avec ces champs :
 - pricing_gate: boolean — true si le pricing est autorisé, false si bloqué
 - reasoning: string — explication courte de la classification
 
+— Champs de compréhension métier (V2) —
+- request_summary: string — résumé court de la demande réelle du client (1-2 phrases)
+- transport_mode_hypothesis: "sea_lcl" | "sea_fcl" | "air" | "road" | "multimodal" | "unknown"
+- incoterm_hypothesis: "EXW" | "FOB" | "CIF" | "CFR" | "DAP" | "DDP" | "unknown"
+- shipment_scope_hypothesis: "quote_transport_only" | "quote_full_landed" | "customs_only" | "document_only" | "unknown"
+- contradiction_flags: tableau de strings identifiant les contradictions détectées. Valeurs possibles :
+  "LCL_WITH_CONTAINER", "AIR_WITH_CONTAINER", "SCOPE_MISMATCH", "INCOTERM_CONFLICT"
+- missing_business_questions: tableau de strings — questions métier que l'opérateur devrait poser au client
+- operator_guidance: tableau de strings — recommandations concrètes pour l'opérateur
+- extracted_signals: objet avec des booléens :
+  - has_dimensions: boolean — des dimensions (LxlxH, cm, mm) sont mentionnées
+  - has_container_signal: boolean — un type de conteneur (20ft, 40ft, 40HC) est mentionné
+  - has_lcl_signal: boolean — LCL, groupage, vrac, palette, colis mentionné
+  - has_air_signal: boolean — aérien, avion, air freight mentionné
+  - has_pricing_request: boolean — le client demande explicitement un prix/devis/cotation
+
 Règles de classification :
 - "new_quote_request" : le client demande explicitement un devis, une cotation, un prix
 - "opportunity_check" : demande commerciale qui n'est PAS une cotation (contacter un réceptionnaire, organiser une remise documentaire HBL, demander un suivi, etc.)
@@ -44,6 +62,11 @@ Règles de classification :
 - "provide_missing_info" : réponse à une question posée, complément d'information
 - pricing_gate = true UNIQUEMENT pour : new_quote_request, provide_missing_info, change_instructions, accept_quote
 - pricing_gate = false pour : opportunity_check, general_inquiry, send_document, follow_up, reject_quote, other
+
+Règles de contradiction :
+- Si des dimensions (LxlxH) ET un conteneur (20ft/40ft) sont mentionnés ensemble, signaler "LCL_WITH_CONTAINER"
+- Si "aérien" ET un conteneur sont mentionnés ensemble, signaler "AIR_WITH_CONTAINER"
+- Si l'incoterm suggère transport-only (FOB/EXW) mais que le client demande un "prix rendu", signaler "INCOTERM_CONFLICT"
 
 Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 
@@ -164,17 +187,46 @@ serve(async (req: Request) => {
     }
 
     const intentType = typeof parsed["intent_type"] === "string" ? parsed["intent_type"] : "other";
+
+    // V2: Normalize extracted_signals
+    const rawSignals = typeof parsed["extracted_signals"] === "object" && parsed["extracted_signals"]
+      ? parsed["extracted_signals"] as Record<string, unknown>
+      : {};
+    const normalizedSignals = {
+      has_dimensions: Boolean(rawSignals["has_dimensions"]),
+      has_container_signal: Boolean(rawSignals["has_container_signal"]),
+      has_lcl_signal: Boolean(rawSignals["has_lcl_signal"]),
+      has_air_signal: Boolean(rawSignals["has_air_signal"]),
+      has_pricing_request: Boolean(rawSignals["has_pricing_request"]),
+    };
+
+    // V2: Normalize string arrays
+    const toStringArray = (val: unknown): string[] =>
+      Array.isArray(val) ? val.filter((s) => typeof s === "string") : [];
+
     const intent = {
       intent_type: intentType,
       risk_level: typeof parsed["risk_level"] === "string" ? parsed["risk_level"] : "low",
       confidence: typeof parsed["confidence"] === "number" ? parsed["confidence"] : 0.5,
-      case_updates: Array.isArray(parsed["case_updates"]) ? parsed["case_updates"] : [],
-      open_questions: Array.isArray(parsed["open_questions"]) ? parsed["open_questions"] : [],
+      case_updates: toStringArray(parsed["case_updates"]),
+      open_questions: toStringArray(parsed["open_questions"]),
       reply_recommended: Boolean(parsed["reply_recommended"]),
       pricing_gate: typeof parsed["pricing_gate"] === "boolean"
         ? parsed["pricing_gate"]
         : !PRICING_BLOCKED_INTENTS.has(intentType),
       reasoning: typeof parsed["reasoning"] === "string" ? parsed["reasoning"] : "",
+      // V2: Business understanding fields
+      request_summary: typeof parsed["request_summary"] === "string" ? parsed["request_summary"] : "",
+      transport_mode_hypothesis: typeof parsed["transport_mode_hypothesis"] === "string"
+        ? parsed["transport_mode_hypothesis"] : "unknown",
+      incoterm_hypothesis: typeof parsed["incoterm_hypothesis"] === "string"
+        ? parsed["incoterm_hypothesis"] : "unknown",
+      shipment_scope_hypothesis: typeof parsed["shipment_scope_hypothesis"] === "string"
+        ? parsed["shipment_scope_hypothesis"] : "unknown",
+      contradiction_flags: toStringArray(parsed["contradiction_flags"]),
+      missing_business_questions: toStringArray(parsed["missing_business_questions"]),
+      operator_guidance: toStringArray(parsed["operator_guidance"]),
+      extracted_signals: normalizedSignals,
     };
 
     // 7. Insert timeline event (with returning id for auto-apply)
@@ -193,7 +245,7 @@ serve(async (req: Request) => {
           dedupe_key,
           intent,
           confidence: intent.confidence,
-          model_meta: { model: "google/gemini-2.5-flash", version: "v1" },
+          model_meta: { model: "google/gemini-2.5-flash", version: "v2" },
         },
       })
       .select("id")

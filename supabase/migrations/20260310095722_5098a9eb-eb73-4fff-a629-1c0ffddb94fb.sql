@@ -1,0 +1,20 @@
+
+-- Add case_coherence_v1 to the event_type CHECK constraint
+-- Must DROP and re-CREATE with full list of 32 values
+
+ALTER TABLE public.case_timeline_events
+DROP CONSTRAINT IF EXISTS case_timeline_events_event_type_check;
+
+ALTER TABLE public.case_timeline_events
+ADD CONSTRAINT case_timeline_events_event_type_check
+CHECK (event_type IN (
+  'case_created', 'status_changed', 'fact_added', 'fact_updated', 'fact_superseded',
+  'gap_identified', 'gap_resolved', 'gap_waived', 'pricing_started', 'pricing_completed',
+  'pricing_failed', 'output_generated', 'human_approved', 'human_rejected', 'sent',
+  'archived', 'email_received', 'email_sent', 'attachment_analyzed', 'clarification_sent',
+  'manual_action', 'status_rollback', 'fact_insert_failed', 'document_uploaded',
+  'fact_injected_manual', 'assumption_applied', 'detection_corrected',
+  'fact_injected_from_attachment', 'thread_intent_v1',
+  'service_scope_v1', 'case_reasoning_v1',
+  'case_coherence_v1'
+));
