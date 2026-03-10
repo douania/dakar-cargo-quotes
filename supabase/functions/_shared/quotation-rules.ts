@@ -353,6 +353,25 @@ export function calculateWorkingDays(startDate: Date, daysToAdd: number, holiday
 }
 
 // =====================================================
+// 5b. NORMALISATION INCOTERMS OBSOLÈTES
+// =====================================================
+// DDU, DEQ, DAF, DES ont été supprimés dans Incoterms 2010/2020
+// mais restent utilisés par de nombreux clients (Afrique, Asie, Moyen-Orient).
+// On les mappe vers leur équivalent moderne sans changer la logique métier.
+const INCOTERM_ALIASES: Record<string, string> = {
+  DDU: 'DAP',
+  DEQ: 'DAT',
+  DAF: 'DAP',
+  DES: 'DAT',
+};
+
+export function normalizeIncoterm(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const upper = raw.trim().toUpperCase();
+  return INCOTERM_ALIASES[upper] ?? upper;
+}
+
+// =====================================================
 // 6. RÈGLES DE CALCUL CAF (Coût Assurance Fret)
 // =====================================================
 export interface CAFCalculation {
@@ -369,7 +388,8 @@ export function calculateCAF(params: {
   freightAmount?: number;
   insuranceRate?: number;
 }): CAFCalculation {
-  const incotermRule = INCOTERMS_MATRIX[params.incoterm.toUpperCase()];
+  const normalized = normalizeIncoterm(params.incoterm);
+  const incotermRule = normalized ? INCOTERMS_MATRIX[normalized] : undefined;
   const insuranceRate = params.insuranceRate || 0.0015; // 0.15% par défaut
   
   if (!incotermRule) {

@@ -2572,7 +2572,7 @@ Deno.serve(async (req) => {
           issues.push(`Type conteneur inconnu: ${request.containerType}`);
         }
         
-        if (request.incoterm && !INCOTERMS_MATRIX[request.incoterm.toUpperCase()]) {
+        if (request.incoterm && !INCOTERMS_MATRIX[normalizeIncoterm(request.incoterm) ?? request.incoterm.toUpperCase()]) {
           issues.push(`Incoterm inconnu: ${request.incoterm}`);
         }
         
