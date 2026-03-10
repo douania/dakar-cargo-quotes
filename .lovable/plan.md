@@ -160,6 +160,63 @@ service_scope_v1, case_reasoning_v1
 ### Hors périmètre (Phase 1)
 
 - Déclenchement automatique de `analyze-service-scope`
-- Modification des gaps conditionnels basée sur le scope
+- Modification des gaps conditionnelles basée sur le scope
 - Impact sur pricing / facts / build-case-puzzle
 - Bouton UI pour déclencher l'analyse (sera Phase 2)
+
+---
+
+## Sprint V2-A — Intent Enrichment + Coherence Layer + Enhanced Understanding Panel ✅
+
+### Objectif
+
+Ajouter une couche de compréhension métier et de diagnostic de cohérence en surcouche du pipeline existant, sans toucher aux modules FROZEN.
+
+### Patchs appliqués
+
+| Patch | Fichier | Description |
+|-------|---------|-------------|
+| V2.1 | `supabase/functions/analyze-thread-event/index.ts` | Prompt enrichi avec 8 champs métier V2 : `request_summary`, `transport_mode_hypothesis`, `incoterm_hypothesis`, `shipment_scope_hypothesis`, `contradiction_flags`, `missing_business_questions`, `operator_guidance`, `extracted_signals`. Parse normalisé (string[], booleans). `model_meta.version` = v2. |
+| V2.2 | `supabase/functions/analyze-case-coherence/index.ts` | **Nouvelle** edge function déterministe (aucun appel IA). Lit facts + gaps + dernier `thread_intent_v1`. 4 règles : (1) dimensions→volume, (2) LCL+container, (3) AIR+container, (4) scope mismatch warning. Rule 5 intégrée dans Rule 1 : si gap `cargo.volume_cbm` ouvert et dérivable, signalé comme `false_blocker_candidate`. Idempotence par `related_email_id` + `intent_event_id`. |
+| V2.3 | `src/pages/CaseView.tsx` | Appel non-bloquant `analyze-case-coherence` après `analyze-thread-event` dans `handleLaunchAnalysis`, avec passage de `related_email_id`. |
+| V2.4 | `src/components/case/CaseUnderstandingPanel.tsx` | Extension additive : existant `service_scope_v1`/`case_reasoning_v1` conservé. 4 nouveaux blocs : Contradictions, Questions suggérées, Guidance opérateur, Hypothèses IA. Fusion dédupliquée des flags contradiction et questions depuis intent + coherence. |
+| Migration | DB | `case_coherence_v1` ajouté à la CHECK constraint (32 valeurs). |
+
+### Corrections CTO intégrées
+
+1. `related_email_id` supporté en entrée de `analyze-case-coherence` (pas juste `case_id`)
+2. Idempotence par `case_id` + `event_type` + `related_email_id` (+ fallback `intent_event_id`)
+3. Rule 5 fusionnée dans Rule 1 (pas de doublon) : dérivation volume + signalement false blocker
+4. Rule 4 = warning only, aucune fermeture de gap
+5. UI additive : `service_scope_v1`/`case_reasoning_v1` inchangés
+
+### Architecture
+
+```
+build-case-puzzle (FROZEN)
+  → sync-gap-client-actions
+  → analyze-thread-event (V2.1: enriched intent)
+  → analyze-case-coherence (V2.2: diagnostic déterministe)
+  → CaseUnderstandingPanel (V2.4: affichage enrichi)
+```
+
+### event_type CHECK constraint (32 valeurs)
+
+```
+case_created, status_changed, fact_added, fact_updated, fact_superseded,
+gap_identified, gap_resolved, gap_waived, pricing_started, pricing_completed,
+pricing_failed, output_generated, human_approved, human_rejected, sent,
+archived, email_received, email_sent, attachment_analyzed, clarification_sent,
+manual_action, status_rollback, fact_insert_failed, document_uploaded,
+fact_injected_manual, assumption_applied, detection_corrected,
+fact_injected_from_attachment, thread_intent_v1,
+service_scope_v1, case_reasoning_v1,
+case_coherence_v1
+```
+
+### Hors périmètre (Sprint V2-B)
+
+- Décisions opérateur traçables (boutons CONFIRM_LCL, CONFIRM_FCL, etc.)
+- Questions client guidées avec génération de brouillon
+- Auto-application des faits dérivés
+- Écriture de facts depuis le panneau
