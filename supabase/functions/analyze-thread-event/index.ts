@@ -64,7 +64,7 @@ Règles de classification :
 - pricing_gate = false pour : opportunity_check, general_inquiry, send_document, follow_up, reject_quote, other
 
 Règles de contradiction :
-- Si des dimensions (LxlxH) ET un conteneur (20ft/40ft) sont mentionnés ensemble, signaler "LCL_WITH_CONTAINER"
+- Si un signal LCL/groupage (LCL, groupage, vrac, palette, colis) ET un conteneur (20ft/40ft/40HC) sont mentionnés ensemble, signaler "LCL_WITH_CONTAINER"
 - Si "aérien" ET un conteneur sont mentionnés ensemble, signaler "AIR_WITH_CONTAINER"
 - Si l'incoterm suggère transport-only (FOB/EXW) mais que le client demande un "prix rendu", signaler "INCOTERM_CONFLICT"
 

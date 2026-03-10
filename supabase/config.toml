@@ -185,3 +185,6 @@ verify_jwt = false
 
 [functions.analyze-service-scope]
 verify_jwt = false
+
+[functions.analyze-case-coherence]
+verify_jwt = false

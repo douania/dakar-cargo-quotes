@@ -128,7 +128,9 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
         ? (intent["missing_business_questions"] as string[]) : [],
       operator_guidance: Array.isArray(intent["operator_guidance"])
         ? (intent["operator_guidance"] as string[]) : [],
-      confidence: typeof intent["confidence"] === "number" ? intent["confidence"] : null,
+      confidence: typeof ed["confidence"] === "number"
+        ? (ed["confidence"] as number)
+        : (typeof intent["confidence"] === "number" ? intent["confidence"] as number : null),
       date: latestEvent.created_at,
     };
   }, [events]);
