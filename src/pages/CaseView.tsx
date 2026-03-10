@@ -818,6 +818,25 @@ export default function CaseView() {
         console.warn("[Phase16] Intent analysis (non-blocking):", intentErr);
       }
 
+      // V2: Coherence analysis (non-blocking, best-effort)
+      try {
+        if (caseData?.thread_id) {
+          const { data: latestEmailForCoherence } = await supabase
+            .from("emails")
+            .select("id")
+            .eq("thread_ref", caseData.thread_id)
+            .order("received_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          await supabase.functions.invoke("analyze-case-coherence", {
+            body: { case_id: caseId, related_email_id: latestEmailForCoherence?.id ?? null },
+          });
+        }
+      } catch (coherenceErr) {
+        console.warn("[V2] analyze-case-coherence (non-blocking):", coherenceErr);
+      }
+
       toast.success("Analyse terminée avec succès");
       handleRefresh();
     } catch (err) {
