@@ -1946,7 +1946,7 @@ export default function CaseView() {
                 <p className="text-sm text-muted-foreground">
                   {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                     ? 'Prend en compte les nouveaux documents et extracteurs déployés'
-                    : `${documentsCount} document(s) uploadé(s) — ${facts.length} fait(s) extrait(s)`}
+                    : `${documentsCount} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
                 </p>
               </div>
               <Button
