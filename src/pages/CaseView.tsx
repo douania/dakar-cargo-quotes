@@ -1951,7 +1951,7 @@ export default function CaseView() {
               </div>
               <Button
                 onClick={handleLaunchAnalysis}
-                disabled={isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+                disabled={isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
               >
                 {isAnalyzing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
