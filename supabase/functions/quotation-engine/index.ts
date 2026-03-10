@@ -13,6 +13,7 @@ import {
   calculateSodatraFees,
   calculateHistoricalMatchScore,
   SOURCE_CONFIDENCE,
+  normalizeIncoterm,
   type IncotermRule,
   type ZoneConfig,
   type DataSourceType,
