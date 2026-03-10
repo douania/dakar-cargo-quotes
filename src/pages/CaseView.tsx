@@ -1927,6 +1927,14 @@ export default function CaseView() {
 
           const prechecks: PricingPrecheck[] = [];
 
+          if (!pkg) {
+            prechecks.push({
+              code: "SERVICE_PACKAGE_REQUIRED",
+              key: "service.package",
+              label: "Package de services requis avant pricing"
+            });
+          }
+
           if (scopeWantsDuties) {
             // 1. HS_CODE_REQUIRED
             const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
