@@ -1966,7 +1966,7 @@ export default function CaseView() {
                 <Button
                   variant="outline"
                   onClick={handleForceRefreshArticles}
-                  disabled={isForceRefreshing || isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+                  disabled={isForceRefreshing || isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
                 >
                   {isForceRefreshing ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
