@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -76,7 +76,7 @@ import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
-  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED";
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
   key: string;
   label: string;
 };
@@ -326,7 +326,71 @@ function ServiceOverridePanel({
   );
   const serviceMode = modeFact?.value_text || "";
 
-  if (!packageServices || !packageKey) return null;
+  // ── Empty-state mode: no package defined yet ──
+  const [selectedPackage, setSelectedPackage] = useState<string>("");
+  const [isSavingPackage, setIsSavingPackage] = useState(false);
+
+  const handleSavePackage = async () => {
+    if (!selectedPackage) return;
+    setIsSavingPackage(true);
+    try {
+      const { error } = await supabase.functions.invoke("set-case-fact", {
+        body: { case_id: caseId, fact_key: "service.package", value_text: selectedPackage },
+      });
+      if (error) throw error;
+      toast.success(`Package "${selectedPackage.replace(/_/g, " ")}" enregistré`);
+      onSaved();
+    } catch (err: any) {
+      toast.error(`Erreur : ${err.message}`);
+    } finally {
+      setIsSavingPackage(false);
+    }
+  };
+
+  if (!packageServices || !packageKey) {
+    return (
+      <Card className="border-muted">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Package className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Aucun package de services défini</CardTitle>
+          </div>
+          <CardDescription>
+            Sélectionnez le package de services correspondant à ce dossier pour activer le pricing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Select value={selectedPackage} onValueChange={setSelectedPackage} disabled={isLocked}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choisir un package…" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.keys(SERVICE_PACKAGES).map((key) => (
+                <SelectItem key={key} value={key}>
+                  {key.replace(/_/g, " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={handleSavePackage}
+            disabled={!selectedPackage || isSavingPackage || isLocked}
+            className="w-full gap-2"
+            size="sm"
+          >
+            {isSavingPackage ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Enregistrement…
+              </>
+            ) : (
+              "Enregistrer le package"
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const ALL_SERVICE_KEYS = new Set(serviceTemplates.map((t) => t.service));
 
@@ -1926,6 +1990,14 @@ export default function CaseView() {
           const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
 
           const prechecks: PricingPrecheck[] = [];
+
+          if (!pkg) {
+            prechecks.push({
+              code: "SERVICE_PACKAGE_REQUIRED",
+              key: "service.package",
+              label: "Package de services requis avant pricing"
+            });
+          }
 
           if (scopeWantsDuties) {
             // 1. HS_CODE_REQUIRED
