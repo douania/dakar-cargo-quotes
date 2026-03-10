@@ -1946,12 +1946,12 @@ export default function CaseView() {
                 <p className="text-sm text-muted-foreground">
                   {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                     ? 'Prend en compte les nouveaux documents et extracteurs déployés'
-                    : `${documentsCount} document(s) uploadé(s) — ${facts.length} fait(s) extrait(s)`}
+                    : `${documentsCount} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
                 </p>
               </div>
               <Button
                 onClick={handleLaunchAnalysis}
-                disabled={isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+                disabled={isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
               >
                 {isAnalyzing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1966,7 +1966,7 @@ export default function CaseView() {
                 <Button
                   variant="outline"
                   onClick={handleForceRefreshArticles}
-                  disabled={isForceRefreshing || isAnalyzing || documentsCount === 0 || caseData.status === 'PRICING_RUNNING'}
+                  disabled={isForceRefreshing || isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
                 >
                   {isForceRefreshing ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
