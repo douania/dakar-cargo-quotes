@@ -326,7 +326,71 @@ function ServiceOverridePanel({
   );
   const serviceMode = modeFact?.value_text || "";
 
-  if (!packageServices || !packageKey) return null;
+  // ── Empty-state mode: no package defined yet ──
+  const [selectedPackage, setSelectedPackage] = useState<string>("");
+  const [isSavingPackage, setIsSavingPackage] = useState(false);
+
+  const handleSavePackage = async () => {
+    if (!selectedPackage) return;
+    setIsSavingPackage(true);
+    try {
+      const { error } = await supabase.functions.invoke("set-case-fact", {
+        body: { case_id: caseId, fact_key: "service.package", value_text: selectedPackage },
+      });
+      if (error) throw error;
+      toast.success(`Package "${selectedPackage.replace(/_/g, " ")}" enregistré`);
+      onSaved();
+    } catch (err: any) {
+      toast.error(`Erreur : ${err.message}`);
+    } finally {
+      setIsSavingPackage(false);
+    }
+  };
+
+  if (!packageServices || !packageKey) {
+    return (
+      <Card className="border-muted">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Package className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Aucun package de services défini</CardTitle>
+          </div>
+          <CardDescription>
+            Sélectionnez le package de services correspondant à ce dossier pour activer le pricing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Select value={selectedPackage} onValueChange={setSelectedPackage} disabled={isLocked}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choisir un package…" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.keys(SERVICE_PACKAGES).map((key) => (
+                <SelectItem key={key} value={key}>
+                  {key.replace(/_/g, " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={handleSavePackage}
+            disabled={!selectedPackage || isSavingPackage || isLocked}
+            className="w-full gap-2"
+            size="sm"
+          >
+            {isSavingPackage ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Enregistrement…
+              </>
+            ) : (
+              "Enregistrer le package"
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const ALL_SERVICE_KEYS = new Set(serviceTemplates.map((t) => t.service));
 
