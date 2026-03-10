@@ -2467,7 +2467,7 @@ Deno.serve(async (req) => {
         // Métadonnées — use DB-backed rules for consistency
         const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
         const dbZonesMeta = await loadDeliveryZonesFromDB(supabase);
-        const incotermRule = dbIncotermsMeta[request.incoterm?.toUpperCase() || 'CIF'];
+        const incotermRule = dbIncotermsMeta[normalizeIncoterm(request.incoterm) ?? 'CIF'];
         const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
