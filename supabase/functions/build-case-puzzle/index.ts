@@ -315,6 +315,11 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
     { key: 'service.package', value: 'LCL_IMPORT_DAP', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
+  // STRUCTURAL_PATCH: Transit régional via Dakar vers pays enclavés
+  TRANSIT_REGIONAL_VIA_DAKAR: [
+    { key: 'service.package', value: 'TRANSIT_REGIONAL_VIA_DAKAR', confidence: 0.7 },
+    { key: 'border.fee_expected', value: 'true', confidence: 0.6 },
+  ],
 };
 
 // Sources that cannot be overwritten by assumptions
@@ -826,6 +831,23 @@ function detectFlowType(factMap: Map<string, { value: string; source: string }>)
   // Rule 1: Transit Gambia
   if (destCountry === 'GM' || finalDest.includes('BANJUL')) {
     return 'TRANSIT_GAMBIA';
+  }
+
+  // Rule 1b: Transit régional via Dakar (pays enclavés ML/BF/NE)
+  const INLAND_TRANSIT_COUNTRIES = new Set(['ML', 'BF', 'NE']);
+  const INLAND_TRANSIT_CITIES = ['BAMAKO', 'OUAGADOUGOU', 'NIAMEY'];
+  const destPort = factMap.get('routing.destination_port')?.value?.toUpperCase() || '';
+  const destCity = factMap.get('routing.destination_city')?.value?.toUpperCase() || '';
+  const isGatewayDakar =
+    destPort.includes('DAKAR') ||
+    destPort.includes('DKR') ||
+    destCity.includes('DAKAR');
+  const inlandCountry = PORT_COUNTRY_MAP[finalDest] || PORT_COUNTRY_MAP[destCity] || '';
+  const isInlandTransit =
+    INLAND_TRANSIT_COUNTRIES.has(inlandCountry) ||
+    INLAND_TRANSIT_CITIES.some(c => finalDest.includes(c) || destCity.includes(c));
+  if (isGatewayDakar && isInlandTransit && originCountry !== 'SN') {
+    return 'TRANSIT_REGIONAL_VIA_DAKAR';
   }
 
   // Rule 2: Export Senegal
