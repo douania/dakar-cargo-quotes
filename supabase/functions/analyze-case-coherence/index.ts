@@ -54,7 +54,8 @@ function parseDimensions(dimText: string): { l: number; w: number; h: number; un
   const l = parseFloat(match[1].replace(",", "."));
   const w = parseFloat(match[2].replace(",", "."));
   const h = parseFloat(match[3].replace(",", "."));
-  const unit = (match[4] || "cm").toLowerCase();
+  if (!match[4]) return null; // No unit = ambiguous, skip
+  const unit = match[4].toLowerCase();
   return { l, w, h, unit };
 }
 
