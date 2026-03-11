@@ -3506,7 +3506,7 @@ Deno.serve(async (req) => {
     
     if (!isFrozenCase) {
       if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
-        newStatus = "READY_TO_PRICE";
+        newStatus = "DECISIONS_PENDING";
       } else if ((openGapsCount || 0) > 0) {
         newStatus = "NEED_INFO";
       } else {
