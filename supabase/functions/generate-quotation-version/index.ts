@@ -7,11 +7,11 @@
  * - FSM: PRICED_DRAFT|HUMAN_REVIEW → QUOTED_VERSIONED
  * - Idempotence: (case_id, pricing_run_id) → no-op if version exists
  * - Atomicity: Option 6A rollback (previousSelectedId)
- * - verify_jwt = true (gateway-level 401 for missing JWT)
+ * - verify_jwt = false + requireUser (pattern projet S1)
  *
  * Ajustement CTO:
  * - A: idempotent hit returns real DB status (not hardcoded)
- * - B: AUTH_MISSING_JWT unreachable (gateway), AUTH_INVALID_JWT kept for expired/invalid tokens
+ * - B: Auth via requireUser helper — observability preserved via post-check logRuntimeEvent
  * - C: respondOk/respondError include CORS headers via runtime.ts
  */
 
