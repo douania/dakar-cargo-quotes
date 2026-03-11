@@ -779,55 +779,81 @@ function parseContainersFromText(raw: string): Array<{ type: string; quantity: n
   for (const c of out) merged.set(c.type, (merged.get(c.type) || 0) + c.quantity);
   return Array.from(merged.entries()).map(([type, quantity]) => ({ type, quantity }));
 }
+function normalizeLocationKey(value: string): string {
+  return String(value || '').toUpperCase().trim().replace(/\s+/g, ' ');
+}
 
-function resolveCountry(
+async function resolveCountry(
+  serviceClient: any,
   factMap: Map<string, { value: string; source: string }>,
   countryKey: string,
   portKey: string,
   cityKey?: string
-): string {
+): Promise<string> {
   // 1. Direct country fact
   const direct = factMap.get(countryKey)?.value?.toUpperCase() || '';
   if (direct) return direct;
 
-  // 2. Resolve from port
-  const port = factMap.get(portKey)?.value?.toUpperCase() || '';
-  if (port) {
-    const mapped = PORT_COUNTRY_MAP[port];
-    if (mapped) return mapped;
-    // Try partial match for multi-word ports
-    for (const [portName, code] of Object.entries(PORT_COUNTRY_MAP)) {
-      if (port.includes(portName)) return code;
-    }
-  }
+  // 2. Collect candidates for DB + fallback lookup
+  const rawPort = factMap.get(portKey)?.value || '';
+  const rawCity = cityKey ? (factMap.get(cityKey)?.value || '') : '';
+  const candidates: string[] = [];
+  if (rawPort) candidates.push(normalizeLocationKey(rawPort));
+  if (rawCity) candidates.push(normalizeLocationKey(rawCity));
 
-  // 3. Resolve from city
-  if (cityKey) {
-    const city = factMap.get(cityKey)?.value?.toUpperCase() || '';
-    if (city) {
-      const mapped = PORT_COUNTRY_MAP[city];
-      if (mapped) return mapped;
-      for (const [name, code] of Object.entries(PORT_COUNTRY_MAP)) {
-        if (city.includes(name)) return code;
+  // 3. DB lookup on location_aliases → locations_reference
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const { data, error } = await serviceClient
+        .from('location_aliases')
+        .select('locations_reference!inner(country_code)')
+        .eq('normalized_alias', candidate)
+        .eq('locations_reference.is_active', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error(`[LocationResolution] DB lookup failed for "${candidate}":`, error);
+        // continue to fallback — no throw, no break
+      } else if (data?.locations_reference?.country_code) {
+        console.log(`[LocationResolution] DB hit: "${candidate}" → ${data.locations_reference.country_code}`);
+        return data.locations_reference.country_code;
       }
+    } catch (err) {
+      console.error(`[LocationResolution] Unexpected error for "${candidate}":`, err);
+      // continue to fallback
     }
   }
 
-  // Phase 2: log unknown locations for production monitoring
-  const port = factMap.get(portKey)?.value || '';
-  const city = cityKey ? (factMap.get(cityKey)?.value || '') : '';
-  if (port || city) {
+  // 4. Fallback PORT_COUNTRY_MAP — exact match
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const mapped = PORT_COUNTRY_MAP[candidate];
+    if (mapped) return mapped;
+  }
+
+  // 5. Fallback PORT_COUNTRY_MAP — partial match
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    for (const [portName, code] of Object.entries(PORT_COUNTRY_MAP)) {
+      if (candidate.includes(portName)) return code;
+    }
+  }
+
+  // 6. Log unknown locations for production monitoring
+  if (rawPort || rawCity) {
     console.warn(
-      `[LocationResolution] Unknown location — port="${String(port || '')}", city="${String(city || '')}", countryKey="${String(countryKey || '')}"`
+      `[LocationResolution] Unknown location — port="${String(rawPort || '')}", city="${String(rawCity || '')}", countryKey="${String(countryKey || '')}"`
     );
   }
 
   return '';
 }
 
-function detectFlowType(factMap: Map<string, { value: string; source: string }>): string {
-  const destCountry = resolveCountry(factMap, 'routing.destination_country', 'routing.destination_port', 'routing.destination_city');
-  const originCountry = resolveCountry(factMap, 'routing.origin_country', 'routing.origin_port');
+async function detectFlowType(serviceClient: any, factMap: Map<string, { value: string; source: string }>): Promise<string> {
+  const destCountry = await resolveCountry(serviceClient, factMap, 'routing.destination_country', 'routing.destination_port', 'routing.destination_city');
+  const originCountry = await resolveCountry(serviceClient, factMap, 'routing.origin_country', 'routing.origin_port');
   const finalDest = factMap.get('routing.final_destination')?.value?.toUpperCase() || '';
   const originPort = factMap.get('routing.origin_port')?.value?.toUpperCase() || '';
   const weightKg = parseFloat(factMap.get('cargo.weight_kg')?.value || '0') || 0;
@@ -909,7 +935,7 @@ async function applyAssumptionRules(
   }
 
   // Step 2: Detect flow type
-  let flowType = detectFlowType(factMap);
+  let flowType = await detectFlowType(serviceClient, factMap);
 
   // CTO Adjustment #2: For IMPORT_PROJECT_DAP_PENDING, check attachments
   if (flowType === 'IMPORT_PROJECT_DAP_PENDING') {
