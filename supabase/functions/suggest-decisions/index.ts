@@ -22,6 +22,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 // ============================================================================
 // TYPES
@@ -296,36 +297,15 @@ serve(async (req) => {
   }
 
   try {
-    // 1. AUTH VALIDATION (verify_jwt = true in config.toml handles JWT validation)
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // 1. AUTH — requireUser (pattern projet S1)
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return auth;
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    // User client for auth validation
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await userClient.auth.getUser(token);
-    if (userError || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: "Invalid token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const userId = userData.user.id;
+    const userId = auth.user.id;
 
     // Service client for DB reads (SELECT ONLY)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. PARSE REQUEST
@@ -352,8 +332,7 @@ serve(async (req) => {
       );
     }
 
-    // Mono-tenant app: all authenticated users can access all cases
-    // Ownership check removed — JWT auth is sufficient
+    // S1: Access — shared authenticated operator workspace. Actor identity preserved for audit.
 
     // 4. LOAD CONTEXT (SELECT ONLY)
     

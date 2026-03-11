@@ -7,16 +7,17 @@
  * - FSM: PRICED_DRAFT|HUMAN_REVIEW → QUOTED_VERSIONED
  * - Idempotence: (case_id, pricing_run_id) → no-op if version exists
  * - Atomicity: Option 6A rollback (previousSelectedId)
- * - verify_jwt = true (gateway-level 401 for missing JWT)
+ * - verify_jwt = false + requireUser (pattern projet S1)
  *
  * Ajustement CTO:
  * - A: idempotent hit returns real DB status (not hardcoded)
- * - B: AUTH_MISSING_JWT unreachable (gateway), AUTH_INVALID_JWT kept for expired/invalid tokens
+ * - B: Auth via requireUser helper — observability preserved via post-check logRuntimeEvent
  * - C: respondOk/respondError include CORS headers via runtime.ts
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -107,27 +108,21 @@ Deno.serve(async (req) => {
   let userId: string | undefined;
 
   try {
-    // ── Auth ──────────────────────────────────────────────
-    // With verify_jwt=true, missing JWT is rejected at gateway level.
-    // This code handles invalid/expired tokens only (Ajustement B).
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      // Unreachable with verify_jwt=true, but kept as defensive guard
-      return await fail(serviceClient, "AUTH_INVALID_JWT", "Unauthorized", correlationId, t0);
+    // ── Auth — requireUser (pattern projet S1) ───────────
+    // Observability: map helper rejection to logRuntimeEvent for traceability
+    const auth = await requireUser(req);
+    if (auth instanceof Response) {
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: FUNCTION_NAME,
+        status: "fatal_error",
+        errorCode: "AUTH_INVALID_JWT",
+        httpStatus: 401,
+        durationMs: Date.now() - t0,
+      });
+      return auth;
     }
-
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
-    if (authError || !user) {
-      return await fail(serviceClient, "AUTH_INVALID_JWT", "Invalid or expired token", correlationId, t0);
-    }
-    userId = user.id;
+    userId = auth.user.id;
 
     // ── Parse body ───────────────────────────────────────
     const { case_id, pricing_run_id } = await req.json();
@@ -136,7 +131,7 @@ Deno.serve(async (req) => {
     }
 
     // ── Load case + ownership ────────────────────────────
-    const { data: caseData, error: caseError } = await userClient
+    const { data: caseData, error: caseError } = await serviceClient
       .from("quote_cases")
       .select("id, status, created_by, assigned_to, thread_id")
       .eq("id", case_id)
@@ -146,8 +141,7 @@ Deno.serve(async (req) => {
       return await fail(serviceClient, "VALIDATION_FAILED", "Quote case not found", correlationId, t0, userId, { case_id });
     }
 
-    // Mono-tenant app: all authenticated users can access all cases
-    // Ownership check removed — JWT auth is sufficient
+    // S1: Access — shared authenticated operator workspace. Actor identity preserved for audit.
 
     // ── FSM guard (accepts QUOTED_VERSIONED for idempotence) ─
     const creationStatuses = ["PRICED_DRAFT", "HUMAN_REVIEW"];

@@ -24,6 +24,7 @@ Date: 2026-03
 - Idempotence = case_id + event_type + related_email_id
 - event_data (JSONB) pour timeline
 - verify_jwt=false + requireUser (pattern Lovable Cloud)
+- Security contract opérationnel: docs/SECURITY_CONTRACT.md (subordonné à ce document)
 
 ---
 
