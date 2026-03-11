@@ -29,14 +29,19 @@ interface Props {
 
 // Labels humains pour les statuts
 const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  INTAKE: { label: 'Réception', variant: 'secondary' },
   NEW_THREAD: { label: 'Nouveau fil', variant: 'secondary' },
-  RFQ_DETECTED: { label: 'Demande détectée', variant: 'secondary' },
+  RFQ_DETECTED: { label: 'RFQ détectée', variant: 'secondary' },
   FACTS_PARTIAL: { label: 'Données incomplètes', variant: 'destructive' },
   NEED_INFO: { label: 'Info requise', variant: 'destructive' },
-  READY_TO_PRICE: { label: 'Prêt à coter', variant: 'default' },
-  PRICING_RUNNING: { label: 'Cotation en cours', variant: 'secondary' },
-  PRICED_DRAFT: { label: 'Brouillon prêt', variant: 'default' },
-  HUMAN_REVIEW: { label: 'En revue', variant: 'secondary' },
+  READY_TO_PRICE: { label: 'Prêt à chiffrer', variant: 'default' },
+  DECISIONS_PENDING: { label: 'Décisions en attente', variant: 'secondary' },
+  DECISIONS_COMPLETE: { label: 'Décisions validées', variant: 'default' },
+  ACK_READY_FOR_PRICING: { label: 'Prêt confirmé', variant: 'default' },
+  PRICING_RUNNING: { label: 'Chiffrage en cours', variant: 'secondary' },
+  PRICED_DRAFT: { label: 'Brouillon chiffré', variant: 'default' },
+  HUMAN_REVIEW: { label: 'Revue humaine', variant: 'secondary' },
+  QUOTED_VERSIONED: { label: 'Versionné', variant: 'default' },
   SENT: { label: 'Envoyé', variant: 'outline' },
   ARCHIVED: { label: 'Archivé', variant: 'outline' },
 };

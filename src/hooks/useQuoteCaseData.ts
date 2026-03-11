@@ -135,8 +135,10 @@ export function useQuoteCaseData(threadId: string | undefined): QuoteCaseWithGap
 export type ThreadUsageType = 'apprentissage' | 'cotation_active' | 'historique' | null;
 
 const ACTIVE_STATUSES = [
-  'NEW_THREAD', 'RFQ_DETECTED', 'FACTS_PARTIAL', 'NEED_INFO',
-  'READY_TO_PRICE', 'PRICING_RUNNING', 'PRICED_DRAFT', 'HUMAN_REVIEW'
+  'INTAKE', 'NEW_THREAD', 'RFQ_DETECTED', 'FACTS_PARTIAL', 'NEED_INFO',
+  'READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE',
+  'ACK_READY_FOR_PRICING', 'PRICING_RUNNING', 'PRICED_DRAFT',
+  'HUMAN_REVIEW', 'QUOTED_VERSIONED'
 ];
 
 const ARCHIVED_STATUSES = ['SENT', 'ARCHIVED'];

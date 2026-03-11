@@ -25,6 +25,7 @@ Date: 2026-03
 - event_data (JSONB) pour timeline
 - verify_jwt=false + requireUser (pattern Lovable Cloud)
 - Security contract opérationnel: docs/SECURITY_CONTRACT.md (subordonné à ce document)
+- Status registry opérationnel: docs/STATUS_REGISTRY.md (subordonné à ce document)
 
 ---
 

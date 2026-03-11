@@ -8,15 +8,21 @@ import { Progress } from '@/components/ui/progress';
 import type { QuoteCaseData } from '@/hooks/useQuoteCaseData';
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  NEW_THREAD:       { label: 'Nouveau',         className: 'bg-muted text-muted-foreground' },
-  RFQ_DETECTED:     { label: 'RFQ détectée',    className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
-  FACTS_PARTIAL:    { label: 'Faits partiels',  className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  NEED_INFO:        { label: 'Info manquante',   className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-  READY_TO_PRICE:   { label: 'Prêt à chiffrer', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  PRICING_RUNNING:  { label: 'Chiffrage…',      className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 animate-pulse' },
-  PRICED_DRAFT:     { label: 'Chiffré',         className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
-  HUMAN_REVIEW:     { label: 'Revue humaine',   className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  QUOTED_VERSIONED: { label: 'Versionné',       className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  INTAKE:                 { label: 'Réception',        className: 'bg-muted text-muted-foreground' },
+  NEW_THREAD:             { label: 'Nouveau',          className: 'bg-muted text-muted-foreground' },
+  RFQ_DETECTED:           { label: 'RFQ détectée',     className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  FACTS_PARTIAL:          { label: 'Faits partiels',   className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  NEED_INFO:              { label: 'Info manquante',    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+  READY_TO_PRICE:         { label: 'Prêt à chiffrer',  className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  DECISIONS_PENDING:      { label: 'Décisions…',       className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  DECISIONS_COMPLETE:     { label: 'Décisions OK',     className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  ACK_READY_FOR_PRICING:  { label: 'Prêt confirmé',    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  PRICING_RUNNING:        { label: 'Chiffrage…',       className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 animate-pulse' },
+  PRICED_DRAFT:           { label: 'Chiffré',          className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  HUMAN_REVIEW:           { label: 'Revue humaine',    className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
+  QUOTED_VERSIONED:       { label: 'Versionné',        className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  SENT:                   { label: 'Envoyé',           className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  ARCHIVED:               { label: 'Archivé',          className: 'bg-muted text-muted-foreground' },
 };
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
