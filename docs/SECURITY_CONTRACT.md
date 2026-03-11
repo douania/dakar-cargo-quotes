@@ -44,6 +44,8 @@ Functions using the `runtime.ts` contract (`logRuntimeEvent`, `respondOk`, `resp
 
 Functions migrated to `requireUser` that previously used inline auth with `logRuntimeEvent` add a post-check log to preserve this observability (see `generate-quotation-version`).
 
+Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` regardless of whether the cause is a missing header or an invalid token. This is a known trade-off accepted in S1.2 to avoid re-implementing inline auth.
+
 ---
 
 ## S1 Patch Log
