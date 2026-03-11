@@ -935,7 +935,7 @@ async function applyAssumptionRules(
   }
 
   // Step 2: Detect flow type
-  let flowType = detectFlowType(factMap);
+  let flowType = await detectFlowType(serviceClient, factMap);
 
   // CTO Adjustment #2: For IMPORT_PROJECT_DAP_PENDING, check attachments
   if (flowType === 'IMPORT_PROJECT_DAP_PENDING') {
