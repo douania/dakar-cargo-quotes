@@ -1965,7 +1965,7 @@ export default function CaseView() {
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                   ? 'Relancer l\'analyse'
                   : 'Lancer l\'analyse'}
               </Button>

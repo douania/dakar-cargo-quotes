@@ -3557,7 +3557,7 @@ Deno.serve(async (req) => {
         assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
-        ready_to_price: newStatus === "READY_TO_PRICE",
+        ready_to_price: newStatus === "DECISIONS_PENDING",
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,

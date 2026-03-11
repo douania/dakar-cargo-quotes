@@ -75,7 +75,7 @@ export function BlockingGapsPanel({ quoteCaseStatus, blockingGaps, isLoading }: 
 
   const statusInfo = STATUS_LABELS[quoteCaseStatus] || { label: quoteCaseStatus, variant: 'outline' as const };
   const isBlocked = blockingGaps.length > 0;
-  const isReady = ['READY_TO_PRICE', 'PRICED_DRAFT', 'SENT', 'ARCHIVED'].includes(quoteCaseStatus);
+  const isReady = ['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'PRICED_DRAFT', 'SENT', 'ARCHIVED'].includes(quoteCaseStatus);
 
   // Si prêt à coter, afficher un message positif
   if (isReady && !isBlocked) {
