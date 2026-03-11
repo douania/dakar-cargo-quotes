@@ -144,12 +144,19 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   INTAKE: "Réception",
+  NEW_THREAD: "Nouveau fil",
+  RFQ_DETECTED: "RFQ détectée",
+  FACTS_PARTIAL: "Données incomplètes",
   NEED_INFO: "Infos manquantes",
   READY_TO_PRICE: "Prêt à chiffrer",
-  PRICED: "Chiffré",
+  DECISIONS_PENDING: "Décisions en attente",
+  DECISIONS_COMPLETE: "Décisions validées",
+  ACK_READY_FOR_PRICING: "Prêt confirmé",
+  PRICING_RUNNING: "Chiffrage en cours",
+  PRICED_DRAFT: "Brouillon chiffré",
+  HUMAN_REVIEW: "Revue humaine",
+  QUOTED_VERSIONED: "Versionné",
   SENT: "Envoyé",
-  ACCEPTED: "Accepté",
-  LOST: "Perdu",
   ARCHIVED: "Archivé",
 };
 
