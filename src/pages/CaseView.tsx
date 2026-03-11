@@ -1946,7 +1946,7 @@ export default function CaseView() {
             <CardContent className="py-4 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold">
-                  {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                  {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                     ? 'Relancer l\'analyse'
                     : 'Dossier prêt à analyser'}
                 </h3>
