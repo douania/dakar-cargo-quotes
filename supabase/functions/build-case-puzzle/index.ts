@@ -341,7 +341,7 @@ const PORT_COUNTRY_MAP: Record<string, string> = {
   'ANVERS': 'BE', 'ANTWERP': 'BE',
   'ISTANBUL': 'TR', 'MERSIN': 'TR',
   'MUMBAI': 'IN', 'NHAVA SHEVA': 'IN',
-  'DUBAI': 'AE', 'JEBEL ALI': 'AE', 'KHALIFA': 'AE',
+  'DUBAI': 'AE', 'JEBEL ALI': 'AE', 'KHALIFA': 'AE', 'KHORFAKKAN': 'AE', 'KHOR FAKKAN': 'AE', 'FUJAIRAH': 'AE', 'ABU DHABI': 'AE',
   'HAMBURG': 'DE', 'ROTTERDAM': 'NL',
 };
 
