@@ -813,6 +813,15 @@ function resolveCountry(
     }
   }
 
+  // Phase 2: log unknown locations for production monitoring
+  const port = factMap.get(portKey)?.value || '';
+  const city = cityKey ? (factMap.get(cityKey)?.value || '') : '';
+  if (port || city) {
+    console.warn(
+      `[LocationResolution] Unknown location — port="${String(port || '')}", city="${String(city || '')}", countryKey="${String(countryKey || '')}"`
+    );
+  }
+
   return '';
 }
 

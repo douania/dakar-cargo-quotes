@@ -1842,6 +1842,89 @@ export type Database = {
         }
         Relationships: []
       }
+      location_aliases: {
+        Row: {
+          alias_text: string
+          created_at: string
+          created_by: string | null
+          id: string
+          location_id: string
+          normalized_alias: string
+          validated_by: string | null
+        }
+        Insert: {
+          alias_text: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location_id: string
+          normalized_alias: string
+          validated_by?: string | null
+        }
+        Update: {
+          alias_text?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location_id?: string
+          normalized_alias?: string
+          validated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "location_aliases_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations_reference"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      locations_reference: {
+        Row: {
+          canonical_name: string
+          city: string | null
+          country_code: string
+          country_name: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          location_type: string
+          source: string | null
+          validated_at: string | null
+          validated_by: string | null
+        }
+        Insert: {
+          canonical_name: string
+          city?: string | null
+          country_code: string
+          country_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          location_type: string
+          source?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Update: {
+          canonical_name?: string
+          city?: string | null
+          country_code?: string
+          country_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          location_type?: string
+          source?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Relationships: []
+      }
       mali_transport_zones: {
         Row: {
           alternative_route: string | null
