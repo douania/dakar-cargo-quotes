@@ -26,6 +26,7 @@ Date: 2026-03
 - verify_jwt=false + requireUser (pattern Lovable Cloud)
 - Security contract opérationnel: docs/SECURITY_CONTRACT.md (subordonné à ce document)
 - Status registry opérationnel: docs/STATUS_REGISTRY.md (subordonné à ce document)
+- Phase S3: DECISIONS_PENDING restauré comme état canonique (writer: build-case-puzzle). build-case-puzzle protège DECISIONS_PENDING/DECISIONS_COMPLETE contre rétrogradation. commit-decision reste seul writer de DECISIONS_COMPLETE. ack-pricing-ready reste seul writer de ACK_READY_FOR_PRICING. READY_TO_PRICE passe en legacy (encore accepté par run-pricing pour compat).
 
 ---
 

@@ -4,7 +4,8 @@
 > Ce document décrit l'application opérationnelle du contrat d'état réellement supporté par le code.
 
 Date de création : 2026-03-11
-Phase : S2
+Phase : S3
+Dernière mise à jour : 2026-03-11
 
 ---
 
@@ -19,9 +20,9 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | `RFQ_DETECTED` | RFQ détectée | Email identifié comme demande de cotation | `ensure-quote-case` | active | CaseCard, QuotationHeader |
 | 4 | `FACTS_PARTIAL` | Données incomplètes | Puzzle analysé, données insuffisantes | `build-case-puzzle`, `sync-emails` | active | CaseCard, QuotationHeader, BlockingGapsPanel |
 | 5 | `NEED_INFO` | Info requise | Gaps bloquants identifiés, action requise | `build-case-puzzle` | waiting | CaseView, CaseCard, QuotationHeader, BlockingGapsPanel |
-| 6 | `READY_TO_PRICE` | Prêt à chiffrer | Toutes les infos nécessaires sont disponibles | `build-case-puzzle` | active | CaseView, CaseCard, QuotationHeader |
-| 7 | `DECISIONS_PENDING` | Décisions en attente | *Ghost* — présent dans l'enum DB mais jamais écrit par aucune fonction | ❌ aucune | ghost | — |
-| 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées | `commit-decision` | active | QuotationHeader |
+| 6 | `READY_TO_PRICE` | Prêt à chiffrer | **Legacy / transitional** — Après S3, `build-case-puzzle` écrit `DECISIONS_PENDING` à la place. Encore présent dans l'enum DB et accepté par `run-pricing` pour compatibilité ascendante. | ❌ aucune (post-S3) | legacy | CaseView, CaseCard |
+| 7 | `DECISIONS_PENDING` | Décisions en attente | Puzzle complet (pas de gaps bloquants, faits disponibles), en attente de validation des décisions opérateur | `build-case-puzzle` | active | CaseView, CaseCard, QuotationHeader, DecisionSupportPanel |
+| 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées (5/5) | `commit-decision` | active | QuotationHeader |
 | 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | QuotationHeader |
 | 10 | `PRICING_RUNNING` | Chiffrage en cours | Moteur de pricing en exécution | `run-pricing` | active | CaseCard, QuotationHeader |
 | 11 | `PRICED_DRAFT` | Brouillon chiffré | Résultat de chiffrage disponible, en attente de revue | `run-pricing` | active | CaseView, CaseCard, QuotationHeader |
@@ -37,7 +38,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 - **frozen** : statut figé par `build-case-puzzle` (pas de rétrogradation automatique), réouvrable par `sync-emails`
 - **terminal** : état final du workflow courant
 - **dormant** : présent dans l'enum DB mais jamais écrit par le runtime actuel
-- **ghost** : présent dans l'enum DB mais jamais écrit, trou de workflow confirmé
+- **legacy** : présent dans l'enum DB, accepté en lecture pour compatibilité, mais plus écrit par le runtime post-S3
 
 ---
 
@@ -50,21 +51,26 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | *(création)* | `RFQ_DETECTED` | `ensure-quote-case` | automatic |
 | 4 | `NEW_THREAD` / `RFQ_DETECTED` | `FACTS_PARTIAL` | `build-case-puzzle` | automatic |
 | 5 | `FACTS_PARTIAL` | `NEED_INFO` | `build-case-puzzle` | automatic |
-| 6 | `FACTS_PARTIAL` | `READY_TO_PRICE` | `build-case-puzzle` | automatic |
-| 7 | `READY_TO_PRICE` | `DECISIONS_COMPLETE` | `commit-decision` | operator-driven |
+| 6 | Puzzle complete (no blocking gaps, facts available) | `DECISIONS_PENDING` | `build-case-puzzle` | automatic |
+| 7 | `DECISIONS_PENDING` | `DECISIONS_COMPLETE` | `commit-decision` | operator-driven |
 | 8 | `DECISIONS_COMPLETE` | `ACK_READY_FOR_PRICING` | `ack-pricing-ready` | operator-driven |
-| 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` | `PRICING_RUNNING` | `run-pricing` | automatic |
+| 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` (legacy) | `PRICING_RUNNING` | `run-pricing` | automatic |
 | 10 | `PRICING_RUNNING` | `PRICED_DRAFT` | `run-pricing` | automatic |
 | 11 | `PRICED_DRAFT` | `HUMAN_REVIEW` | `generate-case-outputs` | automatic |
 | 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven |
 | 13 | `QUOTED_VERSIONED` | `SENT` | `send-quotation` | operator-driven |
-| 14 | `SENT` / `ACK_READY_FOR_PRICING` | `FACTS_PARTIAL` | `sync-emails` | automatic (reopen) |
+| 14 | `SENT` / `ACK_READY_FOR_PRICING` / `DECISIONS_PENDING` / `DECISIONS_COMPLETE` / `READY_TO_PRICE` | `FACTS_PARTIAL` | `sync-emails` | automatic (reopen) |
+
+### Protection contre rétrogradation (Phase S3)
+
+`build-case-puzzle` gèle les statuts suivants — un rebuild ne peut pas les rétrograder :
+- `DECISIONS_PENDING`, `DECISIONS_COMPLETE`
+- `ACK_READY_FOR_PRICING`, `PRICED_DRAFT`, `HUMAN_REVIEW`
+- `SENT`, `ACCEPTED`, `REJECTED`, `ARCHIVED`
 
 ---
 
 ## 3. Statuts exclus du contrat canonique courant
-
-Ces statuts ne sont PAS officialisés dans cette phase :
 
 | Statut | Raison |
 |--------|--------|
@@ -77,8 +83,15 @@ Ces statuts ne sont PAS officialisés dans cette phase :
 
 ## 4. Open questions
 
-1. **DECISIONS_PENDING** : présent dans l'enum DB, accepté en lecture par `commit-decision` (ALLOWED_STATUSES), mais jamais écrit par aucune fonction. Le workflow saute de `READY_TO_PRICE` → `DECISIONS_COMPLETE`. Trou de workflow à résoudre dans une phase métier dédiée.
+1. **Fin commerciale après SENT** : aucune transition `SENT → ACCEPTED` ou `SENT → REJECTED` n'est modélisée. La fin commerciale n'est pas couverte par le runtime actuel.
 
-2. **Fin commerciale après SENT** : aucune transition `SENT → ACCEPTED` ou `SENT → REJECTED` n'est modélisée. La fin commerciale n'est pas couverte par le runtime actuel.
+2. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
 
-3. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
+---
+
+## 5. Historique des phases
+
+| Phase | Date | Changement |
+|-------|------|------------|
+| S2 | 2026-03-11 | Création du registre. Alignement UI/DB sur les 15 statuts. `DECISIONS_PENDING` documenté comme ghost. |
+| S3 | 2026-03-11 | `DECISIONS_PENDING` restauré comme état canonique actif. `build-case-puzzle` en devient le writer. `READY_TO_PRICE` passe en legacy. Protection contre rétrogradation étendue. |
