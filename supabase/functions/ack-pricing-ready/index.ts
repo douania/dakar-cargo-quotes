@@ -115,8 +115,7 @@ serve(async (req) => {
       );
     }
 
-    // Mono-tenant app: all authenticated users can access all cases
-    // Ownership check removed — JWT auth is sufficient
+    // S1: Access — shared authenticated operator workspace. Actor identity preserved for audit.
 
     // ========================================================================
     // 4. FETCH FINAL DECISIONS
