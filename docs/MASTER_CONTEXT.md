@@ -1,6 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.0
 Phase: C2 — Conversation Engine
+Latest patch: S3 — Decision Workflow Repair
 Date: 2026-03
 
 ---
