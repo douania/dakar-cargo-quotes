@@ -1951,7 +1951,7 @@ export default function CaseView() {
                     : 'Dossier prêt à analyser'}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
+                  {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                     ? 'Prend en compte les nouveaux documents et extracteurs déployés'
                     : `${documentsCount} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
                 </p>
