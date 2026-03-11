@@ -1626,7 +1626,7 @@ Deno.serve(async (req) => {
     // Ownership check removed — JWT auth is sufficient
 
     // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
-    const FROZEN_STATUSES = ["ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
+    const FROZEN_STATUSES = ["DECISIONS_PENDING", "DECISIONS_COMPLETE", "ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
     const isFrozenCase = FROZEN_STATUSES.includes(caseData.status);
 
     if (isFrozenCase && !force_refresh) {
@@ -3506,7 +3506,7 @@ Deno.serve(async (req) => {
     
     if (!isFrozenCase) {
       if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
-        newStatus = "READY_TO_PRICE";
+        newStatus = "DECISIONS_PENDING";
       } else if ((openGapsCount || 0) > 0) {
         newStatus = "NEED_INFO";
       } else {
@@ -3557,7 +3557,7 @@ Deno.serve(async (req) => {
         assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
-        ready_to_price: newStatus === "READY_TO_PRICE",
+        ready_to_price: newStatus === "DECISIONS_PENDING",
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,
