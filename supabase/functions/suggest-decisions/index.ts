@@ -318,7 +318,7 @@ serve(async (req) => {
       );
     }
 
-    // 3. OWNERSHIP CHECK (MINIMAL: created_by = auth.uid() ONLY)
+    // 3. LOAD CASE
     const { data: quoteCase, error: caseError } = await serviceClient
       .from("quote_cases")
       .select("id, created_by, thread_id, status, request_type")
