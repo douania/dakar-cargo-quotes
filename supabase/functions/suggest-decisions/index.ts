@@ -22,6 +22,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 // ============================================================================
 // TYPES
