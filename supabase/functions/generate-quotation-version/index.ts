@@ -17,6 +17,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import {
   getCorrelationId,
   respondOk,
