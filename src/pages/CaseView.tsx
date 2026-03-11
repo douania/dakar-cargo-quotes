@@ -1941,7 +1941,7 @@ export default function CaseView() {
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
 
         {/* Action Panel — visible for actionable statuses */}
-        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
+        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
           <Card className="mb-6 border-primary/30 bg-primary/5">
             <CardContent className="py-4 flex items-center justify-between">
               <div>
