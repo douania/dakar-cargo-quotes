@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
     }
 
     // ── Load case + ownership ────────────────────────────
-    const { data: caseData, error: caseError } = await userClient
+    const { data: caseData, error: caseError } = await serviceClient
       .from("quote_cases")
       .select("id, status, created_by, assigned_to, thread_id")
       .eq("id", case_id)
