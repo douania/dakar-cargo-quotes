@@ -1923,7 +1923,7 @@ Deno.serve(async (req) => {
         proceedWithExtraction = true;
       } else if (force_articles_detail) {
         const existingSourceType = existingArtFact[0]?.source_type;
-        if (existingSourceType === "manual_input") {
+        if (MANUAL_PROTECTED_SOURCES.has(existingSourceType ?? '')) {
           console.log(`[M3.4c] force requested but current fact is manual_input; skipping`);
         } else {
           console.log(`[M3.4c] force overwrite enabled (source_type=${existingSourceType})`);
