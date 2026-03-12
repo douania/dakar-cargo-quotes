@@ -76,10 +76,18 @@ import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
-  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED" | "MULTI_LOT_PRICING_UNSUPPORTED";
   key: string;
   label: string;
 };
+
+// P1a — Global fact keys ambiguous on multi-lot cases
+const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
+  "cargo.weight_kg",
+  "cargo.pieces_count",
+  "cargo.description",
+  "service.package",
+]);
 
 // Mirror of supabase/functions/_shared/client-gap-policy.ts
 // Keep in sync with backend client-resolvable gap keys.
@@ -690,6 +698,22 @@ export default function CaseView() {
     enabled: !!caseId,
     staleTime: 30000,
   });
+
+  // P1a — Multi-lot line count (lightweight count query)
+  const { data: multiLotLineCount = 0 } = useQuery({
+    queryKey: ["quote-request-lines-count", caseId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("quote_request_lines" as any)
+        .select("*", { count: "exact", head: true })
+        .eq("case_id", caseId!);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!caseId,
+    staleTime: 60000,
+  });
+  const isMultiLot = multiLotLineCount >= 2;
 
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
@@ -1998,6 +2022,15 @@ export default function CaseView() {
 
           const prechecks: PricingPrecheck[] = [];
 
+          // P1b — Multi-lot pricing guard (frontend precheck)
+          if (isMultiLot) {
+            prechecks.push({
+              code: "MULTI_LOT_PRICING_UNSUPPORTED",
+              key: "request.multi_lot",
+              label: `Dossier multi-lot (${multiLotLineCount} lignes). Le pricing par ligne n'est pas encore disponible.`,
+            });
+          }
+
           if (!pkg) {
             prechecks.push({
               code: "SERVICE_PACKAGE_REQUIRED",
@@ -2273,11 +2306,16 @@ export default function CaseView() {
                                       />
                                     )
                                   ) : (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <span>{displayValue}</span>
                                       {fact.source_type === "manual_input" && (
                                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                                           Opérateur
+                                        </Badge>
+                                      )}
+                                      {isMultiLot && MULTI_LOT_AMBIGUOUS_FACTS.has(fact.fact_key) && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400 text-amber-600">
+                                          ⚠ Multi-lot
                                         </Badge>
                                       )}
                                     </div>
