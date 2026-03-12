@@ -196,33 +196,58 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4a-bis. P1b: Multi-lot guard — block mono-pipeline pricing when structured lines exist
+    // 4a-bis. P3b.1: Multi-lot orchestrator — per-lot pricing when structured lines exist
     const { count: mlCount } = await serviceClient
       .from("quote_request_lines")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id);
 
     if ((mlCount ?? 0) >= 2) {
-      console.log(`[P1b] Pricing blocked: ${mlCount} quote_request_lines exist. Per-line pricing not yet implemented.`);
+      console.log(`[P3b.1] Multi-lot detected: ${mlCount} quote_request_lines. Entering per-lot orchestration.`);
 
-      const { data: mlBlockerRunNumber } = await serviceClient
-        .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+      // Load all request lines
+      const { data: requestLines, error: rlError } = await serviceClient
+        .from("quote_request_lines")
+        .select("id, line_index, line_label, request_type_hint, extracted_facts_json")
+        .eq("case_id", case_id)
+        .order("line_index", { ascending: true });
 
-      const mlBlockerMessage = `Dossier multi-lot (${mlCount} lignes détectées). Le pricing mono-lot n'est pas applicable. Le pricing par ligne sera disponible dans une prochaine version.`;
+      if (rlError || !requestLines || requestLines.length < 2) {
+        console.error("[P3b.1] Failed to load request lines:", rlError);
+        return new Response(
+          JSON.stringify({ error: "Failed to load multi-lot request lines" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
-      await serviceClient
-        .from("pricing_runs")
-        .insert({
+      // Guard: check all lots have request_type_hint
+      const missingHintLots = requestLines
+        .filter((rl: any) => !rl.request_type_hint || String(rl.request_type_hint).trim() === "")
+        .map((rl: any) => ({
+          lot_index: rl.line_index,
+          lot_label: rl.line_label || `Lot ${rl.line_index}`,
+          blockers: ["LOT_REQUEST_TYPE_REQUIRED"],
+          message: `Le lot ${rl.line_index} ne contient pas de request_type_hint exploitable.`,
+        }));
+
+      if (missingHintLots.length > 0) {
+        const { data: mlGuardRunNumber } = await serviceClient
+          .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+
+        const mlGuardMessage = `Pricing multi-lot bloqué : ${missingHintLots.length} lot(s) sans request_type_hint.`;
+
+        await serviceClient.from("pricing_runs").insert({
           case_id,
-          run_number: mlBlockerRunNumber || 1,
-          inputs_json: { multi_lot_line_count: mlCount },
+          run_number: mlGuardRunNumber || 1,
+          inputs_json: { mode: "multi_lot", lot_count: requestLines.length },
           facts_snapshot: [],
           status: "blocked",
-          error_message: mlBlockerMessage,
+          error_message: mlGuardMessage,
           outputs_json: {
-            pricing_blockers: ["MULTI_LOT_PRICING_UNSUPPORTED"],
-            message: mlBlockerMessage,
-            multi_lot_line_count: mlCount,
+            pricing_blockers: ["MULTI_LOT_BLOCKED"],
+            multi_lot: true,
+            blocked_lots: missingHintLots,
+            message: mlGuardMessage,
           },
           started_at: new Date().toISOString(),
           completed_at: new Date().toISOString(),
@@ -230,13 +255,443 @@ Deno.serve(async (req) => {
           created_by: userId,
         });
 
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: ["MULTI_LOT_BLOCKED"],
+            message: mlGuardMessage,
+            blocked_lots: missingHintLots,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Load global facts
+      const { data: globalFacts, error: gfError } = await serviceClient
+        .from("quote_facts")
+        .select("*")
+        .eq("case_id", case_id)
+        .eq("is_current", true);
+
+      if (gfError) {
+        return new Response(
+          JSON.stringify({ error: "Failed to load global facts" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const globalFactsSnapshot = (globalFacts || []).map((f: any) => ({
+        id: f.id, key: f.fact_key, category: f.fact_category,
+        value_text: f.value_text, value_number: f.value_number,
+        value_json: f.value_json, value_date: f.value_date,
+        source_type: f.source_type, confidence: f.confidence,
+      }));
+
+      // Per-lot coherence checks
+      const lotChecks: Array<{
+        lot_index: number; lot_label: string; request_type_hint: string;
+        mergedFacts: any[]; inputs: PricingInputs; servicePackage: string | undefined;
+        transportMode: string; scopeWantsDuties: boolean; blockers: string[];
+      }> = [];
+
+      for (const rl of requestLines) {
+        const lotIndex = rl.line_index;
+        const lotLabel = rl.line_label || `Lot ${lotIndex}`;
+        const requestTypeHint = String(rl.request_type_hint || "").trim();
+        const extractedFacts = Array.isArray(rl.extracted_facts_json) ? rl.extracted_facts_json : [];
+
+        // Merge facts: lot-specific overrides global
+        const mergedFacts = mergeFactsForLot(globalFacts || [], extractedFacts);
+        const lotInputs = buildPricingInputs(mergedFacts);
+
+        // Resolve per-lot service package and transport mode
+        const lotIncoterm = String(lotInputs.incoterm ?? "").trim().toUpperCase();
+        const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm);
+        const lotTransportMode = resolveTransportModeForLot(requestTypeHint);
+
+        if (lotServicePackage) {
+          lotInputs.servicePackage = lotServicePackage;
+        }
+
+        // Per-lot scope analysis
+        const lotPkg = String(lotInputs.servicePackage ?? "").toUpperCase();
+        const lotScopeWantsDuties = lotPkg.endsWith("_DDP") || lotPkg === "DDP" || lotIncoterm === "DDP";
+
+        const lotBlockers: string[] = [];
+
+        // HS code check
+        if (lotScopeWantsDuties) {
+          const rawHs = String(lotInputs.hsCode ?? "");
+          const hsCandidates = rawHs.split(/[;,]/).map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
+          const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
+          const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
+          if (!hsDigits || hsDigits.length !== 10) {
+            lotBlockers.push("HS_CODE_REQUIRED");
+          }
+        }
+
+        // Freight check for FOB-type incoterms
+        if (lotScopeWantsDuties && ["FOB", "FCA", "FAS", "EXW"].includes(lotIncoterm)) {
+          if (!lotInputs.freightCost || lotInputs.freightCost <= 0) {
+            lotBlockers.push("FREIGHT_REQUIRED_FOR_FOB");
+          }
+        }
+
+        // Cargo value check
+        if (lotScopeWantsDuties && (!lotInputs.cargoValue || lotInputs.cargoValue <= 0)) {
+          lotBlockers.push("CARGO_VALUE_REQUIRED");
+        }
+
+        lotChecks.push({
+          lot_index: lotIndex,
+          lot_label: lotLabel,
+          request_type_hint: requestTypeHint,
+          mergedFacts,
+          inputs: lotInputs,
+          servicePackage: lotServicePackage,
+          transportMode: lotTransportMode,
+          scopeWantsDuties: lotScopeWantsDuties,
+          blockers: lotBlockers,
+        });
+      }
+
+      // If ANY lot has blockers → block entire run
+      const blockedLots = lotChecks.filter(lc => lc.blockers.length > 0);
+      if (blockedLots.length > 0) {
+        const { data: mlBlockedRunNumber } = await serviceClient
+          .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+
+        const mlBlockedMessage = `Le pricing multi-lot est bloqué : ${blockedLots.length} lot(s) incomplet(s).`;
+
+        await serviceClient.from("pricing_runs").insert({
+          case_id,
+          run_number: mlBlockedRunNumber || 1,
+          inputs_json: {
+            mode: "multi_lot",
+            lot_count: lotChecks.length,
+            lots: lotChecks.map(lc => ({
+              lot_index: lc.lot_index, request_type_hint: lc.request_type_hint,
+              service_package: lc.servicePackage, transport_mode: lc.transportMode,
+            })),
+          },
+          facts_snapshot: globalFactsSnapshot,
+          status: "blocked",
+          error_message: mlBlockedMessage,
+          outputs_json: {
+            pricing_blockers: ["MULTI_LOT_BLOCKED"],
+            multi_lot: true,
+            blocked_lots: blockedLots.map(bl => ({
+              lot_index: bl.lot_index, lot_label: bl.lot_label,
+              blockers: bl.blockers,
+              message: `Lot ${bl.lot_index} (${bl.lot_label}) : ${bl.blockers.join(", ")}`,
+            })),
+            message: mlBlockedMessage,
+          },
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
+        return new Response(
+          JSON.stringify({
+            pricing_blockers: ["MULTI_LOT_BLOCKED"],
+            message: mlBlockedMessage,
+            blocked_lots: blockedLots.map(bl => ({
+              lot_index: bl.lot_index, lot_label: bl.lot_label, blockers: bl.blockers,
+            })),
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // ALL lots pass — transition to PRICING_RUNNING
+      if (!isFinalized) {
+        await serviceClient.from("quote_cases").update({
+          status: "PRICING_RUNNING",
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", case_id);
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id, event_type: "status_changed",
+          previous_value: previousStatus, new_value: "PRICING_RUNNING",
+          actor_type: "system",
+        });
+      }
+
+      // Get run number
+      const { data: mlRunNumber, error: mlRpcError } = await serviceClient
+        .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+
+      if (mlRpcError || mlRunNumber === null) {
+        await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "ml_run_number_failed");
+        throw new Error(`Failed to get multi-lot run number: ${mlRpcError?.message || "null"}`);
+      }
+
+      // Create pricing_run record
+      const mlInputsJson = {
+        mode: "multi_lot",
+        lot_count: lotChecks.length,
+        lots: lotChecks.map(lc => ({
+          lot_index: lc.lot_index, request_type_hint: lc.request_type_hint,
+          service_package: lc.servicePackage, transport_mode: lc.transportMode,
+        })),
+      };
+
+      const { data: mlRunData, error: mlRunInsertError } = await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: mlRunNumber,
+          inputs_json: mlInputsJson,
+          facts_snapshot: globalFactsSnapshot,
+          status: "running",
+          started_at: new Date().toISOString(),
+          created_by: userId,
+        })
+        .select("id")
+        .single();
+
+      if (mlRunInsertError || !mlRunData) {
+        await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "ml_run_insert_failed");
+        throw new Error(`Multi-lot run insert failed: ${mlRunInsertError?.message}`);
+      }
+
+      await serviceClient.from("case_timeline_events").insert({
+        case_id, event_type: "pricing_started",
+        event_data: { run_number: mlRunNumber, mode: "multi_lot", lot_count: lotChecks.length },
+        related_pricing_run_id: mlRunData.id,
+        actor_type: "system",
+      });
+
+      // Execute quotation-engine for each lot
+      const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
+      const lotResults: Array<{
+        lot_index: number; lot_label: string; lines: any[]; sources: any[];
+        totals: { ht: number; ttc: number; currency: string };
+        engine_request: any; engine_response: any;
+      }> = [];
+
+      for (const lc of lotChecks) {
+        try {
+          const engineParams = {
+            finalDestination: lc.inputs.finalDestination,
+            originPort: lc.inputs.originPort,
+            originAirport: lc.inputs.originAirport,
+            incoterm: lc.inputs.incoterm,
+            containers: lc.inputs.containers,
+            cargoWeight: lc.inputs.cargoWeight,
+            cargoVolume: lc.inputs.cargoVolume,
+            cargoValue: lc.inputs.cargoValue,
+            cargoCurrency: lc.inputs.cargoValueCurrency,
+            carrier: lc.inputs.carrier,
+            transportMode: lc.transportMode,
+            cargoDescription: lc.inputs.cargoDescription,
+            clientCompany: lc.inputs.clientCompany,
+            hsCode: lc.inputs.hsCode,
+            articlesDetail: lc.inputs.articlesDetail,
+            regimeCode: lc.inputs.regimeCode || undefined,
+            freightAmount: lc.inputs.freightCost,
+            freightCurrency: lc.inputs.freightCurrency,
+          };
+
+          const engineRes = await fetch(engineUrl, {
+            method: "POST",
+            headers: { Authorization: authHeader, "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "generate", params: engineParams }),
+          });
+
+          if (!engineRes.ok) {
+            const errorText = await engineRes.text();
+            throw new Error(`Lot ${lc.lot_index}: quotation-engine error: ${engineRes.status} - ${errorText}`);
+          }
+
+          const lotEngineResponse = await engineRes.json();
+          const lotLines = lotEngineResponse.lines || lotEngineResponse.quotationLines || [];
+
+          // Build tariff sources for this lot
+          const lotSourceMap = new Map<string, any>();
+          for (const line of lotLines) {
+            if (line.source?.reference && line.source?.type !== "TO_CONFIRM") {
+              const key = `${line.source.type}_${line.source.reference}`;
+              lotSourceMap.set(key, {
+                type: line.source.type, reference: line.source.reference,
+                table: line.source.table || line.source.type,
+                confidence: line.source.confidence,
+              });
+            }
+          }
+
+          // Compute per-lot totals (same logic as mono-lot)
+          const lotEngineTotals = lotEngineResponse.totals;
+          const lotHonorairesHt = lotEngineTotals?.honoraires ?? 0;
+          const lotDebours = lotEngineTotals?.debours ?? 0;
+          const lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
+          const lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
+          const lotTotalHt = lotHonorairesHt;
+          const lotTotalTtc = lotDebours + lotHonorairesTtc;
+          const lotCurrency = lotEngineResponse.currency || "XOF";
+
+          // Tag each line with lot_index and lot_label
+          const taggedLines = lotLines.map((line: any) => ({
+            ...line,
+            lot_index: lc.lot_index,
+            lot_label: lc.lot_label,
+          }));
+
+          lotResults.push({
+            lot_index: lc.lot_index,
+            lot_label: lc.lot_label,
+            lines: taggedLines,
+            sources: Array.from(lotSourceMap.values()),
+            totals: { ht: lotTotalHt, ttc: lotTotalTtc, currency: lotCurrency },
+            engine_request: engineParams,
+            engine_response: lotEngineResponse,
+          });
+        } catch (lotEngineError: any) {
+          console.error(`[P3b.1] Engine failed for lot ${lc.lot_index}:`, lotEngineError);
+
+          // ANY lot failure → block entire run
+          await serviceClient.from("pricing_runs").update({
+            status: "failed",
+            error_message: `Lot ${lc.lot_index} engine failure: ${lotEngineError.message}`,
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+          }).eq("id", mlRunData.id);
+
+          await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, `ml_lot_${lc.lot_index}_engine_failed`);
+
+          await serviceClient.from("case_timeline_events").insert({
+            case_id, event_type: "pricing_failed",
+            event_data: { error: lotEngineError.message, run_number: mlRunNumber, failed_lot: lc.lot_index },
+            related_pricing_run_id: mlRunData.id,
+            actor_type: "system",
+          });
+
+          return new Response(
+            JSON.stringify({
+              error: "Multi-lot pricing failed",
+              failed_lot: lc.lot_index,
+              details: lotEngineError.message,
+              pricing_run_id: mlRunData.id,
+            }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // ALL lots succeeded — aggregate results
+      const allTaggedLines = lotResults.flatMap(lr => lr.lines);
+      const allSources: any[] = [];
+      const sourceDedup = new Set<string>();
+      for (const lr of lotResults) {
+        for (const src of lr.sources) {
+          const key = `${src.type}_${src.reference}`;
+          if (!sourceDedup.has(key)) {
+            sourceDedup.add(key);
+            allSources.push(src);
+          }
+        }
+      }
+
+      const aggregatedHt = lotResults.reduce((sum, lr) => sum + lr.totals.ht, 0);
+      const aggregatedTtc = lotResults.reduce((sum, lr) => sum + lr.totals.ttc, 0);
+      const aggregatedCurrency = lotResults[0]?.totals.currency || "XOF";
+
+      const mlDurationMs = Date.now() - startTime;
+
+      // Dual storage: structured detail in outputs_json + root-level columns
+      const mlOutputsJson = {
+        multi_lot: true,
+        lots: lotResults.map(lr => ({
+          lot_index: lr.lot_index,
+          label: lr.lot_label,
+          lines: lr.lines,
+          totals: lr.totals,
+          duty_breakdown: lr.engine_response.duty_breakdown || [],
+        })),
+        totals: { ht: aggregatedHt, ttc: aggregatedTtc, currency: aggregatedCurrency },
+        lines: allTaggedLines,
+        metadata: {
+          engine_version: lotResults[0]?.engine_response?.version || "v4",
+          computed_at: new Date().toISOString(),
+          mode: "multi_lot",
+          lot_count: lotResults.length,
+        },
+      };
+
+      await serviceClient.from("pricing_runs").update({
+        status: "success",
+        engine_request: {
+          mode: "multi_lot",
+          lot_count: lotResults.length,
+          lots: lotResults.map(lr => ({ lot_index: lr.lot_index, params: lr.engine_request })),
+        },
+        engine_response: {
+          mode: "multi_lot",
+          lot_count: lotResults.length,
+          lots: lotResults.map(lr => ({ lot_index: lr.lot_index, response: lr.engine_response })),
+        },
+        outputs_json: mlOutputsJson,
+        tariff_lines: allTaggedLines,
+        total_ht: aggregatedHt,
+        total_ttc: aggregatedTtc,
+        currency: aggregatedCurrency,
+        tariff_sources: allSources,
+        completed_at: new Date().toISOString(),
+        duration_ms: mlDurationMs,
+      }).eq("id", mlRunData.id);
+
+      // Status transition
+      if (!isFinalized) {
+        await serviceClient.from("quote_cases").update({
+          status: "PRICED_DRAFT",
+          pricing_runs_count: mlRunNumber,
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", case_id);
+      } else {
+        await serviceClient.from("quote_cases").update({
+          pricing_runs_count: mlRunNumber,
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", case_id);
+      }
+
+      await serviceClient.from("case_timeline_events").insert({
+        case_id, event_type: "pricing_completed",
+        event_data: {
+          run_number: mlRunNumber, mode: "multi_lot", lot_count: lotResults.length,
+          total_ht: aggregatedHt, lines_count: allTaggedLines.length, duration_ms: mlDurationMs,
+        },
+        related_pricing_run_id: mlRunData.id,
+        actor_type: "system",
+      });
+
+      if (!isFinalized) {
+        await serviceClient.from("case_timeline_events").insert({
+          case_id, event_type: "status_changed",
+          previous_value: "PRICING_RUNNING", new_value: "PRICED_DRAFT",
+          actor_type: "system",
+        });
+      }
+
+      console.log(`[P3b.1] Multi-lot pricing run ${mlRunNumber} for case ${case_id} completed in ${mlDurationMs}ms — ${lotResults.length} lots, ${allTaggedLines.length} lines`);
+
       return new Response(
         JSON.stringify({
-          pricing_blockers: ["MULTI_LOT_PRICING_UNSUPPORTED"],
-          message: mlBlockerMessage,
-          multi_lot_line_count: mlCount,
+          pricing_run_id: mlRunData.id,
+          run_number: mlRunNumber,
+          mode: "multi_lot",
+          lot_count: lotResults.length,
+          total_ht: aggregatedHt,
+          total_ttc: aggregatedTtc,
+          currency: aggregatedCurrency,
+          lines_count: allTaggedLines.length,
+          duration_ms: mlDurationMs,
+          tariff_sources_count: allSources.length,
         }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -915,4 +1370,73 @@ function summarizeInputs(inputs: PricingInputs): string {
     parts.push(`${inputs.containers.map(c => `${c.quantity}x${c.type}`).join(", ")}`);
   }
   return parts.join(" ") || "No routing info";
+}
+
+/**
+ * P3b.1: Merge lot-specific extracted_facts_json over global facts by key.
+ * CTO-corrected: converts values based on valueType (number, json, text).
+ */
+function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
+  const merged = new Map<string, any>();
+
+  for (const f of globalFacts) {
+    merged.set(f.fact_key, f);
+  }
+
+  for (const lf of lotExtractedFacts || []) {
+    if (!lf?.key) continue;
+
+    const valueType = String(lf.valueType || "").toLowerCase();
+    const raw = lf.value;
+
+    let value_text: string | null = null;
+    let value_number: number | null = null;
+    let value_json: any = null;
+
+    if (valueType === "number") {
+      const n = Number(raw);
+      value_number = Number.isFinite(n) ? n : null;
+      value_text = raw != null ? String(raw) : null;
+    } else if (valueType === "json") {
+      value_json = raw;
+      value_text = typeof raw === "string" ? raw : JSON.stringify(raw);
+    } else {
+      value_text = raw != null ? String(raw) : null;
+    }
+
+    merged.set(lf.key, {
+      fact_key: lf.key,
+      value_text,
+      value_number,
+      value_json,
+      source_type: "lot_override",
+      confidence: typeof lf.confidence === "number" ? lf.confidence : 0.8,
+    });
+  }
+
+  return Array.from(merged.values());
+}
+
+/**
+ * P3b.1: Resolve service package for a lot based on request_type_hint and incoterm.
+ * Aligned with P3a — covers only currently emitted request types.
+ * Does NOT replace the global service package registry.
+ */
+function resolveServicePackageForLot(requestTypeHint: string, incoterm: string): string | undefined {
+  const rt = String(requestTypeHint || "").trim().toUpperCase();
+  const ic = String(incoterm || "").trim().toUpperCase();
+  const isOrigin = ["EXW", "FCA", "FAS"].includes(ic);
+
+  if (rt === "SEA_LCL_IMPORT") return isOrigin ? "LCL_IMPORT_EXW" : "LCL_IMPORT_DAP";
+  if (rt === "AIR_LCL_IMPORT" || rt === "AIR_IMPORT") return isOrigin ? "AIR_IMPORT_EXW" : "AIR_IMPORT_DAP";
+  if (rt === "SEA_FCL_IMPORT" || rt === "IMPORT_PROJECT_DAP") return isOrigin ? "DAP_PROJECT_IMPORT_EXW" : "DAP_PROJECT_IMPORT";
+
+  return undefined;
+}
+
+/**
+ * P3b.1: Resolve transport mode for a lot from its request_type_hint.
+ */
+function resolveTransportModeForLot(requestTypeHint: string): string {
+  return String(requestTypeHint || "").toUpperCase().includes("AIR") ? "aerien" : "maritime";
 }

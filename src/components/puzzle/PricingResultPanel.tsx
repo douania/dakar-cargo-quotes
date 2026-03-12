@@ -1,11 +1,13 @@
 /**
- * Phase 12: PricingResultPanel
- * Displays the latest successful pricing run and allows version creation
- * 
+ * Phase 12 + P3b.1: PricingResultPanel
+ * Displays the latest successful pricing run and allows version creation.
+ * Supports multi-lot display when outputs_json.multi_lot === true.
+ *
  * CTO Rules:
  * - Read-only display of pricing_run data
  * - Human triggers version creation via explicit button + confirmation
  * - Visible if status IN ('PRICED_DRAFT', 'HUMAN_REVIEW')
+ * - Multi-lot: per-lot collapsible sections, aggregated totals from root columns
  */
 
 import { useState } from 'react';
@@ -15,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package } from 'lucide-react';
 import { DutyBreakdownTable } from './DutyBreakdownTable';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -33,8 +35,8 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [expandedLots, setExpandedLots] = useState<Record<number, boolean>>({});
 
-  // Don't render if no successful pricing run
   if (isLoading) {
     return (
       <Card className="border-muted animate-pulse">
@@ -48,15 +50,16 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
     );
   }
 
-  if (!pricingRun) {
-    return null;
-  }
+  if (!pricingRun) return null;
+
+  const isMultiLot = !!(pricingRun.outputs_json as any)?.multi_lot;
+  const lots: any[] = isMultiLot ? ((pricingRun.outputs_json as any)?.lots || []) : [];
 
   const tariffLines = pricingRun.tariff_lines || [];
   const tariffSources = pricingRun.tariff_sources || [];
   const toConfirmCount = tariffLines.filter((l: any) => l.source?.type === 'TO_CONFIRM').length;
-  const nextVersionNumber = versions.length > 0 
-    ? Math.max(...versions.map(v => v.version_number)) + 1 
+  const nextVersionNumber = versions.length > 0
+    ? Math.max(...versions.map(v => v.version_number)) + 1
     : 1;
 
   const handleCreateVersion = async () => {
@@ -65,13 +68,10 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
       const { data, error } = await supabase.functions.invoke('generate-quotation-version', {
         body: { case_id: caseId }
       });
-
       if (error) throw error;
-
       toast.success(`Version v${data.version_number} créée`, {
         description: `${data.lines_count} lignes • ${new Intl.NumberFormat('fr-FR').format(data.total_ht)} ${data.currency}`,
       });
-      
       setConfirmOpen(false);
       await refetchVersions();
     } catch (err) {
@@ -85,8 +85,12 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
   };
 
   const formatAmount = (amount: number | null) => {
-    if (amount === null) return '—';
+    if (amount === null || amount === undefined) return '—';
     return new Intl.NumberFormat('fr-FR').format(amount);
+  };
+
+  const toggleLot = (lotIndex: number) => {
+    setExpandedLots(prev => ({ ...prev, [lotIndex]: !prev[lotIndex] }));
   };
 
   return (
@@ -96,6 +100,11 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             <CardTitle className="text-lg">Résultat Pricing Run #{pricingRun.run_number}</CardTitle>
+            {isMultiLot && (
+              <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-xs">
+                Multi-lot ({lots.length})
+              </Badge>
+            )}
           </div>
           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
             Succès
@@ -131,7 +140,7 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
           );
         })()}
 
-        {/* Summary Section */}
+        {/* Summary Section — always reads root columns (backward compat) */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
           <div className="text-center">
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
@@ -178,8 +187,97 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
           </div>
         )}
 
-        {/* Tariff Lines (Collapsible) */}
-        {tariffLines.length > 0 && (
+        {/* Multi-lot: Per-lot collapsible sections */}
+        {isMultiLot && lots.length > 0 && (
+          <div className="space-y-2">
+            {lots.map((lot: any) => {
+              const lotLines = lot.lines || [];
+              const lotTotals = lot.totals || {};
+              const isLotExpanded = expandedLots[lot.lot_index] ?? false;
+
+              return (
+                <Collapsible key={lot.lot_index} open={isLotExpanded} onOpenChange={() => toggleLot(lot.lot_index)}>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="w-full justify-between border border-border/50 rounded-lg">
+                      <span className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-blue-500" />
+                        <span className="font-medium">{lot.label || `Lot ${lot.lot_index}`}</span>
+                        <Badge variant="secondary" className="text-xs">{lotLines.length} lignes</Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {formatAmount(lotTotals.ht)} {lotTotals.currency || 'XOF'} HT
+                        </span>
+                      </span>
+                      {isLotExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-2 border rounded-lg overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="text-left p-2 font-medium">Service</th>
+                            <th className="text-left p-2 font-medium">Description</th>
+                            <th className="text-right p-2 font-medium">Montant</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lotLines.slice(0, 15).map((line: any, idx: number) => {
+                            const value = line.amount ?? line.total;
+                            const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
+                            return (
+                              <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
+                                <td className="p-2 font-mono text-xs">
+                                  {line.service_code || line.charge_code || `L${idx + 1}`}
+                                </td>
+                                <td className="p-2 text-muted-foreground">
+                                  {isToConfirm ? (
+                                    <span className="text-amber-700 dark:text-amber-300">
+                                      {(line.source?.note || line.description || line.charge_name || '').substring(0, 50)}
+                                    </span>
+                                  ) : (
+                                    (line.description || line.charge_name || '').substring(0, 40)
+                                  )}
+                                </td>
+                                <td className="p-2 text-right font-medium">
+                                  {isToConfirm ? (
+                                    <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 text-xs">
+                                      <AlertCircle className="h-3 w-3 mr-1" />
+                                      À confirmer
+                                    </Badge>
+                                  ) : value == null ? (
+                                    <span className="text-muted-foreground">—</span>
+                                  ) : (
+                                    formatAmount(value)
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {lotLines.length > 15 && (
+                            <tr className="border-t bg-muted/50">
+                              <td colSpan={3} className="p-2 text-center text-muted-foreground text-xs">
+                                +{lotLines.length - 15} lignes supplémentaires
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Per-lot duty breakdown */}
+                    {lot.duty_breakdown && lot.duty_breakdown.length > 0 && (
+                      <div className="mt-2">
+                        <DutyBreakdownTable items={lot.duty_breakdown} currency={lotTotals.currency || 'XOF'} />
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Mono-lot: Flat tariff lines (fallback when not multi-lot) */}
+        {!isMultiLot && tariffLines.length > 0 && (
           <Collapsible open={linesExpanded} onOpenChange={setLinesExpanded}>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm" className="w-full justify-between">
@@ -247,8 +345,8 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
           </Collapsible>
         )}
 
-        {/* Duty Breakdown Table */}
-        {pricingRun.outputs_json?.duty_breakdown && pricingRun.outputs_json.duty_breakdown.length > 0 && (
+        {/* Duty Breakdown Table (mono-lot only — multi-lot has per-lot breakdown) */}
+        {!isMultiLot && pricingRun.outputs_json?.duty_breakdown && pricingRun.outputs_json.duty_breakdown.length > 0 && (
           <DutyBreakdownTable
             items={pricingRun.outputs_json.duty_breakdown}
             currency={pricingRun.currency || 'XOF'}
@@ -275,7 +373,7 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
         {/* Create Version Button with Confirmation */}
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogTrigger asChild>
-            <Button 
+            <Button
               className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
               disabled={isCreating || isLocked}
             >
@@ -308,7 +406,7 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
                 <div className="bg-muted p-3 rounded-lg mt-3">
                   <p className="text-sm font-medium">Résumé :</p>
                   <ul className="text-sm text-muted-foreground mt-1 space-y-1">
-                    <li>• {tariffLines.length} lignes tarifaires</li>
+                    <li>• {tariffLines.length} lignes tarifaires{isMultiLot ? ` (${lots.length} lots)` : ''}</li>
                     <li>• Total HT : {formatAmount(pricingRun.total_ht)} {pricingRun.currency || 'XOF'}</li>
                     <li>• Statut : DRAFT (non envoyé au client)</li>
                   </ul>
@@ -317,7 +415,7 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isCreating}>Annuler</AlertDialogCancel>
-              <AlertDialogAction 
+              <AlertDialogAction
                 onClick={handleCreateVersion}
                 disabled={isCreating}
                 className="bg-emerald-600 hover:bg-emerald-700"
