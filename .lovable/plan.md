@@ -220,3 +220,32 @@ case_coherence_v1
 - Questions client guidées avec génération de brouillon
 - Auto-application des faits dérivés
 - Écriture de facts depuis le panneau
+
+---
+
+## Phase S4 — Manual Source Protection Harmonization ✅
+
+Ajout de `MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input'])` dans `build-case-puzzle/index.ts` et harmonisation de 6 guards incohérents (ASSUMPTION_PROTECTED_SOURCES, injectAttachmentFacts, cargo.articles_detail, customs.regime_code, regulatory.exemption_title, client.code).
+
+---
+
+## Phase S5 — Manual Source Protection Completion ✅
+
+### Patchs appliqués
+
+| # | Zone | Fix |
+|---|------|-----|
+| 1 | Boucle AI extraction (l.1780) | `source_type` ajouté au SELECT + guard `MANUAL_PROTECTED_SOURCES` avant supersede (avec respect règle valeur non-vide) |
+| 2 | `force_articles_detail` (l.1917) | `=== "manual_input"` → `MANUAL_PROTECTED_SOURCES.has()` |
+| 3 | `cargo.articles_detail` from docs | Pas de changement nécessaire (couvert par guard l.1917) |
+| 4 | HS doc-regex single + multi (l.2208, 2241) | Guard manual ajouté avant supersede |
+| 5 | HS email-regex single + multi (l.2333, 2366) | Guard manual ajouté avant supersede |
+| 6 | HS post-attach validation (l.2848) | Guard manual wrapping supersede + deactivation |
+
+### Fichier unique modifié
+
+`supabase/functions/build-case-puzzle/index.ts`
+
+### Ce qui n'a pas changé
+
+- `set-case-fact`, `supersede_fact` RPC, DB/RLS, pricing engine, FSM, `injectAttachmentFacts` (S4), assumptions (S4)
