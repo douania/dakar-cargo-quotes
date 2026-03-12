@@ -2657,7 +2657,7 @@ Deno.serve(async (req) => {
         .eq("is_current", true)
         .maybeSingle();
 
-      const isRegimeManual = existingRegimeFact?.source_type === "manual_input";
+      const isRegimeManual = MANUAL_PROTECTED_SOURCES.has(existingRegimeFact?.source_type ?? '');
 
       // 1. If exactly one regime code found and no manual override exists
       if (uniqueRegimeCodes.length === 1 && !isRegimeManual) {
