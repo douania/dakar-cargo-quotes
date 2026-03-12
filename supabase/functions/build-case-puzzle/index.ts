@@ -2345,6 +2345,8 @@ Deno.serve(async (req) => {
           // Idempotency: skip if existing HS is identical
           if (hsDigitsEmail === uniqueEmailCodes[0]) {
             console.log("[HS email-regex] HS identical to existing, skip supersede");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
+            console.log("[HS email-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedEmailCandidates.find(r => r.code10 === uniqueEmailCodes[0])!;
             const { error: hsEmailRpcErr } = await serviceClient.rpc("supersede_fact", {
