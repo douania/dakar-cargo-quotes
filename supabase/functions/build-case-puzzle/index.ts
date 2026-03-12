@@ -1788,7 +1788,7 @@ Deno.serve(async (req) => {
         if (existingFact) {
           // S5: protect manual sources from AI extraction overwrite
           // Per protected-source-override-rules: only protect if existing value is non-empty
-          const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
+          const existingValue = existingFact.value_text ?? existingFact.value_number ?? existingFact.value_json;
           const hasRealValue = existingValue !== null && existingValue !== undefined &&
             (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
           if (hasRealValue && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '')) {
@@ -1924,7 +1924,7 @@ Deno.serve(async (req) => {
       } else if (force_articles_detail) {
         const existingSourceType = existingArtFact[0]?.source_type;
         if (MANUAL_PROTECTED_SOURCES.has(existingSourceType ?? '')) {
-          console.log(`[M3.4c] force requested but current fact is manual_input; skipping`);
+          console.log(`[M3.4c] force requested but current fact is protected manual source (${existingSourceType}); skipping`);
         } else {
           console.log(`[M3.4c] force overwrite enabled (source_type=${existingSourceType})`);
           proceedWithExtraction = true;
