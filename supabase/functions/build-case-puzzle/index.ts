@@ -322,8 +322,15 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   ],
 };
 
+// S4: Canonical set for human-entered sources (legacy + current)
+const MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input']);
+
 // Sources that cannot be overwritten by assumptions
-const ASSUMPTION_PROTECTED_SOURCES = new Set(['operator', 'attachment_extracted', 'ai_extraction']);
+const ASSUMPTION_PROTECTED_SOURCES = new Set([
+  ...MANUAL_PROTECTED_SOURCES,
+  'attachment_extracted',
+  'ai_extraction',
+]);
 
 // --- M3.5.1 Fix: PORT_COUNTRY_MAP for country resolution from ports/cities ---
 const PORT_COUNTRY_MAP: Record<string, string> = {
