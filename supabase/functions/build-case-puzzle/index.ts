@@ -1302,7 +1302,7 @@ async function injectAttachmentFacts(
 
       if (articlesDetail.length >= 1 && !injectedKeys.has('cargo.articles_detail')) {
         const existingSource = factSourceMap.get('cargo.articles_detail');
-        if (existingSource !== 'operator') {
+        if (!MANUAL_PROTECTED_SOURCES.has(existingSource ?? '')) {
           const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
             p_case_id: caseId,
             p_fact_key: 'cargo.articles_detail',
