@@ -699,6 +699,22 @@ export default function CaseView() {
     staleTime: 30000,
   });
 
+  // P1a — Multi-lot line count (lightweight count query)
+  const { data: multiLotLineCount = 0 } = useQuery({
+    queryKey: ["quote-request-lines-count", caseId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("quote_request_lines" as any)
+        .select("*", { count: "exact", head: true })
+        .eq("case_id", caseId!);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!caseId,
+    staleTime: 60000,
+  });
+  const isMultiLot = multiLotLineCount >= 2;
+
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
