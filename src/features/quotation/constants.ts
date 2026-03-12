@@ -34,6 +34,10 @@ export const serviceTemplates = [
   { service: 'CUSTOMS_BAMAKO', description: 'Dédouanement Bamako', unit: 'déclaration' },
   { service: 'AIR_HANDLING', description: 'Manutention aéroportuaire', unit: 'kg' },
   { service: 'AIR_FREIGHT', description: 'Fret aérien', unit: 'kg' },
+  // P3a: Origin services for EXW/FCA/FAS incoterms
+  { service: 'PICKUP_ORIGIN', description: "Enlèvement à l'origine", unit: 'forfait' },
+  { service: 'PRE_CARRIAGE', description: 'Pré-acheminement vers port/aéroport', unit: 'voyage' },
+  { service: 'SEA_FREIGHT', description: 'Fret maritime', unit: 'EVP' },
 ];
 
 /**
