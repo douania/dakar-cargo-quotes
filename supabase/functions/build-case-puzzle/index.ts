@@ -2947,7 +2947,7 @@ Deno.serve(async (req) => {
 
             const isManual =
               existingClientCode &&
-              existingClientCode.source_type === "manual_input";
+              MANUAL_PROTECTED_SOURCES.has(existingClientCode.source_type ?? '');
 
             if (!isManual) {
               const { error: clientCodeError } = await serviceClient.rpc("supersede_fact", {
