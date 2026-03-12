@@ -322,8 +322,15 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   ],
 };
 
+// S4: Canonical set for human-entered sources (legacy + current)
+const MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input']);
+
 // Sources that cannot be overwritten by assumptions
-const ASSUMPTION_PROTECTED_SOURCES = new Set(['operator', 'attachment_extracted', 'ai_extraction']);
+const ASSUMPTION_PROTECTED_SOURCES = new Set([
+  ...MANUAL_PROTECTED_SOURCES,
+  'attachment_extracted',
+  'ai_extraction',
+]);
 
 // --- M3.5.1 Fix: PORT_COUNTRY_MAP for country resolution from ports/cities ---
 const PORT_COUNTRY_MAP: Record<string, string> = {
@@ -1130,9 +1137,9 @@ async function injectAttachmentFacts(
       // First occurrence wins for same fact_key
       if (injectedKeys.has(mapping.factKey)) continue;
 
-      // Source priority: operator > attachment_extracted > ai
+      // Source priority: manual (operator|manual_input) > attachment_extracted > ai
       const existingSource = factSourceMap.get(mapping.factKey);
-      if (existingSource === 'operator') {
+      if (MANUAL_PROTECTED_SOURCES.has(existingSource ?? '')) {
         result.skipped++;
         injectedKeys.add(mapping.factKey);
         continue;
@@ -1295,7 +1302,7 @@ async function injectAttachmentFacts(
 
       if (articlesDetail.length >= 1 && !injectedKeys.has('cargo.articles_detail')) {
         const existingSource = factSourceMap.get('cargo.articles_detail');
-        if (existingSource !== 'operator') {
+        if (!MANUAL_PROTECTED_SOURCES.has(existingSource ?? '')) {
           const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
             p_case_id: caseId,
             p_fact_key: 'cargo.articles_detail',
@@ -2650,7 +2657,7 @@ Deno.serve(async (req) => {
         .eq("is_current", true)
         .maybeSingle();
 
-      const isRegimeManual = existingRegimeFact?.source_type === "manual_input";
+      const isRegimeManual = MANUAL_PROTECTED_SOURCES.has(existingRegimeFact?.source_type ?? '');
 
       // 1. If exactly one regime code found and no manual override exists
       if (uniqueRegimeCodes.length === 1 && !isRegimeManual) {
@@ -2721,7 +2728,7 @@ Deno.serve(async (req) => {
           .eq("is_current", true)
           .maybeSingle();
 
-        if (!existingTitleFact || existingTitleFact.source_type !== "manual_input") {
+        if (!existingTitleFact || !MANUAL_PROTECTED_SOURCES.has(existingTitleFact.source_type ?? '')) {
           const { error: titleRpcErr } = await serviceClient.rpc("supersede_fact", {
             p_case_id: case_id,
             p_fact_key: "regulatory.exemption_title",
@@ -2940,7 +2947,7 @@ Deno.serve(async (req) => {
 
             const isManual =
               existingClientCode &&
-              existingClientCode.source_type === "manual_input";
+              MANUAL_PROTECTED_SOURCES.has(existingClientCode.source_type ?? '');
 
             if (!isManual) {
               const { error: clientCodeError } = await serviceClient.rpc("supersede_fact", {
