@@ -1777,7 +1777,7 @@ Deno.serve(async (req) => {
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
           .from("quote_facts")
-          .select("id, value_text, value_number, value_json")
+          .select("id, value_text, value_number, value_json, source_type")
           .eq("case_id", case_id)
           .eq("fact_key", fact.key)
           .eq("is_current", true)
@@ -1786,7 +1786,16 @@ Deno.serve(async (req) => {
         const factValue = getFactValue(fact);
 
         if (existingFact) {
+          // S5: protect manual sources from AI extraction overwrite
+          // Per protected-source-override-rules: only protect if existing value is non-empty
           const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
+          const hasRealValue = existingValue !== null && existingValue !== undefined &&
+            (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
+          if (hasRealValue && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '')) {
+            console.log(`[AI extract] Skipping ${fact.key}: protected manual source (${existingFact.source_type})`);
+            factsSkipped++;
+            continue;
+          }
           if (JSON.stringify(existingValue) === JSON.stringify(factValue)) {
             factsSkipped++;
             continue;
