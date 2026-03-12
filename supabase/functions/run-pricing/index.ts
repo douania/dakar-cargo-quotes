@@ -1371,3 +1371,72 @@ function summarizeInputs(inputs: PricingInputs): string {
   }
   return parts.join(" ") || "No routing info";
 }
+
+/**
+ * P3b.1: Merge lot-specific extracted_facts_json over global facts by key.
+ * CTO-corrected: converts values based on valueType (number, json, text).
+ */
+function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
+  const merged = new Map<string, any>();
+
+  for (const f of globalFacts) {
+    merged.set(f.fact_key, f);
+  }
+
+  for (const lf of lotExtractedFacts || []) {
+    if (!lf?.key) continue;
+
+    const valueType = String(lf.valueType || "").toLowerCase();
+    const raw = lf.value;
+
+    let value_text: string | null = null;
+    let value_number: number | null = null;
+    let value_json: any = null;
+
+    if (valueType === "number") {
+      const n = Number(raw);
+      value_number = Number.isFinite(n) ? n : null;
+      value_text = raw != null ? String(raw) : null;
+    } else if (valueType === "json") {
+      value_json = raw;
+      value_text = typeof raw === "string" ? raw : JSON.stringify(raw);
+    } else {
+      value_text = raw != null ? String(raw) : null;
+    }
+
+    merged.set(lf.key, {
+      fact_key: lf.key,
+      value_text,
+      value_number,
+      value_json,
+      source_type: "lot_override",
+      confidence: typeof lf.confidence === "number" ? lf.confidence : 0.8,
+    });
+  }
+
+  return Array.from(merged.values());
+}
+
+/**
+ * P3b.1: Resolve service package for a lot based on request_type_hint and incoterm.
+ * Aligned with P3a — covers only currently emitted request types.
+ * Does NOT replace the global service package registry.
+ */
+function resolveServicePackageForLot(requestTypeHint: string, incoterm: string): string | undefined {
+  const rt = String(requestTypeHint || "").trim().toUpperCase();
+  const ic = String(incoterm || "").trim().toUpperCase();
+  const isOrigin = ["EXW", "FCA", "FAS"].includes(ic);
+
+  if (rt === "SEA_LCL_IMPORT") return isOrigin ? "LCL_IMPORT_EXW" : "LCL_IMPORT_DAP";
+  if (rt === "AIR_LCL_IMPORT" || rt === "AIR_IMPORT") return isOrigin ? "AIR_IMPORT_EXW" : "AIR_IMPORT_DAP";
+  if (rt === "SEA_FCL_IMPORT" || rt === "IMPORT_PROJECT_DAP") return isOrigin ? "DAP_PROJECT_IMPORT_EXW" : "DAP_PROJECT_IMPORT";
+
+  return undefined;
+}
+
+/**
+ * P3b.1: Resolve transport mode for a lot from its request_type_hint.
+ */
+function resolveTransportModeForLot(requestTypeHint: string): string {
+  return String(requestTypeHint || "").toUpperCase().includes("AIR") ? "aerien" : "maritime";
+}
