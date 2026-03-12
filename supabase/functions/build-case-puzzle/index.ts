@@ -587,10 +587,25 @@ const MULTI_QUOTE_MARKERS = [
   /\bdevis\s*[1-4]/i,
   /\bcotation\s*[1-4]/i,
   /\benvoi\s*[1-4]/i,
+  // P0: French lot patterns
+  /\blot\s*[1-9]/i,
+  /\blot\s*n[°o]?\s*[1-9]/i,
+  /\bpartie\s*[1-4]/i,
+  /\btranche\s*[1-4]/i,
 ];
 
 function detectMultiQuoteMarkers(text: string): boolean {
   if (!text || text.length < 20) return false;
+
+  // P0: Count distinct lot references — 2+ lot numbers = multi-quote
+  const lotMatches = text.match(/\blot\s*(?:n[°o]?\s*)?[1-9]\b/gi) || [];
+  if (lotMatches.length >= 2) return true;
+
+  // P0: Both air AND sea mentioned = inherently multi-quote
+  const hasAirKeyword = /\b(?:a[ée]rien|by air|air cargo|airfreight|air freight)\b/i.test(text);
+  const hasSeaKeyword = /\b(?:maritime|sea freight|seafreight|by sea|conteneur|container|fcl|lcl)\b/i.test(text);
+  if (hasAirKeyword && hasSeaKeyword) return true;
+
   let distinctCount = 0;
   for (const re of MULTI_QUOTE_MARKERS) {
     if (re.test(text)) distinctCount++;
