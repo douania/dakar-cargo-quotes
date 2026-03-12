@@ -2251,6 +2251,8 @@ Deno.serve(async (req) => {
           const existingNormalized = normalizeHsCsv(hsRawDoc);
           if (csvValue === existingNormalized) {
             console.log("[HS doc-regex] Multi-HS CSV identical to existing, skip");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
+            console.log("[HS doc-regex] Existing HS is manual source, skip multi-HS supersede");
           } else {
             const firstMatch = resolvedCandidates.find(r => r.code10 === sortedCodes[0])!;
             const { error: hsMultiErr } = await serviceClient.rpc("supersede_fact", {
