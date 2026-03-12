@@ -587,10 +587,25 @@ const MULTI_QUOTE_MARKERS = [
   /\bdevis\s*[1-4]/i,
   /\bcotation\s*[1-4]/i,
   /\benvoi\s*[1-4]/i,
+  // P0: French lot patterns
+  /\blot\s*[1-9]/i,
+  /\blot\s*n[°o]?\s*[1-9]/i,
+  /\bpartie\s*[1-4]/i,
+  /\btranche\s*[1-4]/i,
 ];
 
 function detectMultiQuoteMarkers(text: string): boolean {
   if (!text || text.length < 20) return false;
+
+  // P0: Count distinct lot references — 2+ lot numbers = multi-quote
+  const lotMatches = text.match(/\blot\s*(?:n[°o]?\s*)?[1-9]\b/gi) || [];
+  if (lotMatches.length >= 2) return true;
+
+  // P0: Both air AND sea mentioned = inherently multi-quote
+  const hasAirKeyword = /\b(?:a[ée]rien|by air|air cargo|airfreight|air freight)\b/i.test(text);
+  const hasSeaKeyword = /\b(?:maritime|sea freight|seafreight|by sea|conteneur|container|fcl|lcl)\b/i.test(text);
+  if (hasAirKeyword && hasSeaKeyword) return true;
+
   let distinctCount = 0;
   for (const re of MULTI_QUOTE_MARKERS) {
     if (re.test(text)) distinctCount++;
@@ -3506,6 +3521,36 @@ Deno.serve(async (req) => {
       }
     }
 
+    // P0: Create blocking gap for unresolved multi-lot BEFORE counter calculation
+    if (multiQuoteResult?.detected === true && (multiQuoteResult?.stored ?? 0) === 0) {
+      const multiLotGapKey = "request.multi_lot_unresolved";
+      const { data: existingMlGap } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", multiLotGapKey)
+        .eq("status", "open")
+        .maybeSingle();
+
+      if (!existingMlGap?.id) {
+        const { error: mlGapErr } = await serviceClient.from("quote_gaps").insert({
+          case_id,
+          gap_key: multiLotGapKey,
+          gap_category: "request",
+          question_fr: "Plusieurs lots ou modes de transport détectés dans la demande. La structure multi-ligne n'a pas pu être établie automatiquement. Veuillez clarifier les lots distincts.",
+          question_en: "Multiple lots or transport modes detected in the request. The multi-line structure could not be established automatically. Please clarify the distinct lots.",
+          priority: "critical",
+          is_blocking: true,
+        });
+        if (mlGapErr) {
+          console.error("[P0] Failed to insert multi-lot blocking gap:", mlGapErr.message);
+        } else {
+          gapsIdentified++;
+          console.log("[P0] Created blocking gap: request.multi_lot_unresolved");
+        }
+      }
+    }
+
     // 11. Calculate completeness
     const { count: currentFactsCount } = await serviceClient
       .from("quote_facts")
@@ -3534,7 +3579,12 @@ Deno.serve(async (req) => {
     let newStatus = caseData.status;
     
     if (!isFrozenCase) {
-      if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
+      // P0: Belt-and-suspenders guard for unresolved multi-lot
+      const hasUnresolvedMultiLot = multiQuoteResult?.detected === true && (multiQuoteResult?.stored ?? 0) === 0;
+      if (hasUnresolvedMultiLot) {
+        newStatus = "NEED_INFO";
+        console.log(`[P0] Multi-lot/multi-mode detected but 0 structured lines. Forcing NEED_INFO.`);
+      } else if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
         newStatus = "DECISIONS_PENDING";
       } else if ((openGapsCount || 0) > 0) {
         newStatus = "NEED_INFO";
