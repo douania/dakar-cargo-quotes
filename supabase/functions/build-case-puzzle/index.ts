@@ -1788,7 +1788,7 @@ Deno.serve(async (req) => {
         if (existingFact) {
           // S5: protect manual sources from AI extraction overwrite
           // Per protected-source-override-rules: only protect if existing value is non-empty
-          const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
+          const existingValue = existingFact.value_text ?? existingFact.value_number ?? existingFact.value_json;
           const hasRealValue = existingValue !== null && existingValue !== undefined &&
             (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
           if (hasRealValue && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '')) {
