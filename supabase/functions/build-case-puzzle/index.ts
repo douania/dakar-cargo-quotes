@@ -2216,6 +2216,8 @@ Deno.serve(async (req) => {
           // 4. Idempotency: skip if existing HS is identical
           if (hsDigitsDoc === uniqueCodes[0]) {
             console.log("[HS doc-regex] HS identical to existing, skip supersede");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
+            console.log("[HS doc-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
             const { error: hsRpcErr } = await serviceClient.rpc("supersede_fact", {
