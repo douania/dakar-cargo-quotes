@@ -998,6 +998,14 @@ async function applyAssumptionRules(
     flowType = 'SEA_LCL_IMPORT';
   }
 
+  // P3a: Incoterm-aware package selection
+  const ORIGIN_INCOTERMS_P3 = new Set(['EXW', 'FCA', 'FAS']);
+  const p3aIncoterm = String(factMap.get('routing.incoterm')?.value || '').toUpperCase();
+  if (ORIGIN_INCOTERMS_P3.has(p3aIncoterm) && ASSUMPTION_RULES[`${flowType}_EXW`]) {
+    console.log(`[P3a] Incoterm ${p3aIncoterm} detected — switching ${flowType} → ${flowType}_EXW`);
+    flowType = `${flowType}_EXW`;
+  }
+
   result.flowType = flowType;
 
   if (flowType === 'UNKNOWN' || !ASSUMPTION_RULES[flowType]) {
