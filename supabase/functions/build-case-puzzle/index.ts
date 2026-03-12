@@ -1137,9 +1137,9 @@ async function injectAttachmentFacts(
       // First occurrence wins for same fact_key
       if (injectedKeys.has(mapping.factKey)) continue;
 
-      // Source priority: operator > attachment_extracted > ai
+      // Source priority: manual (operator|manual_input) > attachment_extracted > ai
       const existingSource = factSourceMap.get(mapping.factKey);
-      if (existingSource === 'operator') {
+      if (MANUAL_PROTECTED_SOURCES.has(existingSource ?? '')) {
         result.skipped++;
         injectedKeys.add(mapping.factKey);
         continue;
