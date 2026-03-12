@@ -1770,6 +1770,25 @@ Deno.serve(async (req) => {
     // Get mandatory facts for this request type to mark critical errors
     const mandatoryFactsForType = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.SEA_FCL_IMPORT;
 
+    // P2: Remove destination_city extracted from EXW/FCA/FAS origin location
+    const ORIGIN_INCOTERMS = new Set(["EXW", "FCA", "FAS"]);
+    const p2IncotermFact = extractedFacts.find(f => f.key === "routing.incoterm");
+    const p2IncotermValue = String(p2IncotermFact?.value || "").toUpperCase();
+
+    if (ORIGIN_INCOTERMS.has(p2IncotermValue)) {
+      const destCityIdx = extractedFacts.findIndex(f => f.key === "routing.destination_city");
+      if (destCityIdx >= 0) {
+        const excerpt = String(extractedFacts[destCityIdx]?.sourceExcerpt || "").toUpperCase();
+        const looksIncotermBound =
+          excerpt.includes("EXW") || excerpt.includes("FCA") || excerpt.includes("FAS");
+
+        if (looksIncotermBound) {
+          console.log(`[P2] Removing destination_city "${extractedFacts[destCityIdx].value}" extracted from ${p2IncotermValue} origin location (excerpt: ${excerpt})`);
+          extractedFacts.splice(destCityIdx, 1);
+        }
+      }
+    }
+
     for (const fact of extractedFacts) {
       try {
         // --- HS Code guard: validate against hs_codes table before injection ---
@@ -3709,7 +3728,15 @@ CRITICAL RULES:
    - routing.origin_airport must ONLY be extracted if the context explicitly mentions air transport
      (keywords: "air", "AWB", "airfreight", "by air", "air cargo").
    - Port cities (e.g., Jeddah, Shanghai, Mumbai) are NOT airports unless "airport" is explicitly stated.
-   - 3-letter codes in signatures, reference numbers, or country names are NOT airport codes.`;
+    - 3-letter codes in signatures, reference numbers, or country names are NOT airport codes.
+7. INCOTERM LOCATION SEMANTICS (CRITICAL):
+   - EXW, FCA, FAS: the location next to the incoterm is the PICKUP / ORIGIN, NOT the destination.
+     - If clearly a port → routing.origin_port
+     - If clearly an airport → routing.origin_airport
+     - If neither (city, warehouse, industrial zone) → do NOT force it into origin_port or origin_airport.
+       Simply do not extract a destination from this location.
+   - DAP, DDP, CIF, CFR, CPT: the location next to the incoterm is the DESTINATION.
+   - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.`;
 
   const userPrompt = `Extract facts from this email thread:
 
