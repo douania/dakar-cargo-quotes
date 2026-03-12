@@ -1777,7 +1777,7 @@ Deno.serve(async (req) => {
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
           .from("quote_facts")
-          .select("id, value_text, value_number, value_json")
+          .select("id, value_text, value_number, value_json, source_type")
           .eq("case_id", case_id)
           .eq("fact_key", fact.key)
           .eq("is_current", true)
@@ -1786,7 +1786,16 @@ Deno.serve(async (req) => {
         const factValue = getFactValue(fact);
 
         if (existingFact) {
+          // S5: protect manual sources from AI extraction overwrite
+          // Per protected-source-override-rules: only protect if existing value is non-empty
           const existingValue = existingFact.value_text || existingFact.value_number || existingFact.value_json;
+          const hasRealValue = existingValue !== null && existingValue !== undefined &&
+            (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
+          if (hasRealValue && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '')) {
+            console.log(`[AI extract] Skipping ${fact.key}: protected manual source (${existingFact.source_type})`);
+            factsSkipped++;
+            continue;
+          }
           if (JSON.stringify(existingValue) === JSON.stringify(factValue)) {
             factsSkipped++;
             continue;
@@ -1914,7 +1923,7 @@ Deno.serve(async (req) => {
         proceedWithExtraction = true;
       } else if (force_articles_detail) {
         const existingSourceType = existingArtFact[0]?.source_type;
-        if (existingSourceType === "manual_input") {
+        if (MANUAL_PROTECTED_SOURCES.has(existingSourceType ?? '')) {
           console.log(`[M3.4c] force requested but current fact is manual_input; skipping`);
         } else {
           console.log(`[M3.4c] force overwrite enabled (source_type=${existingSourceType})`);
@@ -2207,6 +2216,8 @@ Deno.serve(async (req) => {
           // 4. Idempotency: skip if existing HS is identical
           if (hsDigitsDoc === uniqueCodes[0]) {
             console.log("[HS doc-regex] HS identical to existing, skip supersede");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
+            console.log("[HS doc-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
             const { error: hsRpcErr } = await serviceClient.rpc("supersede_fact", {
@@ -2240,6 +2251,8 @@ Deno.serve(async (req) => {
           const existingNormalized = normalizeHsCsv(hsRawDoc);
           if (csvValue === existingNormalized) {
             console.log("[HS doc-regex] Multi-HS CSV identical to existing, skip");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
+            console.log("[HS doc-regex] Existing HS is manual source, skip multi-HS supersede");
           } else {
             const firstMatch = resolvedCandidates.find(r => r.code10 === sortedCodes[0])!;
             const { error: hsMultiErr } = await serviceClient.rpc("supersede_fact", {
@@ -2332,6 +2345,8 @@ Deno.serve(async (req) => {
           // Idempotency: skip if existing HS is identical
           if (hsDigitsEmail === uniqueEmailCodes[0]) {
             console.log("[HS email-regex] HS identical to existing, skip supersede");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
+            console.log("[HS email-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedEmailCandidates.find(r => r.code10 === uniqueEmailCodes[0])!;
             const { error: hsEmailRpcErr } = await serviceClient.rpc("supersede_fact", {
@@ -2365,6 +2380,8 @@ Deno.serve(async (req) => {
           const existingEmailNormalized = normalizeHsCsv(hsRawEmail);
           if (csvEmailValue === existingEmailNormalized) {
             console.log("[HS email-regex] Multi-HS CSV identical to existing, skip");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
+            console.log("[HS email-regex] Existing HS is manual source, skip multi-HS supersede");
           } else {
             const firstEmailMatch = resolvedEmailCandidates.find(r => r.code10 === sortedEmailCodes[0])!;
             const { error: hsEmailMultiErr } = await serviceClient.rpc("supersede_fact", {
@@ -2846,6 +2863,10 @@ Deno.serve(async (req) => {
 
         // Only re-validate if not already a valid 10-digit code
         if (digitsOnly.length !== 10 || !(await isExactHsMatch(serviceClient, digitsOnly))) {
+          // S5: protect manual HS from automated re-validation/deactivation
+          if (MANUAL_PROTECTED_SOURCES.has(hsFactRow.source_type ?? '')) {
+            console.log(`[HS Post-Attach] Manual HS preserved, skipping re-validation (source=${hsFactRow.source_type})`);
+          } else {
           const hsResult = await resolveSenegalHsCode(serviceClient, rawHsValue);
 
           if (hsResult.status === "unique") {
@@ -2904,6 +2925,7 @@ Deno.serve(async (req) => {
               console.log(`[HS Post-Attach] Created blocking GAP for cargo.hs_code (${hsResult.status})`);
             }
         }
+        } // end else (S5 manual source guard)
         }
         } // end else (multi-HS guard)
         } // end else (non-empty rawHsValue)
