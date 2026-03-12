@@ -2306,11 +2306,16 @@ export default function CaseView() {
                                       />
                                     )
                                   ) : (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <span>{displayValue}</span>
                                       {fact.source_type === "manual_input" && (
                                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                                           Opérateur
+                                        </Badge>
+                                      )}
+                                      {isMultiLot && MULTI_LOT_AMBIGUOUS_FACTS.has(fact.fact_key) && (
+                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400 text-amber-600">
+                                          ⚠ Multi-lot
                                         </Badge>
                                       )}
                                     </div>
