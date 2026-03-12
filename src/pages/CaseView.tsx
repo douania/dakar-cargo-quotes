@@ -76,10 +76,18 @@ import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
-  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED" | "MULTI_LOT_PRICING_UNSUPPORTED";
   key: string;
   label: string;
 };
+
+// P1a — Global fact keys ambiguous on multi-lot cases
+const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
+  "cargo.weight_kg",
+  "cargo.pieces_count",
+  "cargo.description",
+  "service.package",
+]);
 
 // Mirror of supabase/functions/_shared/client-gap-policy.ts
 // Keep in sync with backend client-resolvable gap keys.
