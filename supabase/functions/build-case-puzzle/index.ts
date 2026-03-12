@@ -2728,7 +2728,7 @@ Deno.serve(async (req) => {
           .eq("is_current", true)
           .maybeSingle();
 
-        if (!existingTitleFact || existingTitleFact.source_type !== "manual_input") {
+        if (!existingTitleFact || !MANUAL_PROTECTED_SOURCES.has(existingTitleFact.source_type ?? '')) {
           const { error: titleRpcErr } = await serviceClient.rpc("supersede_fact", {
             p_case_id: case_id,
             p_fact_key: "regulatory.exemption_title",
