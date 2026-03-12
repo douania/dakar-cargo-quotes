@@ -196,6 +196,57 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 4a-bis. P1b: Multi-lot guard — block mono-pipeline pricing when structured lines exist
+    const { data: requestLines } = await serviceClient
+      .from("quote_request_lines")
+      .select("id", { count: "exact", head: true })
+      .eq("case_id", case_id);
+
+    const multiLotLineCount = (requestLines as any)?.length ?? 0;
+    // Use count from head query — requestLines is null for head:true, use count
+    const { count: mlCount } = await serviceClient
+      .from("quote_request_lines")
+      .select("*", { count: "exact", head: true })
+      .eq("case_id", case_id);
+
+    if ((mlCount ?? 0) >= 2) {
+      console.log(`[P1b] Pricing blocked: ${mlCount} quote_request_lines exist. Per-line pricing not yet implemented.`);
+
+      const { data: mlBlockerRunNumber } = await serviceClient
+        .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+
+      const mlBlockerMessage = `Dossier multi-lot (${mlCount} lignes détectées). Le pricing mono-lot n'est pas applicable. Le pricing par ligne sera disponible dans une prochaine version.`;
+
+      await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: mlBlockerRunNumber || 1,
+          inputs_json: { multi_lot_line_count: mlCount },
+          facts_snapshot: [],
+          status: "blocked",
+          error_message: mlBlockerMessage,
+          outputs_json: {
+            pricing_blockers: ["MULTI_LOT_PRICING_UNSUPPORTED"],
+            message: mlBlockerMessage,
+            multi_lot_line_count: mlCount,
+          },
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
+      return new Response(
+        JSON.stringify({
+          pricing_blockers: ["MULTI_LOT_PRICING_UNSUPPORTED"],
+          message: mlBlockerMessage,
+          multi_lot_line_count: mlCount,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 4b. Coherence check — HS Code (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
       const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
