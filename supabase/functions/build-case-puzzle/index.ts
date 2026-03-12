@@ -2863,6 +2863,10 @@ Deno.serve(async (req) => {
 
         // Only re-validate if not already a valid 10-digit code
         if (digitsOnly.length !== 10 || !(await isExactHsMatch(serviceClient, digitsOnly))) {
+          // S5: protect manual HS from automated re-validation/deactivation
+          if (MANUAL_PROTECTED_SOURCES.has(hsFactRow.source_type ?? '')) {
+            console.log(`[HS Post-Attach] Manual HS preserved, skipping re-validation (source=${hsFactRow.source_type})`);
+          } else {
           const hsResult = await resolveSenegalHsCode(serviceClient, rawHsValue);
 
           if (hsResult.status === "unique") {
