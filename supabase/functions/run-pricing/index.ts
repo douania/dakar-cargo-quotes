@@ -197,13 +197,6 @@ Deno.serve(async (req) => {
     }
 
     // 4a-bis. P1b: Multi-lot guard — block mono-pipeline pricing when structured lines exist
-    const { data: requestLines } = await serviceClient
-      .from("quote_request_lines")
-      .select("id", { count: "exact", head: true })
-      .eq("case_id", case_id);
-
-    const multiLotLineCount = (requestLines as any)?.length ?? 0;
-    // Use count from head query — requestLines is null for head:true, use count
     const { count: mlCount } = await serviceClient
       .from("quote_request_lines")
       .select("*", { count: "exact", head: true })
