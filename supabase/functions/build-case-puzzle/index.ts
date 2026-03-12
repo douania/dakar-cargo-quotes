@@ -2380,6 +2380,8 @@ Deno.serve(async (req) => {
           const existingEmailNormalized = normalizeHsCsv(hsRawEmail);
           if (csvEmailValue === existingEmailNormalized) {
             console.log("[HS email-regex] Multi-HS CSV identical to existing, skip");
+          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
+            console.log("[HS email-regex] Existing HS is manual source, skip multi-HS supersede");
           } else {
             const firstEmailMatch = resolvedEmailCandidates.find(r => r.code10 === sortedEmailCodes[0])!;
             const { error: hsEmailMultiErr } = await serviceClient.rpc("supersede_fact", {
