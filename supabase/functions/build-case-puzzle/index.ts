@@ -3709,7 +3709,15 @@ CRITICAL RULES:
    - routing.origin_airport must ONLY be extracted if the context explicitly mentions air transport
      (keywords: "air", "AWB", "airfreight", "by air", "air cargo").
    - Port cities (e.g., Jeddah, Shanghai, Mumbai) are NOT airports unless "airport" is explicitly stated.
-   - 3-letter codes in signatures, reference numbers, or country names are NOT airport codes.`;
+    - 3-letter codes in signatures, reference numbers, or country names are NOT airport codes.
+7. INCOTERM LOCATION SEMANTICS (CRITICAL):
+   - EXW, FCA, FAS: the location next to the incoterm is the PICKUP / ORIGIN, NOT the destination.
+     - If clearly a port → routing.origin_port
+     - If clearly an airport → routing.origin_airport
+     - If neither (city, warehouse, industrial zone) → do NOT force it into origin_port or origin_airport.
+       Simply do not extract a destination from this location.
+   - DAP, DDP, CIF, CFR, CPT: the location next to the incoterm is the DESTINATION.
+   - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.`;
 
   const userPrompt = `Extract facts from this email thread:
 
