@@ -1770,6 +1770,25 @@ Deno.serve(async (req) => {
     // Get mandatory facts for this request type to mark critical errors
     const mandatoryFactsForType = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.SEA_FCL_IMPORT;
 
+    // P2: Remove destination_city extracted from EXW/FCA/FAS origin location
+    const ORIGIN_INCOTERMS = new Set(["EXW", "FCA", "FAS"]);
+    const p2IncotermFact = extractedFacts.find(f => f.key === "routing.incoterm");
+    const p2IncotermValue = String(p2IncotermFact?.value || "").toUpperCase();
+
+    if (ORIGIN_INCOTERMS.has(p2IncotermValue)) {
+      const destCityIdx = extractedFacts.findIndex(f => f.key === "routing.destination_city");
+      if (destCityIdx >= 0) {
+        const excerpt = String(extractedFacts[destCityIdx]?.sourceExcerpt || "").toUpperCase();
+        const looksIncotermBound =
+          excerpt.includes("EXW") || excerpt.includes("FCA") || excerpt.includes("FAS");
+
+        if (looksIncotermBound) {
+          console.log(`[P2] Removing destination_city "${extractedFacts[destCityIdx].value}" extracted from ${p2IncotermValue} origin location (excerpt: ${excerpt})`);
+          extractedFacts.splice(destCityIdx, 1);
+        }
+      }
+    }
+
     for (const fact of extractedFacts) {
       try {
         // --- HS Code guard: validate against hs_codes table before injection ---
