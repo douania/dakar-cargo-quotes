@@ -320,6 +320,19 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
     { key: 'service.package', value: 'TRANSIT_REGIONAL_VIA_DAKAR', confidence: 0.7 },
     { key: 'border.fee_expected', value: 'true', confidence: 0.6 },
   ],
+  // P3a: EXW/FCA/FAS incoterm-aware variants
+  IMPORT_PROJECT_DAP_EXW: [
+    { key: 'service.package', value: 'DAP_PROJECT_IMPORT_EXW', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+  AIR_IMPORT_EXW: [
+    { key: 'service.package', value: 'AIR_IMPORT_EXW', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+  SEA_LCL_IMPORT_EXW: [
+    { key: 'service.package', value: 'LCL_IMPORT_EXW', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
 };
 
 // S4: Canonical set for human-entered sources (legacy + current)
@@ -983,6 +996,14 @@ async function applyAssumptionRules(
   // A1 bis: If flowType is IMPORT_PROJECT_DAP but requestType is SEA_LCL_IMPORT, force LCL
   if (flowType === 'IMPORT_PROJECT_DAP' && requestType === 'SEA_LCL_IMPORT') {
     flowType = 'SEA_LCL_IMPORT';
+  }
+
+  // P3a: Incoterm-aware package selection
+  const ORIGIN_INCOTERMS_P3 = new Set(['EXW', 'FCA', 'FAS']);
+  const p3aIncoterm = String(factMap.get('routing.incoterm')?.value || '').toUpperCase();
+  if (ORIGIN_INCOTERMS_P3.has(p3aIncoterm) && ASSUMPTION_RULES[`${flowType}_EXW`]) {
+    console.log(`[P3a] Incoterm ${p3aIncoterm} detected — switching ${flowType} → ${flowType}_EXW`);
+    flowType = `${flowType}_EXW`;
   }
 
   result.flowType = flowType;

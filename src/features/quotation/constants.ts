@@ -34,6 +34,10 @@ export const serviceTemplates = [
   { service: 'CUSTOMS_BAMAKO', description: 'Dédouanement Bamako', unit: 'déclaration' },
   { service: 'AIR_HANDLING', description: 'Manutention aéroportuaire', unit: 'kg' },
   { service: 'AIR_FREIGHT', description: 'Fret aérien', unit: 'kg' },
+  // P3a: Origin services for EXW/FCA/FAS incoterms
+  { service: 'PICKUP_ORIGIN', description: "Enlèvement à l'origine", unit: 'forfait' },
+  { service: 'PRE_CARRIAGE', description: 'Pré-acheminement vers port/aéroport', unit: 'voyage' },
+  { service: 'SEA_FREIGHT', description: 'Fret maritime', unit: 'EVP' },
 ];
 
 /**
@@ -48,6 +52,19 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   TRANSIT_REGIONAL_VIA_DAKAR: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'CUSTOMS_DAKAR', 'AGENCY'],
+  // P3a: EXW/FCA/FAS variants — include origin services
+  DAP_PROJECT_IMPORT_EXW: [
+    'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT',
+    'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR',
+  ],
+  AIR_IMPORT_EXW: [
+    'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT',
+    'AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY',
+  ],
+  LCL_IMPORT_EXW: [
+    'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT',
+    'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY',
+  ],
 };
 
 /**
