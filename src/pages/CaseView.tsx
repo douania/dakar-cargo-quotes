@@ -73,10 +73,11 @@ import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
+import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
-  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED" | "MULTI_LOT_PRICING_UNSUPPORTED";
+  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
   key: string;
   label: string;
 };
@@ -2011,6 +2012,13 @@ export default function CaseView() {
           </Card>
         )}
 
+        {/* Phase 9.4: DecisionSupportPanel — workflow decisions → ACK */}
+        {['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(caseData.status) && (
+          <div className="mb-6">
+            <DecisionSupportPanel caseId={caseId!} />
+          </div>
+        )}
+
         {/* Pricing Launch Panel — visible only after ACK */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
@@ -2022,14 +2030,6 @@ export default function CaseView() {
 
           const prechecks: PricingPrecheck[] = [];
 
-          // P1b — Multi-lot pricing guard (frontend precheck)
-          if (isMultiLot) {
-            prechecks.push({
-              code: "MULTI_LOT_PRICING_UNSUPPORTED",
-              key: "request.multi_lot",
-              label: `Dossier multi-lot (${multiLotLineCount} lignes). Le pricing par ligne n'est pas encore disponible.`,
-            });
-          }
 
           if (!pkg) {
             prechecks.push({
