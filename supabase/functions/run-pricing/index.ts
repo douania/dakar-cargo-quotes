@@ -346,6 +346,21 @@ Deno.serve(async (req) => {
           lotBlockers.push("CARGO_VALUE_REQUIRED");
         }
 
+        // Fix 1: Service package guard — block if hint present but unresolved
+        if (requestTypeHint && !lotServicePackage) {
+          lotBlockers.push("LOT_SERVICE_PACKAGE_UNRESOLVED");
+        }
+
+        // Fix 2: Regime coherence check per lot (mirrors mono-lot check)
+        if (lotScopeWantsDuties) {
+          const lotFactMap = new Map(mergedFacts.map((f: any) => [f.fact_key, f]));
+          const hasExemptionTitle = !!lotFactMap.get("regulatory.exemption_title")?.value_text;
+          const hasRegimeCode = !!lotFactMap.get("customs.regime_code")?.value_text;
+          if (hasExemptionTitle && !hasRegimeCode) {
+            lotBlockers.push("REGIME_REQUIRED_FOR_EXEMPTION");
+          }
+        }
+
         lotChecks.push({
           lot_index: lotIndex,
           lot_label: lotLabel,
