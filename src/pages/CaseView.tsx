@@ -73,6 +73,7 @@ import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
+import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
