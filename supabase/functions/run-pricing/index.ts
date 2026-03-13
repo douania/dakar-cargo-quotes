@@ -308,6 +308,11 @@ Deno.serve(async (req) => {
         const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm);
         const lotTransportMode = resolveTransportModeForLot(requestTypeHint);
 
+        // Guard: block if request_type_hint exists but could not be resolved
+        if (requestTypeHint && !lotServicePackage) {
+          // Will be collected in lotBlockers below
+        }
+
         if (lotServicePackage) {
           lotInputs.servicePackage = lotServicePackage;
         }
