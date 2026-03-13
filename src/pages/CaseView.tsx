@@ -2030,14 +2030,6 @@ export default function CaseView() {
 
           const prechecks: PricingPrecheck[] = [];
 
-          // P1b — Multi-lot pricing guard (frontend precheck)
-          if (isMultiLot) {
-            prechecks.push({
-              code: "MULTI_LOT_PRICING_UNSUPPORTED",
-              key: "request.multi_lot",
-              label: `Dossier multi-lot (${multiLotLineCount} lignes). Le pricing par ligne n'est pas encore disponible.`,
-            });
-          }
 
           if (!pkg) {
             prechecks.push({
