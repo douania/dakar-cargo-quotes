@@ -2012,6 +2012,13 @@ export default function CaseView() {
           </Card>
         )}
 
+        {/* Phase 9.4: DecisionSupportPanel — workflow decisions → ACK */}
+        {['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(caseData.status) && (
+          <div className="mb-6">
+            <DecisionSupportPanel caseId={caseId!} />
+          </div>
+        )}
+
         {/* Pricing Launch Panel — visible only after ACK */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
