@@ -44,6 +44,98 @@ interface PricingInputs {
   freightCurrency?: string;
 }
 
+// ═══ P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts) ═══
+const SERVICE_PACKAGES: Record<string, string[]> = {
+  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
+  EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
+  BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
+  AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  TRANSIT_REGIONAL_VIA_DAKAR: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'CUSTOMS_DAKAR', 'AGENCY'],
+  DAP_PROJECT_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  AIR_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT', 'AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  LCL_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+};
+
+// P5: Default units per service_key (aligned with service_quantity_rules)
+const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
+  PICKUP_ORIGIN: 'forfait',
+  PRE_CARRIAGE: 'voyage',
+  SEA_FREIGHT: 'EVP',
+  AIR_FREIGHT: 'kg',
+  AIR_HANDLING: 'forfait',
+  CUSTOMS_DAKAR: 'forfait',
+  TRUCKING: 'voyage',
+  AGENCY: 'forfait',
+  DTHC: 'forfait',
+  EMPTY_RETURN: 'forfait',
+  PORT_DAKAR_HANDLING: 'forfait',
+  PORT_CHARGES: 'forfait',
+  CUSTOMS_EXPORT: 'forfait',
+  DISCHARGE: 'forfait',
+  SURVEY: 'forfait',
+  BORDER_FEES: 'forfait',
+  CUSTOMS_BAMAKO: 'forfait',
+  ON_CARRIAGE: 'voyage',
+};
+
+// P5: Conservative engine-line-to-service-key deduplication
+const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
+  'DTHC': 'DTHC',
+  'Retour conteneur vide': 'EMPTY_RETURN',
+};
+
+/**
+ * P5: Read service.overrides from a facts array.
+ * Handles double-encoding (string JSON in value_json).
+ */
+function readOverridesFromFacts(facts: any[]): { add?: string[]; remove?: string[] } | undefined {
+  const overrideFact = facts.find((f: any) => f.fact_key === 'service.overrides' && f.is_current !== false);
+  if (!overrideFact) return undefined;
+  let raw = overrideFact.value_json;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return undefined; }
+  }
+  if (!raw || typeof raw !== 'object') return undefined;
+  return {
+    add: Array.isArray(raw.add) ? raw.add : undefined,
+    remove: Array.isArray(raw.remove) ? raw.remove : undefined,
+  };
+}
+
+/**
+ * P5: Apply add/remove overrides to base service package.
+ */
+function resolveEffectiveServiceKeys(
+  packageKey: string,
+  overrides?: { add?: string[]; remove?: string[] }
+): string[] {
+  const base = SERVICE_PACKAGES[packageKey];
+  if (!base) return [];
+  const removeSet = new Set(overrides?.remove ?? []);
+  const keys = base.filter(k => !removeSet.has(k));
+  for (const k of (overrides?.add ?? [])) {
+    if (!keys.includes(k)) keys.push(k);
+  }
+  return keys;
+}
+
+/**
+ * P5: Infer which service_keys are already covered by engine lines.
+ * Conservative: only maps categories we are 100% sure about.
+ */
+function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
+  const covered = new Set<string>();
+  for (const line of engineLines) {
+    const cat = line.category || '';
+    if (ENGINE_CATEGORY_TO_SERVICE_KEY[cat]) {
+      covered.add(ENGINE_CATEGORY_TO_SERVICE_KEY[cat]);
+    }
+  }
+  return covered;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
