@@ -96,3 +96,4 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 |-------|------|------------|
 | S2 | 2026-03-11 | Création du registre. Alignement UI/DB sur les 15 statuts. `DECISIONS_PENDING` documenté comme ghost. |
 | S3 | 2026-03-11 | `DECISIONS_PENDING` restauré comme état canonique actif. `build-case-puzzle` en devient le writer. `READY_TO_PRICE` passe en legacy. Protection contre rétrogradation étendue. |
+| P4 | 2026-03-16 | Bypass décisionnel : `build-case-puzzle` introduit détection d'ambiguïté. Cas clairs → `READY_TO_PRICE` (réactivé). Cas ambigus → `DECISIONS_PENDING`. Signaux : `UNKNOWN_FLOW_TYPE`, `AMBIGUOUS_LCL_FCL`, `NO_SERVICE_PACKAGE`. `ACK_READY_FOR_PRICING` reste exclusif à `ack-pricing-ready`. |
