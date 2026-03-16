@@ -52,7 +52,7 @@ interface PricingLaunchPanelProps {
   isRerun?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [] }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
