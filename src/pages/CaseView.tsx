@@ -2019,72 +2019,69 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* Pricing Launch Panel — visible only after ACK */}
+        {/* Pricing Launch Panel — visible for READY_TO_PRICE or ACK_READY_FOR_PRICING */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
-          const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
-
-          const pkg = String(getFact("service.package")?.value_text ?? "").trim().toUpperCase();
-          const incoterm = String(getFact("routing.incoterm")?.value_text ?? "").trim().toUpperCase();
-          const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
-
+          // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
           const prechecks: PricingPrecheck[] = [];
 
+          if (!isMultiLot) {
+            const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
 
-          if (!pkg) {
-            prechecks.push({
-              code: "SERVICE_PACKAGE_REQUIRED",
-              key: "service.package",
-              label: "Package de services requis avant pricing"
-            });
-          }
+            const pkg = String(getFact("service.package")?.value_text ?? "").trim().toUpperCase();
+            const incoterm = String(getFact("routing.incoterm")?.value_text ?? "").trim().toUpperCase();
+            const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
 
-          if (scopeWantsDuties) {
-            // 1. HS_CODE_REQUIRED
-            const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
-            const hsCandidates = rawHs.split(/[;,]/).map(c => c.trim().replace(/\D/g, "")).filter(Boolean);
-            const firstValid10 = hsCandidates.find(c => c.length === 10);
-            const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
-            if (!hsDigits || hsDigits.length !== 10) {
-              prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
+            if (!pkg) {
+              prechecks.push({
+                code: "SERVICE_PACKAGE_REQUIRED",
+                key: "service.package",
+                label: "Package de services requis avant pricing"
+              });
             }
 
-            // 2. REGIME_REQUIRED_FOR_EXEMPTION
-            const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
-            const hasRegime = !!String(getFact("customs.regime_code")?.value_text ?? "").trim();
-            if (hasExemption && !hasRegime) {
-              prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
-            }
-
-            // Mirror current run-pricing numeric resolution for pricing prechecks
-            const resolveFactRaw = (f: any) => {
-              if (!f) return undefined;
-              return f.value_json ?? f.value_number ?? f.value_text;
-            };
-            const resolveFreightCost = (f: any): number | undefined => {
-              const raw = resolveFactRaw(f);
-              if (raw == null) return undefined;
-              const n = Number(String(raw).trim().replace(/\s/g, "").replace(/,/g, "."));
-              return Number.isFinite(n) && n > 0 ? n : undefined;
-            };
-            const resolveCargoValue = (f: any): number | undefined => {
-              const raw = resolveFactRaw(f);
-              if (raw == null) return undefined;
-              const n = Number(raw);
-              return Number.isFinite(n) && n > 0 ? n : undefined;
-            };
-
-            // 3. FREIGHT_REQUIRED_FOR_FOB
-            const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
-            if (isFobType) {
-              if (!resolveFreightCost(getFact("cargo.freight_cost"))) {
-                prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
+            if (scopeWantsDuties) {
+              const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
+              const hsCandidates = rawHs.split(/[;,]/).map(c => c.trim().replace(/\D/g, "")).filter(Boolean);
+              const firstValid10 = hsCandidates.find(c => c.length === 10);
+              const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
+              if (!hsDigits || hsDigits.length !== 10) {
+                prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
               }
-            }
 
-            // 4. CARGO_VALUE_REQUIRED
-            if (!resolveCargoValue(getFact("cargo.value"))) {
-              prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
+              const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
+              const hasRegime = !!String(getFact("customs.regime_code")?.value_text ?? "").trim();
+              if (hasExemption && !hasRegime) {
+                prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
+              }
+
+              const resolveFactRaw = (f: any) => {
+                if (!f) return undefined;
+                return f.value_json ?? f.value_number ?? f.value_text;
+              };
+              const resolveFreightCost = (f: any): number | undefined => {
+                const raw = resolveFactRaw(f);
+                if (raw == null) return undefined;
+                const n = Number(String(raw).trim().replace(/\s/g, "").replace(/,/g, "."));
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              };
+              const resolveCargoValue = (f: any): number | undefined => {
+                const raw = resolveFactRaw(f);
+                if (raw == null) return undefined;
+                const n = Number(raw);
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              };
+
+              const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
+              if (isFobType) {
+                if (!resolveFreightCost(getFact("cargo.freight_cost"))) {
+                  prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
+                }
+              }
+
+              if (!resolveCargoValue(getFact("cargo.value"))) {
+                prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
+              }
             }
           }
 
