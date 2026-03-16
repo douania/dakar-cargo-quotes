@@ -1476,7 +1476,10 @@ Deno.serve(async (req) => {
 
       engineResponse = await engineRes.json();
       // Fix CTO: construire tariffSources depuis les lignes (le moteur ne renvoie pas de champ global)
-      const rawLines = engineResponse.lines || engineResponse.quotationLines || [];
+      const rawLines = (engineResponse.lines || engineResponse.quotationLines || [])
+        .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
+      // P6: store canonicalized lines back so downstream code uses them
+      engineResponse.lines = rawLines;
       const sourceMap = new Map<string, any>();
       for (const line of rawLines) {
         if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {
