@@ -1535,7 +1535,7 @@ Deno.serve(async (req) => {
               for (const pl of pricedLines) {
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                 const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                engineLines.push({
+                engineLines.push(canonicalizeLine({
                   category: serviceKey,
                   label: label,
                   amount: pl.rate ?? 0,
@@ -1545,7 +1545,7 @@ Deno.serve(async (req) => {
                   quantity: pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
-                });
+                }, { origin_layer: 'package_enrichment' }));
               }
               // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
               engineResponse.lines = engineLines;
