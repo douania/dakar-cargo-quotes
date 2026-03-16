@@ -80,6 +80,28 @@ const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
   ON_CARRIAGE: 'voyage',
 };
 
+// P5.1: Human-readable labels for service keys (static, no DB call)
+const SERVICE_KEY_LABELS: Record<string, string> = {
+  PICKUP_ORIGIN: "Enlèvement à l'origine",
+  PRE_CARRIAGE: 'Pré-acheminement',
+  SEA_FREIGHT: 'Fret maritime',
+  AIR_FREIGHT: 'Fret aérien',
+  AIR_HANDLING: 'Handling aéroportuaire',
+  CUSTOMS_DAKAR: 'Dédouanement Dakar',
+  TRUCKING: 'Transport local',
+  AGENCY: "Frais d'agence",
+  DTHC: 'DTHC',
+  EMPTY_RETURN: 'Retour conteneur vide',
+  PORT_DAKAR_HANDLING: 'Manutention port Dakar',
+  PORT_CHARGES: 'Frais portuaires',
+  CUSTOMS_EXPORT: 'Dédouanement export',
+  DISCHARGE: 'Déchargement',
+  SURVEY: 'Inspection / Survey',
+  BORDER_FEES: 'Frais frontière',
+  CUSTOMS_BAMAKO: 'Dédouanement Bamako',
+  ON_CARRIAGE: 'Post-acheminement',
+};
+
 // P5: Conservative engine-line-to-service-key deduplication
 const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'DTHC': 'DTHC',
