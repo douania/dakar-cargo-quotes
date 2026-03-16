@@ -1298,8 +1298,13 @@ Deno.serve(async (req) => {
         try {
           const overrides = readOverridesFromFacts(facts || []);
           const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
-          const coveredKeys = inferCoveredServiceKeys(engineResponse.lines || engineResponse.quotationLines || []);
+          const coverage = inferCoveredServiceDiagnostics(engineResponse.lines || engineResponse.quotationLines || []);
+          const coveredKeys = coverage.covered;
           const missingKeys = effectiveKeys.filter(k => !coveredKeys.has(k));
+
+          console.log(
+            `[P5] Mono-lot: categories=${coverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(coveredKeys).join(', ') || 'none'}; missing=${missingKeys.join(', ') || 'none'}${coverage.matchedByDescription.length ? `; desc_fallback=${coverage.matchedByDescription.join(' | ')}` : ''}`,
+          );
 
           if (missingKeys.length > 0) {
             console.log(`[P5] Mono-lot: ${missingKeys.length} package services to enrich: ${missingKeys.join(', ')}`);
