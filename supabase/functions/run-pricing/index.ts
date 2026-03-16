@@ -115,54 +115,90 @@ const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'Administratif': 'AGENCY',
 };
 
-/**
- * P5: Read service.overrides from a facts array.
- * Handles double-encoding (string JSON in value_json).
- */
-function readOverridesFromFacts(facts: any[]): { add?: string[]; remove?: string[] } | undefined {
-  const overrideFact = facts.find((f: any) => f.fact_key === 'service.overrides' && f.is_current !== false);
-  if (!overrideFact) return undefined;
-  let raw = overrideFact.value_json;
-  if (typeof raw === 'string') {
-    try { raw = JSON.parse(raw); } catch { return undefined; }
-  }
-  if (!raw || typeof raw !== 'object') return undefined;
-  return {
-    add: Array.isArray(raw.add) ? raw.add : undefined,
-    remove: Array.isArray(raw.remove) ? raw.remove : undefined,
-  };
+const DESCRIPTION_SERVICE_KEY_FALLBACKS: Array<{ tokens: string[]; serviceKey: string }> = [
+  { tokens: ['suivi operationnel'], serviceKey: 'AGENCY' },
+  { tokens: ['ouverture de dossier'], serviceKey: 'AGENCY' },
+  { tokens: ['frais de documentation'], serviceKey: 'AGENCY' },
+  { tokens: ['documentation'], serviceKey: 'AGENCY' },
+  { tokens: ['dedouanement'], serviceKey: 'CUSTOMS_DAKAR' },
+  { tokens: ['douane'], serviceKey: 'CUSTOMS_DAKAR' },
+];
+
+const NORMALIZED_ENGINE_CATEGORY_TO_SERVICE_KEY = Object.fromEntries(
+  Object.entries(ENGINE_CATEGORY_TO_SERVICE_KEY).map(([category, serviceKey]) => [
+    normalizePricingText(category),
+    serviceKey,
+  ]),
+) as Record<string, string>;
+
+function normalizePricingText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
-/**
- * P5: Apply add/remove overrides to base service package.
- */
-function resolveEffectiveServiceKeys(
-  packageKey: string,
-  overrides?: { add?: string[]; remove?: string[] }
-): string[] {
-  const base = SERVICE_PACKAGES[packageKey];
-  if (!base) return [];
-  const removeSet = new Set(overrides?.remove ?? []);
-  const keys = base.filter(k => !removeSet.has(k));
-  for (const k of (overrides?.add ?? [])) {
-    if (!keys.includes(k)) keys.push(k);
+function inferServiceKeyFromDescription(description: unknown): string | undefined {
+  const normalizedDescription = normalizePricingText(description);
+  if (!normalizedDescription) return undefined;
+
+  for (const fallback of DESCRIPTION_SERVICE_KEY_FALLBACKS) {
+    if (fallback.tokens.some((token) => normalizedDescription.includes(token))) {
+      return fallback.serviceKey;
+    }
   }
-  return keys;
+
+  return undefined;
+}
+
+function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
+  return inferCoveredServiceDiagnostics(engineLines).covered;
 }
 
 /**
  * P5: Infer which service_keys are already covered by engine lines.
- * Conservative: only maps categories we are 100% sure about.
+ * Conservative: category-first, with safe description fallback for known engine phrasings.
  */
-function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
+function inferCoveredServiceDiagnostics(engineLines: any[]): {
+  covered: Set<string>;
+  categoriesSeen: string[];
+  matchedByDescription: string[];
+} {
   const covered = new Set<string>();
+  const categoriesSeen = new Set<string>();
+  const matchedByDescription = new Set<string>();
+
   for (const line of engineLines) {
-    const cat = line.category || '';
-    if (ENGINE_CATEGORY_TO_SERVICE_KEY[cat]) {
-      covered.add(ENGINE_CATEGORY_TO_SERVICE_KEY[cat]);
+    const rawCategory = typeof line?.category === 'string' ? line.category : '';
+    const rawDescription = typeof line?.description === 'string' ? line.description : '';
+
+    if (rawCategory) {
+      categoriesSeen.add(rawCategory);
+    }
+
+    const normalizedCategory = normalizePricingText(rawCategory);
+    const serviceKeyFromCategory = NORMALIZED_ENGINE_CATEGORY_TO_SERVICE_KEY[normalizedCategory];
+
+    if (serviceKeyFromCategory) {
+      covered.add(serviceKeyFromCategory);
+      continue;
+    }
+
+    const serviceKeyFromDescription = inferServiceKeyFromDescription(rawDescription);
+    if (serviceKeyFromDescription) {
+      covered.add(serviceKeyFromDescription);
+      matchedByDescription.add(rawDescription || rawCategory || 'unknown');
     }
   }
-  return covered;
+
+  return {
+    covered,
+    categoriesSeen: Array.from(categoriesSeen),
+    matchedByDescription: Array.from(matchedByDescription),
+  };
 }
 
 Deno.serve(async (req) => {
@@ -682,8 +718,13 @@ Deno.serve(async (req) => {
             try {
               const lotOverrides = readOverridesFromFacts(lc.mergedFacts);
               const lotEffectiveKeys = resolveEffectiveServiceKeys(lotPackageKey, lotOverrides);
-              const lotCoveredKeys = inferCoveredServiceKeys(lotLines);
+              const lotCoverage = inferCoveredServiceDiagnostics(lotLines);
+              const lotCoveredKeys = lotCoverage.covered;
               const lotMissingKeys = lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k));
+
+              console.log(
+                `[P5] Lot ${lc.lot_index}: categories=${lotCoverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(lotCoveredKeys).join(', ') || 'none'}; missing=${lotMissingKeys.join(', ') || 'none'}${lotCoverage.matchedByDescription.length ? `; desc_fallback=${lotCoverage.matchedByDescription.join(' | ')}` : ''}`,
+              );
 
               if (lotMissingKeys.length > 0) {
                 console.log(`[P5] Lot ${lc.lot_index}: ${lotMissingKeys.length} package services to enrich: ${lotMissingKeys.join(', ')}`);
@@ -1293,8 +1334,13 @@ Deno.serve(async (req) => {
         try {
           const overrides = readOverridesFromFacts(facts || []);
           const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
-          const coveredKeys = inferCoveredServiceKeys(engineResponse.lines || engineResponse.quotationLines || []);
+          const coverage = inferCoveredServiceDiagnostics(engineResponse.lines || engineResponse.quotationLines || []);
+          const coveredKeys = coverage.covered;
           const missingKeys = effectiveKeys.filter(k => !coveredKeys.has(k));
+
+          console.log(
+            `[P5] Mono-lot: categories=${coverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(coveredKeys).join(', ') || 'none'}; missing=${missingKeys.join(', ') || 'none'}${coverage.matchedByDescription.length ? `; desc_fallback=${coverage.matchedByDescription.join(' | ')}` : ''}`,
+          );
 
           if (missingKeys.length > 0) {
             console.log(`[P5] Mono-lot: ${missingKeys.length} package services to enrich: ${missingKeys.join(', ')}`);
