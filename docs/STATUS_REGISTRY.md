@@ -20,7 +20,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | `RFQ_DETECTED` | RFQ détectée | Email identifié comme demande de cotation | `ensure-quote-case` | active | CaseCard, QuotationHeader |
 | 4 | `FACTS_PARTIAL` | Données incomplètes | Puzzle analysé, données insuffisantes | `build-case-puzzle`, `sync-emails` | active | CaseCard, QuotationHeader, BlockingGapsPanel |
 | 5 | `NEED_INFO` | Info requise | Gaps bloquants identifiés, action requise | `build-case-puzzle` | waiting | CaseView, CaseCard, QuotationHeader, BlockingGapsPanel |
-| 6 | `READY_TO_PRICE` | Prêt à chiffrer | **Legacy / transitional** — Après S3, `build-case-puzzle` écrit `DECISIONS_PENDING` à la place. Encore présent dans l'enum DB et accepté par `run-pricing` pour compatibilité ascendante. | ❌ aucune (post-S3) | legacy | CaseView, CaseCard |
+| 6 | `READY_TO_PRICE` | Prêt à chiffrer | Puzzle complet, aucune ambiguïté détectée (P4). Dossier directement éligible au pricing sans validation opérateur. | `build-case-puzzle` (P4) | active | CaseView, CaseCard |
 | 7 | `DECISIONS_PENDING` | Décisions en attente | Puzzle complet (pas de gaps bloquants, faits disponibles), en attente de validation des décisions opérateur | `build-case-puzzle` | active | CaseView, CaseCard, QuotationHeader, DecisionSupportPanel |
 | 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées (5/5) | `commit-decision` | active | QuotationHeader |
 | 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | QuotationHeader |
