@@ -1308,21 +1308,26 @@ Deno.serve(async (req) => {
               body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
             });
 
+            // P5.1: Build UUID→service_key lookup before consuming response
+            const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
+
             if (pslRes.ok) {
               const pslData = await pslRes.json();
               const pricedLines = pslData?.data?.priced_lines || [];
               // Inject into engineResponse.lines so tariffLines picks them up
               const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
               for (const pl of pricedLines) {
+                const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                 engineLines.push({
-                  category: pl.service || pl.id,
-                  label: pl.label || pl.service || pl.id,
+                  category: serviceKey,
+                  label: label,
                   amount: pl.rate ?? 0,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: pl.quantity_used ?? 1,
-                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
                 });
               }
