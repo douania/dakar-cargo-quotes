@@ -49,6 +49,7 @@ interface PricingLaunchPanelProps {
   onComplete?: () => void;
   blockedByIntent?: string;
   pricingPrechecks?: PricingPrecheck[];
+  isRerun?: boolean;
 }
 
 export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [] }: PricingLaunchPanelProps) {
