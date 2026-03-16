@@ -305,15 +305,15 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
                       return (
                         <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
                           <td className="p-2 font-mono text-xs">
-                            {line.service_code || line.charge_code || `L${idx + 1}`}
+                            {line.service_code || line.charge_code || line.category || `L${idx + 1}`}
                           </td>
                           <td className="p-2 text-muted-foreground">
                             {isToConfirm ? (
                               <span className="text-amber-700 dark:text-amber-300">
-                                {(line.source?.note || line.description || line.charge_name || '').substring(0, 50)}
+                                {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
                               </span>
                             ) : (
-                              (line.description || line.charge_name || '').substring(0, 40)
+                              (line.description || line.charge_name || line.label || '').substring(0, 40)
                             )}
                           </td>
                           <td className="p-2 text-right font-medium">
