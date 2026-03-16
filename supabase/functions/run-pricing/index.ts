@@ -682,8 +682,13 @@ Deno.serve(async (req) => {
             try {
               const lotOverrides = readOverridesFromFacts(lc.mergedFacts);
               const lotEffectiveKeys = resolveEffectiveServiceKeys(lotPackageKey, lotOverrides);
-              const lotCoveredKeys = inferCoveredServiceKeys(lotLines);
+              const lotCoverage = inferCoveredServiceDiagnostics(lotLines);
+              const lotCoveredKeys = lotCoverage.covered;
               const lotMissingKeys = lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k));
+
+              console.log(
+                `[P5] Lot ${lc.lot_index}: categories=${lotCoverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(lotCoveredKeys).join(', ') || 'none'}; missing=${lotMissingKeys.join(', ') || 'none'}${lotCoverage.matchedByDescription.length ? `; desc_fallback=${lotCoverage.matchedByDescription.join(' | ')}` : ''}`,
+              );
 
               if (lotMissingKeys.length > 0) {
                 console.log(`[P5] Lot ${lc.lot_index}: ${lotMissingKeys.length} package services to enrich: ${lotMissingKeys.join(', ')}`);
