@@ -2019,8 +2019,8 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* Pricing Launch Panel — visible for READY_TO_PRICE or ACK_READY_FOR_PRICING */}
-        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (() => {
+        {/* Pricing Launch Panel — visible for pricing-eligible statuses */}
+        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
           // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
           const prechecks: PricingPrecheck[] = [];

@@ -221,7 +221,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             ) : (
               <>
                 <Calculator className="h-4 w-4" />
-                Lancer le pricing
+                {isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}
               </>
             )}
           </Button>

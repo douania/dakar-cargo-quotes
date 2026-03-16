@@ -1521,9 +1521,9 @@ L'équipe SODATRA`;
           </div>
         )}
 
-        {/* Phase 10.1+P4: PricingLaunchPanel - visible for READY_TO_PRICE or ACK_READY_FOR_PRICING */}
+        {/* Phase 10.1+P4: PricingLaunchPanel - visible for pricing-eligible statuses */}
         {!quotationCompleted && quoteCase?.id && 
-         ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING'].includes(quoteCase.status) && (
+         ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
           <div className="mb-6">
             <PricingLaunchPanel caseId={quoteCase.id} />
           </div>
