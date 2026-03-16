@@ -249,3 +249,41 @@ Ajout de `MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input'])` dans
 ### Ce qui n'a pas changé
 
 - `set-case-fact`, `supersede_fact` RPC, DB/RLS, pricing engine, FSM, `injectAttachmentFacts` (S4), assumptions (S4)
+
+---
+
+## Phase P5 — Service Package Lines dans run-pricing ✅
+
+### Problème
+
+`run-pricing` → `quotation-engine` ne génère pas les lignes du `service.package`. Les cotations backend sont incomplètes (surtout visible en aérien : seuls honoraires SODATRA + franchise + droits/taxes apparaissent).
+
+### Patchs appliqués
+
+| Patch | Fichier | Description |
+|-------|---------|-------------|
+| 1 | DB `service_quantity_rules` | INSERT 3 règles : PICKUP_ORIGIN (FLAT/forfait), PRE_CARRIAGE (FLAT/voyage), SEA_FREIGHT (EVP/EVP) |
+| 2a | `price-service-lines/index.ts` L36-43 | Whitelist étendue : +PICKUP_ORIGIN, PRE_CARRIAGE, SEA_FREIGHT |
+| 2b | `price-service-lines/index.ts` L776-781 | `pricing_context_override?: Partial<PricingContext>` dans body |
+| 2c | `price-service-lines/index.ts` L822-826 | Merge conditionnel après `buildPricingContext(factsMap)` |
+| 3a | `run-pricing/index.ts` L47-131 | Constantes : SERVICE_PACKAGES, PACKAGE_SERVICE_DEFAULT_UNITS, ENGINE_CATEGORY_TO_SERVICE_KEY. Helpers : readOverridesFromFacts, resolveEffectiveServiceKeys, inferCoveredServiceKeys |
+| 3c | `run-pricing/index.ts` (mono-lot) | Enrichissement post-engine : résout missingKeys, appel price-service-lines, fusion dans engineResponse.lines |
+| 3d | `run-pricing/index.ts` (multi-lot) | Enrichissement post-engine par lot : pricing_context_override depuis lc.inputs, fusion dans taggedLines |
+
+### Corrections CTO intégrées
+
+1. **ServiceLineInput exacte** : champ `service` (pas `service_key`), shape `{ id, service, unit, quantity, currency }` identique à QuotationSheet
+2. **Unit fallback par service_key** : mapping PACKAGE_SERVICE_DEFAULT_UNITS (SEA_FREIGHT→EVP, PRE_CARRIAGE→voyage, etc.)
+3. **Currency XOF** : canonique backend (price-service-lines normalise FCFA→XOF)
+4. **Response path** : `pslData.data.priced_lines` (wrapper respondOk)
+5. **readOverridesFromFacts** : helper défensif, tolère double-encoding JSON
+6. **scope: 'import'** : fixé (pas le ternaire `? 'import' : 'import'`)
+7. **container_count sécurisé** : `Number(c?.quantity ?? 1)` avec guard `Array.isArray`
+8. **Non-bloquant** : try/catch + console.warn si price-service-lines échoue
+9. **Déduplication conservative** : seuls DTHC et EMPTY_RETURN mappés
+
+### Zones FROZEN respectées
+
+- `quotation-engine` : aucune modification
+- `build-case-puzzle` : aucune modification
+- `QuotationSheet.tsx` : aucune modification
