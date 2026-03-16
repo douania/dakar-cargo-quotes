@@ -106,6 +106,9 @@ const SERVICE_KEY_LABELS: Record<string, string> = {
 const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'DTHC': 'DTHC',
   'Retour conteneur vide': 'EMPTY_RETURN',
+  'Dédouanement': 'CUSTOMS_DAKAR',
+  'Transport': 'TRUCKING',
+  'Transport Mali': 'TRUCKING',
 };
 
 /**
