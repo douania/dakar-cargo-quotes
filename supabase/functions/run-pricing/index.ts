@@ -718,19 +718,24 @@ Deno.serve(async (req) => {
                   }),
                 });
 
+                // P5.1: Build UUID→service_key lookup before consuming response
+                const idToServiceKey = new Map(lotServiceInputs.map(sl => [sl.id, sl.service]));
+
                 if (pslRes.ok) {
                   const pslData = await pslRes.json();
                   const pricedLines = pslData?.data?.priced_lines || [];
                   for (const pl of pricedLines) {
+                    const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                    const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                     taggedLines.push({
-                      category: pl.service || pl.id,
-                      label: pl.label || pl.service || pl.id,
+                      category: serviceKey,
+                      label: label,
                       amount: pl.rate ?? 0,
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
                       source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                       quantity: pl.quantity_used ?? 1,
-                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                       explanation: pl.explanation || '',
                       lot_index: lc.lot_index,
                       lot_label: lc.lot_label,
