@@ -822,7 +822,11 @@ Deno.serve(async (req) => {
       (facts || []).map((f: { fact_key: string; value_text: string | null; value_json: unknown; value_number: number | null }) => [f.fact_key, f])
     );
 
-    const pricingCtx = buildPricingContext(factsMap);
+    // P5: Build pricing context, then merge optional override (for multi-lot)
+    let pricingCtx = buildPricingContext(factsMap);
+    if (pricing_context_override) {
+      pricingCtx = { ...pricingCtx, ...pricing_context_override };
+    }
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
     const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([
