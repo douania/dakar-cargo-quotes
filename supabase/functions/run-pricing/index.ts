@@ -842,7 +842,8 @@ Deno.serve(async (req) => {
           }
 
           const lotEngineResponse = await engineRes.json();
-          const lotLines = lotEngineResponse.lines || lotEngineResponse.quotationLines || [];
+          const lotLines = (lotEngineResponse.lines || lotEngineResponse.quotationLines || [])
+            .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
 
           // Build tariff sources for this lot
           const lotSourceMap = new Map<string, any>();
