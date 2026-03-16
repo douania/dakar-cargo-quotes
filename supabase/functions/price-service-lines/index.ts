@@ -39,6 +39,8 @@ const VALID_SERVICE_KEYS = new Set([
   "CUSTOMS_DAKAR", "CUSTOMS_EXPORT", "BORDER_FEES", "AGENCY",
   "SURVEY", "CUSTOMS_BAMAKO", "TRANSIT_DOCS",
   "AIR_HANDLING", "AIR_FREIGHT",
+  // P5: New service keys for EXW/origin packages
+  "PICKUP_ORIGIN", "PRE_CARRIAGE", "SEA_FREIGHT",
 ]);
 
 // ═══ CTO-1: Currency normalization ═══
@@ -773,10 +775,11 @@ Deno.serve(async (req) => {
 
     // ═══ Parse & validate input ═══
     const body = await req.json();
-    const { case_id, service_lines, active_modifiers } = body as {
+    const { case_id, service_lines, active_modifiers, pricing_context_override } = body as {
       case_id: string;
       service_lines: ServiceLineInput[];
       active_modifiers?: string[];
+      pricing_context_override?: Partial<PricingContext>;
     };
     const activeModifierCodes = new Set(active_modifiers || []);
 
@@ -819,7 +822,11 @@ Deno.serve(async (req) => {
       (facts || []).map((f: { fact_key: string; value_text: string | null; value_json: unknown; value_number: number | null }) => [f.fact_key, f])
     );
 
-    const pricingCtx = buildPricingContext(factsMap);
+    // P5: Build pricing context, then merge optional override (for multi-lot)
+    let pricingCtx = buildPricingContext(factsMap);
+    if (pricing_context_override) {
+      pricingCtx = { ...pricingCtx, ...pricing_context_override };
+    }
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
     const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([

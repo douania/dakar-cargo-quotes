@@ -44,6 +44,98 @@ interface PricingInputs {
   freightCurrency?: string;
 }
 
+// ═══ P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts) ═══
+const SERVICE_PACKAGES: Record<string, string[]> = {
+  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
+  EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
+  BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
+  AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  TRANSIT_REGIONAL_VIA_DAKAR: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'CUSTOMS_DAKAR', 'AGENCY'],
+  DAP_PROJECT_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  AIR_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT', 'AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  LCL_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+};
+
+// P5: Default units per service_key (aligned with service_quantity_rules)
+const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
+  PICKUP_ORIGIN: 'forfait',
+  PRE_CARRIAGE: 'voyage',
+  SEA_FREIGHT: 'EVP',
+  AIR_FREIGHT: 'kg',
+  AIR_HANDLING: 'forfait',
+  CUSTOMS_DAKAR: 'forfait',
+  TRUCKING: 'voyage',
+  AGENCY: 'forfait',
+  DTHC: 'forfait',
+  EMPTY_RETURN: 'forfait',
+  PORT_DAKAR_HANDLING: 'forfait',
+  PORT_CHARGES: 'forfait',
+  CUSTOMS_EXPORT: 'forfait',
+  DISCHARGE: 'forfait',
+  SURVEY: 'forfait',
+  BORDER_FEES: 'forfait',
+  CUSTOMS_BAMAKO: 'forfait',
+  ON_CARRIAGE: 'voyage',
+};
+
+// P5: Conservative engine-line-to-service-key deduplication
+const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
+  'DTHC': 'DTHC',
+  'Retour conteneur vide': 'EMPTY_RETURN',
+};
+
+/**
+ * P5: Read service.overrides from a facts array.
+ * Handles double-encoding (string JSON in value_json).
+ */
+function readOverridesFromFacts(facts: any[]): { add?: string[]; remove?: string[] } | undefined {
+  const overrideFact = facts.find((f: any) => f.fact_key === 'service.overrides' && f.is_current !== false);
+  if (!overrideFact) return undefined;
+  let raw = overrideFact.value_json;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return undefined; }
+  }
+  if (!raw || typeof raw !== 'object') return undefined;
+  return {
+    add: Array.isArray(raw.add) ? raw.add : undefined,
+    remove: Array.isArray(raw.remove) ? raw.remove : undefined,
+  };
+}
+
+/**
+ * P5: Apply add/remove overrides to base service package.
+ */
+function resolveEffectiveServiceKeys(
+  packageKey: string,
+  overrides?: { add?: string[]; remove?: string[] }
+): string[] {
+  const base = SERVICE_PACKAGES[packageKey];
+  if (!base) return [];
+  const removeSet = new Set(overrides?.remove ?? []);
+  const keys = base.filter(k => !removeSet.has(k));
+  for (const k of (overrides?.add ?? [])) {
+    if (!keys.includes(k)) keys.push(k);
+  }
+  return keys;
+}
+
+/**
+ * P5: Infer which service_keys are already covered by engine lines.
+ * Conservative: only maps categories we are 100% sure about.
+ */
+function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
+  const covered = new Set<string>();
+  for (const line of engineLines) {
+    const cat = line.category || '';
+    if (ENGINE_CATEGORY_TO_SERVICE_KEY[cat]) {
+      covered.add(ENGINE_CATEGORY_TO_SERVICE_KEY[cat]);
+    }
+  }
+  return covered;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -554,6 +646,83 @@ Deno.serve(async (req) => {
             lot_index: lc.lot_index,
             lot_label: lc.lot_label,
           }));
+
+          // ═══ P5: Package service lines enrichment (multi-lot) ═══
+          const lotPackageKey = (lc.servicePackage || '').trim().toUpperCase();
+          if (lotPackageKey && SERVICE_PACKAGES[lotPackageKey]) {
+            try {
+              const lotOverrides = readOverridesFromFacts(lc.mergedFacts);
+              const lotEffectiveKeys = resolveEffectiveServiceKeys(lotPackageKey, lotOverrides);
+              const lotCoveredKeys = inferCoveredServiceKeys(lotLines);
+              const lotMissingKeys = lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k));
+
+              if (lotMissingKeys.length > 0) {
+                console.log(`[P5] Lot ${lc.lot_index}: ${lotMissingKeys.length} package services to enrich: ${lotMissingKeys.join(', ')}`);
+
+                const lotServiceInputs = lotMissingKeys.map(sk => ({
+                  id: crypto.randomUUID(),
+                  service: sk,
+                  unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+                  quantity: 1,
+                  currency: 'XOF',
+                }));
+
+                // Build pricing_context_override from lot inputs
+                const pricingCtxOverride: Record<string, unknown> = {
+                  scope: 'import',
+                  containers: Array.isArray(lc.inputs.containers) ? lc.inputs.containers : [],
+                  container_type: lc.inputs.containers?.[0]?.type || null,
+                  container_count: Array.isArray(lc.inputs.containers)
+                    ? lc.inputs.containers.reduce((s: number, c: any) => s + Number(c?.quantity ?? 1), 0)
+                    : null,
+                  weight_kg: lc.inputs.cargoWeight || null,
+                  caf_value: null,
+                  destination_city: lc.inputs.finalDestination || null,
+                  destination_country: null,
+                  origin_country: null,
+                  origin_port: lc.inputs.originPort || null,
+                  client_code: null,
+                  corridor: null,
+                };
+
+                const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+                const pslRes = await fetch(pslUrl, {
+                  method: 'POST',
+                  headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    case_id,
+                    service_lines: lotServiceInputs,
+                    pricing_context_override: pricingCtxOverride,
+                  }),
+                });
+
+                if (pslRes.ok) {
+                  const pslData = await pslRes.json();
+                  const pricedLines = pslData?.data?.priced_lines || [];
+                  for (const pl of pricedLines) {
+                    taggedLines.push({
+                      category: pl.service || pl.id,
+                      label: pl.label || pl.service || pl.id,
+                      amount: pl.rate ?? 0,
+                      currency: pl.currency || 'XOF',
+                      type: 'service_package',
+                      source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
+                      quantity: pl.quantity_used ?? 1,
+                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                      explanation: pl.explanation || '',
+                      lot_index: lc.lot_index,
+                      lot_label: lc.lot_label,
+                    });
+                  }
+                  console.log(`[P5] Lot ${lc.lot_index}: merged ${pricedLines.length} priced service lines`);
+                } else {
+                  console.warn(`[P5] Lot ${lc.lot_index}: price-service-lines failed (${pslRes.status}), continuing`);
+                }
+              }
+            } catch (p5LotError) {
+              console.warn(`[P5] Lot ${lc.lot_index}: package enrichment failed, continuing:`, p5LotError);
+            }
+          }
 
           lotResults.push({
             lot_index: lc.lot_index,
@@ -1083,6 +1252,64 @@ Deno.serve(async (req) => {
         }
       }
       tariffSources = Array.from(sourceMap.values());
+
+      // ═══ P5: Package service lines enrichment (mono-lot) ═══
+      const packageKey = (inputs.servicePackage || '').trim().toUpperCase();
+      if (packageKey && SERVICE_PACKAGES[packageKey]) {
+        try {
+          const overrides = readOverridesFromFacts(facts || []);
+          const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
+          const coveredKeys = inferCoveredServiceKeys(engineResponse.lines || engineResponse.quotationLines || []);
+          const missingKeys = effectiveKeys.filter(k => !coveredKeys.has(k));
+
+          if (missingKeys.length > 0) {
+            console.log(`[P5] Mono-lot: ${missingKeys.length} package services to enrich: ${missingKeys.join(', ')}`);
+
+            // Build ServiceLineInput — exact same shape as QuotationSheet sends
+            const serviceLineInputs = missingKeys.map(sk => ({
+              id: crypto.randomUUID(),
+              service: sk,
+              unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+              quantity: 1,
+              currency: 'XOF',
+            }));
+
+            const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+            const pslRes = await fetch(pslUrl, {
+              method: 'POST',
+              headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
+            });
+
+            if (pslRes.ok) {
+              const pslData = await pslRes.json();
+              const pricedLines = pslData?.data?.priced_lines || [];
+              // Inject into engineResponse.lines so tariffLines picks them up
+              const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+              for (const pl of pricedLines) {
+                engineLines.push({
+                  category: pl.service || pl.id,
+                  label: pl.label || pl.service || pl.id,
+                  amount: pl.rate ?? 0,
+                  currency: pl.currency || 'XOF',
+                  type: 'service_package',
+                  source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
+                  quantity: pl.quantity_used ?? 1,
+                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                  explanation: pl.explanation || '',
+                });
+              }
+              // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
+              engineResponse.lines = engineLines;
+              console.log(`[P5] Mono-lot: merged ${pricedLines.length} priced service lines`);
+            } else {
+              console.warn(`[P5] price-service-lines failed (${pslRes.status}), continuing with engine lines only`);
+            }
+          }
+        } catch (p5Error) {
+          console.warn('[P5] Package enrichment failed, continuing:', p5Error);
+        }
+      }
 
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
