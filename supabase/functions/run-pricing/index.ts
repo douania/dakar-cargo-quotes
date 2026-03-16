@@ -261,6 +261,108 @@ function resolveEffectiveServiceKeys(packageKey: string, overrides: ServiceOverr
   return result;
 }
 
+// ═══ P6: Canonical Pricing Line Metadata ═══
+
+/**
+ * Maps fine-grained service keys to collision/dedup groups.
+ * Lines in the same dedup_group are considered as covering the same business service.
+ */
+const DEDUP_GROUP_MAP: Record<string, string> = {
+  'SUIVI_OPERATIONNEL': 'AGENCY',
+  'OUVERTURE_DOSSIER': 'AGENCY',
+  'FRAIS_DOCUMENTATION': 'AGENCY',
+  'AGENCY': 'AGENCY',
+  'CUSTOMS_DAKAR': 'CUSTOMS_DAKAR',
+  'DEDOUANEMENT': 'CUSTOMS_DAKAR',
+  'CUSTOMS_BAMAKO': 'CUSTOMS_BAMAKO',
+  'CUSTOMS_EXPORT': 'CUSTOMS_EXPORT',
+  'TRUCKING': 'TRUCKING',
+  'ON_CARRIAGE': 'ON_CARRIAGE',
+  'PRE_CARRIAGE': 'PRE_CARRIAGE',
+};
+
+/** Maps source.type values to standardized pricing_method labels. */
+const SOURCE_TYPE_TO_METHOD: Record<string, string> = {
+  'CALCULATED': 'internal_rule',
+  'OFFICIAL': 'official_tariff',
+  'TO_CONFIRM': 'to_confirm',
+  'HISTORICAL': 'historical_match',
+  'NO_MATCH': 'no_match',
+  'catalogue_sodatra': 'catalogue_match',
+  'price-service-lines': 'catalogue_match',
+};
+
+/** Maps engine source.type to known source_table (conservative, null if unknown). */
+const ENGINE_SOURCE_TYPE_TO_TABLE: Record<string, string> = {
+  'CALCULATED': 'sodatra_fee_rules',
+  'OFFICIAL': 'port_tariffs',
+};
+
+interface CanonicalBlock {
+  service_key: string | null;
+  dedup_group: string | null;
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override';
+  source_system: string | null;
+  source_table: string | null;
+  pricing_method: string | null;
+}
+
+/**
+ * P6: Stamps a tariff line with a canonical metadata block.
+ * Idempotent: if line.canonical already exists, returns the line unchanged.
+ * Conservative: uses null when truth is uncertain.
+ */
+function canonicalizeLine(
+  line: any,
+  context: { origin_layer: CanonicalBlock['origin_layer'] },
+): any {
+  // Idempotent guard
+  if (line?.canonical) return line;
+
+  const canonical: CanonicalBlock = {
+    service_key: null,
+    dedup_group: null,
+    origin_layer: context.origin_layer,
+    source_system: null,
+    source_table: null,
+    pricing_method: null,
+  };
+
+  if (context.origin_layer === 'engine_structural') {
+    // Derive service_key from category + description fallback
+    const rawCategory = typeof line?.category === 'string' ? line.category : '';
+    const normalizedCategory = normalizePricingText(rawCategory);
+    let serviceKey = NORMALIZED_ENGINE_CATEGORY_TO_SERVICE_KEY[normalizedCategory] || null;
+    if (!serviceKey) {
+      serviceKey = inferServiceKeyFromDescription(line?.description) || null;
+    }
+
+    canonical.service_key = serviceKey;
+    canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
+    canonical.source_system = 'quotation-engine';
+
+    const sourceType = line?.source?.type;
+    if (typeof sourceType === 'string') {
+      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[sourceType] || null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    }
+  } else if (context.origin_layer === 'package_enrichment') {
+    // P5 lines: category is already the service_key
+    const serviceKey = typeof line?.category === 'string' ? line.category : null;
+    canonical.service_key = serviceKey;
+    canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
+    canonical.source_system = 'price-service-lines';
+
+    const sourceType = line?.source?.type;
+    if (typeof sourceType === 'string') {
+      canonical.source_table = sourceType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    }
+  }
+
+  return { ...line, canonical };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
