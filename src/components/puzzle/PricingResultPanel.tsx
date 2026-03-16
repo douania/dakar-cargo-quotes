@@ -19,6 +19,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package } from 'lucide-react';
 import { DutyBreakdownTable } from './DutyBreakdownTable';
+import { LineProvenanceBadges } from './LineProvenanceBadges';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -230,14 +231,17 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
                             {line.service_code || line.charge_code || line.category || `L${idx + 1}`}
                           </td>
                           <td className="p-2 text-muted-foreground">
-                            {isToConfirm ? (
-                              <span className="text-amber-700 dark:text-amber-300">
-                                {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
-                              </span>
-                            ) : (
-                              (line.description || line.charge_name || line.label || '').substring(0, 40)
-                                  )}
-                                </td>
+                            <div>
+                              {isToConfirm ? (
+                                <span className="text-amber-700 dark:text-amber-300">
+                                  {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
+                                </span>
+                              ) : (
+                                (line.description || line.charge_name || line.label || '').substring(0, 40)
+                              )}
+                              <LineProvenanceBadges canonical={line.canonical} />
+                            </div>
+                          </td>
                                 <td className="p-2 text-right font-medium">
                                   {isToConfirm ? (
                                     <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 text-xs">
@@ -308,13 +312,16 @@ export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPa
                             {line.service_code || line.charge_code || line.category || `L${idx + 1}`}
                           </td>
                           <td className="p-2 text-muted-foreground">
-                            {isToConfirm ? (
-                              <span className="text-amber-700 dark:text-amber-300">
-                                {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
-                              </span>
-                            ) : (
-                              (line.description || line.charge_name || line.label || '').substring(0, 40)
-                            )}
+                            <div>
+                              {isToConfirm ? (
+                                <span className="text-amber-700 dark:text-amber-300">
+                                  {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
+                                </span>
+                              ) : (
+                                (line.description || line.charge_name || line.label || '').substring(0, 40)
+                              )}
+                              <LineProvenanceBadges canonical={line.canonical} />
+                            </div>
                           </td>
                           <td className="p-2 text-right font-medium">
                             {isToConfirm ? (

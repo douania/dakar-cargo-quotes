@@ -159,8 +159,8 @@ function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
 }
 
 /**
- * P5: Infer which service_keys are already covered by engine lines.
- * Conservative: category-first, with safe description fallback for known engine phrasings.
+ * P5 + P6: Infer which service_keys are already covered by engine lines.
+ * P6 upgrade: prefer canonical.dedup_group → canonical.service_key → text fallback.
  */
 function inferCoveredServiceDiagnostics(engineLines: any[]): {
   covered: Set<string>;
@@ -172,6 +172,23 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
   const matchedByDescription = new Set<string>();
 
   for (const line of engineLines) {
+    // P6: prefer canonical fields first
+    const canonicalDedupGroup = line?.canonical?.dedup_group;
+    const canonicalServiceKey = line?.canonical?.service_key;
+
+    if (typeof canonicalDedupGroup === 'string' && canonicalDedupGroup) {
+      covered.add(canonicalDedupGroup);
+      if (typeof canonicalServiceKey === 'string' && canonicalServiceKey && canonicalServiceKey !== canonicalDedupGroup) {
+        covered.add(canonicalServiceKey);
+      }
+      continue;
+    }
+    if (typeof canonicalServiceKey === 'string' && canonicalServiceKey) {
+      covered.add(canonicalServiceKey);
+      continue;
+    }
+
+    // Fallback: text-based matching (backward compat for non-canonicalized lines)
     const rawCategory = typeof line?.category === 'string' ? line.category : '';
     const rawDescription = typeof line?.description === 'string' ? line.description : '';
 
@@ -242,6 +259,108 @@ function resolveEffectiveServiceKeys(packageKey: string, overrides: ServiceOverr
   const result = base.filter(k => !removeSet.has(k));
   for (const k of overrides.add) { if (!result.includes(k)) result.push(k); }
   return result;
+}
+
+// ═══ P6: Canonical Pricing Line Metadata ═══
+
+/**
+ * Maps fine-grained service keys to collision/dedup groups.
+ * Lines in the same dedup_group are considered as covering the same business service.
+ */
+const DEDUP_GROUP_MAP: Record<string, string> = {
+  'SUIVI_OPERATIONNEL': 'AGENCY',
+  'OUVERTURE_DOSSIER': 'AGENCY',
+  'FRAIS_DOCUMENTATION': 'AGENCY',
+  'AGENCY': 'AGENCY',
+  'CUSTOMS_DAKAR': 'CUSTOMS_DAKAR',
+  'DEDOUANEMENT': 'CUSTOMS_DAKAR',
+  'CUSTOMS_BAMAKO': 'CUSTOMS_BAMAKO',
+  'CUSTOMS_EXPORT': 'CUSTOMS_EXPORT',
+  'TRUCKING': 'TRUCKING',
+  'ON_CARRIAGE': 'ON_CARRIAGE',
+  'PRE_CARRIAGE': 'PRE_CARRIAGE',
+};
+
+/** Maps source.type values to standardized pricing_method labels. */
+const SOURCE_TYPE_TO_METHOD: Record<string, string> = {
+  'CALCULATED': 'internal_rule',
+  'OFFICIAL': 'official_tariff',
+  'TO_CONFIRM': 'to_confirm',
+  'HISTORICAL': 'historical_match',
+  'NO_MATCH': 'no_match',
+  'catalogue_sodatra': 'catalogue_match',
+  'price-service-lines': 'catalogue_match',
+};
+
+/** Maps engine source.type to known source_table (conservative, null if unknown). */
+const ENGINE_SOURCE_TYPE_TO_TABLE: Record<string, string> = {
+  'CALCULATED': 'sodatra_fee_rules',
+  'OFFICIAL': 'port_tariffs',
+};
+
+interface CanonicalBlock {
+  service_key: string | null;
+  dedup_group: string | null;
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override';
+  source_system: string | null;
+  source_table: string | null;
+  pricing_method: string | null;
+}
+
+/**
+ * P6: Stamps a tariff line with a canonical metadata block.
+ * Idempotent: if line.canonical already exists, returns the line unchanged.
+ * Conservative: uses null when truth is uncertain.
+ */
+function canonicalizeLine(
+  line: any,
+  context: { origin_layer: CanonicalBlock['origin_layer'] },
+): any {
+  // Idempotent guard
+  if (line?.canonical) return line;
+
+  const canonical: CanonicalBlock = {
+    service_key: null,
+    dedup_group: null,
+    origin_layer: context.origin_layer,
+    source_system: null,
+    source_table: null,
+    pricing_method: null,
+  };
+
+  if (context.origin_layer === 'engine_structural') {
+    // Derive service_key from category + description fallback
+    const rawCategory = typeof line?.category === 'string' ? line.category : '';
+    const normalizedCategory = normalizePricingText(rawCategory);
+    let serviceKey = NORMALIZED_ENGINE_CATEGORY_TO_SERVICE_KEY[normalizedCategory] || null;
+    if (!serviceKey) {
+      serviceKey = inferServiceKeyFromDescription(line?.description) || null;
+    }
+
+    canonical.service_key = serviceKey;
+    canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
+    canonical.source_system = 'quotation-engine';
+
+    const sourceType = line?.source?.type;
+    if (typeof sourceType === 'string') {
+      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[sourceType] || null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    }
+  } else if (context.origin_layer === 'package_enrichment') {
+    // P5 lines: category is already the service_key
+    const serviceKey = typeof line?.category === 'string' ? line.category : null;
+    canonical.service_key = serviceKey;
+    canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
+    canonical.source_system = 'price-service-lines';
+
+    const sourceType = line?.source?.type;
+    if (typeof sourceType === 'string') {
+      canonical.source_table = sourceType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    }
+  }
+
+  return { ...line, canonical };
 }
 
 Deno.serve(async (req) => {
@@ -723,7 +842,8 @@ Deno.serve(async (req) => {
           }
 
           const lotEngineResponse = await engineRes.json();
-          const lotLines = lotEngineResponse.lines || lotEngineResponse.quotationLines || [];
+          const lotLines = (lotEngineResponse.lines || lotEngineResponse.quotationLines || [])
+            .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
 
           // Build tariff sources for this lot
           const lotSourceMap = new Map<string, any>();
@@ -818,7 +938,7 @@ Deno.serve(async (req) => {
                   for (const pl of pricedLines) {
                     const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                     const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                    taggedLines.push({
+                    taggedLines.push(canonicalizeLine({
                       category: serviceKey,
                       label: label,
                       amount: pl.rate ?? 0,
@@ -830,7 +950,7 @@ Deno.serve(async (req) => {
                       explanation: pl.explanation || '',
                       lot_index: lc.lot_index,
                       lot_label: lc.lot_label,
-                    });
+                    }, { origin_layer: 'package_enrichment' }));
                   }
                   console.log(`[P5] Lot ${lc.lot_index}: merged ${pricedLines.length} priced service lines`);
                 } else {
@@ -1356,7 +1476,10 @@ Deno.serve(async (req) => {
 
       engineResponse = await engineRes.json();
       // Fix CTO: construire tariffSources depuis les lignes (le moteur ne renvoie pas de champ global)
-      const rawLines = engineResponse.lines || engineResponse.quotationLines || [];
+      const rawLines = (engineResponse.lines || engineResponse.quotationLines || [])
+        .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
+      // P6: store canonicalized lines back so downstream code uses them
+      engineResponse.lines = rawLines;
       const sourceMap = new Map<string, any>();
       for (const line of rawLines) {
         if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {
@@ -1415,7 +1538,7 @@ Deno.serve(async (req) => {
               for (const pl of pricedLines) {
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                 const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                engineLines.push({
+                engineLines.push(canonicalizeLine({
                   category: serviceKey,
                   label: label,
                   amount: pl.rate ?? 0,
@@ -1425,7 +1548,7 @@ Deno.serve(async (req) => {
                   quantity: pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
-                });
+                }, { origin_layer: 'package_enrichment' }));
               }
               // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
               engineResponse.lines = engineLines;
