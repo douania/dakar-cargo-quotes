@@ -51,7 +51,8 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | *(création)* | `RFQ_DETECTED` | `ensure-quote-case` | automatic |
 | 4 | `NEW_THREAD` / `RFQ_DETECTED` | `FACTS_PARTIAL` | `build-case-puzzle` | automatic |
 | 5 | `FACTS_PARTIAL` | `NEED_INFO` | `build-case-puzzle` | automatic |
-| 6 | Puzzle complete (no blocking gaps, facts available) | `DECISIONS_PENDING` | `build-case-puzzle` | automatic |
+| 6a | Puzzle complete, ambiguity detected | `DECISIONS_PENDING` | `build-case-puzzle` | automatic (P4) |
+| 6b | Puzzle complete, no ambiguity | `READY_TO_PRICE` | `build-case-puzzle` | automatic (P4) |
 | 7 | `DECISIONS_PENDING` | `DECISIONS_COMPLETE` | `commit-decision` | operator-driven |
 | 8 | `DECISIONS_COMPLETE` | `ACK_READY_FOR_PRICING` | `ack-pricing-ready` | operator-driven |
 | 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` (legacy) | `PRICING_RUNNING` | `run-pricing` | automatic |
