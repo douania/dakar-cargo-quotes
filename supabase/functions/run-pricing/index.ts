@@ -938,7 +938,7 @@ Deno.serve(async (req) => {
                   for (const pl of pricedLines) {
                     const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                     const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                    taggedLines.push({
+                    taggedLines.push(canonicalizeLine({
                       category: serviceKey,
                       label: label,
                       amount: pl.rate ?? 0,
@@ -950,7 +950,7 @@ Deno.serve(async (req) => {
                       explanation: pl.explanation || '',
                       lot_index: lc.lot_index,
                       lot_label: lc.lot_label,
-                    });
+                    }, { origin_layer: 'package_enrichment' }));
                   }
                   console.log(`[P5] Lot ${lc.lot_index}: merged ${pricedLines.length} priced service lines`);
                 } else {
