@@ -39,6 +39,8 @@ const VALID_SERVICE_KEYS = new Set([
   "CUSTOMS_DAKAR", "CUSTOMS_EXPORT", "BORDER_FEES", "AGENCY",
   "SURVEY", "CUSTOMS_BAMAKO", "TRANSIT_DOCS",
   "AIR_HANDLING", "AIR_FREIGHT",
+  // P5: New service keys for EXW/origin packages
+  "PICKUP_ORIGIN", "PRE_CARRIAGE", "SEA_FREIGHT",
 ]);
 
 // ═══ CTO-1: Currency normalization ═══
