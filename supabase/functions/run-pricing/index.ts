@@ -159,8 +159,8 @@ function inferCoveredServiceKeys(engineLines: any[]): Set<string> {
 }
 
 /**
- * P5: Infer which service_keys are already covered by engine lines.
- * Conservative: category-first, with safe description fallback for known engine phrasings.
+ * P5 + P6: Infer which service_keys are already covered by engine lines.
+ * P6 upgrade: prefer canonical.dedup_group → canonical.service_key → text fallback.
  */
 function inferCoveredServiceDiagnostics(engineLines: any[]): {
   covered: Set<string>;
@@ -172,6 +172,23 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
   const matchedByDescription = new Set<string>();
 
   for (const line of engineLines) {
+    // P6: prefer canonical fields first
+    const canonicalDedupGroup = line?.canonical?.dedup_group;
+    const canonicalServiceKey = line?.canonical?.service_key;
+
+    if (typeof canonicalDedupGroup === 'string' && canonicalDedupGroup) {
+      covered.add(canonicalDedupGroup);
+      if (typeof canonicalServiceKey === 'string' && canonicalServiceKey && canonicalServiceKey !== canonicalDedupGroup) {
+        covered.add(canonicalServiceKey);
+      }
+      continue;
+    }
+    if (typeof canonicalServiceKey === 'string' && canonicalServiceKey) {
+      covered.add(canonicalServiceKey);
+      continue;
+    }
+
+    // Fallback: text-based matching (backward compat for non-canonicalized lines)
     const rawCategory = typeof line?.category === 'string' ? line.category : '';
     const rawDescription = typeof line?.description === 'string' ? line.description : '';
 
