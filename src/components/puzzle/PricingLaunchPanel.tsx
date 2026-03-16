@@ -49,9 +49,10 @@ interface PricingLaunchPanelProps {
   onComplete?: () => void;
   blockedByIntent?: string;
   pricingPrechecks?: PricingPrecheck[];
+  isRerun?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [] }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,11 +160,12 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-warning-foreground" />
-            <CardTitle className="text-base">Lancer le pricing</CardTitle>
+            <CardTitle className="text-base">{isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
           </div>
           <CardDescription>
-            Toutes les décisions sont validées. 
-            Vous pouvez maintenant lancer le calcul de prix.
+            {isRerun
+              ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
+              : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
         </CardHeader>
         
@@ -219,7 +221,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             ) : (
               <>
                 <Calculator className="h-4 w-4" />
-                Lancer le pricing
+                {isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}
               </>
             )}
           </Button>
