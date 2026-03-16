@@ -38,7 +38,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 - **frozen** : statut figé par `build-case-puzzle` (pas de rétrogradation automatique), réouvrable par `sync-emails`
 - **terminal** : état final du workflow courant
 - **dormant** : présent dans l'enum DB mais jamais écrit par le runtime actuel
-- **legacy** : présent dans l'enum DB, accepté en lecture pour compatibilité, mais plus écrit par le runtime post-S3
+- **legacy** : présent dans l'enum DB, accepté en lecture pour compatibilité, mais plus écrit par le runtime post-S3 (sauf READY_TO_PRICE réactivé en P4)
 
 ---
 
