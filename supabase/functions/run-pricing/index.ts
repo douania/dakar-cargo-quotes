@@ -647,6 +647,83 @@ Deno.serve(async (req) => {
             lot_label: lc.lot_label,
           }));
 
+          // ═══ P5: Package service lines enrichment (multi-lot) ═══
+          const lotPackageKey = (lc.servicePackage || '').trim().toUpperCase();
+          if (lotPackageKey && SERVICE_PACKAGES[lotPackageKey]) {
+            try {
+              const lotOverrides = readOverridesFromFacts(lc.mergedFacts);
+              const lotEffectiveKeys = resolveEffectiveServiceKeys(lotPackageKey, lotOverrides);
+              const lotCoveredKeys = inferCoveredServiceKeys(lotLines);
+              const lotMissingKeys = lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k));
+
+              if (lotMissingKeys.length > 0) {
+                console.log(`[P5] Lot ${lc.lot_index}: ${lotMissingKeys.length} package services to enrich: ${lotMissingKeys.join(', ')}`);
+
+                const lotServiceInputs = lotMissingKeys.map(sk => ({
+                  id: crypto.randomUUID(),
+                  service: sk,
+                  unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+                  quantity: 1,
+                  currency: 'XOF',
+                }));
+
+                // Build pricing_context_override from lot inputs
+                const pricingCtxOverride: Record<string, unknown> = {
+                  scope: 'import',
+                  containers: Array.isArray(lc.inputs.containers) ? lc.inputs.containers : [],
+                  container_type: lc.inputs.containers?.[0]?.type || null,
+                  container_count: Array.isArray(lc.inputs.containers)
+                    ? lc.inputs.containers.reduce((s: number, c: any) => s + Number(c?.quantity ?? 1), 0)
+                    : null,
+                  weight_kg: lc.inputs.cargoWeight || null,
+                  caf_value: null,
+                  destination_city: lc.inputs.finalDestination || null,
+                  destination_country: null,
+                  origin_country: null,
+                  origin_port: lc.inputs.originPort || null,
+                  client_code: null,
+                  corridor: null,
+                };
+
+                const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+                const pslRes = await fetch(pslUrl, {
+                  method: 'POST',
+                  headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    case_id,
+                    service_lines: lotServiceInputs,
+                    pricing_context_override: pricingCtxOverride,
+                  }),
+                });
+
+                if (pslRes.ok) {
+                  const pslData = await pslRes.json();
+                  const pricedLines = pslData?.data?.priced_lines || [];
+                  for (const pl of pricedLines) {
+                    taggedLines.push({
+                      category: pl.service || pl.id,
+                      label: pl.label || pl.service || pl.id,
+                      amount: pl.rate ?? 0,
+                      currency: pl.currency || 'XOF',
+                      type: 'service_package',
+                      source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
+                      quantity: pl.quantity_used ?? 1,
+                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                      explanation: pl.explanation || '',
+                      lot_index: lc.lot_index,
+                      lot_label: lc.lot_label,
+                    });
+                  }
+                  console.log(`[P5] Lot ${lc.lot_index}: merged ${pricedLines.length} priced service lines`);
+                } else {
+                  console.warn(`[P5] Lot ${lc.lot_index}: price-service-lines failed (${pslRes.status}), continuing`);
+                }
+              }
+            } catch (p5LotError) {
+              console.warn(`[P5] Lot ${lc.lot_index}: package enrichment failed, continuing:`, p5LotError);
+            }
+          }
+
           lotResults.push({
             lot_index: lc.lot_index,
             lot_label: lc.lot_label,
