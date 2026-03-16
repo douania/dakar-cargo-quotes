@@ -1525,7 +1525,7 @@ L'équipe SODATRA`;
         {!quotationCompleted && quoteCase?.id && 
          ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
           <div className="mb-6">
-            <PricingLaunchPanel caseId={quoteCase.id} />
+            <PricingLaunchPanel caseId={quoteCase.id} isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status)} />
           </div>
         )}
 

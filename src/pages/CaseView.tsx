@@ -2090,6 +2090,7 @@ export default function CaseView() {
               <PricingLaunchPanel
                 caseId={caseId!}
                 onComplete={handleRefresh}
+                isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)}
                 blockedByIntent={(() => {
                   const intentEvents = events
                     .filter((e: any) => e.event_type === "thread_intent_v1")
