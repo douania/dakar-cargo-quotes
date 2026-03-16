@@ -775,10 +775,11 @@ Deno.serve(async (req) => {
 
     // ═══ Parse & validate input ═══
     const body = await req.json();
-    const { case_id, service_lines, active_modifiers } = body as {
+    const { case_id, service_lines, active_modifiers, pricing_context_override } = body as {
       case_id: string;
       service_lines: ServiceLineInput[];
       active_modifiers?: string[];
+      pricing_context_override?: Partial<PricingContext>;
     };
     const activeModifierCodes = new Set(active_modifiers || []);
 
