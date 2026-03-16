@@ -465,6 +465,65 @@ Deno.serve(async (req) => {
         const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm);
         const lotTransportMode = resolveTransportModeForLot(requestTypeHint);
 
+// ═══ P5: Service overrides helpers ═══
+
+type ServiceOverrides = {
+  add: string[];
+  remove: string[];
+};
+
+const ALL_KNOWN_SERVICE_KEYS = new Set(Object.keys(PACKAGE_SERVICE_DEFAULT_UNITS));
+
+function readOverridesFromFacts(
+  facts: Record<string, any> | Array<{ fact_key: string; value_json?: any; value_text?: string }>,
+): ServiceOverrides {
+  const empty: ServiceOverrides = { add: [], remove: [] };
+  try {
+    let raw: any = null;
+    if (Array.isArray(facts)) {
+      const f = facts.find((f: any) => f.fact_key === 'service.overrides');
+      raw = f?.value_json ?? f?.value_text ?? null;
+    } else if (facts && typeof facts === 'object') {
+      raw = (facts as any)['service.overrides']?.value_json
+        ?? (facts as any)['service.overrides']?.value_text
+        ?? null;
+    }
+    if (!raw) return empty;
+    let parsed = raw;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch { return empty; }
+    }
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch { return empty; }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
+    const sanitize = (arr: unknown): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((v): v is string => typeof v === 'string')
+        .map(v => v.trim().toUpperCase())
+        .filter(v => v && ALL_KNOWN_SERVICE_KEYS.has(v));
+    };
+    return { add: sanitize(parsed.add), remove: sanitize(parsed.remove) };
+  } catch {
+    return empty;
+  }
+}
+
+function resolveEffectiveServiceKeys(
+  packageKey: string,
+  overrides: ServiceOverrides,
+): string[] {
+  const base = SERVICE_PACKAGES[packageKey];
+  if (!base) return [];
+  const removeSet = new Set(overrides.remove);
+  const result = base.filter(k => !removeSet.has(k));
+  for (const k of overrides.add) {
+    if (!result.includes(k)) result.push(k);
+  }
+  return result;
+}
+
 
         if (lotServicePackage) {
           lotInputs.servicePackage = lotServicePackage;
