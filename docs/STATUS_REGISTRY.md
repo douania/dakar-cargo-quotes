@@ -20,7 +20,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | `RFQ_DETECTED` | RFQ détectée | Email identifié comme demande de cotation | `ensure-quote-case` | active | CaseCard, QuotationHeader |
 | 4 | `FACTS_PARTIAL` | Données incomplètes | Puzzle analysé, données insuffisantes | `build-case-puzzle`, `sync-emails` | active | CaseCard, QuotationHeader, BlockingGapsPanel |
 | 5 | `NEED_INFO` | Info requise | Gaps bloquants identifiés, action requise | `build-case-puzzle` | waiting | CaseView, CaseCard, QuotationHeader, BlockingGapsPanel |
-| 6 | `READY_TO_PRICE` | Prêt à chiffrer | **Legacy / transitional** — Après S3, `build-case-puzzle` écrit `DECISIONS_PENDING` à la place. Encore présent dans l'enum DB et accepté par `run-pricing` pour compatibilité ascendante. | ❌ aucune (post-S3) | legacy | CaseView, CaseCard |
+| 6 | `READY_TO_PRICE` | Prêt à chiffrer | Puzzle complet, aucune ambiguïté détectée (P4). Dossier directement éligible au pricing sans validation opérateur. | `build-case-puzzle` (P4) | active | CaseView, CaseCard |
 | 7 | `DECISIONS_PENDING` | Décisions en attente | Puzzle complet (pas de gaps bloquants, faits disponibles), en attente de validation des décisions opérateur | `build-case-puzzle` | active | CaseView, CaseCard, QuotationHeader, DecisionSupportPanel |
 | 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées (5/5) | `commit-decision` | active | QuotationHeader |
 | 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | QuotationHeader |
@@ -38,7 +38,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 - **frozen** : statut figé par `build-case-puzzle` (pas de rétrogradation automatique), réouvrable par `sync-emails`
 - **terminal** : état final du workflow courant
 - **dormant** : présent dans l'enum DB mais jamais écrit par le runtime actuel
-- **legacy** : présent dans l'enum DB, accepté en lecture pour compatibilité, mais plus écrit par le runtime post-S3
+- **legacy** : présent dans l'enum DB, accepté en lecture pour compatibilité, mais plus écrit par le runtime post-S3 (sauf READY_TO_PRICE réactivé en P4)
 
 ---
 
@@ -51,7 +51,8 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 3 | *(création)* | `RFQ_DETECTED` | `ensure-quote-case` | automatic |
 | 4 | `NEW_THREAD` / `RFQ_DETECTED` | `FACTS_PARTIAL` | `build-case-puzzle` | automatic |
 | 5 | `FACTS_PARTIAL` | `NEED_INFO` | `build-case-puzzle` | automatic |
-| 6 | Puzzle complete (no blocking gaps, facts available) | `DECISIONS_PENDING` | `build-case-puzzle` | automatic |
+| 6a | Puzzle complete, ambiguity detected | `DECISIONS_PENDING` | `build-case-puzzle` | automatic (P4) |
+| 6b | Puzzle complete, no ambiguity | `READY_TO_PRICE` | `build-case-puzzle` | automatic (P4) |
 | 7 | `DECISIONS_PENDING` | `DECISIONS_COMPLETE` | `commit-decision` | operator-driven |
 | 8 | `DECISIONS_COMPLETE` | `ACK_READY_FOR_PRICING` | `ack-pricing-ready` | operator-driven |
 | 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` (legacy) | `PRICING_RUNNING` | `run-pricing` | automatic |
@@ -95,3 +96,4 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 |-------|------|------------|
 | S2 | 2026-03-11 | Création du registre. Alignement UI/DB sur les 15 statuts. `DECISIONS_PENDING` documenté comme ghost. |
 | S3 | 2026-03-11 | `DECISIONS_PENDING` restauré comme état canonique actif. `build-case-puzzle` en devient le writer. `READY_TO_PRICE` passe en legacy. Protection contre rétrogradation étendue. |
+| P4 | 2026-03-16 | Bypass décisionnel : `build-case-puzzle` introduit détection d'ambiguïté. Cas clairs → `READY_TO_PRICE` (réactivé). Cas ambigus → `DECISIONS_PENDING`. Signaux : `UNKNOWN_FLOW_TYPE`, `AMBIGUOUS_LCL_FCL`, `NO_SERVICE_PACKAGE`. `ACK_READY_FOR_PRICING` reste exclusif à `ack-pricing-ready`. |

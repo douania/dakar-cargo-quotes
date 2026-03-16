@@ -3625,7 +3625,34 @@ Deno.serve(async (req) => {
         newStatus = "NEED_INFO";
         console.log(`[P0] Multi-lot/multi-mode detected but 0 structured lines. Forcing NEED_INFO.`);
       } else if (blockingGapsCount === 0 && (currentFactsCount || 0) > 0) {
-        newStatus = "DECISIONS_PENDING";
+        // P4: Ambiguity detection — only route to DECISIONS_PENDING when genuinely ambiguous
+        const ambiguitySignals: string[] = [];
+        if (detectedType === "UNKNOWN") ambiguitySignals.push("UNKNOWN_FLOW_TYPE");
+        if (isAmbiguousLclFcl) ambiguitySignals.push("AMBIGUOUS_LCL_FCL");
+
+        // Check critical fact exists in DB
+        const { data: criticalFacts, error: criticalFactsError } = await serviceClient
+          .from("quote_facts")
+          .select("fact_key")
+          .eq("case_id", case_id)
+          .eq("is_current", true)
+          .in("fact_key", ["service.package"]);
+
+        if (criticalFactsError) {
+          console.error(`[P4] Failed to read critical facts for case ${case_id}: ${criticalFactsError.message}`);
+          ambiguitySignals.push("CRITICAL_FACT_READ_ERROR");
+        }
+
+        const criticalFactKeys = new Set((criticalFacts || []).map((f: any) => f.fact_key));
+        if (!criticalFactKeys.has("service.package")) ambiguitySignals.push("NO_SERVICE_PACKAGE");
+
+        if (ambiguitySignals.length > 0) {
+          newStatus = "DECISIONS_PENDING";
+          console.log(`[P4] Ambiguity detected: [${ambiguitySignals.join(", ")}] → DECISIONS_PENDING`);
+        } else {
+          newStatus = "READY_TO_PRICE";
+          console.log("[P4] No ambiguity → READY_TO_PRICE");
+        }
       } else if ((openGapsCount || 0) > 0) {
         newStatus = "NEED_INFO";
       } else {
@@ -3676,7 +3703,7 @@ Deno.serve(async (req) => {
         assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
-        ready_to_price: newStatus === "DECISIONS_PENDING",
+        ready_to_price: newStatus === "DECISIONS_PENDING" || newStatus === "READY_TO_PRICE" || newStatus === "ACK_READY_FOR_PRICING",
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,
