@@ -80,6 +80,28 @@ const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
   ON_CARRIAGE: 'voyage',
 };
 
+// P5.1: Human-readable labels for service keys (static, no DB call)
+const SERVICE_KEY_LABELS: Record<string, string> = {
+  PICKUP_ORIGIN: "Enlèvement à l'origine",
+  PRE_CARRIAGE: 'Pré-acheminement',
+  SEA_FREIGHT: 'Fret maritime',
+  AIR_FREIGHT: 'Fret aérien',
+  AIR_HANDLING: 'Handling aéroportuaire',
+  CUSTOMS_DAKAR: 'Dédouanement Dakar',
+  TRUCKING: 'Transport local',
+  AGENCY: "Frais d'agence",
+  DTHC: 'DTHC',
+  EMPTY_RETURN: 'Retour conteneur vide',
+  PORT_DAKAR_HANDLING: 'Manutention port Dakar',
+  PORT_CHARGES: 'Frais portuaires',
+  CUSTOMS_EXPORT: 'Dédouanement export',
+  DISCHARGE: 'Déchargement',
+  SURVEY: 'Inspection / Survey',
+  BORDER_FEES: 'Frais frontière',
+  CUSTOMS_BAMAKO: 'Dédouanement Bamako',
+  ON_CARRIAGE: 'Post-acheminement',
+};
+
 // P5: Conservative engine-line-to-service-key deduplication
 const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'DTHC': 'DTHC',
@@ -696,19 +718,24 @@ Deno.serve(async (req) => {
                   }),
                 });
 
+                // P5.1: Build UUID→service_key lookup before consuming response
+                const idToServiceKey = new Map(lotServiceInputs.map(sl => [sl.id, sl.service]));
+
                 if (pslRes.ok) {
                   const pslData = await pslRes.json();
                   const pricedLines = pslData?.data?.priced_lines || [];
                   for (const pl of pricedLines) {
+                    const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                    const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                     taggedLines.push({
-                      category: pl.service || pl.id,
-                      label: pl.label || pl.service || pl.id,
+                      category: serviceKey,
+                      label: label,
                       amount: pl.rate ?? 0,
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
                       source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                       quantity: pl.quantity_used ?? 1,
-                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                      unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                       explanation: pl.explanation || '',
                       lot_index: lc.lot_index,
                       lot_label: lc.lot_label,
@@ -1281,21 +1308,26 @@ Deno.serve(async (req) => {
               body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
             });
 
+            // P5.1: Build UUID→service_key lookup before consuming response
+            const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
+
             if (pslRes.ok) {
               const pslData = await pslRes.json();
               const pricedLines = pslData?.data?.priced_lines || [];
               // Inject into engineResponse.lines so tariffLines picks them up
               const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
               for (const pl of pricedLines) {
+                const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                 engineLines.push({
-                  category: pl.service || pl.id,
-                  label: pl.label || pl.service || pl.id,
+                  category: serviceKey,
+                  label: label,
                   amount: pl.rate ?? 0,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: pl.quantity_used ?? 1,
-                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[pl.service] ?? 'forfait',
+                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
                 });
               }
