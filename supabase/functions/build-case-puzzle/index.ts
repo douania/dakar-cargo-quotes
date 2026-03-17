@@ -157,7 +157,6 @@ const SEA_LCL_BLOCKING_GAPS = new Set([
   "cargo.description",
   "cargo.weight_kg",
   "cargo.volume_cbm",
-  "contacts.client_email",
 ]);
 
 // Gap questions
