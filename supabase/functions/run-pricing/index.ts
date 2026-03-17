@@ -298,6 +298,19 @@ const ENGINE_SOURCE_TYPE_TO_TABLE: Record<string, string> = {
   'OFFICIAL': 'port_tariffs',
 };
 
+/**
+ * P6.1: Conservative normalizer for source.type — strips only `+suffix` and `:suffix`.
+ * Returns null for non-string or empty input. Does NOT split on whitespace or semicolons.
+ */
+function normalizeSourceType(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withoutPlus = trimmed.split('+')[0];
+  const base = withoutPlus.split(':')[0];
+  return base || null;
+}
+
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
