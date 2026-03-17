@@ -19,7 +19,7 @@
 // - B5: Double déclaration userId corrigée
 // ============================================================================
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { computeCanonicalHash } from "../_shared/canonical-hash.ts";
