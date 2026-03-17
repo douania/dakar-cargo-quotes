@@ -1,34 +1,45 @@
+## Phase EQ1 — External Quote Requests ✅
 
+### Objectif
 
-# Fix 4 — `newFactId` scoping bug in `validate-partner-fact`
+Permettre aux opérateurs de créer des demandes externes aux partenaires (agent France, compagnie maritime, etc.), de recevoir et analyser leurs réponses, et de valider les faits extraits avant injection dans le pipeline de cotation.
 
-## Problem
+### Tables créées
 
-`newFactId` is declared with `const` inside the `if (action === "validate")` block (line 74), but referenced on line 154 outside that block scope. This causes a ReferenceError at runtime when `action === "validate"`.
+| Table | Description |
+|-------|-------------|
+| `external_quote_requests` | Demandes sortantes vers partenaires (purpose, status, partner_name) |
+| `external_quote_responses` | Réponses reçues (UNIQUE request_id+source_email_id) |
+| `external_quote_response_facts` | Faits proposés extraits des réponses (validation_status: proposed/validated/rejected) |
 
-## Fix
+### CHECK constraints mis à jour
 
-Hoist a `let` variable before the `if` block, assign inside:
+- `quote_facts_source_type_check` : +`partner_response`
+- `case_timeline_events_event_type_check` : +`external_request_created`, +`external_response_analyzed`
 
-```typescript
-let injectedFactId: string | null = null;
+### Edge Functions créées
 
-if (action === "validate") {
-  const { data: newFactId, error: rpcErr } = await serviceClient.rpc("supersede_fact", { ... });
-  // ...
-  injectedFactId = newFactId;
-  // update uses injectedFactId
-  await serviceClient.from("external_quote_response_facts").update({
-    ...
-    injected_fact_id: injectedFactId,
-  }).eq("id", fact_id);
-}
+| Fonction | Description |
+|----------|-------------|
+| `analyze-partner-response` | Analyse AI (Gemini Flash) d'un email partenaire, extraction de faits avec prompt purpose-aware |
+| `validate-partner-fact` | Validation/rejet d'un fait proposé → injection via `supersede_fact` RPC |
+
+### Frontend
+
+| Fichier | Description |
+|---------|-------------|
+| `src/hooks/useExternalRequests.ts` | Hook React Query pour les 3 tables + mutations |
+| `src/components/puzzle/ExternalRequestsPanel.tsx` | Panel complet : liste demandes, formulaire création, validation faits |
+| `src/pages/CaseView.tsx` | Intégration du panel après DecisionSupportPanel |
+
+### Statuts de requête
+
+```
+draft → sent → response_received → response_analyzed → partially_validated → facts_validated
+                                                      → closed (rejet total ou manuel)
 ```
 
-Then line 154 becomes:
-```typescript
-injected_fact_id: injectedFactId,
-```
+### Zones FROZEN respectées
 
-**Single file change**: `supabase/functions/validate-partner-fact/index.ts` — lines 69-154.
-
+- `build-case-puzzle`, `quotation-engine`, `run-pricing` : aucune modification
+- Les faits entrent via `supersede_fact` RPC après validation opérateur
