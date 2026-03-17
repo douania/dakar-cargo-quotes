@@ -172,6 +172,14 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
   const matchedByDescription = new Set<string>();
 
   for (const line of engineLines) {
+    // P6.1: Always capture rawCategory for diagnostics BEFORE canonical shortcuts
+    const rawCategory = typeof line?.category === 'string' ? line.category : '';
+    const rawDescription = typeof line?.description === 'string' ? line.description : '';
+
+    if (rawCategory) {
+      categoriesSeen.add(rawCategory);
+    }
+
     // P6: prefer canonical fields first
     const canonicalDedupGroup = line?.canonical?.dedup_group;
     const canonicalServiceKey = line?.canonical?.service_key;
@@ -186,14 +194,6 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
     if (typeof canonicalServiceKey === 'string' && canonicalServiceKey) {
       covered.add(canonicalServiceKey);
       continue;
-    }
-
-    // Fallback: text-based matching (backward compat for non-canonicalized lines)
-    const rawCategory = typeof line?.category === 'string' ? line.category : '';
-    const rawDescription = typeof line?.description === 'string' ? line.description : '';
-
-    if (rawCategory) {
-      categoriesSeen.add(rawCategory);
     }
 
     const normalizedCategory = normalizePricingText(rawCategory);
