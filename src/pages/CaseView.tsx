@@ -74,6 +74,7 @@ import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
+import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 
 // ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
 type PricingPrecheck = {
@@ -2016,6 +2017,13 @@ export default function CaseView() {
         {['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(caseData.status) && (
           <div className="mb-6">
             <DecisionSupportPanel caseId={caseId!} />
+          </div>
+        )}
+
+        {/* Phase EQ1: External partner requests panel */}
+        {caseId && (
+          <div className="mb-6">
+            <ExternalRequestsPanel caseId={caseId} />
           </div>
         )}
 

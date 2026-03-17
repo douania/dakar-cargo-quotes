@@ -188,3 +188,9 @@ verify_jwt = false
 
 [functions.analyze-case-coherence]
 verify_jwt = false
+
+[functions.analyze-partner-response]
+verify_jwt = false
+
+[functions.validate-partner-fact]
+verify_jwt = false
