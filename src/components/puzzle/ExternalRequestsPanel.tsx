@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +17,11 @@ import {
   ChevronDown,
   ChevronRight,
   Package,
+  Search,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
+import { supabase } from "@/integrations/supabase/client";
 import {
   useExternalRequests,
   type ExternalRequest,
@@ -63,9 +66,10 @@ const VALIDATION_COLORS: Record<string, string> = {
 
 interface Props {
   caseId: string;
+  threadId?: string | null;
 }
 
-export function ExternalRequestsPanel({ caseId }: Props) {
+export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const {
     requests,
     responses,
@@ -73,6 +77,7 @@ export function ExternalRequestsPanel({ caseId }: Props) {
     isLoading,
     createRequest,
     markAsSent,
+    triggerAnalysis,
     validateFact,
     rejectFact,
     closeRequest,
