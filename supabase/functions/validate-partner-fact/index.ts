@@ -67,6 +67,7 @@ serve(async (req: Request) => {
     }
 
     const userId = auth.user.id;
+    let injectedFactId: string | null = null;
 
     if (action === "validate") {
       // 2. Call supersede_fact to inject into quote_facts
@@ -87,6 +88,8 @@ serve(async (req: Request) => {
         return errorResponse("Failed to inject fact", 500);
       }
 
+      injectedFactId = newFactId;
+
       // 3. Update proposed fact
       await serviceClient
         .from("external_quote_response_facts")
@@ -94,7 +97,7 @@ serve(async (req: Request) => {
           validation_status: "validated",
           validated_by: userId,
           validated_at: new Date().toISOString(),
-          injected_fact_id: newFactId,
+          injected_fact_id: injectedFactId,
         })
         .eq("id", fact_id);
     } else {
@@ -133,7 +136,7 @@ serve(async (req: Request) => {
       .update({ status: newRequestStatus })
       .eq("id", fact.request_id);
 
-    // 5. Timeline event (Fix 3: use manual_action + action_code, Fix 4: use newFactId)
+    // 5. Timeline event (Fix 3: use manual_action + action_code, Fix 4: use injectedFactId)
     const actionCode = action === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
     const dedupeKey = `partner_fact_${action}:${fact_id}`;
     await serviceClient.from("case_timeline_events").insert({
@@ -151,7 +154,7 @@ serve(async (req: Request) => {
         fact_key: fact.fact_key,
         request_id: fact.request_id,
         new_request_status: newRequestStatus,
-        injected_fact_id: action === "validate" ? newFactId : null,
+        injected_fact_id: injectedFactId,
       },
     });
 
