@@ -1578,7 +1578,55 @@ Deno.serve(async (req) => {
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
 
-      // Update run as failed
+      // Phase EQ1.2-quinquies: detect recoverable exchange rate blocker
+      const errorMsg = String(engineError?.message || '');
+      const exchangeRateMatch = errorMsg.match(/Exchange rate for\s+([A-Z]{3})/i);
+      const isExchangeRateBlocker =
+        exchangeRateMatch && errorMsg.includes('expired or missing');
+
+      if (isExchangeRateBlocker) {
+        const missingCurrency = exchangeRateMatch[1]?.toUpperCase() || 'USD';
+        console.log(`[EQ1.2] Exchange rate blocker detected for ${missingCurrency}, returning soft blocker`);
+
+        // Record as blocked (not failed)
+        await serviceClient
+          .from("pricing_runs")
+          .update({
+            status: "blocked",
+            error_message: `Exchange rate for ${missingCurrency} expired or missing`,
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+          })
+          .eq("id", pricingRun.id);
+
+        await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "exchange_rate_blocked");
+
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "pricing_blocked",
+          event_data: {
+            blocker_code: "EXCHANGE_RATE_REQUIRED",
+            missing_currency: missingCurrency,
+            run_number: runNumber,
+          },
+          related_pricing_run_id: pricingRun.id,
+          actor_type: "system",
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            status: "blocked",
+            pricing_blockers: ["EXCHANGE_RATE_REQUIRED"],
+            missing_currency: missingCurrency,
+            message: `Aucun taux de change ${missingCurrency}/XOF valide n'est disponible.`,
+            pricing_run_id: pricingRun.id,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // All other engine errors: genuine failure (500)
       await serviceClient
         .from("pricing_runs")
         .update({
@@ -1589,7 +1637,6 @@ Deno.serve(async (req) => {
         })
         .eq("id", pricingRun.id);
 
-      // Rollback case to previous status (engine failed, allow retry)
       await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "engine_failed");
 
       await serviceClient.from("case_timeline_events").insert({

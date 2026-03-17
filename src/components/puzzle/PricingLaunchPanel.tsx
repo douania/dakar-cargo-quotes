@@ -76,22 +76,54 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       });
       
       if (fnError) {
-        const details =
-          (data && typeof data === 'object' && 'details' in data && typeof data.details === 'string' ? data.details : '') ||
-          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : '') ||
-          fnError.message ||
-          'Erreur lors du lancement du pricing';
+        // Phase EQ1.2-quinquies: extract real error body from FunctionsHttpError.context
+        let details = '';
+        if (fnError instanceof FunctionsHttpError) {
+          try {
+            const errorBody = await fnError.context.json();
+            details = 
+              (typeof errorBody?.details === 'string' ? errorBody.details : '') ||
+              (typeof errorBody?.error === 'string' ? errorBody.error : '') ||
+              fnError.message;
+          } catch {
+            try {
+              details = await fnError.context.text();
+            } catch {
+              details = fnError.message;
+            }
+          }
+        } else {
+          details =
+            (data && typeof data === 'object' && 'details' in data && typeof data.details === 'string' ? data.details : '') ||
+            (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : '') ||
+            fnError.message ||
+            'Erreur lors du lancement du pricing';
+        }
         throw new Error(details);
       }
 
       // Check for soft blockers (HTTP 200 but pricing blocked)
       if (data?.pricing_blockers?.length > 0) {
+        // Phase EQ1.2-quinquies: handle EXCHANGE_RATE_REQUIRED soft blocker
+        if (data.pricing_blockers.includes('EXCHANGE_RATE_REQUIRED')) {
+          const currency = data.missing_currency;
+          if (currency) {
+            setMissingCurrency(currency);
+            setShowRateModal(true);
+          } else {
+            setError(data.message || 'Un taux de change valide est requis avant de lancer le pricing.');
+          }
+          setConfirmOpen(false);
+          onComplete?.();
+          return;
+        }
+
         const blockerMsg = data.message || 'Données manquantes pour le pricing';
         setError(blockerMsg);
         toast.error(blockerMsg);
-      setConfirmOpen(false);
-      onComplete?.();  // refresh facts/gaps after run-pricing created blockers
-      return;
+        setConfirmOpen(false);
+        onComplete?.();
+        return;
       }
       
       toast.success(`Pricing lancé - ${data?.lines_count ?? 0} lignes calculées`);
@@ -103,11 +135,16 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       
       const message = String(err?.message || '');
 
-      // Intercept exchange rate error → open modal
-      if (message.includes('Exchange rate for')) {
-        const match = message.match(/Exchange rate for (\w+)/);
-        setMissingCurrency(match?.[1] || 'USD');
-        setShowRateModal(true);
+      // Intercept exchange rate error → open modal (legacy 500 path)
+      const exchangeRateMatch = message.match(/Exchange rate for\s+([A-Z]{3})/i);
+      if (exchangeRateMatch && message.includes('expired or missing')) {
+        const currency = exchangeRateMatch[1]?.toUpperCase();
+        if (currency) {
+          setMissingCurrency(currency);
+          setShowRateModal(true);
+        } else {
+          setError('Un taux de change valide est requis, devise non identifiée.');
+        }
         setConfirmOpen(false);
         setIsLoading(false);
         return;
@@ -118,11 +155,11 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       } else if (message.includes('Access denied')) {
         setError('Vous n\'avez pas accès à ce dossier');
       } else {
-      setError(message);
+        setError(message);
       }
       
       toast.error(message || 'Erreur lors du lancement du pricing');
-      onComplete?.();  // refresh gaps after hard guard 400
+      onComplete?.();
     } finally {
       setIsLoading(false);
     }
