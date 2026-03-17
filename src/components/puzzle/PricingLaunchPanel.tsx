@@ -120,7 +120,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       setError(message);
       }
       
-      toast.error('Erreur lors du lancement du pricing');
+      toast.error(message || 'Erreur lors du lancement du pricing');
       onComplete?.();  // refresh gaps after hard guard 400
     } finally {
       setIsLoading(false);
