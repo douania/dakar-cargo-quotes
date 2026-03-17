@@ -1194,6 +1194,196 @@ export type Database = {
         }
         Relationships: []
       }
+      external_quote_requests: {
+        Row: {
+          case_id: string
+          created_at: string
+          created_by: string | null
+          due_at: string | null
+          id: string
+          partner_email: string | null
+          partner_name: string
+          purpose: string
+          purpose_detail: string | null
+          related_lot_index: number | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          created_by?: string | null
+          due_at?: string | null
+          id?: string
+          partner_email?: string | null
+          partner_name: string
+          purpose: string
+          purpose_detail?: string | null
+          related_lot_index?: number | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          created_by?: string | null
+          due_at?: string | null
+          id?: string
+          partner_email?: string | null
+          partner_name?: string
+          purpose?: string
+          purpose_detail?: string | null
+          related_lot_index?: number | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_quote_requests_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_quote_response_facts: {
+        Row: {
+          case_id: string
+          confidence: number
+          created_at: string
+          currency: string | null
+          fact_key: string
+          id: string
+          injected_fact_id: string | null
+          proposed_value_number: number | null
+          proposed_value_text: string | null
+          request_id: string
+          response_id: string
+          source_excerpt: string | null
+          validated_at: string | null
+          validated_by: string | null
+          validation_status: string
+        }
+        Insert: {
+          case_id: string
+          confidence?: number
+          created_at?: string
+          currency?: string | null
+          fact_key: string
+          id?: string
+          injected_fact_id?: string | null
+          proposed_value_number?: number | null
+          proposed_value_text?: string | null
+          request_id: string
+          response_id: string
+          source_excerpt?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          validation_status?: string
+        }
+        Update: {
+          case_id?: string
+          confidence?: number
+          created_at?: string
+          currency?: string | null
+          fact_key?: string
+          id?: string
+          injected_fact_id?: string | null
+          proposed_value_number?: number | null
+          proposed_value_text?: string | null
+          request_id?: string
+          response_id?: string
+          source_excerpt?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          validation_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_quote_response_facts_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_quote_response_facts_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "external_quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_quote_response_facts_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: false
+            referencedRelation: "external_quote_responses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_quote_responses: {
+        Row: {
+          analyzed_at: string | null
+          case_id: string
+          created_at: string
+          id: string
+          raw_excerpt: string | null
+          received_at: string
+          request_id: string
+          source_email_id: string | null
+          status: string
+        }
+        Insert: {
+          analyzed_at?: string | null
+          case_id: string
+          created_at?: string
+          id?: string
+          raw_excerpt?: string | null
+          received_at?: string
+          request_id: string
+          source_email_id?: string | null
+          status?: string
+        }
+        Update: {
+          analyzed_at?: string | null
+          case_id?: string
+          created_at?: string
+          id?: string
+          raw_excerpt?: string | null
+          received_at?: string
+          request_id?: string
+          source_email_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_quote_responses_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_quote_responses_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "external_quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_quote_responses_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fuel_price_tracking: {
         Row: {
           country: string
