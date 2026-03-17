@@ -85,11 +85,29 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
+  const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
     purpose: "",
     purpose_detail: "",
+  });
+
+  // Load thread emails for the analysis dropdown
+  const { data: threadEmails = [] } = useQuery({
+    queryKey: ["thread-emails-for-analysis", threadId],
+    queryFn: async () => {
+      if (!threadId) return [];
+      const { data, error } = await supabase
+        .from("emails")
+        .select("id, subject, from_address, received_at")
+        .eq("thread_ref", threadId)
+        .order("received_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data || []) as Array<{ id: string; subject: string | null; from_address: string; received_at: string | null }>;
+    },
+    enabled: !!threadId,
   });
 
   const toggleExpanded = (id: string) => {
