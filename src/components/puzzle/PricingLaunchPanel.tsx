@@ -74,7 +74,14 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         body: { case_id: caseId }
       });
       
-      if (fnError) throw fnError;
+      if (fnError) {
+        const details =
+          (data && typeof data === 'object' && 'details' in data && typeof data.details === 'string' ? data.details : '') ||
+          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : '') ||
+          fnError.message ||
+          'Erreur lors du lancement du pricing';
+        throw new Error(details);
+      }
 
       // Check for soft blockers (HTTP 200 but pricing blocked)
       if (data?.pricing_blockers?.length > 0) {
