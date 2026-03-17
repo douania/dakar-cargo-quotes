@@ -283,6 +283,48 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         Marquer envoyée
                       </Button>
                     )}
+                    {/* Fix 1: Trigger analysis — available when request is sent or response_received */}
+                    {["sent", "response_received"].includes(req.status) && threadEmails.length > 0 && (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={analysisTarget?.requestId === req.id ? analysisTarget.emailId : ""}
+                          onValueChange={(emailId) => setAnalysisTarget({ requestId: req.id, emailId })}
+                        >
+                          <SelectTrigger className="h-8 w-[220px] text-xs">
+                            <SelectValue placeholder="Choisir un email…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {threadEmails.map((e) => (
+                              <SelectItem key={e.id} value={e.id} className="text-xs">
+                                {e.from_address.split("@")[0]} — {(e.subject || "(sans sujet)").slice(0, 40)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            !analysisTarget || analysisTarget.requestId !== req.id || triggerAnalysis.isPending
+                          }
+                          onClick={() => {
+                            if (analysisTarget && analysisTarget.requestId === req.id) {
+                              triggerAnalysis.mutate(
+                                { request_id: req.id, email_id: analysisTarget.emailId },
+                                { onSuccess: () => setAnalysisTarget(null) }
+                              );
+                            }
+                          }}
+                        >
+                          {triggerAnalysis.isPending && analysisTarget?.requestId === req.id ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Search className="h-3 w-3 mr-1" />
+                          )}
+                          Analyser
+                        </Button>
+                      </div>
+                    )}
                     {req.status !== "closed" && req.status !== "facts_validated" && (
                       <Button
                         size="sm"
