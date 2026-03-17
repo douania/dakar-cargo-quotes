@@ -130,7 +130,7 @@ export function useExternalRequests(caseId: string | undefined) {
       if (error) throw error;
       const result = data as unknown as { id: string };
 
-      // Fix 2: Emit external_request_created timeline event
+      // Emit external_request_created timeline event
       if (result?.id && caseId) {
         await supabase
           .from("case_timeline_events" as any)
@@ -159,6 +159,7 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
+  // P1-1: Timeline event for marking request as sent
   const markAsSent = useMutation({
     mutationFn: async (requestId: string) => {
       const { error } = await supabase
@@ -166,6 +167,27 @@ export function useExternalRequests(caseId: string | undefined) {
         .update({ status: "sent", sent_at: new Date().toISOString() } as any)
         .eq("id", requestId);
       if (error) throw error;
+
+      // Timeline event with dedupe_key
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
+      const req = requests.find((r) => r.id === requestId);
+      await supabase
+        .from("case_timeline_events" as any)
+        .insert({
+          case_id: caseId,
+          event_type: "manual_action",
+          actor_type: "operator",
+          actor_user_id: userId,
+          new_value: `Demande partenaire envoyée: ${req?.partner_name || requestId}`,
+          event_data: {
+            dedupe_key: `external_request_marked_sent:${requestId}`,
+            action_code: "PARTNER_REQUEST_MARKED_SENT",
+            status: "done",
+            request_id: requestId,
+            partner_name: req?.partner_name || null,
+          },
+        } as any);
     },
     onSuccess: () => {
       toast.success("Demande marquée comme envoyée");
@@ -231,6 +253,7 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
+  // P1-1: Timeline event for closing request
   const closeRequest = useMutation({
     mutationFn: async (requestId: string) => {
       const { error } = await supabase
@@ -238,6 +261,27 @@ export function useExternalRequests(caseId: string | undefined) {
         .update({ status: "closed" } as any)
         .eq("id", requestId);
       if (error) throw error;
+
+      // Timeline event with dedupe_key
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
+      const req = requests.find((r) => r.id === requestId);
+      await supabase
+        .from("case_timeline_events" as any)
+        .insert({
+          case_id: caseId,
+          event_type: "manual_action",
+          actor_type: "operator",
+          actor_user_id: userId,
+          new_value: `Demande partenaire clôturée: ${req?.partner_name || requestId}`,
+          event_data: {
+            dedupe_key: `external_request_closed:${requestId}`,
+            action_code: "PARTNER_REQUEST_CLOSED",
+            status: "done",
+            request_id: requestId,
+            partner_name: req?.partner_name || null,
+          },
+        } as any);
     },
     onSuccess: () => {
       toast.info("Demande clôturée");

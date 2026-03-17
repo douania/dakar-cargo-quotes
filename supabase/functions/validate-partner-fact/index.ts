@@ -1,11 +1,11 @@
-// Phase EQ1 — Validate or reject a partner-proposed fact
+// Phase EQ1.2 — Validate or reject a partner-proposed fact
 // SECURITY: requireUser is mandatory because verify_jwt=false
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 
-// Mapping fact_key → fact_category for supersede_fact RPC
+// P2-1: Extended mapping fact_key → fact_category for supersede_fact RPC
 const FACT_KEY_CATEGORIES: Record<string, string> = {
   "cargo.": "cargo",
   "routing.": "routing",
@@ -13,6 +13,11 @@ const FACT_KEY_CATEGORIES: Record<string, string> = {
   "service.": "service",
   "client.": "client",
   "regulatory.": "regulatory",
+  "timing.": "timing",
+  "pricing.": "pricing",
+  "documents.": "documents",
+  "contacts.": "contacts",
+  "other.": "other",
 };
 
 function inferCategory(factKey: string): string {
@@ -70,28 +75,64 @@ serve(async (req: Request) => {
     let injectedFactId: string | null = null;
 
     if (action === "validate") {
-      // 2. Call supersede_fact to inject into quote_facts
       const category = inferCategory(fact.fact_key);
-      const { data: newFactId, error: rpcErr } = await serviceClient.rpc("supersede_fact", {
-        p_case_id: fact.case_id,
-        p_fact_key: fact.fact_key,
-        p_fact_category: category,
-        p_value_text: fact.proposed_value_text,
-        p_value_number: fact.proposed_value_number,
-        p_source_type: "partner_response",
-        p_source_excerpt: fact.source_excerpt,
-        p_confidence: fact.confidence ?? 0.8,
-      });
 
-      if (rpcErr) {
-        console.error("[validate-partner-fact] supersede_fact RPC failed:", rpcErr.message);
-        return errorResponse("Failed to inject fact", 500);
+      // P0-3: Exact-match replay guard — check if identical fact already exists in quote_facts
+      let replayQuery = serviceClient
+        .from("quote_facts")
+        .select("id")
+        .eq("case_id", fact.case_id)
+        .eq("fact_key", fact.fact_key)
+        .eq("source_type", "partner_response")
+        .eq("is_current", true);
+
+      // IS NOT DISTINCT FROM semantics
+      if (fact.proposed_value_text != null) {
+        replayQuery = replayQuery.eq("value_text", fact.proposed_value_text);
+      } else {
+        replayQuery = replayQuery.is("value_text", null);
+      }
+      if (fact.proposed_value_number != null) {
+        replayQuery = replayQuery.eq("value_number", fact.proposed_value_number);
+      } else {
+        replayQuery = replayQuery.is("value_number", null);
+      }
+      if (fact.source_excerpt != null) {
+        replayQuery = replayQuery.eq("source_excerpt", fact.source_excerpt);
+      } else {
+        replayQuery = replayQuery.is("source_excerpt", null);
       }
 
-      injectedFactId = newFactId;
+      const { data: existingFact } = await replayQuery.maybeSingle();
 
-      // 3. Update proposed fact
-      await serviceClient
+      if (existingFact) {
+        // Replay hit: reuse existing fact, skip supersede_fact
+        console.log(`[validate-partner-fact] Replay guard hit: reusing quote_facts.id=${existingFact.id}`);
+        injectedFactId = existingFact.id;
+      } else {
+        // No replay: call supersede_fact RPC
+        const { data: newFactId, error: rpcErr } = await serviceClient.rpc("supersede_fact", {
+          p_case_id: fact.case_id,
+          p_fact_key: fact.fact_key,
+          p_fact_category: category,
+          p_value_text: fact.proposed_value_text,
+          p_value_number: fact.proposed_value_number,
+          p_source_type: "partner_response",
+          p_source_excerpt: fact.source_excerpt,
+          p_confidence: fact.confidence ?? 0.8,
+        });
+
+        if (rpcErr) {
+          console.error("[validate-partner-fact] supersede_fact RPC failed:", rpcErr.message);
+          return errorResponse("Failed to inject fact", 500);
+        }
+
+        injectedFactId = newFactId;
+      }
+
+      // 3. Update proposed fact — CRITICAL: must succeed
+      // CTO micro-adjustment: always update validation_status even on replay guard hit
+      const { error: factUpdateErr } = await serviceClient
         .from("external_quote_response_facts")
         .update({
           validation_status: "validated",
@@ -100,9 +141,14 @@ serve(async (req: Request) => {
           injected_fact_id: injectedFactId,
         })
         .eq("id", fact_id);
+
+      if (factUpdateErr) {
+        console.error("[validate-partner-fact] Fact update failed:", factUpdateErr.message);
+        return errorResponse("Failed to update proposed fact status", 500);
+      }
     } else {
-      // reject
-      await serviceClient
+      // reject — CRITICAL: must succeed
+      const { error: rejectUpdateErr } = await serviceClient
         .from("external_quote_response_facts")
         .update({
           validation_status: "rejected",
@@ -110,6 +156,11 @@ serve(async (req: Request) => {
           validated_at: new Date().toISOString(),
         })
         .eq("id", fact_id);
+
+      if (rejectUpdateErr) {
+        console.error("[validate-partner-fact] Reject update failed:", rejectUpdateErr.message);
+        return errorResponse("Failed to update proposed fact status", 500);
+      }
     }
 
     // 4. Compute request status
@@ -118,9 +169,9 @@ serve(async (req: Request) => {
       .select("validation_status")
       .eq("request_id", fact.request_id);
 
-    const statuses = (allFacts ?? []).map((f) => f.validation_status);
-    const proposedCount = statuses.filter((s) => s === "proposed").length;
-    const validatedCount = statuses.filter((s) => s === "validated").length;
+    const statuses = (allFacts ?? []).map((f: Record<string, unknown>) => f.validation_status);
+    const proposedCount = statuses.filter((s: unknown) => s === "proposed").length;
+    const validatedCount = statuses.filter((s: unknown) => s === "validated").length;
 
     let newRequestStatus: string;
     if (proposedCount === 0 && validatedCount > 0) {
@@ -131,15 +182,21 @@ serve(async (req: Request) => {
       newRequestStatus = "partially_validated";
     }
 
-    await serviceClient
+    // P0-3: Request status update is CRITICAL — fail if error
+    const { error: requestUpdateErr } = await serviceClient
       .from("external_quote_requests")
       .update({ status: newRequestStatus })
       .eq("id", fact.request_id);
 
-    // 5. Timeline event (Fix 3: use manual_action + action_code, Fix 4: use injectedFactId)
+    if (requestUpdateErr) {
+      console.error("[validate-partner-fact] Request status update failed:", requestUpdateErr.message);
+      return errorResponse("Failed to update request status", 500);
+    }
+
+    // 5. Timeline event — NON-CRITICAL: log only
     const actionCode = action === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
     const dedupeKey = `partner_fact_${action}:${fact_id}`;
-    await serviceClient.from("case_timeline_events").insert({
+    const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({
       case_id: fact.case_id,
       event_type: "manual_action",
       actor_type: "operator",
@@ -157,6 +214,10 @@ serve(async (req: Request) => {
         injected_fact_id: injectedFactId,
       },
     });
+
+    if (timelineErr) {
+      console.warn("[validate-partner-fact] Timeline insert failed (non-critical):", timelineErr.message);
+    }
 
     return jsonResponse({
       ok: true,

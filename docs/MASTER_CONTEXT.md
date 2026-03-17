@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.0
-Phase: C2 — Conversation Engine
-Latest patch: S3 — Decision Workflow Repair
+Version: 1.1
+Phase: EQ1.2 — External Quote Requests Hardening
+Latest patch: EQ1.2 — P0 hardening + P1 completeness
 Date: 2026-03
 
 ---
@@ -13,6 +13,7 @@ Date: 2026-03
 - Blockers Policy v1 active
 - Timeline CHECK constraint corrigée (29 valeurs)
 - Silent failures corrigés
+- Module EQ1 (External Quote Requests) stabilisé et hardened
 
 ---
 
@@ -27,8 +28,10 @@ Date: 2026-03
 - verify_jwt=false + requireUser (pattern Lovable Cloud)
 - Security contract opérationnel: docs/SECURITY_CONTRACT.md (subordonné à ce document)
 - Status registry opérationnel: docs/STATUS_REGISTRY.md (subordonné à ce document)
-- Phase S3: DECISIONS_PENDING restauré comme état canonique (writer: build-case-puzzle). build-case-puzzle protège DECISIONS_PENDING/DECISIONS_COMPLETE contre rétrogradation. commit-decision reste seul writer de DECISIONS_COMPLETE. ack-pricing-ready reste seul writer de ACK_READY_FOR_PRICING. READY_TO_PRICE passe en legacy (encore accepté par run-pricing pour compat).
-- Phase P4: build-case-puzzle introduit une détection d'ambiguïté. Cas clairs (detectedType connu, pas d'ambiguïté LCL/FCL, service.package présent) → READY_TO_PRICE directement. Cas ambigus → DECISIONS_PENDING. READY_TO_PRICE redevient un writer actif de compatibilité via build-case-puzzle. ACK_READY_FOR_PRICING reste exclusivement écrit par ack-pricing-ready.
+- Phase S3: DECISIONS_PENDING restauré comme état canonique
+- Phase P4: build-case-puzzle introduit une détection d'ambiguïté
+- Phase EQ1: Module External Quote Requests — workflow latéral pour demandes partenaires. Injection dans quote_facts via supersede_fact RPC uniquement. Validation humaine obligatoire.
+- Phase EQ1.2: Hardening P0 — email thread/sender guard (normalizeEmail strict equality), fail-fast on facts insert, exact-match replay guard, critical error hierarchy.
 
 ---
 
@@ -39,6 +42,18 @@ Stockage : event_type = thread_intent_v1
 Parsing : extractAndParseJSON (maxLogChars=500)  
 Insert via serviceClient  
 SELECT via userClient  
+
+---
+
+## Module EQ1
+
+Edge functions : analyze-partner-response, validate-partner-fact  
+Tables : external_quote_requests, external_quote_responses, external_quote_response_facts  
+Hook : useExternalRequests  
+UI : ExternalRequestsPanel  
+Injection : via supersede_fact RPC (pas de write direct dans quote_facts)  
+Validation : humaine obligatoire, pas d'auto-merge  
+Idempotence : UNIQUE (request_id, source_email_id) + facts-existence guard + exact-match replay guard  
 
 ---
 
@@ -75,13 +90,4 @@ Un patch structurel ciblé peut être accepté, y compris sur une zone sensible/
 2. il reste localisé à un périmètre réduit
 3. il ne constitue pas un refactor global
 4. il préserve le pipeline existant, l'idempotence, la traçabilité et l'intégrité des données
-5. il est justifié explicitement avant exécution sous le format :
-   - Problème métier réel
-   - Pourquoi le patch est structurel
-   - Pourquoi il reste localisé
-   - Pourquoi ce n'est pas un refactor global
-   - Risques
-   - Tests minimums
-
-Quand un patch touche une zone FROZEN, il est interdit par défaut.
-Il ne peut être accepté que s'il est explicitement présenté comme STRUCTURAL_PATCH_ALLOWED et validé par le CTO avant exécution.
+5. il est justifié explicitement avant exécution
