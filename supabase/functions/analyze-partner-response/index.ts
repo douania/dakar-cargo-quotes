@@ -128,7 +128,6 @@ serve(async (req: Request) => {
       if (!existing) return errorResponse("Response conflict but not found", 500);
 
       if (existing.status === "analyzed" || existing.status === "reviewed") {
-        // Already analyzed — return existing facts
         const { data: existingFacts } = await serviceClient
           .from("external_quote_response_facts")
           .select("*")
@@ -147,6 +146,27 @@ serve(async (req: Request) => {
       return errorResponse("Failed to create response record", 500);
     } else {
       responseId = inserted!.id;
+    }
+
+    // Fix 5: Anti-duplication guard — if facts already exist for this responseId, return idempotent
+    const { data: existingFactsForResponse } = await serviceClient
+      .from("external_quote_response_facts")
+      .select("id")
+      .eq("response_id", responseId)
+      .limit(1);
+
+    if (existingFactsForResponse && existingFactsForResponse.length > 0) {
+      const { data: allExistingFacts } = await serviceClient
+        .from("external_quote_response_facts")
+        .select("*")
+        .eq("response_id", responseId);
+
+      return jsonResponse({
+        ok: true,
+        idempotent: true,
+        response_id: responseId,
+        facts: allExistingFacts || [],
+      });
     }
 
     // 4. Update request status → response_received (if still sent)

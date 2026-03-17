@@ -133,20 +133,25 @@ serve(async (req: Request) => {
       .update({ status: newRequestStatus })
       .eq("id", fact.request_id);
 
-    // 5. Timeline event
+    // 5. Timeline event (Fix 3: use manual_action + action_code, Fix 4: use newFactId)
+    const actionCode = action === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
+    const dedupeKey = `partner_fact_${action}:${fact_id}`;
     await serviceClient.from("case_timeline_events").insert({
       case_id: fact.case_id,
-      event_type: "external_response_analyzed",
+      event_type: "manual_action",
       actor_type: "operator",
       actor_user_id: userId,
       new_value: `${action === "validate" ? "Validé" : "Rejeté"}: ${fact.fact_key}`,
       event_data: {
+        dedupe_key: dedupeKey,
+        action_code: actionCode,
+        status: "done",
         action,
         fact_id,
         fact_key: fact.fact_key,
         request_id: fact.request_id,
         new_request_status: newRequestStatus,
-        injected_fact_id: action === "validate" ? fact.injected_fact_id : null,
+        injected_fact_id: action === "validate" ? newFactId : null,
       },
     });
 

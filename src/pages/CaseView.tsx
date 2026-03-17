@@ -2023,7 +2023,7 @@ export default function CaseView() {
         {/* Phase EQ1: External partner requests panel */}
         {caseId && (
           <div className="mb-6">
-            <ExternalRequestsPanel caseId={caseId} />
+            <ExternalRequestsPanel caseId={caseId} threadId={caseData?.thread_id} />
           </div>
         )}
 

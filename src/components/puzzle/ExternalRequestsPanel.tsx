@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +17,11 @@ import {
   ChevronDown,
   ChevronRight,
   Package,
+  Search,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
+import { supabase } from "@/integrations/supabase/client";
 import {
   useExternalRequests,
   type ExternalRequest,
@@ -63,9 +66,10 @@ const VALIDATION_COLORS: Record<string, string> = {
 
 interface Props {
   caseId: string;
+  threadId?: string | null;
 }
 
-export function ExternalRequestsPanel({ caseId }: Props) {
+export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const {
     requests,
     responses,
@@ -73,6 +77,7 @@ export function ExternalRequestsPanel({ caseId }: Props) {
     isLoading,
     createRequest,
     markAsSent,
+    triggerAnalysis,
     validateFact,
     rejectFact,
     closeRequest,
@@ -80,11 +85,29 @@ export function ExternalRequestsPanel({ caseId }: Props) {
 
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
+  const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
     purpose: "",
     purpose_detail: "",
+  });
+
+  // Load thread emails for the analysis dropdown
+  const { data: threadEmails = [] } = useQuery({
+    queryKey: ["thread-emails-for-analysis", threadId],
+    queryFn: async () => {
+      if (!threadId) return [];
+      const { data, error } = await supabase
+        .from("emails")
+        .select("id, subject, from_address, received_at")
+        .eq("thread_ref", threadId)
+        .order("received_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data || []) as Array<{ id: string; subject: string | null; from_address: string; received_at: string | null }>;
+    },
+    enabled: !!threadId,
   });
 
   const toggleExpanded = (id: string) => {
@@ -259,6 +282,48 @@ export function ExternalRequestsPanel({ caseId }: Props) {
                         <Send className="h-3 w-3 mr-1" />
                         Marquer envoyée
                       </Button>
+                    )}
+                    {/* Fix 1: Trigger analysis — available when request is sent or response_received */}
+                    {["sent", "response_received"].includes(req.status) && threadEmails.length > 0 && (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={analysisTarget?.requestId === req.id ? analysisTarget.emailId : ""}
+                          onValueChange={(emailId) => setAnalysisTarget({ requestId: req.id, emailId })}
+                        >
+                          <SelectTrigger className="h-8 w-[220px] text-xs">
+                            <SelectValue placeholder="Choisir un email…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {threadEmails.map((e) => (
+                              <SelectItem key={e.id} value={e.id} className="text-xs">
+                                {e.from_address.split("@")[0]} — {(e.subject || "(sans sujet)").slice(0, 40)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            !analysisTarget || analysisTarget.requestId !== req.id || triggerAnalysis.isPending
+                          }
+                          onClick={() => {
+                            if (analysisTarget && analysisTarget.requestId === req.id) {
+                              triggerAnalysis.mutate(
+                                { request_id: req.id, email_id: analysisTarget.emailId },
+                                { onSuccess: () => setAnalysisTarget(null) }
+                              );
+                            }
+                          }}
+                        >
+                          {triggerAnalysis.isPending && analysisTarget?.requestId === req.id ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Search className="h-3 w-3 mr-1" />
+                          )}
+                          Analyser
+                        </Button>
+                      </div>
                     )}
                     {req.status !== "closed" && req.status !== "facts_validated" && (
                       <Button

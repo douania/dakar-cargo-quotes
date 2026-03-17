@@ -112,6 +112,7 @@ export function useExternalRequests(caseId: string | undefined) {
       related_lot_index?: number;
     }) => {
       const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
       const { data, error } = await supabase
         .from("external_quote_requests" as any)
         .insert({
@@ -121,13 +122,33 @@ export function useExternalRequests(caseId: string | undefined) {
           purpose: params.purpose,
           purpose_detail: params.purpose_detail || null,
           related_lot_index: params.related_lot_index ?? null,
-          created_by: session?.user?.id || null,
+          created_by: userId,
           status: "draft",
         } as any)
         .select("id")
         .single();
       if (error) throw error;
-      return data;
+      const result = data as unknown as { id: string };
+
+      // Fix 2: Emit external_request_created timeline event
+      if (result?.id && caseId) {
+        await supabase
+          .from("case_timeline_events" as any)
+          .insert({
+            case_id: caseId,
+            event_type: "external_request_created",
+            actor_type: "operator",
+            actor_user_id: userId,
+            new_value: `Demande partenaire: ${params.partner_name} (${params.purpose})`,
+            event_data: {
+              request_id: result.id,
+              partner_name: params.partner_name,
+              purpose: params.purpose,
+              related_lot_index: params.related_lot_index ?? null,
+            },
+          } as any);
+      }
+      return result;
     },
     onSuccess: () => {
       toast.success("Demande partenaire créée");
