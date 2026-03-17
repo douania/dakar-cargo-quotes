@@ -2020,6 +2020,13 @@ export default function CaseView() {
           </div>
         )}
 
+        {/* Phase EQ1: External partner requests panel */}
+        {caseId && (
+          <div className="mb-6">
+            <ExternalRequestsPanel caseId={caseId} />
+          </div>
+        )}
+
         {/* Pricing Launch Panel — visible for pricing-eligible statuses */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
