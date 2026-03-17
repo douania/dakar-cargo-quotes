@@ -100,7 +100,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
     } catch (err: any) {
       console.error('[PricingLaunchPanel] Error:', err);
       
-      const message = err.message || '';
+      const message = String(err?.message || '');
 
       // Intercept exchange rate error → open modal
       if (message.includes('Exchange rate for')) {
