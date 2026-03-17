@@ -1821,10 +1821,16 @@ export default function CaseView() {
 
                     if (recentRun?.status !== "running" && recentRun?.status !== "success") {
                       toast.info("Tous les gaps résolus — lancement automatique du pricing…");
-                      await supabase.functions.invoke("run-pricing", {
+                      const { data: pricingResult, error: pricingError } = await supabase.functions.invoke("run-pricing", {
                         body: { case_id: caseId },
                       });
-                      toast.success("Pricing lancé automatiquement");
+                      if (pricingError || pricingResult?.pricing_blockers?.length > 0) {
+                        const reason = pricingResult?.message || pricingError?.message || 'Pricing bloqué';
+                        console.warn("[auto-pricing] blocked or failed:", reason);
+                        toast.warning(reason);
+                      } else {
+                        toast.success("Pricing lancé automatiquement");
+                      }
                       await handleRefresh();
                     }
                   }
