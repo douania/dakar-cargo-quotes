@@ -172,6 +172,14 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
   const matchedByDescription = new Set<string>();
 
   for (const line of engineLines) {
+    // P6.1: Always capture rawCategory for diagnostics BEFORE canonical shortcuts
+    const rawCategory = typeof line?.category === 'string' ? line.category : '';
+    const rawDescription = typeof line?.description === 'string' ? line.description : '';
+
+    if (rawCategory) {
+      categoriesSeen.add(rawCategory);
+    }
+
     // P6: prefer canonical fields first
     const canonicalDedupGroup = line?.canonical?.dedup_group;
     const canonicalServiceKey = line?.canonical?.service_key;
@@ -186,14 +194,6 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
     if (typeof canonicalServiceKey === 'string' && canonicalServiceKey) {
       covered.add(canonicalServiceKey);
       continue;
-    }
-
-    // Fallback: text-based matching (backward compat for non-canonicalized lines)
-    const rawCategory = typeof line?.category === 'string' ? line.category : '';
-    const rawDescription = typeof line?.description === 'string' ? line.description : '';
-
-    if (rawCategory) {
-      categoriesSeen.add(rawCategory);
     }
 
     const normalizedCategory = normalizePricingText(rawCategory);
@@ -298,6 +298,19 @@ const ENGINE_SOURCE_TYPE_TO_TABLE: Record<string, string> = {
   'OFFICIAL': 'port_tariffs',
 };
 
+/**
+ * P6.1: Conservative normalizer for source.type — strips only `+suffix` and `:suffix`.
+ * Returns null for non-string or empty input. Does NOT split on whitespace or semicolons.
+ */
+function normalizeSourceType(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withoutPlus = trimmed.split('+')[0];
+  const base = withoutPlus.split(':')[0];
+  return base || null;
+}
+
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
@@ -341,10 +354,10 @@ function canonicalizeLine(
     canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
     canonical.source_system = 'quotation-engine';
 
-    const sourceType = line?.source?.type;
-    if (typeof sourceType === 'string') {
-      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[sourceType] || null;
-      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    const normalizedSrcType = normalizeSourceType(line?.source?.type);
+    if (normalizedSrcType) {
+      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[normalizedSrcType] || null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
   } else if (context.origin_layer === 'package_enrichment') {
     // P5 lines: category is already the service_key
@@ -353,10 +366,10 @@ function canonicalizeLine(
     canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
     canonical.source_system = 'price-service-lines';
 
-    const sourceType = line?.source?.type;
-    if (typeof sourceType === 'string') {
-      canonical.source_table = sourceType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
-      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    const normalizedSrcType = normalizeSourceType(line?.source?.type);
+    if (normalizedSrcType) {
+      canonical.source_table = normalizedSrcType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
   }
 
