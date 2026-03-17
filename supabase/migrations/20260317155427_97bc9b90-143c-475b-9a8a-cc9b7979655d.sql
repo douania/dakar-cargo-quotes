@@ -1,0 +1,1 @@
+UPDATE public.quote_gaps SET is_blocking = false WHERE case_id = '15462edd-23f7-494c-b581-5569cf26e357' AND gap_key = 'contacts.client_email' AND is_blocking = true;
