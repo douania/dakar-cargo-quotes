@@ -1,4 +1,4 @@
-// Phase EQ1 — Analyze partner response email and extract proposed facts
+// Phase EQ1.2 — Analyze partner response email and extract proposed facts
 // SECURITY: requireUser is mandatory because verify_jwt=false
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -6,6 +6,13 @@ import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+
+// P0-1: Defensive email normalizer — extracts bare address from "Name <addr>" format
+function normalizeEmail(raw: unknown): string {
+  const s = String(raw || "").trim();
+  const match = s.match(/<([^>]+)>/);
+  return (match ? match[1] : s).trim().toLowerCase();
+}
 
 // Purpose-aware extraction prompts
 const PURPOSE_PROMPTS: Record<string, string> = {
@@ -82,24 +89,48 @@ serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
-    // 1. Load request
+    // 1. Load request (P0-1: include partner_email)
     const { data: extReq, error: reqErr } = await userClient
       .from("external_quote_requests")
-      .select("id, purpose, partner_name, case_id")
+      .select("id, purpose, partner_name, partner_email, case_id")
       .eq("id", request_id)
       .eq("case_id", case_id)
       .maybeSingle();
 
     if (reqErr || !extReq) return errorResponse("External request not found", 404);
 
-    // 2. Load email
+    // 2. Load email (P0-1: include thread_ref)
     const { data: email, error: emailErr } = await userClient
       .from("emails")
-      .select("id, body_text, subject, from_address")
+      .select("id, body_text, subject, from_address, thread_ref")
       .eq("id", email_id)
       .maybeSingle();
 
     if (emailErr || !email) return errorResponse("Email not found", 404);
+
+    // P0-1: Thread validation guard
+    const { data: quoteCase, error: caseErr } = await serviceClient
+      .from("quote_cases")
+      .select("thread_id")
+      .eq("id", case_id)
+      .maybeSingle();
+
+    if (caseErr || !quoteCase) return errorResponse("Quote case not found", 404);
+
+    if (quoteCase.thread_id && email.thread_ref && email.thread_ref !== quoteCase.thread_id) {
+      console.warn(`[analyze-partner-response] Thread mismatch: email.thread_ref=${email.thread_ref} vs case.thread_id=${quoteCase.thread_id}`);
+      return errorResponse("Email does not belong to this case's thread", 403);
+    }
+
+    // P0-1: Sender validation guard (strict equality, skip if partner_email not set)
+    if (extReq.partner_email) {
+      const normalizedSender = normalizeEmail(email.from_address);
+      const normalizedPartner = normalizeEmail(extReq.partner_email);
+      if (normalizedSender !== normalizedPartner) {
+        console.warn(`[analyze-partner-response] Sender mismatch: from=${normalizedSender} vs partner=${normalizedPartner}`);
+        return errorResponse("Email sender does not match partner", 403);
+      }
+    }
 
     // 3. Idempotence: ON CONFLICT returns nothing, then we fetch existing
     const { data: inserted, error: insertErr } = await serviceClient
@@ -148,7 +179,7 @@ serve(async (req: Request) => {
       responseId = inserted!.id;
     }
 
-    // Fix 5: Anti-duplication guard — if facts already exist for this responseId, return idempotent
+    // Anti-duplication guard — if facts already exist for this responseId, return idempotent
     const { data: existingFactsForResponse } = await serviceClient
       .from("external_quote_response_facts")
       .select("id")
@@ -231,6 +262,7 @@ ${email.body_text || "(corps vide)"}`;
         validation_status: "proposed",
       }));
 
+    // P0-2: Fail-fast if facts insert fails — do NOT promote statuses
     if (validFacts.length > 0) {
       const { error: factsErr } = await serviceClient
         .from("external_quote_response_facts")
@@ -238,10 +270,11 @@ ${email.body_text || "(corps vide)"}`;
 
       if (factsErr) {
         console.error("[analyze-partner-response] Facts insert failed:", factsErr.message);
+        return errorResponse("Failed to insert proposed facts", 500);
       }
     }
 
-    // 7. Update response status → analyzed
+    // 7. Update response status → analyzed (only reached if facts insert succeeded)
     await serviceClient
       .from("external_quote_responses")
       .update({ status: "analyzed", analyzed_at: new Date().toISOString() })

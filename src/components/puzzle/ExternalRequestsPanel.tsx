@@ -196,12 +196,25 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                 ))}
               </SelectContent>
             </Select>
-            <Textarea
-              placeholder="Détails supplémentaires (optionnel)"
-              value={formData.purpose_detail}
-              onChange={(e) => setFormData({ ...formData, purpose_detail: e.target.value })}
-              rows={2}
-            />
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Textarea
+                placeholder="Détails supplémentaires (optionnel)"
+                value={formData.purpose_detail}
+                onChange={(e) => setFormData({ ...formData, purpose_detail: e.target.value })}
+                rows={2}
+              />
+              <Input
+                type="number"
+                min={1}
+                placeholder="Lot #"
+                className="w-20 h-8"
+                value={formData.related_lot_index ?? ""}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  related_lot_index: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                })}
+              />
+            </div>
             <div className="flex gap-2 justify-end">
               <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>
                 Annuler
