@@ -354,10 +354,10 @@ function canonicalizeLine(
     canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
     canonical.source_system = 'quotation-engine';
 
-    const sourceType = line?.source?.type;
-    if (typeof sourceType === 'string') {
-      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[sourceType] || null;
-      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    const normalizedSrcType = normalizeSourceType(line?.source?.type);
+    if (normalizedSrcType) {
+      canonical.source_table = ENGINE_SOURCE_TYPE_TO_TABLE[normalizedSrcType] || null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
   } else if (context.origin_layer === 'package_enrichment') {
     // P5 lines: category is already the service_key
