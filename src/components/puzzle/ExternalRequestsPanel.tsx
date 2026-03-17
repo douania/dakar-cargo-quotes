@@ -91,6 +91,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     partner_email: "",
     purpose: "",
     purpose_detail: "",
+    related_lot_index: undefined as number | undefined,
   });
 
   // Load thread emails for the analysis dropdown
