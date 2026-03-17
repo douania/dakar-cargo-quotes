@@ -142,7 +142,6 @@ const SEA_FCL_BLOCKING_GAPS = new Set([
   "routing.destination_city",
   "cargo.description",
   "cargo.containers",
-  "contacts.client_email",
 ]);
 
 // A1: AIR_IMPORT blocking gaps (CTO P0-3: reduced set)
