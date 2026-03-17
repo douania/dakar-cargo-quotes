@@ -74,7 +74,14 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         body: { case_id: caseId }
       });
       
-      if (fnError) throw fnError;
+      if (fnError) {
+        const details =
+          (data && typeof data === 'object' && 'details' in data && typeof data.details === 'string' ? data.details : '') ||
+          (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : '') ||
+          fnError.message ||
+          'Erreur lors du lancement du pricing';
+        throw new Error(details);
+      }
 
       // Check for soft blockers (HTTP 200 but pricing blocked)
       if (data?.pricing_blockers?.length > 0) {
@@ -93,7 +100,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
     } catch (err: any) {
       console.error('[PricingLaunchPanel] Error:', err);
       
-      const message = err.message || '';
+      const message = String(err?.message || '');
 
       // Intercept exchange rate error → open modal
       if (message.includes('Exchange rate for')) {
@@ -113,7 +120,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       setError(message);
       }
       
-      toast.error('Erreur lors du lancement du pricing');
+      toast.error(message || 'Erreur lors du lancement du pricing');
       onComplete?.();  // refresh gaps after hard guard 400
     } finally {
       setIsLoading(false);
