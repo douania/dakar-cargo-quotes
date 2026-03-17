@@ -1919,7 +1919,7 @@ export default function CaseView() {
                   variant="outline"
                   size="sm"
                   onClick={handleAnalyzeServiceScope}
-                  disabled={isServiceScopeAnalyzing || !caseId}
+                  disabled={isServiceScopeAnalyzing || !caseId || !caseData?.thread_id}
                 >
                   {isServiceScopeAnalyzing ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
