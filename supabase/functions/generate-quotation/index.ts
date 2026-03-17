@@ -6,7 +6,7 @@
  * Phase 14: Runtime observability integration
  * CTO CORRECTIONS: All returns use respondOk/respondError + logRuntimeEvent
  */
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { 
   getCorrelationId, 
