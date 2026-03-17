@@ -149,7 +149,6 @@ const AIR_IMPORT_BLOCKING_GAPS = new Set([
   "routing.destination_city",
   "cargo.weight_kg",
   "cargo.pieces_count",
-  "contacts.client_email",
 ]);
 
 // SEA_LCL_IMPORT blocking gaps
