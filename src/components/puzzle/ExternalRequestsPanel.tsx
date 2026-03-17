@@ -124,7 +124,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     if (!formData.partner_name || !formData.purpose) return;
     createRequest.mutate(formData, {
       onSuccess: () => {
-        setFormData({ partner_name: "", partner_email: "", purpose: "", purpose_detail: "" });
+        setFormData({ partner_name: "", partner_email: "", purpose: "", purpose_detail: "", related_lot_index: undefined });
         setShowForm(false);
       },
     });
