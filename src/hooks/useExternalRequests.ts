@@ -128,9 +128,10 @@ export function useExternalRequests(caseId: string | undefined) {
         .select("id")
         .single();
       if (error) throw error;
+      const result = data as unknown as { id: string };
 
       // Fix 2: Emit external_request_created timeline event
-      if (data?.id && caseId) {
+      if (result?.id && caseId) {
         await supabase
           .from("case_timeline_events" as any)
           .insert({
@@ -140,14 +141,14 @@ export function useExternalRequests(caseId: string | undefined) {
             actor_user_id: userId,
             new_value: `Demande partenaire: ${params.partner_name} (${params.purpose})`,
             event_data: {
-              request_id: (data as any).id,
+              request_id: result.id,
               partner_name: params.partner_name,
               purpose: params.purpose,
               related_lot_index: params.related_lot_index ?? null,
             },
           } as any);
       }
-      return data;
+      return result;
     },
     onSuccess: () => {
       toast.success("Demande partenaire créée");
