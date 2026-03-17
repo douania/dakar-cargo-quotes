@@ -366,10 +366,10 @@ function canonicalizeLine(
     canonical.dedup_group = serviceKey ? (DEDUP_GROUP_MAP[serviceKey] || serviceKey) : null;
     canonical.source_system = 'price-service-lines';
 
-    const sourceType = line?.source?.type;
-    if (typeof sourceType === 'string') {
-      canonical.source_table = sourceType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
-      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[sourceType] || null;
+    const normalizedSrcType = normalizeSourceType(line?.source?.type);
+    if (normalizedSrcType) {
+      canonical.source_table = normalizedSrcType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
+      canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
   }
 
