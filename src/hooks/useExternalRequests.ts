@@ -129,8 +129,25 @@ export function useExternalRequests(caseId: string | undefined) {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast.success("Demande partenaire créée");
+      // Fix 2: Emit external_request_created timeline event
+      if (data?.id && caseId) {
+        supabase
+          .from("case_timeline_events" as any)
+          .insert({
+            case_id: caseId,
+            event_type: "external_request_created",
+            actor_type: "operator",
+            new_value: `Demande partenaire créée`,
+            event_data: {
+              request_id: data.id,
+              partner_name: (createRequest as any)._lastParams?.partner_name,
+              purpose: (createRequest as any)._lastParams?.purpose,
+            },
+          } as any)
+          .then(() => {});
+      }
       invalidateAll();
     },
     onError: (err: Error) => {
