@@ -962,6 +962,26 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Intelligent HTML sanitization: remove base64/cid images, scripts, styles, inline styles
+// Preserves text content useful for threading, quotation detection, and AI extraction
+function sanitizeHtml(html: string): string {
+  if (!html) return '';
+  return html
+    // Remove base64 inline images (major memory offender)
+    .replace(/<img[^>]+src=["']data:image\/[^"']+["'][^>]*>/gi, '')
+    // Remove cid embedded images
+    .replace(/<img[^>]+src=["']cid:[^"']+["'][^>]*>/gi, '')
+    // Remove script blocks
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    // Remove style blocks
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    // Remove inline style attributes
+    .replace(/\sstyle=["'][^"']*["']/gi, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Extraire un identifiant de projet unique depuis le contenu
 function extractProjectIdentifier(subject: string, bodyText: string): { projectId: string; projectName: string } {
   const content = `${subject} ${bodyText}`.toLowerCase();
