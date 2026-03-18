@@ -173,6 +173,49 @@ serve(async (req: Request) => {
 
     const analysis = { proposed_facts, open_questions, ready_to_price, reply_recommended, recommended_actions };
 
+    // 7b. CL1: Match proposed facts to active client_gap_requests (sent-first priority)
+    const matchedGapRequests: Array<{ gap_key: string; request_id: string; status: string }> = [];
+    try {
+      const { data: activeRequests } = await serviceClient
+        .from("client_gap_requests")
+        .select("id, gap_key, status")
+        .eq("case_id", case_id)
+        .in("status", ["drafted", "sent"]);
+
+      if (activeRequests && activeRequests.length > 0) {
+        const sentRows = activeRequests.filter((r: any) => r.status === "sent");
+        const draftedRows = activeRequests.filter((r: any) => r.status === "drafted");
+        const matchedRequestIds = new Set<string>();
+
+        for (const pf of proposed_facts) {
+          // Priority: match sent first, fallback to drafted
+          const match =
+            sentRows.find((r: any) => r.gap_key === pf.fact_key && !matchedRequestIds.has(r.id)) ||
+            draftedRows.find((r: any) => r.gap_key === pf.fact_key && !matchedRequestIds.has(r.id));
+
+          if (match) {
+            matchedRequestIds.add(match.id);
+            const { error: updateErr } = await serviceClient
+              .from("client_gap_requests")
+              .update({
+                status: "answered",
+                response_email_id: email_id,
+                matched_fact_key: pf.fact_key,
+              })
+              .eq("id", match.id);
+
+            if (!updateErr) {
+              matchedGapRequests.push({ gap_key: match.gap_key, request_id: match.id, status: "answered" });
+            } else {
+              console.warn(`[CL1] client_gap_requests update failed for ${match.gap_key}:`, updateErr.message);
+            }
+          }
+        }
+      }
+    } catch (clErr) {
+      console.warn("[CL1] client_gap_requests matching failed:", (clErr as Error).message);
+    }
+
     // 8. Insert timeline event
     const dedupe_key = `reply_analysis_v1:${case_id}:${email_id}`;
 
@@ -290,6 +333,7 @@ serve(async (req: Request) => {
       analysis_event_id,
       analysis,
       actions_created: insertedActionIds.length,
+      matched_gap_requests: matchedGapRequests,
     });
   } catch (err) {
     console.error("[analyze-reply-event] Unexpected error:", (err as Error).message);

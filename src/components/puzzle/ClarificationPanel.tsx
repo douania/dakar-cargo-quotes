@@ -1,26 +1,22 @@
 /**
- * Phase 8.8 — Panneau de clarification léger
+ * Phase 8.8 + CL1 — Panneau de clarification léger
  * 
  * CTO RULE: This panel NEVER triggers any backend mutation
- * ❌ No supabase calls
+ * EXCEPT the mark-sent action (CL1 addition).
+ * ❌ No supabase calls (other than mark-sent)
  * ❌ No status changes
  * ❌ No email sending
  * ✅ Copy to clipboard only (manual operator action)
- * 
- * Affiche le draft de clarification généré + ambiguïtés détectées
- * UI simple: lecture + copie uniquement
- * 
- * GARDE-FOU CTO #2: NE déclenche PAS d'action automatique
- * L'opérateur copie manuellement et envoie via son client email
+ * ✅ Mark as sent for conversation tracking (CL1)
  */
 
 import { useState } from 'react';
-import { Copy, Check, Mail, AlertTriangle, Globe, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Copy, Check, Mail, AlertTriangle, ChevronDown, ChevronUp, Loader2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 
@@ -43,6 +39,11 @@ interface Props {
   ambiguities?: DetectedAmbiguity[];
   isLoading?: boolean;
   onClose?: () => void;
+  // CL1 additions
+  gapKeys?: string[];
+  onMarkSent?: () => void;
+  markSentDisabled?: boolean;
+  isMarkingSent?: boolean;
 }
 
 const AMBIGUITY_LABELS: Record<string, { label: string; icon: string }> = {
@@ -54,7 +55,7 @@ const AMBIGUITY_LABELS: Record<string, { label: string; icon: string }> = {
   timing: { label: 'Délais', icon: '⏰' },
 };
 
-export function ClarificationPanel({ draft, ambiguities = [], isLoading, onClose }: Props) {
+export function ClarificationPanel({ draft, ambiguities = [], isLoading, onClose, gapKeys, onMarkSent, markSentDisabled, isMarkingSent }: Props) {
   const [copied, setCopied] = useState(false);
   const [language, setLanguage] = useState<'fr' | 'en'>('fr');
   const [showAmbiguities, setShowAmbiguities] = useState(true);
@@ -115,38 +116,12 @@ export function ClarificationPanel({ draft, ambiguities = [], isLoading, onClose
       <CardContent className="space-y-4">
         {/* Ambiguïtés détectées */}
         {ambiguities.length > 0 && (
-          <Collapsible open={showAmbiguities} onOpenChange={setShowAmbiguities}>
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 transition-colors w-full">
-              <AlertTriangle className="h-4 w-4" />
-              <span>{ambiguities.length} ambiguïté{ambiguities.length > 1 ? 's' : ''} détectée{ambiguities.length > 1 ? 's' : ''}</span>
-              {showAmbiguities ? <ChevronUp className="h-4 w-4 ml-auto" /> : <ChevronDown className="h-4 w-4 ml-auto" />}
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2">
-              <div className="space-y-2 pl-6">
-                {ambiguities.map((amb, idx) => {
-                  const ambInfo = AMBIGUITY_LABELS[amb.type] || { label: amb.type, icon: '❓' };
-                  return (
-                    <div key={idx} className="text-sm p-2 bg-amber-50 rounded border border-amber-200">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span>{ambInfo.icon}</span>
-                        <Badge variant="outline" className="text-xs text-amber-700 border-amber-300">
-                          {ambInfo.label}
-                        </Badge>
-                      </div>
-                      {amb.excerpt && (
-                        <p className="text-xs text-muted-foreground italic mb-1">
-                          « {amb.excerpt.substring(0, 100)}{amb.excerpt.length > 100 ? '...' : ''} »
-                        </p>
-                      )}
-                      <p className="text-amber-800">
-                        {language === 'fr' ? amb.question_fr : (amb.question_en || amb.question_fr)}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+          <AmbiguitiesSection
+            ambiguities={ambiguities}
+            language={language}
+            showAmbiguities={showAmbiguities}
+            setShowAmbiguities={setShowAmbiguities}
+          />
         )}
 
         {/* Sujet */}
@@ -188,6 +163,22 @@ export function ClarificationPanel({ draft, ambiguities = [], isLoading, onClose
               </>
             )}
           </Button>
+          {/* CL1: Mark as sent button */}
+          {onMarkSent && (
+            <Button
+              variant="outline"
+              onClick={onMarkSent}
+              disabled={markSentDisabled || isMarkingSent}
+              title={markSentDisabled ? "Tous les gaps ont déjà été marqués comme envoyés" : "Confirmer l'envoi manuel de la clarification"}
+            >
+              {isMarkingSent ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Marquer comme envoyé
+            </Button>
+          )}
           {onClose && (
             <Button variant="outline" onClick={onClose}>
               Fermer
@@ -200,5 +191,53 @@ export function ClarificationPanel({ draft, ambiguities = [], isLoading, onClose
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+// Extracted sub-component for ambiguities
+function AmbiguitiesSection({
+  ambiguities,
+  language,
+  showAmbiguities,
+  setShowAmbiguities,
+}: {
+  ambiguities: DetectedAmbiguity[];
+  language: 'fr' | 'en';
+  showAmbiguities: boolean;
+  setShowAmbiguities: (v: boolean) => void;
+}) {
+  return (
+    <Collapsible open={showAmbiguities} onOpenChange={setShowAmbiguities}>
+      <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 transition-colors w-full">
+        <AlertTriangle className="h-4 w-4" />
+        <span>{ambiguities.length} ambiguïté{ambiguities.length > 1 ? 's' : ''} détectée{ambiguities.length > 1 ? 's' : ''}</span>
+        {showAmbiguities ? <ChevronUp className="h-4 w-4 ml-auto" /> : <ChevronDown className="h-4 w-4 ml-auto" />}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2">
+        <div className="space-y-2 pl-6">
+          {ambiguities.map((amb, idx) => {
+            const ambInfo = AMBIGUITY_LABELS[amb.type] || { label: amb.type, icon: '❓' };
+            return (
+              <div key={idx} className="text-sm p-2 bg-amber-50 rounded border border-amber-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <span>{ambInfo.icon}</span>
+                  <Badge variant="outline" className="text-xs text-amber-700 border-amber-300">
+                    {ambInfo.label}
+                  </Badge>
+                </div>
+                {amb.excerpt && (
+                  <p className="text-xs text-muted-foreground italic mb-1">
+                    « {amb.excerpt.substring(0, 100)}{amb.excerpt.length > 100 ? '...' : ''} »
+                  </p>
+                )}
+                <p className="text-amber-800">
+                  {language === 'fr' ? amb.question_fr : (amb.question_en || amb.question_fr)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

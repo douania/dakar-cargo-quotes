@@ -205,6 +205,30 @@ Deno.serve(async (req) => {
       return resp;
     }
 
+    // 7b. CL1: Promote answered → validated if matching client_gap_request exists
+    if (factId) {
+      try {
+        const { data: answeredRow } = await svc
+          .from("client_gap_requests")
+          .select("id")
+          .eq("case_id", case_id)
+          .eq("gap_key", fact_key)
+          .eq("status", "answered")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (answeredRow) {
+          await svc
+            .from("client_gap_requests")
+            .update({ status: "validated", validated_fact_id: factId })
+            .eq("id", answeredRow.id);
+        }
+      } catch (clErr) {
+        console.warn("[CL1] client_gap_requests promotion failed:", (clErr as Error).message);
+      }
+    }
+
     // 8. Log timeline event
     await svc.from("case_timeline_events").insert({
       case_id,

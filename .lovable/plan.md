@@ -43,3 +43,50 @@ draft → sent → response_received → response_analyzed → partially_validat
 
 - `build-case-puzzle`, `quotation-engine`, `run-pricing` : aucune modification
 - Les faits entrent via `supersede_fact` RPC après validation opérateur
+
+---
+
+## Phase CL1 — Conversation Layer minimal ✅
+
+### Objectif
+
+Tracer le cycle de vie des clarifications client par gap :
+`drafted → sent → answered → validated`
+
+### Table créée
+
+| Table | Description |
+|-------|-------------|
+| `client_gap_requests` | Suivi conversationnel par gap_key (status, sent_at, response_email_id, validated_fact_id) |
+
+### Index
+
+- `uq_client_gap_requests_active` : UNIQUE partiel sur `(case_id, gap_key)` WHERE status IN ('drafted','sent','answered')
+- `idx_client_gap_requests_case_id`, `idx_client_gap_requests_status`, `idx_client_gap_requests_case_gap`
+
+### Edge Functions modifiées
+
+| Fonction | Modification |
+|----------|-------------|
+| `generate-reply-draft` | Insert-if-not-exists `client_gap_requests` en `drafted` après génération du brouillon. `source_timeline_event_id` pointe vers l'event `output_generated` |
+| `analyze-reply-event` | Match proposed_facts → active requests (priorité `sent`, fallback `drafted`), passe en `answered` |
+| `set-case-fact` | Promotion `answered → validated` après `supersede_fact` réussi |
+
+### Edge Function créée
+
+| Fonction | Description |
+|----------|-------------|
+| `mark-client-gap-request-sent` | Marquage manuel `drafted → sent` par l'opérateur |
+
+### Frontend
+
+| Fichier | Modification |
+|---------|-------------|
+| `src/pages/CaseView.tsx` | Query `client_gap_requests`, section "Clarifications client", bouton "Envoyé" dans draft display |
+| `src/components/puzzle/ClarificationPanel.tsx` | Ajout props `onMarkSent`, `markSentDisabled`, `isMarkingSent`, bouton "Marquer comme envoyé" |
+
+### Zones FROZEN respectées
+
+- `build-case-puzzle`, `run-pricing`, `quotation-engine` : aucune modification
+- `quote_gaps` : structure inchangée
+- `quote_cases.status` FSM : inchangé

@@ -38,6 +38,7 @@ import {
   CheckCircle,
   Copy,
   Mail,
+  Send,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -616,6 +617,7 @@ export default function CaseView() {
   const [gapInputs, setGapInputs] = React.useState<Record<string, string>>({});
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
   const [askingClientForGaps, setAskingClientForGaps] = useState(false);
+  const [isMarkingSent, setIsMarkingSent] = useState(false);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -701,6 +703,22 @@ export default function CaseView() {
     staleTime: 30000,
   });
 
+  // ── CL1: Fetch client_gap_requests ──
+  const { data: clientGapRequests = [], refetch: refetchGapRequests } = useQuery({
+    queryKey: ["client-gap-requests", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_gap_requests" as any)
+        .select("id, gap_key, status, sent_at, matched_fact_key, created_at")
+        .eq("case_id", caseId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!caseId,
+    staleTime: 30000,
+  });
+
   // P1a — Multi-lot line count (lightweight count query)
   const { data: multiLotLineCount = 0 } = useQuery({
     queryKey: ["quote-request-lines-count", caseId],
@@ -727,6 +745,37 @@ export default function CaseView() {
     refetchFacts();
     refetchEvents();
     refetchGaps();
+    refetchGapRequests();
+  }
+
+  // ── CL1: Mark client gap requests as sent ──
+  async function markClientGapRequestsSent() {
+    if (!caseId || isMarkingSent) return;
+    // Find gap_keys that are currently in 'drafted' status
+    const draftedKeys = (clientGapRequests as any[])
+      .filter((r: any) => r.status === "drafted")
+      .map((r: any) => r.gap_key as string);
+    if (draftedKeys.length === 0) {
+      toast.info("Aucune clarification en brouillon à marquer");
+      return;
+    }
+    setIsMarkingSent(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("mark-client-gap-request-sent", {
+        body: { case_id: caseId, gap_keys: draftedKeys },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success(`${data.updated} clarification(s) marquée(s) comme envoyée(s)`);
+        refetchGapRequests();
+      } else {
+        toast.error("Erreur lors du marquage");
+      }
+    } catch (e: any) {
+      toast.error(`Erreur: ${e?.message ?? "unknown"}`);
+    } finally {
+      setIsMarkingSent(false);
+    }
   }
 
   async function handleAnalyzeServiceScope() {
@@ -1578,15 +1627,33 @@ export default function CaseView() {
                         <div className="bg-muted rounded p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <p className="text-xs font-semibold text-muted-foreground">Brouillon généré</p>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2"
-                              onClick={() => copyDraftToClipboard(existingDraft)}
-                            >
-                              <Copy className="mr-1 h-3 w-3" />
-                              Copier
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2"
+                                onClick={() => copyDraftToClipboard(existingDraft)}
+                              >
+                                <Copy className="mr-1 h-3 w-3" />
+                                Copier
+                              </Button>
+                              {/* CL1: Mark as sent — visible only for REQUEST_CLIENT_INFO_FOR_GAPS drafts */}
+                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && (() => {
+                                const hasDraftedGaps = (clientGapRequests as any[]).some((r: any) => r.status === "drafted");
+                                return hasDraftedGaps ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2"
+                                    onClick={markClientGapRequestsSent}
+                                    disabled={isMarkingSent}
+                                  >
+                                    {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                                    Envoyé
+                                  </Button>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                           <p className="text-sm font-medium">{existingDraft.subject}</p>
                           <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{existingDraft.body}</pre>
@@ -2031,6 +2098,47 @@ export default function CaseView() {
           <div className="mb-6">
             <ExternalRequestsPanel caseId={caseId} threadId={caseData?.thread_id} />
           </div>
+        )}
+
+        {/* Phase CL1: Client clarifications tracking */}
+        {caseId && (clientGapRequests as any[]).length > 0 && (
+          <Card className="mb-6 border-blue-200 bg-blue-50/30">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-600" />
+                Clarifications client
+                <Badge variant="secondary" className="text-[10px] ml-1">
+                  {(clientGapRequests as any[]).length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="py-2 px-4">
+              <div className="space-y-1.5">
+                {(clientGapRequests as any[]).map((req: any) => {
+                  const statusConfig: Record<string, { label: string; icon: string; className: string }> = {
+                    drafted: { label: "Brouillon", icon: "📝", className: "bg-muted text-muted-foreground" },
+                    sent: { label: "Envoyée", icon: "📤", className: "bg-blue-100 text-blue-800" },
+                    answered: { label: "Réponse détectée", icon: "📩", className: "bg-amber-100 text-amber-800" },
+                    validated: { label: "Validée", icon: "✅", className: "bg-green-100 text-green-800" },
+                    cancelled: { label: "Annulée", icon: "❌", className: "bg-muted text-muted-foreground" },
+                  };
+                  const cfg = statusConfig[req.status] || statusConfig.drafted;
+                  const gap = gaps.find((g: any) => g.gap_key === req.gap_key);
+                  const questionLabel = gap?.question_fr || req.gap_key;
+
+                  return (
+                    <div key={req.id} className="flex items-center gap-2 text-sm py-1">
+                      <span>{cfg.icon}</span>
+                      <span className="flex-1 truncate">{questionLabel}</span>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${cfg.className}`}>
+                        {cfg.label}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Pricing Launch Panel — visible for pricing-eligible statuses */}
