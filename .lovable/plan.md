@@ -1,45 +1,27 @@
-## Phase EQ1 — External Quote Requests ✅
 
-### Objectif
 
-Permettre aux opérateurs de créer des demandes externes aux partenaires (agent France, compagnie maritime, etc.), de recevoir et analyser leurs réponses, et de valider les faits extraits avant injection dans le pipeline de cotation.
+# Diagnostic : pourquoi l'erreur apparait encore
 
-### Tables créées
+## Ce qui fonctionne deja
+Le frontend EQ1.2-quinquies fonctionne correctement :
+- Il extrait l'erreur depuis `FunctionsHttpError.context`
+- Il ouvre la modale GAINDE
+- L'utilisateur saisit le taux (602.2 USD/XOF, 201 OK)
+- Le 2e appel `run-pricing` reussit (200, 8 lignes, total_ht 145000)
 
-| Table | Description |
-|-------|-------------|
-| `external_quote_requests` | Demandes sortantes vers partenaires (purpose, status, partner_name) |
-| `external_quote_responses` | Réponses reçues (UNIQUE request_id+source_email_id) |
-| `external_quote_response_facts` | Faits proposés extraits des réponses (validation_status: proposed/validated/rejected) |
+## Ce qui ne fonctionne PAS
+La fonction edge `run-pricing` n'a **pas ete redeployee** avec le code soft blocker (Phase EQ1.2-quinquies backend). Preuve : le log `[EQ1.2] Exchange rate blocker detected` n'apparait nulle part dans les logs edge function. Le backend retourne toujours un **HTTP 500** au lieu du 200 soft blocker.
 
-### CHECK constraints mis à jour
+Consequence : le premier appel declenche un 500 qui provoque le popup d'erreur de la plateforme avant que le composant puisse le gerer proprement.
 
-- `quote_facts_source_type_check` : +`partner_response`
-- `case_timeline_events_event_type_check` : +`external_request_created`, +`external_response_analyzed`
+## Correction
+Deployer la fonction edge `run-pricing` pour activer le code soft blocker deja ecrit. Aucune modification de code necessaire -- juste un redeploiement.
 
-### Edge Functions créées
+### Detail technique
+Le fichier `supabase/functions/run-pricing/index.ts` contient deja le bon code (lignes 1578-1627) qui :
+1. Detecte `Exchange rate for [CUR] expired or missing`
+2. Enregistre le pricing_run comme `blocked` (pas `failed`)
+3. Retourne HTTP 200 avec `pricing_blockers: ["EXCHANGE_RATE_REQUIRED"]`
 
-| Fonction | Description |
-|----------|-------------|
-| `analyze-partner-response` | Analyse AI (Gemini Flash) d'un email partenaire, extraction de faits avec prompt purpose-aware |
-| `validate-partner-fact` | Validation/rejet d'un fait proposé → injection via `supersede_fact` RPC |
+Il suffit de forcer le deploiement de cette fonction.
 
-### Frontend
-
-| Fichier | Description |
-|---------|-------------|
-| `src/hooks/useExternalRequests.ts` | Hook React Query pour les 3 tables + mutations |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Panel complet : liste demandes, formulaire création, validation faits |
-| `src/pages/CaseView.tsx` | Intégration du panel après DecisionSupportPanel |
-
-### Statuts de requête
-
-```
-draft → sent → response_received → response_analyzed → partially_validated → facts_validated
-                                                      → closed (rejet total ou manuel)
-```
-
-### Zones FROZEN respectées
-
-- `build-case-puzzle`, `quotation-engine`, `run-pricing` : aucune modification
-- Les faits entrent via `supersede_fact` RPC après validation opérateur
