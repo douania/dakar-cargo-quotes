@@ -127,6 +127,7 @@ export default function Emails() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [analyzingIntentId, setAnalyzingIntentId] = useState<string | null>(null);
   const [analyzingReplyId, setAnalyzingReplyId] = useState<string | null>(null);
+  const [hydratingId, setHydratingId] = useState<string | null>(null);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [isReclassifyingThreads, setIsReclassifyingThreads] = useState(false);
   const [isMergingThreads, setIsMergingThreads] = useState(false);
