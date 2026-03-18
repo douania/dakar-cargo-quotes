@@ -744,6 +744,37 @@ export default function CaseView() {
     refetchFacts();
     refetchEvents();
     refetchGaps();
+    refetchGapRequests();
+  }
+
+  // ── CL1: Mark client gap requests as sent ──
+  async function markClientGapRequestsSent() {
+    if (!caseId || isMarkingSent) return;
+    // Find gap_keys that are currently in 'drafted' status
+    const draftedKeys = (clientGapRequests as any[])
+      .filter((r: any) => r.status === "drafted")
+      .map((r: any) => r.gap_key as string);
+    if (draftedKeys.length === 0) {
+      toast.info("Aucune clarification en brouillon à marquer");
+      return;
+    }
+    setIsMarkingSent(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("mark-client-gap-request-sent", {
+        body: { case_id: caseId, gap_keys: draftedKeys },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success(`${data.updated} clarification(s) marquée(s) comme envoyée(s)`);
+        refetchGapRequests();
+      } else {
+        toast.error("Erreur lors du marquage");
+      }
+    } catch (e: any) {
+      toast.error(`Erreur: ${e?.message ?? "unknown"}`);
+    } finally {
+      setIsMarkingSent(false);
+    }
   }
 
   async function handleAnalyzeServiceScope() {
