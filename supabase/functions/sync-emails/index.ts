@@ -1593,7 +1593,11 @@ serve(async (req) => {
             }
           }
 
-          processedEmails.push(inserted);
+          processedEmails.push({
+            id: inserted.id,
+            subject: inserted.subject,
+            thread_ref: inserted.thread_ref,
+          });
           console.log(`Imported: ${msg.subject.substring(0, 50)}... (thread: ${threadRefId || 'none'})`);
         } catch (msgError) {
           console.error("Error processing message:", msgError);
