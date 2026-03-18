@@ -1028,15 +1028,18 @@ export default function CaseView() {
 
   // ── Drafts indexed by source action dedupe_key ──
   const draftsByActionKey = useMemo(() => {
-    const map = new Map<string, { subject: string; body: string }>();
+    const map = new Map<string, { subject: string; body: string; requestedGapKeys: string[] }>();
     for (const e of events ?? []) {
       if (e.event_type !== "output_generated") continue;
       const ed = e.event_data as Record<string, unknown> | null;
       if (ed?.["kind"] !== "reply_draft_v1") continue;
       const sourceKey = ed?.["source_action_dedupe_key"] as string | undefined;
       const draft = ed?.["draft_reply"] as { subject: string; body: string } | undefined;
+      const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
+        ? (ed["requested_gap_keys"] as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        : [];
       if (sourceKey && draft) {
-        map.set(sourceKey, draft);
+        map.set(sourceKey, { ...draft, requestedGapKeys });
       }
     }
    return map;
