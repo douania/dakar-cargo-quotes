@@ -962,6 +962,26 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Intelligent HTML sanitization: remove base64/cid images, scripts, styles, inline styles
+// Preserves text content useful for threading, quotation detection, and AI extraction
+function sanitizeHtml(html: string): string {
+  if (!html) return '';
+  return html
+    // Remove base64 inline images (major memory offender)
+    .replace(/<img[^>]+src=["']data:image\/[^"']+["'][^>]*>/gi, '')
+    // Remove cid embedded images
+    .replace(/<img[^>]+src=["']cid:[^"']+["'][^>]*>/gi, '')
+    // Remove script blocks
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    // Remove style blocks
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    // Remove inline style attributes
+    .replace(/\sstyle=["'][^"']*["']/gi, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Extraire un identifiant de projet unique depuis le contenu
 function extractProjectIdentifier(subject: string, bodyText: string): { projectId: string; projectName: string } {
   const content = `${subject} ${bodyText}`.toLowerCase();
@@ -1359,7 +1379,7 @@ serve(async (req) => {
     const auth = await requireUser(req);
     if (auth instanceof Response) return auth;
 
-    const { configId, limit = 20 } = await req.json();
+    const { configId, limit = 10 } = await req.json();
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1442,7 +1462,22 @@ serve(async (req) => {
           }
 
           // Fetch body
-          const { text: bodyText, html: bodyHtml } = await client.fetchBody(msg.uid);
+          const { text: rawBodyText, html: rawBodyHtml } = await client.fetchBody(msg.uid);
+          
+          // === Memory fix: intelligent cleanup before storage ===
+          const MAX_BODY_TEXT = 50_000;
+          const MAX_BODY_HTML = 100_000;
+          
+          let bodyHtml: string | null = null;
+          let bodyText: string | null = null;
+          
+          if (rawBodyHtml) {
+            bodyHtml = sanitizeHtml(rawBodyHtml).substring(0, MAX_BODY_HTML);
+            // Always derive bodyText from cleaned HTML for consistency
+            bodyText = stripHtml(bodyHtml).substring(0, MAX_BODY_TEXT);
+          } else if (rawBodyText) {
+            bodyText = rawBodyText.substring(0, MAX_BODY_TEXT);
+          }
           
           const isQuotation = isQuotationRelated(msg.from, msg.subject, bodyText || bodyHtml || '');
           const threadId = extractThreadId(msg.messageId, msg.references);
@@ -1558,7 +1593,11 @@ serve(async (req) => {
             }
           }
 
-          processedEmails.push(inserted);
+          processedEmails.push({
+            id: inserted.id,
+            subject: inserted.subject,
+            thread_ref: inserted.thread_ref,
+          });
           console.log(`Imported: ${msg.subject.substring(0, 50)}... (thread: ${threadRefId || 'none'})`);
         } catch (msgError) {
           console.error("Error processing message:", msgError);
