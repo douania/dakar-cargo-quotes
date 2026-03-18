@@ -1546,6 +1546,45 @@ export default function Emails() {
                       <MessageSquare className="h-4 w-4 mr-2" />
                       {analyzingReplyId === selectedEmail.id ? 'Analyse...' : 'Analyser réponse'}
                     </Button>
+                    {selectedEmail.body_capture_mode !== 'full_sanitized' && selectedEmail.message_id && (
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          setHydratingId(selectedEmail.id);
+                          try {
+                            const { data, error } = await supabase.functions.invoke('hydrate-email-body', {
+                              body: { email_id: selectedEmail.id }
+                            });
+                            if (error) throw error;
+                            if (data?.error) throw new Error(data.error);
+                            toast.success(
+                              data.already_hydrated
+                                ? 'Contenu déjà complet'
+                                : `Contenu chargé (${Math.round((data.text_length || 0) / 1000)}k car.)`
+                            );
+                            // Refresh selected email
+                            const { data: refreshed } = await supabase
+                              .from('emails')
+                              .select('*')
+                              .eq('id', selectedEmail.id)
+                              .single();
+                            if (refreshed) {
+                              setSelectedEmail(refreshed as Email);
+                              setEmails(prev => prev.map(e => e.id === refreshed.id ? refreshed as Email : e));
+                            }
+                          } catch (err) {
+                            console.error('[hydrate] Error:', err);
+                            toast.error(getInvokeErrorMessage(err));
+                          } finally {
+                            setHydratingId(null);
+                          }
+                        }}
+                        disabled={hydratingId === selectedEmail.id}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${hydratingId === selectedEmail.id ? 'animate-spin' : ''}`} />
+                        {hydratingId === selectedEmail.id ? 'Chargement...' : 'Charger contenu complet'}
+                      </Button>
+                    )}
                     <Button
                       variant="destructive" 
                       onClick={() => deleteEmail(selectedEmail.id)}
