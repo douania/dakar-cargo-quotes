@@ -1973,6 +1973,13 @@ serve(async (req) => {
             continue;
           }
 
+          // Import attachments (non-blocking)
+          try {
+            await processEmailAttachments(client, msg.uid, inserted.id, supabase);
+          } catch (attachErr) {
+            console.error("[sync-emails] Attachment import failed (non-blocking):", attachErr);
+          }
+
           // Phase C: Notify existing quote_case of new email (quotation continuity)
           if (inserted.thread_ref) {
             try {
