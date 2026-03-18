@@ -1626,15 +1626,33 @@ export default function CaseView() {
                         <div className="bg-muted rounded p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <p className="text-xs font-semibold text-muted-foreground">Brouillon généré</p>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2"
-                              onClick={() => copyDraftToClipboard(existingDraft)}
-                            >
-                              <Copy className="mr-1 h-3 w-3" />
-                              Copier
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2"
+                                onClick={() => copyDraftToClipboard(existingDraft)}
+                              >
+                                <Copy className="mr-1 h-3 w-3" />
+                                Copier
+                              </Button>
+                              {/* CL1: Mark as sent — visible only for REQUEST_CLIENT_INFO_FOR_GAPS drafts */}
+                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && (() => {
+                                const hasDraftedGaps = (clientGapRequests as any[]).some((r: any) => r.status === "drafted");
+                                return hasDraftedGaps ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2"
+                                    onClick={markClientGapRequestsSent}
+                                    disabled={isMarkingSent}
+                                  >
+                                    {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                                    Envoyé
+                                  </Button>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                           <p className="text-sm font-medium">{existingDraft.subject}</p>
                           <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{existingDraft.body}</pre>
