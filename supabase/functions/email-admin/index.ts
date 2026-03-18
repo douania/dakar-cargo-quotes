@@ -594,7 +594,176 @@ serve(async (req) => {
       }
 
       case 'reimport_attachments': {
-        // Find emails that might have PDF/Excel attachments but none in database
+        // MODE 1: Targeted thread reimport via IMAP
+        if (data?.thread_id) {
+          console.log(`[reimport_attachments] Targeted mode for thread_id=${data.thread_id}`);
+          
+          // 1. Get all emails in the thread
+          const { data: threadEmails, error: threadErr } = await supabase
+            .from('emails')
+            .select('id, message_id, email_config_id, subject')
+            .eq('thread_ref', data.thread_id)
+            .order('sent_at', { ascending: true });
+          
+          if (threadErr) throw threadErr;
+          if (!threadEmails || threadEmails.length === 0) {
+            return new Response(
+              JSON.stringify({ success: true, message: 'Aucun email trouvé pour ce thread', imported: 0 }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          
+          // 2. Check which emails already have attachments
+          const emailIds = threadEmails.map(e => e.id);
+          const { data: existingAtts } = await supabase
+            .from('email_attachments')
+            .select('email_id')
+            .in('email_id', emailIds);
+          
+          const emailsWithAtts = new Set((existingAtts || []).map(a => a.email_id));
+          const emailsToProcess = threadEmails.filter(e => !emailsWithAtts.has(e.id));
+          
+          if (emailsToProcess.length === 0) {
+            return new Response(
+              JSON.stringify({ success: true, message: 'Tous les emails ont déjà des pièces jointes enregistrées', imported: 0 }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          
+          // 3. Group by config_id and process via IMAP
+          const configGroups = new Map<string, typeof emailsToProcess>();
+          for (const email of emailsToProcess) {
+            if (!email.email_config_id) continue;
+            if (!configGroups.has(email.email_config_id)) {
+              configGroups.set(email.email_config_id, []);
+            }
+            configGroups.get(email.email_config_id)!.push(email);
+          }
+          
+          let totalImported = 0;
+          const errors: string[] = [];
+          
+          for (const [configId, emails] of configGroups) {
+            // Get config
+            const { data: config, error: configErr } = await supabase
+              .from('email_configs')
+              .select('*')
+              .eq('id', configId)
+              .single();
+            
+            if (configErr || !config) {
+              errors.push(`Config ${configId} introuvable`);
+              continue;
+            }
+            
+            // Connect IMAP
+            let imapClient: ReimportIMAPClient | null = null;
+            try {
+              imapClient = new ReimportIMAPClient(config.host, config.port, config.use_ssl !== false);
+              await imapClient.connect();
+              const loggedIn = await imapClient.login(config.username, config.password_encrypted);
+              if (!loggedIn) { errors.push(`Auth IMAP échouée pour ${config.name}`); continue; }
+              await imapClient.select(config.folder || 'INBOX');
+              
+              for (const email of emails) {
+                try {
+                  // Find UID by Message-ID
+                  const uid = await imapClient.searchByMessageId(email.message_id);
+                  if (!uid) {
+                    console.warn(`[reimport_attachments] UID not found for message_id=${email.message_id}`);
+                    continue;
+                  }
+                  
+                  // Get BODYSTRUCTURE
+                  const attachments = await imapClient.fetchBodyStructure(uid);
+                  if (attachments.length === 0) {
+                    console.log(`[reimport_attachments] No attachments for ${email.subject}`);
+                    continue;
+                  }
+                  
+                  for (const att of attachments) {
+                    // Skip inline images
+                    if (att.contentType.startsWith('image/') && att.filename.startsWith('image')) continue;
+                    
+                    // Idempotency guard
+                    const { data: existing } = await supabase
+                      .from('email_attachments')
+                      .select('id')
+                      .eq('email_id', email.id)
+                      .eq('filename', att.filename)
+                      .maybeSingle();
+                    
+                    if (existing) continue;
+                    
+                    // Size check (5MB limit)
+                    if (att.size > 5 * 1024 * 1024) {
+                      const { error: insertErr } = await supabase.from('email_attachments').insert({
+                        email_id: email.id,
+                        filename: att.filename,
+                        content_type: att.contentType,
+                        size: att.size,
+                        storage_path: null,
+                        is_analyzed: false,
+                        extracted_text: `[Pièce jointe trop volumineuse: ${(att.size / 1024 / 1024).toFixed(2)}MB]`
+                      });
+                      if (insertErr) console.warn(`[reimport_attachments] Insert error:`, insertErr.message);
+                      totalImported++;
+                      continue;
+                    }
+                    
+                    // Download
+                    const content = await imapClient.fetchAttachment(uid, att.partNumber, att.encoding);
+                    if (content.length === 0) continue;
+                    
+                    // Upload
+                    const safeName = att.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+                    const storagePath = `email-attachments/${email.id}/${Date.now()}_${safeName}`;
+                    
+                    const { error: uploadErr } = await supabase.storage
+                      .from('documents')
+                      .upload(storagePath, content, { contentType: att.contentType, upsert: true });
+                    
+                    const finalPath = uploadErr ? null : storagePath;
+                    if (uploadErr) console.warn(`[reimport_attachments] Upload error:`, uploadErr.message);
+                    
+                    const { error: insertErr } = await supabase.from('email_attachments').insert({
+                      email_id: email.id,
+                      filename: att.filename,
+                      content_type: att.contentType,
+                      size: content.length,
+                      storage_path: finalPath,
+                      is_analyzed: false,
+                    });
+                    if (insertErr) console.warn(`[reimport_attachments] Insert error:`, insertErr.message);
+                    else totalImported++;
+                  }
+                } catch (emailErr) {
+                  console.error(`[reimport_attachments] Error processing email ${email.id}:`, emailErr);
+                  errors.push(`Email ${email.id}: ${emailErr instanceof Error ? emailErr.message : String(emailErr)}`);
+                }
+              }
+              
+              await imapClient.logout();
+            } catch (imapErr) {
+              console.error(`[reimport_attachments] IMAP error for config ${configId}:`, imapErr);
+              errors.push(`IMAP ${config.name}: ${imapErr instanceof Error ? imapErr.message : String(imapErr)}`);
+              if (imapClient) try { await imapClient.logout(); } catch { /* ignore */ }
+            }
+          }
+          
+          return new Response(
+            JSON.stringify({
+              success: true,
+              imported: totalImported,
+              emailsProcessed: emailsToProcess.length,
+              errors: errors.length > 0 ? errors : undefined,
+              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${emailsToProcess.length} email(s)`
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // MODE 2: Heuristic scan (existing behavior)
         console.log('Starting attachment reimport scan...');
         
         // Get emails with potential attachments (based on size or keywords)
@@ -650,7 +819,6 @@ serve(async (req) => {
         for (const email of emails) {
           const attachments = attachmentMap.get(email.id) || [];
           
-          // Check if email mentions attachments but has none or only images
           const bodyLower = (email.body_text || '').toLowerCase();
           const subjectLower = (email.subject || '').toLowerCase();
           const text = `${subjectLower} ${bodyLower}`;
