@@ -1640,15 +1640,18 @@ export default function CaseView() {
                                 <Copy className="mr-1 h-3 w-3" />
                                 Copier
                               </Button>
-                              {/* CL1: Mark as sent — visible only for REQUEST_CLIENT_INFO_FOR_GAPS drafts */}
-                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && (() => {
-                                const hasDraftedGaps = (clientGapRequests as any[]).some((r: any) => r.status === "drafted");
-                                return hasDraftedGaps ? (
+                              {/* CL1: Mark as sent — scoped to this draft's gap_keys only */}
+                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && existingDraft?.requestedGapKeys?.length > 0 && (() => {
+                                const draftGapKeys = existingDraft.requestedGapKeys;
+                                const hasDraftedForTheseGaps = (clientGapRequests as any[]).some(
+                                  (r: any) => r.status === "drafted" && draftGapKeys.includes(r.gap_key)
+                                );
+                                return hasDraftedForTheseGaps ? (
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2"
-                                    onClick={markClientGapRequestsSent}
+                                    onClick={() => markClientGapRequestsSent(draftGapKeys)}
                                     disabled={isMarkingSent}
                                   >
                                     {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
