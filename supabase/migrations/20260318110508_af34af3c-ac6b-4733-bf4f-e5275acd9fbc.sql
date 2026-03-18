@@ -1,0 +1,1 @@
+ALTER TABLE public.emails ADD COLUMN body_capture_mode text NOT NULL DEFAULT 'sanitized_truncated';
