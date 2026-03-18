@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.1
-Phase: EQ1.2 — External Quote Requests Hardening
-Latest patch: EQ1.2 — P0 hardening + P1 completeness
+Phase: EQ1.2 + CL1 — Conversation Layer minimal
+Latest patch: CL1 — Conversation Layer minimal
 Date: 2026-03
 
 ---
