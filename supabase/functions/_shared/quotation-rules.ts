@@ -397,7 +397,27 @@ export function calculateCAF(params: {
   }
   
   if (incotermRule.cafMethod === 'INVOICE_VALUE') {
-    // CIF, CFR, CPT, CIP, DAP, DPU, DDP: CAF = Valeur facture
+    // Group D (DAP/DPU/DDP) with separate freight: the extraction likely
+    // decomposed the invoice into goods + freight. Recompose the true base.
+    // Group C (CIF/CFR/CPT/CIP): invoiceValue is typically already totalized,
+    // adding freight would cause double-counting.
+    const isGroupD = incotermRule.group === 'D';
+    const hasSeparateFreight = (params.freightAmount ?? 0) > 0;
+    const shouldRecompose = isGroupD && hasSeparateFreight;
+
+    if (shouldRecompose) {
+      const invoiceBase = params.invoiceValue + params.freightAmount!;
+      const insurance = invoiceBase * insuranceRate;
+      return {
+        fobValue: params.invoiceValue,
+        freightAmount: params.freightAmount!,
+        insuranceRate,
+        cafValue: invoiceBase + insurance,
+        method: 'INVOICE_VALUE_RECOMPOSED'
+      };
+    }
+
+    // Default INVOICE_VALUE path — no recomposition
     return {
       fobValue: params.invoiceValue,
       freightAmount: 0,
