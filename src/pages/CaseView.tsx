@@ -749,20 +749,20 @@ export default function CaseView() {
   }
 
   // ── CL1: Mark client gap requests as sent ──
-  async function markClientGapRequestsSent() {
+  async function markClientGapRequestsSent(gapKeys?: string[]) {
     if (!caseId || isMarkingSent) return;
-    // Find gap_keys that are currently in 'drafted' status
-    const draftedKeys = (clientGapRequests as any[])
+    // If specific gap keys provided, use them; otherwise fallback to all drafted
+    const keysToSend = gapKeys ?? (clientGapRequests as any[])
       .filter((r: any) => r.status === "drafted")
       .map((r: any) => r.gap_key as string);
-    if (draftedKeys.length === 0) {
+    if (keysToSend.length === 0) {
       toast.info("Aucune clarification en brouillon à marquer");
       return;
     }
     setIsMarkingSent(true);
     try {
       const { data, error } = await supabase.functions.invoke("mark-client-gap-request-sent", {
-        body: { case_id: caseId, gap_keys: draftedKeys },
+        body: { case_id: caseId, gap_keys: keysToSend },
       });
       if (error) throw error;
       if (data?.ok) {
@@ -1028,15 +1028,18 @@ export default function CaseView() {
 
   // ── Drafts indexed by source action dedupe_key ──
   const draftsByActionKey = useMemo(() => {
-    const map = new Map<string, { subject: string; body: string }>();
+    const map = new Map<string, { subject: string; body: string; requestedGapKeys: string[] }>();
     for (const e of events ?? []) {
       if (e.event_type !== "output_generated") continue;
       const ed = e.event_data as Record<string, unknown> | null;
       if (ed?.["kind"] !== "reply_draft_v1") continue;
       const sourceKey = ed?.["source_action_dedupe_key"] as string | undefined;
       const draft = ed?.["draft_reply"] as { subject: string; body: string } | undefined;
+      const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
+        ? (ed["requested_gap_keys"] as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        : [];
       if (sourceKey && draft) {
-        map.set(sourceKey, draft);
+        map.set(sourceKey, { ...draft, requestedGapKeys });
       }
     }
    return map;
@@ -1637,15 +1640,18 @@ export default function CaseView() {
                                 <Copy className="mr-1 h-3 w-3" />
                                 Copier
                               </Button>
-                              {/* CL1: Mark as sent — visible only for REQUEST_CLIENT_INFO_FOR_GAPS drafts */}
-                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && (() => {
-                                const hasDraftedGaps = (clientGapRequests as any[]).some((r: any) => r.status === "drafted");
-                                return hasDraftedGaps ? (
+                              {/* CL1: Mark as sent — scoped to this draft's gap_keys only */}
+                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && existingDraft?.requestedGapKeys?.length > 0 && (() => {
+                                const draftGapKeys = existingDraft.requestedGapKeys;
+                                const hasDraftedForTheseGaps = (clientGapRequests as any[]).some(
+                                  (r: any) => r.status === "drafted" && draftGapKeys.includes(r.gap_key)
+                                );
+                                return hasDraftedForTheseGaps ? (
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2"
-                                    onClick={markClientGapRequestsSent}
+                                    onClick={() => markClientGapRequestsSent(draftGapKeys)}
                                     disabled={isMarkingSent}
                                   >
                                     {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}

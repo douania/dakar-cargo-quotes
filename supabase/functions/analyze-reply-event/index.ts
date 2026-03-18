@@ -176,11 +176,15 @@ serve(async (req: Request) => {
     // 7b. CL1: Match proposed facts to active client_gap_requests (sent-first priority)
     const matchedGapRequests: Array<{ gap_key: string; request_id: string; status: string }> = [];
     try {
-      const { data: activeRequests } = await serviceClient
+      const { data: activeRequests, error: fetchErr } = await serviceClient
         .from("client_gap_requests")
         .select("id, gap_key, status")
         .eq("case_id", case_id)
         .in("status", ["drafted", "sent"]);
+
+      if (fetchErr) {
+        console.warn("[CL1] client_gap_requests fetch failed:", fetchErr.message);
+      }
 
       if (activeRequests && activeRequests.length > 0) {
         const sentRows = activeRequests.filter((r: any) => r.status === "sent");

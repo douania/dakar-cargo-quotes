@@ -196,7 +196,7 @@ SODATRA`;
     for (const gapKey of normalizedKeys) {
       try {
         // Check if active row already exists
-        const { data: existingRow } = await serviceClient
+        const { data: existingRow, error: checkErr } = await serviceClient
           .from("client_gap_requests")
           .select("id")
           .eq("case_id", caseId)
@@ -204,8 +204,13 @@ SODATRA`;
           .in("status", ["drafted", "sent", "answered"])
           .maybeSingle();
 
+        if (checkErr) {
+          console.warn(`[CL1] client_gap_requests check failed for ${gapKey}:`, checkErr.message);
+          continue;
+        }
+
         if (!existingRow) {
-          await serviceClient.from("client_gap_requests").insert({
+          const { error: insertErr2 } = await serviceClient.from("client_gap_requests").insert({
             case_id: caseId,
             gap_key: gapKey,
             source_timeline_event_id: timelineEventId,
@@ -214,6 +219,9 @@ SODATRA`;
             status: "drafted",
             created_by: auth.user.id,
           });
+          if (insertErr2) {
+            console.warn(`[CL1] client_gap_requests insert failed for ${gapKey}:`, insertErr2.message);
+          }
         }
       } catch (gapErr) {
         console.warn(`[CL1] client_gap_requests insert failed for ${gapKey}:`, (gapErr as Error).message);
