@@ -890,26 +890,11 @@ serve(async (req) => {
             );
           }
           
-          // 2. Check which emails already have attachments
-          const emailIds = threadEmails.map(e => e.id);
-          const { data: existingAtts } = await supabase
-            .from('email_attachments')
-            .select('email_id')
-            .in('email_id', emailIds);
-          
-          const emailsWithAtts = new Set((existingAtts || []).map(a => a.email_id));
-          const emailsToProcess = threadEmails.filter(e => !emailsWithAtts.has(e.id));
-          
-          if (emailsToProcess.length === 0) {
-            return new Response(
-              JSON.stringify({ success: true, message: 'Tous les emails ont déjà des pièces jointes enregistrées', imported: 0 }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
+          // 2. Process ALL emails in thread — idempotency is handled per-attachment (email_id + filename)
           
           // 3. Group by config_id and process via IMAP
-          const configGroups = new Map<string, typeof emailsToProcess>();
-          for (const email of emailsToProcess) {
+          const configGroups = new Map<string, typeof threadEmails>();
+          for (const email of threadEmails) {
             if (!email.email_config_id) continue;
             if (!configGroups.has(email.email_config_id)) {
               configGroups.set(email.email_config_id, []);
@@ -963,13 +948,17 @@ serve(async (req) => {
                     if (att.contentType.startsWith('image/') && att.filename.startsWith('image')) continue;
                     
                     // Idempotency guard
-                    const { data: existing } = await supabase
+                    const { data: existing, error: existingErr } = await supabase
                       .from('email_attachments')
                       .select('id')
                       .eq('email_id', email.id)
                       .eq('filename', att.filename)
                       .maybeSingle();
                     
+                    if (existingErr) {
+                      console.warn(`[reimport_attachments] Idempotency check failed for ${att.filename}:`, existingErr.message);
+                      continue;
+                    }
                     if (existing) continue;
                     
                     // Size check (5MB limit)
@@ -1032,9 +1021,9 @@ serve(async (req) => {
             JSON.stringify({
               success: true,
               imported: totalImported,
-              emailsProcessed: emailsToProcess.length,
+              emailsProcessed: threadEmails.length,
               errors: errors.length > 0 ? errors : undefined,
-              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${emailsToProcess.length} email(s)`
+              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${threadEmails.length} email(s)`
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
