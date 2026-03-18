@@ -1021,9 +1021,9 @@ serve(async (req) => {
             JSON.stringify({
               success: true,
               imported: totalImported,
-              emailsProcessed: emailsToProcess.length,
+              emailsProcessed: threadEmails.length,
               errors: errors.length > 0 ? errors : undefined,
-              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${emailsToProcess.length} email(s)`
+              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${threadEmails.length} email(s)`
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
