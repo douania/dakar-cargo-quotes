@@ -90,3 +90,42 @@ Tracer le cycle de vie des clarifications client par gap :
 - `build-case-puzzle`, `run-pricing`, `quotation-engine` : aucune modification
 - `quote_gaps` : structure inchangée
 - `quote_cases.status` FSM : inchangé
+
+---
+
+## Phase ATT1 — Correction pipeline pièces jointes dans sync-emails ✅
+
+### Cause racine
+
+`sync-emails/index.ts` importait les emails mais pas leurs pièces jointes. Les méthodes IMAP (`fetchBodyStructure`, `fetchAttachmentPart`) existaient mais n'étaient pas branchées dans le pipeline principal.
+
+### Correction apportée
+
+#### Patch 1 — `supabase/functions/sync-emails/index.ts`
+
+- **Helpers MIME ajoutés** (copie fidèle depuis `import-thread`) : `AttachmentInfo`, `tokenizeBodyStructure`, `extractFilenameFromParams`, `parseMimePart`, `extractBodyStructure`, `parseBodyStructure`, `findPartNumberByPosition`, `decodeBase64Chunked`, `decodeQuotedPrintableAttachment`
+- **`fetchBodyStructure(uid)`** : retourne désormais `AttachmentInfo[]` au lieu de `string`
+- **`fetchAttachment(uid, partNumber, encoding)`** : nouvelle méthode robuste remplaçant `fetchAttachmentPart`, gère 3 patterns d'extraction + base64 chunked + quoted-printable
+- **`processEmailAttachments(client, uid, emailId, supabase)`** : sous-flux non-bloquant appelé après chaque insertion email réussie
+  - Garde d'idempotence : check `email_id + filename` avant insert
+  - PJ > 5MB : enregistrée avec `storage_path = null` et texte indicatif
+  - Pas de limite au nombre de PJ
+  - Erreurs individuelles loguées, ne bloquent jamais le pipeline email
+
+#### Patch 2 — `supabase/functions/email-admin/index.ts`
+
+- **Action `reimport_attachments` étendue** avec mode ciblé `thread_id` :
+  - Récupère tous les emails du thread via `thread_ref`
+  - Pour chaque email sans PJ existantes : connexion IMAP, BODYSTRUCTURE, download, upload
+  - Garde d'idempotence identique (`email_id + filename`)
+  - Classe `ReimportIMAPClient` minimale ajoutée localement
+  - Mode heuristique existant (sans `thread_id`) : inchangé
+
+### Contraintes respectées
+
+- Limite taille : **5 MB** (alignée sur `import-thread`)
+- Pas de limite nombre de PJ
+- Non-bloquant : erreurs loguées, pipeline email intact
+- Lecture explicite `{ data, error }` (P0-A)
+- Zéro migration SQL
+- Aucun module FROZEN touché
