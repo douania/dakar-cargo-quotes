@@ -167,7 +167,7 @@ SODATRA`;
     const draft = { subject: draftSubject, body: draftBody };
 
     // 6. Insert timeline event (same pattern as AI branch)
-    const { error: insertErr } = await serviceClient
+    const { data: insertedEvent, error: insertErr } = await serviceClient
       .from("case_timeline_events")
       .insert({
         case_id: caseId,
@@ -182,11 +182,42 @@ SODATRA`;
           requested_gap_keys: normalizedKeys,
           deterministic: true,
         },
-      });
+      })
+      .select("id")
+      .single();
 
-    if (insertErr) {
-      console.error("Timeline insert failed:", insertErr.message);
+    if (insertErr || !insertedEvent) {
+      console.error("Timeline insert failed:", insertErr?.message);
       return jsonResponse({ ok: false, error: "TIMELINE_INSERT_FAILED" }, 200);
+    }
+
+    // ── CL1: Create client_gap_requests for each gap (insert-if-not-exists) ──
+    const timelineEventId = insertedEvent.id;
+    for (const gapKey of normalizedKeys) {
+      try {
+        // Check if active row already exists
+        const { data: existingRow } = await serviceClient
+          .from("client_gap_requests")
+          .select("id")
+          .eq("case_id", caseId)
+          .eq("gap_key", gapKey)
+          .in("status", ["drafted", "sent", "answered"])
+          .maybeSingle();
+
+        if (!existingRow) {
+          await serviceClient.from("client_gap_requests").insert({
+            case_id: caseId,
+            gap_key: gapKey,
+            source_timeline_event_id: timelineEventId,
+            draft_subject: draft.subject,
+            draft_body: draft.body,
+            status: "drafted",
+            created_by: auth.user.id,
+          });
+        }
+      } catch (gapErr) {
+        console.warn(`[CL1] client_gap_requests insert failed for ${gapKey}:`, (gapErr as Error).message);
+      }
     }
 
     return jsonResponse({

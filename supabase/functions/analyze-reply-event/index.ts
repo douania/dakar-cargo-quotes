@@ -333,6 +333,7 @@ serve(async (req: Request) => {
       analysis_event_id,
       analysis,
       actions_created: insertedActionIds.length,
+      matched_gap_requests: matchedGapRequests,
     });
   } catch (err) {
     console.error("[analyze-reply-event] Unexpected error:", (err as Error).message);
