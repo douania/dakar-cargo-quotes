@@ -56,6 +56,8 @@ interface Email {
   is_read: boolean;
   thread_id: string;
   extracted_data: any;
+  message_id?: string;
+  body_capture_mode?: string;
 }
 
 interface EmailDraft {
