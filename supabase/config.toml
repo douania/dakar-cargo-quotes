@@ -194,3 +194,6 @@ verify_jwt = false
 
 [functions.validate-partner-fact]
 verify_jwt = false
+
+[functions.hydrate-email-body]
+verify_jwt = false

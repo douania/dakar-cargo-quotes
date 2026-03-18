@@ -986,6 +986,7 @@ export type Database = {
       }
       emails: {
         Row: {
+          body_capture_mode: string
           body_html: string | null
           body_text: string | null
           cc_addresses: string[] | null
@@ -1005,6 +1006,7 @@ export type Database = {
           to_addresses: string[]
         }
         Insert: {
+          body_capture_mode?: string
           body_html?: string | null
           body_text?: string | null
           cc_addresses?: string[] | null
@@ -1024,6 +1026,7 @@ export type Database = {
           to_addresses: string[]
         }
         Update: {
+          body_capture_mode?: string
           body_html?: string | null
           body_text?: string | null
           cc_addresses?: string[] | null

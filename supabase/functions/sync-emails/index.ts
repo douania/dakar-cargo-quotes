@@ -1531,6 +1531,7 @@ serve(async (req) => {
               subject: msg.subject,
               body_text: bodyText || null,
               body_html: bodyHtml || null,
+              body_capture_mode: 'sanitized_truncated',
               sent_at: parseEmailDate(msg.date),
               is_quotation_request: isQuotation
             })
