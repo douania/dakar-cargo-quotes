@@ -316,6 +316,96 @@ export type Database = {
           },
         ]
       }
+      client_gap_requests: {
+        Row: {
+          case_id: string
+          created_at: string
+          created_by: string | null
+          draft_body: string | null
+          draft_subject: string | null
+          gap_key: string
+          id: string
+          matched_fact_key: string | null
+          response_email_id: string | null
+          sent_at: string | null
+          source_email_id: string | null
+          source_timeline_event_id: string | null
+          status: string
+          updated_at: string
+          validated_fact_id: string | null
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          created_by?: string | null
+          draft_body?: string | null
+          draft_subject?: string | null
+          gap_key: string
+          id?: string
+          matched_fact_key?: string | null
+          response_email_id?: string | null
+          sent_at?: string | null
+          source_email_id?: string | null
+          source_timeline_event_id?: string | null
+          status?: string
+          updated_at?: string
+          validated_fact_id?: string | null
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          created_by?: string | null
+          draft_body?: string | null
+          draft_subject?: string | null
+          gap_key?: string
+          id?: string
+          matched_fact_key?: string | null
+          response_email_id?: string | null
+          sent_at?: string | null
+          source_email_id?: string | null
+          source_timeline_event_id?: string | null
+          status?: string
+          updated_at?: string
+          validated_fact_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_gap_requests_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_gap_requests_response_email_id_fkey"
+            columns: ["response_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_gap_requests_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_gap_requests_source_timeline_event_id_fkey"
+            columns: ["source_timeline_event_id"]
+            isOneToOne: false
+            referencedRelation: "case_timeline_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_gap_requests_validated_fact_id_fkey"
+            columns: ["validated_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           company: string | null
