@@ -1462,7 +1462,22 @@ serve(async (req) => {
           }
 
           // Fetch body
-          const { text: bodyText, html: bodyHtml } = await client.fetchBody(msg.uid);
+          const { text: rawBodyText, html: rawBodyHtml } = await client.fetchBody(msg.uid);
+          
+          // === Memory fix: intelligent cleanup before storage ===
+          const MAX_BODY_TEXT = 50_000;
+          const MAX_BODY_HTML = 100_000;
+          
+          let bodyHtml: string | null = null;
+          let bodyText: string | null = null;
+          
+          if (rawBodyHtml) {
+            bodyHtml = sanitizeHtml(rawBodyHtml).substring(0, MAX_BODY_HTML);
+            // Always derive bodyText from cleaned HTML for consistency
+            bodyText = stripHtml(bodyHtml).substring(0, MAX_BODY_TEXT);
+          } else if (rawBodyText) {
+            bodyText = rawBodyText.substring(0, MAX_BODY_TEXT);
+          }
           
           const isQuotation = isQuotationRelated(msg.from, msg.subject, bodyText || bodyHtml || '');
           const threadId = extractThreadId(msg.messageId, msg.references);
