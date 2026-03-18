@@ -208,7 +208,7 @@ Deno.serve(async (req) => {
     // 7b. CL1: Promote answered → validated if matching client_gap_request exists
     if (factId) {
       try {
-        const { data: answeredRow } = await svc
+        const { data: answeredRow, error: selectErr } = await svc
           .from("client_gap_requests")
           .select("id")
           .eq("case_id", case_id)
@@ -218,11 +218,18 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle();
 
+        if (selectErr) {
+          console.warn("[CL1] client_gap_requests select failed:", selectErr.message);
+        }
+
         if (answeredRow) {
-          await svc
+          const { error: updateErr } = await svc
             .from("client_gap_requests")
             .update({ status: "validated", validated_fact_id: factId })
             .eq("id", answeredRow.id);
+          if (updateErr) {
+            console.warn("[CL1] client_gap_requests promotion update failed:", updateErr.message);
+          }
         }
       } catch (clErr) {
         console.warn("[CL1] client_gap_requests promotion failed:", (clErr as Error).message);

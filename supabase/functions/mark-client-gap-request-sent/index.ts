@@ -61,13 +61,19 @@ Deno.serve(async (req: Request) => {
       }
 
       // Find row with status = 'drafted'
-      const { data: row } = await serviceClient
+      const { data: row, error: findErr } = await serviceClient
         .from("client_gap_requests")
         .select("id, status")
         .eq("case_id", case_id)
         .eq("gap_key", gapKey)
         .in("status", ["drafted", "sent", "answered"])
         .maybeSingle();
+
+      if (findErr) {
+        console.warn(`[mark-client-gap-request-sent] Find failed for ${gapKey}:`, findErr.message);
+        skipped++;
+        continue;
+      }
 
       if (!row) {
         skipped++;
