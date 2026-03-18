@@ -865,49 +865,71 @@ class SimpleIMAPClient {
     return { text, html };
   }
 
-  async fetchBodyStructure(uid: number): Promise<string> {
+  async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
     const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
-    return response;
+    return parseBodyStructure(response);
   }
 
-  async fetchAttachmentPart(uid: number, partNumber: string): Promise<{ data: Uint8Array; encoding: string }> {
-    console.log(`[FETCH] Fetching attachment part ${partNumber} for UID ${uid}`);
+  async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
+    console.log(`[FETCH] Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
+    
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    console.log(`[FETCH] Response length: ${response.length} chars`);
     
     let rawContent = '';
     
-    // Pattern 1: Literal format {size}
+    // Pattern 1: BODY[X] {size}\r\ncontent - literal format
     const literalMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
     if (literalMatch) {
       const expectedSize = parseInt(literalMatch[1], 10);
       const literalMarker = `{${expectedSize}}`;
       const afterBrace = response.indexOf(literalMarker) + literalMarker.length;
-      
       let contentStart = afterBrace;
       if (response.substring(afterBrace, afterBrace + 2) === '\r\n') {
         contentStart = afterBrace + 2;
       } else if (response[afterBrace] === '\n') {
         contentStart = afterBrace + 1;
       }
-      
       rawContent = response.substring(contentStart, contentStart + expectedSize);
-      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes`);
+      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes using literal pattern`);
     }
     
-    // Decode base64
-    if (rawContent) {
-      try {
-        const cleaned = rawContent.replace(/[\r\n\s]/g, '');
-        const binary = atob(cleaned);
-        const bytes = new Uint8Array([...binary].map(c => c.charCodeAt(0)));
-        console.log(`[FETCH] Decoded ${bytes.length} bytes from base64`);
-        return { data: bytes, encoding: 'base64' };
-      } catch (e) {
-        console.error(`[FETCH] Base64 decode error:`, e);
+    // Pattern 2: BODY[X] "content" - quoted format
+    if (!rawContent) {
+      const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
+      if (quotedMatch && quotedMatch[1]) {
+        rawContent = quotedMatch[1];
+        console.log(`[FETCH] Extracted ${rawContent.length} bytes using quoted pattern`);
       }
     }
     
-    return { data: new Uint8Array(0), encoding: 'unknown' };
+    // Pattern 3: Extract content between BODY[X] and closing paren
+    if (!rawContent) {
+      const bodyStartMatch = response.match(/BODY\[[\d.]+\]\s*/i);
+      if (bodyStartMatch) {
+        const startIdx = response.indexOf(bodyStartMatch[0]) + bodyStartMatch[0].length;
+        const tagMatch = response.match(/\r\n[A-Z]\d+\s+(OK|NO|BAD)/i);
+        const endIdx = tagMatch ? response.lastIndexOf(')', response.indexOf(tagMatch[0])) : response.lastIndexOf(')');
+        if (endIdx > startIdx) {
+          rawContent = response.substring(startIdx, endIdx).trim();
+          console.log(`[FETCH] Extracted ${rawContent.length} bytes using fallback pattern`);
+        }
+      }
+    }
+    
+    if (!rawContent || rawContent.length === 0) {
+      console.log(`[FETCH] No content extracted for part ${partNumber}`);
+      return new Uint8Array(0);
+    }
+    
+    // Decode based on encoding
+    if (encoding.toLowerCase() === 'base64') {
+      return decodeBase64Chunked(rawContent);
+    } else if (encoding.toLowerCase() === 'quoted-printable') {
+      return decodeQuotedPrintableAttachment(rawContent);
+    }
+    
+    return new TextEncoder().encode(rawContent);
   }
 
   async logout(): Promise<void> {
