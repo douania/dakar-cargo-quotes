@@ -59,6 +59,19 @@ Idempotence : UNIQUE (request_id, source_email_id) + facts-existence guard + exa
 
 ---
 
+## Module CL1
+
+Edge functions : generate-reply-draft (enrichi), analyze-reply-event (enrichi), set-case-fact (enrichi), mark-client-gap-request-sent (nouveau)  
+Table : client_gap_requests  
+Cycle : drafted → sent → answered → validated (+ cancelled)  
+Unicité : UNIQUE partiel (case_id, gap_key) WHERE status IN ('drafted','sent','answered')  
+Matching : sent-first, fallback drafted  
+Injection : via set-case-fact uniquement (promotion answered → validated)  
+UI : ClarificationPanel (bouton "Marquer comme envoyé"), CaseView (section statuts)  
+Contrainte : non-bloquant — erreurs CL1 loguées, jamais fatales  
+
+---
+
 ## Modules FROZEN
 
 Ne pas modifier :
