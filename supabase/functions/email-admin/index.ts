@@ -392,7 +392,7 @@ class ReimportIMAPClient {
 }
 
 
-  if (req.method === "OPTIONS") {
+  serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
