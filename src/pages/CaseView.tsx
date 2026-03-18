@@ -749,20 +749,20 @@ export default function CaseView() {
   }
 
   // ── CL1: Mark client gap requests as sent ──
-  async function markClientGapRequestsSent() {
+  async function markClientGapRequestsSent(gapKeys?: string[]) {
     if (!caseId || isMarkingSent) return;
-    // Find gap_keys that are currently in 'drafted' status
-    const draftedKeys = (clientGapRequests as any[])
+    // If specific gap keys provided, use them; otherwise fallback to all drafted
+    const keysToSend = gapKeys ?? (clientGapRequests as any[])
       .filter((r: any) => r.status === "drafted")
       .map((r: any) => r.gap_key as string);
-    if (draftedKeys.length === 0) {
+    if (keysToSend.length === 0) {
       toast.info("Aucune clarification en brouillon à marquer");
       return;
     }
     setIsMarkingSent(true);
     try {
       const { data, error } = await supabase.functions.invoke("mark-client-gap-request-sent", {
-        body: { case_id: caseId, gap_keys: draftedKeys },
+        body: { case_id: caseId, gap_keys: keysToSend },
       });
       if (error) throw error;
       if (data?.ok) {
