@@ -350,7 +350,8 @@ serve(async (req) => {
         body_html: bodyHtml,
         body_capture_mode: 'full_sanitized',
       })
-      .eq('id', email_id);
+      .eq('id', email_id)
+      .neq('body_capture_mode', 'full_sanitized');
 
     if (updateError) {
       console.error('[hydrate] Update failed:', updateError);
