@@ -948,13 +948,17 @@ serve(async (req) => {
                     if (att.contentType.startsWith('image/') && att.filename.startsWith('image')) continue;
                     
                     // Idempotency guard
-                    const { data: existing } = await supabase
+                    const { data: existing, error: existingErr } = await supabase
                       .from('email_attachments')
                       .select('id')
                       .eq('email_id', email.id)
                       .eq('filename', att.filename)
                       .maybeSingle();
                     
+                    if (existingErr) {
+                      console.warn(`[reimport_attachments] Idempotency check failed for ${att.filename}:`, existingErr.message);
+                      continue;
+                    }
                     if (existing) continue;
                     
                     // Size check (5MB limit)
