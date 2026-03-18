@@ -106,3 +106,56 @@ Un patch structurel ciblé peut être accepté, y compris sur une zone sensible/
 3. il ne constitue pas un refactor global
 4. il préserve le pipeline existant, l'idempotence, la traçabilité et l'intégrité des données
 5. il est justifié explicitement avant exécution
+
+---
+
+## Exception contrôlée — CL1 sur set-case-fact
+
+### Contexte
+
+Dans le cadre de la Phase CL1 (Conversation Layer minimal), un besoin métier réel a été identifié :
+synchroniser l'état des clarifications client (`client_gap_requests`) avec la validation effective des faits dans le système.
+
+### Problème métier réel
+
+Absence de lien explicite entre :
+- validation d'un fait via `set-case-fact` (source de vérité)
+- et statut conversationnel du gap correspondant
+
+Conséquences :
+- perte de traçabilité métier
+- UX incohérente (clarification affichée comme non finalisée alors qu'elle l'est)
+- difficulté d'audit du cycle complet de résolution d'un gap
+
+### Patch autorisé
+
+Après un `supersede_fact` réussi dans `set-case-fact` :
+
+1. Rechercher dans `client_gap_requests` :
+   `WHERE case_id = case_id AND gap_key = fact_key AND status = 'answered'`
+
+2. Si trouvé :
+   `UPDATE status = 'validated', validated_fact_id = factId`
+
+### Justification de l'exception
+
+Ce patch est autorisé au titre de STRUCTURAL_PATCH_ALLOWED car :
+
+1. **Corrige un manque réel du modèle métier** — absence de synchronisation entre validation des faits et suivi conversationnel
+2. **Périmètre strictement localisé** — uniquement dans set-case-fact, aucun impact sur build-case-puzzle, quotation-engine, run-pricing
+3. **Aucun refactor global** — ajout d'un bloc post-traitement uniquement, aucune modification de la logique existante de supersede_fact
+4. **Préservation de l'intégrité des données** — aucune modification des faits eux-mêmes, aucune altération des règles de supersession
+5. **Préservation de l'idempotence** — condition stricte `status = 'answered'`, aucune double promotion possible
+6. **Préservation de la traçabilité** — lien explicite via `validated_fact_id`, cycle complet traçable : `drafted → sent → answered → validated`
+
+### Contraintes d'implémentation
+
+- **Non-bloquant** : toute erreur dans client_gap_requests est loguée uniquement, ne doit jamais faire échouer set-case-fact
+- **Lecture explicite des erreurs Supabase** : vérifier `{ data, error }` sur SELECT et UPDATE
+- **Aucun effet de bord** : ne pas modifier la logique de validation existante
+
+### Statut
+
+- Exception validée pour CL1 uniquement
+- `set-case-fact` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
