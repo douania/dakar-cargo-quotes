@@ -14,6 +14,7 @@ Date: 2026-03
 - Timeline CHECK constraint corrigée (29 valeurs)
 - Silent failures corrigés
 - Module EQ1 (External Quote Requests) stabilisé et hardened
+- Module CL1 (Conversation Layer) opérationnel
 
 ---
 
