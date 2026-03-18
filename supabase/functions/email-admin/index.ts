@@ -114,6 +114,283 @@ function isQuotationRelated(from: string, subject: string, body: string): boolea
   return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
 }
 
+// ============ REIMPORT IMAP CLIENT (minimal, for attachment backfill) ============
+
+interface AttachmentInfo {
+  partNumber: string;
+  filename: string;
+  contentType: string;
+  encoding: string;
+  size: number;
+}
+
+function decodeHeader(text: string): string {
+  return text.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_: string, charset: string, encoding: string, content: string) => {
+    try {
+      if (encoding.toUpperCase() === 'B') {
+        const decoded = atob(content);
+        return new TextDecoder(charset).decode(new Uint8Array([...decoded].map(c => c.charCodeAt(0))));
+      } else {
+        return content.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (_m: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+      }
+    } catch { return content; }
+  });
+}
+
+function tokenizeBodyStructure(structure: string): string[] {
+  const tokens: string[] = [];
+  let i = 0;
+  while (i < structure.length) {
+    const ch = structure[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if (ch === '(' || ch === ')') { tokens.push(ch); i++; continue; }
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < structure.length) {
+        if (structure[end] === '\\' && end + 1 < structure.length) { end += 2; continue; }
+        if (structure[end] === '"') break;
+        end++;
+      }
+      tokens.push(structure.substring(i + 1, end));
+      i = end + 1;
+      continue;
+    }
+    if (/[A-Za-z0-9]/.test(ch)) {
+      let end = i;
+      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) end++;
+      tokens.push(structure.substring(i, end));
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return tokens;
+}
+
+function extractFilenameFromParams(tokens: string[], startIdx: number): string {
+  let filename = '';
+  for (let i = startIdx; i < Math.min(startIdx + 100, tokens.length); i++) {
+    const token = tokens[i]?.toLowerCase();
+    if (token === 'name' || token === 'filename') {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') { filename = decodeHeader(val); break; }
+      }
+      if (filename) break;
+    }
+    if (token && token.startsWith('filename*')) {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          const match = val.match(/(?:UTF-8''|utf-8'')?(.*)/i);
+          if (match) { try { filename = decodeURIComponent(match[1] || val); } catch { filename = match[1] || val; } }
+          break;
+        }
+      }
+      if (filename) break;
+    }
+  }
+  return filename;
+}
+
+interface ParseContext { pos: number; }
+
+function parseMimePart(tokens: string[], ctx: ParseContext, path: string): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  if (ctx.pos >= tokens.length || tokens[ctx.pos] !== '(') return attachments;
+  ctx.pos++;
+  if (tokens[ctx.pos] === '(') {
+    let subPartNum = 1;
+    while (ctx.pos < tokens.length && tokens[ctx.pos] === '(') {
+      const subPath = path ? `${path}.${subPartNum}` : String(subPartNum);
+      attachments.push(...parseMimePart(tokens, ctx, subPath));
+      subPartNum++;
+    }
+    let depth = 1;
+    while (ctx.pos < tokens.length && depth > 0) { if (tokens[ctx.pos] === '(') depth++; else if (tokens[ctx.pos] === ')') depth--; ctx.pos++; }
+  } else {
+    const startPos = ctx.pos;
+    const type = tokens[ctx.pos++] || 'unknown';
+    const subtype = tokens[ctx.pos++] || 'unknown';
+    const contentType = `${type}/${subtype}`.toLowerCase();
+    if (tokens[ctx.pos] === '(') {
+      let depth = 1; ctx.pos++;
+      while (ctx.pos < tokens.length && depth > 0) { if (tokens[ctx.pos] === '(') depth++; else if (tokens[ctx.pos] === ')') depth--; ctx.pos++; }
+    } else { ctx.pos++; }
+    ctx.pos++; ctx.pos++;
+    const encoding = (tokens[ctx.pos++] || 'base64').toLowerCase();
+    const size = parseInt(tokens[ctx.pos++] || '0', 10) || 0;
+    let depth = 1;
+    const dispositionSearchStart = ctx.pos;
+    while (ctx.pos < tokens.length && depth > 0) { if (tokens[ctx.pos] === '(') depth++; else if (tokens[ctx.pos] === ')') depth--; ctx.pos++; }
+    if (contentType !== 'text/plain' && contentType !== 'text/html') {
+      let filename = extractFilenameFromParams(tokens, startPos);
+      if (!filename) {
+        for (let i = dispositionSearchStart; i < ctx.pos; i++) {
+          const tok = tokens[i]?.toLowerCase();
+          if (tok === 'attachment' || tok === 'inline') { filename = extractFilenameFromParams(tokens, i); if (filename) break; }
+        }
+      }
+      if (!filename) {
+        const extMap: Record<string, string> = { 'application/pdf': '.pdf', 'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx', 'application/msword': '.doc', 'image/jpeg': '.jpg', 'image/png': '.png' };
+        filename = `attachment_${path || '1'}${extMap[contentType] || ''}`;
+      }
+      attachments.push({ partNumber: path || '1', filename, contentType, encoding, size });
+    }
+  }
+  return attachments;
+}
+
+function extractBodyStructure(response: string): string {
+  const marker = 'BODYSTRUCTURE ';
+  const start = response.toUpperCase().indexOf(marker);
+  if (start === -1) return '';
+  let depth = 0, structureStart = start + marker.length, structureEnd = structureStart, started = false;
+  for (let i = structureStart; i < response.length; i++) {
+    if (response[i] === '(') { if (!started) started = true; depth++; }
+    if (response[i] === ')') { depth--; if (started && depth === 0) { structureEnd = i + 1; break; } }
+  }
+  return response.substring(structureStart, structureEnd);
+}
+
+function findPartNumberByPosition(structure: string, position: number): string {
+  const before = structure.substring(0, position);
+  let depth = 0, partNum = 0;
+  for (const char of before) { if (char === '(') { depth++; if (depth === 2) partNum++; } if (char === ')') depth--; }
+  return String(partNum || 1);
+}
+
+function parseBodyStructure(response: string): AttachmentInfo[] {
+  const structure = extractBodyStructure(response);
+  if (!structure || structure.length < 10) return [];
+  const tokens = tokenizeBodyStructure(structure);
+  const ctx: ParseContext = { pos: 0 };
+  const attachments = parseMimePart(tokens, ctx, '');
+  const extensionPattern = /["']([^"']*\.(?:xlsx?|pdf|docx?|csv|zip|rar|pptx?))["']/gi;
+  let extMatch;
+  while ((extMatch = extensionPattern.exec(structure)) !== null) {
+    const filename = decodeHeader(extMatch[1]);
+    if (attachments.some(a => a.filename === filename)) continue;
+    if (filename.toLowerCase().startsWith('~') || filename.toLowerCase().includes('signature')) continue;
+    let contentType = 'application/octet-stream';
+    if (filename.toLowerCase().endsWith('.pdf')) contentType = 'application/pdf';
+    else if (filename.toLowerCase().endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    attachments.push({ partNumber: findPartNumberByPosition(structure, extMatch.index), filename, contentType, encoding: 'base64', size: 0 });
+  }
+  return attachments;
+}
+
+function decodeBase64Chunked(content: string): Uint8Array {
+  try {
+    const cleaned = content.replace(/[\r\n\s]/g, '');
+    if (cleaned.length === 0) return new Uint8Array(0);
+    const CHUNK_SIZE = 32768;
+    const chunks: Uint8Array[] = [];
+    for (let i = 0; i < cleaned.length; i += CHUNK_SIZE) {
+      let chunk = cleaned.substring(i, Math.min(i + CHUNK_SIZE, cleaned.length));
+      if (i + CHUNK_SIZE < cleaned.length) { const r = chunk.length % 4; if (r !== 0) chunk = chunk.substring(0, chunk.length - r); }
+      try { const d = atob(chunk); chunks.push(new Uint8Array([...d].map(c => c.charCodeAt(0)))); } catch { continue; }
+    }
+    const totalLength = chunks.reduce((s, c) => s + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const c of chunks) { result.set(c, offset); offset += c.length; }
+    return result;
+  } catch { return new Uint8Array(0); }
+}
+
+function decodeQuotedPrintableAttachment(content: string): Uint8Array {
+  const decoded = content.replace(/=\r\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  return new TextEncoder().encode(decoded);
+}
+
+class ReimportIMAPClient {
+  private conn: Deno.TlsConn | null = null;
+  private encoder = new TextEncoder();
+  private decoder = new TextDecoder();
+  private tagCounter = 0;
+
+  constructor(private host: string, private port: number, private useSsl: boolean) {}
+  private getTag(): string { return `R${++this.tagCounter}`; }
+
+  async connect(): Promise<void> {
+    if (this.useSsl) {
+      this.conn = await Deno.connectTls({ hostname: this.host, port: this.port });
+    } else {
+      const tcp = await Deno.connect({ hostname: this.host, port: this.port });
+      this.conn = tcp as unknown as Deno.TlsConn;
+    }
+    await this.readUntilTag('*');
+  }
+
+  private async readUntilTag(tag: string): Promise<string> {
+    let result = '';
+    const buf = new Uint8Array(8192);
+    const MAX_READ = 50 * 1024 * 1024;
+    while (result.length < MAX_READ) {
+      const n = await this.conn!.read(buf);
+      if (n === null) break;
+      result += this.decoder.decode(buf.subarray(0, n));
+      if (tag === '*') { if (result.includes('\r\n')) break; }
+      else if (result.includes(`${tag} OK`) || result.includes(`${tag} NO`) || result.includes(`${tag} BAD`)) break;
+    }
+    return result;
+  }
+
+  private async sendCommand(command: string): Promise<string> {
+    const tag = this.getTag();
+    await this.conn!.write(this.encoder.encode(`${tag} ${command}\r\n`));
+    return await this.readUntilTag(tag);
+  }
+
+  async login(username: string, password: string): Promise<boolean> {
+    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    return response.includes('OK');
+  }
+
+  async select(mailbox: string): Promise<void> { await this.sendCommand(`SELECT "${mailbox}"`); }
+
+  async searchByMessageId(messageId: string): Promise<number | null> {
+    const cleanId = messageId.replace(/[<>]/g, '');
+    const response = await this.sendCommand(`UID SEARCH HEADER Message-ID "<${cleanId}>"`);
+    const match = response.match(/\* SEARCH\s+(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
+    return parseBodyStructure(response);
+  }
+
+  async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    let rawContent = '';
+    const literalMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
+    if (literalMatch) {
+      const expectedSize = parseInt(literalMatch[1], 10);
+      const marker = `{${expectedSize}}`;
+      const afterBrace = response.indexOf(marker) + marker.length;
+      let contentStart = afterBrace;
+      if (response.substring(afterBrace, afterBrace + 2) === '\r\n') contentStart = afterBrace + 2;
+      else if (response[afterBrace] === '\n') contentStart = afterBrace + 1;
+      rawContent = response.substring(contentStart, contentStart + expectedSize);
+    }
+    if (!rawContent) {
+      const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
+      if (quotedMatch?.[1]) rawContent = quotedMatch[1];
+    }
+    if (!rawContent) return new Uint8Array(0);
+    if (encoding.toLowerCase() === 'base64') return decodeBase64Chunked(rawContent);
+    if (encoding.toLowerCase() === 'quoted-printable') return decodeQuotedPrintableAttachment(rawContent);
+    return new TextEncoder().encode(rawContent);
+  }
+
+  async logout(): Promise<void> {
+    try { await this.sendCommand('LOGOUT'); } catch { /* ignore */ }
+    try { this.conn?.close(); } catch { /* ignore */ }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -594,7 +871,176 @@ serve(async (req) => {
       }
 
       case 'reimport_attachments': {
-        // Find emails that might have PDF/Excel attachments but none in database
+        // MODE 1: Targeted thread reimport via IMAP
+        if (data?.thread_id) {
+          console.log(`[reimport_attachments] Targeted mode for thread_id=${data.thread_id}`);
+          
+          // 1. Get all emails in the thread
+          const { data: threadEmails, error: threadErr } = await supabase
+            .from('emails')
+            .select('id, message_id, email_config_id, subject')
+            .eq('thread_ref', data.thread_id)
+            .order('sent_at', { ascending: true });
+          
+          if (threadErr) throw threadErr;
+          if (!threadEmails || threadEmails.length === 0) {
+            return new Response(
+              JSON.stringify({ success: true, message: 'Aucun email trouvé pour ce thread', imported: 0 }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          
+          // 2. Check which emails already have attachments
+          const emailIds = threadEmails.map(e => e.id);
+          const { data: existingAtts } = await supabase
+            .from('email_attachments')
+            .select('email_id')
+            .in('email_id', emailIds);
+          
+          const emailsWithAtts = new Set((existingAtts || []).map(a => a.email_id));
+          const emailsToProcess = threadEmails.filter(e => !emailsWithAtts.has(e.id));
+          
+          if (emailsToProcess.length === 0) {
+            return new Response(
+              JSON.stringify({ success: true, message: 'Tous les emails ont déjà des pièces jointes enregistrées', imported: 0 }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          
+          // 3. Group by config_id and process via IMAP
+          const configGroups = new Map<string, typeof emailsToProcess>();
+          for (const email of emailsToProcess) {
+            if (!email.email_config_id) continue;
+            if (!configGroups.has(email.email_config_id)) {
+              configGroups.set(email.email_config_id, []);
+            }
+            configGroups.get(email.email_config_id)!.push(email);
+          }
+          
+          let totalImported = 0;
+          const errors: string[] = [];
+          
+          for (const [configId, emails] of configGroups) {
+            // Get config
+            const { data: config, error: configErr } = await supabase
+              .from('email_configs')
+              .select('*')
+              .eq('id', configId)
+              .single();
+            
+            if (configErr || !config) {
+              errors.push(`Config ${configId} introuvable`);
+              continue;
+            }
+            
+            // Connect IMAP
+            let imapClient: ReimportIMAPClient | null = null;
+            try {
+              imapClient = new ReimportIMAPClient(config.host, config.port, config.use_ssl !== false);
+              await imapClient.connect();
+              const loggedIn = await imapClient.login(config.username, config.password_encrypted);
+              if (!loggedIn) { errors.push(`Auth IMAP échouée pour ${config.name}`); continue; }
+              await imapClient.select(config.folder || 'INBOX');
+              
+              for (const email of emails) {
+                try {
+                  // Find UID by Message-ID
+                  const uid = await imapClient.searchByMessageId(email.message_id);
+                  if (!uid) {
+                    console.warn(`[reimport_attachments] UID not found for message_id=${email.message_id}`);
+                    continue;
+                  }
+                  
+                  // Get BODYSTRUCTURE
+                  const attachments = await imapClient.fetchBodyStructure(uid);
+                  if (attachments.length === 0) {
+                    console.log(`[reimport_attachments] No attachments for ${email.subject}`);
+                    continue;
+                  }
+                  
+                  for (const att of attachments) {
+                    // Skip inline images
+                    if (att.contentType.startsWith('image/') && att.filename.startsWith('image')) continue;
+                    
+                    // Idempotency guard
+                    const { data: existing } = await supabase
+                      .from('email_attachments')
+                      .select('id')
+                      .eq('email_id', email.id)
+                      .eq('filename', att.filename)
+                      .maybeSingle();
+                    
+                    if (existing) continue;
+                    
+                    // Size check (5MB limit)
+                    if (att.size > 5 * 1024 * 1024) {
+                      const { error: insertErr } = await supabase.from('email_attachments').insert({
+                        email_id: email.id,
+                        filename: att.filename,
+                        content_type: att.contentType,
+                        size: att.size,
+                        storage_path: null,
+                        is_analyzed: false,
+                        extracted_text: `[Pièce jointe trop volumineuse: ${(att.size / 1024 / 1024).toFixed(2)}MB]`
+                      });
+                      if (insertErr) console.warn(`[reimport_attachments] Insert error:`, insertErr.message);
+                      totalImported++;
+                      continue;
+                    }
+                    
+                    // Download
+                    const content = await imapClient.fetchAttachment(uid, att.partNumber, att.encoding);
+                    if (content.length === 0) continue;
+                    
+                    // Upload
+                    const safeName = att.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+                    const storagePath = `email-attachments/${email.id}/${Date.now()}_${safeName}`;
+                    
+                    const { error: uploadErr } = await supabase.storage
+                      .from('documents')
+                      .upload(storagePath, content, { contentType: att.contentType, upsert: true });
+                    
+                    const finalPath = uploadErr ? null : storagePath;
+                    if (uploadErr) console.warn(`[reimport_attachments] Upload error:`, uploadErr.message);
+                    
+                    const { error: insertErr } = await supabase.from('email_attachments').insert({
+                      email_id: email.id,
+                      filename: att.filename,
+                      content_type: att.contentType,
+                      size: content.length,
+                      storage_path: finalPath,
+                      is_analyzed: false,
+                    });
+                    if (insertErr) console.warn(`[reimport_attachments] Insert error:`, insertErr.message);
+                    else totalImported++;
+                  }
+                } catch (emailErr) {
+                  console.error(`[reimport_attachments] Error processing email ${email.id}:`, emailErr);
+                  errors.push(`Email ${email.id}: ${emailErr instanceof Error ? emailErr.message : String(emailErr)}`);
+                }
+              }
+              
+              await imapClient.logout();
+            } catch (imapErr) {
+              console.error(`[reimport_attachments] IMAP error for config ${configId}:`, imapErr);
+              errors.push(`IMAP ${config.name}: ${imapErr instanceof Error ? imapErr.message : String(imapErr)}`);
+              if (imapClient) try { await imapClient.logout(); } catch { /* ignore */ }
+            }
+          }
+          
+          return new Response(
+            JSON.stringify({
+              success: true,
+              imported: totalImported,
+              emailsProcessed: emailsToProcess.length,
+              errors: errors.length > 0 ? errors : undefined,
+              message: `${totalImported} pièce(s) jointe(s) importée(s) depuis ${emailsToProcess.length} email(s)`
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        
+        // MODE 2: Heuristic scan (existing behavior)
         console.log('Starting attachment reimport scan...');
         
         // Get emails with potential attachments (based on size or keywords)
@@ -650,7 +1096,6 @@ serve(async (req) => {
         for (const email of emails) {
           const attachments = attachmentMap.get(email.id) || [];
           
-          // Check if email mentions attachments but has none or only images
           const bodyLower = (email.body_text || '').toLowerCase();
           const subjectLower = (email.subject || '').toLowerCase();
           const text = `${subjectLower} ${bodyLower}`;

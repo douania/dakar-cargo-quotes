@@ -865,49 +865,71 @@ class SimpleIMAPClient {
     return { text, html };
   }
 
-  async fetchBodyStructure(uid: number): Promise<string> {
+  async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
     const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
-    return response;
+    return parseBodyStructure(response);
   }
 
-  async fetchAttachmentPart(uid: number, partNumber: string): Promise<{ data: Uint8Array; encoding: string }> {
-    console.log(`[FETCH] Fetching attachment part ${partNumber} for UID ${uid}`);
+  async fetchAttachment(uid: number, partNumber: string, encoding: string): Promise<Uint8Array> {
+    console.log(`[FETCH] Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
+    
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    console.log(`[FETCH] Response length: ${response.length} chars`);
     
     let rawContent = '';
     
-    // Pattern 1: Literal format {size}
+    // Pattern 1: BODY[X] {size}\r\ncontent - literal format
     const literalMatch = response.match(/BODY\[[\d.]+\]\s*\{(\d+)\}/i);
     if (literalMatch) {
       const expectedSize = parseInt(literalMatch[1], 10);
       const literalMarker = `{${expectedSize}}`;
       const afterBrace = response.indexOf(literalMarker) + literalMarker.length;
-      
       let contentStart = afterBrace;
       if (response.substring(afterBrace, afterBrace + 2) === '\r\n') {
         contentStart = afterBrace + 2;
       } else if (response[afterBrace] === '\n') {
         contentStart = afterBrace + 1;
       }
-      
       rawContent = response.substring(contentStart, contentStart + expectedSize);
-      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes`);
+      console.log(`[FETCH] Extracted ${rawContent.length}/${expectedSize} bytes using literal pattern`);
     }
     
-    // Decode base64
-    if (rawContent) {
-      try {
-        const cleaned = rawContent.replace(/[\r\n\s]/g, '');
-        const binary = atob(cleaned);
-        const bytes = new Uint8Array([...binary].map(c => c.charCodeAt(0)));
-        console.log(`[FETCH] Decoded ${bytes.length} bytes from base64`);
-        return { data: bytes, encoding: 'base64' };
-      } catch (e) {
-        console.error(`[FETCH] Base64 decode error:`, e);
+    // Pattern 2: BODY[X] "content" - quoted format
+    if (!rawContent) {
+      const quotedMatch = response.match(/BODY\[[\d.]+\]\s+"([^"]*)"/i);
+      if (quotedMatch && quotedMatch[1]) {
+        rawContent = quotedMatch[1];
+        console.log(`[FETCH] Extracted ${rawContent.length} bytes using quoted pattern`);
       }
     }
     
-    return { data: new Uint8Array(0), encoding: 'unknown' };
+    // Pattern 3: Extract content between BODY[X] and closing paren
+    if (!rawContent) {
+      const bodyStartMatch = response.match(/BODY\[[\d.]+\]\s*/i);
+      if (bodyStartMatch) {
+        const startIdx = response.indexOf(bodyStartMatch[0]) + bodyStartMatch[0].length;
+        const tagMatch = response.match(/\r\n[A-Z]\d+\s+(OK|NO|BAD)/i);
+        const endIdx = tagMatch ? response.lastIndexOf(')', response.indexOf(tagMatch[0])) : response.lastIndexOf(')');
+        if (endIdx > startIdx) {
+          rawContent = response.substring(startIdx, endIdx).trim();
+          console.log(`[FETCH] Extracted ${rawContent.length} bytes using fallback pattern`);
+        }
+      }
+    }
+    
+    if (!rawContent || rawContent.length === 0) {
+      console.log(`[FETCH] No content extracted for part ${partNumber}`);
+      return new Uint8Array(0);
+    }
+    
+    // Decode based on encoding
+    if (encoding.toLowerCase() === 'base64') {
+      return decodeBase64Chunked(rawContent);
+    } else if (encoding.toLowerCase() === 'quoted-printable') {
+      return decodeQuotedPrintableAttachment(rawContent);
+    }
+    
+    return new TextEncoder().encode(rawContent);
   }
 
   async logout(): Promise<void> {
@@ -921,6 +943,414 @@ class SimpleIMAPClient {
       this.conn?.close();
     } catch (_e) {
       // Ignore close errors
+    }
+  }
+}
+
+// ============ ATTACHMENT HELPERS (ported from import-thread) ============
+
+interface AttachmentInfo {
+  partNumber: string;
+  filename: string;
+  contentType: string;
+  encoding: string;
+  size: number;
+}
+
+// Maximum attachment size to process (5MB) - aligned with import-thread
+const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+
+// Tokenizer for IMAP BODYSTRUCTURE
+function tokenizeBodyStructure(structure: string): string[] {
+  const tokens: string[] = [];
+  let i = 0;
+  
+  while (i < structure.length) {
+    const ch = structure[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if (ch === '(' || ch === ')') { tokens.push(ch); i++; continue; }
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < structure.length) {
+        if (structure[end] === '\\' && end + 1 < structure.length) { end += 2; continue; }
+        if (structure[end] === '"') break;
+        end++;
+      }
+      tokens.push(structure.substring(i + 1, end));
+      i = end + 1;
+      continue;
+    }
+    if (/[A-Za-z0-9]/.test(ch)) {
+      let end = i;
+      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) end++;
+      tokens.push(structure.substring(i, end));
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return tokens;
+}
+
+// Extract filename from BODYSTRUCTURE parameters
+function extractFilenameFromParams(tokens: string[], startIdx: number): string {
+  let filename = '';
+  for (let i = startIdx; i < Math.min(startIdx + 100, tokens.length); i++) {
+    const token = tokens[i]?.toLowerCase();
+    if (token === 'name' || token === 'filename') {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          filename = decodeHeader(val);
+          break;
+        }
+      }
+      if (filename) break;
+    }
+    if (token && token.startsWith('filename*')) {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          const match = val.match(/(?:UTF-8''|utf-8'')?(.*)/i);
+          if (match) {
+            try { filename = decodeURIComponent(match[1] || val); }
+            catch { filename = match[1] || val; }
+          }
+          break;
+        }
+      }
+      if (filename) break;
+    }
+  }
+  return filename;
+}
+
+// Recursive MIME parser
+interface ParseContext { pos: number; }
+
+function parseMimePart(tokens: string[], ctx: ParseContext, path: string): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  if (ctx.pos >= tokens.length || tokens[ctx.pos] !== '(') return attachments;
+  ctx.pos++;
+  
+  if (tokens[ctx.pos] === '(') {
+    let subPartNum = 1;
+    while (ctx.pos < tokens.length && tokens[ctx.pos] === '(') {
+      const subPath = path ? `${path}.${subPartNum}` : String(subPartNum);
+      attachments.push(...parseMimePart(tokens, ctx, subPath));
+      subPartNum++;
+    }
+    let depth = 1;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+  } else {
+    const startPos = ctx.pos;
+    const type = tokens[ctx.pos++] || 'unknown';
+    const subtype = tokens[ctx.pos++] || 'unknown';
+    const contentType = `${type}/${subtype}`.toLowerCase();
+    
+    if (tokens[ctx.pos] === '(') {
+      let depth = 1; ctx.pos++;
+      while (ctx.pos < tokens.length && depth > 0) {
+        if (tokens[ctx.pos] === '(') depth++;
+        else if (tokens[ctx.pos] === ')') depth--;
+        ctx.pos++;
+      }
+    } else { ctx.pos++; }
+    
+    ctx.pos++; // id
+    ctx.pos++; // description
+    const encoding = (tokens[ctx.pos++] || 'base64').toLowerCase();
+    const sizeStr = tokens[ctx.pos++] || '0';
+    const size = parseInt(sizeStr, 10) || 0;
+    
+    let depth = 1;
+    const dispositionSearchStart = ctx.pos;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+    
+    if (contentType !== 'text/plain' && contentType !== 'text/html') {
+      let filename = extractFilenameFromParams(tokens, startPos);
+      if (!filename) {
+        for (let i = dispositionSearchStart; i < ctx.pos; i++) {
+          const tok = tokens[i]?.toLowerCase();
+          if (tok === 'attachment' || tok === 'inline') {
+            filename = extractFilenameFromParams(tokens, i);
+            if (filename) break;
+          }
+        }
+      }
+      if (!filename) {
+        const extMap: Record<string, string> = {
+          'application/pdf': '.pdf',
+          'application/vnd.ms-excel': '.xls',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+          'application/msword': '.doc',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+        };
+        const ext = extMap[contentType] || '';
+        filename = `attachment_${path || '1'}${ext}`;
+      }
+      const partNumber = path || '1';
+      console.log(`[BODYSTRUCTURE] Found attachment: ${filename} at part ${partNumber} (${contentType}, ${size} bytes, ${encoding})`);
+      attachments.push({ partNumber, filename, contentType, encoding, size });
+    }
+  }
+  return attachments;
+}
+
+// Extract BODYSTRUCTURE using balanced parenthesis counting
+function extractBodyStructure(response: string): string {
+  const marker = 'BODYSTRUCTURE ';
+  const upperResponse = response.toUpperCase();
+  const start = upperResponse.indexOf(marker);
+  if (start === -1) return '';
+  let depth = 0;
+  let structureStart = start + marker.length;
+  let structureEnd = structureStart;
+  let started = false;
+  for (let i = structureStart; i < response.length; i++) {
+    if (response[i] === '(') { if (!started) started = true; depth++; }
+    if (response[i] === ')') {
+      depth--;
+      if (started && depth === 0) { structureEnd = i + 1; break; }
+    }
+  }
+  return response.substring(structureStart, structureEnd);
+}
+
+// Find part number by counting nested sections before position
+function findPartNumberByPosition(structure: string, position: number): string {
+  const before = structure.substring(0, position);
+  let depth = 0; let partNum = 0;
+  for (const char of before) {
+    if (char === '(') { depth++; if (depth === 2) partNum++; }
+    if (char === ')') depth--;
+  }
+  return String(partNum || 1);
+}
+
+// Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
+function parseBodyStructure(response: string): AttachmentInfo[] {
+  console.log(`[BODYSTRUCTURE] Parsing response (${response.length} chars)`);
+  const structure = extractBodyStructure(response);
+  if (!structure || structure.length < 10) {
+    console.log("[BODYSTRUCTURE] No BODYSTRUCTURE match found in response");
+    return [];
+  }
+  console.log(`[BODYSTRUCTURE] Extracted structure (${structure.length} chars)`);
+  
+  const tokens = tokenizeBodyStructure(structure);
+  const ctx: ParseContext = { pos: 0 };
+  const attachments = parseMimePart(tokens, ctx, '');
+  
+  // Fallback: Search by file extension
+  const extensionPattern = /["']([^"']*\.(?:xlsx?|pdf|docx?|csv|zip|rar|pptx?))["']/gi;
+  let extMatch;
+  while ((extMatch = extensionPattern.exec(structure)) !== null) {
+    const filename = decodeHeader(extMatch[1]);
+    const lowerFilename = filename.toLowerCase();
+    if (attachments.some(a => a.filename === filename)) continue;
+    if (lowerFilename.startsWith('~') || lowerFilename.startsWith('image0') || lowerFilename.includes('signature')) continue;
+    
+    let contentType = 'application/octet-stream';
+    if (lowerFilename.endsWith('.pdf')) contentType = 'application/pdf';
+    else if (lowerFilename.endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (lowerFilename.endsWith('.xls')) contentType = 'application/vnd.ms-excel';
+    else if (lowerFilename.endsWith('.docx')) contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (lowerFilename.endsWith('.doc')) contentType = 'application/msword';
+    else if (lowerFilename.endsWith('.csv')) contentType = 'text/csv';
+    
+    const partNumber = findPartNumberByPosition(structure, extMatch.index);
+    console.log(`[BODYSTRUCTURE] Found attachment by extension: ${filename} -> part ${partNumber}`);
+    attachments.push({ partNumber, filename, contentType, encoding: 'base64', size: 0 });
+  }
+  
+  console.log(`[BODYSTRUCTURE] Total: ${attachments.length} attachment(s)`);
+  for (const att of attachments) {
+    console.log(`  - Part ${att.partNumber}: ${att.filename} (${att.contentType}, ${att.size} bytes)`);
+  }
+  return attachments;
+}
+
+// Decode base64 by chunks to handle large attachments (ported from import-thread)
+function decodeBase64Chunked(content: string): Uint8Array {
+  try {
+    const cleaned = content.replace(/[\r\n\s]/g, '');
+    if (cleaned.length === 0) return new Uint8Array(0);
+    
+    const CHUNK_SIZE = 32768;
+    const chunks: Uint8Array[] = [];
+    for (let i = 0; i < cleaned.length; i += CHUNK_SIZE) {
+      let chunk = cleaned.substring(i, Math.min(i + CHUNK_SIZE, cleaned.length));
+      if (i + CHUNK_SIZE < cleaned.length) {
+        const remainder = chunk.length % 4;
+        if (remainder !== 0) chunk = chunk.substring(0, chunk.length - remainder);
+      }
+      try {
+        const decoded = atob(chunk);
+        chunks.push(new Uint8Array([...decoded].map(c => c.charCodeAt(0))));
+      } catch (chunkError) {
+        console.error(`[BASE64] Chunk decode error at offset ${i}:`, chunkError);
+        continue;
+      }
+    }
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+    console.log(`[BASE64] Decoded ${cleaned.length} base64 chars to ${result.length} bytes`);
+    return result;
+  } catch (e) {
+    console.error("[BASE64] Decode error:", e);
+    return new Uint8Array(0);
+  }
+}
+
+// Decode quoted-printable content to Uint8Array (ported from import-thread)
+function decodeQuotedPrintableAttachment(content: string): Uint8Array {
+  const decoded = content
+    .replace(/=\r\n/g, '')
+    .replace(/=([0-9A-Fa-f]{2})/g, (_: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  return new TextEncoder().encode(decoded);
+}
+
+// ============ ATTACHMENT IMPORT SUB-FLOW (non-blocking) ============
+
+async function processEmailAttachments(
+  client: SimpleIMAPClient,
+  uid: number,
+  emailId: string,
+  supabase: any
+): Promise<void> {
+  const attachments = await client.fetchBodyStructure(uid);
+  
+  if (attachments.length === 0) {
+    console.log(`[sync-emails/attachments] No attachments found for UID ${uid}`);
+    return;
+  }
+  
+  console.log(`[sync-emails/attachments] Processing ${attachments.length} attachment(s) for email ${emailId}`);
+  
+  for (const attachment of attachments) {
+    try {
+      // Skip inline images (signatures, logos)
+      if (attachment.contentType.startsWith('image/') && attachment.filename.startsWith('image')) {
+        console.log(`[sync-emails/attachments] Skipping inline image: ${attachment.filename}`);
+        continue;
+      }
+      
+      // Idempotency guard: check if attachment already exists for this email
+      const { data: existingAttachment, error: existingErr } = await supabase
+        .from('email_attachments')
+        .select('id, storage_path')
+        .eq('email_id', emailId)
+        .eq('filename', attachment.filename)
+        .maybeSingle();
+      
+      if (existingErr) {
+        console.warn(`[sync-emails/attachments] Error checking existing attachment:`, existingErr.message);
+        continue;
+      }
+      
+      if (existingAttachment) {
+        console.log(`[sync-emails/attachments] Attachment already exists: ${attachment.filename} (id=${existingAttachment.id}), skipping`);
+        continue;
+      }
+      
+      // Handle oversized attachments: create record but don't download
+      if (attachment.size > MAX_ATTACHMENT_SIZE) {
+        const sizeMB = (attachment.size / 1024 / 1024).toFixed(2);
+        console.log(`[sync-emails/attachments] Skipping large attachment ${attachment.filename} (${sizeMB}MB > 5MB limit)`);
+        
+        const { error: insertError } = await supabase
+          .from('email_attachments')
+          .insert({
+            email_id: emailId,
+            filename: attachment.filename,
+            content_type: attachment.contentType,
+            size: attachment.size,
+            storage_path: null,
+            is_analyzed: false,
+            extracted_text: `[Pièce jointe trop volumineuse: ${sizeMB}MB - non traitée automatiquement]`
+          });
+        
+        if (insertError) {
+          console.warn(`[sync-emails/attachments] Insert error for oversized attachment:`, insertError.message);
+        }
+        continue;
+      }
+      
+      // Download attachment content
+      const content = await client.fetchAttachment(uid, attachment.partNumber, attachment.encoding);
+      
+      if (content.length === 0) {
+        console.warn(`[sync-emails/attachments] Empty content for ${attachment.filename}`);
+        continue;
+      }
+      
+      console.log(`[sync-emails/attachments] Downloaded ${content.length} bytes for ${attachment.filename}`);
+      
+      // Upload to storage
+      const timestamp = Date.now();
+      const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `email-attachments/${emailId}/${timestamp}_${safeName}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(storagePath, content, {
+          contentType: attachment.contentType,
+          upsert: true
+        });
+      
+      if (uploadError) {
+        console.error(`[sync-emails/attachments] Upload failed for ${attachment.filename}:`, uploadError.message);
+        // Still insert the record without storage_path
+        const { error: insertError } = await supabase
+          .from('email_attachments')
+          .insert({
+            email_id: emailId,
+            filename: attachment.filename,
+            content_type: attachment.contentType,
+            size: content.length,
+            storage_path: null,
+            is_analyzed: false,
+          });
+        if (insertError) {
+          console.warn(`[sync-emails/attachments] Insert error (no storage):`, insertError.message);
+        }
+        continue;
+      }
+      
+      console.log(`[sync-emails/attachments] Uploaded to storage: ${storagePath}`);
+      
+      // Insert attachment record with storage_path
+      const { error: insertError } = await supabase
+        .from('email_attachments')
+        .insert({
+          email_id: emailId,
+          filename: attachment.filename,
+          content_type: attachment.contentType,
+          size: content.length,
+          storage_path: storagePath,
+          is_analyzed: false,
+        });
+      
+      if (insertError) {
+        console.error(`[sync-emails/attachments] Insert error:`, insertError.message);
+      } else {
+        console.log(`[sync-emails/attachments] Recorded attachment: ${attachment.filename}`);
+      }
+    } catch (attError) {
+      console.error(`[sync-emails/attachments] Error processing ${attachment.filename}:`, attError);
+      // Non-blocking: continue with next attachment
     }
   }
 }
@@ -1541,6 +1971,13 @@ serve(async (req) => {
           if (insertError) {
             console.error("Error inserting email:", insertError);
             continue;
+          }
+
+          // Import attachments (non-blocking)
+          try {
+            await processEmailAttachments(client, msg.uid, inserted.id, supabase);
+          } catch (attachErr) {
+            console.error("[sync-emails] Attachment import failed (non-blocking):", attachErr);
           }
 
           // Phase C: Notify existing quote_case of new email (quotation continuity)
