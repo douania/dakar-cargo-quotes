@@ -702,6 +702,22 @@ export default function CaseView() {
     staleTime: 30000,
   });
 
+  // ── CL1: Fetch client_gap_requests ──
+  const { data: clientGapRequests = [], refetch: refetchGapRequests } = useQuery({
+    queryKey: ["client-gap-requests", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_gap_requests" as any)
+        .select("id, gap_key, status, sent_at, matched_fact_key, created_at")
+        .eq("case_id", caseId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!caseId,
+    staleTime: 30000,
+  });
+
   // P1a — Multi-lot line count (lightweight count query)
   const { data: multiLotLineCount = 0 } = useQuery({
     queryKey: ["quote-request-lines-count", caseId],
