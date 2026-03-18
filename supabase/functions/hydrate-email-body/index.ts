@@ -275,7 +275,7 @@ serve(async (req) => {
     if (email.body_capture_mode === 'full_sanitized') {
       console.log(`[hydrate] Already hydrated, returning early`);
       return new Response(
-        JSON.stringify({ success: true, already_hydrated: true, body_capture_mode: 'full_sanitized' }),
+        JSON.stringify({ success: true, already_hydrated: true, body_capture_mode: 'full_sanitized', text_length: null, html_length: null }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -350,7 +350,8 @@ serve(async (req) => {
         body_html: bodyHtml,
         body_capture_mode: 'full_sanitized',
       })
-      .eq('id', email_id);
+      .eq('id', email_id)
+      .neq('body_capture_mode', 'full_sanitized');
 
     if (updateError) {
       console.error('[hydrate] Update failed:', updateError);
