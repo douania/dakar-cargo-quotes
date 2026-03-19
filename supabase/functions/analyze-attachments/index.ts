@@ -1169,6 +1169,27 @@ async function processAttachmentsLoop(
             .eq('id', attachment.id)
             .eq('is_analyzed', false);
           if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
+          continue; // unsupported is PRE-CLAIM, no ownership release needed
+        }
+        
+        // CL2-final A+: Atomic claim with ownership + expired recovery
+        const claimTs = new Date().toISOString();
+        const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data: claimed, error: claimErr } = await supabase
+          .from('email_attachments')
+          .update({ analysis_claimed_at: claimTs })
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false)
+          .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+          .select('id')
+          .maybeSingle();
+
+        if (claimErr) {
+          console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
+          continue;
+        }
+        if (!claimed) {
+          console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
           continue;
         }
         
