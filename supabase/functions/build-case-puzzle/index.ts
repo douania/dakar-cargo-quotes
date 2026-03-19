@@ -3689,6 +3689,141 @@ Deno.serve(async (req) => {
 
     console.log(`Built puzzle for case ${case_id}: ${factsAdded} added (incl. attachment), ${factsUpdated} updated, ${factsSkipped} skipped, ${gapsIdentified} gaps`);
 
+    // ── P1 Auto-EQ: Auto-create partner requests from blocking freight gaps ──
+    // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md "Exception contrôlée — P1 Auto-EQ"
+    // Non-blocking: errors logged, never fatal to build-case-puzzle
+    try {
+      const { data: freightGaps } = await serviceClient
+        .from("quote_gaps")
+        .select("id, gap_key")
+        .eq("case_id", case_id)
+        .eq("gap_key", "cargo.freight_cost")
+        .eq("status", "open")
+        .eq("is_blocking", true);
+
+      if (freightGaps && freightGaps.length > 0) {
+        // Build targets: from quote_request_lines if available, else mono-lot fallback
+        const { data: requestLines } = await serviceClient
+          .from("quote_request_lines")
+          .select("line_index, request_type_hint")
+          .eq("case_id", case_id);
+
+        type AutoEqTarget = { lot_index: number | null; mode: string };
+        let targets: AutoEqTarget[];
+
+        if (requestLines && requestLines.length > 0) {
+          targets = requestLines.map((l) => ({
+            lot_index: l.line_index,
+            mode: l.request_type_hint || detectedType || "UNKNOWN",
+          }));
+        } else {
+          // Mono-lot fallback
+          targets = [{ lot_index: null, mode: detectedType || "UNKNOWN" }];
+        }
+
+        // Gather facts for purpose_detail text
+        const factKeys = [
+          "routing.origin_country", "routing.destination_port", "routing.transport_mode",
+          "routing.incoterm", "cargo.weight_kg", "cargo.volume_cbm",
+        ];
+        const { data: relevantFacts } = await serviceClient
+          .from("quote_facts")
+          .select("fact_key, value_text, value_number")
+          .eq("case_id", case_id)
+          .eq("is_current", true)
+          .in("fact_key", factKeys);
+
+        const factMap: Record<string, string> = {};
+        for (const f of relevantFacts || []) {
+          factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : "");
+        }
+
+        for (const target of targets) {
+          const computedPurpose = target.mode.toUpperCase().includes("AIR") ? "air_tariff" : "freight_rate";
+
+          // Idempotence guard (applicative — IS NOT DISTINCT FROM for null safety)
+          let alreadyExists = false;
+          if (target.lot_index === null) {
+            const { data: existNull } = await serviceClient
+              .from("external_quote_requests")
+              .select("id")
+              .eq("case_id", case_id)
+              .eq("purpose", computedPurpose)
+              .neq("status", "closed")
+              .is("related_lot_index", null)
+              .limit(1);
+            alreadyExists = !!(existNull && existNull.length > 0);
+          } else {
+            const { data: existLot } = await serviceClient
+              .from("external_quote_requests")
+              .select("id")
+              .eq("case_id", case_id)
+              .eq("purpose", computedPurpose)
+              .neq("status", "closed")
+              .eq("related_lot_index", target.lot_index)
+              .limit(1);
+            alreadyExists = !!(existLot && existLot.length > 0);
+          }
+
+          if (alreadyExists) {
+            console.log(`[P1-AutoEQ] Request already exists for lot=${target.lot_index}, purpose=${computedPurpose} — skipped`);
+            continue;
+          }
+
+          const lotLabel = target.lot_index != null ? String(target.lot_index) : "unique";
+          const purposeDetail = [
+            `Origine: ${factMap["routing.origin_country"] || "—"}`,
+            `Destination: ${factMap["routing.destination_port"] || "—"}`,
+            `Mode: ${factMap["routing.transport_mode"] || target.mode}`,
+            `Incoterm: ${factMap["routing.incoterm"] || "—"}`,
+            `Poids: ${factMap["cargo.weight_kg"] ? factMap["cargo.weight_kg"] + " kg" : "—"}`,
+            `Volume: ${factMap["cargo.volume_cbm"] ? factMap["cargo.volume_cbm"] + " cbm" : "—"}`,
+            `Lot: ${lotLabel}`,
+          ].join("\n");
+
+          const { data: inserted, error: insertErr } = await serviceClient
+            .from("external_quote_requests")
+            .insert({
+              case_id,
+              partner_name: "À définir",
+              partner_email: null,
+              purpose: computedPurpose,
+              purpose_detail: purposeDetail,
+              related_lot_index: target.lot_index,
+              created_by: null,
+              status: "draft",
+            })
+            .select("id")
+            .single();
+
+          if (insertErr) {
+            console.warn(`[P1-AutoEQ] Insert failed for lot=${target.lot_index}:`, insertErr.message);
+            continue;
+          }
+
+          // Timeline event
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "external_request_created",
+            actor_type: "system",
+            new_value: `Demande partenaire auto: ${computedPurpose} (lot ${lotLabel})`,
+            event_data: {
+              auto: true,
+              request_id: inserted?.id,
+              purpose: computedPurpose,
+              lot_index: target.lot_index,
+            },
+          });
+
+          console.log(`[P1-AutoEQ] Created auto request ${inserted?.id} for lot=${lotLabel}, purpose=${computedPurpose}`);
+        }
+      }
+    } catch (autoEqError) {
+      console.warn("[P1-AutoEQ] Non-fatal error:", String(autoEqError));
+    }
+    // ── End P1 Auto-EQ ──
+
+
     return new Response(
       JSON.stringify({
         case_id,

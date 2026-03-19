@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
+  AlertCircle,
   Send,
   Plus,
   Check,
@@ -257,9 +258,14 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex items-center gap-1.5">
                   <span className="font-medium text-sm">{req.partner_name}</span>
-                  <span className="text-xs text-muted-foreground ml-2">
+                  {req.created_by === null && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300">
+                      Système
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground ml-1">
                     {PURPOSE_OPTIONS.find((o) => o.value === req.purpose)?.label || req.purpose}
                   </span>
                 </div>
@@ -280,8 +286,14 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
               {isExpanded && (
                 <div className="border-t p-3 space-y-3">
                   {/* Details */}
+                  {req.created_by === null && req.status === "draft" && (
+                    <div className="flex items-start gap-2 p-2 rounded bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      Demande créée automatiquement suite à un gap fret bloquant. Complétez le nom du partenaire puis marquez comme envoyée.
+                    </div>
+                  )}
                   {req.purpose_detail && (
-                    <p className="text-sm text-muted-foreground">{req.purpose_detail}</p>
+                    <p className="text-sm text-muted-foreground whitespace-pre-line">{req.purpose_detail}</p>
                   )}
 
                   {/* Actions */}
