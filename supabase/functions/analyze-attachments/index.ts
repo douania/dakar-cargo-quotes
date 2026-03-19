@@ -1232,14 +1232,16 @@ async function processAttachmentsLoop(
           
           if (!excelText || excelText.length < 50) {
             console.error(`Failed to parse Excel or empty file: ${attachment.filename}`);
-            await supabase
+            const { error: updateErr } = await supabase
               .from('email_attachments')
               .update({ 
                 is_analyzed: true,
                 extracted_text: 'Fichier Excel vide ou non lisible',
                 extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' }
               })
-              .eq('id', attachment.id);
+              .eq('id', attachment.id)
+              .eq('is_analyzed', false);
+            if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
             continue;
           }
           
