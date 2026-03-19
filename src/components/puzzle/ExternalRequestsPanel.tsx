@@ -80,9 +80,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     facts,
     isLoading,
     createRequest,
-    markAsSent,
     triggerAnalysis,
-    validateFact,
     rejectFact,
     closeRequest,
   } = useExternalRequests(caseId);
