@@ -1150,6 +1150,7 @@ async function processAttachmentsLoop(
     const results: any[] = [];
     
     for (const attachment of attachments) {
+      let claimTs: string | null = null;
       try {
         console.log(`Analyzing: ${attachment.filename} (${attachment.content_type})`);
         
