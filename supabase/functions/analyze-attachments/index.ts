@@ -605,6 +605,7 @@ async function analyzeAttachmentInBackground(
   attachment: any, 
   lovableApiKey: string
 ): Promise<{ success: boolean; filename: string; error?: string }> {
+  let claimTs: string | null = null;
   try {
     console.log(`[BG] Starting analysis: ${attachment.filename}`);
     
