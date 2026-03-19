@@ -1,170 +1,187 @@
-## Phase EQ1 — External Quote Requests ✅
 
-### Objectif
 
-Permettre aux opérateurs de créer des demandes externes aux partenaires (agent France, compagnie maritime, etc.), de recevoir et analyser leurs réponses, et de valider les faits extraits avant injection dans le pipeline de cotation.
+# CL2-final A+ — Plan corrigé (v2)
 
-### Tables créées
+## Corrections intégrées par rapport au plan précédent
 
-| Table | Description |
-|-------|-------------|
-| `external_quote_requests` | Demandes sortantes vers partenaires (purpose, status, partner_name) |
-| `external_quote_responses` | Réponses reçues (UNIQUE request_id+source_email_id) |
-| `external_quote_response_facts` | Faits proposés extraits des réponses (validation_status: proposed/validated/rejected) |
+### Correction 1 — BG unsupported reste pré-claim
 
-### CHECK constraints mis à jour
+Dans le code réel BG mode, l'ordre est :
+- L609-616 : type detection
+- L618-625 : unsupported → update + return (pré-claim)
+- L627 : download
 
-- `quote_facts_source_type_check` : +`partner_response`
-- `case_timeline_events_event_type_check` : +`external_request_created`, +`external_response_analyzed`
+Le claim sera inséré **entre L625 et L627** (après type-check, avant download). Donc `unsupported` (L618-625) reste pré-claim et garde son update simple `.eq('is_analyzed', false)` — aucune modification ownership sur cette branche.
 
-### Edge Functions créées
+### Correction 2 — Sync `return new Response` post-claim doivent libérer le claim
 
-| Fonction | Description |
-|----------|-------------|
-| `analyze-partner-response` | Analyse AI (Gemini Flash) d'un email partenaire, extraction de faits avec prompt purpose-aware |
-| `validate-partner-fact` | Validation/rejet d'un fait proposé → injection via `supersede_fact` RPC |
+4 occurrences dans `processAttachmentsLoop` :
+- L1311-1314 (402 Excel AI)
+- L1317-1320 (429 Excel AI)
+- L1422-1425 (402 doc AI)
+- L1428-1431 (429 doc AI)
 
-### Frontend
+Ces `return new Response(...)` sortent directement de la fonction après le claim. Chacun doit être précédé d'un release ownership-aware :
 
-| Fichier | Description |
-|---------|-------------|
-| `src/hooks/useExternalRequests.ts` | Hook React Query pour les 3 tables + mutations |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Panel complet : liste demandes, formulaire création, validation faits |
-| `src/pages/CaseView.tsx` | Intégration du panel après DecisionSupportPanel |
-
-### Statuts de requête
-
-```
-draft → sent → response_received → response_analyzed → partially_validated → facts_validated
-                                                      → closed (rejet total ou manuel)
+```typescript
+await supabase.from('email_attachments')
+  .update({ analysis_claimed_at: null })
+  .eq('id', attachment.id)
+  .eq('is_analyzed', false)
+  .eq('analysis_claimed_at', claimTs);
 ```
 
-### Zones FROZEN respectées
-
-- `build-case-puzzle`, `quotation-engine`, `run-pricing` : aucune modification
-- Les faits entrent via `supersede_fact` RPC après validation opérateur
+Note : ces `return new Response` dans une fonction `Promise<any[]>` sont déjà un bug de typage, mais le fix CL2 ne les refactore pas — il ajoute juste le release avant chaque return.
 
 ---
 
-## Phase CL1 — Conversation Layer minimal ✅
+## Étape 1 — Migration SQL
 
-### Objectif
+Une seule migration, 5 statements :
 
-Tracer le cycle de vie des clarifications client par gap :
-`drafted → sent → answered → validated`
+```sql
+ALTER TABLE public.email_attachments
+  ADD COLUMN IF NOT EXISTS analysis_claimed_at TIMESTAMPTZ;
 
-### Table créée
+CREATE UNIQUE INDEX IF NOT EXISTS uq_quotation_history_attachment_cargo
+  ON public.quotation_history (source_attachment_id, cargo_type)
+  WHERE source_attachment_id IS NOT NULL;
 
-| Table | Description |
-|-------|-------------|
-| `client_gap_requests` | Suivi conversationnel par gap_key (status, sent_at, response_email_id, validated_fact_id) |
+CREATE UNIQUE INDEX IF NOT EXISTS uq_learned_knowledge_source
+  ON public.learned_knowledge (source_type, source_id, category)
+  WHERE source_type = 'attachment' AND source_id IS NOT NULL;
 
-### Index
+ALTER TABLE public.local_transport_rates
+  ADD COLUMN IF NOT EXISTS source_attachment_id UUID;
 
-- `uq_client_gap_requests_active` : UNIQUE partiel sur `(case_id, gap_key)` WHERE status IN ('drafted','sent','answered')
-- `idx_client_gap_requests_case_id`, `idx_client_gap_requests_status`, `idx_client_gap_requests_case_gap`
+-- Invariant: one attachment produces at most one rate per (destination, container_type, cargo_category)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_local_transport_rates_attachment
+  ON public.local_transport_rates (source_attachment_id, destination, container_type, cargo_category)
+  WHERE source_attachment_id IS NOT NULL;
+```
 
-### Edge Functions modifiées
+## Étape 2 — `analyze-attachments/index.ts`
 
-| Fonction | Modification |
-|----------|-------------|
-| `generate-reply-draft` | Insert-if-not-exists `client_gap_requests` en `drafted` après génération du brouillon. `source_timeline_event_id` pointe vers l'event `output_generated` |
-| `analyze-reply-event` | Match proposed_facts → active requests (priorité `sent`, fallback `drafted`), passe en `answered` |
-| `set-case-fact` | Promotion `answered → validated` après `supersede_fact` réussi |
+### 2a. Claim atomique (BG + Sync)
 
-### Edge Function créée
+**BG mode** : inséré entre L625 (unsupported return) et L627 (download). `unsupported` reste pré-claim.
 
-| Fonction | Description |
-|----------|-------------|
-| `mark-client-gap-request-sent` | Marquage manuel `drafted → sent` par l'opérateur |
+**Sync mode** : inséré après L1143 (unsupported continue), avant L1146 (storage_path check).
 
-### Frontend
+Pattern identique dans les deux modes :
 
-| Fichier | Modification |
-|---------|-------------|
-| `src/pages/CaseView.tsx` | Query `client_gap_requests`, section "Clarifications client", bouton "Envoyé" dans draft display |
-| `src/components/puzzle/ClarificationPanel.tsx` | Ajout props `onMarkSent`, `markSentDisabled`, `isMarkingSent`, bouton "Marquer comme envoyé" |
+```typescript
+const claimTs = new Date().toISOString();
+const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+const { data: claimed, error: claimErr } = await supabase
+  .from('email_attachments')
+  .update({ analysis_claimed_at: claimTs })
+  .eq('id', attachment.id)
+  .eq('is_analyzed', false)
+  .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+  .select('id').maybeSingle();
 
-### Zones FROZEN respectées
+if (claimErr) {
+  console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
+  continue; // or return in BG
+}
+if (!claimed) {
+  console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
+  continue; // or return in BG
+}
+```
 
-- `build-case-puzzle`, `run-pricing`, `quotation-engine` : aucune modification
-- `quote_gaps` : structure inchangée
-- `quote_cases.status` FSM : inchangé
+### 2b. Sélection initiale élargie
+
+Modifier ~L982 pour inclure claims expirés :
+
+```typescript
+const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+query = query.eq('is_analyzed', false)
+  .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+  .limit(10);
+```
+
+### 2c. Early exits post-claim — ownership-aware
+
+**BG mode** : L633 (download fail), L649 (empty excel) et tout autre exit post-claim ajoutent `.eq('analysis_claimed_at', claimTs)` et `analysis_claimed_at: null`.
+
+**Sync mode** : L1148 (no storage_path), L1180 (download fail), L1203 (too small), L1236 (empty excel), L1324 (AI error mark) — tous ajoutent `.eq('analysis_claimed_at', claimTs)` et `analysis_claimed_at: null`.
+
+**BG unsupported (L618-625)** : reste pré-claim, inchangé.
+**Sync unsupported (L1130-1142)** : reste pré-claim, inchangé.
+
+### 2d. `return new Response` post-claim — release avant return
+
+Les 4 occurrences (L1311, L1317, L1422, L1428) reçoivent un release ownership-aware juste avant le `return` :
+
+```typescript
+// Release claim before early HTTP return
+await supabase.from('email_attachments')
+  .update({ analysis_claimed_at: null })
+  .eq('id', attachment.id)
+  .eq('is_analyzed', false)
+  .eq('analysis_claimed_at', claimTs);
+return new Response(...);
+```
+
+### 2e. Final update avec ownership check + retour vérifié
+
+BG (~L906) et Sync (~L1603) :
+
+```typescript
+const { data: finalized, error: finalErr } = await supabase
+  .from('email_attachments')
+  .update({
+    is_analyzed: true,
+    extracted_text: normalizeText(extractedText || '').substring(0, limit),
+    extracted_data: extractedData,
+    analysis_claimed_at: null,
+  })
+  .eq('id', attachment.id)
+  .eq('is_analyzed', false)
+  .eq('analysis_claimed_at', claimTs)
+  .select('id').maybeSingle();
+
+if (finalErr) console.warn('[analyze] Final update failed:', finalErr.message);
+if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
+```
+
+### 2f. Catch blocks — ownership release
+
+BG (~L921) et Sync (~L1633) :
+
+```typescript
+catch (error) {
+  console.error(`Error: ${attachment.filename}`, error);
+  await supabase.from('email_attachments')
+    .update({ analysis_claimed_at: null })
+    .eq('id', attachment.id)
+    .eq('is_analyzed', false)
+    .eq('analysis_claimed_at', claimTs);
+}
+```
+
+### 2g. Side effects — Patch E remplacé par contraintes DB
+
+- **quotation_history** : supprimer les blocs `maybeSingle()` check. Insert direct, gestion `23505` comme skip.
+- **learned_knowledge** : même approche `23505`.
+- **local_transport_rates** : ajouter `source_attachment_id: attachment.id` dans l'insert. Gestion `23505`.
+
+### 2h. plan.md — marquer CL2-final A+ comme "in progress"
+
+Pas "complete" avant vérification diff + migration réussie.
 
 ---
 
-## Phase ATT1 — Correction pipeline pièces jointes dans sync-emails ✅
+## Résumé
 
-### Cause racine
+| Composant | Action |
+|-----------|--------|
+| Migration | +1 col `analysis_claimed_at`, +1 col `source_attachment_id`, +3 UNIQUE partiels |
+| analyze-attachments | Claim ownership, 4 release avant `return Response`, final vérifié, early exits ownership-aware, Patch E → DB constraints |
 
-`sync-emails/index.ts` importait les emails mais pas leurs pièces jointes. Les méthodes IMAP (`fetchBodyStructure`, `fetchAttachmentPart`) existaient mais n'étaient pas branchées dans le pipeline principal.
+## Non touché
 
-### Correction apportée
+Patches A/B/D, sync-emails, email-admin, modules FROZEN, prompts AI, frontend.
 
-#### Patch 1 — `supabase/functions/sync-emails/index.ts`
-
-- **Helpers MIME ajoutés** (copie fidèle depuis `import-thread`) : `AttachmentInfo`, `tokenizeBodyStructure`, `extractFilenameFromParams`, `parseMimePart`, `extractBodyStructure`, `parseBodyStructure`, `findPartNumberByPosition`, `decodeBase64Chunked`, `decodeQuotedPrintableAttachment`
-- **`fetchBodyStructure(uid)`** : retourne désormais `AttachmentInfo[]` au lieu de `string`
-- **`fetchAttachment(uid, partNumber, encoding)`** : nouvelle méthode robuste remplaçant `fetchAttachmentPart`, gère 3 patterns d'extraction + base64 chunked + quoted-printable
-- **`processEmailAttachments(client, uid, emailId, supabase)`** : sous-flux non-bloquant appelé après chaque insertion email réussie
-  - Garde d'idempotence : check `email_id + filename` avant insert
-  - PJ > 5MB : enregistrée avec `storage_path = null` et texte indicatif
-  - Pas de limite au nombre de PJ
-  - Erreurs individuelles loguées, ne bloquent jamais le pipeline email
-
-#### Patch 2 — `supabase/functions/email-admin/index.ts`
-
-- **Action `reimport_attachments` étendue** avec mode ciblé `thread_id` :
-  - Récupère tous les emails du thread via `thread_ref`
-  - Pour chaque email sans PJ existantes : connexion IMAP, BODYSTRUCTURE, download, upload
-  - Garde d'idempotence identique (`email_id + filename`)
-  - Classe `ReimportIMAPClient` minimale ajoutée localement
-  - Mode heuristique existant (sans `thread_id`) : inchangé
-
-### Contraintes respectées
-
-- Limite taille : **5 MB** (alignée sur `import-thread`)
-- Pas de limite nombre de PJ
-- Non-bloquant : erreurs loguées, pipeline email intact
-- Lecture explicite `{ data, error }` (P0-A)
-- Zéro migration SQL
-- Aucun module FROZEN touché
-
----
-
-## Phase CL2 — Attachment Analysis Layer v2 ✅
-
-### Objectif
-
-Renforcer le pipeline `analyze-attachments` avec extraction texte brute PDF, normalisation, idempotence et anti-doublon — sans casser l'analyse AI existante.
-
-### Modèle 3 voies
-
-- **extracted_text** = texte brut (trace, audit, recherche plein texte)
-- **extracted_data** = analyse AI structurée du document natif (interprétation métier)
-- Les deux coexistent sans substitution
-
-### Patches appliqués
-
-| Patch | Description |
-|-------|-------------|
-| A | Extraction PDF texte brut via `pdfjs-dist@4.0.379` — même lib que `parse-document`. Fonction `extractPdfText()` ajoutée. Appliquée aux blocs PDF background et sync, avant l'appel AI natif. |
-| B | `normalizeText()` — supprime null chars, normalise newlines, collapse whitespace. Appliquée avant chaque écriture `extracted_text`. |
-| C | Garde `.eq('is_analyzed', false)` sur tous les `.update({ is_analyzed: true })` — ~14 occurrences (background + sync + skip). |
-| D | Lecture explicite `{ error }` avec `console.warn` sur tous les UPDATE/INSERT du background mode. |
-| E | Garde anti-doublon `quotation_history` : check `.maybeSingle()` avant insert. BG mode par `source_attachment_id`, sync mode par `source_attachment_id + cargo_type`. |
-
-### Fichier modifié
-
-| Fichier | Lignes | Changement |
-|---------|--------|------------|
-| `supabase/functions/analyze-attachments/index.ts` | 1503 → 1644 | A + B + C + D + E |
-
-### Ce qui n'est PAS touché
-
-- `sync-emails` (CL1 validé)
-- `email-admin` (CL1 validé)
-- `parse-document`, `import-thread`
-- Aucune migration SQL
-- Aucun fichier front
-- Logique AI existante (prompts, routing, knowledge learning) intacte
