@@ -616,10 +616,11 @@ async function analyzeAttachmentInBackground(
     const isPdf = attachment.content_type === 'application/pdf';
     
     if (!isImage && !isPdf && !isExcel) {
-      await supabase.from('email_attachments').update({ 
+      const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
         extracted_data: { type: 'unsupported', content_type: attachment.content_type }
-      }).eq('id', attachment.id);
+      }).eq('id', attachment.id).eq('is_analyzed', false);
+      if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
       return { success: true, filename: attachment.filename };
     }
     
