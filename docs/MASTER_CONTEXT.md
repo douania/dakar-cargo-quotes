@@ -171,3 +171,59 @@ Ce patch est autorisé au titre de STRUCTURAL_PATCH_ALLOWED car :
 - Exception validée pour CL1 uniquement
 - `set-case-fact` reste FROZEN par défaut
 - Toute modification future nécessite une nouvelle justification explicite
+
+---
+
+## Exception contrôlée — P1 Auto-EQ sur build-case-puzzle
+
+### Contexte
+
+Dans le cadre du module P1 Auto-EQ, un besoin métier réel a été identifié :
+créer automatiquement des demandes partenaires lorsqu'un gap bloquant `cargo.freight_cost` est détecté par `build-case-puzzle`.
+
+### Problème métier réel
+
+Absence de lien entre :
+- détection d'un gap bloquant fret dans le puzzle
+- et création d'une demande partenaire pour obtenir le tarif
+
+Conséquences :
+- opérateur doit créer manuellement sans contexte pré-rempli
+- risque d'oubli sur les dossiers multi-lot
+- pricing bloqué sans action visible
+
+### Patch autorisé
+
+Bloc post-processing non bloquant dans `build-case-puzzle`, après le calcul des gaps et avant la réponse finale :
+
+1. Vérifier les gaps bloquants `cargo.freight_cost`
+2. Construire les cibles (par lot ou case-level)
+3. Garde d'idempotence applicative (SELECT before INSERT)
+4. Insérer `external_quote_requests` en `draft` + timeline event
+
+### Justification
+
+1. **Corrige un manque réel** — aucune orchestration gap → action partenaire
+2. **Périmètre localisé** — bloc post-processing uniquement, aucune modification de la logique existante
+3. **Aucun refactor global** — ajout pur, pas de changement structurel
+4. **Préservation de l'intégrité** — aucune injection dans quote_facts, statut draft uniquement
+5. **Idempotence applicative** — SELECT before INSERT, pas de contrainte DB UNIQUE dédiée
+6. **Traçabilité** — timeline event `external_request_created` avec `actor_type = 'system'`
+
+### Limitation documentée
+
+L'idempotence est applicative seulement (pas de contrainte UNIQUE en base).
+En cas de re-runs concurrents, un doublon théorique est possible mais mitigé par l'orchestration séquentielle existante des jobs puzzle.
+
+### Contraintes d'implémentation
+
+- **Non-bloquant** : try/catch global, erreurs loguées via console.warn
+- **Pas d'auto-send** : statut `draft`, opérateur doit compléter et envoyer
+- **Pas d'auto-inject** : aucune écriture dans quote_facts
+- **partner_name = 'À définir'** : empêche tout envoi accidentel
+
+### Statut
+
+- Exception validée pour P1 uniquement
+- `build-case-puzzle` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
