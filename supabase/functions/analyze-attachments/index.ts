@@ -1377,10 +1377,8 @@ ${excelText.substring(0, 50000)}`;
               await supabase.from('email_attachments')
                 .update({ analysis_claimed_at: null })
                 .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
-              return new Response(
-                JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
-                { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-              );
+              results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_QUOTA_402', error_message: 'Crédits AI insuffisants.' });
+              continue;
             }
             if (aiResponse.status === 429) {
               // CL2-final A+: Release claim before early HTTP return
