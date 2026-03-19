@@ -860,6 +860,7 @@ export type Database = {
       }
       email_attachments: {
         Row: {
+          analysis_claimed_at: string | null
           content_type: string | null
           created_at: string | null
           email_id: string | null
@@ -872,6 +873,7 @@ export type Database = {
           storage_path: string | null
         }
         Insert: {
+          analysis_claimed_at?: string | null
           content_type?: string | null
           created_at?: string | null
           email_id?: string | null
@@ -884,6 +886,7 @@ export type Database = {
           storage_path?: string | null
         }
         Update: {
+          analysis_claimed_at?: string | null
           content_type?: string | null
           created_at?: string | null
           email_id?: string | null
@@ -2082,6 +2085,7 @@ export type Database = {
           rate_amount: number
           rate_currency: string | null
           rate_includes: string[] | null
+          source_attachment_id: string | null
           source_document: string | null
           updated_at: string | null
           validity_end: string | null
@@ -2100,6 +2104,7 @@ export type Database = {
           rate_amount: number
           rate_currency?: string | null
           rate_includes?: string[] | null
+          source_attachment_id?: string | null
           source_document?: string | null
           updated_at?: string | null
           validity_end?: string | null
@@ -2118,6 +2123,7 @@ export type Database = {
           rate_amount?: number
           rate_currency?: string | null
           rate_includes?: string[] | null
+          source_attachment_id?: string | null
           source_document?: string | null
           updated_at?: string | null
           validity_end?: string | null
