@@ -764,6 +764,16 @@ ${excelText}`;
     } else {
       // Handle images/PDFs with existing logic
       const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Patch A: For PDFs, extract raw text first (voie A — trace/audit)
+      if (isPdf) {
+        const rawPdfText = await extractPdfText(uint8Array);
+        if (rawPdfText) {
+          extractedText = rawPdfText;
+          console.log(`[BG] PDF raw text extracted: ${rawPdfText.length} chars`);
+        }
+      }
+      
       const CHUNK_SIZE = 8192;
       let base64 = '';
       for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
@@ -774,6 +784,7 @@ ${excelText}`;
       
       const mimeType = attachment.content_type || 'image/jpeg';
       
+      // Voie B: AI reads native document for structured extraction
       const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -843,7 +854,10 @@ REGLES CRITIQUES :
         } catch {
           extractedData = { raw_response: content };
         }
-        extractedText = extractedData.text_content || '';
+        // For images (no pdfjs extraction), use AI text_content as fallback
+        if (!extractedText) {
+          extractedText = extractedData.text_content || '';
+        }
       }
     }
     
