@@ -1176,14 +1176,16 @@ async function processAttachmentsLoop(
         
         if (downloadError || !fileData) {
           console.error(`Failed to download ${attachment.filename}:`, downloadError);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
               extracted_text: null,
               extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
           continue;
         }
         
