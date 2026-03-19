@@ -588,10 +588,12 @@ async function storePackingListKnowledge(
     }
   };
   
+  // CL2-final A+: Direct insert, DB unique index handles duplicates
   const { error } = await supabase.from('learned_knowledge').insert(knowledgeEntry);
   
   if (error) {
-    console.error(`[Knowledge] Error storing packing list knowledge:`, error);
+    if ((error as any).code === '23505') console.log('[Knowledge] Packing list knowledge duplicate, skipping');
+    else console.error(`[Knowledge] Error storing packing list knowledge:`, error);
   } else {
     console.log(`[Knowledge] Stored packing list as marchandise: ${items.length} items, ${mainItems.length} heavy pieces`);
   }
@@ -624,6 +626,27 @@ async function analyzeAttachmentInBackground(
       return { success: true, filename: attachment.filename };
     }
     
+    // CL2-final A+: Atomic claim with ownership + expired recovery
+    const claimTs = new Date().toISOString();
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: claimed, error: claimErr } = await supabase
+      .from('email_attachments')
+      .update({ analysis_claimed_at: claimTs })
+      .eq('id', attachment.id)
+      .eq('is_analyzed', false)
+      .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+      .select('id')
+      .maybeSingle();
+
+    if (claimErr) {
+      console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
+      return { success: false, filename: attachment.filename, error: 'Claim failed' };
+    }
+    if (!claimed) {
+      console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
+      return { success: true, filename: attachment.filename };
+    }
+    
     // Download the file
     const { data: fileData, error: downloadError } = await supabase
       .storage.from('documents').download(attachment.storage_path);
@@ -632,8 +655,9 @@ async function analyzeAttachmentInBackground(
       console.error(`[BG] Download failed: ${attachment.filename}`, downloadError);
       const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
-        extracted_data: { type: 'error', message: 'Download failed' }
-      }).eq('id', attachment.id).eq('is_analyzed', false);
+        extracted_data: { type: 'error', message: 'Download failed' },
+        analysis_claimed_at: null
+      }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
       if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
       return { success: false, filename: attachment.filename, error: 'Download failed' };
     }
@@ -648,8 +672,9 @@ async function analyzeAttachmentInBackground(
       if (!excelText || excelText.length < 50) {
         const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
-          extracted_data: { type: 'error', message: 'Empty Excel file' }
-        }).eq('id', attachment.id).eq('is_analyzed', false);
+          extracted_data: { type: 'error', message: 'Empty Excel file' },
+          analysis_claimed_at: null
+        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
         if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
         return { success: false, filename: attachment.filename, error: 'Empty file' };
       }
@@ -739,8 +764,9 @@ ${excelText}`;
         console.error(`[BG] AI error: ${aiResponse.status}`);
         const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
-          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` }
-        }).eq('id', attachment.id).eq('is_analyzed', false);
+          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` },
+          analysis_claimed_at: null
+        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
         if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
         return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
       }
@@ -875,40 +901,36 @@ REGLES CRITIQUES :
       const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
       const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
       
-      // Patch E: Anti-duplicate guard on quotation_history
-      const { data: existingQh, error: existingQhErr } = await supabase
-        .from('quotation_history')
-        .select('id')
-        .eq('source_attachment_id', attachment.id)
-        .maybeSingle();
-      if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
-      
-      if (existingQh) {
-        console.log(`[BG] quotation_history already exists for attachment ${attachment.id}, skipping`);
+      // CL2-final A+: Direct insert, DB unique index handles duplicates
+      const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
+        route_port: 'Dakar',
+        route_destination: destination,
+        cargo_type: detectCargoType(subject),
+        tariff_lines: tariffLines,
+        total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
+        total_currency: 'FCFA',
+        source_email_id: attachment.email_id,
+        source_attachment_id: attachment.id,
+      });
+      if (qhInsertErr) {
+        if (qhInsertErr.code === '23505') console.log('[BG] quotation_history duplicate, skipping');
+        else console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
       } else {
-        const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
-          route_port: 'Dakar',
-          route_destination: destination,
-          cargo_type: detectCargoType(subject),
-          tariff_lines: tariffLines,
-          total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
-          total_currency: 'FCFA',
-          source_email_id: attachment.email_id,
-          source_attachment_id: attachment.id,
-        });
-        if (qhInsertErr) console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
-        else console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+        console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
       }
     }
     
-    // Update attachment — Patch B: normalize, Patch C: idempotence guard, Patch D: error read
+    // CL2-final A+: Final update with ownership check + return verification
     const finalText = normalizeText(extractedText || '');
-    const { error: finalUpdateErr } = await supabase.from('email_attachments').update({
+    const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
       is_analyzed: true,
       extracted_text: finalText.substring(0, 5000),
-      extracted_data: extractedData
-    }).eq('id', attachment.id).eq('is_analyzed', false);
+      extracted_data: extractedData,
+      analysis_claimed_at: null,
+    }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs)
+      .select('id').maybeSingle();
     if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
+    if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
     
     // Store packing list data as learned knowledge (marchandise category)
     if (extractedData?.document_type === 'packing_list') {
@@ -920,6 +942,12 @@ REGLES CRITIQUES :
     
   } catch (error) {
     console.error(`[BG] Error: ${attachment.filename}`, error);
+    // CL2-final A+: Release claim on error
+    await supabase.from('email_attachments')
+      .update({ analysis_claimed_at: null })
+      .eq('id', attachment.id)
+      .eq('is_analyzed', false)
+      .eq('analysis_claimed_at', claimTs);
     return { success: false, filename: attachment.filename, error: String(error) };
   }
 }
@@ -979,7 +1007,11 @@ serve(async (req) => {
     if (attachmentId) {
       query = query.eq('id', attachmentId);
     } else {
-      query = query.eq('is_analyzed', false).limit(10);
+      // CL2-final A+: Include expired claims for auto-recovery
+      const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      query = query.eq('is_analyzed', false)
+        .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+        .limit(10);
     }
     
     const { data: rawAttachments, error: fetchError } = await query;
@@ -1139,6 +1171,27 @@ async function processAttachmentsLoop(
             .eq('id', attachment.id)
             .eq('is_analyzed', false);
           if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
+          continue; // unsupported is PRE-CLAIM, no ownership release needed
+        }
+        
+        // CL2-final A+: Atomic claim with ownership + expired recovery
+        const claimTs = new Date().toISOString();
+        const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data: claimed, error: claimErr } = await supabase
+          .from('email_attachments')
+          .update({ analysis_claimed_at: claimTs })
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false)
+          .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+          .select('id')
+          .maybeSingle();
+
+        if (claimErr) {
+          console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
+          continue;
+        }
+        if (!claimed) {
+          console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
           continue;
         }
         
@@ -1155,10 +1208,12 @@ async function processAttachmentsLoop(
                 message: 'File not uploaded to storage (storage_path is null)', 
                 requires_reimport: true,
                 email_id: attachment.email_id
-              }
+              },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (no storage_path):', updateErr.message);
           results.push({
             id: attachment.id,
@@ -1182,10 +1237,12 @@ async function processAttachmentsLoop(
             .update({ 
               is_analyzed: true,
               extracted_text: null,
-              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message }
+              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
           continue;
         }
@@ -1205,10 +1262,12 @@ async function processAttachmentsLoop(
             .update({ 
               is_analyzed: true,
               extracted_text: null,
-              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length }
+              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (too small):', updateErr.message);
           continue;
         }
@@ -1238,10 +1297,12 @@ async function processAttachmentsLoop(
               .update({ 
                 is_analyzed: true,
                 extracted_text: 'Fichier Excel vide ou non lisible',
-                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' }
+                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' },
+                analysis_claimed_at: null
               })
               .eq('id', attachment.id)
-              .eq('is_analyzed', false);
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
             if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
             continue;
           }
@@ -1308,28 +1369,38 @@ ${excelText.substring(0, 50000)}`;
             console.error(`AI analysis failed for Excel:`, aiResponse.status, errorText);
             
             if (aiResponse.status === 402) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
                 { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             if (aiResponse.status === 429) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
                 { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             
-            // Mark as analyzed with error
+            // Mark as analyzed with error — ownership-aware
             const { error: updateErr } = await supabase
               .from('email_attachments')
               .update({ 
                 is_analyzed: true,
                 extracted_text: null,
-                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status }
+                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+                analysis_claimed_at: null
               })
               .eq('id', attachment.id)
-              .eq('is_analyzed', false);
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
             if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
             continue;
           }
@@ -1419,12 +1490,20 @@ Réponds en JSON avec cette structure:
             console.error(`AI analysis failed for ${attachment.filename}:`, aiResponse.status, errorText);
             
             if (aiResponse.status === 402) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
                 { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             if (aiResponse.status === 429) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
                 { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -1489,7 +1568,7 @@ Réponds en JSON avec cette structure:
               cargoTypes.add(detectCargoType(subject + ' ' + attachment.filename));
             }
             
-            // Store one quotation_history entry per cargo type — Patch E: anti-dup guard
+            // CL2-final A+: Direct insert, DB unique index handles duplicates
             for (const cargoType of cargoTypes) {
               const relevantLines = extractedData.sheets 
                 ? tariffLines.filter(l => {
@@ -1500,20 +1579,6 @@ Réponds en JSON avec cette structure:
                 : tariffLines;
               
               if (relevantLines.length === 0) continue;
-              
-              // Patch E: Check for existing quotation_history entry
-              const { data: existingQh, error: existingQhErr } = await supabase
-                .from('quotation_history')
-                .select('id')
-                .eq('source_attachment_id', attachment.id)
-                .eq('cargo_type', cargoType)
-                .maybeSingle();
-              if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
-              
-              if (existingQh) {
-                console.log(`[Sync] quotation_history already exists for attachment ${attachment.id} / ${cargoType}, skipping`);
-                continue;
-              }
               
               const totalFcfa = relevantLines
                 .filter(l => l.currency === 'FCFA')
@@ -1536,7 +1601,8 @@ Réponds en JSON avec cette structure:
                 });
               
               if (historyError) {
-                console.error('Error storing quotation history:', historyError);
+                if ((historyError as any).code === '23505') console.log(`[Sync] quotation_history duplicate for ${cargoType}, skipping`);
+                else console.error('Error storing quotation history:', historyError);
               } else {
                 console.log(`Quotation history stored: ${cargoType} - ${relevantLines.length} lines`);
             }
@@ -1585,10 +1651,12 @@ Réponds en JSON avec cette structure:
                     source_document: `Excel: ${attachment.filename}`,
                     provider: extractedData.metadata?.partner || 'Unknown',
                     notes: dest.distance_km ? `Distance: ${dest.distance_km} km` : null,
+                    source_attachment_id: attachment.id,
                   });
                 
                 if (transportError) {
-                  console.error(`Error storing transport rate for ${dest.name}:`, transportError);
+                  if ((transportError as any).code === '23505') console.log(`[Sync] transport rate duplicate for ${dest.name}, skipping`);
+                  else console.error(`Error storing transport rate for ${dest.name}:`, transportError);
                 } else {
                   console.log(`Transport rate stored: ${dest.name} ${containerType} ${cargoCategory} = ${rateAmount} FCFA`);
                 }
@@ -1598,20 +1666,26 @@ Réponds en JSON avec cette structure:
         }
         }
         
-        // Update the attachment record — Patch B: normalize, Patch C: idempotence guard
+        // CL2-final A+: Final update with ownership check + return verification
         const finalText = normalizeText(extractedText || '');
-        const { error: updateError } = await supabase
+        const { data: finalized, error: updateError } = await supabase
           .from('email_attachments')
           .update({
             is_analyzed: true,
             extracted_text: finalText.substring(0, 10000),
-            extracted_data: extractedData
+            extracted_data: extractedData,
+            analysis_claimed_at: null,
           })
           .eq('id', attachment.id)
-          .eq('is_analyzed', false);
+          .eq('is_analyzed', false)
+          .eq('analysis_claimed_at', claimTs)
+          .select('id')
+          .maybeSingle();
         
         if (updateError) {
-          console.error(`Failed to update attachment ${attachment.id}:`, updateError);
+          console.warn(`[analyze] Final update failed for ${attachment.id}:`, updateError.message);
+        } else if (!finalized) {
+          console.log(`[analyze] ${attachment.id} lost claim before finalization`);
         } else {
           console.log(`Successfully analyzed: ${attachment.filename}`);
           
@@ -1632,6 +1706,12 @@ Réponds en JSON avec cette structure:
         
       } catch (attachmentError) {
         console.error(`Error processing ${attachment.filename}:`, attachmentError);
+        // CL2-final A+: Release claim on error
+        await supabase.from('email_attachments')
+          .update({ analysis_claimed_at: null })
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false)
+          .eq('analysis_claimed_at', claimTs);
         results.push({
           id: attachment.id,
           filename: attachment.filename,
