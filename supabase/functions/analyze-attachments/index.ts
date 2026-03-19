@@ -670,8 +670,9 @@ async function analyzeAttachmentInBackground(
       if (!excelText || excelText.length < 50) {
         const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
-          extracted_data: { type: 'error', message: 'Empty Excel file' }
-        }).eq('id', attachment.id).eq('is_analyzed', false);
+          extracted_data: { type: 'error', message: 'Empty Excel file' },
+          analysis_claimed_at: null
+        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
         if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
         return { success: false, filename: attachment.filename, error: 'Empty file' };
       }
