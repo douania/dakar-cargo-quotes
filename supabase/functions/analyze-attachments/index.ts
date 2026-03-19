@@ -1,8 +1,72 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
 import { requireUser } from "../_shared/auth.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+
+// Initialize pdfjs-dist worker for Deno runtime
+try {
+  (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
+    "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
+} catch (_e) {
+  console.warn("Unable to set PDF.js workerSrc");
+}
+
+// =============================================================================
+// CL2 — UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * Patch A — Extract raw text from PDF using pdfjs-dist (local, no AI).
+ * Returns empty string if extraction fails or text is too short (<50 chars).
+ */
+async function extractPdfText(uint8Array: Uint8Array): Promise<string> {
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8Array,
+      disableWorker: true,
+    } as any);
+    const pdf = await loadingTask.promise;
+    const pagesText: string[] = [];
+
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      const page = await pdf.getPage(pageNo);
+      const textContent = await page.getTextContent();
+      const pageText = (textContent.items as any[])
+        .map((it) => it?.str ?? '')
+        .filter((s) => typeof s === 'string' && s.trim().length > 0)
+        .join(' ');
+      pagesText.push(pageText);
+    }
+
+    const fullText = pagesText.join('\n\n');
+    if (!fullText || fullText.length < 50) {
+      console.log('[CL2] PDF.js extraction too short, deferring to AI');
+      return '';
+    }
+    console.log(`[CL2] PDF.js extraction OK: ${fullText.length} chars, ${pdf.numPages} pages`);
+    return fullText;
+  } catch (e) {
+    console.warn('[CL2] PDF.js extraction failed:', e);
+    return '';
+  }
+}
+
+/**
+ * Patch B — Normalize text before database storage.
+ * Removes null chars, normalizes newlines, collapses whitespace.
+ */
+function normalizeText(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/\\u0000/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -552,10 +616,11 @@ async function analyzeAttachmentInBackground(
     const isPdf = attachment.content_type === 'application/pdf';
     
     if (!isImage && !isPdf && !isExcel) {
-      await supabase.from('email_attachments').update({ 
+      const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
         extracted_data: { type: 'unsupported', content_type: attachment.content_type }
-      }).eq('id', attachment.id);
+      }).eq('id', attachment.id).eq('is_analyzed', false);
+      if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
       return { success: true, filename: attachment.filename };
     }
     
@@ -565,10 +630,11 @@ async function analyzeAttachmentInBackground(
     
     if (downloadError || !fileData) {
       console.error(`[BG] Download failed: ${attachment.filename}`, downloadError);
-      await supabase.from('email_attachments').update({ 
+      const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
         extracted_data: { type: 'error', message: 'Download failed' }
-      }).eq('id', attachment.id);
+      }).eq('id', attachment.id).eq('is_analyzed', false);
+      if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
       return { success: false, filename: attachment.filename, error: 'Download failed' };
     }
     
@@ -580,10 +646,11 @@ async function analyzeAttachmentInBackground(
       const { text: excelText, sheets } = parseExcelToText(arrayBuffer);
       
       if (!excelText || excelText.length < 50) {
-        await supabase.from('email_attachments').update({ 
+        const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
           extracted_data: { type: 'error', message: 'Empty Excel file' }
-        }).eq('id', attachment.id);
+        }).eq('id', attachment.id).eq('is_analyzed', false);
+        if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
         return { success: false, filename: attachment.filename, error: 'Empty file' };
       }
       
@@ -670,10 +737,11 @@ ${excelText}`;
       
       if (!aiResponse.ok) {
         console.error(`[BG] AI error: ${aiResponse.status}`);
-        await supabase.from('email_attachments').update({ 
+        const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
           extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` }
-        }).eq('id', attachment.id);
+        }).eq('id', attachment.id).eq('is_analyzed', false);
+        if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
         return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
       }
       
@@ -696,6 +764,16 @@ ${excelText}`;
     } else {
       // Handle images/PDFs with existing logic
       const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Patch A: For PDFs, extract raw text first (voie A — trace/audit)
+      if (isPdf) {
+        const rawPdfText = await extractPdfText(uint8Array);
+        if (rawPdfText) {
+          extractedText = rawPdfText;
+          console.log(`[BG] PDF raw text extracted: ${rawPdfText.length} chars`);
+        }
+      }
+      
       const CHUNK_SIZE = 8192;
       let base64 = '';
       for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
@@ -706,6 +784,7 @@ ${excelText}`;
       
       const mimeType = attachment.content_type || 'image/jpeg';
       
+      // Voie B: AI reads native document for structured extraction
       const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -775,42 +854,61 @@ REGLES CRITIQUES :
         } catch {
           extractedData = { raw_response: content };
         }
-        extractedText = extractedData.text_content || '';
+        // For images (no pdfjs extraction), use AI text_content as fallback
+        if (!extractedText) {
+          extractedText = extractedData.text_content || '';
+        }
       }
     }
     
     // Store tariff lines if found
     const tariffLines = extractTariffLines(extractedData);
     if (tariffLines.length > 0 && attachment.email_id) {
-      const { data: emailData } = await supabase
+      const { data: emailData, error: emailErr } = await supabase
         .from('emails')
         .select('subject')
         .eq('id', attachment.email_id)
         .single();
+      if (emailErr) console.warn('[analyze-attachments] Email select failed:', emailErr.message);
       
       const subject = emailData?.subject || '';
       const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
       const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
       
-      await supabase.from('quotation_history').insert({
-        route_port: 'Dakar',
-        route_destination: destination,
-        cargo_type: detectCargoType(subject),
-        tariff_lines: tariffLines,
-        total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
-        total_currency: 'FCFA',
-        source_email_id: attachment.email_id,
-        source_attachment_id: attachment.id,
-      });
-      console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+      // Patch E: Anti-duplicate guard on quotation_history
+      const { data: existingQh, error: existingQhErr } = await supabase
+        .from('quotation_history')
+        .select('id')
+        .eq('source_attachment_id', attachment.id)
+        .maybeSingle();
+      if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
+      
+      if (existingQh) {
+        console.log(`[BG] quotation_history already exists for attachment ${attachment.id}, skipping`);
+      } else {
+        const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
+          route_port: 'Dakar',
+          route_destination: destination,
+          cargo_type: detectCargoType(subject),
+          tariff_lines: tariffLines,
+          total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
+          total_currency: 'FCFA',
+          source_email_id: attachment.email_id,
+          source_attachment_id: attachment.id,
+        });
+        if (qhInsertErr) console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
+        else console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+      }
     }
     
-    // Update attachment
-    await supabase.from('email_attachments').update({
+    // Update attachment — Patch B: normalize, Patch C: idempotence guard, Patch D: error read
+    const finalText = normalizeText(extractedText || '');
+    const { error: finalUpdateErr } = await supabase.from('email_attachments').update({
       is_analyzed: true,
-      extracted_text: extractedText?.substring(0, 5000) || '',
+      extracted_text: finalText.substring(0, 5000),
       extracted_data: extractedData
-    }).eq('id', attachment.id);
+    }).eq('id', attachment.id).eq('is_analyzed', false);
+    if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
     
     // Store packing list data as learned knowledge (marchandise category)
     if (extractedData?.document_type === 'packing_list') {
@@ -898,14 +996,15 @@ serve(async (req) => {
       if (isTemporaryOrSignatureFile(att.filename, att.content_type, att.size)) {
         skippedFiles.push(att);
         // Mark as analyzed with skip reason
-        await supabase.from('email_attachments').update({
+        const { error: skipErr } = await supabase.from('email_attachments').update({
           is_analyzed: true,
           extracted_data: { 
             type: 'skipped', 
             reason: 'Fichier temporaire', 
             message: 'Fichier Word/Outlook temporaire ignoré automatiquement' 
           }
-        }).eq('id', att.id);
+        }).eq('id', att.id).eq('is_analyzed', false);
+        if (skipErr) console.warn('[analyze-attachments] Skip update failed:', skipErr.message);
       } else {
         attachments.push(att);
       }
@@ -1027,24 +1126,26 @@ async function processAttachmentsLoop(
                         attachment.filename?.toLowerCase().endsWith('.xlsx') ||
                         attachment.filename?.toLowerCase().endsWith('.xls');
         
-        // Skip unsupported files
+        // Skip unsupported files — Patch C+D
         if (!isImage && !isPdf && !isExcel) {
           console.log(`Skipping unsupported file: ${attachment.content_type}`);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
               extracted_text: null,
               extracted_data: { type: 'unsupported', content_type: attachment.content_type }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
           continue;
         }
         
         // Check if storage_path exists (file may not have been uploaded due to timeout)
         if (!attachment.storage_path) {
           console.error(`Missing storage_path for ${attachment.filename} - file was not uploaded to storage`);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
@@ -1056,7 +1157,9 @@ async function processAttachmentsLoop(
                 email_id: attachment.email_id
               }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (no storage_path):', updateErr.message);
           results.push({
             id: attachment.id,
             filename: attachment.filename,
@@ -1074,14 +1177,16 @@ async function processAttachmentsLoop(
         
         if (downloadError || !fileData) {
           console.error(`Failed to download ${attachment.filename}:`, downloadError);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
               extracted_text: null,
               extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
           continue;
         }
         
@@ -1095,14 +1200,16 @@ async function processAttachmentsLoop(
         // Check if file is too small (likely corrupted)
         if (uint8Array.length < 100) {
           console.error(`File too small (${uint8Array.length} bytes): ${attachment.filename}`);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
               extracted_text: null,
               extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (too small):', updateErr.message);
           continue;
         }
         
@@ -1126,14 +1233,16 @@ async function processAttachmentsLoop(
           
           if (!excelText || excelText.length < 50) {
             console.error(`Failed to parse Excel or empty file: ${attachment.filename}`);
-            await supabase
+            const { error: updateErr } = await supabase
               .from('email_attachments')
               .update({ 
                 is_analyzed: true,
                 extracted_text: 'Fichier Excel vide ou non lisible',
                 extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' }
               })
-              .eq('id', attachment.id);
+              .eq('id', attachment.id)
+              .eq('is_analyzed', false);
+            if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
             continue;
           }
           
@@ -1212,14 +1321,16 @@ ${excelText.substring(0, 50000)}`;
             }
             
             // Mark as analyzed with error
-            await supabase
+            const { error: updateErr } = await supabase
               .from('email_attachments')
               .update({ 
                 is_analyzed: true,
                 extracted_text: null,
                 extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status }
               })
-              .eq('id', attachment.id);
+              .eq('id', attachment.id)
+              .eq('is_analyzed', false);
+            if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
             continue;
           }
           
@@ -1244,6 +1355,16 @@ ${excelText.substring(0, 50000)}`;
           
         } else {
           // Handle images and PDFs
+          
+          // Patch A: For PDFs, extract raw text first (voie A — trace/audit)
+          if (isPdf) {
+            const rawPdfText = await extractPdfText(uint8Array);
+            if (rawPdfText) {
+              extractedText = rawPdfText;
+              console.log(`[Sync] PDF raw text extracted: ${rawPdfText.length} chars`);
+            }
+          }
+          
           const mimeType = attachment.content_type || 'image/jpeg';
           
           const systemPrompt = `Tu es un assistant expert en analyse de documents commerciaux et logistiques. 
@@ -1323,10 +1444,15 @@ Réponds en JSON avec cette structure:
               expectRoot: "object",
               maxLogChars: 500,
             });
-            extractedText = extractedData.text_content || extractedData.description || '';
+            // For images (no pdfjs extraction), use AI text_content as fallback
+            if (!extractedText) {
+              extractedText = extractedData.text_content || extractedData.description || '';
+            }
           } catch {
             extractedData = { raw_response: content };
-            extractedText = content.substring(0, 500);
+            if (!extractedText) {
+              extractedText = content.substring(0, 500);
+            }
           }
         }
         
@@ -1363,7 +1489,7 @@ Réponds en JSON avec cette structure:
               cargoTypes.add(detectCargoType(subject + ' ' + attachment.filename));
             }
             
-            // Store one quotation_history entry per cargo type
+            // Store one quotation_history entry per cargo type — Patch E: anti-dup guard
             for (const cargoType of cargoTypes) {
               const relevantLines = extractedData.sheets 
                 ? tariffLines.filter(l => {
@@ -1374,6 +1500,20 @@ Réponds en JSON avec cette structure:
                 : tariffLines;
               
               if (relevantLines.length === 0) continue;
+              
+              // Patch E: Check for existing quotation_history entry
+              const { data: existingQh, error: existingQhErr } = await supabase
+                .from('quotation_history')
+                .select('id')
+                .eq('source_attachment_id', attachment.id)
+                .eq('cargo_type', cargoType)
+                .maybeSingle();
+              if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
+              
+              if (existingQh) {
+                console.log(`[Sync] quotation_history already exists for attachment ${attachment.id} / ${cargoType}, skipping`);
+                continue;
+              }
               
               const totalFcfa = relevantLines
                 .filter(l => l.currency === 'FCFA')
@@ -1458,15 +1598,17 @@ Réponds en JSON avec cette structure:
         }
         }
         
-        // Update the attachment record
+        // Update the attachment record — Patch B: normalize, Patch C: idempotence guard
+        const finalText = normalizeText(extractedText || '');
         const { error: updateError } = await supabase
           .from('email_attachments')
           .update({
             is_analyzed: true,
-            extracted_text: extractedText?.substring(0, 10000) || '', // Limit text length
+            extracted_text: finalText.substring(0, 10000),
             extracted_data: extractedData
           })
-          .eq('id', attachment.id);
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false);
         
         if (updateError) {
           console.error(`Failed to update attachment ${attachment.id}:`, updateError);
