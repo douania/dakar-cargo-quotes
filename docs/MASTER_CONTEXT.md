@@ -72,6 +72,18 @@ Contrainte : non-bloquant — erreurs CL1 loguées, jamais fatales
 
 ---
 
+## Module P1 Auto-EQ
+
+Edge function : build-case-puzzle (post-processing block)
+Déclencheur : gap bloquant `cargo.freight_cost` détecté
+Action : création automatique d'une `external_quote_requests` en statut `draft`
+Cibles : par lot (`quote_request_lines`) ou case-level (`related_lot_index = null`)
+Idempotence : applicative (SELECT before INSERT) — pas de contrainte DB UNIQUE dédiée
+Traçabilité : timeline event `external_request_created` avec `actor_type = 'system'`
+Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
+
+---
+
 ## Modules FROZEN
 
 Ne pas modifier :
