@@ -1,131 +1,116 @@
-## Phase EQ1 — External Quote Requests ✅
 
-### Objectif
 
-Permettre aux opérateurs de créer des demandes externes aux partenaires (agent France, compagnie maritime, etc.), de recevoir et analyser leurs réponses, et de valider les faits extraits avant injection dans le pipeline de cotation.
+# Plan CL2 — Attachment Analysis Layer v2
 
-### Tables créées
+## Principe
 
-| Table | Description |
-|-------|-------------|
-| `external_quote_requests` | Demandes sortantes vers partenaires (purpose, status, partner_name) |
-| `external_quote_responses` | Réponses reçues (UNIQUE request_id+source_email_id) |
-| `external_quote_response_facts` | Faits proposés extraits des réponses (validation_status: proposed/validated/rejected) |
+Le fichier `analyze-attachments/index.ts` (1503 lignes) fait deja de l'analyse AI sur documents natifs (PDF en base64, Excel en texte, images). Le manque est uniquement cote **voie A** : il n'y a pas d'extraction texte brute locale pour les PDFs. Le texte brut est soit vide, soit issu de `extractedData.text_content` (sortie AI).
 
-### CHECK constraints mis à jour
+Le CTO demande un modele a 3 voies :
+- **extracted_text** = texte brut (trace, audit, recherche)
+- **extracted_data** = analyse AI structuree du document natif (interpretation metier)
+- Les deux coexistent, sans que l'un remplace l'autre
 
-- `quote_facts_source_type_check` : +`partner_response`
-- `case_timeline_events_event_type_check` : +`external_request_created`, +`external_response_analyzed`
+## Ecarts reels a corriger
 
-### Edge Functions créées
+| # | Ecart | Localisation |
+|---|---|---|
+| A | PDFs : pas d'extraction texte brute locale (pdfjs-dist) | Background L696-778, Sync L1245-1330 |
+| B | Pas de normalisation de texte | Tous les points d'ecriture extracted_text |
+| C | UPDATE sans `.eq('is_analyzed', false)` | ~12 occurrences (bg + sync) |
+| D | Erreurs Supabase non lues sur certains UPDATE/INSERT | Background mode L555-813 |
+| E | Pas de garde anti-doublon sur quotation_history | Background L795, Sync L1382 |
 
-| Fonction | Description |
-|----------|-------------|
-| `analyze-partner-response` | Analyse AI (Gemini Flash) d'un email partenaire, extraction de faits avec prompt purpose-aware |
-| `validate-partner-fact` | Validation/rejet d'un fait proposé → injection via `supersede_fact` RPC |
+## Corrections
 
-### Frontend
+### Patch A — Extraction PDF texte brut via pdfjs-dist
 
-| Fichier | Description |
-|---------|-------------|
-| `src/hooks/useExternalRequests.ts` | Hook React Query pour les 3 tables + mutations |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Panel complet : liste demandes, formulaire création, validation faits |
-| `src/pages/CaseView.tsx` | Intégration du panel après DecisionSupportPanel |
+Ajouter en tete de fichier l'import pdfjs-dist (meme version que `parse-document` : `4.0.379`).
 
-### Statuts de requête
+Ajouter une fonction `extractPdfText(uint8Array)` :
+- `pdfjsLib.getDocument({ data, disableWorker: true })`
+- Concatene texte de toutes les pages
+- Si texte < 50 chars, retourne chaine vide (le flux AI natif fera le travail)
 
+**Dans les blocs PDF** (background L696, sync L1245) — avant l'appel AI existant :
+1. Tenter `extractPdfText(uint8Array)`
+2. Si texte obtenu, le stocker comme `extractedText` (voie A)
+3. Continuer l'appel AI normalement sur le document natif en base64 (voie B) — logique inchangee
+4. `extracted_text` = texte brut pdfjs, `extracted_data` = analyse AI structuree
+
+Le flux AI existant n'est **pas modifie** : il continue a recevoir le PDF natif en base64 et a produire `extracted_data`. Seul `extracted_text` change de source.
+
+Pour les **images** : pas de pdfjs, `extracted_text` reste tel quel (vide ou `text_content` AI).
+Pour les **Excel** : `extracted_text` recoit deja le texte tabulaire, pas de changement de source — juste normalisation.
+
+### Patch B — normalizeText()
+
+Fonction utilitaire :
 ```
-draft → sent → response_received → response_analyzed → partially_validated → facts_validated
-                                                      → closed (rejet total ou manuel)
+function normalizeText(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
 ```
 
-### Zones FROZEN respectées
+Appliquee a `extractedText` avant chaque ecriture `extracted_text` :
+- Background final update L809-813
+- Sync final update L1461-1469
+- Nouveau texte PDF de Patch A
 
-- `build-case-puzzle`, `quotation-engine`, `run-pricing` : aucune modification
-- Les faits entrent via `supersede_fact` RPC après validation opérateur
+### Patch C — Garde idempotence `.eq('is_analyzed', false)`
 
----
+Ajouter `.eq('is_analyzed', false)` a tous les `.update({ is_analyzed: true }).eq('id', attachment.id)` :
+- Background : L555, L568, L583, L673, L809
+- Sync : L1033, L1047, L1077, L1098, L1129, L1215, L1461
 
-## Phase CL1 — Conversation Layer minimal ✅
+### Patch D — Lecture explicite `{ error }` sur UPDATE/INSERT
 
-### Objectif
+Dans `analyzeAttachmentInBackground` (L540-827), les `.update()` a L555, L568, L583, L673, L809 et le `.insert()` a L795 ne lisent pas `{ error }`. Corriger :
+```
+const { error: updateErr } = await supabase.from('email_attachments').update(...)...;
+if (updateErr) console.warn('[analyze-attachments] Update failed:', updateErr.message);
+```
 
-Tracer le cycle de vie des clarifications client par gap :
-`drafted → sent → answered → validated`
+Meme correction pour le `.select()` L785 (emails).
 
-### Table créée
+### Patch E — Garde anti-doublon quotation_history
 
-| Table | Description |
-|-------|-------------|
-| `client_gap_requests` | Suivi conversationnel par gap_key (status, sent_at, response_email_id, validated_fact_id) |
+Avant chaque insert `quotation_history` (background L795, sync L1382), ajouter :
+```
+const { data: existingQh, error: existingQhErr } = await supabase
+  .from('quotation_history')
+  .select('id')
+  .eq('source_attachment_id', attachment.id)
+  .maybeSingle();  // bg mode: une seule entree par attachment
 
-### Index
+if (existingQhErr) {
+  console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
+}
+if (existingQh) {
+  console.log('[analyze-attachments] quotation_history already exists, skipping');
+  // skip insert
+}
+```
 
-- `uq_client_gap_requests_active` : UNIQUE partiel sur `(case_id, gap_key)` WHERE status IN ('drafted','sent','answered')
-- `idx_client_gap_requests_case_id`, `idx_client_gap_requests_status`, `idx_client_gap_requests_case_gap`
+Pour le sync mode (L1367-1396, boucle par cargoType), le check inclut aussi `.eq('cargo_type', cargoType)` car plusieurs entrees legitimes par type sont possibles.
 
-### Edge Functions modifiées
+## Fichier modifie
 
-| Fonction | Modification |
-|----------|-------------|
-| `generate-reply-draft` | Insert-if-not-exists `client_gap_requests` en `drafted` après génération du brouillon. `source_timeline_event_id` pointe vers l'event `output_generated` |
-| `analyze-reply-event` | Match proposed_facts → active requests (priorité `sent`, fallback `drafted`), passe en `answered` |
-| `set-case-fact` | Promotion `answered → validated` après `supersede_fact` réussi |
+| Fichier | Changement |
+|---|---|
+| `supabase/functions/analyze-attachments/index.ts` | A + B + C + D + E |
 
-### Edge Function créée
+## Ce qui n'est PAS touche
 
-| Fonction | Description |
-|----------|-------------|
-| `mark-client-gap-request-sent` | Marquage manuel `drafted → sent` par l'opérateur |
+- `sync-emails` (CL1 valide)
+- `email-admin` (CL1 valide)
+- `parse-document`, `import-thread`
+- Aucune migration SQL
+- Aucun fichier front
+- Logique AI existante (prompts, routing, knowledge learning) intacte — les appels AI sur documents natifs restent identiques
 
-### Frontend
-
-| Fichier | Modification |
-|---------|-------------|
-| `src/pages/CaseView.tsx` | Query `client_gap_requests`, section "Clarifications client", bouton "Envoyé" dans draft display |
-| `src/components/puzzle/ClarificationPanel.tsx` | Ajout props `onMarkSent`, `markSentDisabled`, `isMarkingSent`, bouton "Marquer comme envoyé" |
-
-### Zones FROZEN respectées
-
-- `build-case-puzzle`, `run-pricing`, `quotation-engine` : aucune modification
-- `quote_gaps` : structure inchangée
-- `quote_cases.status` FSM : inchangé
-
----
-
-## Phase ATT1 — Correction pipeline pièces jointes dans sync-emails ✅
-
-### Cause racine
-
-`sync-emails/index.ts` importait les emails mais pas leurs pièces jointes. Les méthodes IMAP (`fetchBodyStructure`, `fetchAttachmentPart`) existaient mais n'étaient pas branchées dans le pipeline principal.
-
-### Correction apportée
-
-#### Patch 1 — `supabase/functions/sync-emails/index.ts`
-
-- **Helpers MIME ajoutés** (copie fidèle depuis `import-thread`) : `AttachmentInfo`, `tokenizeBodyStructure`, `extractFilenameFromParams`, `parseMimePart`, `extractBodyStructure`, `parseBodyStructure`, `findPartNumberByPosition`, `decodeBase64Chunked`, `decodeQuotedPrintableAttachment`
-- **`fetchBodyStructure(uid)`** : retourne désormais `AttachmentInfo[]` au lieu de `string`
-- **`fetchAttachment(uid, partNumber, encoding)`** : nouvelle méthode robuste remplaçant `fetchAttachmentPart`, gère 3 patterns d'extraction + base64 chunked + quoted-printable
-- **`processEmailAttachments(client, uid, emailId, supabase)`** : sous-flux non-bloquant appelé après chaque insertion email réussie
-  - Garde d'idempotence : check `email_id + filename` avant insert
-  - PJ > 5MB : enregistrée avec `storage_path = null` et texte indicatif
-  - Pas de limite au nombre de PJ
-  - Erreurs individuelles loguées, ne bloquent jamais le pipeline email
-
-#### Patch 2 — `supabase/functions/email-admin/index.ts`
-
-- **Action `reimport_attachments` étendue** avec mode ciblé `thread_id` :
-  - Récupère tous les emails du thread via `thread_ref`
-  - Pour chaque email sans PJ existantes : connexion IMAP, BODYSTRUCTURE, download, upload
-  - Garde d'idempotence identique (`email_id + filename`)
-  - Classe `ReimportIMAPClient` minimale ajoutée localement
-  - Mode heuristique existant (sans `thread_id`) : inchangé
-
-### Contraintes respectées
-
-- Limite taille : **5 MB** (alignée sur `import-thread`)
-- Pas de limite nombre de PJ
-- Non-bloquant : erreurs loguées, pipeline email intact
-- Lecture explicite `{ data, error }` (P0-A)
-- Zéro migration SQL
-- Aucun module FROZEN touché
