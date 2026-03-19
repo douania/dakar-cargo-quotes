@@ -215,6 +215,9 @@ Bloc post-processing non bloquant dans `build-case-puzzle`, après le calcul des
 L'idempotence est applicative seulement (pas de contrainte UNIQUE en base).
 En cas de re-runs concurrents, un doublon théorique est possible mais mitigé par l'orchestration séquentielle existante des jobs puzzle.
 
+En multi-lot mixte (un lot avec gap fret, un autre sans), P1 peut créer des demandes pour tous les lots.
+Le filtrage lot-level nécessiterait une extension du schéma quote_gaps (hors scope P1).
+
 ### Contraintes d'implémentation
 
 - **Non-bloquant** : try/catch global, erreurs loguées via console.warn

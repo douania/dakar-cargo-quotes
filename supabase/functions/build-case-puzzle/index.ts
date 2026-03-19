@@ -3693,7 +3693,7 @@ Deno.serve(async (req) => {
     // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md "Exception contrôlée — P1 Auto-EQ"
     // Non-blocking: errors logged, never fatal to build-case-puzzle
     try {
-      const { data: freightGaps } = await serviceClient
+      const { data: freightGaps, error: freightGapsErr } = await serviceClient
         .from("quote_gaps")
         .select("id, gap_key")
         .eq("case_id", case_id)
@@ -3701,121 +3701,143 @@ Deno.serve(async (req) => {
         .eq("status", "open")
         .eq("is_blocking", true);
 
-      if (freightGaps && freightGaps.length > 0) {
+      if (freightGapsErr) {
+        console.warn("[P1-AutoEQ] Failed to read freight gaps:", freightGapsErr.message);
+      } else if (freightGaps && freightGaps.length > 0) {
         // Build targets: from quote_request_lines if available, else mono-lot fallback
-        const { data: requestLines } = await serviceClient
+        const { data: requestLines, error: requestLinesErr } = await serviceClient
           .from("quote_request_lines")
           .select("line_index, request_type_hint")
           .eq("case_id", case_id);
 
-        type AutoEqTarget = { lot_index: number | null; mode: string };
-        let targets: AutoEqTarget[];
-
-        if (requestLines && requestLines.length > 0) {
-          targets = requestLines.map((l) => ({
-            lot_index: l.line_index,
-            mode: l.request_type_hint || detectedType || "UNKNOWN",
-          }));
+        if (requestLinesErr) {
+          console.warn("[P1-AutoEQ] Failed to read request lines:", requestLinesErr.message);
+          // abort P1 — do NOT fall through to mono-lot fallback
         } else {
-          // Mono-lot fallback
-          targets = [{ lot_index: null, mode: detectedType || "UNKNOWN" }];
-        }
+          type AutoEqTarget = { lot_index: number | null; mode: string };
+          let targets: AutoEqTarget[];
 
-        // Gather facts for purpose_detail text
-        const factKeys = [
-          "routing.origin_country", "routing.destination_port", "routing.transport_mode",
-          "routing.incoterm", "cargo.weight_kg", "cargo.volume_cbm",
-        ];
-        const { data: relevantFacts } = await serviceClient
-          .from("quote_facts")
-          .select("fact_key, value_text, value_number")
-          .eq("case_id", case_id)
-          .eq("is_current", true)
-          .in("fact_key", factKeys);
-
-        const factMap: Record<string, string> = {};
-        for (const f of relevantFacts || []) {
-          factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : "");
-        }
-
-        for (const target of targets) {
-          const computedPurpose = target.mode.toUpperCase().includes("AIR") ? "air_tariff" : "freight_rate";
-
-          // Idempotence guard (applicative — IS NOT DISTINCT FROM for null safety)
-          let alreadyExists = false;
-          if (target.lot_index === null) {
-            const { data: existNull } = await serviceClient
-              .from("external_quote_requests")
-              .select("id")
-              .eq("case_id", case_id)
-              .eq("purpose", computedPurpose)
-              .neq("status", "closed")
-              .is("related_lot_index", null)
-              .limit(1);
-            alreadyExists = !!(existNull && existNull.length > 0);
+          if (requestLines && requestLines.length > 0) {
+            targets = requestLines.map((l) => ({
+              lot_index: l.line_index,
+              mode: l.request_type_hint || detectedType || "UNKNOWN",
+            }));
           } else {
-            const { data: existLot } = await serviceClient
+            // Mono-lot fallback
+            targets = [{ lot_index: null, mode: detectedType || "UNKNOWN" }];
+          }
+
+          // Gather facts for purpose_detail text
+          const factKeys = [
+            "routing.origin_country", "routing.destination_port", "routing.transport_mode",
+            "routing.incoterm", "cargo.weight_kg", "cargo.volume_cbm",
+          ];
+          const { data: relevantFacts, error: relevantFactsErr } = await serviceClient
+            .from("quote_facts")
+            .select("fact_key, value_text, value_number")
+            .eq("case_id", case_id)
+            .eq("is_current", true)
+            .in("fact_key", factKeys);
+
+          if (relevantFactsErr) {
+            console.warn("[P1-AutoEQ] Failed to read facts:", relevantFactsErr.message);
+          }
+
+          const factMap: Record<string, string> = {};
+          for (const f of relevantFacts || []) {
+            factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : "");
+          }
+
+          for (const target of targets) {
+            const computedPurpose = target.mode.toUpperCase().includes("AIR") ? "air_tariff" : "freight_rate";
+
+            // Idempotence guard (applicative — IS NOT DISTINCT FROM for null safety)
+            let alreadyExists = false;
+            if (target.lot_index === null) {
+              const { data: existNull, error: existNullErr } = await serviceClient
+                .from("external_quote_requests")
+                .select("id")
+                .eq("case_id", case_id)
+                .eq("purpose", computedPurpose)
+                .neq("status", "closed")
+                .is("related_lot_index", null)
+                .limit(1);
+              if (existNullErr) {
+                console.warn("[P1-AutoEQ] Existence check failed (null lot):", existNullErr.message);
+                continue;
+              }
+              alreadyExists = !!(existNull && existNull.length > 0);
+            } else {
+              const { data: existLot, error: existLotErr } = await serviceClient
+                .from("external_quote_requests")
+                .select("id")
+                .eq("case_id", case_id)
+                .eq("purpose", computedPurpose)
+                .neq("status", "closed")
+                .eq("related_lot_index", target.lot_index)
+                .limit(1);
+              if (existLotErr) {
+                console.warn("[P1-AutoEQ] Existence check failed (lot):", existLotErr.message);
+                continue;
+              }
+              alreadyExists = !!(existLot && existLot.length > 0);
+            }
+
+            if (alreadyExists) {
+              console.log(`[P1-AutoEQ] Request already exists for lot=${target.lot_index}, purpose=${computedPurpose} — skipped`);
+              continue;
+            }
+
+            const lotLabel = target.lot_index != null ? String(target.lot_index) : "unique";
+            const purposeDetail = [
+              `Origine: ${factMap["routing.origin_country"] || "—"}`,
+              `Destination: ${factMap["routing.destination_port"] || "—"}`,
+              `Mode: ${factMap["routing.transport_mode"] || target.mode}`,
+              `Incoterm: ${factMap["routing.incoterm"] || "—"}`,
+              `Poids: ${factMap["cargo.weight_kg"] ? factMap["cargo.weight_kg"] + " kg" : "—"}`,
+              `Volume: ${factMap["cargo.volume_cbm"] ? factMap["cargo.volume_cbm"] + " cbm" : "—"}`,
+              `Lot: ${lotLabel}`,
+            ].join("\n");
+
+            const { data: inserted, error: insertErr } = await serviceClient
               .from("external_quote_requests")
+              .insert({
+                case_id,
+                partner_name: "À définir",
+                partner_email: null,
+                purpose: computedPurpose,
+                purpose_detail: purposeDetail,
+                related_lot_index: target.lot_index,
+                created_by: null,
+                status: "draft",
+              })
               .select("id")
-              .eq("case_id", case_id)
-              .eq("purpose", computedPurpose)
-              .neq("status", "closed")
-              .eq("related_lot_index", target.lot_index)
-              .limit(1);
-            alreadyExists = !!(existLot && existLot.length > 0);
-          }
+              .single();
 
-          if (alreadyExists) {
-            console.log(`[P1-AutoEQ] Request already exists for lot=${target.lot_index}, purpose=${computedPurpose} — skipped`);
-            continue;
-          }
+            if (insertErr) {
+              console.warn(`[P1-AutoEQ] Insert failed for lot=${target.lot_index}:`, insertErr.message);
+              continue;
+            }
 
-          const lotLabel = target.lot_index != null ? String(target.lot_index) : "unique";
-          const purposeDetail = [
-            `Origine: ${factMap["routing.origin_country"] || "—"}`,
-            `Destination: ${factMap["routing.destination_port"] || "—"}`,
-            `Mode: ${factMap["routing.transport_mode"] || target.mode}`,
-            `Incoterm: ${factMap["routing.incoterm"] || "—"}`,
-            `Poids: ${factMap["cargo.weight_kg"] ? factMap["cargo.weight_kg"] + " kg" : "—"}`,
-            `Volume: ${factMap["cargo.volume_cbm"] ? factMap["cargo.volume_cbm"] + " cbm" : "—"}`,
-            `Lot: ${lotLabel}`,
-          ].join("\n");
-
-          const { data: inserted, error: insertErr } = await serviceClient
-            .from("external_quote_requests")
-            .insert({
+            // Timeline event
+            const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({
               case_id,
-              partner_name: "À définir",
-              partner_email: null,
-              purpose: computedPurpose,
-              purpose_detail: purposeDetail,
-              related_lot_index: target.lot_index,
-              created_by: null,
-              status: "draft",
-            })
-            .select("id")
-            .single();
+              event_type: "external_request_created",
+              actor_type: "system",
+              new_value: `Demande partenaire auto: ${computedPurpose} (lot ${lotLabel})`,
+              event_data: {
+                auto: true,
+                request_id: inserted?.id,
+                purpose: computedPurpose,
+                lot_index: target.lot_index,
+              },
+            });
+            if (timelineErr) {
+              console.warn("[P1-AutoEQ] Timeline insert failed:", timelineErr.message);
+            }
 
-          if (insertErr) {
-            console.warn(`[P1-AutoEQ] Insert failed for lot=${target.lot_index}:`, insertErr.message);
-            continue;
+            console.log(`[P1-AutoEQ] Created auto request ${inserted?.id} for lot=${lotLabel}, purpose=${computedPurpose}`);
           }
-
-          // Timeline event
-          await serviceClient.from("case_timeline_events").insert({
-            case_id,
-            event_type: "external_request_created",
-            actor_type: "system",
-            new_value: `Demande partenaire auto: ${computedPurpose} (lot ${lotLabel})`,
-            event_data: {
-              auto: true,
-              request_id: inserted?.id,
-              purpose: computedPurpose,
-              lot_index: target.lot_index,
-            },
-          });
-
-          console.log(`[P1-AutoEQ] Created auto request ${inserted?.id} for lot=${lotLabel}, purpose=${computedPurpose}`);
         }
       }
     } catch (autoEqError) {
