@@ -144,7 +144,7 @@ Renforcer le pipeline `analyze-attachments` avec extraction texte brute PDF, nor
 - **extracted_data** = analyse AI structurée du document natif (interprétation métier)
 - Les deux coexistent sans substitution
 
-### Patches appliqués
+### Patches appliqués (v1)
 
 | Patch | Description |
 |-------|-------------|
@@ -152,19 +152,53 @@ Renforcer le pipeline `analyze-attachments` avec extraction texte brute PDF, nor
 | B | `normalizeText()` — supprime null chars, normalise newlines, collapse whitespace. Appliquée avant chaque écriture `extracted_text`. |
 | C | Garde `.eq('is_analyzed', false)` sur tous les `.update({ is_analyzed: true })` — ~14 occurrences (background + sync + skip). |
 | D | Lecture explicite `{ error }` avec `console.warn` sur tous les UPDATE/INSERT du background mode. |
-| E | Garde anti-doublon `quotation_history` : check `.maybeSingle()` avant insert. BG mode par `source_attachment_id`, sync mode par `source_attachment_id + cargo_type`. |
+| E | ~~Garde anti-doublon `quotation_history`~~ — **remplacé par CL2-final A+** |
+
+---
+
+## Phase CL2-final A+ — Claim Ownership + DB Constraints 🔄 IN PROGRESS
+
+### Objectif
+
+Renforcer l'idempotence et la concurrence du pipeline `analyze-attachments` via un mécanisme de claim atomique et des contraintes DB pour les side effects.
+
+### Migration SQL
+
+| Opération | Description |
+|-----------|-------------|
+| `analysis_claimed_at TIMESTAMPTZ` | Colonne de claim sur `email_attachments` |
+| `source_attachment_id UUID` | Colonne ajoutée sur `local_transport_rates` |
+| `uq_quotation_history_attachment_cargo` | UNIQUE partiel `(source_attachment_id, cargo_type)` |
+| `uq_learned_knowledge_source` | UNIQUE partiel `(source_type, source_id, category)` WHERE attachment |
+| `uq_local_transport_rates_attachment` | UNIQUE partiel `(source_attachment_id, destination, container_type, cargo_category)` |
+
+**Invariant documenté** : un même attachment produit au plus un rate par `(destination, container_type, cargo_category)`.
+
+### Mécanisme de claim
+
+| Propriété | Mécanisme |
+|-----------|-----------|
+| Exclusivité | Claim atomique `analysis_claimed_at = claimTs` via `.or(null, expired>15min)` |
+| Ownership | Final update + early exits + catch conditionnés par `.eq('analysis_claimed_at', claimTs)` |
+| Pas de doublons | UNIQUE DB sur 3 tables secondaires, gestion `23505` comme skip |
+| Auto-recovery | Claims expirés (>15 min) ré-éligibles dans la sélection initiale et le claim |
+| Observabilité | `.select('id').maybeSingle()` sur finalisation détecte claim perdu |
+
+### Corrections spécifiques
+
+- BG `unsupported` : reste **pré-claim**, inchangé
+- Sync `return new Response(402/429)` : 4 occurrences précédées d'un release ownership-aware
+- Patch E : supprimé, remplacé par contraintes DB + gestion `23505`
 
 ### Fichier modifié
 
-| Fichier | Lignes | Changement |
-|---------|--------|------------|
-| `supabase/functions/analyze-attachments/index.ts` | 1503 → 1644 | A + B + C + D + E |
+| Fichier | Changement |
+|---------|------------|
+| `supabase/functions/analyze-attachments/index.ts` | Claim ownership BG+Sync, final vérifié, early exits ownership-aware, `source_attachment_id` sur transport rates |
 
 ### Ce qui n'est PAS touché
 
-- `sync-emails` (CL1 validé)
-- `email-admin` (CL1 validé)
-- `parse-document`, `import-thread`
-- Aucune migration SQL
+- Patches A (PDF extraction), B (normalisation), D (error reads) — conservés
+- `sync-emails`, `email-admin`, modules FROZEN
+- Prompts AI, routing, extraction
 - Aucun fichier front
-- Logique AI existante (prompts, routing, knowledge learning) intacte
