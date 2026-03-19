@@ -464,8 +464,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => validateFact.mutate(fact.id)}
-                                  disabled={validateFact.isPending}
+                                  onClick={() => validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })}
+                                  disabled={validateFactAndRerun.isPending}
                                 >
                                   <Check className="h-3.5 w-3.5" />
                                 </Button>
