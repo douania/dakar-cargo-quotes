@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,9 +80,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     facts,
     isLoading,
     createRequest,
-    markAsSent,
     triggerAnalysis,
-    validateFact,
     rejectFact,
     closeRequest,
   } = useExternalRequests(caseId);
@@ -300,7 +299,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   {req.created_by === null && req.status === "draft" && (
                     <div className="flex items-start gap-2 p-2 rounded bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300">
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      Demande créée automatiquement suite à un gap fret bloquant. Complétez le nom du partenaire puis marquez comme envoyée.
+                      Demande créée automatiquement suite à un gap fret bloquant. Renseignez l'email du partenaire puis cliquez sur Envoyer.
                     </div>
                   )}
                   {req.purpose_detail && (
@@ -326,13 +325,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             !(editingEmail[req.id] ?? req.partner_email)
                           }
                           onClick={async () => {
-                            const email = editingEmail[req.id] ?? req.partner_email;
-                            // Save email to DB if changed
                             if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
-                              await supabase
+                              const { error: emailSaveErr } = await supabase
                                 .from("external_quote_requests")
                                 .update({ partner_email: editingEmail[req.id] })
                                 .eq("id", req.id);
+                              if (emailSaveErr) {
+                                toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
+                                return;
+                              }
                             }
                             sendRequest.mutate(req.id);
                           }}
