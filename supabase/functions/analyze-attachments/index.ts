@@ -1295,10 +1295,12 @@ async function processAttachmentsLoop(
               .update({ 
                 is_analyzed: true,
                 extracted_text: 'Fichier Excel vide ou non lisible',
-                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' }
+                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' },
+                analysis_claimed_at: null
               })
               .eq('id', attachment.id)
-              .eq('is_analyzed', false);
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
             if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
             continue;
           }
