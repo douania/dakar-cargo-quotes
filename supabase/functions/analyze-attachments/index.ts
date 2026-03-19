@@ -1125,17 +1125,19 @@ async function processAttachmentsLoop(
                         attachment.filename?.toLowerCase().endsWith('.xlsx') ||
                         attachment.filename?.toLowerCase().endsWith('.xls');
         
-        // Skip unsupported files
+        // Skip unsupported files — Patch C+D
         if (!isImage && !isPdf && !isExcel) {
           console.log(`Skipping unsupported file: ${attachment.content_type}`);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
               extracted_text: null,
               extracted_data: { type: 'unsupported', content_type: attachment.content_type }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
           continue;
         }
         
