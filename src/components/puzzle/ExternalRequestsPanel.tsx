@@ -308,17 +308,43 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   )}
 
                   {/* Actions */}
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap items-end">
                     {req.status === "draft" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => { e.stopPropagation(); markAsSent.mutate(req.id); }}
-                        disabled={markAsSent.isPending}
-                      >
-                        <Send className="h-3 w-3 mr-1" />
-                        Marquer envoyée
-                      </Button>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          type="email"
+                          placeholder="Email partenaire"
+                          className="h-8 w-[200px] text-xs"
+                          value={editingEmail[req.id] ?? req.partner_email ?? ""}
+                          onChange={(e) => setEditingEmail((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            sendRequest.isPending ||
+                            !(editingEmail[req.id] ?? req.partner_email)
+                          }
+                          onClick={async () => {
+                            const email = editingEmail[req.id] ?? req.partner_email;
+                            // Save email to DB if changed
+                            if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
+                              await supabase
+                                .from("external_quote_requests")
+                                .update({ partner_email: editingEmail[req.id] })
+                                .eq("id", req.id);
+                            }
+                            sendRequest.mutate(req.id);
+                          }}
+                        >
+                          {sendRequest.isPending ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Send className="h-3 w-3 mr-1" />
+                          )}
+                          Envoyer
+                        </Button>
+                      </div>
                     )}
                     {/* Fix 1: Trigger analysis — available when request is sent or response_received */}
                     {["sent", "response_received"].includes(req.status) && threadEmails.length > 0 && (
