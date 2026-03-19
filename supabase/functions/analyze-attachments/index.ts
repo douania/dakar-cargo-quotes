@@ -737,10 +737,11 @@ ${excelText}`;
       
       if (!aiResponse.ok) {
         console.error(`[BG] AI error: ${aiResponse.status}`);
-        await supabase.from('email_attachments').update({ 
+        const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
           extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` }
-        }).eq('id', attachment.id);
+        }).eq('id', attachment.id).eq('is_analyzed', false);
+        if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
         return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
       }
       
