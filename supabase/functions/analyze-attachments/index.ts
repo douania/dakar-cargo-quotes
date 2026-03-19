@@ -921,6 +921,11 @@ REGLES CRITIQUES :
       }
     }
     
+    // Store packing list data as learned knowledge BEFORE final update
+    if (extractedData?.document_type === 'packing_list') {
+      await storePackingListKnowledge(supabase, attachment, extractedData);
+    }
+    
     // CL2-final A+: Final update with ownership check + return verification
     const finalText = normalizeText(extractedText || '');
     const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
@@ -932,11 +937,6 @@ REGLES CRITIQUES :
       .select('id').maybeSingle();
     if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
     if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
-    
-    // Store packing list data as learned knowledge (marchandise category)
-    if (extractedData?.document_type === 'packing_list') {
-      await storePackingListKnowledge(supabase, attachment, extractedData);
-    }
     
     console.log(`[BG] ✓ Analysis complete: ${attachment.filename}`);
     return { success: true, filename: attachment.filename };
