@@ -258,9 +258,14 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex items-center gap-1.5">
                   <span className="font-medium text-sm">{req.partner_name}</span>
-                  <span className="text-xs text-muted-foreground ml-2">
+                  {req.created_by === null && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300">
+                      Système
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground ml-1">
                     {PURPOSE_OPTIONS.find((o) => o.value === req.purpose)?.label || req.purpose}
                   </span>
                 </div>
