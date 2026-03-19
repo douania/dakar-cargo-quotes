@@ -1235,10 +1235,12 @@ async function processAttachmentsLoop(
             .update({ 
               is_analyzed: true,
               extracted_text: null,
-              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message }
+              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
           continue;
         }
