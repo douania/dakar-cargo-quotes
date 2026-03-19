@@ -129,3 +129,42 @@ Tracer le cycle de vie des clarifications client par gap :
 - Lecture explicite `{ data, error }` (P0-A)
 - Zéro migration SQL
 - Aucun module FROZEN touché
+
+---
+
+## Phase CL2 — Attachment Analysis Layer v2 ✅
+
+### Objectif
+
+Renforcer le pipeline `analyze-attachments` avec extraction texte brute PDF, normalisation, idempotence et anti-doublon — sans casser l'analyse AI existante.
+
+### Modèle 3 voies
+
+- **extracted_text** = texte brut (trace, audit, recherche plein texte)
+- **extracted_data** = analyse AI structurée du document natif (interprétation métier)
+- Les deux coexistent sans substitution
+
+### Patches appliqués
+
+| Patch | Description |
+|-------|-------------|
+| A | Extraction PDF texte brut via `pdfjs-dist@4.0.379` — même lib que `parse-document`. Fonction `extractPdfText()` ajoutée. Appliquée aux blocs PDF background et sync, avant l'appel AI natif. |
+| B | `normalizeText()` — supprime null chars, normalise newlines, collapse whitespace. Appliquée avant chaque écriture `extracted_text`. |
+| C | Garde `.eq('is_analyzed', false)` sur tous les `.update({ is_analyzed: true })` — ~14 occurrences (background + sync + skip). |
+| D | Lecture explicite `{ error }` avec `console.warn` sur tous les UPDATE/INSERT du background mode. |
+| E | Garde anti-doublon `quotation_history` : check `.maybeSingle()` avant insert. BG mode par `source_attachment_id`, sync mode par `source_attachment_id + cargo_type`. |
+
+### Fichier modifié
+
+| Fichier | Lignes | Changement |
+|---------|--------|------------|
+| `supabase/functions/analyze-attachments/index.ts` | 1503 → 1644 | A + B + C + D + E |
+
+### Ce qui n'est PAS touché
+
+- `sync-emails` (CL1 validé)
+- `email-admin` (CL1 validé)
+- `parse-document`, `import-thread`
+- Aucune migration SQL
+- Aucun fichier front
+- Logique AI existante (prompts, routing, knowledge learning) intacte
