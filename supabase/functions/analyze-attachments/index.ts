@@ -899,29 +899,22 @@ REGLES CRITIQUES :
       const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
       const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
       
-      // Patch E: Anti-duplicate guard on quotation_history
-      const { data: existingQh, error: existingQhErr } = await supabase
-        .from('quotation_history')
-        .select('id')
-        .eq('source_attachment_id', attachment.id)
-        .maybeSingle();
-      if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
-      
-      if (existingQh) {
-        console.log(`[BG] quotation_history already exists for attachment ${attachment.id}, skipping`);
+      // CL2-final A+: Direct insert, DB unique index handles duplicates
+      const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
+        route_port: 'Dakar',
+        route_destination: destination,
+        cargo_type: detectCargoType(subject),
+        tariff_lines: tariffLines,
+        total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
+        total_currency: 'FCFA',
+        source_email_id: attachment.email_id,
+        source_attachment_id: attachment.id,
+      });
+      if (qhInsertErr) {
+        if (qhInsertErr.code === '23505') console.log('[BG] quotation_history duplicate, skipping');
+        else console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
       } else {
-        const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
-          route_port: 'Dakar',
-          route_destination: destination,
-          cargo_type: detectCargoType(subject),
-          tariff_lines: tariffLines,
-          total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
-          total_currency: 'FCFA',
-          source_email_id: attachment.email_id,
-          source_attachment_id: attachment.id,
-        });
-        if (qhInsertErr) console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
-        else console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+        console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
       }
     }
     
