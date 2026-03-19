@@ -1,43 +1,48 @@
 
 
-# CL2-final A+ — Correctif v3 : 2 bugs bloquants
+# P0 — Replace `return new Response(...)` in `processAttachmentsLoop()`
 
-## Bug 1 — `claimTs` hors scope dans les catch
+## Problem
 
-### BG mode (`analyzeAttachmentInBackground`, L607-952)
+4 occurrences of `return new Response(...)` inside `processAttachmentsLoop()` break the function's `Promise<any[]>` contract. They exit the entire loop prematurely on AI 402/429 errors instead of continuing to the next attachment.
 
-- **Actuel** : `const claimTs` déclaré L630 dans le `try`, référencé L950 dans le `catch`
-- **Fix** : Déclarer `let claimTs: string | null = null;` avant le `try` (L608). Assigner `claimTs = new Date().toISOString()` à L630. Dans le catch, conditionner le release par `if (claimTs)`.
+## Fix — 4 surgical replacements
 
-### Sync mode (`processAttachmentsLoop`, L1149-1721)
+Each of the 4 blocks follows the same pattern. The claim release is already correct — only the `return new Response(...)` line changes.
 
-- **Actuel** : `const claimTs` déclaré L1178 dans le `try`, référencé L1714 dans le `catch`
-- **Fix** : Déclarer `let claimTs: string | null = null;` au début du `for` body (L1150, avant le `try`). Assigner `claimTs = new Date().toISOString()` à L1178. Dans le catch L1707, conditionner le release par `if (claimTs)`.
+### Block 1 — Excel AI 402 (L1380-1383)
 
-## Bug 2 — `storePackingListKnowledge` après finalisation
+Replace:
+```typescript
+return new Response(
+  JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
+  { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+);
+```
+With:
+```typescript
+results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_QUOTA_402', error_message: 'Crédits AI insuffisants.' });
+continue;
+```
 
-### BG mode (L922-938)
+### Block 2 — Excel AI 429 (L1390-1393)
 
-- **Actuel** : L923-933 = final update `is_analyzed=true`, puis L936-938 = `storePackingListKnowledge`
-- **Fix** : Déplacer le bloc `storePackingListKnowledge` (L935-938) **avant** le final update (avant L923). L'ordre devient : quotation_history → storePackingListKnowledge → final update.
+Same pattern, with `error_code: 'AI_RATE_LIMIT_429'` and `error_message: 'Limite de requêtes atteinte, réessayez plus tard.'`
 
-### Sync mode (L1669-1705)
+### Block 3 — Doc AI 402 (L1501-1504)
 
-- **Actuel** : L1669-1683 = final update, puis L1692-1695 = `storePackingListKnowledge` (à l'intérieur du `else if (finalized)`)
-- **Fix** : Extraire `storePackingListKnowledge` du bloc conditionnel `finalized` et le placer **avant** le final update (avant L1669). L'ordre correct : quotation_history → transport_rates → storePackingListKnowledge → final update.
+Same as Block 1.
 
-## Résumé des 4 modifications
+### Block 4 — Doc AI 429 (L1511-1514)
 
-| Lieu | Changement |
-|------|-----------|
-| BG L608 | `let claimTs: string | null = null;` avant try |
-| BG L935-938 → avant L923 | storePackingListKnowledge avant final update |
-| BG catch L946-950 | `if (claimTs) { ... }` |
-| Sync L1150 | `let claimTs: string | null = null;` avant try |
-| Sync L1692-1695 → avant L1669 | storePackingListKnowledge avant final update |
-| Sync catch L1710-1714 | `if (claimTs) { ... }` |
+Same as Block 2.
 
-## Ce qui ne change pas
+## What changes
 
-Tout le reste du fichier, migration SQL, plan.md, aucun autre fichier.
+- 4 `return new Response(...)` → `results.push({...}); continue;`
+- No signature change, no new types, no handler change
+
+## What does not change
+
+Everything else in the file. No other files touched.
 
