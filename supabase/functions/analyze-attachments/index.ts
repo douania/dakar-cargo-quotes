@@ -588,10 +588,12 @@ async function storePackingListKnowledge(
     }
   };
   
+  // CL2-final A+: Direct insert, DB unique index handles duplicates
   const { error } = await supabase.from('learned_knowledge').insert(knowledgeEntry);
   
   if (error) {
-    console.error(`[Knowledge] Error storing packing list knowledge:`, error);
+    if ((error as any).code === '23505') console.log('[Knowledge] Packing list knowledge duplicate, skipping');
+    else console.error(`[Knowledge] Error storing packing list knowledge:`, error);
   } else {
     console.log(`[Knowledge] Stored packing list as marchandise: ${items.length} items, ${mainItems.length} heavy pieces`);
   }
