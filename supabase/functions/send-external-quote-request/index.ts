@@ -1,0 +1,204 @@
+// Phase P2.1 — Send external quote request to partner
+// SECURITY: requireUser is mandatory because verify_jwt=false
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
+
+const PURPOSE_LABELS: Record<string, string> = {
+  origin_charges: "Frais d'origine",
+  freight_rate: "Taux de fret",
+  air_tariff: "Tarif aérien",
+  pre_carriage: "Pré-acheminement",
+  documentation: "Documentation",
+  general: "Demande générale",
+};
+
+serve(async (req: Request) => {
+  const corsResp = handleCors(req);
+  if (corsResp) return corsResp;
+
+  const auth = await requireUser(req);
+  if (auth instanceof Response) return auth;
+
+  try {
+    const { case_id, request_id } = await req.json();
+    if (!case_id) return errorResponse("case_id is required", 400);
+    if (!request_id) return errorResponse("request_id is required", 400);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
+
+    // 1. Load the request
+    const { data: request, error: reqErr } = await serviceClient
+      .from("external_quote_requests")
+      .select("*")
+      .eq("id", request_id)
+      .eq("case_id", case_id)
+      .maybeSingle();
+
+    if (reqErr) {
+      console.error("[send-external-quote-request] Failed to load request:", reqErr.message);
+      return errorResponse("Failed to load request", 500);
+    }
+    if (!request) return errorResponse("Request not found", 404);
+
+    // 2. Idempotence guard
+    if (request.status !== "draft") {
+      return jsonResponse({
+        ok: true,
+        idempotent: true,
+        request_id,
+        status: request.status,
+        message: `Request already ${request.status}`,
+      });
+    }
+
+    // 3. Validate partner_email
+    if (!request.partner_email || request.partner_email.trim() === "") {
+      return errorResponse("partner_email is required to send request", 400);
+    }
+
+    // 4. Load case context for email generation
+    const { data: caseData, error: caseErr } = await serviceClient
+      .from("quote_cases")
+      .select("id, reference, status, thread_id")
+      .eq("id", case_id)
+      .maybeSingle();
+
+    if (caseErr) {
+      console.error("[send-external-quote-request] Failed to load case:", caseErr.message);
+      return errorResponse("Failed to load case", 500);
+    }
+    if (!caseData) return errorResponse("Case not found", 404);
+
+    // 5. Load relevant facts for context
+    const { data: facts, error: factsErr } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text, value_number")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", [
+        "cargo.description", "routing.origin_country", "routing.destination_country",
+        "routing.final_destination", "cargo.incoterm", "cargo.total_weight_kg",
+        "cargo.total_volume_cbm", "routing.transport_mode",
+      ]);
+
+    if (factsErr) {
+      console.warn("[send-external-quote-request] Failed to load facts (non-critical):", factsErr.message);
+    }
+
+    // 6. Build email content
+    const purposeLabel = PURPOSE_LABELS[request.purpose] || request.purpose;
+    const caseRef = caseData.reference || case_id.slice(0, 8);
+    const factMap: Record<string, string> = {};
+    for (const f of facts || []) {
+      factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : "");
+    }
+
+    const contextLines: string[] = [];
+    if (factMap["cargo.description"]) contextLines.push(`Marchandise : ${factMap["cargo.description"]}`);
+    if (factMap["routing.origin_country"]) contextLines.push(`Origine : ${factMap["routing.origin_country"]}`);
+    if (factMap["routing.destination_country"] || factMap["routing.final_destination"]) {
+      contextLines.push(`Destination : ${factMap["routing.final_destination"] || factMap["routing.destination_country"]}`);
+    }
+    if (factMap["cargo.incoterm"]) contextLines.push(`Incoterm : ${factMap["cargo.incoterm"]}`);
+    if (factMap["routing.transport_mode"]) contextLines.push(`Mode : ${factMap["routing.transport_mode"]}`);
+    if (factMap["cargo.total_weight_kg"]) contextLines.push(`Poids : ${factMap["cargo.total_weight_kg"]} kg`);
+    if (factMap["cargo.total_volume_cbm"]) contextLines.push(`Volume : ${factMap["cargo.total_volume_cbm"]} m³`);
+
+    const subject = `Demande de cotation — ${purposeLabel} — Réf. ${caseRef}`;
+    const bodyParts = [
+      `Bonjour,`,
+      ``,
+      `Dans le cadre du dossier Réf. ${caseRef}, nous sollicitons votre offre pour : ${purposeLabel}.`,
+    ];
+    if (request.purpose_detail) {
+      bodyParts.push(``, `Détails : ${request.purpose_detail}`);
+    }
+    if (contextLines.length > 0) {
+      bodyParts.push(``, `Contexte du dossier :`, ...contextLines.map((l) => `  - ${l}`));
+    }
+    if (request.related_lot_index != null) {
+      bodyParts.push(``, `Lot concerné : #${request.related_lot_index}`);
+    }
+    bodyParts.push(
+      ``,
+      `Merci de nous transmettre votre meilleure offre dans les meilleurs délais.`,
+      ``,
+      `Cordialement,`,
+      `L'équipe transit`,
+    );
+    const bodyText = bodyParts.join("\n");
+
+    // 7. Create email draft
+    const userId = auth.user.id;
+    const { data: draft, error: draftErr } = await serviceClient
+      .from("email_drafts")
+      .insert({
+        subject,
+        body_text: bodyText,
+        to_addresses: [request.partner_email.trim()],
+        status: "draft",
+        ai_generated: true,
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (draftErr) {
+      console.error("[send-external-quote-request] Failed to create draft:", draftErr.message);
+      return errorResponse("Failed to create email draft", 500);
+    }
+
+    // 8. Mark request as sent — CRITICAL
+    const now = new Date().toISOString();
+    const { error: updateErr } = await serviceClient
+      .from("external_quote_requests")
+      .update({ status: "sent", sent_at: now })
+      .eq("id", request_id);
+
+    if (updateErr) {
+      console.error("[send-external-quote-request] Failed to update request status:", updateErr.message);
+      return errorResponse("Failed to mark request as sent", 500);
+    }
+
+    // 9. Timeline event — NON-CRITICAL
+    const dedupeKey = `external_request_sent:${request_id}`;
+    const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({
+      case_id,
+      event_type: "manual_action",
+      actor_type: "operator",
+      actor_user_id: userId,
+      new_value: `Demande partenaire envoyée: ${request.partner_name} (${purposeLabel})`,
+      event_data: {
+        dedupe_key: dedupeKey,
+        action_code: "PARTNER_REQUEST_SENT",
+        status: "done",
+        request_id,
+        partner_name: request.partner_name,
+        partner_email: request.partner_email,
+        purpose: request.purpose,
+        draft_id: draft.id,
+      },
+    });
+
+    if (timelineErr) {
+      console.warn("[send-external-quote-request] Timeline insert failed (non-critical):", timelineErr.message);
+    }
+
+    return jsonResponse({
+      ok: true,
+      request_id,
+      status: "sent",
+      draft_id: draft.id,
+      subject,
+    });
+  } catch (err) {
+    console.error("[send-external-quote-request] Unexpected error:", (err as Error).message);
+    return errorResponse("Internal server error", 500);
+  }
+});
