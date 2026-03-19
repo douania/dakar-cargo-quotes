@@ -762,8 +762,9 @@ ${excelText}`;
         console.error(`[BG] AI error: ${aiResponse.status}`);
         const { error: updateErr } = await supabase.from('email_attachments').update({ 
           is_analyzed: true,
-          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` }
-        }).eq('id', attachment.id).eq('is_analyzed', false);
+          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` },
+          analysis_claimed_at: null
+        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
         if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
         return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
       }
