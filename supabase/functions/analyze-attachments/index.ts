@@ -1710,12 +1710,14 @@ Réponds en JSON avec cette structure:
         
       } catch (attachmentError) {
         console.error(`Error processing ${attachment.filename}:`, attachmentError);
-        // CL2-final A+: Release claim on error
-        await supabase.from('email_attachments')
-          .update({ analysis_claimed_at: null })
-          .eq('id', attachment.id)
-          .eq('is_analyzed', false)
-          .eq('analysis_claimed_at', claimTs);
+        // CL2-final A+: Release claim on error (only if claim was acquired)
+        if (claimTs) {
+          await supabase.from('email_attachments')
+            .update({ analysis_claimed_at: null })
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
+        }
         results.push({
           id: attachment.id,
           filename: attachment.filename,
