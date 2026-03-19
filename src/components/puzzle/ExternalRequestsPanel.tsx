@@ -162,6 +162,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             {requests.length > 0 && (
               <Badge variant="secondary" className="ml-1">{requests.length}</Badge>
             )}
+            {isPricingRerunning && (
+              <Badge variant="outline" className="ml-1 animate-pulse">
+                <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                Pricing…
+              </Badge>
+            )}
           </CardTitle>
           <Button
             size="sm"
