@@ -996,14 +996,15 @@ serve(async (req) => {
       if (isTemporaryOrSignatureFile(att.filename, att.content_type, att.size)) {
         skippedFiles.push(att);
         // Mark as analyzed with skip reason
-        await supabase.from('email_attachments').update({
+        const { error: skipErr } = await supabase.from('email_attachments').update({
           is_analyzed: true,
           extracted_data: { 
             type: 'skipped', 
             reason: 'Fichier temporaire', 
             message: 'Fichier Word/Outlook temporaire ignoré automatiquement' 
           }
-        }).eq('id', att.id);
+        }).eq('id', att.id).eq('is_analyzed', false);
+        if (skipErr) console.warn('[analyze-attachments] Skip update failed:', skipErr.message);
       } else {
         attachments.push(att);
       }
