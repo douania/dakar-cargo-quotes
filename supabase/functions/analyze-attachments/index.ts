@@ -1664,20 +1664,26 @@ Réponds en JSON avec cette structure:
         }
         }
         
-        // Update the attachment record — Patch B: normalize, Patch C: idempotence guard
+        // CL2-final A+: Final update with ownership check + return verification
         const finalText = normalizeText(extractedText || '');
-        const { error: updateError } = await supabase
+        const { data: finalized, error: updateError } = await supabase
           .from('email_attachments')
           .update({
             is_analyzed: true,
             extracted_text: finalText.substring(0, 10000),
-            extracted_data: extractedData
+            extracted_data: extractedData,
+            analysis_claimed_at: null,
           })
           .eq('id', attachment.id)
-          .eq('is_analyzed', false);
+          .eq('is_analyzed', false)
+          .eq('analysis_claimed_at', claimTs)
+          .select('id')
+          .maybeSingle();
         
         if (updateError) {
-          console.error(`Failed to update attachment ${attachment.id}:`, updateError);
+          console.warn(`[analyze] Final update failed for ${attachment.id}:`, updateError.message);
+        } else if (!finalized) {
+          console.log(`[analyze] ${attachment.id} lost claim before finalization`);
         } else {
           console.log(`Successfully analyzed: ${attachment.filename}`);
           
@@ -1698,6 +1704,12 @@ Réponds en JSON avec cette structure:
         
       } catch (attachmentError) {
         console.error(`Error processing ${attachment.filename}:`, attachmentError);
+        // CL2-final A+: Release claim on error
+        await supabase.from('email_attachments')
+          .update({ analysis_claimed_at: null })
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false)
+          .eq('analysis_claimed_at', claimTs);
         results.push({
           id: attachment.id,
           filename: attachment.filename,
