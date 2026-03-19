@@ -1354,6 +1354,16 @@ ${excelText.substring(0, 50000)}`;
           
         } else {
           // Handle images and PDFs
+          
+          // Patch A: For PDFs, extract raw text first (voie A — trace/audit)
+          if (isPdf) {
+            const rawPdfText = await extractPdfText(uint8Array);
+            if (rawPdfText) {
+              extractedText = rawPdfText;
+              console.log(`[Sync] PDF raw text extracted: ${rawPdfText.length} chars`);
+            }
+          }
+          
           const mimeType = attachment.content_type || 'image/jpeg';
           
           const systemPrompt = `Tu es un assistant expert en analyse de documents commerciaux et logistiques. 
