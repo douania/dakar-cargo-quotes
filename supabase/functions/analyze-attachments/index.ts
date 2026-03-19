@@ -1005,7 +1005,11 @@ serve(async (req) => {
     if (attachmentId) {
       query = query.eq('id', attachmentId);
     } else {
-      query = query.eq('is_analyzed', false).limit(10);
+      // CL2-final A+: Include expired claims for auto-recovery
+      const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      query = query.eq('is_analyzed', false)
+        .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+        .limit(10);
     }
     
     const { data: rawAttachments, error: fetchError } = await query;
