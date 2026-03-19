@@ -1505,6 +1505,27 @@ Réponds en JSON avec cette structure:
               results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_RATE_LIMIT_429', error_message: 'Limite de requêtes atteinte, réessayez plus tard.' });
               continue;
             }
+            // Mark as analyzed with error — ownership-aware (align with Excel branch)
+            const { error: updateErr } = await supabase
+              .from('email_attachments')
+              .update({
+                is_analyzed: true,
+                extracted_text: extractedText || null,
+                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+                analysis_claimed_at: null
+              })
+              .eq('id', attachment.id)
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
+            if (updateErr) console.warn('[analyze-attachments] Update failed (AI error doc):', updateErr.message);
+            results.push({
+              attachment_id: attachment.id,
+              filename: attachment.filename,
+              success: false,
+              skipped: true,
+              error_code: `AI_HTTP_${aiResponse.status}`,
+              error_message: `AI analysis failed (${aiResponse.status})`
+            });
             continue;
           }
           
