@@ -200,3 +200,6 @@ verify_jwt = false
 
 [functions.mark-client-gap-request-sent]
 verify_jwt = false
+
+[functions.send-external-quote-request]
+verify_jwt = false

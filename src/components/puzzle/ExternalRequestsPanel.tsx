@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Package,
   Search,
+  RefreshCw,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -29,6 +30,7 @@ import {
   type ExternalResponse,
   type ExternalResponseFact,
 } from "@/hooks/useExternalRequests";
+import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -84,9 +86,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     closeRequest,
   } = useExternalRequests(caseId);
 
+  const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
   const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
+  const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
@@ -156,6 +161,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             Demandes partenaires
             {requests.length > 0 && (
               <Badge variant="secondary" className="ml-1">{requests.length}</Badge>
+            )}
+            {isPricingRerunning && (
+              <Badge variant="outline" className="ml-1 animate-pulse">
+                <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                Pricing…
+              </Badge>
             )}
           </CardTitle>
           <Button
@@ -297,17 +308,43 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   )}
 
                   {/* Actions */}
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap items-end">
                     {req.status === "draft" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => { e.stopPropagation(); markAsSent.mutate(req.id); }}
-                        disabled={markAsSent.isPending}
-                      >
-                        <Send className="h-3 w-3 mr-1" />
-                        Marquer envoyée
-                      </Button>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          type="email"
+                          placeholder="Email partenaire"
+                          className="h-8 w-[200px] text-xs"
+                          value={editingEmail[req.id] ?? req.partner_email ?? ""}
+                          onChange={(e) => setEditingEmail((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            sendRequest.isPending ||
+                            !(editingEmail[req.id] ?? req.partner_email)
+                          }
+                          onClick={async () => {
+                            const email = editingEmail[req.id] ?? req.partner_email;
+                            // Save email to DB if changed
+                            if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
+                              await supabase
+                                .from("external_quote_requests")
+                                .update({ partner_email: editingEmail[req.id] })
+                                .eq("id", req.id);
+                            }
+                            sendRequest.mutate(req.id);
+                          }}
+                        >
+                          {sendRequest.isPending ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Send className="h-3 w-3 mr-1" />
+                          )}
+                          Envoyer
+                        </Button>
+                      </div>
                     )}
                     {/* Fix 1: Trigger analysis — available when request is sent or response_received */}
                     {["sent", "response_received"].includes(req.status) && threadEmails.length > 0 && (
@@ -427,8 +464,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => validateFact.mutate(fact.id)}
-                                  disabled={validateFact.isPending}
+                                  onClick={() => validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })}
+                                  disabled={validateFactAndRerun.isPending}
                                 >
                                   <Check className="h-3.5 w-3.5" />
                                 </Button>
