@@ -624,6 +624,27 @@ async function analyzeAttachmentInBackground(
       return { success: true, filename: attachment.filename };
     }
     
+    // CL2-final A+: Atomic claim with ownership + expired recovery
+    const claimTs = new Date().toISOString();
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: claimed, error: claimErr } = await supabase
+      .from('email_attachments')
+      .update({ analysis_claimed_at: claimTs })
+      .eq('id', attachment.id)
+      .eq('is_analyzed', false)
+      .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
+      .select('id')
+      .maybeSingle();
+
+    if (claimErr) {
+      console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
+      return { success: false, filename: attachment.filename, error: 'Claim failed' };
+    }
+    if (!claimed) {
+      console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
+      return { success: true, filename: attachment.filename };
+    }
+    
     // Download the file
     const { data: fileData, error: downloadError } = await supabase
       .storage.from('documents').download(attachment.storage_path);
@@ -632,8 +653,9 @@ async function analyzeAttachmentInBackground(
       console.error(`[BG] Download failed: ${attachment.filename}`, downloadError);
       const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
-        extracted_data: { type: 'error', message: 'Download failed' }
-      }).eq('id', attachment.id).eq('is_analyzed', false);
+        extracted_data: { type: 'error', message: 'Download failed' },
+        analysis_claimed_at: null
+      }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
       if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
       return { success: false, filename: attachment.filename, error: 'Download failed' };
     }
