@@ -1367,28 +1367,38 @@ ${excelText.substring(0, 50000)}`;
             console.error(`AI analysis failed for Excel:`, aiResponse.status, errorText);
             
             if (aiResponse.status === 402) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
                 { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             if (aiResponse.status === 429) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
                 { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             
-            // Mark as analyzed with error
+            // Mark as analyzed with error — ownership-aware
             const { error: updateErr } = await supabase
               .from('email_attachments')
               .update({ 
                 is_analyzed: true,
                 extracted_text: null,
-                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status }
+                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+                analysis_claimed_at: null
               })
               .eq('id', attachment.id)
-              .eq('is_analyzed', false);
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
             if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
             continue;
           }
