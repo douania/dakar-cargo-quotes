@@ -605,6 +605,7 @@ async function analyzeAttachmentInBackground(
   attachment: any, 
   lovableApiKey: string
 ): Promise<{ success: boolean; filename: string; error?: string }> {
+  let claimTs: string | null = null;
   try {
     console.log(`[BG] Starting analysis: ${attachment.filename}`);
     
@@ -627,7 +628,7 @@ async function analyzeAttachmentInBackground(
     }
     
     // CL2-final A+: Atomic claim with ownership + expired recovery
-    const claimTs = new Date().toISOString();
+    claimTs = new Date().toISOString();
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     const { data: claimed, error: claimErr } = await supabase
       .from('email_attachments')
@@ -920,6 +921,11 @@ REGLES CRITIQUES :
       }
     }
     
+    // Store packing list data as learned knowledge BEFORE final update
+    if (extractedData?.document_type === 'packing_list') {
+      await storePackingListKnowledge(supabase, attachment, extractedData);
+    }
+    
     // CL2-final A+: Final update with ownership check + return verification
     const finalText = normalizeText(extractedText || '');
     const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
@@ -932,22 +938,19 @@ REGLES CRITIQUES :
     if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
     if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
     
-    // Store packing list data as learned knowledge (marchandise category)
-    if (extractedData?.document_type === 'packing_list') {
-      await storePackingListKnowledge(supabase, attachment, extractedData);
-    }
-    
     console.log(`[BG] ✓ Analysis complete: ${attachment.filename}`);
     return { success: true, filename: attachment.filename };
     
   } catch (error) {
     console.error(`[BG] Error: ${attachment.filename}`, error);
-    // CL2-final A+: Release claim on error
-    await supabase.from('email_attachments')
-      .update({ analysis_claimed_at: null })
-      .eq('id', attachment.id)
-      .eq('is_analyzed', false)
-      .eq('analysis_claimed_at', claimTs);
+    // CL2-final A+: Release claim on error (only if claim was acquired)
+    if (claimTs) {
+      await supabase.from('email_attachments')
+        .update({ analysis_claimed_at: null })
+        .eq('id', attachment.id)
+        .eq('is_analyzed', false)
+        .eq('analysis_claimed_at', claimTs);
+    }
     return { success: false, filename: attachment.filename, error: String(error) };
   }
 }
@@ -1147,6 +1150,7 @@ async function processAttachmentsLoop(
     const results: any[] = [];
     
     for (const attachment of attachments) {
+      let claimTs: string | null = null;
       try {
         console.log(`Analyzing: ${attachment.filename} (${attachment.content_type})`);
         
@@ -1175,7 +1179,7 @@ async function processAttachmentsLoop(
         }
         
         // CL2-final A+: Atomic claim with ownership + expired recovery
-        const claimTs = new Date().toISOString();
+        claimTs = new Date().toISOString();
         const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
         const { data: claimed, error: claimErr } = await supabase
           .from('email_attachments')
@@ -1666,6 +1670,11 @@ Réponds en JSON avec cette structure:
         }
         }
         
+        // Store packing list data as learned knowledge BEFORE final update
+        if (extractedData?.document_type === 'packing_list') {
+          await storePackingListKnowledge(supabase, attachment, extractedData);
+        }
+        
         // CL2-final A+: Final update with ownership check + return verification
         const finalText = normalizeText(extractedText || '');
         const { data: finalized, error: updateError } = await supabase
@@ -1689,11 +1698,6 @@ Réponds en JSON avec cette structure:
         } else {
           console.log(`Successfully analyzed: ${attachment.filename}`);
           
-          // Store packing list data as learned knowledge (marchandise category)
-          if (extractedData?.document_type === 'packing_list') {
-            await storePackingListKnowledge(supabase, attachment, extractedData);
-          }
-          
           results.push({
             id: attachment.id,
             filename: attachment.filename,
@@ -1706,12 +1710,14 @@ Réponds en JSON avec cette structure:
         
       } catch (attachmentError) {
         console.error(`Error processing ${attachment.filename}:`, attachmentError);
-        // CL2-final A+: Release claim on error
-        await supabase.from('email_attachments')
-          .update({ analysis_claimed_at: null })
-          .eq('id', attachment.id)
-          .eq('is_analyzed', false)
-          .eq('analysis_claimed_at', claimTs);
+        // CL2-final A+: Release claim on error (only if claim was acquired)
+        if (claimTs) {
+          await supabase.from('email_attachments')
+            .update({ analysis_claimed_at: null })
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
+        }
         results.push({
           id: attachment.id,
           filename: attachment.filename,
