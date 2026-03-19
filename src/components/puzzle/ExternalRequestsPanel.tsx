@@ -86,9 +86,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     closeRequest,
   } = useExternalRequests(caseId);
 
+  const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
   const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
+  const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
