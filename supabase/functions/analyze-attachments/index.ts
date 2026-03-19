@@ -1206,10 +1206,12 @@ async function processAttachmentsLoop(
                 message: 'File not uploaded to storage (storage_path is null)', 
                 requires_reimport: true,
                 email_id: attachment.email_id
-              }
+              },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (no storage_path):', updateErr.message);
           results.push({
             id: attachment.id,
