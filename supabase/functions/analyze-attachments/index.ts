@@ -918,14 +918,17 @@ REGLES CRITIQUES :
       }
     }
     
-    // Update attachment — Patch B: normalize, Patch C: idempotence guard, Patch D: error read
+    // CL2-final A+: Final update with ownership check + return verification
     const finalText = normalizeText(extractedText || '');
-    const { error: finalUpdateErr } = await supabase.from('email_attachments').update({
+    const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
       is_analyzed: true,
       extracted_text: finalText.substring(0, 5000),
-      extracted_data: extractedData
-    }).eq('id', attachment.id).eq('is_analyzed', false);
+      extracted_data: extractedData,
+      analysis_claimed_at: null,
+    }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs)
+      .select('id').maybeSingle();
     if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
+    if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
     
     // Store packing list data as learned knowledge (marchandise category)
     if (extractedData?.document_type === 'packing_list') {
@@ -937,6 +940,12 @@ REGLES CRITIQUES :
     
   } catch (error) {
     console.error(`[BG] Error: ${attachment.filename}`, error);
+    // CL2-final A+: Release claim on error
+    await supabase.from('email_attachments')
+      .update({ analysis_claimed_at: null })
+      .eq('id', attachment.id)
+      .eq('is_analyzed', false)
+      .eq('analysis_claimed_at', claimTs);
     return { success: false, filename: attachment.filename, error: String(error) };
   }
 }
