@@ -1443,10 +1443,15 @@ Réponds en JSON avec cette structure:
               expectRoot: "object",
               maxLogChars: 500,
             });
-            extractedText = extractedData.text_content || extractedData.description || '';
+            // For images (no pdfjs extraction), use AI text_content as fallback
+            if (!extractedText) {
+              extractedText = extractedData.text_content || extractedData.description || '';
+            }
           } catch {
             extractedData = { raw_response: content };
-            extractedText = content.substring(0, 500);
+            if (!extractedText) {
+              extractedText = content.substring(0, 500);
+            }
           }
         }
         
