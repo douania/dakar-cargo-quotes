@@ -1502,10 +1502,8 @@ Réponds en JSON avec cette structure:
               await supabase.from('email_attachments')
                 .update({ analysis_claimed_at: null })
                 .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
-              return new Response(
-                JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
-                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-              );
+              results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_RATE_LIMIT_429', error_message: 'Limite de requêtes atteinte, réessayez plus tard.' });
+              continue;
             }
             continue;
           }
