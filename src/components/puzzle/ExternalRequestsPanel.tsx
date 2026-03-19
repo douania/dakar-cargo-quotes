@@ -299,7 +299,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   {req.created_by === null && req.status === "draft" && (
                     <div className="flex items-start gap-2 p-2 rounded bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300">
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      Demande créée automatiquement suite à un gap fret bloquant. Complétez le nom du partenaire puis marquez comme envoyée.
+                      Demande créée automatiquement suite à un gap fret bloquant. Renseignez l'email du partenaire puis cliquez sur Envoyer.
                     </div>
                   )}
                   {req.purpose_detail && (
