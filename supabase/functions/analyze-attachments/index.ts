@@ -1670,6 +1670,11 @@ Réponds en JSON avec cette structure:
         }
         }
         
+        // Store packing list data as learned knowledge BEFORE final update
+        if (extractedData?.document_type === 'packing_list') {
+          await storePackingListKnowledge(supabase, attachment, extractedData);
+        }
+        
         // CL2-final A+: Final update with ownership check + return verification
         const finalText = normalizeText(extractedText || '');
         const { data: finalized, error: updateError } = await supabase
@@ -1692,11 +1697,6 @@ Réponds en JSON avec cette structure:
           console.log(`[analyze] ${attachment.id} lost claim before finalization`);
         } else {
           console.log(`Successfully analyzed: ${attachment.filename}`);
-          
-          // Store packing list data as learned knowledge (marchandise category)
-          if (extractedData?.document_type === 'packing_list') {
-            await storePackingListKnowledge(supabase, attachment, extractedData);
-          }
           
           results.push({
             id: attachment.id,
