@@ -3741,17 +3741,7 @@ Deno.serve(async (req) => {
         for (const target of targets) {
           const computedPurpose = target.mode.toUpperCase().includes("AIR") ? "air_tariff" : "freight_rate";
 
-          // Idempotence guard (applicative — not DB-enforced)
-          const { data: existing } = await serviceClient
-            .from("external_quote_requests")
-            .select("id")
-            .eq("case_id", case_id)
-            .eq("purpose", computedPurpose)
-            .neq("status", "closed")
-            .is("related_lot_index", target.lot_index === null ? null : undefined as any)
-            .limit(1);
-
-          // For non-null lot_index, use explicit eq check
+          // Idempotence guard (applicative — IS NOT DISTINCT FROM for null safety)
           let alreadyExists = false;
           if (target.lot_index === null) {
             const { data: existNull } = await serviceClient
