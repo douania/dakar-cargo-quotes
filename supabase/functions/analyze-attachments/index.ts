@@ -1488,12 +1488,20 @@ Réponds en JSON avec cette structure:
             console.error(`AI analysis failed for ${attachment.filename}:`, aiResponse.status, errorText);
             
             if (aiResponse.status === 402) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
                 { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
             if (aiResponse.status === 429) {
+              // CL2-final A+: Release claim before early HTTP return
+              await supabase.from('email_attachments')
+                .update({ analysis_claimed_at: null })
+                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
               return new Response(
                 JSON.stringify({ success: false, error: 'Limite de requêtes atteinte, réessayez plus tard.' }),
                 { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
