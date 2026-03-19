@@ -1179,7 +1179,7 @@ async function processAttachmentsLoop(
         }
         
         // CL2-final A+: Atomic claim with ownership + expired recovery
-        const claimTs = new Date().toISOString();
+        claimTs = new Date().toISOString();
         const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
         const { data: claimed, error: claimErr } = await supabase
           .from('email_attachments')
