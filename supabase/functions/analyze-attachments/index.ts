@@ -1,8 +1,72 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
 import { requireUser } from "../_shared/auth.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+
+// Initialize pdfjs-dist worker for Deno runtime
+try {
+  (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
+    "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
+} catch (_e) {
+  console.warn("Unable to set PDF.js workerSrc");
+}
+
+// =============================================================================
+// CL2 — UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * Patch A — Extract raw text from PDF using pdfjs-dist (local, no AI).
+ * Returns empty string if extraction fails or text is too short (<50 chars).
+ */
+async function extractPdfText(uint8Array: Uint8Array): Promise<string> {
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8Array,
+      disableWorker: true,
+    } as any);
+    const pdf = await loadingTask.promise;
+    const pagesText: string[] = [];
+
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      const page = await pdf.getPage(pageNo);
+      const textContent = await page.getTextContent();
+      const pageText = (textContent.items as any[])
+        .map((it) => it?.str ?? '')
+        .filter((s) => typeof s === 'string' && s.trim().length > 0)
+        .join(' ');
+      pagesText.push(pageText);
+    }
+
+    const fullText = pagesText.join('\n\n');
+    if (!fullText || fullText.length < 50) {
+      console.log('[CL2] PDF.js extraction too short, deferring to AI');
+      return '';
+    }
+    console.log(`[CL2] PDF.js extraction OK: ${fullText.length} chars, ${pdf.numPages} pages`);
+    return fullText;
+  } catch (e) {
+    console.warn('[CL2] PDF.js extraction failed:', e);
+    return '';
+  }
+}
+
+/**
+ * Patch B — Normalize text before database storage.
+ * Removes null chars, normalizes newlines, collapses whitespace.
+ */
+function normalizeText(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/\\u0000/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
