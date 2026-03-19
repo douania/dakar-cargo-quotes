@@ -1260,10 +1260,12 @@ async function processAttachmentsLoop(
             .update({ 
               is_analyzed: true,
               extracted_text: null,
-              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length }
+              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length },
+              analysis_claimed_at: null
             })
             .eq('id', attachment.id)
-            .eq('is_analyzed', false);
+            .eq('is_analyzed', false)
+            .eq('analysis_claimed_at', claimTs);
           if (updateErr) console.warn('[analyze-attachments] Update failed (too small):', updateErr.message);
           continue;
         }
