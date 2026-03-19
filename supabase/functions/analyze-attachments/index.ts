@@ -864,35 +864,51 @@ REGLES CRITIQUES :
     // Store tariff lines if found
     const tariffLines = extractTariffLines(extractedData);
     if (tariffLines.length > 0 && attachment.email_id) {
-      const { data: emailData } = await supabase
+      const { data: emailData, error: emailErr } = await supabase
         .from('emails')
         .select('subject')
         .eq('id', attachment.email_id)
         .single();
+      if (emailErr) console.warn('[analyze-attachments] Email select failed:', emailErr.message);
       
       const subject = emailData?.subject || '';
       const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
       const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
       
-      await supabase.from('quotation_history').insert({
-        route_port: 'Dakar',
-        route_destination: destination,
-        cargo_type: detectCargoType(subject),
-        tariff_lines: tariffLines,
-        total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
-        total_currency: 'FCFA',
-        source_email_id: attachment.email_id,
-        source_attachment_id: attachment.id,
-      });
-      console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+      // Patch E: Anti-duplicate guard on quotation_history
+      const { data: existingQh, error: existingQhErr } = await supabase
+        .from('quotation_history')
+        .select('id')
+        .eq('source_attachment_id', attachment.id)
+        .maybeSingle();
+      if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
+      
+      if (existingQh) {
+        console.log(`[BG] quotation_history already exists for attachment ${attachment.id}, skipping`);
+      } else {
+        const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
+          route_port: 'Dakar',
+          route_destination: destination,
+          cargo_type: detectCargoType(subject),
+          tariff_lines: tariffLines,
+          total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
+          total_currency: 'FCFA',
+          source_email_id: attachment.email_id,
+          source_attachment_id: attachment.id,
+        });
+        if (qhInsertErr) console.warn('[analyze-attachments] quotation_history insert failed:', qhInsertErr.message);
+        else console.log(`[BG] Stored ${tariffLines.length} tariff lines`);
+      }
     }
     
-    // Update attachment
-    await supabase.from('email_attachments').update({
+    // Update attachment — Patch B: normalize, Patch C: idempotence guard, Patch D: error read
+    const finalText = normalizeText(extractedText || '');
+    const { error: finalUpdateErr } = await supabase.from('email_attachments').update({
       is_analyzed: true,
-      extracted_text: extractedText?.substring(0, 5000) || '',
+      extracted_text: finalText.substring(0, 5000),
       extracted_data: extractedData
-    }).eq('id', attachment.id);
+    }).eq('id', attachment.id).eq('is_analyzed', false);
+    if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
     
     // Store packing list data as learned knowledge (marchandise category)
     if (extractedData?.document_type === 'packing_list') {
