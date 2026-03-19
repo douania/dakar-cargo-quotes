@@ -1566,7 +1566,7 @@ Réponds en JSON avec cette structure:
               cargoTypes.add(detectCargoType(subject + ' ' + attachment.filename));
             }
             
-            // Store one quotation_history entry per cargo type — Patch E: anti-dup guard
+            // CL2-final A+: Direct insert, DB unique index handles duplicates
             for (const cargoType of cargoTypes) {
               const relevantLines = extractedData.sheets 
                 ? tariffLines.filter(l => {
@@ -1577,20 +1577,6 @@ Réponds en JSON avec cette structure:
                 : tariffLines;
               
               if (relevantLines.length === 0) continue;
-              
-              // Patch E: Check for existing quotation_history entry
-              const { data: existingQh, error: existingQhErr } = await supabase
-                .from('quotation_history')
-                .select('id')
-                .eq('source_attachment_id', attachment.id)
-                .eq('cargo_type', cargoType)
-                .maybeSingle();
-              if (existingQhErr) console.warn('[analyze-attachments] quotation_history check failed:', existingQhErr.message);
-              
-              if (existingQh) {
-                console.log(`[Sync] quotation_history already exists for attachment ${attachment.id} / ${cargoType}, skipping`);
-                continue;
-              }
               
               const totalFcfa = relevantLines
                 .filter(l => l.currency === 'FCFA')
@@ -1613,7 +1599,8 @@ Réponds en JSON avec cette structure:
                 });
               
               if (historyError) {
-                console.error('Error storing quotation history:', historyError);
+                if ((historyError as any).code === '23505') console.log(`[Sync] quotation_history duplicate for ${cargoType}, skipping`);
+                else console.error('Error storing quotation history:', historyError);
               } else {
                 console.log(`Quotation history stored: ${cargoType} - ${relevantLines.length} lines`);
             }
