@@ -325,13 +325,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             !(editingEmail[req.id] ?? req.partner_email)
                           }
                           onClick={async () => {
-                            const email = editingEmail[req.id] ?? req.partner_email;
-                            // Save email to DB if changed
                             if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
-                              await supabase
+                              const { error: emailSaveErr } = await supabase
                                 .from("external_quote_requests")
                                 .update({ partner_email: editingEmail[req.id] })
                                 .eq("id", req.id);
+                              if (emailSaveErr) {
+                                toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
+                                return;
+                              }
                             }
                             sendRequest.mutate(req.id);
                           }}
