@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Package,
   Search,
+  RefreshCw,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -29,6 +30,7 @@ import {
   type ExternalResponse,
   type ExternalResponseFact,
 } from "@/hooks/useExternalRequests";
+import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
