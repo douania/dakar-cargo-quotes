@@ -1144,7 +1144,7 @@ async function processAttachmentsLoop(
         // Check if storage_path exists (file may not have been uploaded due to timeout)
         if (!attachment.storage_path) {
           console.error(`Missing storage_path for ${attachment.filename} - file was not uploaded to storage`);
-          await supabase
+          const { error: updateErr } = await supabase
             .from('email_attachments')
             .update({ 
               is_analyzed: true,
@@ -1156,7 +1156,9 @@ async function processAttachmentsLoop(
                 email_id: attachment.email_id
               }
             })
-            .eq('id', attachment.id);
+            .eq('id', attachment.id)
+            .eq('is_analyzed', false);
+          if (updateErr) console.warn('[analyze-attachments] Update failed (no storage_path):', updateErr.message);
           results.push({
             id: attachment.id,
             filename: attachment.filename,
