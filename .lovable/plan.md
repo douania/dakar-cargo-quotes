@@ -1,80 +1,75 @@
 
 
-# P1.1 — Hardening: error guards + multi-lot limitation doc
+# P2.1 — Wire existing pieces (Preflight PASSED)
+
+## Preflight Results
+
+| Check | Result |
+|-------|--------|
+| `send-external-quote-request/index.ts` exists | YES (204 lines, complete) |
+| `useExternalRequestFlow.ts` exists | YES (96 lines, complete) |
+| Hook exports `sendRequest`, `validateFactAndRerun`, `isPricingRerunning` | YES |
+| `config.toml` entry for `send-external-quote-request` | MISSING (would 403) |
+| Hook imported anywhere | NO (zero consumers) |
+
+Verdict: **Plan Lovable confirmed — wiring only, 3 files.**
+
+---
 
 ## Changes
 
-### 1. `supabase/functions/build-case-puzzle/index.ts` — Error handling in P1 block (L3696-3823)
+### 1. `supabase/config.toml` — Add function entry
 
-Apply the CTO-validated error hierarchy:
+Add after existing entries:
+```toml
+[functions.send-external-quote-request]
+verify_jwt = false
+```
 
-**L3696 — freightGaps query**: Add `error` destructuring. If error, warn + skip entire P1 block.
+### 2. `src/components/puzzle/ExternalRequestsPanel.tsx` — Wire flow hook
+
+**Import** `useExternalRequestFlow` (line 1 area).
+
+**Initialize hook** after `useExternalRequests` (line 86 area):
 ```typescript
-const { data: freightGaps, error: freightGapsErr } = await serviceClient...
-if (freightGapsErr) {
-  console.warn("[P1-AutoEQ] Failed to read freight gaps:", freightGapsErr.message);
-} else if (freightGaps && freightGaps.length > 0) {
-  // ... entire existing block moves inside this else-if
-}
+const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
 ```
 
-**L3706 — requestLines query**: Add `error` destructuring. If error, warn + skip entire P1 block (abort, don't fall into mono-lot fallback).
+**Add state** for inline partner email editing on draft requests:
 ```typescript
-const { data: requestLines, error: requestLinesErr } = await serviceClient...
-if (requestLinesErr) {
-  console.warn("[P1-AutoEQ] Failed to read request lines:", requestLinesErr.message);
-  // abort P1 — do NOT fall through to mono-lot fallback
-} else {
-  // existing target-building logic
-}
+const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
 ```
 
-**L3729 — relevantFacts query**: Warn only, continue with empty facts (acceptable — only affects purpose_detail text).
-```typescript
-const { data: relevantFacts, error: relevantFactsErr } = await serviceClient...
-if (relevantFactsErr) console.warn("[P1-AutoEQ] Failed to read facts:", relevantFactsErr.message);
-```
+**Replace draft "Marquer envoyée" button** (lines 301-311) with proper send flow:
+- Inline `partner_email` input (editable, pre-filled from `req.partner_email`)
+- Save email to DB before sending (direct Supabase update if changed)
+- "Envoyer" button calls `sendRequest.mutate(req.id)` instead of `markAsSent.mutate(req.id)`
+- Disable if partner email is empty
+- Show spinner during send
 
-**L3747/3757 — existence checks (existNull/existLot)**: If error, warn + `continue` (skip this target, never insert).
-```typescript
-const { data: existNull, error: existNullErr } = await serviceClient...
-if (existNullErr) {
-  console.warn("[P1-AutoEQ] Existence check failed (null lot):", existNullErr.message);
-  continue; // skip target — do not risk duplicate insert
-}
-```
-Same pattern for `existLot`.
+**Replace fact validate button** (line 430):
+- Change `validateFact.mutate(fact.id)` to `validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })`
+- This auto-triggers `run-pricing` for pricing-critical facts
+- Keep `rejectFact.mutate(fact.id)` unchanged
 
-**L3805 — timeline insert**: Add error read, warn only (already acceptable).
-```typescript
-const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({...});
-if (timelineErr) console.warn("[P1-AutoEQ] Timeline insert failed:", timelineErr.message);
-```
+**Show pricing rerun indicator** when `isPricingRerunning` is true (small badge near panel header).
 
-### 2. `docs/MASTER_CONTEXT.md` — Add multi-lot limitation
+### 3. Deploy edge function
 
-Under the existing "Limitation documentée" section (L213-216), append:
+The `send-external-quote-request` function already exists but needs the `config.toml` entry to be callable. Deployment happens automatically.
 
-```
-En multi-lot mixte (un lot avec gap fret, un autre sans), P1 peut créer des demandes pour tous les lots.
-Le filtrage lot-level nécessiterait une extension du schéma quote_gaps (hors scope P1).
-```
+## What does NOT change
 
-## Error hierarchy summary
+- `send-external-quote-request/index.ts` — already complete
+- `useExternalRequestFlow.ts` — already complete
+- `useExternalRequests.ts` — kept as data layer
+- `analyze-partner-response`, `validate-partner-fact`, `run-pricing` — untouched
+- No new tables, migrations, or schema changes
 
-| Query | On error |
-|-------|----------|
-| freightGaps | warn + skip block |
-| requestLines | warn + skip block |
-| relevantFacts | warn + continue (empty facts) |
-| existNull/existLot | warn + continue target (skip insert) |
-| insert request | already handled (warn + continue) |
-| timeline | warn only |
+## File summary
 
-## Scope
-
-| File | Change |
+| File | Action |
 |------|--------|
-| `supabase/functions/build-case-puzzle/index.ts` | Add error reads with correct guard levels |
-| `docs/MASTER_CONTEXT.md` | Document multi-lot over-creation limitation |
+| `supabase/config.toml` | Add 2-line function entry |
+| `src/components/puzzle/ExternalRequestsPanel.tsx` | Import hook, wire send + validate+rerun |
 
