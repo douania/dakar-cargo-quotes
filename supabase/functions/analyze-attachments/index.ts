@@ -1597,15 +1597,17 @@ Réponds en JSON avec cette structure:
         }
         }
         
-        // Update the attachment record
+        // Update the attachment record — Patch B: normalize, Patch C: idempotence guard
+        const finalText = normalizeText(extractedText || '');
         const { error: updateError } = await supabase
           .from('email_attachments')
           .update({
             is_analyzed: true,
-            extracted_text: extractedText?.substring(0, 10000) || '', // Limit text length
+            extracted_text: finalText.substring(0, 10000),
             extracted_data: extractedData
           })
-          .eq('id', attachment.id);
+          .eq('id', attachment.id)
+          .eq('is_analyzed', false);
         
         if (updateError) {
           console.error(`Failed to update attachment ${attachment.id}:`, updateError);
