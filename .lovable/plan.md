@@ -1,48 +1,51 @@
 
 
-# P0 — Replace `return new Response(...)` in `processAttachmentsLoop()`
+# Patch CL2-résiduel — Branche image/PDF erreur AI générique
 
-## Problem
+## Problème
 
-4 occurrences of `return new Response(...)` inside `processAttachmentsLoop()` break the function's `Promise<any[]>` contract. They exit the entire loop prematurely on AI 402/429 errors instead of continuing to the next attachment.
+Ligne 1508 : bare `continue;` dans la branche image/PDF quand `!aiResponse.ok` et le statut n'est ni 402 ni 429. Pas de release du claim, pas de mark `is_analyzed`, pas de push dans `results`. Le claim reste posé jusqu'à expiration (15 min).
 
-## Fix — 4 surgical replacements
+La branche Excel (L1392-1405) gère correctement ce cas avec un update ownership-aware + continue.
 
-Each of the 4 blocks follows the same pattern. The claim release is already correct — only the `return new Response(...)` line changes.
+## Fix — 1 remplacement
 
-### Block 1 — Excel AI 402 (L1380-1383)
+### L1508
 
-Replace:
+**Avant :**
 ```typescript
-return new Response(
-  JSON.stringify({ success: false, error: 'Crédits AI insuffisants.' }),
-  { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-);
-```
-With:
-```typescript
-results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_QUOTA_402', error_message: 'Crédits AI insuffisants.' });
-continue;
+            continue;
 ```
 
-### Block 2 — Excel AI 429 (L1390-1393)
+**Après :**
+```typescript
+            // Mark as analyzed with error — ownership-aware (align with Excel branch)
+            const { error: updateErr } = await supabase
+              .from('email_attachments')
+              .update({
+                is_analyzed: true,
+                extracted_text: extractedText || null,
+                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+                analysis_claimed_at: null
+              })
+              .eq('id', attachment.id)
+              .eq('is_analyzed', false)
+              .eq('analysis_claimed_at', claimTs);
+            if (updateErr) console.warn('[analyze-attachments] Update failed (AI error doc):', updateErr.message);
+            results.push({
+              attachment_id: attachment.id,
+              filename: attachment.filename,
+              success: false,
+              skipped: true,
+              error_code: `AI_HTTP_${aiResponse.status}`,
+              error_message: `AI analysis failed (${aiResponse.status})`
+            });
+            continue;
+```
 
-Same pattern, with `error_code: 'AI_RATE_LIMIT_429'` and `error_message: 'Limite de requêtes atteinte, réessayez plus tard.'`
+## Scope
 
-### Block 3 — Doc AI 402 (L1501-1504)
-
-Same as Block 1.
-
-### Block 4 — Doc AI 429 (L1511-1514)
-
-Same as Block 2.
-
-## What changes
-
-- 4 `return new Response(...)` → `results.push({...}); continue;`
-- No signature change, no new types, no handler change
-
-## What does not change
-
-Everything else in the file. No other files touched.
+- 1 line replaced in `supabase/functions/analyze-attachments/index.ts`
+- Aligns image/PDF branch with Excel branch behavior
+- No other files touched
 
