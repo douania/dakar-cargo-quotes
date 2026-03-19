@@ -1649,10 +1649,12 @@ Réponds en JSON avec cette structure:
                     source_document: `Excel: ${attachment.filename}`,
                     provider: extractedData.metadata?.partner || 'Unknown',
                     notes: dest.distance_km ? `Distance: ${dest.distance_km} km` : null,
+                    source_attachment_id: attachment.id,
                   });
                 
                 if (transportError) {
-                  console.error(`Error storing transport rate for ${dest.name}:`, transportError);
+                  if ((transportError as any).code === '23505') console.log(`[Sync] transport rate duplicate for ${dest.name}, skipping`);
+                  else console.error(`Error storing transport rate for ${dest.name}:`, transportError);
                 } else {
                   console.log(`Transport rate stored: ${dest.name} ${containerType} ${cargoCategory} = ${rateAmount} FCFA`);
                 }
