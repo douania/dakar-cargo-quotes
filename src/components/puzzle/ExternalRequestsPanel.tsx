@@ -534,7 +534,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
               )}
             </div>
           );
-        })}
+        });
+        })()}
       </CardContent>
     </Card>
   );
