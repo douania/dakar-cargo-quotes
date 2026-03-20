@@ -323,7 +323,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           size="sm"
                           variant="outline"
                           disabled={
-                            sendingId === req.id ||
+                            sendingId !== null ||
                             !(editingEmail[req.id] ?? req.partner_email)
                           }
                           onClick={async () => {
