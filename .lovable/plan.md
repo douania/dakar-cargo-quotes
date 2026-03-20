@@ -1,75 +1,55 @@
 
 
-# P2.1 — Wire existing pieces (Preflight PASSED)
+# CTO Post-Audit Correction — 2 disabled conditions in ExternalRequestsPanel.tsx
 
-## Preflight Results
+## Context
 
-| Check | Result |
-|-------|--------|
-| `send-external-quote-request/index.ts` exists | YES (204 lines, complete) |
-| `useExternalRequestFlow.ts` exists | YES (96 lines, complete) |
-| Hook exports `sendRequest`, `validateFactAndRerun`, `isPricingRerunning` | YES |
-| `config.toml` entry for `send-external-quote-request` | MISSING (would 403) |
-| Hook imported anywhere | NO (zero consumers) |
+4 of 5 patches from the hardening batch are validated. The only remaining correction is adjusting the `disabled` logic on two buttons in `ExternalRequestsPanel.tsx` from per-item to global lock.
 
-Verdict: **Plan Lovable confirmed — wiring only, 3 files.**
+`build-case-puzzle/index.ts` already has the corrected keys (`other.border_fee_expected`, `pricing.vat_rate`) from the previous batch — CTO says do not touch it in this batch. Confirmed: no change needed.
 
----
+## Single file change
 
-## Changes
+**File**: `src/components/puzzle/ExternalRequestsPanel.tsx`
 
-### 1. `supabase/config.toml` — Add function entry
+### Edit 1 — Send button disabled (L326)
 
-Add after existing entries:
-```toml
-[functions.send-external-quote-request]
-verify_jwt = false
-```
-
-### 2. `src/components/puzzle/ExternalRequestsPanel.tsx` — Wire flow hook
-
-**Import** `useExternalRequestFlow` (line 1 area).
-
-**Initialize hook** after `useExternalRequests` (line 86 area):
+Current:
 ```typescript
-const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+sendingId === req.id ||
+!(editingEmail[req.id] ?? req.partner_email)
 ```
 
-**Add state** for inline partner email editing on draft requests:
+Replace with:
 ```typescript
-const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
+sendingId !== null ||
+!(editingEmail[req.id] ?? req.partner_email)
 ```
 
-**Replace draft "Marquer envoyée" button** (lines 301-311) with proper send flow:
-- Inline `partner_email` input (editable, pre-filled from `req.partner_email`)
-- Save email to DB before sending (direct Supabase update if changed)
-- "Envoyer" button calls `sendRequest.mutate(req.id)` instead of `markAsSent.mutate(req.id)`
-- Disable if partner email is empty
-- Show spinner during send
+### Edit 2 — Validate button disabled (L483)
 
-**Replace fact validate button** (line 430):
-- Change `validateFact.mutate(fact.id)` to `validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })`
-- This auto-triggers `run-pricing` for pricing-critical facts
-- Keep `rejectFact.mutate(fact.id)` unchanged
+Current:
+```typescript
+disabled={validatingFactId === fact.id}
+```
 
-**Show pricing rerun indicator** when `isPricingRerunning` is true (small badge near panel header).
-
-### 3. Deploy edge function
-
-The `send-external-quote-request` function already exists but needs the `config.toml` entry to be callable. Deployment happens automatically.
+Replace with:
+```typescript
+disabled={validatingFactId !== null}
+```
 
 ## What does NOT change
 
-- `send-external-quote-request/index.ts` — already complete
-- `useExternalRequestFlow.ts` — already complete
-- `useExternalRequests.ts` — kept as data layer
-- `analyze-partner-response`, `validate-partner-fact`, `run-pricing` — untouched
-- No new tables, migrations, or schema changes
+- `analyze-partner-response/index.ts` — already correct
+- `_shared/cors.ts` — already correct
+- `useExternalRequests.ts` — already correct
+- `build-case-puzzle/index.ts` — FROZEN, not touched
+- No new files, no migrations
 
-## File summary
+## Post-patch verification
 
-| File | Action |
-|------|--------|
-| `supabase/config.toml` | Add 2-line function entry |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Import hook, wire send + validate+rerun |
+- One send at a time: all draft send buttons disabled while any send is in progress
+- One validation at a time: all validate buttons disabled while any validation is in progress
+- Spinner still shows on the active item only (unchanged)
+- Reset guaranteed via `finally` (unchanged)
 
