@@ -1,6 +1,6 @@
 
 
-# P3.C — Fact Confidence Layer v1 (DONE)
+# P3.D — Assisted Close-Loop v1 (DONE)
 
 ## Scope
 
@@ -8,33 +8,32 @@
 
 ## Changes
 
-### 1. Created `src/features/external-requests/utils/reviewPartnerFact.ts`
+### 1. Created `src/features/external-requests/utils/getRequestCloseLoopState.ts`
 
-Pure function. Inputs: `fact` + `siblingFacts` (same `request_id` and `fact_key`).
+Pure function. Inputs: `requestStatus`, `requestFacts[]`, `isPricingRerunning`.
 
 Rules (priority order):
-1. **conflict** — proposed siblings with different `proposed_value_number` or `currency`
-2. **strong** — `confidence >= 0.85`, value present, monetary facts have currency
-3. **weak** — `confidence < 0.6`, or value missing, or monetary fact without currency
-4. **medium** — fallback
+1. **already_closed** — `requestStatus === "closed"`
+2. **awaiting_validation** — proposed facts remain, label shows count
+3. **pricing_rerunning** — `isPricingRerunning` AND validated pricing-critical fact exists
+4. **ready_to_close** — no proposed facts, at least one validated
+5. **in_progress** — fallback (hidden in UI)
 
-Monetary heuristic: `fact_key` matches `/rate|cost|amount|charge|price|freight/i`.
+Pricing-critical keys: same 4 as `useExternalRequestFlow.ts`.
 
 ### 2. Modified `src/components/puzzle/ExternalRequestsPanel.tsx`
 
-- Import `reviewPartnerFact` and `FactReviewLevel`
-- For each fact in the rendering loop, compute `review` **only when `validation_status === "proposed"`**
-- Display review badge (green/yellow/gray/red) next to validation status badge
-- Display 1-2 reasons in `text-[10px]` below the fact line
-- Existing badges (Proposé/Validé/Rejeté) and buttons unchanged
-
-## CTO adjustment applied
-
-Review badge + reasons shown **only for proposed facts** — not for validated or rejected facts.
+- Import `getRequestCloseLoopState`
+- Compute `closeLoop` for every request in the map loop
+- Close-loop badge rendered between actions div and Responses section, hidden when `in_progress`
+- Badge colors: muted (closed), orange (awaiting), blue+spinner (pricing), green (ready)
+- 1-2 reasons in `text-[10px]` beside badge
+- Clôturer button: `variant="outline"` with green border when `ready_to_close`, unchanged `onClick`
 
 ## What does NOT change
 
 - No edge functions, no migrations, no FROZEN files
 - `useExternalRequests.ts` untouched
-- `validate-partner-fact`, `set-case-fact` untouched
-- No auto-validation or auto-rejection
+- `useExternalRequestFlow.ts` untouched
+- `closeRequest` logic unchanged — no auto-close
+- No new FSM states
