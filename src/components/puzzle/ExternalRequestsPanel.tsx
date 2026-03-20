@@ -492,64 +492,89 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                           Faits extraits ({reqFacts.length})
                         </p>
-                        {reqFacts.map((fact) => (
-                          <div
-                            key={fact.id}
-                            className="flex items-center gap-2 text-sm bg-background border rounded p-2"
-                          >
-                            <Badge
-                              className={VALIDATION_COLORS[fact.validation_status] || ""}
-                              variant="secondary"
-                            >
-                              {fact.validation_status === "proposed" ? "Proposé" :
-                               fact.validation_status === "validated" ? "Validé" : "Rejeté"}
-                            </Badge>
-                            <code className="text-xs font-mono">{fact.fact_key}</code>
-                            <span className="flex-1 truncate">
-                              {fact.proposed_value_number != null
-                                ? `${fact.proposed_value_number}${fact.currency ? ` ${fact.currency}` : ""}`
-                                : fact.proposed_value_text || "—"}
-                            </span>
-                            {fact.confidence != null && (
-                              <span className="text-xs text-muted-foreground">
-                                {Math.round(fact.confidence * 100)}%
-                              </span>
-                            )}
-                            {fact.validation_status === "proposed" && (
-                              <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={async () => {
-                                    setValidatingFactId(fact.id);
-                                    try {
-                                      await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
-                                    } finally {
-                                      setValidatingFactId(null);
-                                    }
-                                  }}
-                                  disabled={validatingFactId !== null}
+                        {reqFacts.map((fact) => {
+                          const siblingFacts = reqFacts.filter(
+                            (f) => f.fact_key === fact.fact_key && f.id !== fact.id,
+                          );
+                          const review = fact.validation_status === "proposed"
+                            ? reviewPartnerFact(fact, siblingFacts)
+                            : null;
+
+                          const REVIEW_COLORS: Record<FactReviewLevel, string> = {
+                            strong: "bg-green-100 text-green-800",
+                            medium: "bg-yellow-100 text-yellow-800",
+                            weak: "bg-gray-100 text-gray-700",
+                            conflict: "bg-red-100 text-red-800",
+                          };
+
+                          return (
+                            <div key={fact.id} className="space-y-1">
+                              <div className="flex items-center gap-2 text-sm bg-background border rounded p-2">
+                                <Badge
+                                  className={VALIDATION_COLORS[fact.validation_status] || ""}
+                                  variant="secondary"
                                 >
-                                  {validatingFactId === fact.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Check className="h-3.5 w-3.5" />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => rejectFact.mutate(fact.id)}
-                                  disabled={rejectFact.isPending}
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
+                                  {fact.validation_status === "proposed" ? "Proposé" :
+                                   fact.validation_status === "validated" ? "Validé" : "Rejeté"}
+                                </Badge>
+                                {review && (
+                                  <Badge className={REVIEW_COLORS[review.level]}>
+                                    {review.label}
+                                  </Badge>
+                                )}
+                                <code className="text-xs font-mono">{fact.fact_key}</code>
+                                <span className="flex-1 truncate">
+                                  {fact.proposed_value_number != null
+                                    ? `${fact.proposed_value_number}${fact.currency ? ` ${fact.currency}` : ""}`
+                                    : fact.proposed_value_text || "—"}
+                                </span>
+                                {fact.confidence != null && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {Math.round(fact.confidence * 100)}%
+                                  </span>
+                                )}
+                                {fact.validation_status === "proposed" && (
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                      onClick={async () => {
+                                        setValidatingFactId(fact.id);
+                                        try {
+                                          await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
+                                        } finally {
+                                          setValidatingFactId(null);
+                                        }
+                                      }}
+                                      disabled={validatingFactId !== null}
+                                    >
+                                      {validatingFactId === fact.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Check className="h-3.5 w-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={() => rejectFact.mutate(fact.id)}
+                                      disabled={rejectFact.isPending}
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        ))}
+                              {review && review.reasons.length > 0 && (
+                                <p className="text-[10px] text-muted-foreground pl-2">
+                                  {review.reasons.slice(0, 2).join(" · ")}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </>
                   )}
