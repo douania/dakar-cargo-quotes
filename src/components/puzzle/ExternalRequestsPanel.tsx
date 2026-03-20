@@ -323,24 +323,29 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           size="sm"
                           variant="outline"
                           disabled={
-                            sendRequest.isPending ||
+                            sendingId === req.id ||
                             !(editingEmail[req.id] ?? req.partner_email)
                           }
                           onClick={async () => {
-                            if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
-                              const { error: emailSaveErr } = await supabase
-                                .from("external_quote_requests")
-                                .update({ partner_email: editingEmail[req.id] })
-                                .eq("id", req.id);
-                              if (emailSaveErr) {
-                                toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
-                                return;
+                            setSendingId(req.id);
+                            try {
+                              if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
+                                const { error: emailSaveErr } = await supabase
+                                  .from("external_quote_requests" as any)
+                                  .update({ partner_email: editingEmail[req.id] } as any)
+                                  .eq("id", req.id);
+                                if (emailSaveErr) {
+                                  toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
+                                  return;
+                                }
                               }
+                              await sendRequest.mutateAsync(req.id);
+                            } finally {
+                              setSendingId(null);
                             }
-                            sendRequest.mutate(req.id);
                           }}
                         >
-                          {sendRequest.isPending ? (
+                          {sendingId === req.id ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                           ) : (
                             <Send className="h-3 w-3 mr-1" />
