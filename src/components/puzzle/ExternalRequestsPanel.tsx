@@ -295,6 +295,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                 <Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
                   {STATUS_LABELS[req.status] || req.status}
                 </Badge>
+                <Badge className={`text-[10px] ${NEXT_ACTION_COLORS[nextAction]}`} variant="secondary">
+                  {NEXT_ACTION_LABELS[nextAction]}
+                </Badge>
                 {proposedFacts.length > 0 && (
                   <Badge variant="destructive" className="text-xs">
                     {proposedFacts.length} à valider
