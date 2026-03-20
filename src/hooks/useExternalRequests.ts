@@ -183,23 +183,8 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
-  const validateFact = useMutation({
-    mutationFn: async (factId: string) => {
-      const { data, error } = await supabase.functions.invoke("validate-partner-fact", {
-        body: { fact_id: factId, action: "validate" },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Fait validé et injecté dans le dossier");
-      invalidateAll();
-    },
-    onError: (err: Error) => {
-      toast.error("Erreur de validation: " + err.message);
-    },
-  });
+
+
 
   const rejectFact = useMutation({
     mutationFn: async (factId: string) => {
