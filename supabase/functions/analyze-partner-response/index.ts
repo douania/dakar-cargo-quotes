@@ -201,11 +201,14 @@ serve(async (req: Request) => {
     }
 
     // 4. Update request status → response_received (if still sent)
-    await serviceClient
+    const { error: statusErr1 } = await serviceClient
       .from("external_quote_requests")
       .update({ status: "response_received" })
       .eq("id", request_id)
       .in("status", ["sent", "draft"]);
+    if (statusErr1) {
+      console.warn("[analyze-partner-response] Failed to update request status to response_received:", statusErr1.message);
+    }
 
     // 5. Call AI with purpose-aware prompt
     const purposeGuidance = PURPOSE_PROMPTS[extReq.purpose] || PURPOSE_PROMPTS.general;
