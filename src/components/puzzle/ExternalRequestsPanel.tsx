@@ -91,6 +91,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
   const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [validatingFactId, setValidatingFactId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
