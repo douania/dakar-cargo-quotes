@@ -382,44 +382,66 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     )}
                     {/* Fix 1: Trigger analysis — available when request is sent or response_received */}
                     {["sent", "response_received"].includes(req.status) && threadEmails.length > 0 && (
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={analysisTarget?.requestId === req.id ? analysisTarget.emailId : ""}
-                          onValueChange={(emailId) => setAnalysisTarget({ requestId: req.id, emailId })}
-                        >
-                          <SelectTrigger className="h-8 w-[220px] text-xs">
-                            <SelectValue placeholder="Choisir un email…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {threadEmails.map((e) => (
-                              <SelectItem key={e.id} value={e.id} className="text-xs">
-                                {e.from_address.split("@")[0]} — {(e.subject || "(sans sujet)").slice(0, 40)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            !analysisTarget || analysisTarget.requestId !== req.id || triggerAnalysis.isPending
-                          }
-                          onClick={() => {
-                            if (analysisTarget && analysisTarget.requestId === req.id) {
-                              triggerAnalysis.mutate(
-                                { request_id: req.id, email_id: analysisTarget.emailId },
-                                { onSuccess: () => setAnalysisTarget(null) }
-                              );
-                            }
-                          }}
-                        >
-                          {triggerAnalysis.isPending && analysisTarget?.requestId === req.id ? (
-                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                          ) : (
-                            <Search className="h-3 w-3 mr-1" />
+                      <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <Select
+                            value={derivedEmailId}
+                            onValueChange={(emailId) => setAnalysisTarget({ requestId: req.id, emailId })}
+                          >
+                            <SelectTrigger className="h-8 w-[220px] text-xs">
+                              <SelectValue placeholder="Choisir un email…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {threadEmails.map((e) => (
+                                <SelectItem key={e.id} value={e.id} className="text-xs">
+                                  {e.from_address.split("@")[0]} — {(e.subject || "(sans sujet)").slice(0, 40)}
+                                  {suggestion?.bestEmailId === e.id ? " ★ Suggéré" : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {suggestion && suggestion.confidence !== "none" && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 ${
+                                suggestion.confidence === "high"
+                                  ? "border-green-300 text-green-700 dark:border-green-600 dark:text-green-300"
+                                  : suggestion.confidence === "medium"
+                                  ? "border-yellow-300 text-yellow-700 dark:border-yellow-600 dark:text-yellow-300"
+                                  : "border-muted-foreground/30 text-muted-foreground"
+                              }`}
+                            >
+                              {suggestion.confidence === "high" ? "Suggestion forte"
+                                : suggestion.confidence === "medium" ? "Suggestion moyenne"
+                                : "Suggestion faible"}
+                            </Badge>
                           )}
-                          Analyser
-                        </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={triggerAnalysis.isPending || !derivedEmailId}
+                            onClick={() => {
+                              if (derivedEmailId) {
+                                triggerAnalysis.mutate(
+                                  { request_id: req.id, email_id: derivedEmailId },
+                                  { onSuccess: () => setAnalysisTarget(null) }
+                                );
+                              }
+                            }}
+                          >
+                            {triggerAnalysis.isPending && derivedEmailId ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Search className="h-3 w-3 mr-1" />
+                            )}
+                            Analyser
+                          </Button>
+                        </div>
+                        {suggestion && suggestion.confidence !== "none" && suggestion.reasons.length > 0 && (
+                          <p className="text-[10px] text-muted-foreground pl-1">
+                            {suggestion.reasons.slice(0, 2).join(" · ")}
+                          </p>
+                        )}
                       </div>
                     )}
                     {req.status !== "closed" && req.status !== "facts_validated" && (
