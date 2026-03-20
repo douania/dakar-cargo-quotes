@@ -1,5 +1,10 @@
 import React, { useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import {
+  getNextAction,
+  NEXT_ACTION_LABELS,
+  NEXT_ACTION_COLORS,
+} from "@/features/external-requests/utils/getNextAction";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -256,6 +261,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           const reqResponses = getResponsesForRequest(req.id);
           const reqFacts = getFactsForRequest(req.id);
           const proposedFacts = reqFacts.filter((f) => f.validation_status === "proposed");
+          const nextAction = getNextAction({
+            status: req.status,
+            responsesCount: reqResponses.length,
+            proposedFactsCount: proposedFacts.length,
+            lastUpdateAt: req.updated_at ?? req.created_at,
+          });
 
           return (
             <div key={req.id} className="border rounded-lg overflow-hidden">
@@ -283,6 +294,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                 </div>
                 <Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
                   {STATUS_LABELS[req.status] || req.status}
+                </Badge>
+                <Badge className={`text-[10px] ${NEXT_ACTION_COLORS[nextAction]}`} variant="secondary">
+                  {NEXT_ACTION_LABELS[nextAction]}
                 </Badge>
                 {proposedFacts.length > 0 && (
                   <Badge variant="destructive" className="text-xs">
