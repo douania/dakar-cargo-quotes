@@ -288,11 +288,11 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   TRANSIT_GAMBIA: [
     { key: 'service.package', value: 'TRANSIT_GAMBIA_ALL_IN', confidence: 0.7 },
     { key: 'pricing.currency', value: 'USD', confidence: 0.7 },
-    { key: 'border.fee_expected', value: 'true', confidence: 0.6 },
+    { key: 'other.border_fee_expected', value: 'true', confidence: 0.6 },
   ],
   EXPORT_SENEGAL: [
     { key: 'service.package', value: 'EXPORT_SENEGAL', confidence: 0.6 },
-    { key: 'tax.vat_rate', value: '0.18', confidence: 0.6 },
+    { key: 'pricing.vat_rate', value: '0.18', confidence: 0.6 },
   ],
   BREAKBULK_PROJECT: [
     { key: 'service.package', value: 'BREAKBULK_PROJECT', confidence: 0.7 },

@@ -472,10 +472,21 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })}
-                                  disabled={validateFactAndRerun.isPending}
+                                  onClick={async () => {
+                                    setValidatingFactId(fact.id);
+                                    try {
+                                      await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
+                                    } finally {
+                                      setValidatingFactId(null);
+                                    }
+                                  }}
+                                  disabled={validatingFactId === fact.id}
                                 >
-                                  <Check className="h-3.5 w-3.5" />
+                                  {validatingFactId === fact.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
                                 <Button
                                   size="sm"

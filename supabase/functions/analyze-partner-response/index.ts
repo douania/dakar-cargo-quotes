@@ -278,17 +278,23 @@ ${email.body_text || "(corps vide)"}`;
     }
 
     // 7. Update response status → analyzed (only reached if facts insert succeeded)
-    await serviceClient
+    const { error: respStatusErr } = await serviceClient
       .from("external_quote_responses")
       .update({ status: "analyzed", analyzed_at: new Date().toISOString() })
       .eq("id", responseId);
+    if (respStatusErr) {
+      console.warn("[analyze-partner-response] Failed to update response status to analyzed:", respStatusErr.message);
+    }
 
     // 8. Update request status → response_analyzed
-    await serviceClient
+    const { error: statusErr2 } = await serviceClient
       .from("external_quote_requests")
       .update({ status: "response_analyzed" })
       .eq("id", request_id)
       .in("status", ["response_received", "sent", "draft"]);
+    if (statusErr2) {
+      console.warn("[analyze-partner-response] Failed to update request status to response_analyzed:", statusErr2.message);
+    }
 
     // 9. Timeline events
     const summaryFr = typeof parsed["summary_fr"] === "string" ? parsed["summary_fr"] : "Réponse partenaire analysée";
