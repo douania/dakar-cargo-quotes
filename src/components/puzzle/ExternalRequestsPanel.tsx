@@ -91,6 +91,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
   const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [validatingFactId, setValidatingFactId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
@@ -321,24 +323,29 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           size="sm"
                           variant="outline"
                           disabled={
-                            sendRequest.isPending ||
+                            sendingId === req.id ||
                             !(editingEmail[req.id] ?? req.partner_email)
                           }
                           onClick={async () => {
-                            if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
-                              const { error: emailSaveErr } = await supabase
-                                .from("external_quote_requests")
-                                .update({ partner_email: editingEmail[req.id] })
-                                .eq("id", req.id);
-                              if (emailSaveErr) {
-                                toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
-                                return;
+                            setSendingId(req.id);
+                            try {
+                              if (editingEmail[req.id] && editingEmail[req.id] !== req.partner_email) {
+                                const { error: emailSaveErr } = await supabase
+                                  .from("external_quote_requests" as any)
+                                  .update({ partner_email: editingEmail[req.id] } as any)
+                                  .eq("id", req.id);
+                                if (emailSaveErr) {
+                                  toast({ title: "Erreur", description: "Impossible d'enregistrer l'email du partenaire : " + emailSaveErr.message, variant: "destructive" });
+                                  return;
+                                }
                               }
+                              await sendRequest.mutateAsync(req.id);
+                            } finally {
+                              setSendingId(null);
                             }
-                            sendRequest.mutate(req.id);
                           }}
                         >
-                          {sendRequest.isPending ? (
+                          {sendingId === req.id ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                           ) : (
                             <Send className="h-3 w-3 mr-1" />
@@ -465,10 +472,21 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => validateFactAndRerun.mutate({ factId: fact.id, factKey: fact.fact_key })}
-                                  disabled={validateFactAndRerun.isPending}
+                                  onClick={async () => {
+                                    setValidatingFactId(fact.id);
+                                    try {
+                                      await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
+                                    } finally {
+                                      setValidatingFactId(null);
+                                    }
+                                  }}
+                                  disabled={validatingFactId === fact.id}
                                 >
-                                  <Check className="h-3.5 w-3.5" />
+                                  {validatingFactId === fact.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
                                 <Button
                                   size="sm"

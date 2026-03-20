@@ -159,41 +159,7 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
-  // P1-1: Timeline event for marking request as sent
-  const markAsSent = useMutation({
-    mutationFn: async (requestId: string) => {
-      const { error } = await supabase
-        .from("external_quote_requests" as any)
-        .update({ status: "sent", sent_at: new Date().toISOString() } as any)
-        .eq("id", requestId);
-      if (error) throw error;
 
-      // Timeline event with dedupe_key
-      const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id || null;
-      const req = requests.find((r) => r.id === requestId);
-      await supabase
-        .from("case_timeline_events" as any)
-        .insert({
-          case_id: caseId,
-          event_type: "manual_action",
-          actor_type: "operator",
-          actor_user_id: userId,
-          new_value: `Demande partenaire envoyée: ${req?.partner_name || requestId}`,
-          event_data: {
-            dedupe_key: `external_request_marked_sent:${requestId}`,
-            action_code: "PARTNER_REQUEST_MARKED_SENT",
-            status: "done",
-            request_id: requestId,
-            partner_name: req?.partner_name || null,
-          },
-        } as any);
-    },
-    onSuccess: () => {
-      toast.success("Demande marquée comme envoyée");
-      invalidateAll();
-    },
-  });
 
   const triggerAnalysis = useMutation({
     mutationFn: async (params: { request_id: string; email_id: string }) => {
@@ -217,23 +183,8 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
-  const validateFact = useMutation({
-    mutationFn: async (factId: string) => {
-      const { data, error } = await supabase.functions.invoke("validate-partner-fact", {
-        body: { fact_id: factId, action: "validate" },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Fait validé et injecté dans le dossier");
-      invalidateAll();
-    },
-    onError: (err: Error) => {
-      toast.error("Erreur de validation: " + err.message);
-    },
-  });
+
+
 
   const rejectFact = useMutation({
     mutationFn: async (factId: string) => {
@@ -295,9 +246,7 @@ export function useExternalRequests(caseId: string | undefined) {
     facts,
     isLoading: loadingRequests || loadingResponses || loadingFacts,
     createRequest,
-    markAsSent,
     triggerAnalysis,
-    validateFact,
     rejectFact,
     closeRequest,
     invalidateAll,
