@@ -480,7 +480,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                       setValidatingFactId(null);
                                     }
                                   }}
-                                  disabled={validatingFactId === fact.id}
+                                  disabled={validatingFactId !== null}
                                 >
                                   {validatingFactId === fact.id ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
