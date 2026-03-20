@@ -277,6 +277,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             ? suggestPartnerResponse(req, threadEmails, usedEmailIds)
             : null;
 
+          const closeLoop = getRequestCloseLoopState(req.status, reqFacts, isPricingRerunning);
+
           const derivedEmailId =
             analysisTarget?.requestId === req.id
               ? analysisTarget.emailId
