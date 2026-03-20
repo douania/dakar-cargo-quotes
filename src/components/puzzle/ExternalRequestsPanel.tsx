@@ -451,7 +451,8 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     {req.status !== "closed" && req.status !== "facts_validated" && (
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant={closeLoop.state === "ready_to_close" ? "outline" : "ghost"}
+                        className={closeLoop.state === "ready_to_close" ? "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/30" : ""}
                         onClick={(e) => { e.stopPropagation(); closeRequest.mutate(req.id); }}
                       >
                         <X className="h-3 w-3 mr-1" />
@@ -459,6 +460,34 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                       </Button>
                     )}
                   </div>
+
+                  {/* Close-loop status */}
+                  {closeLoop.state !== "in_progress" && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-1.5 py-0 ${
+                          closeLoop.state === "already_closed"
+                            ? "border-muted-foreground/30 text-muted-foreground"
+                            : closeLoop.state === "awaiting_validation"
+                            ? "border-orange-300 text-orange-700 dark:border-orange-600 dark:text-orange-300"
+                            : closeLoop.state === "pricing_rerunning"
+                            ? "border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300"
+                            : "border-green-300 text-green-700 dark:border-green-600 dark:text-green-300"
+                        }`}
+                      >
+                        {closeLoop.state === "pricing_rerunning" && (
+                          <Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />
+                        )}
+                        {closeLoop.label}
+                      </Badge>
+                      {closeLoop.reasons.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {closeLoop.reasons.slice(0, 2).join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Responses */}
                   {reqResponses.length > 0 && (
