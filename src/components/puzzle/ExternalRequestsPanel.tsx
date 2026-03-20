@@ -261,6 +261,12 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           const reqResponses = getResponsesForRequest(req.id);
           const reqFacts = getFactsForRequest(req.id);
           const proposedFacts = reqFacts.filter((f) => f.validation_status === "proposed");
+          const nextAction = getNextAction({
+            status: req.status,
+            responsesCount: reqResponses.length,
+            proposedFactsCount: proposedFacts.length,
+            lastUpdateAt: req.updated_at ?? req.created_at,
+          });
 
           return (
             <div key={req.id} className="border rounded-lg overflow-hidden">
