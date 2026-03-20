@@ -1,5 +1,10 @@
 import React, { useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import {
+  getNextAction,
+  NEXT_ACTION_LABELS,
+  NEXT_ACTION_COLORS,
+} from "@/features/external-requests/utils/getNextAction";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
