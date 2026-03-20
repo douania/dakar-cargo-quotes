@@ -1,6 +1,6 @@
 
 
-# P3.B — Candidate Response Matching v1
+# P3.C — Fact Confidence Layer v1 (DONE)
 
 ## Scope
 
@@ -8,92 +8,33 @@
 
 ## Changes
 
-### 1. Create `src/features/external-requests/utils/suggestPartnerResponse.ts`
+### 1. Created `src/features/external-requests/utils/reviewPartnerFact.ts`
 
-Pure scoring function with these inputs:
-- `request`: `{ partner_name, partner_email, sent_at, purpose, purpose_detail }`
-- `threadEmails`: `{ id, subject, from_address, received_at }[]`
-- `usedEmailIds`: `string[]` — derived from ALL `responses` for the case (not per-request)
+Pure function. Inputs: `fact` + `siblingFacts` (same `request_id` and `fact_key`).
 
-Scoring rules:
-- `from_address === partner_email` → +70
-- `from_address` contains normalized `partner_name` fragment → +25
-- `received_at >= sent_at` → +15
-- Subject contains `re:`, `fw:`, `fwd:` → +5
-- Subject shares keyword with `purpose`/`purpose_detail` → +10
-- Exclude emails in `usedEmailIds`
-- Exclude emails with `received_at < sent_at`
+Rules (priority order):
+1. **conflict** — proposed siblings with different `proposed_value_number` or `currency`
+2. **strong** — `confidence >= 0.85`, value present, monetary facts have currency
+3. **weak** — `confidence < 0.6`, or value missing, or monetary fact without currency
+4. **medium** — fallback
 
-Output: `{ bestEmailId: string | null, score: number, confidence: "high"|"medium"|"low"|"none", reasons: string[] }`
+Monetary heuristic: `fact_key` matches `/rate|cost|amount|charge|price|freight/i`.
 
-Thresholds: ≥70 high, ≥40 medium, ≥20 low, else none.
+### 2. Modified `src/components/puzzle/ExternalRequestsPanel.tsx`
 
-### 2. Modify `src/components/puzzle/ExternalRequestsPanel.tsx`
+- Import `reviewPartnerFact` and `FactReviewLevel`
+- For each fact in the rendering loop, compute `review` **only when `validation_status === "proposed"`**
+- Display review badge (green/yellow/gray/red) next to validation status badge
+- Display 1-2 reasons in `text-[10px]` below the fact line
+- Existing badges (Proposé/Validé/Rejeté) and buttons unchanged
 
-**Import** `suggestPartnerResponse`.
+## CTO adjustment applied
 
-**Derive `usedEmailIds`** once before the map (line ~259):
-```typescript
-const usedEmailIds = responses.map(r => r.source_email_id).filter(Boolean) as string[];
-```
-
-**Inside `requests.map()`** (after line 269, nextAction computation) — for `sent`/`response_received` requests:
-```typescript
-const suggestion = suggestPartnerResponse(req, threadEmails, usedEmailIds);
-```
-
-**Select value** (line 375) — derive without writing to state:
-```typescript
-value={
-  analysisTarget?.requestId === req.id
-    ? analysisTarget.emailId
-    : (suggestion?.bestEmailId ?? "")
-}
-```
-
-The `onValueChange` and `Analyser` button logic remain unchanged — manual selection writes to `analysisTarget` which then takes priority.
-
-**Analyser button disabled** (line 392-394) — also accept suggestion as valid selection:
-```typescript
-disabled={
-  triggerAnalysis.isPending ||
-  !(analysisTarget?.requestId === req.id
-    ? analysisTarget.emailId
-    : suggestion?.bestEmailId)
-}
-```
-
-**Analyser button onClick** (line 395-402) — use derived value:
-```typescript
-const emailToAnalyze = analysisTarget?.requestId === req.id
-  ? analysisTarget.emailId
-  : suggestion?.bestEmailId;
-if (emailToAnalyze) {
-  triggerAnalysis.mutate(
-    { request_id: req.id, email_id: emailToAnalyze },
-    { onSuccess: () => setAnalysisTarget(null) }
-  );
-}
-```
-
-**Mark suggested email** in SelectContent — append `★ Suggéré` to the suggested option label.
-
-**Add suggestion badge** after the Select (before Analyser button) when confidence ≥ low:
-- Small badge: `Suggestion forte` / `moyenne` / `faible`
-- 1-2 reasons in `text-xs text-muted-foreground`
+Review badge + reasons shown **only for proposed facts** — not for validated or rejected facts.
 
 ## What does NOT change
 
 - No edge functions, no migrations, no FROZEN files
 - `useExternalRequests.ts` untouched
-- `triggerAnalysis` call structure unchanged — still manual only
-- `analysisTarget` state shape unchanged
-- No suggestion written into state
-
-## File summary
-
-| File | Action |
-|------|--------|
-| `src/features/external-requests/utils/suggestPartnerResponse.ts` | Create |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Import + derived Select value + badge |
-
+- `validate-partner-fact`, `set-case-fact` untouched
+- No auto-validation or auto-rejection
