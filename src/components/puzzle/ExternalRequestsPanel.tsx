@@ -257,7 +257,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           </p>
         )}
 
-        {requests.map((req) => {
+        {(() => {
+          const usedEmailIds = responses.map((r) => r.source_email_id).filter(Boolean) as string[];
+          return requests.map((req) => {
           const isExpanded = expandedRequests.has(req.id);
           const reqResponses = getResponsesForRequest(req.id);
           const reqFacts = getFactsForRequest(req.id);
@@ -268,6 +270,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             proposedFactsCount: proposedFacts.length,
             lastUpdateAt: req.updated_at ?? req.created_at,
           });
+
+          const suggestion = ["sent", "response_received"].includes(req.status)
+            ? suggestPartnerResponse(req, threadEmails, usedEmailIds)
+            : null;
+
+          const derivedEmailId =
+            analysisTarget?.requestId === req.id
+              ? analysisTarget.emailId
+              : (suggestion?.bestEmailId ?? "");
 
           return (
             <div key={req.id} className="border rounded-lg overflow-hidden">
