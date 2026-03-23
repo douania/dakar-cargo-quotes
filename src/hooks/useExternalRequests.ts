@@ -57,7 +57,7 @@ export function useExternalRequests(caseId: string | undefined) {
     queryFn: async () => {
       if (!caseId) return [];
       const { data, error } = await supabase
-        .from("external_quote_requests" as any)
+        .from("external_quote_requests")
         .select("*")
         .eq("case_id", caseId)
         .order("created_at", { ascending: false });
@@ -72,7 +72,7 @@ export function useExternalRequests(caseId: string | undefined) {
     queryFn: async () => {
       if (!caseId) return [];
       const { data, error } = await supabase
-        .from("external_quote_responses" as any)
+        .from("external_quote_responses")
         .select("*")
         .eq("case_id", caseId)
         .order("received_at", { ascending: false });
@@ -87,7 +87,7 @@ export function useExternalRequests(caseId: string | undefined) {
     queryFn: async () => {
       if (!caseId) return [];
       const { data, error } = await supabase
-        .from("external_quote_response_facts" as any)
+        .from("external_quote_response_facts")
         .select("*")
         .eq("case_id", caseId)
         .order("created_at", { ascending: false });
@@ -114,7 +114,7 @@ export function useExternalRequests(caseId: string | undefined) {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id || null;
       const { data, error } = await supabase
-        .from("external_quote_requests" as any)
+        .from("external_quote_requests")
         .insert({
           case_id: caseId,
           partner_name: params.partner_name,
@@ -124,7 +124,7 @@ export function useExternalRequests(caseId: string | undefined) {
           related_lot_index: params.related_lot_index ?? null,
           created_by: userId,
           status: "draft",
-        } as any)
+        })
         .select("id")
         .single();
       if (error) throw error;
@@ -133,7 +133,7 @@ export function useExternalRequests(caseId: string | undefined) {
       // Emit external_request_created timeline event
       if (result?.id && caseId) {
         const { error: timelineError } = await supabase
-          .from("case_timeline_events" as any)
+          .from("case_timeline_events")
           .insert({
             case_id: caseId,
             event_type: "external_request_created",
@@ -146,7 +146,7 @@ export function useExternalRequests(caseId: string | undefined) {
               purpose: params.purpose,
               related_lot_index: params.related_lot_index ?? null,
             },
-          } as any);
+          });
         if (timelineError) {
           console.warn("[EQ1] Timeline insert failed (create)", {
             caseId,
@@ -215,8 +215,8 @@ export function useExternalRequests(caseId: string | undefined) {
   const closeRequest = useMutation({
     mutationFn: async (requestId: string) => {
       const { error } = await supabase
-        .from("external_quote_requests" as any)
-        .update({ status: "closed" } as any)
+        .from("external_quote_requests")
+        .update({ status: "closed" })
         .eq("id", requestId);
       if (error) throw error;
 
@@ -225,7 +225,7 @@ export function useExternalRequests(caseId: string | undefined) {
       const userId = session?.user?.id || null;
       const req = requests.find((r) => r.id === requestId);
       const { error: timelineError } = await supabase
-        .from("case_timeline_events" as any)
+        .from("case_timeline_events")
         .insert({
           case_id: caseId,
           event_type: "manual_action",
@@ -239,7 +239,7 @@ export function useExternalRequests(caseId: string | undefined) {
             request_id: requestId,
             partner_name: req?.partner_name || null,
           },
-        } as any);
+        });
       if (timelineError) {
         console.warn("[EQ1] Timeline insert failed (close)", {
           caseId,
