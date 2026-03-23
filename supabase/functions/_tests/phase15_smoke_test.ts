@@ -307,10 +307,10 @@ const TEST_CASES: TestCase[] = [
     scenario: 'AUTH',
     expectedOutcome: 'EXPECTED_ERROR',
     expectedStatuses: [401],
-    // No expectedErrorCodes - Gateway rejection, no runtime contract
+    expectedErrorCodes: ['AUTH_MISSING_JWT', 'AUTH_INVALID_JWT'],
     body: { case_id: FAKE_UUID },
     requiresAuth: false,
-    verifyJwtTrue: true, // Gateway-level auth
+    // Post-M2.3: auth handled in-code via requireUser, not Gateway
   },
   {
     function: 'generate-case-outputs',
