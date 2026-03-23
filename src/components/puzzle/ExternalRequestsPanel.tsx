@@ -568,7 +568,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   })}
                                   {group.emailCount > 2 && (
                                     <p className="text-[10px] text-muted-foreground pl-1.5">
-                                      +{group.emailCount - 2} autre{group.emailCount - 2 > 1 ? "s" : ""}
+                                      +{group.emailCount - 2} autre{group.emailCount - 2 > 1 ? "s" : ""} email{group.emailCount - 2 > 1 ? "s" : ""}
                                     </p>
                                   )}
                                 </div>
