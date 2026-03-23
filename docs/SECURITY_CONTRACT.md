@@ -33,8 +33,21 @@ This model is appropriate for a single-company transit/customs team with a share
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth** | `requireUser` | All case/quotation/pricing/decision functions |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks` |
+| **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `ensure-quote-case`, `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `send-quotation`, `generate-case-outputs` |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
+
+### Auth migration stance
+
+Both `requireUser` and inline JWT validation perform the same functional check: extract Bearer token, call `getUser(token)`, reject on failure. They are **functionally equivalent** in terms of access control.
+
+However, `requireUser` remains the **target standard**. Inline auth is retained only when:
+
+- The function is **FROZEN** and must not be reopened without a `STRUCTURAL_PATCH_ALLOWED` exception (`build-case-puzzle`, `run-pricing`).
+- The function requires **granular error codes** for observability that `requireUser` does not provide (`commit-decision` — distinguishes `AUTH_MISSING_JWT` from `AUTH_INVALID_JWT`).
+- Migration has been **deferred** to a future stabilization phase.
+
+Migration is **progressive and opportunistic**: functions are migrated to `requireUser` when they are already opened for another legitimate change. No global auth refactor is planned.
 
 ---
 
