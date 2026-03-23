@@ -19,6 +19,10 @@ CTO corrections applied:
 - No interpretive wording (no "En attente", no "À examiner")
 - No emoji, no amber highlight on interaction line
 
+## P4.D — Thread Consolidation ✅
+
+Pure helper `getThreadConsolidationGroups.ts` grouping thread emails by direction (partner/us) + normalized subject into readable blocks. Labels use informative format: `Partenaire · {subjectShort}` / `Nous · {subjectShort}`. Top 2 emails per group shown with `+X autre(s)` overflow. Groups sorted by suggested-first then recency. P4.A timeline preserved below for traceability.
+
 ## What does NOT change across P4
 
 - No edge functions, no migrations, no FROZEN files
