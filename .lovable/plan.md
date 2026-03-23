@@ -21,12 +21,28 @@ CTO corrections applied:
 
 ## P4.D — Thread Consolidation ✅
 
-Pure helper `getThreadConsolidationGroups.ts` grouping thread emails by direction (partner/us) + normalized subject into readable blocks. Labels use informative format: `Partenaire · {subjectShort}` / `Nous · {subjectShort}`. Top 2 emails per group shown with `+X autre(s)` overflow. Groups sorted by suggested-first then recency. P4.A timeline preserved below for traceability.
+Pure helper `getThreadConsolidationGroups.ts` grouping thread emails by direction (partner/us) + normalized subject into readable blocks. Labels use informative format: `Partenaire · {subjectShort}` / `Nous · {subjectShort}`. Top 2 emails per group shown with `+X autre(s) email(s)` overflow. Groups sorted by suggested-first then recency. P4.A timeline preserved below for traceability.
+
+## P4.E — Cross-layer Alignment ✅
+
+Visual deduplication across P4 layers when consolidation groups exist:
+- P4.A timeline: hides redundant tags (Suggéré, Déjà analysé, Partenaire) — keeps Après envoi, Récent
+- P4.B summary: hides "X déjà analysé(s)" count — keeps email-after-send and unanalyzed counts
+- P4.C: unchanged
+- No helper modifications — deduplication is purely at render level in ExternalRequestsPanel
+
+## P4.F — Progressive Disclosure ✅
+
+Local UI state `expandedThreadIds: Set<string>` per request. Timeline P4.A hidden by default, accessible via "Voir le détail" / "Masquer le détail" toggle button. State updates use immutable Set cloning. Button hidden when focus-expanded (P4.G).
+
+## P4.G — Operator Focus Mode ✅
+
+Uses existing `analysisTarget` as cross-layer visual focus. Derives `activeEmailId` per request. Dual highlight hierarchy: active (strong) > suggested (light) > normal. Auto-expands timeline for focused request via pure derivation (`isManuallyExpanded || isFocusExpanded`) — no useEffect, no state mutation. Muted "Email sélectionné" label when active.
 
 ## What does NOT change across P4
 
 - No edge functions, no migrations, no FROZEN files
-- `useExternalRequests.ts`, `useExternalRequestFlow.ts` untouched
-- `triggerAnalysis`, `analysisTarget` unchanged
-- No new state variables, no buttons, no actions
+- `useExternalRequests.ts`, `useExternalRequestFlow.ts` untouched (except PRICING_CRITICAL_KEYS extraction)
+- `triggerAnalysis`, `analysisTarget` shape unchanged
 - No auto-validation, no auto-close
+- Helpers P4.A/B/C/D are pure functions with no I/O
