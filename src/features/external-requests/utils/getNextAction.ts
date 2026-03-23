@@ -4,7 +4,8 @@ export type NextAction =
   | "response_to_analyze"
   | "facts_to_validate"
   | "ready"
-  | "stale_followup";
+  | "stale_followup"
+  | "closed";
 
 export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   awaiting_send: "À envoyer",
@@ -13,6 +14,7 @@ export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   facts_to_validate: "Faits à valider",
   ready: "Prêt",
   stale_followup: "À relancer",
+  closed: "Clôturée",
 };
 
 export const NEXT_ACTION_COLORS: Record<NextAction, string> = {
@@ -22,6 +24,7 @@ export const NEXT_ACTION_COLORS: Record<NextAction, string> = {
   facts_to_validate: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   ready: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   stale_followup: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  closed: "bg-muted text-muted-foreground",
 };
 
 const STALE_THRESHOLD_HOURS = 24;
@@ -37,6 +40,9 @@ export function getNextAction({
   proposedFactsCount: number;
   lastUpdateAt: string;
 }): NextAction {
+  // Terminal state
+  if (status === "closed") return "closed";
+
   if (status === "draft") return "awaiting_send";
 
   if (status === "sent" && responsesCount === 0) {
@@ -46,6 +52,12 @@ export function getNextAction({
   }
 
   if (status === "response_received") return "response_to_analyze";
+
+  // After analysis: check if facts remain to validate
+  if (status === "response_analyzed" || status === "partially_validated") {
+    if (proposedFactsCount > 0) return "facts_to_validate";
+    return "ready";
+  }
 
   if (proposedFactsCount > 0) return "facts_to_validate";
 

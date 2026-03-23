@@ -12,12 +12,7 @@ export interface RequestCloseLoopInfo {
   remainingProposedCount: number;
 }
 
-const PRICING_CRITICAL_KEYS = new Set([
-  "cargo.freight_cost",
-  "cargo.freight_rate_per_kg",
-  "cargo.origin_charges",
-  "cargo.pre_carriage_cost",
-]);
+import { PRICING_CRITICAL_KEYS } from "@/features/external-requests/constants";
 
 interface FactInput {
   fact_key: string;
