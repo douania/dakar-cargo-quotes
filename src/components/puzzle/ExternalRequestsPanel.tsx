@@ -513,6 +513,69 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             </p>
                           )}
 
+                          {/* P4.D — Consolidation groups */}
+                          {consolidationGroups.length > 0 && (
+                            <>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                Groupes d'emails
+                              </p>
+                              {consolidationGroups.map((group) => (
+                                <div key={group.groupKey} className="border rounded p-1.5 space-y-1 bg-muted/30">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] font-medium truncate max-w-[200px]">
+                                      {group.label}
+                                    </span>
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0">
+                                      {group.emailCount} email{group.emailCount > 1 ? "s" : ""}
+                                    </Badge>
+                                    {group.hasSuggested && (
+                                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-green-300 text-green-700 dark:border-green-600 dark:text-green-300">
+                                        Suggéré
+                                      </Badge>
+                                    )}
+                                    {group.hasUsed && (
+                                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                                        Déjà analysé
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {group.emails.slice(0, 2).map((em) => {
+                                    const emDateLabel = (() => {
+                                      if (!em.receivedAt) return "Date inconnue";
+                                      const ts = new Date(em.receivedAt).getTime();
+                                      if (isNaN(ts)) return "Date inconnue";
+                                      return formatDistanceToNow(new Date(em.receivedAt), { addSuffix: true, locale: fr });
+                                    })();
+                                    const emSelected = em.emailId === derivedEmailId;
+                                    return (
+                                      <div
+                                        key={em.emailId}
+                                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-colors text-[11px] ${
+                                          emSelected
+                                            ? "bg-accent/50 border border-accent"
+                                            : "hover:bg-muted/50"
+                                        }`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setAnalysisTarget({ requestId: req.id, emailId: em.emailId });
+                                        }}
+                                      >
+                                        <span className="font-medium">{em.fromShort}</span>
+                                        <span className="text-muted-foreground truncate flex-1">{em.subjectShort}</span>
+                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">{emDateLabel}</span>
+                                      </div>
+                                    );
+                                  })}
+                                  {group.emailCount > 2 && (
+                                    <p className="text-[10px] text-muted-foreground pl-1.5">
+                                      +{group.emailCount - 2} autre{group.emailCount - 2 > 1 ? "s" : ""}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </>
+                          )}
+
                           {/* P4.A — Mini timeline */}
                           {emailSignals.length > 0 && (
                             <>
