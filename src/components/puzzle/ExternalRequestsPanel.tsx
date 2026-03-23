@@ -457,6 +457,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         req, threadEmails, usedEmailIds, suggestion?.bestEmailId ?? null
                       );
                       const threadContext = getThreadContextSummary(req, threadEmails, usedEmailIds);
+                      const interactionSignals = getThreadInteractionSignals(req, threadEmails);
 
                       if (threadContext.totalEmails === 0 && emailSignals.length === 0) return null;
 
