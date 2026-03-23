@@ -9,6 +9,7 @@ import { suggestPartnerResponse } from "@/features/external-requests/utils/sugge
 import { reviewPartnerFact, type FactReviewLevel } from "@/features/external-requests/utils/reviewPartnerFact";
 import { getRequestCloseLoopState, type RequestCloseLoopState } from "@/features/external-requests/utils/getRequestCloseLoopState";
 import { getThreadEmailSignals } from "@/features/external-requests/utils/getThreadEmailSignals";
+import { getThreadContextSummary } from "@/features/external-requests/utils/getThreadContextSummary";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -449,63 +450,108 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         )}
                       </div>
                     )}
-                    {/* P4.A — Thread Timeline Intelligence */}
+                    {/* P4.B — Thread Context Summary + P4.A — Thread Timeline */}
                     {["sent", "response_received"].includes(req.status) && (() => {
                       const emailSignals = getThreadEmailSignals(
                         req, threadEmails, usedEmailIds, suggestion?.bestEmailId ?? null
                       );
-                      if (emailSignals.length === 0) return null;
+                      const threadContext = getThreadContextSummary(req, threadEmails, usedEmailIds);
+
+                      if (threadContext.totalEmails === 0 && emailSignals.length === 0) return null;
+
                       return (
-                        <div className="border-t pt-2 mt-1 space-y-1">
-                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                            Emails du thread
-                          </p>
-                          {emailSignals.map((sig) => {
-                            const isSelected = sig.emailId === derivedEmailId;
-                            const dateLabel = (() => {
-                              if (!sig.receivedAt) return "Date inconnue";
-                              const ts = new Date(sig.receivedAt).getTime();
-                              if (isNaN(ts)) return "Date inconnue";
-                              return formatDistanceToNow(new Date(sig.receivedAt), { addSuffix: true, locale: fr });
-                            })();
-                            return (
-                              <div
-                                key={sig.emailId}
-                                className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-                                  isSelected
-                                    ? "bg-accent/50 border border-accent"
-                                    : "hover:bg-muted/50"
-                                }`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAnalysisTarget({ requestId: req.id, emailId: sig.emailId });
-                                }}
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <span className="font-medium">{sig.fromShort}</span>
-                                  <span className="text-muted-foreground ml-1.5 truncate">
-                                    {sig.subjectShort}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                  {dateLabel}
+                        <div className="border-t pt-2 mt-1 space-y-2">
+                          {/* P4.B — Context summary */}
+                          {threadContext.totalEmails > 0 && (
+                            <div className="flex items-center gap-3 flex-wrap text-[10px] text-muted-foreground px-1">
+                              {threadContext.emailsAfterSend > 0 && (
+                                <span>{threadContext.emailsAfterSend} email{threadContext.emailsAfterSend > 1 ? "s" : ""} après envoi</span>
+                              )}
+                              {threadContext.analyzedCount > 0 && (
+                                <span>{threadContext.analyzedCount} déjà analysé{threadContext.analyzedCount > 1 ? "s" : ""}</span>
+                              )}
+                              {threadContext.unanalyzedAfterSend > 0 && (
+                                <span className="text-orange-600 dark:text-orange-400 font-medium">
+                                  {threadContext.unanalyzedAfterSend} non analysé{threadContext.unanalyzedAfterSend > 1 ? "s" : ""}
                                 </span>
-                                {sig.tags.length > 0 && (
-                                  <div className="flex gap-0.5 shrink-0">
-                                    {sig.tags.map((tag) => (
-                                      <Badge
-                                        key={tag}
-                                        variant="outline"
-                                        className="text-[9px] px-1 py-0 leading-tight"
-                                      >
-                                        {tag}
-                                      </Badge>
-                                    ))}
+                              )}
+                              {threadContext.lastPartnerEmailAt && (() => {
+                                const ts = new Date(threadContext.lastPartnerEmailAt).getTime();
+                                if (isNaN(ts)) return null;
+                                return (
+                                  <span>
+                                    Dernier email partenaire : {formatDistanceToNow(new Date(threadContext.lastPartnerEmailAt), { addSuffix: true, locale: fr })}
+                                  </span>
+                                );
+                              })()}
+                              {!threadContext.lastPartnerEmailAt && threadContext.totalEmails > 0 && (
+                                <span className="italic">Aucun email partenaire détecté</span>
+                              )}
+                              {threadContext.silenceDays != null && threadContext.silenceDays >= 3 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1 py-0 border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-400"
+                                >
+                                  Silence partenaire : {threadContext.silenceDays} jours
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
+                          {/* P4.A — Mini timeline */}
+                          {emailSignals.length > 0 && (
+                            <>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                Emails du thread
+                              </p>
+                              {emailSignals.map((sig) => {
+                                const isSelected = sig.emailId === derivedEmailId;
+                                const dateLabel = (() => {
+                                  if (!sig.receivedAt) return "Date inconnue";
+                                  const ts = new Date(sig.receivedAt).getTime();
+                                  if (isNaN(ts)) return "Date inconnue";
+                                  return formatDistanceToNow(new Date(sig.receivedAt), { addSuffix: true, locale: fr });
+                                })();
+                                return (
+                                  <div
+                                    key={sig.emailId}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
+                                      isSelected
+                                        ? "bg-accent/50 border border-accent"
+                                        : "hover:bg-muted/50"
+                                    }`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAnalysisTarget({ requestId: req.id, emailId: sig.emailId });
+                                    }}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <span className="font-medium">{sig.fromShort}</span>
+                                      <span className="text-muted-foreground ml-1.5 truncate">
+                                        {sig.subjectShort}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      {dateLabel}
+                                    </span>
+                                    {sig.tags.length > 0 && (
+                                      <div className="flex gap-0.5 shrink-0">
+                                        {sig.tags.map((tag) => (
+                                          <Badge
+                                            key={tag}
+                                            variant="outline"
+                                            className="text-[9px] px-1 py-0 leading-tight"
+                                          >
+                                            {tag}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                                );
+                              })}
+                            </>
+                          )}
                         </div>
                       );
                     })()}

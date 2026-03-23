@@ -59,7 +59,8 @@ export function getThreadEmailSignals(
 
   const enriched: ThreadEmailSignal[] = threadEmails.map((email) => {
     const receivedTs = safeTimestamp(email.received_at);
-    const fromNorm = email.from_address.trim().toLowerCase();
+    const fromRaw = email.from_address || "";
+    const fromNorm = fromRaw.trim().toLowerCase();
 
     const isAfterSent = sentTs != null && receivedTs != null && receivedTs >= sentTs;
     const isUsed = usedSet.has(email.id);
@@ -83,7 +84,7 @@ export function getThreadEmailSignals(
     if (isMostRecent) tags.push("Récent");
 
     // Safe fallbacks
-    const fromShort = email.from_address.split("@")[0] || "expéditeur inconnu";
+    const fromShort = fromRaw.split("@")[0] || "expéditeur inconnu";
     const rawSubject = email.subject || "(sans sujet)";
     const subjectShort = rawSubject.length > 50 ? rawSubject.slice(0, 50) + "…" : rawSubject;
 
