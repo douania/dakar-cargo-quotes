@@ -583,7 +583,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
                           {/* P4.F — Progressive disclosure toggle */}
                           {(consolidationGroups.length > 0 || emailSignals.length > 0) && (() => {
-                            const isThreadExpanded = expandedThreadIds.has(req.id);
+                            const isThreadExpanded = expandedThreadIds.has(req.id) || activeEmailId != null;
                             return (
                               <>
                                 <button
@@ -607,11 +607,17 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                 {/* P4.A — Mini timeline (shown only when expanded) */}
                                 {isThreadExpanded && (
                                   <>
+                                    {activeEmailId && (
+                                      <p className="text-[10px] text-muted-foreground px-1">
+                                        Email sélectionné
+                                      </p>
+                                    )}
                                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                                       Emails du thread
                                     </p>
                                     {emailSignals.map((sig) => {
-                                      const isSelected = sig.emailId === derivedEmailId;
+                                      const isActive = sig.emailId === activeEmailId;
+                                      const isSuggested = activeEmailId == null && sig.emailId === derivedEmailId;
                                       const dateLabel = (() => {
                                         if (!sig.receivedAt) return "Date inconnue";
                                         const ts = new Date(sig.receivedAt).getTime();
