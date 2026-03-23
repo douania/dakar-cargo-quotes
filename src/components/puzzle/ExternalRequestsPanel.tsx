@@ -583,26 +583,30 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
                           {/* P4.F — Progressive disclosure toggle */}
                           {(consolidationGroups.length > 0 || emailSignals.length > 0) && (() => {
-                            const isThreadExpanded = expandedThreadIds.has(req.id) || activeEmailId != null;
+                            const isManuallyExpanded = expandedThreadIds.has(req.id);
+                            const isFocusExpanded = activeEmailId != null;
+                            const isThreadExpanded = isManuallyExpanded || isFocusExpanded;
                             return (
                               <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpandedThreadIds((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(req.id)) {
-                                        next.delete(req.id);
-                                      } else {
-                                        next.add(req.id);
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                  className="text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
-                                >
-                                  {isThreadExpanded ? "Masquer le détail" : "Voir le détail"}
-                                </button>
+                                {!isFocusExpanded && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedThreadIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(req.id)) {
+                                          next.delete(req.id);
+                                        } else {
+                                          next.add(req.id);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
+                                  >
+                                    {isManuallyExpanded ? "Masquer le détail" : "Voir le détail"}
+                                  </button>
+                                )}
 
                                 {/* P4.A — Mini timeline (shown only when expanded) */}
                                 {isThreadExpanded && (
