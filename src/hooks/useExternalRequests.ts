@@ -224,7 +224,7 @@ export function useExternalRequests(caseId: string | undefined) {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id || null;
       const req = requests.find((r) => r.id === requestId);
-      await supabase
+      const { error: timelineError } = await supabase
         .from("case_timeline_events" as any)
         .insert({
           case_id: caseId,
@@ -240,6 +240,13 @@ export function useExternalRequests(caseId: string | undefined) {
             partner_name: req?.partner_name || null,
           },
         } as any);
+      if (timelineError) {
+        console.warn("[EQ1] Timeline insert failed (close)", {
+          caseId,
+          requestId,
+          error: timelineError.message,
+        });
+      }
     },
     onSuccess: () => {
       toast.info("Demande clôturée");
