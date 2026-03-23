@@ -39,15 +39,15 @@ This model is appropriate for a single-company transit/customs team with a share
 
 ### Auth migration stance
 
-Both `requireUser` and inline JWT validation perform the same functional check: extract Bearer token, call `getUser(token)`, reject on failure. They are **functionally equivalent** in terms of access control.
+Auth convergence is **complete for the current stabilization phase**.
 
-However, `requireUser` remains the **target standard**. Inline auth is retained only when:
+All non-FROZEN functions without a specific observability justification have been migrated to `requireUser`. The remaining inline-auth functions are **intentional exceptions**, not deferred work:
 
-- The function is **FROZEN** and must not be reopened without a `STRUCTURAL_PATCH_ALLOWED` exception (`build-case-puzzle`, `run-pricing`).
-- The function requires **granular error codes** for observability that `requireUser` does not provide (`commit-decision` — distinguishes `AUTH_MISSING_JWT` from `AUTH_INVALID_JWT`).
-- Migration has been **deferred** to a future stabilization phase.
+- `commit-decision` — retained for **observability preservation** (granular `AUTH_MISSING_JWT` / `AUTH_INVALID_JWT` distinction, S1.3).
+- `run-pricing` — **FROZEN**. Must not be reopened without a `STRUCTURAL_PATCH_ALLOWED` exception.
+- `build-case-puzzle` — **FROZEN**. Must not be reopened without a `STRUCTURAL_PATCH_ALLOWED` exception.
 
-Migration is **progressive and opportunistic**: functions are migrated to `requireUser` when they are already opened for another legitimate change. No global auth refactor is planned.
+No further auth migration should be opened unless a new business or structural need justifies it.
 
 ---
 
@@ -72,3 +72,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `ensure-quote-case` | Migrated to `requireUser`, removed inline auth + local corsHeaders, harmonized CORS with shared helper | 2026-03 |
 | `send-quotation` | Migrated to `requireUser` + post-check log, retained userClient for RLS (reconstructed via `auth.token`) | 2026-03 |
 | `generate-case-outputs` | Migrated to `requireUser` + post-check log, removed userClient + local corsHeaders | 2026-03 |
+| — | **Auth convergence complete.** Remaining inline: `commit-decision` (observability), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN). No further migration planned for current phase. | 2026-03 |
