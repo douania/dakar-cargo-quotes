@@ -628,8 +628,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                         <div
                                           key={sig.emailId}
                                           className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-                                            isSelected
+                                            isActive
                                               ? "bg-accent/50 border border-accent"
+                                              : isSuggested
+                                              ? "bg-muted/80 border border-muted-foreground/20"
                                               : "hover:bg-muted/50"
                                           }`}
                                           onClick={(e) => {
