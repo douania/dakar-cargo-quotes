@@ -84,7 +84,7 @@ export function getThreadEmailSignals(
     if (isMostRecent) tags.push("Récent");
 
     // Safe fallbacks
-    const fromShort = email.from_address.split("@")[0] || "expéditeur inconnu";
+    const fromShort = fromRaw.split("@")[0] || "expéditeur inconnu";
     const rawSubject = email.subject || "(sans sujet)";
     const subjectShort = rawSubject.length > 50 ? rawSubject.slice(0, 50) + "…" : rawSubject;
 
