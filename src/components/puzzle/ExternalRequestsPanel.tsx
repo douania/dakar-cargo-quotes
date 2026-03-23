@@ -473,7 +473,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                               {threadContext.emailsAfterSend > 0 && (
                                 <span>{threadContext.emailsAfterSend} email{threadContext.emailsAfterSend > 1 ? "s" : ""} après envoi</span>
                               )}
-                              {threadContext.analyzedCount > 0 && (
+                              {threadContext.analyzedCount > 0 && consolidationGroups.length === 0 && (
                                 <span>{threadContext.analyzedCount} déjà analysé{threadContext.analyzedCount > 1 ? "s" : ""}</span>
                               )}
                               {threadContext.unanalyzedAfterSend > 0 && (
