@@ -133,7 +133,7 @@ export function useExternalRequests(caseId: string | undefined) {
       // Emit external_request_created timeline event
       if (result?.id && caseId) {
         const { error: timelineError } = await supabase
-          .from("case_timeline_events" as any)
+          .from("case_timeline_events")
           .insert({
             case_id: caseId,
             event_type: "external_request_created",
@@ -146,7 +146,7 @@ export function useExternalRequests(caseId: string | undefined) {
               purpose: params.purpose,
               related_lot_index: params.related_lot_index ?? null,
             },
-          } as any);
+          });
         if (timelineError) {
           console.warn("[EQ1] Timeline insert failed (create)", {
             caseId,
