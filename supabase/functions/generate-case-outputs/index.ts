@@ -14,12 +14,8 @@ import {
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-correlation-id",
-};
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 
 const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -44,35 +40,10 @@ Deno.serve(async (req) => {
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // 1. Validate JWT
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: 'generate-case-outputs',
-        op: 'auth',
-        status: 'fatal_error',
-        errorCode: 'AUTH_MISSING_JWT',
-        httpStatus: 401,
-        durationMs: Date.now() - startTime,
-      });
-      return respondError({
-        code: 'AUTH_MISSING_JWT',
-        message: 'Unauthorized',
-        correlationId,
-      });
-    }
-
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await userClient.auth.getUser(token);
-    if (userError || !userData?.user) {
+    // 1. Auth (requireUser standard)
+    const auth = await requireUser(req);
+    if (auth instanceof Response) {
+      // Post-check log for observability parity (consolidated AUTH_INVALID_JWT)
       await logRuntimeEvent(serviceClient, {
         correlationId,
         functionName: 'generate-case-outputs',
@@ -82,14 +53,11 @@ Deno.serve(async (req) => {
         httpStatus: 401,
         durationMs: Date.now() - startTime,
       });
-      return respondError({
-        code: 'AUTH_INVALID_JWT',
-        message: 'Invalid token',
-        correlationId,
-      });
+      return auth;
     }
+    userId = auth.user.id;
 
-    userId = userData.user.id;
+    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
     // 2. Parse request
     const { case_id, pricing_run_id }: GenerateOutputsRequest = await req.json();
