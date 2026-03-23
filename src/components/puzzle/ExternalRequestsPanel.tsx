@@ -578,7 +578,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           )}
 
                           {/* P4.F — Progressive disclosure toggle */}
-                          {emailSignals.length > 0 && (() => {
+                          {(consolidationGroups.length > 0 || emailSignals.length > 0) && (() => {
                             const isThreadExpanded = expandedThreadIds.has(req.id);
                             return (
                               <>
