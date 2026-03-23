@@ -79,9 +79,11 @@ export function getThreadConsolidationGroups(
       const fromNorm = fromRaw.trim().toLowerCase();
       const isPartner = partnerNorm != null && fromNorm === partnerNorm;
 
+      const displaySubject = buildDisplaySubject(email.subject);
+
       return {
         emailId: email.id,
-        subjectShort: buildDisplaySubject(email.subject),
+        subjectShort: displaySubject,
         fromShort: fromRaw.split("@")[0] || "expéditeur inconnu",
         receivedAt: email.received_at,
         isUsed: usedSet.has(email.id),
@@ -89,7 +91,7 @@ export function getThreadConsolidationGroups(
         isPartner,
         direction: isPartner ? "partner" as const : "us" as const,
         normalizedSubject: normalizeSubject(email.subject),
-        displaySubject: buildDisplaySubject(email.subject),
+        displaySubject,
       };
     });
 

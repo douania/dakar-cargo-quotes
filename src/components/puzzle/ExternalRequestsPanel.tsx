@@ -473,7 +473,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                               {threadContext.emailsAfterSend > 0 && (
                                 <span>{threadContext.emailsAfterSend} email{threadContext.emailsAfterSend > 1 ? "s" : ""} après envoi</span>
                               )}
-                              {threadContext.analyzedCount > 0 && (
+                              {threadContext.analyzedCount > 0 && consolidationGroups.length === 0 && (
                                 <span>{threadContext.analyzedCount} déjà analysé{threadContext.analyzedCount > 1 ? "s" : ""}</span>
                               )}
                               {threadContext.unanalyzedAfterSend > 0 && (
@@ -568,7 +568,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   })}
                                   {group.emailCount > 2 && (
                                     <p className="text-[10px] text-muted-foreground pl-1.5">
-                                      +{group.emailCount - 2} autre{group.emailCount - 2 > 1 ? "s" : ""}
+                                      +{group.emailCount - 2} autre{group.emailCount - 2 > 1 ? "s" : ""} email{group.emailCount - 2 > 1 ? "s" : ""}
                                     </p>
                                   )}
                                 </div>
@@ -614,7 +614,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                     </span>
                                     {sig.tags.length > 0 && (
                                       <div className="flex gap-0.5 shrink-0">
-                                        {sig.tags.map((tag) => (
+                                     {(consolidationGroups.length > 0
+                                          ? sig.tags.filter(t => !["Suggéré", "Déjà analysé", "Partenaire"].includes(t))
+                                          : sig.tags
+                                        ).map((tag) => (
                                           <Badge
                                             key={tag}
                                             variant="outline"
