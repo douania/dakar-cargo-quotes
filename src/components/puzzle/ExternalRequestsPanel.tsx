@@ -614,7 +614,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                     </span>
                                     {sig.tags.length > 0 && (
                                       <div className="flex gap-0.5 shrink-0">
-                                        {sig.tags.map((tag) => (
+                                     {(consolidationGroups.length > 0
+                                          ? sig.tags.filter(t => !["Suggéré", "Déjà analysé", "Partenaire"].includes(t))
+                                          : sig.tags
+                                        ).map((tag) => (
                                           <Badge
                                             key={tag}
                                             variant="outline"
