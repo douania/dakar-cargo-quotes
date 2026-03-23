@@ -548,13 +548,16 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                       if (isNaN(ts)) return "Date inconnue";
                                       return formatDistanceToNow(new Date(em.receivedAt), { addSuffix: true, locale: fr });
                                     })();
-                                    const emSelected = em.emailId === derivedEmailId;
+                                    const isActive = em.emailId === activeEmailId;
+                                    const isSuggested = activeEmailId == null && em.emailId === derivedEmailId;
                                     return (
                                       <div
                                         key={em.emailId}
                                         className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-colors text-[11px] ${
-                                          emSelected
+                                          isActive
                                             ? "bg-accent/50 border border-accent"
+                                            : isSuggested
+                                            ? "bg-muted/80 border border-muted-foreground/20"
                                             : "hover:bg-muted/50"
                                         }`}
                                         onClick={(e) => {
