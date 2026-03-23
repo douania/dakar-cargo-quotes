@@ -5,15 +5,14 @@
  * Two modes:
  *   1. { thread_id }          — original thread-based flow
  *   2. { case_id, mode: "intake", workflow_key? } — Intake upsert flow
+ *
+ * Auth: requireUser (migrated from inline in M2)
+ * CORS: shared corsHeaders from _shared/cors.ts
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { requireUser } from "../_shared/auth.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 
 interface EnsureCaseResponse {
   case_id: string;
