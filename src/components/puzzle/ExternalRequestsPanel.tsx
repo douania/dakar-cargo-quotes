@@ -284,10 +284,11 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
           const closeLoop = getRequestCloseLoopState(req.status, reqFacts, isPricingRerunning);
 
+          const activeEmailId =
+            analysisTarget?.requestId === req.id ? analysisTarget.emailId : null;
+
           const derivedEmailId =
-            analysisTarget?.requestId === req.id
-              ? analysisTarget.emailId
-              : (suggestion?.bestEmailId ?? "");
+            activeEmailId ?? (suggestion?.bestEmailId ?? "");
 
           return (
             <div key={req.id} className="border rounded-lg overflow-hidden">
