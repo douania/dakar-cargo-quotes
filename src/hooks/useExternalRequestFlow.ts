@@ -2,13 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-// P2.1: Pricing-critical fact keys that should trigger a rerun
-const PRICING_CRITICAL_KEYS = new Set([
-  "cargo.freight_cost",
-  "cargo.freight_rate_per_kg",
-  "cargo.origin_charges",
-  "cargo.pre_carriage_cost",
-]);
+import { PRICING_CRITICAL_KEYS } from "@/features/external-requests/constants";
 
 export function useExternalRequestFlow(caseId: string | undefined) {
   const queryClient = useQueryClient();
