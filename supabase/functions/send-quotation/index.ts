@@ -16,6 +16,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -78,24 +79,28 @@ Deno.serve(async (req) => {
   let userId: string | undefined;
 
   try {
-    // 3. Auth
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return await fail(serviceClient, "AUTH_INVALID_JWT", "Unauthorized", correlationId, t0);
+    // 3. Auth (requireUser standard — M2.2)
+    const auth = await requireUser(req);
+    if (auth instanceof Response) {
+      const durationMs = Date.now() - t0;
+      await logRuntimeEvent(serviceClient, {
+        correlationId,
+        functionName: FUNCTION_NAME,
+        status: "auth_error",
+        errorCode: "AUTH_INVALID_JWT",
+        httpStatus: 401,
+        durationMs,
+      });
+      return auth;
     }
+    userId = auth.user.id;
 
+    // userClient for RLS-scoped queries (case, draft) — reconstructed from auth.token
     const userClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
+      { global: { headers: { Authorization: `Bearer ${auth.token}` } } },
     );
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
-    if (authError || !user) {
-      return await fail(serviceClient, "AUTH_INVALID_JWT", "Invalid or expired token", correlationId, t0);
-    }
-    userId = user.id;
 
     // 4. Parse body — validate UUIDs
     const body = await req.json();
