@@ -284,10 +284,11 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
           const closeLoop = getRequestCloseLoopState(req.status, reqFacts, isPricingRerunning);
 
+          const activeEmailId =
+            analysisTarget?.requestId === req.id ? analysisTarget.emailId : null;
+
           const derivedEmailId =
-            analysisTarget?.requestId === req.id
-              ? analysisTarget.emailId
-              : (suggestion?.bestEmailId ?? "");
+            activeEmailId ?? (suggestion?.bestEmailId ?? "");
 
           return (
             <div key={req.id} className="border rounded-lg overflow-hidden">
@@ -547,13 +548,16 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                       if (isNaN(ts)) return "Date inconnue";
                                       return formatDistanceToNow(new Date(em.receivedAt), { addSuffix: true, locale: fr });
                                     })();
-                                    const emSelected = em.emailId === derivedEmailId;
+                                    const isActive = em.emailId === activeEmailId;
+                                    const isSuggested = activeEmailId == null && em.emailId === derivedEmailId;
                                     return (
                                       <div
                                         key={em.emailId}
                                         className={`flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-colors text-[11px] ${
-                                          emSelected
+                                          isActive
                                             ? "bg-accent/50 border border-accent"
+                                            : isSuggested
+                                            ? "bg-muted/80 border border-muted-foreground/20"
                                             : "hover:bg-muted/50"
                                         }`}
                                         onClick={(e) => {
@@ -579,7 +583,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
 
                           {/* P4.F — Progressive disclosure toggle */}
                           {(consolidationGroups.length > 0 || emailSignals.length > 0) && (() => {
-                            const isThreadExpanded = expandedThreadIds.has(req.id);
+                            const isThreadExpanded = expandedThreadIds.has(req.id) || activeEmailId != null;
                             return (
                               <>
                                 <button
@@ -603,11 +607,17 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                 {/* P4.A — Mini timeline (shown only when expanded) */}
                                 {isThreadExpanded && (
                                   <>
+                                    {activeEmailId && (
+                                      <p className="text-[10px] text-muted-foreground px-1">
+                                        Email sélectionné
+                                      </p>
+                                    )}
                                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                                       Emails du thread
                                     </p>
                                     {emailSignals.map((sig) => {
-                                      const isSelected = sig.emailId === derivedEmailId;
+                                      const isActive = sig.emailId === activeEmailId;
+                                      const isSuggested = activeEmailId == null && sig.emailId === derivedEmailId;
                                       const dateLabel = (() => {
                                         if (!sig.receivedAt) return "Date inconnue";
                                         const ts = new Date(sig.receivedAt).getTime();
@@ -618,8 +628,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                         <div
                                           key={sig.emailId}
                                           className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-                                            isSelected
+                                            isActive
                                               ? "bg-accent/50 border border-accent"
+                                              : isSuggested
+                                              ? "bg-muted/80 border border-muted-foreground/20"
                                               : "hover:bg-muted/50"
                                           }`}
                                           onClick={(e) => {
