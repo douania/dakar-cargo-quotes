@@ -10,6 +10,7 @@ import { reviewPartnerFact, type FactReviewLevel } from "@/features/external-req
 import { getRequestCloseLoopState, type RequestCloseLoopState } from "@/features/external-requests/utils/getRequestCloseLoopState";
 import { getThreadEmailSignals } from "@/features/external-requests/utils/getThreadEmailSignals";
 import { getThreadContextSummary } from "@/features/external-requests/utils/getThreadContextSummary";
+import { getThreadInteractionSignals } from "@/features/external-requests/utils/getThreadInteractionSignals";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -456,6 +457,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         req, threadEmails, usedEmailIds, suggestion?.bestEmailId ?? null
                       );
                       const threadContext = getThreadContextSummary(req, threadEmails, usedEmailIds);
+                      const interactionSignals = getThreadInteractionSignals(req, threadEmails);
 
                       if (threadContext.totalEmails === 0 && emailSignals.length === 0) return null;
 
@@ -496,6 +498,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                 </Badge>
                               )}
                             </div>
+                          )}
+
+                          {/* P4.C — Interaction pattern */}
+                          {(interactionSignals.partnerMessagesAfterSend + interactionSignals.ourMessagesAfterSend > 0) && (
+                            <p className="text-[10px] text-muted-foreground px-1">
+                              {interactionSignals.lastMessageFrom === "us" && "Dernier message : nous"}
+                              {interactionSignals.lastMessageFrom === "partner" && "Dernier message : partenaire"}
+                              {interactionSignals.hasBackAndForth && " · Aller-retour détecté"}
+                            </p>
                           )}
 
                           {/* P4.A — Mini timeline */}
