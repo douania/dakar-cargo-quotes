@@ -114,7 +114,7 @@ export function useExternalRequests(caseId: string | undefined) {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id || null;
       const { data, error } = await supabase
-        .from("external_quote_requests" as any)
+        .from("external_quote_requests")
         .insert({
           case_id: caseId,
           partner_name: params.partner_name,
@@ -124,7 +124,7 @@ export function useExternalRequests(caseId: string | undefined) {
           related_lot_index: params.related_lot_index ?? null,
           created_by: userId,
           status: "draft",
-        } as any)
+        })
         .select("id")
         .single();
       if (error) throw error;
