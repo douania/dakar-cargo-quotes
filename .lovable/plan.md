@@ -1,45 +1,51 @@
 
 
-# P4.A — Thread Timeline Intelligence
+# P4.A — Thread Timeline Intelligence + P4.B — Thread Context Compression
 
 ## Scope
 
-2 files: 1 new utility, 1 modified component. No backend, no migration, no FROZEN files.
+3 files: 2 utilities (1 existing fix + 1 new), 1 modified component. No backend, no migration, no FROZEN files.
 
 ## Changes
 
-### 1. Created `src/features/external-requests/utils/getThreadEmailSignals.ts`
+### 1. Fixed `src/features/external-requests/utils/getThreadEmailSignals.ts`
 
-Pure function. Inputs: request, threadEmails, usedEmailIds, suggestedEmailId.
+- Guarded `from_address` with `|| ""` to prevent runtime crashes on null/undefined
+- `fromRaw` reused for both `fromNorm` and `fromShort` derivations
 
-Rules:
-- Dates parsed to timestamps via `safeTimestamp()` — never compared as raw strings
-- `isAfterSent`: `receivedTs >= sentTs` (both must be valid)
-- `isPartnerMatch`: `trim().toLowerCase()` on both sides
-- `isMostRecent`: only assigned to the email with highest valid `received_at`; if none valid, no email gets "Récent"
-- `isUsed`: email id in usedEmailIds set
-- `isSuggested`: email id === suggestedEmailId
-- Priority: +40 suggested, +25 afterSent, +20 partnerMatch, -50 used
-- Tags: "Suggéré", "Après envoi", "Partenaire", "Déjà analysé", "Récent"
-- Fallbacks: empty sender → "expéditeur inconnu", empty subject → "(sans sujet)", long subject → truncated with "…"
-- Sorted by priority desc, then date desc (nulls last), limited to top 5
+### 2. Created `src/features/external-requests/utils/getThreadContextSummary.ts`
 
-### 2. Modified `src/components/puzzle/ExternalRequestsPanel.tsx`
+Pure function. Inputs: request, threadEmails, usedEmailIds.
 
-- Import `getThreadEmailSignals`
-- For `sent`/`response_received` requests, compute `emailSignals` after the suggestion block
-- Render a compact mini timeline (up to 5 rows) with sender, truncated subject, relative date, and tag badges
-- Date fallback: if `receivedAt` is null/invalid → display "Date inconnue" (no `formatDistanceToNow` call)
-- Click on a row → `setAnalysisTarget({ requestId, emailId })` — no auto-trigger of analysis
-- Selected row highlighted with `bg-accent/50`
+Output (no `lastPartnerEmailAgo` — CTO correction applied):
+- `totalEmails`, `emailsAfterSend`, `analyzedCount`, `unanalyzedAfterSend`
+- `lastPartnerEmailAt` (raw ISO string)
+- `hasUnanswered` (derived from `unanalyzedAfterSend > 0`)
+- `silenceDays` (days since last partner email, null if none)
+
+All date comparisons use parsed timestamps. Partner matching uses `trim().toLowerCase()`.
+
+### 3. Modified `src/components/puzzle/ExternalRequestsPanel.tsx`
+
+- Import `getThreadContextSummary`
+- For `sent`/`response_received` requests, compute `threadContext` alongside `emailSignals`
+- Render compact context summary row above mini timeline:
+  - `X emails après envoi`
+  - `Y déjà analysé(s)`
+  - `Z non analysé(s)` (orange)
+  - `Dernier email partenaire : il y a ...` (with date guard)
+  - `Aucun email partenaire détecté` (when applicable)
+  - `Silence partenaire : X jours` amber badge (only when ≥ 3 days)
+- `formatDistanceToNow` only called on valid dates
+- Mini timeline (P4.A) preserved below context summary
 
 ## CTO corrections applied
 
+- `lastPartnerEmailAgo` removed from helper output (computed at render only)
+- `from_address` guarded with `|| ""` in both helpers
 - All date comparisons use parsed timestamps
 - `isMostRecent` only when valid date exists
 - UI fallback for missing dates
-- Safe fallbacks for sender/subject
-- No interpretive labels (only descriptive signal tags)
 
 ## What does NOT change
 
@@ -47,4 +53,5 @@ Rules:
 - `useExternalRequests.ts`, `useExternalRequestFlow.ts` untouched
 - `triggerAnalysis` logic unchanged — still manual only
 - `analysisTarget` state shape unchanged
+- No new state variables
 - Suggestion logic (P3.B) unchanged
