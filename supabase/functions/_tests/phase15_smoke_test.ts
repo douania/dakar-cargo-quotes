@@ -237,6 +237,70 @@ const FAKE_UUID = '00000000-0000-0000-0000-000000000001';
 
 const TEST_CASES: TestCase[] = [
   // ─────────────────────────────────────────────────────────────────────────
+  // ensure-quote-case (3 tests) — M2.1 migration
+  // ─────────────────────────────────────────────────────────────────────────
+  {
+    function: 'ensure-quote-case',
+    scenario: 'AUTH',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [401],
+    expectedErrorCodes: ['AUTH_MISSING_JWT', 'AUTH_INVALID_JWT'],
+    body: { thread_id: FAKE_UUID },
+    requiresAuth: false,
+  },
+  {
+    function: 'ensure-quote-case',
+    scenario: 'VALIDATION',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [400, 500],
+    body: {},
+    requiresAuth: true,
+  },
+  {
+    function: 'ensure-quote-case',
+    scenario: 'EXECUTION',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [400, 404, 500],
+    body: { thread_id: FAKE_UUID },
+    requiresAuth: true,
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // send-quotation (3 tests) — M2.2 migration
+  // ─────────────────────────────────────────────────────────────────────────
+  {
+    function: 'send-quotation',
+    scenario: 'AUTH',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [401],
+    expectedErrorCodes: ['AUTH_MISSING_JWT', 'AUTH_INVALID_JWT'],
+    body: { case_id: FAKE_UUID },
+    requiresAuth: false,
+  },
+  {
+    function: 'send-quotation',
+    scenario: 'VALIDATION',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [400],
+    expectedErrorCodes: ['VALIDATION_FAILED'],
+    body: {},
+    requiresAuth: true,
+    verifyRuntimeEvent: true,
+  },
+  {
+    function: 'send-quotation',
+    scenario: 'EXECUTION',
+    expectedOutcome: 'EXPECTED_ERROR',
+    expectedStatuses: [400, 403, 404, 409, 500],
+    body: {
+      case_id: FAKE_UUID,
+      version_id: FAKE_UUID,
+      draft_id: FAKE_UUID,
+    },
+    requiresAuth: true,
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // commit-decision (3 tests)
   // ─────────────────────────────────────────────────────────────────────────
   {
