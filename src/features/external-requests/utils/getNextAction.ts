@@ -1,3 +1,5 @@
+import { STALE_THRESHOLD_HOURS } from "@/features/external-requests/constants";
+
 export type NextAction =
   | "awaiting_send"
   | "awaiting_response"
@@ -26,8 +28,6 @@ export const NEXT_ACTION_COLORS: Record<NextAction, string> = {
   stale_followup: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
   closed: "bg-muted text-muted-foreground",
 };
-
-const STALE_THRESHOLD_HOURS = 24;
 
 export function getNextAction({
   status,
@@ -63,5 +63,8 @@ export function getNextAction({
 
   if (status === "facts_validated") return "ready";
 
-  return "awaiting_response";
+  // Fallback for unknown/future statuses — "ready" means "no blocking action
+  // detected", not "confirmed terminal". It is the most neutral existing value
+  // and avoids the previous misleading "awaiting_response" label.
+  return "ready";
 }

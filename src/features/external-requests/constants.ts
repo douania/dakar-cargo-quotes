@@ -8,3 +8,9 @@ export const PRICING_CRITICAL_KEYS = new Set([
   "cargo.origin_charges",
   "cargo.pre_carriage_cost",
 ]);
+
+/**
+ * Delay (hours) after which a sent request with no response is flagged stale.
+ * Single source of truth — imported by getNextAction.
+ */
+export const STALE_THRESHOLD_HOURS = 24;
