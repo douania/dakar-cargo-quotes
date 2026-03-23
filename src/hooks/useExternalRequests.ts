@@ -87,7 +87,7 @@ export function useExternalRequests(caseId: string | undefined) {
     queryFn: async () => {
       if (!caseId) return [];
       const { data, error } = await supabase
-        .from("external_quote_response_facts" as any)
+        .from("external_quote_response_facts")
         .select("*")
         .eq("case_id", caseId)
         .order("created_at", { ascending: false });
