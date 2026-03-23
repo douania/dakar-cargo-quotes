@@ -500,6 +500,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             </div>
                           )}
 
+                          {/* P4.C — Interaction pattern */}
+                          {(interactionSignals.partnerMessagesAfterSend + interactionSignals.ourMessagesAfterSend > 0) && (
+                            <p className="text-[10px] text-muted-foreground px-1">
+                              {interactionSignals.lastMessageFrom === "us" && "Dernier message : nous"}
+                              {interactionSignals.lastMessageFrom === "partner" && "Dernier message : partenaire"}
+                              {interactionSignals.hasBackAndForth && " · Aller-retour détecté"}
+                            </p>
+                          )}
+
                           {/* P4.A — Mini timeline */}
                           {emailSignals.length > 0 && (
                             <>
