@@ -104,6 +104,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const [analysisTarget, setAnalysisTarget] = useState<{ requestId: string; emailId: string } | null>(null);
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [validatingFactId, setValidatingFactId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
@@ -576,63 +577,89 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             </>
                           )}
 
-                          {/* P4.A — Mini timeline */}
-                          {emailSignals.length > 0 && (
-                            <>
-                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                                Emails du thread
-                              </p>
-                              {emailSignals.map((sig) => {
-                                const isSelected = sig.emailId === derivedEmailId;
-                                const dateLabel = (() => {
-                                  if (!sig.receivedAt) return "Date inconnue";
-                                  const ts = new Date(sig.receivedAt).getTime();
-                                  if (isNaN(ts)) return "Date inconnue";
-                                  return formatDistanceToNow(new Date(sig.receivedAt), { addSuffix: true, locale: fr });
-                                })();
-                                return (
-                                  <div
-                                    key={sig.emailId}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-                                      isSelected
-                                        ? "bg-accent/50 border border-accent"
-                                        : "hover:bg-muted/50"
-                                    }`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setAnalysisTarget({ requestId: req.id, emailId: sig.emailId });
-                                    }}
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <span className="font-medium">{sig.fromShort}</span>
-                                      <span className="text-muted-foreground ml-1.5 truncate">
-                                        {sig.subjectShort}
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                      {dateLabel}
-                                    </span>
-                                    {sig.tags.length > 0 && (
-                                      <div className="flex gap-0.5 shrink-0">
-                                     {(consolidationGroups.length > 0
-                                          ? sig.tags.filter(t => !["Suggéré", "Déjà analysé", "Partenaire"].includes(t))
-                                          : sig.tags
-                                        ).map((tag) => (
-                                          <Badge
-                                            key={tag}
-                                            variant="outline"
-                                            className="text-[9px] px-1 py-0 leading-tight"
-                                          >
-                                            {tag}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </>
-                          )}
+                          {/* P4.F — Progressive disclosure toggle */}
+                          {emailSignals.length > 0 && (() => {
+                            const isThreadExpanded = expandedThreadIds.has(req.id);
+                            return (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedThreadIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(req.id)) {
+                                        next.delete(req.id);
+                                      } else {
+                                        next.add(req.id);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
+                                >
+                                  {isThreadExpanded ? "Masquer le détail" : "Voir le détail"}
+                                </button>
+
+                                {/* P4.A — Mini timeline (shown only when expanded) */}
+                                {isThreadExpanded && (
+                                  <>
+                                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                      Emails du thread
+                                    </p>
+                                    {emailSignals.map((sig) => {
+                                      const isSelected = sig.emailId === derivedEmailId;
+                                      const dateLabel = (() => {
+                                        if (!sig.receivedAt) return "Date inconnue";
+                                        const ts = new Date(sig.receivedAt).getTime();
+                                        if (isNaN(ts)) return "Date inconnue";
+                                        return formatDistanceToNow(new Date(sig.receivedAt), { addSuffix: true, locale: fr });
+                                      })();
+                                      return (
+                                        <div
+                                          key={sig.emailId}
+                                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
+                                            isSelected
+                                              ? "bg-accent/50 border border-accent"
+                                              : "hover:bg-muted/50"
+                                          }`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setAnalysisTarget({ requestId: req.id, emailId: sig.emailId });
+                                          }}
+                                        >
+                                          <div className="flex-1 min-w-0">
+                                            <span className="font-medium">{sig.fromShort}</span>
+                                            <span className="text-muted-foreground ml-1.5 truncate">
+                                              {sig.subjectShort}
+                                            </span>
+                                          </div>
+                                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                            {dateLabel}
+                                          </span>
+                                          {sig.tags.length > 0 && (
+                                            <div className="flex gap-0.5 shrink-0">
+                                              {(consolidationGroups.length > 0
+                                                ? sig.tags.filter(t => !["Suggéré", "Déjà analysé", "Partenaire"].includes(t))
+                                                : sig.tags
+                                              ).map((tag) => (
+                                                <Badge
+                                                  key={tag}
+                                                  variant="outline"
+                                                  className="text-[9px] px-1 py-0 leading-tight"
+                                                >
+                                                  {tag}
+                                                </Badge>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       );
                     })()}
