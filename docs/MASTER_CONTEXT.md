@@ -20,7 +20,7 @@ Date: 2026-03
 
 ## Décisions fondamentales
 
-- Pas d'auto-send
+- Pas d'auto-send — le système produit des brouillons (email_drafts), l'opérateur envoie manuellement. Aucune intégration SMTP.
 - Pas d'auto-update facts
 - Pas d'agent autonome
 - Assistant structurant uniquement

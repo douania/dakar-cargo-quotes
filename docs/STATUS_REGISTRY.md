@@ -90,10 +90,26 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 
 ---
 
-## 5. Historique des phases
+## 5. Sémantique EQ1 — statut `sent` des demandes partenaires
+
+Le statut `sent` dans `external_quote_requests` signifie : **brouillon email créé par le système, envoi manuel attendu par l'opérateur**.
+
+Le système ne dispose d'aucune intégration SMTP. La frontière système est :
+- Le runtime produit un `email_draft` (via `send-external-quote-request`)
+- L'opérateur copie/envoie manuellement depuis son client email
+- Le statut `sent` marque la fin de l'action système, pas la preuve d'un dispatch réel
+
+Cette sémantique est cohérente avec la décision fondamentale **"Pas d'auto-send"** documentée dans `docs/MASTER_CONTEXT.md`.
+
+> **Dette identifiée** : le label `sent` est sémantiquement ambigu. Un statut intermédiaire `draft_ready` serait plus littéral. À reconsidérer si une intégration SMTP est ajoutée.
+
+---
+
+## 6. Historique des phases
 
 | Phase | Date | Changement |
 |-------|------|------------|
 | S2 | 2026-03-11 | Création du registre. Alignement UI/DB sur les 15 statuts. `DECISIONS_PENDING` documenté comme ghost. |
 | S3 | 2026-03-11 | `DECISIONS_PENDING` restauré comme état canonique actif. `build-case-puzzle` en devient le writer. `READY_TO_PRICE` passe en legacy. Protection contre rétrogradation étendue. |
 | P4 | 2026-03-16 | Bypass décisionnel : `build-case-puzzle` introduit détection d'ambiguïté. Cas clairs → `READY_TO_PRICE` (réactivé). Cas ambigus → `DECISIONS_PENDING`. Signaux : `UNKNOWN_FLOW_TYPE`, `AMBIGUOUS_LCL_FCL`, `NO_SERVICE_PACKAGE`. `ACK_READY_FOR_PRICING` reste exclusif à `ack-pricing-ready`. |
+| STAB-1 | 2026-03-23 | Stabilisation EQ1/P4 : fix `getNextAction()` (closed, response_analyzed, partially_validated). Extraction `PRICING_CRITICAL_KEYS` en module partagé. Clarification sémantique `sent` EQ1. Réalignement `.lovable/plan.md` avec P4.E/F/G. |
