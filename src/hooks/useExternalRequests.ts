@@ -225,7 +225,7 @@ export function useExternalRequests(caseId: string | undefined) {
       const userId = session?.user?.id || null;
       const req = requests.find((r) => r.id === requestId);
       const { error: timelineError } = await supabase
-        .from("case_timeline_events" as any)
+        .from("case_timeline_events")
         .insert({
           case_id: caseId,
           event_type: "manual_action",
@@ -239,7 +239,7 @@ export function useExternalRequests(caseId: string | undefined) {
             request_id: requestId,
             partner_name: req?.partner_name || null,
           },
-        } as any);
+        });
       if (timelineError) {
         console.warn("[EQ1] Timeline insert failed (close)", {
           caseId,
