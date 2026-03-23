@@ -8,6 +8,7 @@ import {
 import { suggestPartnerResponse } from "@/features/external-requests/utils/suggestPartnerResponse";
 import { reviewPartnerFact, type FactReviewLevel } from "@/features/external-requests/utils/reviewPartnerFact";
 import { getRequestCloseLoopState, type RequestCloseLoopState } from "@/features/external-requests/utils/getRequestCloseLoopState";
+import { getThreadEmailSignals } from "@/features/external-requests/utils/getThreadEmailSignals";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
