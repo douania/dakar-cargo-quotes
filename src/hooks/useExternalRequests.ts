@@ -215,8 +215,8 @@ export function useExternalRequests(caseId: string | undefined) {
   const closeRequest = useMutation({
     mutationFn: async (requestId: string) => {
       const { error } = await supabase
-        .from("external_quote_requests" as any)
-        .update({ status: "closed" } as any)
+        .from("external_quote_requests")
+        .update({ status: "closed" })
         .eq("id", requestId);
       if (error) throw error;
 
