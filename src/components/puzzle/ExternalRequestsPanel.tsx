@@ -459,6 +459,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                       );
                       const threadContext = getThreadContextSummary(req, threadEmails, usedEmailIds);
                       const interactionSignals = getThreadInteractionSignals(req, threadEmails);
+                      const consolidationGroups = getThreadConsolidationGroups(
+                        req, threadEmails, usedEmailIds, suggestion?.bestEmailId ?? null
+                      );
 
                       if (threadContext.totalEmails === 0 && emailSignals.length === 0) return null;
 
