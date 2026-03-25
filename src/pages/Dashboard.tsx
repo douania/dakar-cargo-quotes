@@ -400,8 +400,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('[C3] handleProcess error:', err);
       const { toast } = await import('sonner');
-      toast.error('Erreur inattendue — ouverture en mode classique');
-      navigate(`/quotation/${emailId}`);
+      toast.error('Erreur inattendue. Veuillez réessayer ou actualiser la page.');
     } finally {
       setIsProcessing(false);
     }

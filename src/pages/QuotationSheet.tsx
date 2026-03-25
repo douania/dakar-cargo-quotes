@@ -1484,39 +1484,23 @@ L'équipe SODATRA`;
           </div>
         )}
 
-        {/* Phase 9.4: DecisionSupportPanel - affiché si status autorise les décisions */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
+        {/* M6.1: Workflow panels (Decision, Pricing, Version, Send) are in CaseView cockpit */}
+        {!quotationCompleted && quoteCase?.id && (
           <div className="mb-6">
-            <DecisionSupportPanel caseId={quoteCase.id} />
-          </div>
-        )}
-
-        {/* Phase 10.1+P4: PricingLaunchPanel - visible for pricing-eligible statuses */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
-          <div className="mb-6">
-            <PricingLaunchPanel caseId={quoteCase.id} isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status)} />
-          </div>
-        )}
-
-        {/* Phase 12+19: PricingResultPanel + QuotationVersionCard + SendQuotationPanel */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
-          <div className="mb-6 space-y-4">
-            <PricingResultPanel caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
-            {/* Phase M3.2: Historical suggestions */}
-            {historicalSuggestions && (
-              <HistoricalSuggestionsCard
-                suggestions={historicalSuggestions}
-                onAddSuggestion={handleAddHistoricalSuggestion}
-              />
-            )}
-            <QuotationVersionCard caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
-            {/* Phase 19A C2-A: SendQuotationPanel strict FSM guard */}
-            {['QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
-              <SendQuotationPanel caseId={quoteCase.id} />
-            )}
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ExternalLink className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium text-sm">Ce dossier est suivi dans le cockpit principal</p>
+                    <p className="text-xs text-muted-foreground">Décisions, chiffrage, versioning et envoi sont gérés depuis la vue dossier.</p>
+                  </div>
+                </div>
+                <Button size="sm" onClick={() => navigate(`/case/${quoteCase.id}`)}>
+                  Ouvrir le cockpit
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         )}
 
