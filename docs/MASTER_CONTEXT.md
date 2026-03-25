@@ -97,6 +97,27 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
+## Auto-pricing sur résolution du dernier gap bloquant
+
+- **Déclencheur** : orchestré par le cockpit `CaseView` (couche UI), pas par le backend. Ni `build-case-puzzle` ni `set-case-fact` ne déclenchent le pricing par eux-mêmes.
+- **Séquence exacte** : lorsqu'un opérateur résout un gap bloquant inline, CaseView exécute séquentiellement : `set-case-fact` → `build-case-puzzle` (re-run) → requête fraîche sur `quote_gaps` → si plus aucun gap bloquant ouvert et aucun pricing déjà en cours → appel automatique de `run-pricing`.
+- **Pas de confirmation supplémentaire** : l'auto-pricing se lance sans dialogue de confirmation. C'est un choix produit assumé — l'opérateur est averti par un toast explicite.
+- **Guards existants** : vérification que le dernier `pricing_runs.status` n'est pas `running` ou `success` ; vérification que le case n'est pas dans un statut terminal (`SENT`, `ARCHIVED`, `PRICING_RUNNING`).
+- **Limitation connue** : si un re-run de `build-case-puzzle` crée de nouveaux gaps bloquants (ex. nouvel email reçu entre-temps), le check post-puzzle les détectera et n'auto-lancera pas le pricing. Le risque de race condition est mitigé par l'exécution séquentielle dans le même `await`.
+
+---
+
+## Suggestions dérivées (UI)
+
+- **Portée actuelle** : une seule suggestion — `cargo.weight_per_container_kg` calculé à partir de `cargo.weight_kg / cargo.container_count`.
+- **Calcul** : `useMemo` local dans CaseView, basé sur les facts courants. Pas de logique serveur, pas de table dédiée.
+- **Application** : via `set-case-fact` (source_type = `manual_input`, confidence = 1.0). La suggestion devient un fait standard une fois appliquée.
+- **Rejet** : state local (`dismissedSuggestions`), non persisté. Un refresh de page restaure la suggestion. C'est acceptable tant que le nombre de suggestions reste minimal.
+- **Pas de statut métier** : il n'existe pas de concept "suggestion" en base de données. Les suggestions sont purement un confort UI local.
+- **Évolution future** : si le nombre de suggestions dérivées augmente (3+), il faudra envisager la persistance du rejet et potentiellement une table dédiée. Hors scope tant qu'il n'y a qu'une suggestion.
+
+---
+
 ## Fonctions dormantes / legacy
 
 ### `generate-case-outputs`
