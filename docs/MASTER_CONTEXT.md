@@ -127,20 +127,18 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 - **Pricing orchestration** : `run-pricing` exécute le pricing par lot — fusion de faits spécifiques au lot, résolution service/transport par lot, checks de cohérence par lot, all-or-nothing. Stockage dual : root columns agrégées (`tariff_lines`, `total_ht`) + `outputs_json.lots[]` structuré.
 - **UI cockpit** : `MultiRequestLinesPanel` (détection/structure), `PricingResultPanel` (résultats par lot en sections collapsibles), amber badges sur les facts ambigus multi-lot.
 
-### Limitation connue du pipeline de sortie
+### Pipeline de sortie multi-lot (M14b)
 
 - **Multi-lot pricing support** = oui.
-- **Multi-lot final deliverable structure** = pas encore préservée.
-- `generate-quotation-version` consomme les root columns agrégées (`tariff_lines`, `total_ht`, `total_ttc`) et construit un `VersionSnapshot` avec un tableau `lines[]` plat. La structure per-lot disponible dans `outputs_json.lots[]` (lot labels, per-lot totals, per-lot duty breakdown) **n'est pas préservée** dans le snapshot de version.
-- `export-quotation-version-pdf` et `create-quotation-email-draft` héritent donc d'une présentation aplatie — correcte en montants, mais sans séparation visuelle par lot.
-- Ce n'est pas un crash ni une erreur de calcul. C'est une perte de structure métier dans le livrable final.
+- **Multi-lot final deliverable structure** = oui (depuis M14b).
+- `generate-quotation-version` enrichit le `VersionSnapshot` avec `is_multi_lot` (boolean) + `lots[]` optionnels, peuplés depuis `pricingRun.outputs_json.lots`. Les snapshots mono-lot existants restent valides sans enrichissement.
+- `export-quotation-version-pdf` rend les lots en sections séparées (header par lot, lignes, sous-total) avec pagination réelle multi-page (`ensureSpace`). Fallback legacy : regroupement depuis `raw_lines` si `snapshot.lots` absent mais tags `lot_index`/`lot_label` présents. La troncature silencieuse (ancien `break` sur dépassement) a été supprimée.
+- `create-quotation-email-draft` adapte sujet (`(X lots)`) et corps (résumé par lot avec montants HT). Même fallback legacy depuis `raw_lines`.
+- **Compatibilité backward** : les snapshots mono-lot restent inchangés (champs optionnels, fallback plat). Les snapshots legacy multi-lot sans `lots[]` peuvent encore être rendus via le fallback `raw_lines`.
 
-### Piste d'évolution future
+### Réserve résiduelle
 
-- Enrichir `VersionSnapshot` avec une section `lots[]` optionnelle, alimentée depuis `outputs_json.lots[]`.
-- Adapter `export-quotation-version-pdf` pour grouper les lignes par lot quand cette structure est présente.
-- Adapter `create-quotation-email-draft` pour refléter la structure par lot dans le corps du mail.
-- Sujet à traiter dans un ticket produit dédié (touche 3 edge functions + composants UI). Pas dans une micro-phase.
+- Le fallback legacy (regroupement depuis `raw_lines` pour snapshots pré-M14b) est implémenté mais n'a pas pu être validé en runtime faute de cas legacy multi-lot en base. Non bloquant.
 
 ---
 
