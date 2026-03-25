@@ -100,12 +100,7 @@ import type {
   Alert, 
   QuotationOffer, 
   RegulatoryInfo,
-  HistoricalSuggestionLine,
 } from '@/features/quotation/types';
-
-// Phase M3.2: Historical suggestions
-import { useHistoricalSuggestions } from '@/features/quotation/hooks/useHistoricalSuggestions';
-import { HistoricalSuggestionsCard } from '@/features/quotation/components/HistoricalSuggestionsCard';
 
 // Utilitaires de parsing
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
