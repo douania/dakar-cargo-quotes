@@ -407,7 +407,7 @@ Deno.serve(async (req) => {
         status_after: "QUOTED_VERSIONED",
       },
       actor_type: "user",
-      actor_user_id: user.id,
+      actor_user_id: userId,
     });
 
     // ── Success ──────────────────────────────────────────
