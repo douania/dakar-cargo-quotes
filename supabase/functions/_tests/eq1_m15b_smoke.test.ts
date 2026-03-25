@@ -319,11 +319,23 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
+    // Create a second email for seeded response (avoid unique constraint with scenario A)
+    const email2 = await restInsert<{ id: string }>("emails", {
+      message_id: `${TAG}-seed@test.local`,
+      from_address: "partner-test@example.com",
+      to_addresses: ["ops@sodatra.com"],
+      subject: `${TAG} Seeded partner response`,
+      body_text: "Freight rate: 1500 EUR/20ft",
+      thread_ref: threadId,
+    });
+    const seedEmailId = email2.id;
+    addCleanup(() => restDelete("emails", `id=eq.${seedEmailId}`));
+
     // Seed: response
     const resp = await restInsert<{ id: string }>("external_quote_responses", {
       request_id: requestId,
       case_id: caseId,
-      source_email_id: emailId,
+      source_email_id: seedEmailId,
       raw_excerpt: `${TAG} seeded response`,
       status: "analyzed",
       received_at: new Date().toISOString(),
