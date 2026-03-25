@@ -118,6 +118,32 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
+## Support multi-lot — état et limitations
+
+### Ce qui est en place
+
+- **Détection** : `build-case-puzzle` détecte les demandes multi-lot via `detectMultiQuoteMarkers` + extraction IA. Les lignes sont stockées dans `quote_request_lines` (line_index, extracted_facts_json, request_type_hint).
+- **Gap bloquant** : `request.multi_lot_unresolved` bloque le pricing tant que la structure multi-lot n'est pas clarifiée.
+- **Pricing orchestration** : `run-pricing` exécute le pricing par lot — fusion de faits spécifiques au lot, résolution service/transport par lot, checks de cohérence par lot, all-or-nothing. Stockage dual : root columns agrégées (`tariff_lines`, `total_ht`) + `outputs_json.lots[]` structuré.
+- **UI cockpit** : `MultiRequestLinesPanel` (détection/structure), `PricingResultPanel` (résultats par lot en sections collapsibles), amber badges sur les facts ambigus multi-lot.
+
+### Limitation connue du pipeline de sortie
+
+- **Multi-lot pricing support** = oui.
+- **Multi-lot final deliverable structure** = pas encore préservée.
+- `generate-quotation-version` consomme les root columns agrégées (`tariff_lines`, `total_ht`, `total_ttc`) et construit un `VersionSnapshot` avec un tableau `lines[]` plat. La structure per-lot disponible dans `outputs_json.lots[]` (lot labels, per-lot totals, per-lot duty breakdown) **n'est pas préservée** dans le snapshot de version.
+- `export-quotation-version-pdf` et `create-quotation-email-draft` héritent donc d'une présentation aplatie — correcte en montants, mais sans séparation visuelle par lot.
+- Ce n'est pas un crash ni une erreur de calcul. C'est une perte de structure métier dans le livrable final.
+
+### Piste d'évolution future
+
+- Enrichir `VersionSnapshot` avec une section `lots[]` optionnelle, alimentée depuis `outputs_json.lots[]`.
+- Adapter `export-quotation-version-pdf` pour grouper les lignes par lot quand cette structure est présente.
+- Adapter `create-quotation-email-draft` pour refléter la structure par lot dans le corps du mail.
+- Sujet à traiter dans un ticket produit dédié (touche 3 edge functions + composants UI). Pas dans une micro-phase.
+
+---
+
 ## Fonctions dormantes / legacy
 
 ### `generate-case-outputs`
