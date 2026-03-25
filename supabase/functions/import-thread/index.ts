@@ -1282,42 +1282,9 @@ async function processAttachment(
       'text/plain'
     ];
     
-    if (analyzableTypes.some(t => attachment.contentType.includes(t))) {
-      try {
-        // Get public URL for the file
-        const { data: urlData } = supabase.storage
-          .from('documents')
-          .getPublicUrl(storagePath);
-        
-        if (urlData?.publicUrl) {
-          // Call parse-document function
-          const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-document', {
-            body: { 
-              url: urlData.publicUrl,
-              filename: attachment.filename 
-            }
-          });
-          
-          if (!parseError && parseResult?.text) {
-            extractedText = parseResult.text;
-            
-            // Update attachment with extracted text
-            await supabase
-              .from('email_attachments')
-              .update({
-                extracted_text: extractedText.substring(0, 50000), // Limit size
-                extracted_data: parseResult.data || null,
-                is_analyzed: true
-              })
-              .eq('id', attachmentRecord.id);
-            
-            console.log(`Analyzed ${attachment.filename}: ${extractedText.length} chars extracted`);
-          }
-        }
-      } catch (analyzeError) {
-        console.error(`Failed to analyze ${attachment.filename}:`, analyzeError);
-      }
-    }
+    // Note: text extraction for email attachments is handled by analyze-attachments (separate circuit).
+    // The previous inline extraction via parse-document was non-functional (private bucket + wrong payload format)
+    // and has been removed in M20b.
     
     return {
       id: attachmentRecord.id,
