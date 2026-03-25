@@ -747,6 +747,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     </>
                   )}
 
+                  {/* M15b: Zero-facts feedback — response analyzed but no exploitable facts */}
+                  {reqResponses.length > 0 && reqFacts.length === 0 && 
+                   ["response_analyzed", "closed"].includes(req.status) && (
+                    <div className="flex items-start gap-2 p-2 rounded bg-orange-50 dark:bg-orange-950/30 text-xs text-orange-700 dark:text-orange-300">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      Aucun fait exploitable n'a été extrait de cette réponse partenaire. Vérifiez le contenu de l'email ou relancez une analyse sur un autre email.
+                    </div>
+                  )}
+
                   {/* Proposed facts */}
                   {reqFacts.length > 0 && (
                     <>
