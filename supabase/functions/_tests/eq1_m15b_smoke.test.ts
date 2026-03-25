@@ -24,8 +24,9 @@ import {
 const SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("VITE_SUPABASE_PUBLISHABLE_KEY")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const TEST_EMAIL = Deno.env.get("PHASE15_TEST_EMAIL");
-const TEST_PASSWORD = Deno.env.get("PHASE15_TEST_PASSWORD");
+// Test user — created dynamically if no PHASE15_TEST_EMAIL is set
+const TEST_EMAIL = Deno.env.get("PHASE15_TEST_EMAIL") || `eq1-test-${Date.now()}@test.local`;
+const TEST_PASSWORD = Deno.env.get("PHASE15_TEST_PASSWORD") || "TestPass123!";
 
 const TAG = `EQ1_M15B_TEST_${Date.now()}`;
 const TIMEOUT_MS = 20_000;
