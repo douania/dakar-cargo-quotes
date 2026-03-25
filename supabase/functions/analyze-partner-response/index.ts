@@ -314,35 +314,37 @@ ${email.body_text || "(corps vide)"}`;
       },
     });
 
-    // 10. Manual action for review
-    const actionDedupeKey = `partner_review:${responseId}`;
-    const { data: existingActions } = await serviceClient
-      .from("case_timeline_events")
-      .select("event_data")
-      .eq("case_id", case_id)
-      .eq("event_type", "manual_action")
-      .limit(100);
+    // 10. Manual action for review — only if there are exploitable facts
+    if (validFacts.length > 0) {
+      const actionDedupeKey = `partner_review:${responseId}`;
+      const { data: existingActions } = await serviceClient
+        .from("case_timeline_events")
+        .select("event_data")
+        .eq("case_id", case_id)
+        .eq("event_type", "manual_action")
+        .limit(100);
 
-    const existingKeys = new Set(
-      (existingActions ?? [])
-        .map((a) => (a.event_data as Record<string, unknown> | null)?.["dedupe_key"])
-        .filter((k): k is string => typeof k === "string")
-    );
+      const existingKeys = new Set(
+        (existingActions ?? [])
+          .map((a) => (a.event_data as Record<string, unknown> | null)?.["dedupe_key"])
+          .filter((k): k is string => typeof k === "string")
+      );
 
-    if (!existingKeys.has(actionDedupeKey)) {
-      await serviceClient.from("case_timeline_events").insert({
-        case_id,
-        event_type: "manual_action",
-        related_email_id: email_id,
-        actor_type: "ai",
-        event_data: {
-          dedupe_key: actionDedupeKey,
-          action_code: "REVIEW_PARTNER_RESPONSE",
-          title_fr: "Valider les faits du partenaire",
-          description_fr: `${validFacts.length} fait(s) proposé(s) par ${extReq.partner_name}`,
-          status: "open",
-        },
-      });
+      if (!existingKeys.has(actionDedupeKey)) {
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "manual_action",
+          related_email_id: email_id,
+          actor_type: "ai",
+          event_data: {
+            dedupe_key: actionDedupeKey,
+            action_code: "REVIEW_PARTNER_RESPONSE",
+            title_fr: "Valider les faits du partenaire",
+            description_fr: `${validFacts.length} fait(s) proposé(s) par ${extReq.partner_name}`,
+            status: "open",
+          },
+        });
+      }
     }
 
     return jsonResponse({
