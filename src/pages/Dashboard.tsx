@@ -348,9 +348,10 @@ export default function Dashboard() {
   const handleProcess = useCallback(async (emailId: string, threadRef: string | null) => {
     if (isProcessing) return;
 
-    // Fallback legacy if no threadRef
+    // M6.1: No fallback to legacy — require threadRef
     if (!threadRef) {
-      navigate(`/quotation/${emailId}`);
+      const { toast } = await import('sonner');
+      toast.error('Impossible d\'ouvrir ce fil — aucune référence thread disponible. Veuillez réessayer.');
       return;
     }
 
