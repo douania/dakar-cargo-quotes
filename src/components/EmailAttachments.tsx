@@ -208,8 +208,8 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
     if (attachment.storage_path) {
       const { data } = await supabase.storage
         .from('documents')
-        .getPublicUrl(attachment.storage_path);
-      setPreviewUrl(data.publicUrl);
+        .createSignedUrl(attachment.storage_path, 3600);
+      if (data?.signedUrl) setPreviewUrl(data.signedUrl);
     }
   };
 
