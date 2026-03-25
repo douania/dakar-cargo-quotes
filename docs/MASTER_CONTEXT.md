@@ -84,13 +84,15 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
-## Cockpit canonique (M6.1)
+## Cockpit canonique (M6.1 + M6.2)
 
 - **CaseView** (`/case/:caseId`) = cockpit canonique opérateur pour le workflow complet de cotation (gaps → décisions → pricing → version → PDF → send).
 - **QuotationSheet** (`/quotation/:emailId`) = surface secondaire email-first / legacy. Les panels workflow critiques (Decision, Pricing, Version, Send) ne sont plus rendus ici quand un quote_case existe — une carte de redirection oriente vers CaseView.
 - **QuotationSheet** (`/quotation/new`) = point d'entrée manuel encore valide, mais non canonique pour le workflow de dossier une fois un case créé.
 - **Dashboard** ne redirige plus silencieusement vers QuotationSheet en cas d'erreur — erreur explicite affichée.
 - Aucun panel critique de workflow ne doit être ajouté à QuotationSheet.
+- **Chemin canonique post-pricing** : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine opérateur se fait implicitement lors de la création de version (confirmation dialog). `HUMAN_REVIEW` existe dans l'enum DB et est supporté défensivement par `generate-quotation-version`, mais il n'est pas un sas obligatoire du workflow actuel — il est dormant.
+- **`generate-case-outputs`** n'est pas le mécanisme canonique de sortie opérateur. Il pousse vers `HUMAN_REVIEW` (dormant) et n'est pas invoqué par le cockpit CaseView. Candidat futur de requalification (ticket séparé).
 
 ---
 
