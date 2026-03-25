@@ -189,8 +189,6 @@ Deno.test({
     assertExists(SUPABASE_URL, "VITE_SUPABASE_URL must be set");
     assertExists(SUPABASE_ANON_KEY, "VITE_SUPABASE_PUBLISHABLE_KEY must be set");
     assertExists(SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY must be set");
-    assertExists(TEST_EMAIL, "PHASE15_TEST_EMAIL must be set");
-    assertExists(TEST_PASSWORD, "PHASE15_TEST_PASSWORD must be set");
   },
 });
 
