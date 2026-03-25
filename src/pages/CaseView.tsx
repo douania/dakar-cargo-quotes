@@ -1089,7 +1089,7 @@ export default function CaseView() {
    return map;
   }, [events]);
 
-  // ── All drafts (visible even after action closed) ──
+   // ── All drafts (visible even after action closed) ──
   const allDrafts = useMemo(() => {
     return (events ?? [])
       .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1")
@@ -1099,10 +1099,12 @@ export default function CaseView() {
         const subject = typeof draftReply?.subject === "string" ? draftReply.subject : null;
         const body = typeof draftReply?.body === "string" ? draftReply.body : null;
         if (!subject || !body) return null;
-        return { id: e.id, draft: { subject, body }, createdAt: e.created_at };
+        const sourceKey = (ed["source_action_dedupe_key"] as string) ?? "";
+        const sourceLabel = sourceKey.includes("REQUEST_CLIENT_INFO_FOR_GAPS") ? "Client" : "Réponse";
+        return { id: e.id, draft: { subject, body }, createdAt: e.created_at, sourceLabel };
       })
       .filter(Boolean)
-      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string }[];
+      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string; sourceLabel: string }[];
   }, [events]);
 
   async function closeAction(dedupeKey: string) {
