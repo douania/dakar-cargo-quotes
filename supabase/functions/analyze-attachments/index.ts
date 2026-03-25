@@ -915,6 +915,61 @@ REGLES CRITIQUES :
       }
     }
     
+    // Extract and store local transport rates (aligned with sync path)
+    if (extractedData?.transport_destinations && Array.isArray(extractedData.transport_destinations)) {
+      console.log(`[BG] Found ${extractedData.transport_destinations.length} transport destinations to store`);
+      
+      for (const dest of extractedData.transport_destinations) {
+        if (!dest.name || !dest.rates) continue;
+        
+        for (const [rateKey, rateAmount] of Object.entries(dest.rates)) {
+          if (typeof rateAmount !== 'number' || rateAmount <= 0) continue;
+          
+          // Parse rate key like "20_dry", "40_dg", etc.
+          const containerMatch = rateKey.match(/^(\d+)(?:')?(?:_)?(.*)$/);
+          let containerType = '20DV';
+          let cargoCategory = 'Dry';
+          
+          if (containerMatch) {
+            const size = containerMatch[1];
+            const suffix = containerMatch[2]?.toLowerCase() || 'dry';
+            
+            containerType = size === '40' ? '40DV' : '20DV';
+            if (suffix.includes('hc') || suffix.includes('high')) containerType = '40HC';
+            if (suffix.includes('fr') || suffix.includes('flat')) containerType = '40FR';
+            if (suffix.includes('ot') || suffix.includes('open')) containerType = size + 'OT';
+            
+            if (suffix.includes('dg')) cargoCategory = 'DG';
+            else if (suffix.includes('oog') || suffix.includes('special')) cargoCategory = 'Special';
+            else if (suffix.includes('reefer') || suffix.includes('rf')) cargoCategory = 'Reefer';
+            else cargoCategory = 'Dry';
+          }
+          
+          const { error: transportError } = await supabase
+            .from('local_transport_rates')
+            .insert({
+              origin: 'Dakar Port',
+              destination: dest.name,
+              container_type: containerType,
+              cargo_category: cargoCategory,
+              rate_amount: rateAmount,
+              rate_currency: 'XOF',
+              source_document: `Excel: ${attachment.filename}`,
+              provider: extractedData.metadata?.partner || 'Unknown',
+              notes: dest.distance_km ? `Distance: ${dest.distance_km} km` : null,
+              source_attachment_id: attachment.id,
+            });
+          
+          if (transportError) {
+            if ((transportError as any).code === '23505') console.log(`[BG] transport rate duplicate for ${dest.name}, skipping`);
+            else console.error(`[BG] Error storing transport rate for ${dest.name}:`, transportError);
+          } else {
+            console.log(`[BG] Transport rate stored: ${dest.name} ${containerType} ${cargoCategory} = ${rateAmount} FCFA`);
+          }
+        }
+      }
+    }
+    
     // Store packing list data as learned knowledge BEFORE final update
     if (extractedData?.document_type === 'packing_list') {
       await storePackingListKnowledge(supabase, attachment, extractedData);
