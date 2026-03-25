@@ -1,18 +1,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
+import * as pdfjsLib from "npm:pdfjs-dist@4.4.168/legacy/build/pdf.mjs";
 import { requireUser } from "../_shared/auth.ts";
 
-const PDF_WORKER_SRC =
-  "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
-
-try {
-  // Required by pdfjs-dist in non-browser runtimes
-  (pdfjsLib as any).GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
-} catch (e) {
-  console.warn("Unable to set PDF.js workerSrc:", e);
-}
+// Worker disabled (disableWorker: true used at call sites)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
