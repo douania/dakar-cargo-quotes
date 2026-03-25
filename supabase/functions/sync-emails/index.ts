@@ -1537,11 +1537,13 @@ async function findExistingThread(
       }
     }
     
-    // 2. Chercher par sujet normalisé exact
+    // 2. Chercher par sujet normalisé exact (garde temporelle: 60 jours max)
+    const subjectCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     const { data: subjectThread } = await supabase
       .from('email_threads')
       .select('id, project_name, subject_normalized, root_message_id')
       .eq('subject_normalized', normalizedSubject)
+      .gte('last_message_at', subjectCutoff)
       .order('last_message_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -1556,12 +1558,14 @@ async function findExistingThread(
       }
     }
     
-    // 3. Chercher par client + sujet similaire
+    // 3. Chercher par client + sujet similaire (garde temporelle: 30 jours max)
     if (clientEmail) {
+      const similarityCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const { data: threads } = await supabase
         .from('email_threads')
         .select('id, project_name, subject_normalized, root_message_id')
         .eq('client_email', clientEmail)
+        .gte('last_message_at', similarityCutoff)
         .order('last_message_at', { ascending: false })
         .limit(5);
       
@@ -1573,7 +1577,7 @@ async function findExistingThread(
           }
           const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
           if (similarity > 0.6) {
-            console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity})`);
+            console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity}, within 30d window)`);
             return thread;
           }
         }
