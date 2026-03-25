@@ -924,7 +924,7 @@ REGLES CRITIQUES :
     const finalText = normalizeText(extractedText || '');
     const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
       is_analyzed: true,
-      extracted_text: finalText.substring(0, 5000),
+      extracted_text: finalText.substring(0, 10000),
       extracted_data: extractedData,
       analysis_claimed_at: null,
     }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs)
