@@ -2047,6 +2047,25 @@ export default function CaseView() {
                     <ul className="space-y-3">
                       {blockingGaps.map((g: any) => renderGapRow(g, true, "text-red-800"))}
                     </ul>
+                    {!isLocked && blockingGaps.some((g: any) => CLIENT_RESOLVABLE_GAP_KEYS.has(g.gap_key)) && (
+                      <div className="mt-3 pt-3 border-t border-destructive/20 flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => askClientForGaps()}
+                          disabled={askingClientForGaps}
+                          title="Génère un brouillon pour tous les gaps client-résolvables ouverts du dossier"
+                        >
+                          {askingClientForGaps ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Mail className="mr-1 h-3 w-3" />
+                          )}
+                          Préparer une demande client (tous les gaps ouverts)
+                        </Button>
+                      </div>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}
