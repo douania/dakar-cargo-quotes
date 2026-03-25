@@ -2339,6 +2339,38 @@ export default function CaseView() {
           );
         })()}
 
+        {/* M9b: Output pipeline stepper — read-only progression indicator */}
+        {isPipelineVisible && (() => {
+          const steps = [
+            { label: "Pricing", done: true },
+            { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
+            { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
+            { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
+            { label: "Envoyé", done: caseData.status === 'SENT' },
+          ];
+          return (
+            <div className="mb-4 flex items-center gap-1 px-1">
+              {steps.map((step, i) => (
+                <React.Fragment key={step.label}>
+                  <div className="flex items-center gap-1.5">
+                    {step.done ? (
+                      <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                    )}
+                    <span className={`text-xs font-medium whitespace-nowrap ${step.done ? 'text-green-700' : 'text-muted-foreground'}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {i < steps.length - 1 && (
+                    <div className={`flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          );
+        })()}
+
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
           <div className="mb-6">
