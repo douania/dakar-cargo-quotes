@@ -80,17 +80,62 @@ async function restUpdate(table: string, query: string, patch: Record<string, un
   await res.text();
 }
 
+let createdUserId: string | null = null;
+
 async function getTestToken(): Promise<string> {
-  if (!TEST_EMAIL || !TEST_PASSWORD) throw new Error("PHASE15_TEST_EMAIL / PHASE15_TEST_PASSWORD required");
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+  // Try sign-in first
+  const signInRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
     body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Auth failed: ${text}`);
-  const data = JSON.parse(text);
-  return data.access_token;
+  const signInText = await signInRes.text();
+  if (signInRes.ok) {
+    const data = JSON.parse(signInText);
+    return data.access_token;
+  }
+
+  // Create user via admin API if sign-in failed
+  console.log("  🔧 Creating test user via admin API...");
+  const createRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    }),
+  });
+  const createText = await createRes.text();
+  if (!createRes.ok) throw new Error(`Create user failed: ${createText}`);
+  const created = JSON.parse(createText);
+  createdUserId = created.id;
+  addCleanup(async () => {
+    if (!createdUserId) return;
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${createdUserId}`, {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      },
+    });
+    await r.text();
+    console.log(`[cleanup] Deleted test user ${createdUserId}`);
+  });
+
+  // Now sign in
+  const retryRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
+  });
+  const retryText = await retryRes.text();
+  if (!retryRes.ok) throw new Error(`Sign-in after create failed: ${retryText}`);
+  return JSON.parse(retryText).access_token;
 }
 
 async function callEdge(fn: string, body: unknown, token: string): Promise<{ status: number; json: Record<string, unknown> }> {
