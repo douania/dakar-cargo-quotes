@@ -365,8 +365,7 @@ export default function Dashboard() {
       if (caseError || !caseData?.case_id) {
         console.error('[C3] ensure-quote-case failed:', caseError || caseData);
         const { toast } = await import('sonner');
-        toast.warning('Impossible de créer le dossier — ouverture en mode classique');
-        navigate(`/quotation/${emailId}`);
+        toast.error('Impossible de créer le dossier. Veuillez réessayer ou actualiser la page.');
         return;
       }
 
