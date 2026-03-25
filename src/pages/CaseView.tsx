@@ -1089,7 +1089,7 @@ export default function CaseView() {
    return map;
   }, [events]);
 
-  // ── All drafts (visible even after action closed) ──
+   // ── All drafts (visible even after action closed) ──
   const allDrafts = useMemo(() => {
     return (events ?? [])
       .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1")
@@ -1099,10 +1099,12 @@ export default function CaseView() {
         const subject = typeof draftReply?.subject === "string" ? draftReply.subject : null;
         const body = typeof draftReply?.body === "string" ? draftReply.body : null;
         if (!subject || !body) return null;
-        return { id: e.id, draft: { subject, body }, createdAt: e.created_at };
+        const sourceKey = (ed["source_action_dedupe_key"] as string) ?? "";
+        const sourceLabel = sourceKey.includes("REQUEST_CLIENT_INFO_FOR_GAPS") ? "Client" : "Réponse";
+        return { id: e.id, draft: { subject, body }, createdAt: e.created_at, sourceLabel };
       })
       .filter(Boolean)
-      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string }[];
+      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string; sourceLabel: string }[];
   }, [events]);
 
   async function closeAction(dedupeKey: string) {
@@ -1855,7 +1857,12 @@ export default function CaseView() {
               {allDrafts.map(d => (
                 <div key={d.id} className="bg-muted rounded-lg p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{d.draft.subject}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold">{d.draft.subject}</p>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${d.sourceLabel === "Client" ? "bg-blue-100 text-blue-800 border-blue-300" : "bg-accent/20 text-accent-foreground border-accent/30"}`}>
+                        {d.sourceLabel}
+                      </Badge>
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                       <Button
@@ -2088,6 +2095,47 @@ export default function CaseView() {
           );
         })()}
 
+        {/* Phase CL1: Client clarifications tracking — positioned right after gaps for visual continuity */}
+        {caseId && (clientGapRequests as any[]).length > 0 && (
+          <Card className="mb-6 border-blue-200 bg-blue-50/30">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-600" />
+                Clarifications client
+                <Badge variant="secondary" className="text-[10px] ml-1">
+                  {(clientGapRequests as any[]).length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="py-2 px-4">
+              <div className="space-y-1.5">
+                {(clientGapRequests as any[]).map((req: any) => {
+                  const statusConfig: Record<string, { label: string; icon: string; className: string }> = {
+                    drafted: { label: "Brouillon", icon: "📝", className: "bg-muted text-muted-foreground" },
+                    sent: { label: "Envoyée", icon: "📤", className: "bg-blue-100 text-blue-800" },
+                    answered: { label: "Réponse détectée", icon: "📩", className: "bg-amber-100 text-amber-800" },
+                    validated: { label: "Validée", icon: "✅", className: "bg-green-100 text-green-800" },
+                    cancelled: { label: "Annulée", icon: "❌", className: "bg-muted text-muted-foreground" },
+                  };
+                  const cfg = statusConfig[req.status] || statusConfig.drafted;
+                  const gap = gaps.find((g: any) => g.gap_key === req.gap_key);
+                  const questionLabel = gap?.question_fr || req.gap_key;
+
+                  return (
+                    <div key={req.id} className="flex items-center gap-2 text-sm py-1">
+                      <span>{cfg.icon}</span>
+                      <span className="flex-1 truncate">{questionLabel}</span>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${cfg.className}`}>
+                        {cfg.label}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
 
@@ -2152,46 +2200,7 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* Phase CL1: Client clarifications tracking */}
-        {caseId && (clientGapRequests as any[]).length > 0 && (
-          <Card className="mb-6 border-blue-200 bg-blue-50/30">
-            <CardHeader className="py-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Mail className="h-4 w-4 text-blue-600" />
-                Clarifications client
-                <Badge variant="secondary" className="text-[10px] ml-1">
-                  {(clientGapRequests as any[]).length}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="py-2 px-4">
-              <div className="space-y-1.5">
-                {(clientGapRequests as any[]).map((req: any) => {
-                  const statusConfig: Record<string, { label: string; icon: string; className: string }> = {
-                    drafted: { label: "Brouillon", icon: "📝", className: "bg-muted text-muted-foreground" },
-                    sent: { label: "Envoyée", icon: "📤", className: "bg-blue-100 text-blue-800" },
-                    answered: { label: "Réponse détectée", icon: "📩", className: "bg-amber-100 text-amber-800" },
-                    validated: { label: "Validée", icon: "✅", className: "bg-green-100 text-green-800" },
-                    cancelled: { label: "Annulée", icon: "❌", className: "bg-muted text-muted-foreground" },
-                  };
-                  const cfg = statusConfig[req.status] || statusConfig.drafted;
-                  const gap = gaps.find((g: any) => g.gap_key === req.gap_key);
-                  const questionLabel = gap?.question_fr || req.gap_key;
 
-                  return (
-                    <div key={req.id} className="flex items-center gap-2 text-sm py-1">
-                      <span>{cfg.icon}</span>
-                      <span className="flex-1 truncate">{questionLabel}</span>
-                      <Badge variant="outline" className={`text-[10px] shrink-0 ${cfg.className}`}>
-                        {cfg.label}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Derived Suggestions Panel — before pricing pipeline for optimal timing */}
         {visibleSuggestions.length > 0 && !isLocked && (
