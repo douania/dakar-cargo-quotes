@@ -30,6 +30,21 @@ import {
 const FUNCTION_NAME = "generate-quotation-version";
 
 // Snapshot structure for immutable storage
+interface VersionSnapshotLot {
+  lot_index: number;
+  label: string;
+  lines: Array<{
+    service_code: string;
+    description: string | null;
+    quantity: number;
+    unit_price: number;
+    amount: number;
+    currency: string;
+  }>;
+  totals: { ht: number; ttc: number; currency: string };
+  duty_breakdown?: any;
+}
+
 interface VersionSnapshot {
   meta: {
     version_id: string;
@@ -65,6 +80,8 @@ interface VersionSnapshot {
     currency: string;
   };
   sources: any[];
+  is_multi_lot?: boolean;
+  lots?: VersionSnapshotLot[];
 }
 
 // Helper: log + return error
