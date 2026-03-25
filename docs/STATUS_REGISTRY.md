@@ -16,19 +16,19 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | # | Statut | Label FR | Définition métier | Fonction(s) autorisées à l'écrire | Classification | Écran(s) principaux |
 |---|--------|----------|-------------------|-----------------------------------|----------------|---------------------|
 | 1 | `INTAKE` | Réception | Dossier créé manuellement (sans email) | `ensure-quote-case` | active | CaseView, CaseCard |
-| 2 | `NEW_THREAD` | Nouveau fil | Dossier créé automatiquement depuis un email non-RFQ | `ensure-quote-case` | active | CaseCard, QuotationHeader |
-| 3 | `RFQ_DETECTED` | RFQ détectée | Email identifié comme demande de cotation | `ensure-quote-case` | active | CaseCard, QuotationHeader |
-| 4 | `FACTS_PARTIAL` | Données incomplètes | Puzzle analysé, données insuffisantes | `build-case-puzzle`, `sync-emails` | active | CaseCard, QuotationHeader, BlockingGapsPanel |
-| 5 | `NEED_INFO` | Info requise | Gaps bloquants identifiés, action requise | `build-case-puzzle` | waiting | CaseView, CaseCard, QuotationHeader, BlockingGapsPanel |
+| 2 | `NEW_THREAD` | Nouveau fil | Dossier créé automatiquement depuis un email non-RFQ | `ensure-quote-case` | active | CaseView, CaseCard |
+| 3 | `RFQ_DETECTED` | RFQ détectée | Email identifié comme demande de cotation | `ensure-quote-case` | active | CaseView, CaseCard |
+| 4 | `FACTS_PARTIAL` | Données incomplètes | Puzzle analysé, données insuffisantes | `build-case-puzzle`, `sync-emails` | active | CaseView, CaseCard |
+| 5 | `NEED_INFO` | Info requise | Gaps bloquants identifiés, action requise | `build-case-puzzle` | waiting | CaseView, CaseCard, BlockingGapsPanel |
 | 6 | `READY_TO_PRICE` | Prêt à chiffrer | Puzzle complet, aucune ambiguïté détectée (P4). Dossier directement éligible au pricing sans validation opérateur. | `build-case-puzzle` (P4) | active | CaseView, CaseCard |
-| 7 | `DECISIONS_PENDING` | Décisions en attente | Puzzle complet (pas de gaps bloquants, faits disponibles), en attente de validation des décisions opérateur | `build-case-puzzle` | active | CaseView, CaseCard, QuotationHeader, DecisionSupportPanel |
-| 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées (5/5) | `commit-decision` | active | QuotationHeader |
-| 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | QuotationHeader |
-| 10 | `PRICING_RUNNING` | Chiffrage en cours | Moteur de pricing en exécution | `run-pricing` | active | CaseCard, QuotationHeader |
-| 11 | `PRICED_DRAFT` | Brouillon chiffré | Résultat de chiffrage disponible, en attente de revue | `run-pricing` | active | CaseView, CaseCard, QuotationHeader |
-| 12 | `HUMAN_REVIEW` | Revue humaine | Outputs générés, en attente de validation opérateur | `generate-case-outputs` | waiting | CaseCard, QuotationHeader |
-| 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseCard, QuotationHeader |
-| 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard, QuotationHeader |
+| 7 | `DECISIONS_PENDING` | Décisions en attente | Puzzle complet (pas de gaps bloquants, faits disponibles), en attente de validation des décisions opérateur | `build-case-puzzle` | active | CaseView, CaseCard, DecisionSupportPanel |
+| 8 | `DECISIONS_COMPLETE` | Décisions validées | Toutes les décisions opérateur sont commitées (5/5) | `commit-decision` | active | CaseView, CaseCard |
+| 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | CaseView, CaseCard |
+| 10 | `PRICING_RUNNING` | Chiffrage en cours | Moteur de pricing en exécution | `run-pricing` | active | CaseView, CaseCard |
+| 11 | `PRICED_DRAFT` | Brouillon chiffré | Résultat de chiffrage disponible, en attente de revue | `run-pricing` | active | CaseView, CaseCard |
+| 12 | `HUMAN_REVIEW` | Revue humaine | Outputs générés, en attente de validation opérateur | `generate-case-outputs` | waiting | CaseView, CaseCard |
+| 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
+| 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
 | 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
 
 ### Classifications
