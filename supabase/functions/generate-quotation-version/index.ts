@@ -30,6 +30,21 @@ import {
 const FUNCTION_NAME = "generate-quotation-version";
 
 // Snapshot structure for immutable storage
+interface VersionSnapshotLot {
+  lot_index: number;
+  label: string;
+  lines: Array<{
+    service_code: string;
+    description: string | null;
+    quantity: number;
+    unit_price: number;
+    amount: number;
+    currency: string;
+  }>;
+  totals: { ht: number; ttc: number; currency: string };
+  duty_breakdown?: any;
+}
+
 interface VersionSnapshot {
   meta: {
     version_id: string;
@@ -65,6 +80,8 @@ interface VersionSnapshot {
     currency: string;
   };
   sources: any[];
+  is_multi_lot?: boolean;
+  lots?: VersionSnapshotLot[];
 }
 
 // Helper: log + return error
@@ -297,6 +314,30 @@ Deno.serve(async (req) => {
       sources: tariffSources,
     };
 
+    // ── Multi-lot enrichment from outputs_json ───────────
+    const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
+    if (outputsJson?.multi_lot === true && Array.isArray(outputsJson.lots) && outputsJson.lots.length > 0) {
+      snapshot.is_multi_lot = true;
+      snapshot.lots = outputsJson.lots.map((lot: any) => ({
+        lot_index: lot.lot_index ?? 0,
+        label: lot.label ?? `Lot ${lot.lot_index ?? '?'}`,
+        lines: Array.isArray(lot.lines) ? lot.lines.map((l: any) => ({
+          service_code: l.service_code || l.charge_code || 'LINE',
+          description: l.description || l.charge_name || null,
+          quantity: l.quantity || 1,
+          unit_price: l.unit_price || l.rate || 0,
+          amount: l.amount || l.total || 0,
+          currency: l.currency || 'XOF',
+        })) : [],
+        totals: {
+          ht: lot.totals?.ht ?? lot.totals?.total_ht ?? 0,
+          ttc: lot.totals?.ttc ?? lot.totals?.total_ttc ?? 0,
+          currency: lot.totals?.currency ?? 'XOF',
+        },
+        duty_breakdown: lot.duty_breakdown ?? null,
+      }));
+    }
+
     // ── Atomic insert (RPC deselects + inserts) ──────────
     const { error: insertError } = await serviceClient
       .rpc("insert_quotation_version_atomic", {
@@ -305,7 +346,7 @@ Deno.serve(async (req) => {
         p_pricing_run_id: pricingRun.id,
         p_version_number: versionNumber,
         p_snapshot: snapshot,
-        p_created_by: user.id,
+        p_created_by: userId,
       });
 
     if (insertError) {
@@ -366,7 +407,7 @@ Deno.serve(async (req) => {
         status_after: "QUOTED_VERSIONED",
       },
       actor_type: "user",
-      actor_user_id: user.id,
+      actor_user_id: userId,
     });
 
     // ── Success ──────────────────────────────────────────
