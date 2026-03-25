@@ -2047,7 +2047,7 @@ export default function CaseView() {
                   {isServiceScopeAnalyzing ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
-                  Analyser la demande
+                  Comprendre le périmètre
                 </Button>
               </div>
 
