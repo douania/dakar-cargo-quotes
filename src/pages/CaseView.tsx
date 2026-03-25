@@ -735,6 +735,50 @@ export default function CaseView() {
   });
   const isMultiLot = multiLotLineCount >= 2;
 
+  // ── M9b: Output pipeline stepper data ──
+  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status);
+  const { data: pipelineStepperData } = useQuery({
+    queryKey: ["pipeline-stepper", caseId],
+    queryFn: async () => {
+      // Fetch selected version
+      const { data: version } = await supabase
+        .from("quotation_versions")
+        .select("id")
+        .eq("case_id", caseId!)
+        .eq("is_selected", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (!version) return { hasVersion: false, hasPdf: false, hasDraft: false };
+
+      // Fetch PDF + draft in parallel
+      const [pdfResult, draftResult] = await Promise.all([
+        supabase
+          .from("quotation_documents")
+          .select("id")
+          .eq("quotation_version_id", version.id)
+          .eq("document_type", "pdf")
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("email_drafts")
+          .select("id")
+          .eq("quotation_version_id", version.id)
+          .in("status", ["draft", "sent"])
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      return {
+        hasVersion: true,
+        hasPdf: !!pdfResult.data,
+        hasDraft: !!draftResult.data,
+      };
+    },
+    enabled: !!caseId && !!isPipelineVisible,
+    staleTime: 15000,
+  });
+
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
