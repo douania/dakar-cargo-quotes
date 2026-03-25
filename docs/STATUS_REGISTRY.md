@@ -26,7 +26,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | CaseView, CaseCard |
 | 10 | `PRICING_RUNNING` | Chiffrage en cours | Moteur de pricing en exécution | `run-pricing` | active | CaseView, CaseCard |
 | 11 | `PRICED_DRAFT` | Brouillon chiffré | Résultat de chiffrage disponible, en attente de revue | `run-pricing` | active | CaseView, CaseCard |
-| 12 | `HUMAN_REVIEW` | Revue humaine | Outputs générés, en attente de validation opérateur | `generate-case-outputs` | waiting | CaseView, CaseCard |
+| 12 | `HUMAN_REVIEW` | Revue humaine | Outputs générés, en attente de validation opérateur. **Non canonique** : présent dans l'enum et supporté défensivement par le runtime, mais non atteint par le chemin opérateur actuel. La revue humaine se fait implicitement lors de la création de version depuis `PRICED_DRAFT`. | `generate-case-outputs` | dormant | CaseView, CaseCard |
 | 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
 | 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
 | 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
@@ -57,8 +57,9 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 8 | `DECISIONS_COMPLETE` | `ACK_READY_FOR_PRICING` | `ack-pricing-ready` | operator-driven |
 | 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` (legacy) | `PRICING_RUNNING` | `run-pricing` | automatic |
 | 10 | `PRICING_RUNNING` | `PRICED_DRAFT` | `run-pricing` | automatic |
-| 11 | `PRICED_DRAFT` | `HUMAN_REVIEW` | `generate-case-outputs` | automatic |
-| 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven |
+| 11 | `PRICED_DRAFT` | `HUMAN_REVIEW` | `generate-case-outputs` | dormant — non utilisée par le frontend canonique. `generate-case-outputs` n'est pas invoqué par le cockpit CaseView. |
+| 11b | `PRICED_DRAFT` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — **chemin canonique actuel** |
+| 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — accepté défensivement, non atteint en pratique |
 | 13 | `QUOTED_VERSIONED` | `SENT` | `send-quotation` | operator-driven |
 | 14 | `SENT` / `ACK_READY_FOR_PRICING` / `DECISIONS_PENDING` / `DECISIONS_COMPLETE` / `READY_TO_PRICE` | `FACTS_PARTIAL` | `sync-emails` | automatic (reopen) |
 
@@ -114,3 +115,4 @@ Cette sémantique est cohérente avec la décision fondamentale **"Pas d'auto-se
 | P4 | 2026-03-16 | Bypass décisionnel : `build-case-puzzle` introduit détection d'ambiguïté. Cas clairs → `READY_TO_PRICE` (réactivé). Cas ambigus → `DECISIONS_PENDING`. Signaux : `UNKNOWN_FLOW_TYPE`, `AMBIGUOUS_LCL_FCL`, `NO_SERVICE_PACKAGE`. `ACK_READY_FOR_PRICING` reste exclusif à `ack-pricing-ready`. |
 | STAB-1 | 2026-03-23 | Stabilisation EQ1/P4 : fix `getNextAction()` (closed, response_analyzed, partially_validated). Extraction `PRICING_CRITICAL_KEYS` en module partagé. Clarification sémantique `sent` EQ1. Réalignement `.lovable/plan.md` avec P4.E/F/G. |
 | M6.1 | 2026-03-25 | Cockpit canonique : CaseView désigné comme surface principale opérateur. QuotationSheet réduit à surface secondaire email-first/legacy. Panels workflow dupliqués (Decision, Pricing, Version, Send) retirés de QuotationSheet quand un quote_case existe. Dashboard ne redirige plus silencieusement vers QuotationSheet. Colonne "Écran(s) principaux" réalignée sur CaseView. |
+| M6.2 | 2026-03-25 | HUMAN_REVIEW déclassé du chemin canonique. Reclassifié de `waiting` à `dormant`. Chemin canonique explicité : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine est implicite dans l'action de création de version. Transition 11 (`generate-case-outputs`) marquée dormante. `generate-case-outputs` identifié comme candidat futur de requalification (ticket séparé). |
