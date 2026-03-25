@@ -4,8 +4,8 @@
 > Ce document décrit l'application opérationnelle du contrat d'état réellement supporté par le code.
 
 Date de création : 2026-03-11
-Phase : S3
-Dernière mise à jour : 2026-03-11
+Phase : M19
+Dernière mise à jour : 2026-03-25
 
 ---
 
