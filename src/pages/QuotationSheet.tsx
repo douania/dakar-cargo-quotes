@@ -64,15 +64,7 @@ import { QuotationPdfExport } from '@/components/QuotationPdfExport';
 import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
 // Phase 8.8: Clarification panel
 import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
-// Phase 9.4: Decision support panel
-import { DecisionSupportPanel } from '@/components/puzzle/DecisionSupportPanel';
-// Phase 10.1: Pricing launch panel
-import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
-// Phase 12: Pricing result + Version panels
-import { PricingResultPanel } from '@/components/puzzle/PricingResultPanel';
-import { QuotationVersionCard } from '@/components/puzzle/QuotationVersionCard';
-// Phase 19A: Send quotation panel
-import { SendQuotationPanel } from '@/components/puzzle/SendQuotationPanel';
+// M6.1: Workflow panels (Decision, Pricing, Version, Send) moved to CaseView as canonical cockpit
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
