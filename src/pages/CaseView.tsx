@@ -1857,7 +1857,12 @@ export default function CaseView() {
               {allDrafts.map(d => (
                 <div key={d.id} className="bg-muted rounded-lg p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{d.draft.subject}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold">{d.draft.subject}</p>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${d.sourceLabel === "Client" ? "bg-blue-100 text-blue-800 border-blue-300" : "bg-accent/20 text-accent-foreground border-accent/30"}`}>
+                        {d.sourceLabel}
+                      </Badge>
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                       <Button
