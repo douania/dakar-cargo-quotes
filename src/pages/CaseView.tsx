@@ -2014,23 +2014,6 @@ export default function CaseView() {
                     </Button>
                   </div>
                 )}
-                {CLIENT_RESOLVABLE_GAP_KEYS.has(g.gap_key) && !isLocked && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs"
-                    onClick={() => askClientForGaps()}
-                    disabled={askingClientForGaps}
-                    title="Génère un brouillon pour tous les gaps client-résolvables ouverts du dossier"
-                  >
-                    {askingClientForGaps ? (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    ) : (
-                      <Mail className="mr-1 h-3 w-3" />
-                    )}
-                    Préparer demande client
-                  </Button>
-                )}
               </li>
             );
           };
