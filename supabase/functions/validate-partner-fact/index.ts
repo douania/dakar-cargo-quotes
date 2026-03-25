@@ -54,6 +54,21 @@ serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
+    // 0. Guard: check if the parent request is already closed
+    const { data: parentRequest } = await serviceClient
+      .from("external_quote_requests")
+      .select("status")
+      .eq("id", (await (async () => {
+        // We need request_id from the fact, load fact first
+        const { data: f } = await userClient
+          .from("external_quote_response_facts")
+          .select("request_id")
+          .eq("id", fact_id)
+          .maybeSingle();
+        return f?.request_id;
+      })()))
+      .maybeSingle();
+
     // 1. Load the proposed fact
     const { data: fact, error: factErr } = await userClient
       .from("external_quote_response_facts")
@@ -62,6 +77,15 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (factErr || !fact) return errorResponse("Proposed fact not found", 404);
+
+    // M15b: Early return if request is already closed — prevent reopening
+    if (parentRequest?.status === "closed") {
+      return jsonResponse({
+        ok: true,
+        idempotent: true,
+        message: "Request is already closed, no action taken",
+      });
+    }
 
     if (fact.validation_status !== "proposed") {
       return jsonResponse({
