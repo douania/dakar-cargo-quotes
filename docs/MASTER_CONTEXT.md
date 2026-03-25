@@ -92,7 +92,20 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 - **Dashboard** ne redirige plus silencieusement vers QuotationSheet en cas d'erreur — erreur explicite affichée.
 - Aucun panel critique de workflow ne doit être ajouté à QuotationSheet.
 - **Chemin canonique post-pricing** : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine opérateur se fait implicitement lors de la création de version (confirmation dialog). `HUMAN_REVIEW` existe dans l'enum DB et est supporté défensivement par `generate-quotation-version`, mais il n'est pas un sas obligatoire du workflow actuel — il est dormant.
-- **`generate-case-outputs`** n'est pas le mécanisme canonique de sortie opérateur. Il pousse vers `HUMAN_REVIEW` (dormant) et n'est pas invoqué par le cockpit CaseView. Candidat futur de requalification (ticket séparé).
+- **`generate-case-outputs`** n'est pas le mécanisme canonique de sortie opérateur. Il pousse vers `HUMAN_REVIEW` (dormant) et n'est pas invoqué par le cockpit CaseView. Voir section « Fonctions dormantes / legacy » ci-dessous.
+
+---
+
+## Fonctions dormantes / legacy
+
+### `generate-case-outputs`
+
+- **Statut** : dormant / legacy — non utilisée par le frontend canonique, non intégrée au pipeline canonique de sortie.
+- **Ce qu'elle fait encore** : génère un brouillon d'email via IA (Gemini 2.5 Flash) à partir des faits et du pricing run, pousse le case vers `HUMAN_REVIEW`, insère des events timeline. Ne génère pas de PDF (code désactivé). Le draft n'est pas persisté en `email_drafts` — il est retourné uniquement dans la réponse HTTP.
+- **Pourquoi elle est hors chemin canonique** : le pipeline canonique de sortie est `generate-quotation-version` → `export-quotation-version-pdf` → `create-quotation-email-draft` → `send-quotation`. Ce pipeline est versionné, persistant, idempotent et traçable. `generate-case-outputs` ne s'y intègre pas.
+- **Valeur distinctive résiduelle** : la génération IA du corps d'email de cotation (prompt structuré, template fallback). C'est la seule capacité que le pipeline canonique ne possède pas encore (le canonique utilise un template statique).
+- **Piste d'extraction future** : si des emails de cotation plus intelligents deviennent prioritaires, la bonne direction est d'ajouter une option IA à `create-quotation-email-draft` (dans le pipeline canonique), pas de réactiver `generate-case-outputs`.
+- **Ne pas** : supprimer, réactiver, ni fusionner avec le chemin canonique sans ticket dédié et validation explicite.
 
 ---
 
