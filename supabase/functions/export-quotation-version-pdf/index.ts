@@ -76,178 +76,278 @@ async function sha256(data: Uint8Array): Promise<string> {
 // deno-lint-ignore no-explicit-any
 async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595, 842]); // A4
-  const { width, height } = page.getSize();
-
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  const PAGE_W = 595;
+  const PAGE_H = 842;
   const margin = 50;
-  let y = height - margin;
   const lineHeight = 18;
   const sectionGap = 25;
+  const bottomReserve = 80; // space for footer on last page
 
   const black = rgb(0, 0, 0);
   const gray = rgb(0.4, 0.4, 0.4);
   const primary = rgb(0.1, 0.3, 0.6);
   const draftRed = rgb(0.8, 0.2, 0.2);
+  const lotBg = rgb(0.93, 0.95, 0.98);
 
-  // === HEADER ===
-  page.drawText('SODATRA SHIPPING & LOGISTICS', {
-    x: margin, y, size: 16, font: fontBold, color: primary,
-  });
-  y -= lineHeight;
-
-  page.drawLine({
-    start: { x: margin, y: y + 5 }, end: { x: width - margin, y: y + 5 },
-    thickness: 1, color: primary,
-  });
-  y -= lineHeight;
-
-  const shortId = caseId.substring(0, 8).toUpperCase();
-  page.drawText(sanitize(`DEVIS N° QC-${shortId}`), {
-    x: margin, y, size: 14, font: fontBold, color: black,
-  });
-
-  const versionText = `v${snapshot.meta?.version_number || 1}`;
-  page.drawText(`[${versionText}]`, {
-    x: width - margin - 140, y, size: 10, font: fontBold, color: primary,
-  });
-
-  page.drawText('[DRAFT]', {
-    x: width - margin - 80, y, size: 12, font: fontBold, color: draftRed,
-  });
-  y -= lineHeight;
-
-  page.drawText(sanitize(`Date: ${formatDate(snapshot.meta?.created_at || new Date().toISOString())}`), {
-    x: margin, y, size: 10, font, color: gray,
-  });
-  y -= sectionGap;
-
-  // === CLIENT ===
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
-    thickness: 0.5, color: gray,
-  });
-  y -= 5;
-  page.drawText('CLIENT', { x: margin, y, size: 11, font: fontBold, color: primary });
-  y -= lineHeight;
-
-  if (snapshot.client?.email) {
-    page.drawText(sanitize(`Email: ${snapshot.client.email}`), { x: margin, y, size: 10, font, color: black });
-    y -= lineHeight;
-  }
-  if (snapshot.client?.company) {
-    page.drawText(sanitize(`Societe: ${snapshot.client.company}`), { x: margin, y, size: 10, font, color: black });
-    y -= lineHeight;
-  }
-  y -= sectionGap / 2;
-
-  // === ROUTE ===
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
-    thickness: 0.5, color: gray,
-  });
-  y -= 5;
-  page.drawText('ROUTE', { x: margin, y, size: 11, font: fontBold, color: primary });
-  y -= lineHeight;
-
-  const routeParts = [
-    snapshot.inputs?.origin, 'Dakar', snapshot.inputs?.destination,
-  ].filter(Boolean);
-  page.drawText(sanitize(routeParts.join(' -> ') || 'Non specifie'), {
-    x: margin, y, size: 10, font, color: black,
-  });
-  y -= lineHeight;
-
-  if (snapshot.inputs?.incoterm) {
-    page.drawText(sanitize(`Incoterm: ${snapshot.inputs.incoterm}`), {
-      x: margin, y, size: 10, font, color: black,
-    });
-    y -= lineHeight;
-  }
-  y -= sectionGap / 2;
-
-  // === SERVICES TABLE ===
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
-    thickness: 0.5, color: gray,
-  });
-  y -= 5;
-  page.drawText('PRESTATIONS', { x: margin, y, size: 11, font: fontBold, color: primary });
-  y -= lineHeight + 5;
-
+  // Column positions for services table
   const colService = margin;
   const colDesc = margin + 100;
   const colQty = margin + 280;
   const colRate = margin + 330;
   const colAmount = margin + 400;
 
-  page.drawText('Service', { x: colService, y, size: 9, font: fontBold, color: gray });
-  page.drawText('Description', { x: colDesc, y, size: 9, font: fontBold, color: gray });
-  page.drawText('Qte', { x: colQty, y, size: 9, font: fontBold, color: gray });
-  page.drawText('Tarif', { x: colRate, y, size: 9, font: fontBold, color: gray });
-  page.drawText('Montant', { x: colAmount, y, size: 9, font: fontBold, color: gray });
-  y -= lineHeight;
+  // --- Pagination helpers ---
+  let currentPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - margin;
+  let pageNum = 1;
 
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
-    thickness: 0.5, color: gray,
-  });
-  y -= 5;
+  function ensureSpace(needed: number) {
+    if (y < margin + needed) {
+      // Add page number to outgoing page
+      currentPage.drawText(sanitize(`Page ${pageNum}`), {
+        x: PAGE_W - margin - 40, y: margin - 15, size: 8, font, color: gray,
+      });
+      currentPage = pdfDoc.addPage([PAGE_W, PAGE_H]);
+      pageNum++;
+      y = PAGE_H - margin;
+      // Continuation header
+      currentPage.drawText('SODATRA SHIPPING & LOGISTICS', {
+        x: margin, y, size: 10, font: fontBold, color: primary,
+      });
+      y -= lineHeight;
+      currentPage.drawLine({
+        start: { x: margin, y: y + 5 }, end: { x: PAGE_W - margin, y: y + 5 },
+        thickness: 0.5, color: primary,
+      });
+      y -= lineHeight;
+    }
+  }
 
-  const lines = snapshot.lines || [];
-  for (const line of lines) {
-    if (y < margin + 120) break;
+  function drawColumnHeaders() {
+    ensureSpace(lineHeight * 2);
+    currentPage.drawText('Service', { x: colService, y, size: 9, font: fontBold, color: gray });
+    currentPage.drawText('Description', { x: colDesc, y, size: 9, font: fontBold, color: gray });
+    currentPage.drawText('Qte', { x: colQty, y, size: 9, font: fontBold, color: gray });
+    currentPage.drawText('Tarif', { x: colRate, y, size: 9, font: fontBold, color: gray });
+    currentPage.drawText('Montant', { x: colAmount, y, size: 9, font: fontBold, color: gray });
+    y -= lineHeight;
+    currentPage.drawLine({
+      start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+      thickness: 0.5, color: gray,
+    });
+    y -= 5;
+  }
+
+  // deno-lint-ignore no-explicit-any
+  function drawLine(line: any) {
+    ensureSpace(lineHeight + 5);
     const serviceText = sanitize((line.service_code || '').substring(0, 15));
     const descText = sanitize((line.description || '').substring(0, 25));
     const amount = line.amount || 0;
+    currentPage.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
+    currentPage.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
+    currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
+    currentPage.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
+    currentPage.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
+    y -= lineHeight;
+  }
 
-    page.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
-    page.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
-    page.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
-    page.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
-    page.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
+  // === HEADER ===
+  currentPage.drawText('SODATRA SHIPPING & LOGISTICS', {
+    x: margin, y, size: 16, font: fontBold, color: primary,
+  });
+  y -= lineHeight;
+  currentPage.drawLine({
+    start: { x: margin, y: y + 5 }, end: { x: PAGE_W - margin, y: y + 5 },
+    thickness: 1, color: primary,
+  });
+  y -= lineHeight;
+
+  const shortId = caseId.substring(0, 8).toUpperCase();
+  currentPage.drawText(sanitize(`DEVIS N° QC-${shortId}`), {
+    x: margin, y, size: 14, font: fontBold, color: black,
+  });
+
+  const versionText = `v${snapshot.meta?.version_number || 1}`;
+  currentPage.drawText(`[${versionText}]`, {
+    x: PAGE_W - margin - 140, y, size: 10, font: fontBold, color: primary,
+  });
+  currentPage.drawText('[DRAFT]', {
+    x: PAGE_W - margin - 80, y, size: 12, font: fontBold, color: draftRed,
+  });
+  y -= lineHeight;
+
+  currentPage.drawText(sanitize(`Date: ${formatDate(snapshot.meta?.created_at || new Date().toISOString())}`), {
+    x: margin, y, size: 10, font, color: gray,
+  });
+  y -= sectionGap;
+
+  // === CLIENT ===
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+    thickness: 0.5, color: gray,
+  });
+  y -= 5;
+  currentPage.drawText('CLIENT', { x: margin, y, size: 11, font: fontBold, color: primary });
+  y -= lineHeight;
+  if (snapshot.client?.email) {
+    currentPage.drawText(sanitize(`Email: ${snapshot.client.email}`), { x: margin, y, size: 10, font, color: black });
+    y -= lineHeight;
+  }
+  if (snapshot.client?.company) {
+    currentPage.drawText(sanitize(`Societe: ${snapshot.client.company}`), { x: margin, y, size: 10, font, color: black });
     y -= lineHeight;
   }
   y -= sectionGap / 2;
 
+  // === ROUTE ===
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+    thickness: 0.5, color: gray,
+  });
+  y -= 5;
+  currentPage.drawText('ROUTE', { x: margin, y, size: 11, font: fontBold, color: primary });
+  y -= lineHeight;
+  const routeParts = [
+    snapshot.inputs?.origin, 'Dakar', snapshot.inputs?.destination,
+  ].filter(Boolean);
+  currentPage.drawText(sanitize(routeParts.join(' -> ') || 'Non specifie'), {
+    x: margin, y, size: 10, font, color: black,
+  });
+  y -= lineHeight;
+  if (snapshot.inputs?.incoterm) {
+    currentPage.drawText(sanitize(`Incoterm: ${snapshot.inputs.incoterm}`), {
+      x: margin, y, size: 10, font, color: black,
+    });
+    y -= lineHeight;
+  }
+  y -= sectionGap / 2;
+
+  // === PRESTATIONS ===
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+    thickness: 0.5, color: gray,
+  });
+  y -= 5;
+  currentPage.drawText('PRESTATIONS', { x: margin, y, size: 11, font: fontBold, color: primary });
+  y -= lineHeight + 5;
+
+  // --- Multi-lot or flat rendering ---
+  const isMultiLot = snapshot.is_multi_lot === true && Array.isArray(snapshot.lots) && snapshot.lots.length > 0;
+
+  // Legacy fallback: group from raw_lines if lots[] absent but lot tags present
+  // deno-lint-ignore no-explicit-any
+  let effectiveLots: any[] | null = null;
+  if (isMultiLot) {
+    effectiveLots = snapshot.lots;
+  } else if (Array.isArray(snapshot.raw_lines) && snapshot.raw_lines.some((r: any) => r.lot_index != null)) {
+    // Build fallback lots from raw_lines + lines
+    const lotMap = new Map<number, { label: string; lines: any[]; ht: number }>();
+    const lines = snapshot.lines || [];
+    for (let i = 0; i < lines.length; i++) {
+      const raw = snapshot.raw_lines[i];
+      const lotIdx = raw?.lot_index ?? 0;
+      const lotLabel = raw?.lot_label ?? `Lot ${lotIdx}`;
+      if (!lotMap.has(lotIdx)) lotMap.set(lotIdx, { label: lotLabel, lines: [], ht: 0 });
+      const entry = lotMap.get(lotIdx)!;
+      entry.lines.push(lines[i]);
+      entry.ht += lines[i].amount || 0;
+    }
+    if (lotMap.size > 1) {
+      effectiveLots = Array.from(lotMap.entries()).map(([idx, v]) => ({
+        lot_index: idx, label: v.label, lines: v.lines,
+        totals: { ht: v.ht, ttc: v.ht, currency: snapshot.totals?.currency || 'XOF' },
+      }));
+    }
+  }
+
+  if (effectiveLots && effectiveLots.length > 1) {
+    // Render per-lot sections
+    for (const lot of effectiveLots) {
+      ensureSpace(lineHeight * 3);
+      // Lot header with background
+      currentPage.drawRectangle({
+        x: margin, y: y - 4, width: PAGE_W - 2 * margin, height: lineHeight + 2,
+        color: lotBg,
+      });
+      currentPage.drawText(sanitize(`Lot ${lot.lot_index} - ${lot.label}`), {
+        x: margin + 5, y, size: 10, font: fontBold, color: primary,
+      });
+      y -= lineHeight + 5;
+
+      drawColumnHeaders();
+
+      const lotLines = lot.lines || [];
+      for (const line of lotLines) {
+        drawLine(line);
+      }
+
+      // Lot subtotal
+      ensureSpace(lineHeight + 10);
+      currentPage.drawLine({
+        start: { x: colRate, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+        thickness: 0.5, color: gray,
+      });
+      y -= 5;
+      const lotTotal = lot.totals?.ht ?? 0;
+      const lotCurrency = lot.totals?.currency ?? 'XOF';
+      currentPage.drawText(sanitize(`Sous-total: ${formatAmount(lotTotal)} ${lotCurrency}`), {
+        x: colRate, y, size: 10, font: fontBold, color: black,
+      });
+      y -= sectionGap;
+    }
+  } else {
+    // Flat rendering (mono-lot or legacy without lot tags)
+    drawColumnHeaders();
+    const lines = snapshot.lines || [];
+    for (const line of lines) {
+      drawLine(line);
+    }
+  }
+
+  y -= sectionGap / 2;
+
   // === TOTAL ===
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
+  ensureSpace(bottomReserve + lineHeight * 6);
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 1, color: primary,
   });
   y -= 5;
-
   const totalText = sanitize(`TOTAL HT: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
-  page.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
+  currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
   y -= sectionGap;
 
   // === DRAFT FOOTER ===
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
+  ensureSpace(lineHeight * 5);
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 2, color: draftRed,
   });
   y -= 5;
-
-  page.drawText('*** DRAFT - DOCUMENT DE TRAVAIL ***', {
+  currentPage.drawText('*** DRAFT - DOCUMENT DE TRAVAIL ***', {
     x: margin, y, size: 12, font: fontBold, color: draftRed,
   });
   y -= lineHeight;
-
-  page.drawText('Non contractuel - A valider avant envoi au client', {
+  currentPage.drawText('Non contractuel - A valider avant envoi au client', {
     x: margin, y, size: 10, font: fontBold, color: draftRed,
   });
   y -= lineHeight;
-
-  page.drawLine({
-    start: { x: margin, y: y + 10 }, end: { x: width - margin, y: y + 10 },
+  currentPage.drawLine({
+    start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 2, color: draftRed,
   });
   y -= lineHeight;
-
-  page.drawText(`Genere le ${formatDate(new Date().toISOString())}`, {
+  currentPage.drawText(`Genere le ${formatDate(new Date().toISOString())}`, {
     x: margin, y, size: 8, font, color: gray,
+  });
+
+  // Final page number
+  currentPage.drawText(sanitize(`Page ${pageNum}`), {
+    x: PAGE_W - margin - 40, y: margin - 15, size: 8, font, color: gray,
   });
 
   return await pdfDoc.save();
