@@ -499,7 +499,10 @@ serve(async (req) => {
       .update({
         storage_path: storagePath,
         size: content.length,
-        extracted_text: null // Clear the skip reason
+        is_analyzed: false,
+        extracted_text: null,
+        extracted_data: null,
+        analysis_claimed_at: null,
       })
       .eq('id', attachmentId);
     
