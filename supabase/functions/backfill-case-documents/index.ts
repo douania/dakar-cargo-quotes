@@ -1,13 +1,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
+import * as pdfjsLib from "npm:pdfjs-dist@4.4.168/legacy/build/pdf.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireAdmin } from "../_shared/auth.ts";
 
-try {
-  (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
-    "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
-} catch (_) { /* ignore */ }
+// Worker disabled (disableWorker: true used at call sites)
 
 const sanitizeText = (text: string): string =>
   text

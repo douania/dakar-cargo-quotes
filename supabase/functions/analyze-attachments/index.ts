@@ -1,17 +1,11 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.mjs";
+import * as pdfjsLib from "npm:pdfjs-dist@4.4.168/legacy/build/pdf.mjs";
 import { requireUser } from "../_shared/auth.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
-// Initialize pdfjs-dist worker for Deno runtime
-try {
-  (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
-    "https://esm.sh/pdfjs-dist@4.0.379/legacy/build/pdf.worker.mjs";
-} catch (_e) {
-  console.warn("Unable to set PDF.js workerSrc");
-}
+// Worker disabled (disableWorker: true used at call sites)
 
 // =============================================================================
 // CL2 — UTILITY FUNCTIONS
