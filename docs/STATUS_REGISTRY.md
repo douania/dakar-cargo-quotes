@@ -4,8 +4,8 @@
 > Ce document décrit l'application opérationnelle du contrat d'état réellement supporté par le code.
 
 Date de création : 2026-03-11
-Phase : S3
-Dernière mise à jour : 2026-03-11
+Phase : M19
+Dernière mise à jour : 2026-03-25
 
 ---
 
@@ -116,3 +116,4 @@ Cette sémantique est cohérente avec la décision fondamentale **"Pas d'auto-se
 | STAB-1 | 2026-03-23 | Stabilisation EQ1/P4 : fix `getNextAction()` (closed, response_analyzed, partially_validated). Extraction `PRICING_CRITICAL_KEYS` en module partagé. Clarification sémantique `sent` EQ1. Réalignement `.lovable/plan.md` avec P4.E/F/G. |
 | M6.1 | 2026-03-25 | Cockpit canonique : CaseView désigné comme surface principale opérateur. QuotationSheet réduit à surface secondaire email-first/legacy. Panels workflow dupliqués (Decision, Pricing, Version, Send) retirés de QuotationSheet quand un quote_case existe. Dashboard ne redirige plus silencieusement vers QuotationSheet. Colonne "Écran(s) principaux" réalignée sur CaseView. |
 | M6.2 | 2026-03-25 | HUMAN_REVIEW déclassé du chemin canonique. Reclassifié de `waiting` à `dormant`. Chemin canonique explicité : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine est implicite dans l'action de création de version. Transition 11 (`generate-case-outputs`) marquée dormante. `generate-case-outputs` identifié comme candidat futur de requalification (ticket séparé). |
+| M19b | 2026-03-25 | Audit FSM transversal. CHECK constraint `case_timeline_events.event_type` alignée avec le runtime : 6 event_types manquants ajoutés (`new_email_received`, `quotation_version_created`, `decision_committed`, `all_decisions_complete`, `pricing_unlocked`, `pricing_blocked`). Traçabilité restaurée pour les événements futurs. Aucune edge function modifiée. |
