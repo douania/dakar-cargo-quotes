@@ -84,6 +84,16 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
+## Cockpit canonique (M6.1)
+
+- **CaseView** (`/case/:caseId`) = cockpit canonique opérateur pour le workflow complet de cotation (gaps → décisions → pricing → version → PDF → send).
+- **QuotationSheet** (`/quotation/:emailId`) = surface secondaire email-first / legacy. Les panels workflow critiques (Decision, Pricing, Version, Send) ne sont plus rendus ici quand un quote_case existe — une carte de redirection oriente vers CaseView.
+- **QuotationSheet** (`/quotation/new`) = point d'entrée manuel encore valide, mais non canonique pour le workflow de dossier une fois un case créé.
+- **Dashboard** ne redirige plus silencieusement vers QuotationSheet en cas d'erreur — erreur explicite affichée.
+- Aucun panel critique de workflow ne doit être ajouté à QuotationSheet.
+
+---
+
 ## Modules FROZEN
 
 Ne pas modifier :
