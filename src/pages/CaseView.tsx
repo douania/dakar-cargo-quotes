@@ -735,6 +735,50 @@ export default function CaseView() {
   });
   const isMultiLot = multiLotLineCount >= 2;
 
+  // ── M9b: Output pipeline stepper data ──
+  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status);
+  const { data: pipelineStepperData } = useQuery({
+    queryKey: ["pipeline-stepper", caseId],
+    queryFn: async () => {
+      // Fetch selected version
+      const { data: version } = await supabase
+        .from("quotation_versions")
+        .select("id")
+        .eq("case_id", caseId!)
+        .eq("is_selected", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (!version) return { hasVersion: false, hasPdf: false, hasDraft: false };
+
+      // Fetch PDF + draft in parallel
+      const [pdfResult, draftResult] = await Promise.all([
+        supabase
+          .from("quotation_documents")
+          .select("id")
+          .eq("quotation_version_id", version.id)
+          .eq("document_type", "pdf")
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("email_drafts")
+          .select("id")
+          .eq("quotation_version_id", version.id)
+          .in("status", ["draft", "sent"])
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      return {
+        hasVersion: true,
+        hasPdf: !!pdfResult.data,
+        hasDraft: !!draftResult.data,
+      };
+    },
+    enabled: !!caseId && !!isPipelineVisible,
+    staleTime: 15000,
+  });
+
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
@@ -2147,6 +2191,61 @@ export default function CaseView() {
           </Card>
         )}
 
+        {/* Derived Suggestions Panel — before pricing pipeline for optimal timing */}
+        {visibleSuggestions.length > 0 && !isLocked && (
+          <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-amber-600" />
+                Suggestions intelligentes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              {visibleSuggestions.map((suggestion) => (
+                <div
+                  key={suggestion.id}
+                  className="flex items-center justify-between p-3 rounded-md bg-background border"
+                >
+                  <div>
+                    <p className="font-medium text-sm">{suggestion.label}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {suggestion.description} ={" "}
+                      <strong>
+                        {suggestion.suggestedValue.toLocaleString()} {suggestion.unit}
+                      </strong>
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => applySuggestion(suggestion)}
+                      disabled={isApplyingSuggestion}
+                    >
+                      {isApplyingSuggestion ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="mr-1 h-3 w-3" />
+                      )}
+                      Créer le fait dérivé
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setDismissedSuggestions((prev) =>
+                          prev.includes(suggestion.id) ? prev : [...prev, suggestion.id]
+                        )
+                      }
+                    >
+                      Ignorer
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Pricing Launch Panel — visible for pricing-eligible statuses */}
         {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status) && (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
@@ -2240,6 +2339,38 @@ export default function CaseView() {
           );
         })()}
 
+        {/* M9b: Output pipeline stepper — read-only progression indicator */}
+        {isPipelineVisible && (() => {
+          const steps = [
+            { label: "Pricing", done: true },
+            { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
+            { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
+            { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
+            { label: "Envoyé", done: caseData.status === 'SENT' },
+          ];
+          return (
+            <div className="mb-4 flex items-center gap-1 px-1">
+              {steps.map((step, i) => (
+                <React.Fragment key={step.label}>
+                  <div className="flex items-center gap-1.5">
+                    {step.done ? (
+                      <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                    )}
+                    <span className={`text-xs font-medium whitespace-nowrap ${step.done ? 'text-green-700' : 'text-muted-foreground'}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {i < steps.length - 1 && (
+                    <div className={`flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          );
+        })()}
+
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
           <div className="mb-6">
@@ -2261,60 +2392,7 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* Derived Suggestions Panel */}
-        {visibleSuggestions.length > 0 && !isLocked && (
-          <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-amber-600" />
-                Suggestions intelligentes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-3">
-              {visibleSuggestions.map((suggestion) => (
-                <div
-                  key={suggestion.id}
-                  className="flex items-center justify-between p-3 rounded-md bg-background border"
-                >
-                  <div>
-                    <p className="font-medium text-sm">{suggestion.label}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {suggestion.description} ={" "}
-                      <strong>
-                        {suggestion.suggestedValue.toLocaleString()} {suggestion.unit}
-                      </strong>
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => applySuggestion(suggestion)}
-                      disabled={isApplyingSuggestion}
-                    >
-                      {isApplyingSuggestion ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Check className="mr-1 h-3 w-3" />
-                      )}
-                      Créer le fait dérivé
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setDismissedSuggestions((prev) =>
-                          prev.includes(suggestion.id) ? prev : [...prev, suggestion.id]
-                        )
-                      }
-                    >
-                      Ignorer
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
+
 
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
