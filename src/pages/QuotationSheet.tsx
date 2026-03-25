@@ -64,15 +64,7 @@ import { QuotationPdfExport } from '@/components/QuotationPdfExport';
 import { BlockingGapsPanel } from '@/components/puzzle/BlockingGapsPanel';
 // Phase 8.8: Clarification panel
 import { ClarificationPanel } from '@/components/puzzle/ClarificationPanel';
-// Phase 9.4: Decision support panel
-import { DecisionSupportPanel } from '@/components/puzzle/DecisionSupportPanel';
-// Phase 10.1: Pricing launch panel
-import { PricingLaunchPanel } from '@/components/puzzle/PricingLaunchPanel';
-// Phase 12: Pricing result + Version panels
-import { PricingResultPanel } from '@/components/puzzle/PricingResultPanel';
-import { QuotationVersionCard } from '@/components/puzzle/QuotationVersionCard';
-// Phase 19A: Send quotation panel
-import { SendQuotationPanel } from '@/components/puzzle/SendQuotationPanel';
+// M6.1: Workflow panels (Decision, Pricing, Version, Send) moved to CaseView as canonical cockpit
 
 // Composants UI P0 extraits (Phase 3A)
 import { RegulatoryInfoCard } from '@/features/quotation/components/RegulatoryInfoCard';
@@ -108,12 +100,7 @@ import type {
   Alert, 
   QuotationOffer, 
   RegulatoryInfo,
-  HistoricalSuggestionLine,
 } from '@/features/quotation/types';
-
-// Phase M3.2: Historical suggestions
-import { useHistoricalSuggestions } from '@/features/quotation/hooks/useHistoricalSuggestions';
-import { HistoricalSuggestionsCard } from '@/features/quotation/components/HistoricalSuggestionsCard';
 
 // Utilitaires de parsing
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
@@ -245,23 +232,7 @@ export default function QuotationSheet() {
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
 
-  // Phase M3.2: Historical suggestions from pricing_runs.engine_response
-  const { suggestions: historicalSuggestions } = useHistoricalSuggestions(quoteCase?.id);
-
-  const handleAddHistoricalSuggestion = useCallback((line: HistoricalSuggestionLine) => {
-    const newLine: ServiceLine = {
-      id: crypto.randomUUID(),
-      service: line.category,
-      description: line.description,
-      unit: 'forfait',
-      quantity: 1,
-      rate: line.suggested_amount,
-      currency: line.currency || 'FCFA',
-      source: 'historical',
-    };
-    setServiceLines(prev => [...prev, newLine]);
-    toast.info(`Suggestion "${line.description}" ajoutée`);
-  }, [setServiceLines]);
+  // M6.1: Historical suggestions moved to CaseView cockpit
   // Phase 8.8: État clarification enrichi
   const [clarificationDraft, setClarificationDraft] = useState<{
     subject_fr?: string;
@@ -1513,39 +1484,23 @@ L'équipe SODATRA`;
           </div>
         )}
 
-        {/* Phase 9.4: DecisionSupportPanel - affiché si status autorise les décisions */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(quoteCase.status) && (
+        {/* M6.1: Workflow panels (Decision, Pricing, Version, Send) are in CaseView cockpit */}
+        {!quotationCompleted && quoteCase?.id && (
           <div className="mb-6">
-            <DecisionSupportPanel caseId={quoteCase.id} />
-          </div>
-        )}
-
-        {/* Phase 10.1+P4: PricingLaunchPanel - visible for pricing-eligible statuses */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status) && (
-          <div className="mb-6">
-            <PricingLaunchPanel caseId={quoteCase.id} isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(quoteCase.status)} />
-          </div>
-        )}
-
-        {/* Phase 12+19: PricingResultPanel + QuotationVersionCard + SendQuotationPanel */}
-        {!quotationCompleted && quoteCase?.id && 
-         ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
-          <div className="mb-6 space-y-4">
-            <PricingResultPanel caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
-            {/* Phase M3.2: Historical suggestions */}
-            {historicalSuggestions && (
-              <HistoricalSuggestionsCard
-                suggestions={historicalSuggestions}
-                onAddSuggestion={handleAddHistoricalSuggestion}
-              />
-            )}
-            <QuotationVersionCard caseId={quoteCase.id} isLocked={quoteCase.status === 'SENT'} />
-            {/* Phase 19A C2-A: SendQuotationPanel strict FSM guard */}
-            {['QUOTED_VERSIONED', 'SENT'].includes(quoteCase.status) && (
-              <SendQuotationPanel caseId={quoteCase.id} />
-            )}
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ExternalLink className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="font-medium text-sm">Ce dossier est suivi dans le cockpit principal</p>
+                    <p className="text-xs text-muted-foreground">Décisions, chiffrage, versioning et envoi sont gérés depuis la vue dossier.</p>
+                  </div>
+                </div>
+                <Button size="sm" onClick={() => navigate(`/case/${quoteCase.id}`)}>
+                  Ouvrir le cockpit
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         )}
 

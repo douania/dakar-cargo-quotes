@@ -348,9 +348,10 @@ export default function Dashboard() {
   const handleProcess = useCallback(async (emailId: string, threadRef: string | null) => {
     if (isProcessing) return;
 
-    // Fallback legacy if no threadRef
+    // M6.1: No fallback to legacy — require threadRef
     if (!threadRef) {
-      navigate(`/quotation/${emailId}`);
+      const { toast } = await import('sonner');
+      toast.error('Impossible d\'ouvrir ce fil — aucune référence thread disponible. Veuillez réessayer.');
       return;
     }
 
@@ -364,8 +365,7 @@ export default function Dashboard() {
       if (caseError || !caseData?.case_id) {
         console.error('[C3] ensure-quote-case failed:', caseError || caseData);
         const { toast } = await import('sonner');
-        toast.warning('Impossible de créer le dossier — ouverture en mode classique');
-        navigate(`/quotation/${emailId}`);
+        toast.error('Impossible de créer le dossier. Veuillez réessayer ou actualiser la page.');
         return;
       }
 
@@ -400,8 +400,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('[C3] handleProcess error:', err);
       const { toast } = await import('sonner');
-      toast.error('Erreur inattendue — ouverture en mode classique');
-      navigate(`/quotation/${emailId}`);
+      toast.error('Erreur inattendue. Veuillez réessayer ou actualiser la page.');
     } finally {
       setIsProcessing(false);
     }
