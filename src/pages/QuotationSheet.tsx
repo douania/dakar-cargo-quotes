@@ -232,23 +232,7 @@ export default function QuotationSheet() {
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
 
-  // Phase M3.2: Historical suggestions from pricing_runs.engine_response
-  const { suggestions: historicalSuggestions } = useHistoricalSuggestions(quoteCase?.id);
-
-  const handleAddHistoricalSuggestion = useCallback((line: HistoricalSuggestionLine) => {
-    const newLine: ServiceLine = {
-      id: crypto.randomUUID(),
-      service: line.category,
-      description: line.description,
-      unit: 'forfait',
-      quantity: 1,
-      rate: line.suggested_amount,
-      currency: line.currency || 'FCFA',
-      source: 'historical',
-    };
-    setServiceLines(prev => [...prev, newLine]);
-    toast.info(`Suggestion "${line.description}" ajoutée`);
-  }, [setServiceLines]);
+  // M6.1: Historical suggestions moved to CaseView cockpit
   // Phase 8.8: État clarification enrichi
   const [clarificationDraft, setClarificationDraft] = useState<{
     subject_fr?: string;
