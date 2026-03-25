@@ -253,6 +253,7 @@ serve(async (req: Request) => {
       if (closeActionErr) {
         console.warn("[validate-partner-fact] Close REVIEW action failed (non-critical):", closeActionErr.message);
       }
+    }
 
     return jsonResponse({
       ok: true,
