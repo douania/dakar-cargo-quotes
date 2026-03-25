@@ -58,14 +58,17 @@ serve(async (req) => {
       .replace(/_+/g, '_'); // Remove multiple underscores
     const fileName = `${Date.now()}-${sanitizedName}`;
     
-    // Upload to storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('documents')
-      .upload(fileName, file);
+    // Upload to storage — only when NOT in case_document mode
+    // (CaseDocumentsTab already uploaded to bucket "case-documents")
+    if (!caseDocumentId) {
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(fileName, file);
 
-    if (uploadError) {
-      console.error('Upload error:', uploadError);
-      throw new Error(`Upload failed: ${uploadError.message}`);
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
     }
 
     // Extract text based on file type
@@ -295,29 +298,11 @@ serve(async (req) => {
 
     // Detect document type based on content
     const docType = detectDocumentType(extractedText);
-    
-    // Save to database
-    const { data: docData, error: docError } = await supabase
-      .from('documents')
-      .insert({
-        filename: sanitizeText(file.name),
-        file_type: fileExt,
-        file_size: file.size,
-        content_text: extractedText.substring(0, 2000000), // Limit text size
-        extracted_data: extractedData,
-        source: 'upload',
-        tags: docType.tags,
-      })
-      .select()
-      .single();
 
-    if (docError) {
-      console.error('Database error:', docError);
-      throw new Error(`Database insert failed: ${docError.message}`);
-    }
+    let documentId: string | null = null;
 
-    // If a case_document_id was provided, copy extracted text to case_documents
-    if (caseDocumentId && extractedText) {
+    if (caseDocumentId) {
+      // ── Case-document mode: update extracted_text only, no documents table/bucket write ──
       const { error: updateError } = await supabase
         .from("case_documents")
         .update({ extracted_text: extractedText.substring(0, 200000) })
@@ -327,13 +312,35 @@ serve(async (req) => {
       } else {
         console.log('Updated case_documents.extracted_text for', caseDocumentId, 'length:', Math.min(extractedText.length, 200000));
       }
+      documentId = caseDocumentId; // use case_document_id as reference in response
+    } else {
+      // ── Standalone mode: insert into documents table (existing behaviour) ──
+      const { data: docData, error: docError } = await supabase
+        .from('documents')
+        .insert({
+          filename: sanitizeText(file.name),
+          file_type: fileExt,
+          file_size: file.size,
+          content_text: extractedText.substring(0, 2000000),
+          extracted_data: extractedData,
+          source: 'upload',
+          tags: docType.tags,
+        })
+        .select()
+        .single();
+
+      if (docError) {
+        console.error('Database error:', docError);
+        throw new Error(`Database insert failed: ${docError.message}`);
+      }
+      documentId = docData.id;
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         document: {
-          id: docData.id,
+          id: documentId,
           filename: file.name,
           file_type: fileExt,
           file_size: file.size,
