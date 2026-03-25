@@ -2261,60 +2261,7 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* Derived Suggestions Panel */}
-        {visibleSuggestions.length > 0 && !isLocked && (
-          <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-amber-600" />
-                Suggestions intelligentes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-3">
-              {visibleSuggestions.map((suggestion) => (
-                <div
-                  key={suggestion.id}
-                  className="flex items-center justify-between p-3 rounded-md bg-background border"
-                >
-                  <div>
-                    <p className="font-medium text-sm">{suggestion.label}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {suggestion.description} ={" "}
-                      <strong>
-                        {suggestion.suggestedValue.toLocaleString()} {suggestion.unit}
-                      </strong>
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => applySuggestion(suggestion)}
-                      disabled={isApplyingSuggestion}
-                    >
-                      {isApplyingSuggestion ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Check className="mr-1 h-3 w-3" />
-                      )}
-                      Créer le fait dérivé
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setDismissedSuggestions((prev) =>
-                          prev.includes(suggestion.id) ? prev : [...prev, suggestion.id]
-                        )
-                      }
-                    >
-                      Ignorer
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
+
 
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
