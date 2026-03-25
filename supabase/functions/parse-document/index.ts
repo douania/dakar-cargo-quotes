@@ -58,14 +58,17 @@ serve(async (req) => {
       .replace(/_+/g, '_'); // Remove multiple underscores
     const fileName = `${Date.now()}-${sanitizedName}`;
     
-    // Upload to storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('documents')
-      .upload(fileName, file);
+    // Upload to storage — only when NOT in case_document mode
+    // (CaseDocumentsTab already uploaded to bucket "case-documents")
+    if (!caseDocumentId) {
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(fileName, file);
 
-    if (uploadError) {
-      console.error('Upload error:', uploadError);
-      throw new Error(`Upload failed: ${uploadError.message}`);
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
     }
 
     // Extract text based on file type
