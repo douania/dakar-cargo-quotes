@@ -3,7 +3,7 @@
  * Generates a DRAFT PDF from quotation_versions.snapshot
  * 
  * Runtime Contract (Phase 14-16):
- * - verify_jwt = true (config.toml)
+ * - verify_jwt = false (config.toml) — auth validated in-function via inline JWT check
  * - respondOk / respondError / logRuntimeEvent / correlationId
  * - Idempotence on (quotation_version_id, document_type='pdf')
  * - Guard FSM: quote_cases.status = QUOTED_VERSIONED
