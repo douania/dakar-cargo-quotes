@@ -242,7 +242,7 @@ Deno.test({
     // 3. Case
     const qc = await restInsert<{ id: string }>("quote_cases", {
       thread_id: threadId,
-      status: "open",
+      status: "NEW_THREAD",
       created_by: userId,
     });
     caseId = qc.id;
