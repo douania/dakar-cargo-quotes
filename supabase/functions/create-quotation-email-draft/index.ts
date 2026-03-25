@@ -109,18 +109,56 @@ Deno.serve(async (req: Request) => {
 
   const toAddresses = clientEmailFinal ? [clientEmailFinal] : [];
 
-  const subject = `Votre devis SODATRA - version v${version.version_number}`;
-  // Base opérateur : ce brouillon est à relire et personnaliser avant marquage comme envoyé
-  const bodyText = [
+  // --- Multi-lot detection (primary: snapshot.lots, fallback: raw_lines tags) ---
+  // deno-lint-ignore no-explicit-any
+  const snapData = snapshot as Record<string, any> | null;
+  let lotSummaryLines: string[] = [];
+  let isMultiLot = false;
+
+  if (snapData?.is_multi_lot === true && Array.isArray(snapData.lots) && snapData.lots.length > 1) {
+    isMultiLot = true;
+    lotSummaryLines = snapData.lots.map((lot: any) =>
+      `  - ${lot.label || `Lot ${lot.lot_index}`}: ${new Intl.NumberFormat('fr-FR').format(lot.totals?.ht ?? 0)} ${lot.totals?.currency ?? 'XOF'} HT`
+    );
+  } else if (Array.isArray(snapData?.raw_lines) && snapData.raw_lines.some((r: any) => r.lot_index != null)) {
+    // Legacy fallback: derive lot count from raw_lines tags
+    const lotLabels = new Map<number, string>();
+    for (const r of snapData.raw_lines) {
+      if (r.lot_index != null && !lotLabels.has(r.lot_index)) {
+        lotLabels.set(r.lot_index, r.lot_label ?? `Lot ${r.lot_index}`);
+      }
+    }
+    if (lotLabels.size > 1) {
+      isMultiLot = true;
+      lotSummaryLines = Array.from(lotLabels.values()).map(label => `  - ${label}`);
+    }
+  }
+
+  const lotCount = lotSummaryLines.length;
+  const subject = isMultiLot
+    ? `Votre devis SODATRA - version v${version.version_number} (${lotCount} lots)`
+    : `Votre devis SODATRA - version v${version.version_number}`;
+
+  const bodyParts = [
     "Bonjour,",
     "",
     `Veuillez trouver ci-joint notre devis SODATRA, version v${version.version_number}.`,
+  ];
+
+  if (isMultiLot && lotSummaryLines.length > 0) {
+    bodyParts.push("");
+    bodyParts.push(`Ce devis couvre ${lotCount} lots:`);
+    bodyParts.push(...lotSummaryLines);
+  }
+
+  bodyParts.push(
     "",
-    "Merci de bien vouloir le relire et revenir vers nous pour toute précision complémentaire.",
+    "Merci de bien vouloir le relire et revenir vers nous pour toute precision complementaire.",
     "",
     "Cordialement,",
-    "L'équipe SODATRA",
-  ].join("\n");
+    "L'equipe SODATRA",
+  );
+  const bodyText = bodyParts.join("\n");
 
   // 7. Insert via serviceClient (to guarantee created_by is set)
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
