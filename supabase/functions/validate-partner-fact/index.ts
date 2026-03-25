@@ -236,10 +236,7 @@ serve(async (req: Request) => {
 
     // M15b: Close REVIEW_PARTNER_RESPONSE action when all facts are terminal
     if (proposedCount === 0) {
-      const reviewDedupeKey = `partner_review:${((): string => {
-        // Find the response_id from the fact to build the correct dedupe key
-        return fact.response_id;
-      })()}`;
+      const reviewDedupeKey = `partner_review:${fact.response_id}`;
 
       const { error: closeActionErr } = await serviceClient.from("case_timeline_events").insert({
         case_id: fact.case_id,
