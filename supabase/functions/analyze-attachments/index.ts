@@ -12,6 +12,35 @@ import { extractAndParseJSON } from "../_shared/json-parser.ts";
 // =============================================================================
 
 /**
+ * M23b-fix: Extract route info from structured data or subject line.
+ * Priority: structured metadata > incoterm regex > explicit Unknown.
+ * Never returns a fake hardcoded port.
+ */
+function extractRouteInfo(
+  extractedData: any,
+  subject: string
+): { port: string | undefined; destination: string } {
+  // 1. Structured metadata route (e.g. "Marseille -> Bamako")
+  const metaRoute = extractedData?.metadata?.route;
+  if (metaRoute && typeof metaRoute === 'string' && metaRoute.includes('->')) {
+    const parts = metaRoute.split('->').map((s: string) => s.trim());
+    const port = parts[0] || undefined;
+    const dest = parts[1]?.trim();
+    return { port, destination: dest || 'Unknown' };
+  }
+
+  // 2. Incoterm regex on subject
+  const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
+  if (routeMatch) {
+    const dest = routeMatch[1].trim();
+    return { port: undefined, destination: dest || 'Unknown' };
+  }
+
+  // 3. No reliable data — explicit Unknown, no fake Dakar
+  return { port: undefined, destination: 'Unknown' };
+}
+
+/**
  * Patch A — Extract raw text from PDF using pdfjs-dist (local, no AI).
  * Returns empty string if extraction fails or text is too short (<50 chars).
  */
@@ -893,13 +922,12 @@ REGLES CRITIQUES :
       if (emailErr) console.warn('[analyze-attachments] Email select failed:', emailErr.message);
       
       const subject = emailData?.subject || '';
-      const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
-      const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
+      const routeInfo = extractRouteInfo(extractedData, subject);
       
       // CL2-final A+: Direct insert, DB unique index handles duplicates
       const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
-        route_port: 'Dakar',
-        route_destination: destination,
+        ...(routeInfo.port ? { route_port: routeInfo.port } : {}),
+        route_destination: routeInfo.destination,
         cargo_type: detectCargoType(subject),
         tariff_lines: tariffLines,
         total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
@@ -1618,9 +1646,7 @@ Réponds en JSON avec cette structure:
           
           if (emailData) {
             const subject = emailData.subject || '';
-            const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
-            const destination = routeMatch ? routeMatch[1].trim() : 
-                               (extractedData.metadata?.route?.split('->')[1]?.trim() || 'Dakar');
+            const routeInfo = extractRouteInfo(extractedData, subject);
             
             // Get unique cargo types from sheet names or tariff lines
             const cargoTypes = new Set<string>();
@@ -1653,8 +1679,8 @@ Réponds en JSON avec cette structure:
               const { error: historyError } = await supabase
                 .from('quotation_history')
                 .insert({
-                  route_port: 'Dakar',
-                  route_destination: destination,
+                  ...(routeInfo.port ? { route_port: routeInfo.port } : {}),
+                  route_destination: routeInfo.destination,
                   cargo_type: cargoType,
                   client_company: extractedData.metadata?.client,
                   partner_company: extractedData.metadata?.partner,
