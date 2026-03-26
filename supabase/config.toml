@@ -64,8 +64,6 @@ verify_jwt = false
 [functions.data-admin]
 verify_jwt = false
 
-[functions.suggest-regime]
-verify_jwt = false
 
 [functions.analyze-pricing-patterns]
 verify_jwt = false
