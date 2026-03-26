@@ -48,24 +48,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TASK_STATUS_COLORS, SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
 import { Checkbox } from "@/components/ui/checkbox";
-
-// ── Fact keys rendered as Select dropdown instead of Input ──
-const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
-  "service.package": Object.keys(SERVICE_PACKAGES).map((pkg) => ({
-    value: pkg,
-    label: pkg.replace(/_/g, " "),
-  })),
-  "cargo.freight_currency": [
-    { value: "XOF", label: "XOF (FCFA)" },
-    { value: "EUR", label: "EUR" },
-    { value: "USD", label: "USD" },
-  ],
-  "routing.transport_mode": [
-    { value: "AIR", label: "Air" },
-    { value: "MARITIME", label: "Maritime" },
-    { value: "ROUTE", label: "Route" },
-  ],
-};
+import {
+  SELECT_FACT_OPTIONS,
+  MULTI_LOT_AMBIGUOUS_FACTS,
+  CLIENT_RESOLVABLE_GAP_KEYS,
+  EDITABLE_FACT_KEYS,
+  NUMERIC_FACT_KEYS,
+  CATEGORY_LABELS,
+  STATUS_LABELS,
+  EXCLUSIVE_GROUPS,
+} from "./case-view/constants";
+import type { PricingPrecheck } from "./case-view/types";
+import { mapSourceType, isServiceRelevant, toFactPayload } from "./case-view/helpers";
+import { FactHistoryPopover } from "./case-view/FactHistoryPopover";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
