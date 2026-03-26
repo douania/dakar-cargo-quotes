@@ -636,32 +636,8 @@ export default function CaseView() {
   // ── C3/P1: Apply proposed facts from reply_analysis_v1 ──
   const [applyingFactKey, setApplyingFactKey] = useState<string | null>(null);
 
-  function toFactPayload(f: Record<string, unknown>) {
-    const factKey = String(f["fact_key"] ?? "").trim();
-    if (!factKey) return null;
 
-    // value_number: strict typeof check (no string coercion)
-    let valueNumber: number | null = null;
-    if (typeof f["value_num"] === "number" && Number.isFinite(f["value_num"])) {
-      valueNumber = f["value_num"];
-    } else if (typeof f["value_number"] === "number" && Number.isFinite(f["value_number"])) {
-      valueNumber = f["value_number"];
-    }
 
-    // value_text: never send empty string, force null if value_number is set
-    let valueText: string | null = null;
-    if (valueNumber === null) {
-      const vt = typeof f["value_text"] === "string" ? f["value_text"].trim() : "";
-      valueText = vt || null;
-    }
-
-    // value_json: object non-null only
-    const valueJson = (typeof f["value_json"] === "object" && f["value_json"] !== null && !Array.isArray(f["value_json"]))
-      ? f["value_json"]
-      : (Array.isArray(f["value_json"]) ? f["value_json"] : null);
-
-    return { fact_key: factKey, value_text: valueText, value_number: valueNumber, value_json: valueJson };
-  }
 
   function isFactAlreadyApplied(f: Record<string, unknown>): boolean {
     const payload = toFactPayload(f);
