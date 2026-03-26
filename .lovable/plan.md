@@ -46,3 +46,26 @@ Uses existing `analysisTarget` as cross-layer visual focus. Derives `activeEmail
 - `triggerAnalysis`, `analysisTarget` shape unchanged
 - No auto-validation, no auto-close
 - Helpers P4.A/B/C/D are pure functions with no I/O
+
+---
+
+# M26b — Edge Functions Cleanup
+
+## Supprimées (dead code confirmé)
+
+| Fonction | Raison |
+|----------|--------|
+| `generate-case-outputs` | Remplacée par `generate-quotation-version` + `create-quotation-email-draft` |
+| `learn-from-contact` | Zéro appelant frontend/server |
+| `get-active-exchange-rate` | Remplacée par query directe `exchange_rates` |
+| `calculate-duties` | Logique intégrée dans `quotation-engine` |
+| `suggest-regime` | Logique intégrée dans `suggest-decisions` |
+
+## Dormantes (admin/maintenance — conservées)
+
+| Fonction | Usage | Statut |
+|----------|-------|--------|
+| `backfill-case-documents` | Script one-shot de réparation documentaire | Dormant — garder |
+| `reclassify-threads` | Outil admin de maintenance du threading | Dormant — garder |
+| `find-similar-quotations` | Recherche de cotations similaires (pas d'appelant UI actuel) | Dormant — garder |
+| `import-historical-quotation` | Import admin CLI/script de cotations historiques | Dormant — garder |
