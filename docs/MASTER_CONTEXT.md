@@ -15,6 +15,7 @@ Date: 2026-03
 - Silent failures corrigés
 - Module EQ1 (External Quote Requests) stabilisé et hardened
 - Module CL1 (Conversation Layer) opérationnel
+- Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
 
@@ -29,6 +30,7 @@ Date: 2026-03
 - verify_jwt=false + requireUser (pattern Lovable Cloud)
 - Security contract opérationnel: docs/SECURITY_CONTRACT.md (subordonné à ce document)
 - Status registry opérationnel: docs/STATUS_REGISTRY.md (subordonné à ce document)
+- Backlog différé : docs/DEFERRED_BACKLOG.md — tout sujet volontairement reporté, dormant ou accepté comme dette doit y être inscrit immédiatement
 - Phase S3: DECISIONS_PENDING restauré comme état canonique
 - Phase P4: build-case-puzzle introduit une détection d'ambiguïté
 - Phase EQ1: Module External Quote Requests — workflow latéral pour demandes partenaires. Injection dans quote_facts via supersede_fact RPC uniquement. Validation humaine obligatoire.

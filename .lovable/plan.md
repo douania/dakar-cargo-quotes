@@ -69,3 +69,9 @@ Uses existing `analysisTarget` as cross-layer visual focus. Derives `activeEmail
 | `reclassify-threads` | Outil admin de maintenance du threading | Dormant — garder |
 | `find-similar-quotations` | Recherche de cotations similaires (pas d'appelant UI actuel) | Dormant — garder |
 | `import-historical-quotation` | Import admin CLI/script de cotations historiques | Dormant — garder |
+
+---
+
+# Règle de gouvernance — Sujets différés
+
+Tout sujet explicitement différé, laissé dormant, accepté comme dette, ou déplacé à une phase ultérieure doit être ajouté ou mis à jour dans `docs/DEFERRED_BACKLOG.md` immédiatement.
