@@ -57,7 +57,7 @@ import {
   STATUS_LABELS,
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
-import { mapSourceType, isServiceRelevant, toFactPayload } from "./case-view/helpers";
+import { mapSourceType, toFactPayload } from "./case-view/helpers";
 import { FactHistoryPopover } from "./case-view/FactHistoryPopover";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
