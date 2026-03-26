@@ -57,7 +57,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 8 | `DECISIONS_COMPLETE` | `ACK_READY_FOR_PRICING` | `ack-pricing-ready` | operator-driven |
 | 9 | `ACK_READY_FOR_PRICING` / `READY_TO_PRICE` (legacy) | `PRICING_RUNNING` | `run-pricing` | automatic |
 | 10 | `PRICING_RUNNING` | `PRICED_DRAFT` | `run-pricing` | automatic |
-| 11 | `PRICED_DRAFT` | `HUMAN_REVIEW` | `generate-case-outputs` | dormant — non utilisée par le frontend canonique. `generate-case-outputs` n'est pas invoqué par le cockpit CaseView. |
+| 11 | `PRICED_DRAFT` | `HUMAN_REVIEW` | ❌ supprimée du pipeline canonique | `generate-case-outputs` n'existe plus dans le runtime (supprimée M26b). La transition `PRICED_DRAFT` → `HUMAN_REVIEW` n'est plus produite par une fonction canonique active. Le statut `HUMAN_REVIEW` reste dans l'enum DB à titre historique. |
 | 11b | `PRICED_DRAFT` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — **chemin canonique actuel** |
 | 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — accepté défensivement, non atteint en pratique |
 | 13 | `QUOTED_VERSIONED` | `SENT` | `send-quotation` | operator-driven |
