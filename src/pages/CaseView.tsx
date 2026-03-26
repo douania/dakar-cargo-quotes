@@ -46,8 +46,7 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TASK_STATUS_COLORS, SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
-import { Checkbox } from "@/components/ui/checkbox";
+import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
   SELECT_FACT_OPTIONS,
   MULTI_LOT_AMBIGUOUS_FACTS,
