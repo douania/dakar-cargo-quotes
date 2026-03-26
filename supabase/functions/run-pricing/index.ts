@@ -1855,7 +1855,7 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       }
       case "cargo.weight_kg":
-        inputs.cargoWeight = Number(value);
+        inputs.cargoWeight = Number(value) / 1000; // kg → tonnes (quotation-engine attend des tonnes)
         break;
       case "cargo.volume_cbm":
         inputs.cargoVolume = Number(value);
