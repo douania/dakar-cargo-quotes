@@ -26,7 +26,7 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 9 | `ACK_READY_FOR_PRICING` | Prêt confirmé | Opérateur a confirmé le lancement du chiffrage | `ack-pricing-ready` | frozen | CaseView, CaseCard |
 | 10 | `PRICING_RUNNING` | Chiffrage en cours | Moteur de pricing en exécution | `run-pricing` | active | CaseView, CaseCard |
 | 11 | `PRICED_DRAFT` | Brouillon chiffré | Résultat de chiffrage disponible, en attente de revue | `run-pricing` | active | CaseView, CaseCard |
-| 12 | `HUMAN_REVIEW` | Revue humaine | Outputs générés, en attente de validation opérateur. **Non canonique** : présent dans l'enum et supporté défensivement par le runtime, mais non atteint par le chemin opérateur actuel. La revue humaine se fait implicitement lors de la création de version depuis `PRICED_DRAFT`. | `generate-case-outputs` | dormant | CaseView, CaseCard |
+| 12 | `HUMAN_REVIEW` | Revue humaine | Statut conservé à titre historique et de compatibilité documentaire. **Hors pipeline canonique actuel** : présent dans l'enum DB et supporté défensivement par `generate-quotation-version`, mais aucun writer canonique actif ne pousse vers ce statut depuis la suppression de `generate-case-outputs` en M26b. La revue humaine se fait implicitement lors de la création de version depuis `PRICED_DRAFT`. | ❌ aucun writer canonique actif (fonction historique supprimée en M26b) | dormant | CaseView, CaseCard |
 | 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
 | 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
 | 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
