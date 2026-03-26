@@ -72,15 +72,14 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | C1 | Extraction progressive CaseView.tsx | Réduction risque de régression |
-| 2 | A4 | Emails de cotation IA | Valeur produit directe |
+| 1 | F2 | Smoke test M24b | Vérification pricing factuelle — prochaine action immédiate |
+| 2 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
 | 3 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
 | 4 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
 | 5 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 6 | F2 | Smoke test M24b | Confirmation fix facteur 1000x |
-| 7 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 8 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 9 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 7 | D1 | Scroll-to-section | UX polish à fort impact perçu |
+| 8 | A3 | Re-pricing après version | Flexibilité opérateur |
 
 ---
 
