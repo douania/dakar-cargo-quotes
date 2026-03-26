@@ -18,8 +18,6 @@ verify_jwt = false
 [functions.hs-lookup]
 verify_jwt = false
 
-[functions.calculate-duties]
-verify_jwt = false
 
 [functions.parse-document]
 verify_jwt = false
