@@ -1746,53 +1746,7 @@ export default function CaseView() {
           </Card>
         )}
 
-        {/* ── M16b: Suivi clarifications client (CL1) ── */}
-        {(clientGapRequests as any[]).length > 0 && (
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Suivi clarifications client</CardTitle>
-                <Badge variant="secondary">{(clientGapRequests as any[]).length}</Badge>
-              </div>
-              <CardDescription>Demandes d'information envoyées au client</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {(clientGapRequests as any[]).map((req: any) => {
-                  const statusConfig: Record<string, { label: string; className: string }> = {
-                    drafted: { label: "Brouillon", className: "bg-muted text-muted-foreground" },
-                    sent: { label: "Envoyé", className: "bg-blue-100 text-blue-800 border-blue-300" },
-                    answered: { label: "Répondu", className: "bg-amber-100 text-amber-800 border-amber-300" },
-                    validated: { label: "Validé", className: "bg-green-100 text-green-800 border-green-300" },
-                  };
-                  const cfg = statusConfig[req.status] || { label: req.status, className: "" };
-                  const ts = req.sent_at || req.created_at;
-                  const tsLabel = ts
-                    ? formatDistanceToNow(new Date(ts), { addSuffix: true, locale: fr })
-                    : null;
-
-                  return (
-                    <div key={req.id} className="flex items-center gap-2 py-1.5 px-2 rounded border border-border">
-                      <Badge variant="outline" className="text-[10px] shrink-0 font-mono">
-                        {req.gap_key}
-                      </Badge>
-                      <Badge variant="outline" className={`text-[10px] shrink-0 ${cfg.className}`}>
-                        {cfg.label}
-                      </Badge>
-                      {req.matched_fact_key && req.status === "answered" && (
-                        <span className="text-[10px] text-muted-foreground">→ {req.matched_fact_key}</span>
-                      )}
-                      {tsLabel && (
-                        <span className="text-xs text-muted-foreground ml-auto shrink-0">{tsLabel}</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* M27b: CL1 tracking moved — single instance near gaps (line ~2147) */}
 
         {/* ── Analyse dernière réponse client (C3/P0) ── */}
         {(() => {
