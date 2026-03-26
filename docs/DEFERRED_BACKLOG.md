@@ -39,9 +39,9 @@ Cela inclut les décisions formulées comme :
 
 | ID | Sujet | Catégorie | Statut | Priorité | Phase | Date | Pourquoi non traité | Déclencheur de réouverture | Surface probable | Source | Vérification | Recommandation |
 |----|-------|-----------|--------|----------|-------|------|---------------------|---------------------------|-----------------|--------|--------------|----------------|
-| E1 | MASTER_CONTEXT.md référence `generate-case-outputs` (§Cockpit, §Fonctions dormantes) — supprimée en M26b | doc | deferred-high | Haute | M26b | 2026-03 | Pas exécuté après bilan final | Immédiat | `docs/MASTER_CONTEXT.md` | repo + chat | Confirmé | Corriger maintenant |
-| E2 | SECURITY_CONTRACT.md référence `generate-case-outputs` (ligne 36, 74) | doc | deferred-high | Haute | M26b | 2026-03 | Idem E1 | Immédiat | `docs/SECURITY_CONTRACT.md` | repo + chat | Confirmé | Corriger maintenant |
-| E3 | STATUS_REGISTRY.md référence `generate-case-outputs` comme writer HUMAN_REVIEW | doc | deferred-high | Haute | M26b | 2026-03 | Non identifié avant inventaire | Immédiat | `docs/STATUS_REGISTRY.md` | repo | Confirmé | Corriger maintenant |
+| E1 | MASTER_CONTEXT.md référence `generate-case-outputs` (§Cockpit, §Fonctions dormantes) — supprimée en M26b | doc | closed | — | M26b | 2026-03-26 | Corrigé par convergence documentaire E1+E2+E3 | — | `docs/MASTER_CONTEXT.md` | repo + chat | Fermé | Aucune action requise |
+| E2 | SECURITY_CONTRACT.md référence `generate-case-outputs` (ligne 36, 74) | doc | closed | — | M26b | 2026-03-26 | Corrigé par convergence documentaire E1+E2+E3 | — | `docs/SECURITY_CONTRACT.md` | repo + chat | Fermé | Aucune action requise |
+| E3 | STATUS_REGISTRY.md référence `generate-case-outputs` comme writer HUMAN_REVIEW | doc | closed | — | M26b | 2026-03-26 | Corrigé par convergence documentaire E1+E2+E3 | — | `docs/STATUS_REGISTRY.md` | repo | Fermé | Aucune action requise |
 | E4 | PHASE_15_NOTES.md référence `generate-case-outputs` dans config verify_jwt | doc | historical_note | Moyenne | M26b | 2026-03 | Document historique | Lors de prochaine relecture | `.lovable/PHASE_15_NOTES.md` | repo | Confirmé | Annoter comme historique |
 | C1 | CaseView.tsx monolithique (2700+ lignes, 20+ useState, IIFEs) | dette | deferred | Haute | M27 | 2026-03 | Risque régression mais pas de bug actif | Prochain changement UX sur CaseView | `src/pages/CaseView.tsx` | chat M27 | Confirmé | Extraction progressive |
 | B1 | Isolation multi-tenant (email_drafts CRUD ouvert, case-documents sans isolation) | sécurité | deferred | Moyenne | M23c | 2026-03 | Modèle mono-équipe suffisant | Ouverture multi-société | RLS `email_drafts`, storage `case-documents` | chat M23c | Confirmé | Phase M23c-fix si besoin |
@@ -71,16 +71,15 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | E1+E2+E3 | Mise à jour docs — supprimer références `generate-case-outputs` | Cohérence doc/runtime immédiate |
-| 2 | C1 | Extraction progressive CaseView.tsx | Réduction risque de régression |
-| 3 | A4 | Emails de cotation IA | Valeur produit directe |
-| 4 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
-| 5 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
-| 6 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 7 | F2 | Smoke test M24b | Confirmation fix facteur 1000x |
-| 8 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 9 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 10 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 1 | C1 | Extraction progressive CaseView.tsx | Réduction risque de régression |
+| 2 | A4 | Emails de cotation IA | Valeur produit directe |
+| 3 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
+| 4 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
+| 5 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 6 | F2 | Smoke test M24b | Confirmation fix facteur 1000x |
+| 7 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 8 | D1 | Scroll-to-section | UX polish à fort impact perçu |
+| 9 | A3 | Re-pricing après version | Flexibilité opérateur |
 
 ---
 
