@@ -893,13 +893,12 @@ REGLES CRITIQUES :
       if (emailErr) console.warn('[analyze-attachments] Email select failed:', emailErr.message);
       
       const subject = emailData?.subject || '';
-      const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
-      const destination = routeMatch ? routeMatch[1].trim() : 'Dakar';
+      const routeInfo = extractRouteInfo(extractedData, subject);
       
       // CL2-final A+: Direct insert, DB unique index handles duplicates
       const { error: qhInsertErr } = await supabase.from('quotation_history').insert({
-        route_port: 'Dakar',
-        route_destination: destination,
+        ...(routeInfo.port ? { route_port: routeInfo.port } : {}),
+        route_destination: routeInfo.destination,
         cargo_type: detectCargoType(subject),
         tariff_lines: tariffLines,
         total_amount: tariffLines.reduce((sum, l) => sum + l.amount, 0),
