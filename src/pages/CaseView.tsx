@@ -27,7 +27,7 @@ import {
   Paperclip,
   History,
   Puzzle,
-  Package,
+  
   RefreshCw,
   Play,
   Pencil,
