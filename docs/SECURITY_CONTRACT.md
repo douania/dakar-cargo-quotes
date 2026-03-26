@@ -71,7 +71,7 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `commit-decision` | Comments only (auth deferred to S1.3 for observability preservation) | 2026-03 |
 | `ensure-quote-case` | Migrated to `requireUser`, removed inline auth + local corsHeaders, harmonized CORS with shared helper | 2026-03 |
 | `send-quotation` | Migrated to `requireUser` + post-check log, retained userClient for RLS (reconstructed via `auth.token`) | 2026-03 |
-| `generate-case-outputs` | Migrated to `requireUser` + post-check log, removed userClient + local corsHeaders | 2026-03 |
+| `generate-case-outputs` | ~~Migrated to `requireUser`~~ — **Fonction supprimée en M26b** (dead code confirmé). Entrée conservée pour historique. | 2026-03 |
 | — | **Auth convergence complete.** Remaining inline: `commit-decision` (observability), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN). No further migration planned for current phase. | 2026-03 |
 | `export-quotation-version-pdf` | Added to classification as user_auth (inline). Docstring corrected: `verify_jwt = false`. Inline auth conserved — no migration in M7b. | 2026-03 |
 | `create-quotation-email-draft` | Added to classification as user_auth (requireUser). Previously missing from security contract. | 2026-03 |

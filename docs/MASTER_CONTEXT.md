@@ -144,16 +144,12 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
-## Fonctions dormantes / legacy
+## Fonctions supprimées (M26b)
 
-### `generate-case-outputs`
+Les fonctions suivantes ont été supprimées comme dead code confirmé :
+`generate-case-outputs`, `learn-from-contact`, `get-active-exchange-rate`, `calculate-duties`, `suggest-regime`.
 
-- **Statut** : dormant / legacy — non utilisée par le frontend canonique, non intégrée au pipeline canonique de sortie.
-- **Ce qu'elle fait encore** : génère un brouillon d'email via IA (Gemini 2.5 Flash) à partir des faits et du pricing run, pousse le case vers `HUMAN_REVIEW`, insère des events timeline. Ne génère pas de PDF (code désactivé). Le draft n'est pas persisté en `email_drafts` — il est retourné uniquement dans la réponse HTTP.
-- **Pourquoi elle est hors chemin canonique** : le pipeline canonique de sortie est `generate-quotation-version` → `export-quotation-version-pdf` → `create-quotation-email-draft` → `send-quotation`. Ce pipeline est versionné, persistant, idempotent et traçable. `generate-case-outputs` ne s'y intègre pas.
-- **Valeur distinctive résiduelle** : la génération IA du corps d'email de cotation (prompt structuré, template fallback). C'est la seule capacité que le pipeline canonique ne possède pas encore (le canonique utilise un template statique).
-- **Piste d'extraction future** : si des emails de cotation plus intelligents deviennent prioritaires, la bonne direction est d'ajouter une option IA à `create-quotation-email-draft` (dans le pipeline canonique), pas de réactiver `generate-case-outputs`.
-- **Ne pas** : supprimer, réactiver, ni fusionner avec le chemin canonique sans ticket dédié et validation explicite.
+**Valeur résiduelle notable** : `generate-case-outputs` contenait une génération IA du corps d'email de cotation (prompt structuré, template fallback). Si des emails plus intelligents deviennent prioritaires, la bonne direction est d'ajouter une option IA à `create-quotation-email-draft`, pas de restaurer la fonction supprimée. Voir backlog A4.
 
 ---
 
