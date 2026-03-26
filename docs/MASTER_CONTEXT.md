@@ -15,6 +15,7 @@ Date: 2026-03
 - Silent failures corrigés
 - Module EQ1 (External Quote Requests) stabilisé et hardened
 - Module CL1 (Conversation Layer) opérationnel
+- Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
 
