@@ -55,7 +55,6 @@ import {
   NUMERIC_FACT_KEYS,
   CATEGORY_LABELS,
   STATUS_LABELS,
-  EXCLUSIVE_GROUPS,
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
 import { mapSourceType, isServiceRelevant, toFactPayload } from "./case-view/helpers";
