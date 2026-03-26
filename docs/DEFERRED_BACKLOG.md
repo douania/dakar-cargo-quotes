@@ -71,7 +71,7 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | E1+E2+E3 | Mise à jour docs — supprimer références `generate-case-outputs` | Cohérence doc/runtime immédiate |
+| 1 | C1 | Extraction progressive CaseView.tsx | Réduction risque de régression |
 | 2 | C1 | Extraction progressive CaseView.tsx | Réduction risque de régression |
 | 3 | A4 | Emails de cotation IA | Valeur produit directe |
 | 4 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
