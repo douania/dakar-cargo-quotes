@@ -1,77 +1,47 @@
 
 
-# P4 — Thread Intelligence Layer (UI-only)
+# Plan — Mise à jour DEFERRED_BACKLOG.md post-C1
 
-## P4.A — Thread Timeline Intelligence ✅
+## Objectif
 
-Pure helper `getThreadEmailSignals.ts` enriching thread emails with contextual tags (Après envoi, Suggéré, Partenaire, Récent) and priority-based sorting. Mini timeline rendered in ExternalRequestsPanel for `sent`/`response_received` requests.
+Refléter la clôture de C1, ajouter C1-rest comme dormant, et renuméroter les priorités selon l'ordre validé : F2 → A4 → A1.
 
-## P4.B — Thread Context Compression ✅
+## Fichier unique modifié
 
-Pure helper `getThreadContextSummary.ts` deriving compact thread stats (emails after send, analyzed count, unanalyzed, last partner email, silence days). Rendered as `text-xs` summary row above the mini timeline.
+`docs/DEFERRED_BACKLOG.md`
 
-## P4.C — Thread Interaction Patterns ✅
+## Changements
 
-Pure helper `getThreadInteractionSignals.ts` detecting conversation direction and back-and-forth patterns. Renders strictly descriptive labels: "Dernier message : nous/partenaire", "Aller-retour détecté".
+### 1. Ligne 46 — C1 passe à `closed`
 
-CTO corrections applied:
-- Removed `isAwaitingPartner`/`isAwaitingUs` — derive display from `lastMessageFrom` only
-- No interpretive wording (no "En attente", no "À examiner")
-- No emoji, no amber highlight on interaction line
+Remplacer l'entrée C1 par :
 
-## P4.D — Thread Consolidation ✅
+| C1 | CaseView.tsx monolithique — extraction progressive | dette | **closed** | — | C1 | **2026-03-26** | Objectif minimal atteint : C1.1 (constantes/types/helpers), C1.2a (FactHistoryPopover), C1.2b (ServiceOverridePanel). CaseView réduit de 2700+ à 2119 lignes (~21%). Smoke tests verts. | — | `src/pages/CaseView.tsx` | chat C1 | Fermé | Aucune action requise |
 
-Pure helper `getThreadConsolidationGroups.ts` grouping thread emails by direction (partner/us) + normalized subject into readable blocks. Labels use informative format: `Partenaire · {subjectShort}` / `Nous · {subjectShort}`. Top 2 emails per group shown with `+X autre(s) email(s)` overflow. Groups sorted by suggested-first then recency. P4.A timeline preserved below for traceability.
+### 2. Ajouter C1-rest après C1 (nouvelle ligne 47)
 
-## P4.E — Cross-layer Alignment ✅
+| C1-rest | Extractions CaseView restantes (PipelineStepper, TimelineTab, ClientClarifications) | dette | **dormant** | Basse | C1 | 2026-03-26 | Restant volontairement non extrait ; ratio gain/risque insuffisant hors changement UX majeur | Prochain changement UX majeur sur CaseView | `src/pages/CaseView.tsx` | chat C1 | Confirmé | Garder dormant |
 
-Visual deduplication across P4 layers when consolidation groups exist:
-- P4.A timeline: hides redundant tags (Suggéré, Déjà analysé, Partenaire) — keeps Après envoi, Récent
-- P4.B summary: hides "X déjà analysé(s)" count — keeps email-after-send and unanalyzed counts
-- P4.C: unchanged
-- No helper modifications — deduplication is purely at render level in ExternalRequestsPanel
+### 3. Top priorités futures — renuméroter
 
-## P4.F — Progressive Disclosure ✅
+| Rang | ID | Sujet | Valeur |
+|------|----|-------|--------|
+| 1 | F2 | Smoke test M24b | Vérification pricing factuelle — prochaine action immédiate |
+| 2 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
+| 3 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
+| 4 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
+| 5 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 7 | D1 | Scroll-to-section | UX polish à fort impact perçu |
+| 8 | A3 | Re-pricing après version | Flexibilité opérateur |
 
-Local UI state `expandedThreadIds: Set<string>` per request. Timeline P4.A hidden by default, accessible via "Voir le détail" / "Masquer le détail" toggle button. State updates use immutable Set cloning. Button hidden when focus-expanded (P4.G).
+### 4. Dernière mise à jour → `2026-03-26`
 
-## P4.G — Operator Focus Mode ✅
+Déjà à jour.
 
-Uses existing `analysisTarget` as cross-layer visual focus. Derives `activeEmailId` per request. Dual highlight hierarchy: active (strong) > suggested (light) > normal. Auto-expands timeline for focused request via pure derivation (`isManuallyExpanded || isFocusExpanded`) — no useEffect, no state mutation. Muted "Email sélectionné" label when active.
+## Ce qui ne change pas
 
-## What does NOT change across P4
+- Zéro code, zéro migration, zéro edge function
+- `.lovable/plan.md` : C1 y figure déjà comme contexte historique, pas comme tâche ouverte — pas de modification nécessaire
+- `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md` : aucun impact
 
-- No edge functions, no migrations, no FROZEN files
-- `useExternalRequests.ts`, `useExternalRequestFlow.ts` untouched (except PRICING_CRITICAL_KEYS extraction)
-- `triggerAnalysis`, `analysisTarget` shape unchanged
-- No auto-validation, no auto-close
-- Helpers P4.A/B/C/D are pure functions with no I/O
-
----
-
-# M26b — Edge Functions Cleanup
-
-## Supprimées (dead code confirmé)
-
-| Fonction | Raison |
-|----------|--------|
-| `generate-case-outputs` | Remplacée par `generate-quotation-version` + `create-quotation-email-draft` |
-| `learn-from-contact` | Zéro appelant frontend/server |
-| `get-active-exchange-rate` | Remplacée par query directe `exchange_rates` |
-| `calculate-duties` | Logique intégrée dans `quotation-engine` |
-| `suggest-regime` | Logique intégrée dans `suggest-decisions` |
-
-## Dormantes (admin/maintenance — conservées)
-
-| Fonction | Usage | Statut |
-|----------|-------|--------|
-| `backfill-case-documents` | Script one-shot de réparation documentaire | Dormant — garder |
-| `reclassify-threads` | Outil admin de maintenance du threading | Dormant — garder |
-| `find-similar-quotations` | Recherche de cotations similaires (pas d'appelant UI actuel) | Dormant — garder |
-| `import-historical-quotation` | Import admin CLI/script de cotations historiques | Dormant — garder |
-
----
-
-# Règle de gouvernance — Sujets différés
-
-Tout sujet explicitement différé, laissé dormant, accepté comme dette, ou déplacé à une phase ultérieure doit être ajouté ou mis à jour dans `docs/DEFERRED_BACKLOG.md` immédiatement.
