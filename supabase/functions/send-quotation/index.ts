@@ -293,7 +293,7 @@ Deno.serve(async (req) => {
         event_type: "sent",
         new_value: "SENT",
         actor_type: "user",
-        actor_user_id: user.id,
+        actor_user_id: userId,
         event_data: {
           draft_id,
           version_id,
