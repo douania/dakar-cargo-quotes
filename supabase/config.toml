@@ -111,8 +111,7 @@ verify_jwt = false
 [functions.run-pricing]
 verify_jwt = false
 
-[functions.generate-case-outputs]
-verify_jwt = false
+
 
 [functions.qualify-quotation-minimal]
 verify_jwt = false
