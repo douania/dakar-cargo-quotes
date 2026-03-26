@@ -48,24 +48,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TASK_STATUS_COLORS, SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
 import { Checkbox } from "@/components/ui/checkbox";
-
-// ── Fact keys rendered as Select dropdown instead of Input ──
-const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
-  "service.package": Object.keys(SERVICE_PACKAGES).map((pkg) => ({
-    value: pkg,
-    label: pkg.replace(/_/g, " "),
-  })),
-  "cargo.freight_currency": [
-    { value: "XOF", label: "XOF (FCFA)" },
-    { value: "EUR", label: "EUR" },
-    { value: "USD", label: "USD" },
-  ],
-  "routing.transport_mode": [
-    { value: "AIR", label: "Air" },
-    { value: "MARITIME", label: "Maritime" },
-    { value: "ROUTE", label: "Route" },
-  ],
-};
+import {
+  SELECT_FACT_OPTIONS,
+  MULTI_LOT_AMBIGUOUS_FACTS,
+  CLIENT_RESOLVABLE_GAP_KEYS,
+  EDITABLE_FACT_KEYS,
+  NUMERIC_FACT_KEYS,
+  CATEGORY_LABELS,
+  STATUS_LABELS,
+  EXCLUSIVE_GROUPS,
+} from "./case-view/constants";
+import type { PricingPrecheck } from "./case-view/types";
+import { mapSourceType, isServiceRelevant, toFactPayload } from "./case-view/helpers";
+import { FactHistoryPopover } from "./case-view/FactHistoryPopover";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
@@ -77,215 +72,6 @@ import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 
-// ── P2 — Pricing precheck type (mirror run-pricing coherence checks) ──
-type PricingPrecheck = {
-  code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
-  key: string;
-  label: string;
-};
-
-// P1a — Global fact keys ambiguous on multi-lot cases
-const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
-  "cargo.weight_kg",
-  "cargo.pieces_count",
-  "cargo.description",
-  "service.package",
-]);
-
-// Mirror of supabase/functions/_shared/client-gap-policy.ts
-// Keep in sync with backend client-resolvable gap keys.
-const CLIENT_RESOLVABLE_GAP_KEYS = new Set([
-  "cargo.description", "cargo.value", "cargo.weight_kg", "cargo.volume_cbm",
-  "cargo.hs_code", "cargo.pieces_count", "routing.origin_port",
-  "routing.destination_port", "routing.destination_city",
-  "routing.destination_country", "routing.transport_mode",
-]);
-
-// ── Editable fact keys (must match set-case-fact whitelist) ──
-const EDITABLE_FACT_KEYS = new Set([
-  "cargo.weight_kg",
-  "cargo.container_count",
-  "cargo.container_type",
-  "cargo.caf_value",
-  "cargo.chargeable_weight_kg",
-  "cargo.weight_per_container_kg",
-  "cargo.articles_detail",
-  "client.code",
-  "routing.incoterm",
-  "routing.destination_city",
-  "service.mode",
-  "service.package",
-  "cargo.value",
-  "cargo.pieces_count",
-  "cargo.hs_code",
-  "customs.regime_code",
-  "regulatory.exemption_title",
-  "cargo.freight_cost",
-  "cargo.freight_currency",
-  "cargo.freight_exchange_rate",
-  "routing.transport_mode",
-]);
-
-const NUMERIC_FACT_KEYS = new Set([
-  "cargo.weight_kg",
-  "cargo.container_count",
-  "cargo.caf_value",
-  "cargo.chargeable_weight_kg",
-  "cargo.weight_per_container_kg",
-  "cargo.value",
-  "cargo.pieces_count",
-  "cargo.freight_cost",
-  "cargo.freight_exchange_rate",
-]);
-
-// ── Category labels for display ──
-const CATEGORY_LABELS: Record<string, string> = {
-  cargo: "Cargo",
-  routing: "Routing",
-  timing: "Timing",
-  pricing: "Tarification",
-  documents: "Documents",
-  contacts: "Contacts",
-  service: "Service",
-  regulatory: "Réglementaire",
-  carrier: "Transporteur",
-  survey: "Survey",
-  other: "Autre",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  INTAKE: "Réception",
-  NEW_THREAD: "Nouveau fil",
-  RFQ_DETECTED: "RFQ détectée",
-  FACTS_PARTIAL: "Données incomplètes",
-  NEED_INFO: "Infos manquantes",
-  READY_TO_PRICE: "Prêt à chiffrer",
-  DECISIONS_PENDING: "Décisions en attente",
-  DECISIONS_COMPLETE: "Décisions validées",
-  ACK_READY_FOR_PRICING: "Prêt confirmé",
-  PRICING_RUNNING: "Chiffrage en cours",
-  PRICED_DRAFT: "Brouillon chiffré",
-  HUMAN_REVIEW: "Revue humaine",
-  QUOTED_VERSIONED: "Versionné",
-  SENT: "Envoyé",
-  ARCHIVED: "Archivé",
-};
-
-// ── Contextual service filtering ──
-// ── Fact history helpers ──
-function mapSourceType(type: string): string {
-  if (["manual_input", "operator"].includes(type)) return "Opérateur";
-  if (type.startsWith("ai_")) return "IA";
-  if (["document_regex", "attachment_extracted"].includes(type)) return "Document";
-  if (type === "hs_resolution") return "HS";
-  if (type === "known_contact_match") return "Contact";
-  if (type === "quotation_engine") return "Moteur";
-  if (type.startsWith("email_")) return "Email";
-  return type;
-}
-
-function FactHistoryPopover({ caseId, factKey }: { caseId: string; factKey: string }) {
-  const cacheKey = `${caseId}::${factKey}`;
-  const [historyCache, setHistoryCache] = useState<Record<string, any[]>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const history = historyCache[cacheKey] ?? [];
-
-  const handleOpen = async (open: boolean) => {
-    if (!open) return;
-    if (historyCache[cacheKey]) return;
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("quote_facts")
-        .select("id, value_text, value_number, value_json, source_type, confidence, created_at")
-        .eq("case_id", caseId)
-        .eq("fact_key", factKey)
-        .eq("is_current", false)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (error) throw error;
-      const result = data ?? [];
-      setHistoryCache(prev => ({ ...prev, [cacheKey]: result }));
-    } catch {
-      setHistoryCache(prev => ({ ...prev, [cacheKey]: [] }));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const formatValue = (h: any) => {
-    if (h.value_text != null) return h.value_text;
-    if (h.value_number != null) return String(h.value_number);
-    if (h.value_json != null) {
-      const str = JSON.stringify(h.value_json);
-      return str.length > 120 ? str.slice(0, 120) + "…" : str;
-    }
-    return "—";
-  };
-
-  return (
-    <Popover onOpenChange={handleOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7" title="Historique">
-          <Clock className="h-3 w-3" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80 max-h-64 overflow-auto" align="end">
-        <p className="font-semibold text-sm mb-2">Historique</p>
-        {isLoading ? (
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-4 w-4 animate-spin" />
-          </div>
-        ) : history.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Aucune version précédente</p>
-        ) : (
-          <div className="space-y-2">
-            {history.map((h) => (
-              <div key={h.id} className="border rounded p-2 space-y-1">
-                <p className="text-sm font-medium break-all">{formatValue(h)}</p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                    {mapSourceType(h.source_type)}
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground">
-                    {h.confidence != null ? `${Math.round(h.confidence * 100)}%` : "—"}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    {formatDistanceToNow(new Date(h.created_at), { addSuffix: true, locale: fr })}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function isServiceRelevant(service: string, mode: string): boolean {
-  if (mode.startsWith("SEA")) {
-    if (service.startsWith("AIR_")) return false;
-    if (service === "CUSTOMS_BAMAKO") return false;
-    if (service === "BORDER_FEES") return false;
-    if (service === "DISCHARGE") return false;
-  }
-  if (mode.startsWith("AIR")) {
-    if (service.startsWith("PORT_")) return false;
-    if (service === "DTHC") return false;
-    if (service === "EMPTY_RETURN") return false;
-    if (service === "DISCHARGE") return false;
-  }
-  if (mode.includes("IMPORT") && service === "CUSTOMS_EXPORT") return false;
-  if (mode.includes("EXPORT") && service === "CUSTOMS_DAKAR") return false;
-  return true;
-}
-
-const EXCLUSIVE_GROUPS = [
-  ["TRUCKING", "ON_CARRIAGE"],
-  ["PORT_DAKAR_HANDLING", "PORT_CHARGES"],
-  ["CUSTOMS_DAKAR", "CUSTOMS"],
-];
 
 // ── Service Override Panel ──
 function ServiceOverridePanel({
@@ -850,32 +636,8 @@ export default function CaseView() {
   // ── C3/P1: Apply proposed facts from reply_analysis_v1 ──
   const [applyingFactKey, setApplyingFactKey] = useState<string | null>(null);
 
-  function toFactPayload(f: Record<string, unknown>) {
-    const factKey = String(f["fact_key"] ?? "").trim();
-    if (!factKey) return null;
 
-    // value_number: strict typeof check (no string coercion)
-    let valueNumber: number | null = null;
-    if (typeof f["value_num"] === "number" && Number.isFinite(f["value_num"])) {
-      valueNumber = f["value_num"];
-    } else if (typeof f["value_number"] === "number" && Number.isFinite(f["value_number"])) {
-      valueNumber = f["value_number"];
-    }
 
-    // value_text: never send empty string, force null if value_number is set
-    let valueText: string | null = null;
-    if (valueNumber === null) {
-      const vt = typeof f["value_text"] === "string" ? f["value_text"].trim() : "";
-      valueText = vt || null;
-    }
-
-    // value_json: object non-null only
-    const valueJson = (typeof f["value_json"] === "object" && f["value_json"] !== null && !Array.isArray(f["value_json"]))
-      ? f["value_json"]
-      : (Array.isArray(f["value_json"]) ? f["value_json"] : null);
-
-    return { fact_key: factKey, value_text: valueText, value_number: valueNumber, value_json: valueJson };
-  }
 
   function isFactAlreadyApplied(f: Record<string, unknown>): boolean {
     const payload = toFactPayload(f);
