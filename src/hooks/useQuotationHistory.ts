@@ -12,7 +12,7 @@ interface TariffLine {
 interface QuotationHistory {
   id: string;
   route_origin: string | null;
-  route_port: string;
+  route_port: string | null;
   route_destination: string;
   route_hash: string | null;
   cargo_type: string;

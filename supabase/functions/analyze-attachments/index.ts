@@ -1650,8 +1650,8 @@ Réponds en JSON avec cette structure:
               const { error: historyError } = await supabase
                 .from('quotation_history')
                 .insert({
-                  route_port: 'Dakar',
-                  route_destination: destination,
+                  ...(routeInfo.port ? { route_port: routeInfo.port } : {}),
+                  route_destination: routeInfo.destination,
                   cargo_type: cargoType,
                   client_company: extractedData.metadata?.client,
                   partner_company: extractedData.metadata?.partner,
