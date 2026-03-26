@@ -8,7 +8,7 @@
  * ✅ État local pour sélections UI
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -138,6 +138,53 @@ export function useDecisionSupport(caseId: string): UseDecisionSupportReturn {
   const [localState, setLocalState] = useState<Record<DecisionType, LocalDecisionState>>(
     createInitialLocalState
   );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HYDRATATION: Charger les décisions existantes depuis operator_decisions
+  // M25b — refléter l'état réel en base au montage / changement de caseId
+  // ═══════════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!caseId) return;
+
+    let cancelled = false;
+
+    async function loadExistingDecisions() {
+      try {
+        const { data, error: queryError } = await supabase
+          .from('operator_decisions')
+          .select('decision_type, selected_key, override_value, override_reason, decided_at')
+          .eq('case_id', caseId)
+          .eq('is_final', true);
+
+        if (cancelled || queryError || !data) return;
+
+        if (data.length > 0) {
+          setLocalState(prev => {
+            const next = { ...prev };
+            for (const row of data) {
+              const dt = row.decision_type as DecisionType;
+              if (ALL_DECISION_TYPES.includes(dt)) {
+                next[dt] = {
+                  selectedKey: row.selected_key === 'custom_override' ? '__override__' : row.selected_key,
+                  overrideValue: row.override_value,
+                  overrideReason: row.override_reason,
+                  isCommitted: true,
+                  committedAt: row.decided_at,
+                };
+              }
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error('[useDecisionSupport] Error loading existing decisions:', err);
+      }
+    }
+
+    loadExistingDecisions();
+
+    return () => { cancelled = true; };
+  }, [caseId]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTION: Générer les options (appel suggest-decisions)
