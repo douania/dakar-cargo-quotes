@@ -95,7 +95,7 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 - Aucun panel critique de workflow ne doit être ajouté à QuotationSheet.
 - **Chemin canonique post-pricing** : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine opérateur se fait implicitement lors de la création de version (confirmation dialog). `HUMAN_REVIEW` existe dans l'enum DB et est supporté défensivement par `generate-quotation-version`, mais il n'est pas un sas obligatoire du workflow actuel — il est dormant.
 - **Irréversibilité de la création de version** : une fois le dossier passé en `QUOTED_VERSIONED`, le pricing est figé dans le parcours opérateur courant. Il n'existe pas de chemin retour self-service vers un état re-priceable depuis CaseView. C'est un choix produit assumé, cohérent avec le caractère engageant de la création de version (confirmation dialog explicite). Toute évolution future vers un mécanisme de « re-pricing après version » nécessiterait un ticket produit dédié.
-- **`generate-case-outputs`** n'est pas le mécanisme canonique de sortie opérateur. Il pousse vers `HUMAN_REVIEW` (dormant) et n'est pas invoqué par le cockpit CaseView. Voir section « Fonctions dormantes / legacy » ci-dessous.
+- **Pipeline canonique de sortie** : `generate-quotation-version` → `export-quotation-version-pdf` → `create-quotation-email-draft` → `send-quotation`. Ce pipeline est versionné, persistant, idempotent et traçable.
 
 ---
 
