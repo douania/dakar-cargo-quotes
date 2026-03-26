@@ -363,37 +363,6 @@ const TEST_CASES: TestCase[] = [
     requiresAuth: false,
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // generate-case-outputs (3 tests)
-  // ─────────────────────────────────────────────────────────────────────────
-  {
-    function: 'generate-case-outputs',
-    scenario: 'AUTH',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [401],
-    expectedErrorCodes: ['AUTH_MISSING_JWT', 'AUTH_INVALID_JWT'],
-    body: { case_id: FAKE_UUID },
-    requiresAuth: false,
-    // Post-M2.3: auth handled in-code via requireUser, not Gateway
-  },
-  {
-    function: 'generate-case-outputs',
-    scenario: 'VALIDATION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400],
-    expectedErrorCodes: ['VALIDATION_FAILED'],
-    body: {},
-    requiresAuth: true,
-    verifyRuntimeEvent: true,
-  },
-  {
-    function: 'generate-case-outputs',
-    scenario: 'EXECUTION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400, 403, 404, 500],
-    body: { case_id: FAKE_UUID },
-    requiresAuth: true,
-  },
 
   // ─────────────────────────────────────────────────────────────────────────
   // generate-quotation (3 tests)

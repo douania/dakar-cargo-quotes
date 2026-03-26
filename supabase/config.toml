@@ -18,8 +18,6 @@ verify_jwt = false
 [functions.hs-lookup]
 verify_jwt = false
 
-[functions.calculate-duties]
-verify_jwt = false
 
 [functions.parse-document]
 verify_jwt = false
@@ -48,8 +46,6 @@ verify_jwt = false
 [functions.analyze-attachments]
 verify_jwt = false
 
-[functions.learn-from-contact]
-verify_jwt = false
 
 [functions.force-download-attachment]
 verify_jwt = false
@@ -66,8 +62,6 @@ verify_jwt = false
 [functions.data-admin]
 verify_jwt = false
 
-[functions.suggest-regime]
-verify_jwt = false
 
 [functions.analyze-pricing-patterns]
 verify_jwt = false
@@ -117,8 +111,7 @@ verify_jwt = false
 [functions.run-pricing]
 verify_jwt = false
 
-[functions.generate-case-outputs]
-verify_jwt = false
+
 
 [functions.qualify-quotation-minimal]
 verify_jwt = false
