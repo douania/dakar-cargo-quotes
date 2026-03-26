@@ -3063,7 +3063,7 @@ export type Database = {
           route_destination: string
           route_hash: string | null
           route_origin: string | null
-          route_port: string
+          route_port: string | null
           source_attachment_id: string | null
           source_breakdown: Json | null
           source_email_id: string | null
@@ -3096,7 +3096,7 @@ export type Database = {
           route_destination: string
           route_hash?: string | null
           route_origin?: string | null
-          route_port?: string
+          route_port?: string | null
           source_attachment_id?: string | null
           source_breakdown?: Json | null
           source_email_id?: string | null
@@ -3129,7 +3129,7 @@ export type Database = {
           route_destination?: string
           route_hash?: string | null
           route_origin?: string | null
-          route_port?: string
+          route_port?: string | null
           source_attachment_id?: string | null
           source_breakdown?: Json | null
           source_email_id?: string | null
