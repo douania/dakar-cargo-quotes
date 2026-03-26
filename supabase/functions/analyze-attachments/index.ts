@@ -1617,9 +1617,7 @@ Réponds en JSON avec cette structure:
           
           if (emailData) {
             const subject = emailData.subject || '';
-            const routeMatch = subject.match(/(?:DAP|DDP|CIF|CFR)\s+([A-Za-z\s-]+)/i);
-            const destination = routeMatch ? routeMatch[1].trim() : 
-                               (extractedData.metadata?.route?.split('->')[1]?.trim() || 'Dakar');
+            const routeInfo = extractRouteInfo(extractedData, subject);
             
             // Get unique cargo types from sheet names or tariff lines
             const cargoTypes = new Set<string>();
