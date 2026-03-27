@@ -184,5 +184,7 @@ export function useSendQuotation(caseId: string | undefined) {
     hasRecipient,
     hasSubject,
     hasBody,
+    // A4 flag
+    aiGenerated: ownerDraft?.ai_generated ?? false,
   };
 }

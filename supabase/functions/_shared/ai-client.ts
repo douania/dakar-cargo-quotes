@@ -31,6 +31,7 @@ export async function callAI(
     stream = false,
     temperature,
     maxTokens,
+    signal,
   } = options;
 
   const body: Record<string, unknown> = {
@@ -49,6 +50,7 @@ export async function callAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
