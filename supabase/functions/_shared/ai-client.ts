@@ -12,6 +12,7 @@ export interface ChatOptions {
   stream?: boolean;
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 // Call Lovable AI gateway
