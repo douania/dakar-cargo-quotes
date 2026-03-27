@@ -1,47 +1,112 @@
 
+# Plan A4 — Emails de cotation IA (v3 — CTO-approved)
 
-# Plan — Mise à jour DEFERRED_BACKLOG.md post-C1
+## Périmètre
 
-## Objectif
+4 fichiers modifiés. Zéro migration. Zéro doc jusqu'à validation post-phase.
 
-Refléter la clôture de C1, ajouter C1-rest comme dormant, et renuméroter les priorités selon l'ordre validé : F2 → A4 → A1.
+| Fichier | Passes |
+|---------|--------|
+| `supabase/functions/_shared/ai-client.ts` | A4.0 (micro-patch signal) |
+| `supabase/functions/create-quotation-email-draft/index.ts` | A4.1 + A4.2 + A4.3 |
+| `src/components/puzzle/SendQuotationPanel.tsx` | A4.4 |
+| `src/hooks/useSendQuotation.ts` | A4.4 |
 
-## Fichier unique modifié
+---
 
-`docs/DEFERRED_BACKLOG.md`
+## A4.0 — Micro-patch ai-client.ts (signal support)
 
-## Changements
+**Fichier** : `supabase/functions/_shared/ai-client.ts`
 
-### 1. Ligne 46 — C1 passe à `closed`
+- Ajouter `signal?: AbortSignal` à l'interface `ChatOptions`
+- Passer `signal` au `fetch()` interne
+- Aucun autre changement (model default, URL, parsing inchangés)
 
-Remplacer l'entrée C1 par :
+---
 
-| C1 | CaseView.tsx monolithique — extraction progressive | dette | **closed** | — | C1 | **2026-03-26** | Objectif minimal atteint : C1.1 (constantes/types/helpers), C1.2a (FactHistoryPopover), C1.2b (ServiceOverridePanel). CaseView réduit de 2700+ à 2119 lignes (~21%). Smoke tests verts. | — | `src/pages/CaseView.tsx` | chat C1 | Fermé | Aucune action requise |
+## A4.1 — Template déterministe enrichi
 
-### 2. Ajouter C1-rest après C1 (nouvelle ligne 47)
+**Fichier** : `supabase/functions/create-quotation-email-draft/index.ts`
 
-| C1-rest | Extractions CaseView restantes (PipelineStepper, TimelineTab, ClientClarifications) | dette | **dormant** | Basse | C1 | 2026-03-26 | Restant volontairement non extrait ; ratio gain/risque insuffisant hors changement UX majeur | Prochain changement UX majeur sur CaseView | `src/pages/CaseView.tsx` | chat C1 | Confirmé | Garder dormant |
+Remplacer le corps statique (lignes 142-161) par un builder structuré utilisant le snapshot :
+- Salutation avec `snapshot.client.company` si disponible
+- Route `inputs.origin` → `inputs.destination` + incoterm si disponibles
+- Rappel version + total HT formaté (`Intl.NumberFormat('fr-FR')`)
+- Bloc multi-lot **préservé tel quel** (lignes 112-135 intactes)
+- **Condition "ci-joint"** : lookup `quotation_documents` via **serviceClient** (pas userClient — RLS owner-only). Si PDF trouvé → "ci-joint". Sinon → "Le devis vous sera transmis séparément."
+- Corriger `ai_generated: true` → `ai_generated: false` (ligne 175)
 
-### 3. Top priorités futures — renuméroter
+---
 
-| Rang | ID | Sujet | Valeur |
-|------|----|-------|--------|
-| 1 | F2 | Smoke test M24b | Vérification pricing factuelle — prochaine action immédiate |
-| 2 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
-| 3 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
-| 4 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
-| 5 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 7 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 8 | A3 | Re-pricing après version | Flexibilité opérateur |
+## A4.2 — Branche IA optionnelle
 
-### 4. Dernière mise à jour → `2026-03-26`
+**Même fichier, après le body builder déterministe**
 
-Déjà à jour.
+- Accepter `use_ai_enrichment?: boolean` dans le body (default `false`)
+- Si `true` et `LOVABLE_API_KEY` disponible :
+  - Construire un context pack JSON : `{ company, origin, destination, incoterm, version_number, total_ht, currency, lot_count, has_pdf }`
+  - **Timeout explicite** via `AbortController` (15s) passé à `callAI` via le nouveau `signal` de A4.0
+  - Appel `callAI` (model `google/gemini-2.5-flash`) avec prompt contraint :
+    - "Rédige un email commercial professionnel en français pour accompagner un devis de transit. Utilise UNIQUEMENT les données fournies. Ne jamais inventer de chiffres, délais, ou promesses. Retourne un JSON `{ body_text: string }`."
+  - Parser avec `extractAndParseJSON<{ body_text: string }>`
+  - **Validation V1** : `typeof body_text === "string"` && `body_text.length >= 50` && non vide. Pas de check "chiffres absents du contexte".
+  - Si erreur/timeout/validation fail → **fallback silencieux** vers le template déterministe, log warning
+- `ai_generated` = `true` uniquement si sortie IA effectivement utilisée
+- Le **sujet reste 100% déterministe** dans tous les cas
 
-## Ce qui ne change pas
+---
 
-- Zéro code, zéro migration, zéro edge function
-- `.lovable/plan.md` : C1 y figure déjà comme contexte historique, pas comme tâche ouverte — pas de modification nécessaire
-- `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md` : aucun impact
+## A4.3 — Traçabilité
 
+**Même fichier, après l'insert réussi du draft (et PAS sur hit idempotent)**
+
+- Insert best-effort dans `case_timeline_events` :
+  - `event_type`: `"output_generated"`
+  - `actor_user_id`: `user.id`
+  - `actor_type`: `"user"`
+  - `event_data`: `{ kind: "quotation_email_draft_v1", draft_id, version_id, generation_mode }`
+- Retourner `generation_mode` dans la réponse JSON
+- Si l'insert timeline échoue : log warning, ne pas bloquer
+- **Hit idempotent** : pas de timeline event, `generation_mode: undefined`, toast UI générique
+
+---
+
+## A4.4 — UX minimale
+
+### `src/hooks/useSendQuotation.ts`
+- Ajouter `ai_generated` au `.select()` du draft query
+- L'exposer dans le return
+
+### `src/components/puzzle/SendQuotationPanel.tsx`
+- État local `useAiEnrichment` (default `false`)
+- `Switch` "Enrichissement IA" au-dessus du bouton "Générer un brouillon"
+- Passer `use_ai_enrichment` dans le body de l'appel
+- Toast différencié : `"ai"` → "Brouillon IA créé" / `"deterministic"` → "Brouillon standard créé" / idempotent → "Brouillon existant récupéré"
+- Badge `<Badge variant="outline">IA</Badge>` si `ownerDraft.ai_generated === true`
+
+---
+
+## Corrections CTO intégrées (6/6)
+
+| # | Correction | Intégré |
+|---|-----------|---------|
+| 1 | `event_data` pas `payload` | ✅ A4.3 |
+| 2 | Lookup PDF via serviceClient | ✅ A4.1 |
+| 3 | Pas de check "chiffres absents" en V1 | ✅ A4.2 |
+| 4 | Timeout explicite via AbortController + signal dans callAI | ✅ A4.0 + A4.2 |
+| 5 | generation_mode sur hit idempotent = undefined + toast générique | ✅ A4.4 |
+| 6 | _shared/ai-client.ts ajouté au périmètre (Option 1 CTO) | ✅ A4.0 |
+
+## Ce qui ne change PAS
+
+- `generate-quotation-version`, `export-quotation-version-pdf`, `send-quotation` : intacts
+- Modules FROZEN : intacts
+- `_shared/json-parser.ts` : réutilisé, non modifié
+- Bloc multi-lot (lignes 112-135) : préservé
+- Idempotence + index unique : préservés
+- Pipeline canonique : inchangé
+- `docs/DEFERRED_BACKLOG.md` : pas touché (post-phase uniquement)
+
+## Ordre d'exécution
+
+A4.0 → A4.1 → A4.2 → A4.3 → A4.4 → build check → smoke test
