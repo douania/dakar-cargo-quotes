@@ -1,0 +1,1 @@
+UPDATE email_drafts SET status = 'superseded' WHERE id = '20741fb1-7623-4448-8177-977d7d2abedf';
