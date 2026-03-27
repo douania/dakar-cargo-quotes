@@ -20,6 +20,7 @@ interface SendQuotationData {
     quotation_version_id: string | null;
     body_text: string | null;
     body_html: string | null;
+    ai_generated: boolean | null;
   } | null;
   selectedVersion: {
     id: string;
