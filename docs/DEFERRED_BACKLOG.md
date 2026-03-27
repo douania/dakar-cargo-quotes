@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-03-26
+Dernière mise à jour : 2026-03-27
 
 ---
 
@@ -50,7 +50,7 @@ Cela inclut les décisions formulées comme :
 | A1 | Fin commerciale post-SENT (pas de ACCEPTED/REJECTED) | futur produit | deferred | Moyenne | M25 | 2026-03 | Ticket produit requis | Besoin commercial suivi post-envoi | Enum DB, FSM, CaseView | repo + chat | Confirmé | Ouvrir phase quand besoin |
 | A2 | Statut ARCHIVED jamais écrit par le runtime | dormant | dormant | Basse | M25 | 2026-03 | Action manuelle future prévue | Besoin d'archivage | Enum DB, CaseView | repo | Confirmé | Garder dormant |
 | A3 | Re-pricing après version (QUOTED_VERSIONED → re-priceable) | futur produit | deferred | Basse | M25 | 2026-03 | Choix produit assumé (irréversibilité) | Ticket produit dédié | `generate-quotation-version`, CaseView | repo | Confirmé | Garder tel quel |
-| A4 | Emails de cotation IA (corps enrichi au lieu de template statique) | futur produit | deferred | Moyenne | M26 | 2026-03 | `generate-case-outputs` supprimée, capacité non migrée | Besoin d'emails plus intelligents | `create-quotation-email-draft` | repo + chat | Confirmé | Ajouter option IA au pipeline canonique |
+| A4 | Emails de cotation IA (corps enrichi au lieu de template statique) | futur produit | closed | — | A4 | 2026-03-27 | Implémenté : template déterministe enrichi, branche IA optionnelle avec fallback, garde post-IA ci-joint, traçabilité timeline. Réserve mineure : replace fragmentaire sur formulations IA (élégance rédactionnelle, pas de risque métier). | — | `create-quotation-email-draft` | repo + chat A4 | Fermé | Aucune action requise |
 | A5 | Persistance du rejet des suggestions dérivées | futur produit | dormant | Basse | M27 | 2026-03 | Acceptable avec 1 suggestion | ≥3 suggestions dérivées | CaseView, potentiellement table dédiée | repo | Confirmé | Garder dormant |
 | A6 | Intégration SMTP réelle | futur produit | deferred | Conditionnelle | — | 2026-03 | Décision fondamentale "Pas d'auto-send" | Décision produit SMTP | Edge functions send-*, email_drafts | repo | Confirmé | Conditionnel |
 | A7 | Filtrage lot-level demandes partenaires P1 Auto-EQ | dette | dormant | Basse | P1 | 2026-03 | Extension schéma quote_gaps nécessaire | Multi-lot mixte fréquent | `build-case-puzzle` (FROZEN) | repo | Confirmé | Garder dormant |
@@ -72,13 +72,12 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
-| 2 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
-| 3 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
-| 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 5 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 6 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 7 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 1 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
+| 2 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
+| 3 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 4 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 5 | D1 | Scroll-to-section | UX polish à fort impact perçu |
+| 6 | A3 | Re-pricing après version | Flexibilité opérateur |
 
 ---
 
