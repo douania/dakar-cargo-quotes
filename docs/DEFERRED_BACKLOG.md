@@ -86,7 +86,6 @@ Cela inclut les décisions formulées comme :
 
 | ID | Sujet | Ce qu'il faut vérifier | Pourquoi |
 |----|-------|----------------------|----------|
-| F2 | Smoke test M24b | Exécuter pricing réel avec `cargo.weight_kg = 22000`, vérifier `inputs.cargoWeight = 22` | Aucune preuve d'exécution |
 | E4 | PHASE_15_NOTES config | Vérifier si le document est encore consulté ou purement archivé | Si archivé, pas besoin de corriger |
 | C5 | Fallback legacy multi-lot | Vérifier s'il existe des snapshots pré-M14b en base avec `lot_index`/`lot_label` dans `raw_lines` | Si aucun cas, le code est mort |
 
