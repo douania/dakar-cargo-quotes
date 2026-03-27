@@ -20,6 +20,7 @@ interface SendQuotationData {
     quotation_version_id: string | null;
     body_text: string | null;
     body_html: string | null;
+    ai_generated: boolean | null;
   } | null;
   selectedVersion: {
     id: string;
@@ -69,7 +70,7 @@ export function useSendQuotation(caseId: string | undefined) {
           // Draft scoped strictly by quotation_version_id
           supabase
             .from('email_drafts')
-            .select('id, subject, to_addresses, status, sent_at, quotation_version_id, body_text, body_html')
+            .select('id, subject, to_addresses, status, sent_at, quotation_version_id, body_text, body_html, ai_generated')
             .eq('quotation_version_id', selectedVersion.id)
             .in('status', ['draft', 'sent'])
             .order('created_at', { ascending: false })
@@ -183,5 +184,7 @@ export function useSendQuotation(caseId: string | undefined) {
     hasRecipient,
     hasSubject,
     hasBody,
+    // A4 flag
+    aiGenerated: ownerDraft?.ai_generated ?? false,
   };
 }

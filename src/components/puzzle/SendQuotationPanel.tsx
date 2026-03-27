@@ -1,9 +1,11 @@
 /**
- * Phase 19A P0 Hardening: SendQuotationPanel
+ * Phase 19A P0 Hardening + A4: SendQuotationPanel
  * Manual review + marking panel for quotation sending.
  * 
  * This panel does NOT send emails automatically.
  * It provides a review interface and marks the quotation as manually sent.
+ * 
+ * A4: Added AI enrichment toggle + ai_generated badge on draft.
  * 
  * Visible only when case status is QUOTED_VERSIONED or SENT.
  */
@@ -14,8 +16,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Send, Loader2, CheckCircle2, Mail, FileEdit, AlertTriangle, FileCheck, Save, Check, X } from 'lucide-react';
+import { Send, Loader2, CheckCircle2, Mail, FileEdit, AlertTriangle, Save, Check, X, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useSendQuotation } from '@/hooks/useSendQuotation';
@@ -44,6 +48,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [useAiEnrichment, setUseAiEnrichment] = useState(false);
 
   const {
     ownerDraft,
@@ -57,6 +62,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     hasRecipient,
     hasSubject,
     hasBody,
+    aiGenerated,
   } = useSendQuotation(caseId);
 
   // Local edit state for inline draft editor
@@ -69,12 +75,11 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     if (ownerDraft) {
       setEditTo(ownerDraft.to_addresses?.[0] ?? '');
       setEditSubject(ownerDraft.subject ?? '');
-      // body_text priority, never render raw HTML in textarea
       setEditBody(ownerDraft.body_text ?? '');
     }
   }, [ownerDraft?.id, ownerDraft?.subject, ownerDraft?.body_text, ownerDraft?.to_addresses?.[0]]);
 
-  // Local flags derived from edit state (Option B CTO)
+  // Local flags derived from edit state
   const localHasRecipient = !!editTo.trim();
   const localHasSubject = !!editSubject.trim();
   const localHasBody = !!editBody.trim();
@@ -196,7 +201,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
           </div>
         )}
 
-        {/* PDF warning (informational, not blocking button — backend is final authority) */}
+        {/* PDF warning */}
         {!isSent && selectedVersion && !hasPdf && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
@@ -208,46 +213,79 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
 
         {/* Generate draft button when missing */}
         {!isSent && selectedVersion && !ownerDraft && (
-          <Button
-            variant="outline"
-            className="w-full gap-2"
-            disabled={isGenerating}
-            onClick={async () => {
-              setIsGenerating(true);
-              try {
-                const { data, error } = await supabase.functions.invoke('create-quotation-email-draft', {
-                  body: { case_id: caseId, version_id: selectedVersion.id },
-                });
-                if (error) throw error;
-                if (!data?.ok) throw new Error(data?.error || 'Échec de la création du brouillon');
-                queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
-                toast.success(data.idempotent ? 'Brouillon existant récupéré' : 'Brouillon créé avec succès');
-              } catch (err) {
-                console.error('[create-draft]', err);
-                toast.error('Erreur lors de la création du brouillon');
-              } finally {
-                setIsGenerating(false);
-              }
-            }}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Génération...
-              </>
-            ) : (
-              <>
-                <FileEdit className="h-4 w-4" />
-                Générer un brouillon
-              </>
-            )}
-          </Button>
+          <div className="space-y-3">
+            {/* AI enrichment toggle */}
+            <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <Label htmlFor="ai-enrichment" className="text-sm font-medium cursor-pointer">
+                  Enrichissement IA
+                </Label>
+              </div>
+              <Switch
+                id="ai-enrichment"
+                checked={useAiEnrichment}
+                onCheckedChange={setUseAiEnrichment}
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              disabled={isGenerating}
+              onClick={async () => {
+                setIsGenerating(true);
+                try {
+                  const { data, error } = await supabase.functions.invoke('create-quotation-email-draft', {
+                    body: { case_id: caseId, version_id: selectedVersion.id, use_ai_enrichment: useAiEnrichment },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error || 'Échec de la création du brouillon');
+                  queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
+
+                  // Differentiated toast based on generation_mode
+                  if (data.idempotent) {
+                    toast.success('Brouillon existant récupéré');
+                  } else if (data.generation_mode === 'ai') {
+                    toast.success('Brouillon IA créé', { description: 'Le corps a été enrichi par l\'IA' });
+                  } else {
+                    toast.success('Brouillon standard créé');
+                  }
+                } catch (err) {
+                  console.error('[create-draft]', err);
+                  toast.error('Erreur lors de la création du brouillon');
+                } finally {
+                  setIsGenerating(false);
+                }
+              }}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Génération...
+                </>
+              ) : (
+                <>
+                  <FileEdit className="h-4 w-4" />
+                  Générer un brouillon
+                </>
+              )}
+            </Button>
+          </div>
         )}
 
         {/* Inline draft editor */}
         {!isSent && ownerDraft && (
           <div className="space-y-3 p-3 border border-border rounded-lg">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Revue du brouillon</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Revue du brouillon</p>
+              {aiGenerated && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  IA
+                </Badge>
+              )}
+            </div>
 
             <div className="space-y-1.5">
               <label className="text-sm font-medium flex items-center gap-1">
