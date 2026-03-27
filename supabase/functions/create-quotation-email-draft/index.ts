@@ -308,7 +308,15 @@ Deno.serve(async (req: Request) => {
     const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {
-      finalBody = aiBody;
+      let sanitized = aiBody;
+      // A4-fix: deterministic guard — never claim attachment when no PDF exists
+      if (!hasPdf) {
+        sanitized = sanitized
+          .replace(/ci[- ]?joint[es]?/gi, "séparément")
+          .replace(/en pièce[s]? jointe[s]?/gi, "séparément")
+          .replace(/vous trouverez joint/gi, "vous sera transmis séparément");
+      }
+      finalBody = sanitized;
       generationMode = "ai";
     } else {
       console.log("[create-quotation-email-draft] AI fallback → deterministic template used");
