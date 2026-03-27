@@ -62,7 +62,7 @@ Cela inclut les décisions formulées comme :
 | D2 | Actions clôturées collapsibles par défaut | UX | deferred | Basse | M27 | 2026-03 | Mineur | Phase UX dédiée | `CaseView.tsx` | chat M27 | Confirmé | Garder dormant |
 | D3 | Panels visibles sans contenu (ExternalRequests en INTAKE) | UX | deferred | Basse | M27 | 2026-03 | Bruit visuel mineur | Phase UX dédiée | `CaseView.tsx` | chat M27 | Confirmé | Garder dormant |
 | F1 | Audit P0 métier (précision cotation, 30-50 dossiers) | audit | pending_validation | Opérationnelle | — | 2026-03 | Protocole rédigé, attente dossiers réels | Dossiers réels disponibles | `AUDIT_METIER_P0_PROTOCOL.md`, `audit/p0/` | repo | Confirmé | Lancer quand dossiers prêts |
-| F2 | Smoke test post-M24b (cargo.weight_kg = 22000) | audit | pending_validation | Opérationnelle | M24b | 2026-03 | Recommandé non confirmé exécuté | Prochain test réel | `run-pricing`, `quotation-engine` | chat M24b | À revalider | Exécuter sur prochain cas |
+| F2 | Smoke test post-M24b (cargo.weight_kg = 22000) | audit | closed | — | M24b | 2026-03-27 | Fix M24b confirmé en runtime : case 29b96eec, weight_kg=840000 → cargoWeight=840 (run 31a65987, 2026-03-27T16:07:19Z) | — | `run-pricing`, `quotation-engine` | chat M24b + runtime proof | Fermé | Aucune action requise |
 | S1 | Label `sent` EQ1 sémantiquement ambigu (devrait être draft_ready) | dette | watchlist | Basse | EQ1 | 2026-03 | Renommage coûteux | Ajout SMTP | `external_quote_requests`, STATUS_REGISTRY | repo | Confirmé | Conditionnel (si SMTP) |
 | S2 | HUMAN_REVIEW dormant dans l'enum (jamais atteint canoniquement) | dormant | dormant | Basse | M25 | 2026-03 | Supporté défensivement | Jamais (conservé par design) | Enum DB, `generate-quotation-version` | repo | Confirmé | Garder dormant |
 
@@ -72,14 +72,13 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | F2 | Smoke test M24b | Vérification pricing factuelle — prochaine action immédiate |
-| 2 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
-| 3 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
-| 4 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
-| 5 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 7 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 8 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 1 | A4 | Emails de cotation IA | Première priorité produit post-stabilisation |
+| 2 | A1 | Fin commerciale post-SENT | Complétude workflow métier |
+| 3 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
+| 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 5 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 6 | D1 | Scroll-to-section | UX polish à fort impact perçu |
+| 7 | A3 | Re-pricing après version | Flexibilité opérateur |
 
 ---
 
@@ -87,7 +86,6 @@ Cela inclut les décisions formulées comme :
 
 | ID | Sujet | Ce qu'il faut vérifier | Pourquoi |
 |----|-------|----------------------|----------|
-| F2 | Smoke test M24b | Exécuter pricing réel avec `cargo.weight_kg = 22000`, vérifier `inputs.cargoWeight = 22` | Aucune preuve d'exécution |
 | E4 | PHASE_15_NOTES config | Vérifier si le document est encore consulté ou purement archivé | Si archivé, pas besoin de corriger |
 | C5 | Fallback legacy multi-lot | Vérifier s'il existe des snapshots pré-M14b en base avec `lot_index`/`lot_label` dans `raw_lines` | Si aucun cas, le code est mort |
 
