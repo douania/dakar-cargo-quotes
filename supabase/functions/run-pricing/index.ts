@@ -1,3 +1,4 @@
+// F2-deploy-verify: 2026-03-27 runtime proof for M24b
 /**
  * Phase 11: run-pricing
  * Executes deterministic pricing via quotation-engine
