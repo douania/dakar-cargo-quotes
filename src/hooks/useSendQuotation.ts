@@ -70,7 +70,7 @@ export function useSendQuotation(caseId: string | undefined) {
           // Draft scoped strictly by quotation_version_id
           supabase
             .from('email_drafts')
-            .select('id, subject, to_addresses, status, sent_at, quotation_version_id, body_text, body_html')
+            .select('id, subject, to_addresses, status, sent_at, quotation_version_id, body_text, body_html, ai_generated')
             .eq('quotation_version_id', selectedVersion.id)
             .in('status', ['draft', 'sent'])
             .order('created_at', { ascending: false })
