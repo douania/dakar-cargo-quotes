@@ -176,6 +176,7 @@ export function useSendQuotation(caseId: string | undefined) {
     latestPdf,
     canSend,
     isSent,
+    isCaseSent,
     sentAt,
     sendMutation,
     isLoading,

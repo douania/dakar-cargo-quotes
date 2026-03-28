@@ -55,6 +55,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     selectedVersion,
     canSend,
     isSent,
+    isCaseSent,
     sentAt,
     sendMutation,
     isLoading,
@@ -64,6 +65,9 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     hasBody,
     aiGenerated,
   } = useSendQuotation(caseId);
+
+  // Unified lock flag: draft sent OR case in terminal state
+  const isFinalized = isSent || isCaseSent;
 
   // Local edit state for inline draft editor
   const [editTo, setEditTo] = useState('');
@@ -104,7 +108,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   }
 
   // Don't render if no draft and no version
-  if (!ownerDraft && !selectedVersion && !isSent) {
+  if (!ownerDraft && !selectedVersion && !isFinalized) {
     return null;
   }
 
@@ -144,27 +148,27 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   };
 
   return (
-    <Card className={`border-blue-200 dark:border-blue-800 ${isSent ? 'bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20' : 'bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/20'}`}>
+    <Card className={`border-blue-200 dark:border-blue-800 ${isFinalized ? 'bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20' : 'bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/20'}`}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isSent ? (
+            {isFinalized ? (
               <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             ) : (
               <Send className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             )}
             <CardTitle className="text-lg">
-              {isSent ? 'Devis marqué envoyé' : 'Préparer l\'envoi du devis'}
+              {isFinalized ? 'Devis marqué envoyé' : 'Préparer l\'envoi du devis'}
             </CardTitle>
           </div>
-          {isSent && (
+          {isFinalized && (
             <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
               <CheckCircle2 className="h-3 w-3 mr-1" />
               MARQUÉ ENVOYÉ
             </Badge>
           )}
         </div>
-        {isSent && sentAt && (
+        {isFinalized && sentAt && (
           <CardDescription>
             Marqué le {format(new Date(sentAt), "d MMMM yyyy 'à' HH:mm", { locale: fr })}
           </CardDescription>
@@ -191,7 +195,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         </div>
 
         {/* Pre-verification checklist */}
-        {!isSent && ownerDraft && (
+        {!isFinalized && ownerDraft && (
           <div className="p-3 bg-muted/30 rounded-lg space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Pré-vérifications</p>
             <PreCheckItem ok={localHasRecipient} label={localHasRecipient ? 'Destinataire renseigné' : 'Destinataire manquant'} />
@@ -202,7 +206,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* PDF warning */}
-        {!isSent && selectedVersion && !hasPdf && (
+        {!isFinalized && selectedVersion && !hasPdf && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-amber-800 dark:text-amber-200">
@@ -212,7 +216,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Generate draft button when missing */}
-        {!isSent && selectedVersion && !ownerDraft && (
+        {!isFinalized && selectedVersion && !ownerDraft && (
           <div className="space-y-3">
             {/* AI enrichment toggle */}
             <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
@@ -275,7 +279,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Inline draft editor */}
-        {!isSent && ownerDraft && (
+        {!isFinalized && ownerDraft && (
           <div className="space-y-3 p-3 border border-border rounded-lg">
             <div className="flex items-center gap-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Revue du brouillon</p>
@@ -341,7 +345,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Missing version warning */}
-        {!isSent && !selectedVersion && (
+        {!isFinalized && !selectedVersion && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <Mail className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-amber-800 dark:text-amber-200">Aucune version de devis sélectionnée.</p>
@@ -349,7 +353,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Unsaved changes warning */}
-        {!isSent && ownerDraft && hasUnsavedChanges && (
+        {!isFinalized && ownerDraft && hasUnsavedChanges && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-amber-800 dark:text-amber-200">
@@ -359,7 +363,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Mark as sent button with confirmation */}
-        {!isSent && (
+        {!isFinalized && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button

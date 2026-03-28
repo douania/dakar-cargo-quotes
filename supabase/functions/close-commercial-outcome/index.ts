@@ -156,20 +156,32 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 7. Update case status
+    // 7. Update case status (atomic: WHERE status = 'SENT')
     const now = new Date().toISOString();
-    const { error: updateError } = await serviceClient
+    const { data: updateData, error: updateError } = await serviceClient
       .from("quote_cases")
       .update({ status: targetOutcome, updated_at: now })
-      .eq("id", case_id);
+      .eq("id", case_id)
+      .eq("status", "SENT")
+      .select("id");
 
     if (updateError) {
       return await fail(serviceClient, "UPSTREAM_DB_ERROR", "Failed to update case status", correlationId, t0, userId, { case_id });
     }
 
-    // 8. Timeline event (best-effort)
+    if (!updateData || updateData.length === 0) {
+      return await fail(
+        serviceClient,
+        "CONFLICT_INVALID_STATE",
+        "Status changed concurrently — transition rejected",
+        correlationId, t0, userId,
+        { case_id, expected: "SENT", requested: targetOutcome },
+      );
+    }
+
+    // 8. Timeline event (best-effort, but observed)
     try {
-      await serviceClient.from("case_timeline_events").insert({
+      const { error: timelineError } = await serviceClient.from("case_timeline_events").insert({
         case_id,
         event_type: "status_changed",
         previous_value: "SENT",
@@ -182,8 +194,11 @@ Deno.serve(async (req: Request) => {
           function: FUNCTION_NAME,
         },
       });
-    } catch (_) {
-      // best-effort: do not fail the request
+      if (timelineError) {
+        console.warn(`[${FUNCTION_NAME}] Timeline insert failed (best-effort):`, timelineError.message);
+      }
+    } catch (e) {
+      console.warn(`[${FUNCTION_NAME}] Timeline insert exception (best-effort):`, e);
     }
 
     // 9. Success
