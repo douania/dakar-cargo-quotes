@@ -108,7 +108,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   }
 
   // Don't render if no draft and no version
-  if (!ownerDraft && !selectedVersion && !isSent) {
+  if (!ownerDraft && !selectedVersion && !isFinalized) {
     return null;
   }
 
