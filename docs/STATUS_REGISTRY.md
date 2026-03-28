@@ -30,6 +30,8 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 | 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
 | 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
 | 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
+| 16 | `ACCEPTED` | Accepté | Client a accepté le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
+| 17 | `REJECTED` | Refusé | Client a refusé le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
 
 ### Classifications
 
