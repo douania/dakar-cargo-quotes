@@ -1833,9 +1833,9 @@ export default function CaseView() {
         })()}
 
         {/* Pricing Result Panel — visible after pricing */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingResultPanel caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+            <PricingResultPanel caseId={caseId!} isLocked={!!isLocked} />
           </div>
         )}
 
