@@ -55,6 +55,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     selectedVersion,
     canSend,
     isSent,
+    isCaseSent,
     sentAt,
     sendMutation,
     isLoading,
@@ -64,6 +65,9 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     hasBody,
     aiGenerated,
   } = useSendQuotation(caseId);
+
+  // Unified lock flag: draft sent OR case in terminal state
+  const isFinalized = isSent || isCaseSent;
 
   // Local edit state for inline draft editor
   const [editTo, setEditTo] = useState('');
