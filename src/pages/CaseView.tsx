@@ -1807,7 +1807,7 @@ export default function CaseView() {
             { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
             { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
             { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
-            { label: "Envoyé", done: caseData.status === 'SENT' },
+            { label: "Envoyé", done: ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) },
           ];
           return (
             <div className="mb-4 flex items-center gap-1 px-1">
