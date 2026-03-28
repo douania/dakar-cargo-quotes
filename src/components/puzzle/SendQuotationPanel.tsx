@@ -363,7 +363,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Mark as sent button with confirmation */}
-        {!isSent && (
+        {!isFinalized && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
