@@ -22,6 +22,8 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   HUMAN_REVIEW:           { label: 'Revue humaine',    className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
   QUOTED_VERSIONED:       { label: 'Versionné',        className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
   SENT:                   { label: 'Envoyé',           className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  ACCEPTED:               { label: 'Accepté',          className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' },
+  REJECTED:               { label: 'Refusé',           className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' },
   ARCHIVED:               { label: 'Archivé',          className: 'bg-muted text-muted-foreground' },
 };
 

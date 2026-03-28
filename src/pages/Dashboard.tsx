@@ -167,7 +167,7 @@ export default function Dashboard() {
           supabase
             .from('quote_cases')
             .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
-            .not('status', 'in', '(SENT,ARCHIVED)')
+            .not('status', 'in', '(SENT,ARCHIVED,ACCEPTED,REJECTED)')
             .order('updated_at', { ascending: false })
             .limit(50)
         ),

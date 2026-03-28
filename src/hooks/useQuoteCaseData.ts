@@ -141,7 +141,7 @@ const ACTIVE_STATUSES = [
   'HUMAN_REVIEW', 'QUOTED_VERSIONED'
 ];
 
-const ARCHIVED_STATUSES = ['SENT', 'ARCHIVED'];
+const ARCHIVED_STATUSES = ['SENT', 'ARCHIVED', 'ACCEPTED', 'REJECTED'];
 
 export function getThreadUsageType(
   quoteCaseStatus: string | null | undefined,
