@@ -86,7 +86,7 @@ Cela inclut les décisions formulées comme :
 | ID | Sujet | Ce qu'il faut vérifier | Pourquoi |
 |----|-------|----------------------|----------|
 | E4 | PHASE_15_NOTES config | Vérifier si le document est encore consulté ou purement archivé | Si archivé, pas besoin de corriger |
-| C5 | Fallback legacy multi-lot | Vérifier s'il existe des snapshots pré-M14b en base avec `lot_index`/`lot_label` dans `raw_lines` | Si aucun cas, le code est mort |
+| C5 | ~~Revalidé 2026-03-28~~ | ~~1 snapshot vivant trouvé (a6a82a70). Fallback conservé.~~ | ~~Ligne C5 mise à jour dans le backlog principal~~ |
 
 ---
 
