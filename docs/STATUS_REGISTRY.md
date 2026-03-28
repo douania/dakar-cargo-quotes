@@ -11,7 +11,7 @@ Dernière mise à jour : 2026-03-25
 
 ## 1. Liste canonique des statuts réellement supportés
 
-L'enum DB `quote_case_status` contient 15 valeurs.
+L'enum DB `quote_case_status` contient 17 valeurs.
 
 | # | Statut | Label FR | Définition métier | Fonction(s) autorisées à l'écrire | Classification | Écran(s) principaux |
 |---|--------|----------|-------------------|-----------------------------------|----------------|---------------------|
