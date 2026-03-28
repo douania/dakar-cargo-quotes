@@ -148,27 +148,27 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   };
 
   return (
-    <Card className={`border-blue-200 dark:border-blue-800 ${isSent ? 'bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20' : 'bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/20'}`}>
+    <Card className={`border-blue-200 dark:border-blue-800 ${isFinalized ? 'bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20' : 'bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/20'}`}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isSent ? (
+            {isFinalized ? (
               <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             ) : (
               <Send className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             )}
             <CardTitle className="text-lg">
-              {isSent ? 'Devis marqué envoyé' : 'Préparer l\'envoi du devis'}
+              {isFinalized ? 'Devis marqué envoyé' : 'Préparer l\'envoi du devis'}
             </CardTitle>
           </div>
-          {isSent && (
+          {isFinalized && (
             <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
               <CheckCircle2 className="h-3 w-3 mr-1" />
               MARQUÉ ENVOYÉ
             </Badge>
           )}
         </div>
-        {isSent && sentAt && (
+        {isFinalized && sentAt && (
           <CardDescription>
             Marqué le {format(new Date(sentAt), "d MMMM yyyy 'à' HH:mm", { locale: fr })}
           </CardDescription>
