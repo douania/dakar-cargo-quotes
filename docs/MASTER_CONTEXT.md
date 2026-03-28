@@ -96,6 +96,7 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 - **Chemin canonique post-pricing** : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine opérateur se fait implicitement lors de la création de version (confirmation dialog). `HUMAN_REVIEW` existe dans l'enum DB et est supporté défensivement par `generate-quotation-version`, mais il n'est pas un sas obligatoire du workflow actuel — il est dormant.
 - **Irréversibilité de la création de version** : une fois le dossier passé en `QUOTED_VERSIONED`, le pricing est figé dans le parcours opérateur courant. Il n'existe pas de chemin retour self-service vers un état re-priceable depuis CaseView. C'est un choix produit assumé, cohérent avec le caractère engageant de la création de version (confirmation dialog explicite). Toute évolution future vers un mécanisme de « re-pricing après version » nécessiterait un ticket produit dédié.
 - **Pipeline canonique de sortie** : `generate-quotation-version` → `export-quotation-version-pdf` → `create-quotation-email-draft` → `send-quotation`. Ce pipeline est versionné, persistant, idempotent et traçable.
+- **Suivi commercial post-envoi** : après `SENT`, l'opérateur peut marquer l'issue commerciale via `close-commercial-outcome` : `SENT → ACCEPTED` ou `SENT → REJECTED`. Ces statuts sont terminaux et irréversibles (pas de transition croisée). Le pipeline de sortie reste inchangé et s'arrête à `send-quotation`.
 
 ---
 

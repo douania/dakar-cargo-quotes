@@ -75,3 +75,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | — | **Auth convergence complete.** Remaining inline: `commit-decision` (observability), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN). No further migration planned for current phase. | 2026-03 |
 | `export-quotation-version-pdf` | Added to classification as user_auth (inline). Docstring corrected: `verify_jwt = false`. Inline auth conserved — no migration in M7b. | 2026-03 |
 | `create-quotation-email-draft` | Added to classification as user_auth (requireUser). Previously missing from security contract. | 2026-03 |
+| `close-commercial-outcome` | Added as user_auth (requireUser). Transitions SENT → ACCEPTED/REJECTED. | 2026-03 |

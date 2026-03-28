@@ -80,8 +80,6 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 
 | Statut | Raison |
 |--------|--------|
-| `ACCEPTED` | Absent de l'enum DB. Référencé dans `FROZEN_STATUSES` de `build-case-puzzle` et `sync-emails` comme garde passive. Aucune fonction ne l'écrit. |
-| `REJECTED` | Absent de l'enum DB. Même situation que `ACCEPTED`. |
 | `LOST` | Absent de l'enum DB. Label mort dans l'ancien code UI. |
 | `PRICED` | Absent de l'enum DB. Label mort — le statut réel est `PRICED_DRAFT`. |
 
@@ -89,9 +87,9 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 
 ## 4. Open questions
 
-1. **Fin commerciale après SENT** : aucune transition `SENT → ACCEPTED` ou `SENT → REJECTED` n'est modélisée. La fin commerciale n'est pas couverte par le runtime actuel.
+1. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
 
-2. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
+2. **Transitions croisées ACCEPTED ↔ REJECTED** : interdites par `close-commercial-outcome`. Si un opérateur se trompe, aucun mécanisme de correction n'est prévu dans le runtime actuel.
 
 ---
 
