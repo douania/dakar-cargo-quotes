@@ -1847,9 +1847,83 @@ export default function CaseView() {
         )}
 
         {/* Phase 19A: Send quotation */}
-        {['QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
             <SendQuotationPanel caseId={caseId!} />
+          </div>
+        )}
+
+        {/* A1: Commercial outcome banner */}
+        {isTerminalOutcome && (
+          <Alert className={`mb-6 ${caseData.status === 'ACCEPTED' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
+            <AlertDescription className="flex items-center gap-2">
+              {caseData.status === 'ACCEPTED' ? (
+                <>
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-400">Devis accepté par le client</span>
+                </>
+              ) : (
+                <>
+                  <X className="h-5 w-5 text-red-600" />
+                  <span className="font-medium text-red-700 dark:text-red-400">Devis refusé par le client</span>
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* A1: Commercial outcome buttons — only when SENT */}
+        {caseData.status === 'SENT' && (
+          <div className="mb-6 flex gap-3">
+            <Button
+              variant="outline"
+              className="border-green-500 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'ACCEPTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme accepté');
+                  } else {
+                    toast.success('Devis marqué comme accepté');
+                  }
+                  // Refresh case data
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Client a accepté
+            </Button>
+            <Button
+              variant="outline"
+              className="border-red-500 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'REJECTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme refusé');
+                  } else {
+                    toast.success('Devis marqué comme refusé');
+                  }
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Client a refusé
+            </Button>
           </div>
         )}
 
