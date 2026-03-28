@@ -52,6 +52,8 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secon
   HUMAN_REVIEW: { label: 'Revue humaine', variant: 'secondary' },
   QUOTED_VERSIONED: { label: 'Versionné', variant: 'default' },
   SENT: { label: 'Envoyé', variant: 'outline' },
+  ACCEPTED: { label: 'Accepté', variant: 'outline' },
+  REJECTED: { label: 'Refusé', variant: 'outline' },
   ARCHIVED: { label: 'Archivé', variant: 'outline' },
 };
 

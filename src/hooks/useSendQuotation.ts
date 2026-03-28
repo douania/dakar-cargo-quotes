@@ -121,7 +121,7 @@ export function useSendQuotation(caseId: string | undefined) {
     && hasRecipient && hasSubject && hasBody;
 
   const isSent = ownerDraft?.status === 'sent';
-  const isCaseSent = caseStatus === 'SENT';
+  const isCaseSent = caseStatus === 'SENT' || caseStatus === 'ACCEPTED' || caseStatus === 'REJECTED';
   const sentAt = ownerDraft?.sent_at ?? null;
 
   const sendMutation = useMutation({

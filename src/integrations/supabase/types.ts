@@ -4790,6 +4790,8 @@ export type Database = {
         | "ACK_READY_FOR_PRICING"
         | "QUOTED_VERSIONED"
         | "INTAKE"
+        | "ACCEPTED"
+        | "REJECTED"
       quote_request_type:
         | "SEA_FCL_IMPORT"
         | "SEA_LCL_IMPORT"
@@ -4942,6 +4944,8 @@ export const Constants = {
         "ACK_READY_FOR_PRICING",
         "QUOTED_VERSIONED",
         "INTAKE",
+        "ACCEPTED",
+        "REJECTED",
       ],
       quote_request_type: [
         "SEA_FCL_IMPORT",

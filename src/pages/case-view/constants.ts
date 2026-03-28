@@ -109,6 +109,8 @@ export const STATUS_LABELS: Record<string, string> = {
   HUMAN_REVIEW: "Revue humaine",
   QUOTED_VERSIONED: "Versionné",
   SENT: "Envoyé",
+  ACCEPTED: "Accepté",
+  REJECTED: "Refusé",
   ARCHIVED: "Archivé",
 };
 

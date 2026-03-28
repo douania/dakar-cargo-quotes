@@ -11,7 +11,7 @@ Dernière mise à jour : 2026-03-25
 
 ## 1. Liste canonique des statuts réellement supportés
 
-L'enum DB `quote_case_status` contient 15 valeurs.
+L'enum DB `quote_case_status` contient 17 valeurs.
 
 | # | Statut | Label FR | Définition métier | Fonction(s) autorisées à l'écrire | Classification | Écran(s) principaux |
 |---|--------|----------|-------------------|-----------------------------------|----------------|---------------------|
@@ -30,6 +30,8 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
 | 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
 | 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
+| 16 | `ACCEPTED` | Accepté | Client a accepté le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
+| 17 | `REJECTED` | Refusé | Client a refusé le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
 
 ### Classifications
 
@@ -62,6 +64,8 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 | 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — accepté défensivement, non atteint en pratique |
 | 13 | `QUOTED_VERSIONED` | `SENT` | `send-quotation` | operator-driven |
 | 14 | `SENT` / `ACK_READY_FOR_PRICING` / `DECISIONS_PENDING` / `DECISIONS_COMPLETE` / `READY_TO_PRICE` | `FACTS_PARTIAL` | `sync-emails` | automatic (reopen) |
+| 15 | `SENT` | `ACCEPTED` | `close-commercial-outcome` | operator-driven |
+| 16 | `SENT` | `REJECTED` | `close-commercial-outcome` | operator-driven |
 
 ### Protection contre rétrogradation (Phase S3)
 
@@ -76,8 +80,6 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 
 | Statut | Raison |
 |--------|--------|
-| `ACCEPTED` | Absent de l'enum DB. Référencé dans `FROZEN_STATUSES` de `build-case-puzzle` et `sync-emails` comme garde passive. Aucune fonction ne l'écrit. |
-| `REJECTED` | Absent de l'enum DB. Même situation que `ACCEPTED`. |
 | `LOST` | Absent de l'enum DB. Label mort dans l'ancien code UI. |
 | `PRICED` | Absent de l'enum DB. Label mort — le statut réel est `PRICED_DRAFT`. |
 
@@ -85,9 +87,9 @@ L'enum DB `quote_case_status` contient 15 valeurs.
 
 ## 4. Open questions
 
-1. **Fin commerciale après SENT** : aucune transition `SENT → ACCEPTED` ou `SENT → REJECTED` n'est modélisée. La fin commerciale n'est pas couverte par le runtime actuel.
+1. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
 
-2. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
+2. **Transitions croisées ACCEPTED ↔ REJECTED** : interdites par `close-commercial-outcome`. Si un opérateur se trompe, aucun mécanisme de correction n'est prévu dans le runtime actuel.
 
 ---
 

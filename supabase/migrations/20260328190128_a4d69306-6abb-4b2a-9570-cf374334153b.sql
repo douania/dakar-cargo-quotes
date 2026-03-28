@@ -1,0 +1,2 @@
+ALTER TYPE public.quote_case_status ADD VALUE IF NOT EXISTS 'ACCEPTED';
+ALTER TYPE public.quote_case_status ADD VALUE IF NOT EXISTS 'REJECTED';

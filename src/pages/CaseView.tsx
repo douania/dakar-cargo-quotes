@@ -206,7 +206,9 @@ export default function CaseView() {
   const isMultiLot = multiLotLineCount >= 2;
 
   // ── M9b: Output pipeline stepper data ──
-  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status);
+  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status);
+  const isTerminalOutcome = caseData && ['ACCEPTED', 'REJECTED'].includes(caseData.status);
+  const isPostSentLocked = caseData && ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status);
   const { data: pipelineStepperData } = useQuery({
     queryKey: ["pipeline-stepper", caseId],
     queryFn: async () => {
@@ -1805,7 +1807,7 @@ export default function CaseView() {
             { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
             { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
             { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
-            { label: "Envoyé", done: caseData.status === 'SENT' },
+            { label: "Envoyé", done: ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) },
           ];
           return (
             <div className="mb-4 flex items-center gap-1 px-1">
@@ -1831,23 +1833,97 @@ export default function CaseView() {
         })()}
 
         {/* Pricing Result Panel — visible after pricing */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingResultPanel caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} />
           </div>
         )}
 
         {/* Phase 12: Quotation versions */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <QuotationVersionCard caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} />
           </div>
         )}
 
         {/* Phase 19A: Send quotation */}
-        {['QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
             <SendQuotationPanel caseId={caseId!} />
+          </div>
+        )}
+
+        {/* A1: Commercial outcome banner */}
+        {isTerminalOutcome && (
+          <Alert className={`mb-6 ${caseData.status === 'ACCEPTED' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
+            <AlertDescription className="flex items-center gap-2">
+              {caseData.status === 'ACCEPTED' ? (
+                <>
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-400">Devis accepté par le client</span>
+                </>
+              ) : (
+                <>
+                  <X className="h-5 w-5 text-red-600" />
+                  <span className="font-medium text-red-700 dark:text-red-400">Devis refusé par le client</span>
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* A1: Commercial outcome buttons — only when SENT */}
+        {caseData.status === 'SENT' && (
+          <div className="mb-6 flex gap-3">
+            <Button
+              variant="outline"
+              className="border-green-500 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'ACCEPTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme accepté');
+                  } else {
+                    toast.success('Devis marqué comme accepté');
+                  }
+                  // Refresh case data
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Client a accepté
+            </Button>
+            <Button
+              variant="outline"
+              className="border-red-500 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'REJECTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme refusé');
+                  } else {
+                    toast.success('Devis marqué comme refusé');
+                  }
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Client a refusé
+            </Button>
           </div>
         )}
 
