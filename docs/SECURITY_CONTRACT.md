@@ -33,7 +33,7 @@ This model is appropriate for a single-company transit/customs team with a share
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft` |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome` |
 | **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `export-quotation-version-pdf` (canonical pipeline, inline auth conservé, `verify_jwt = false` en config) |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
 
