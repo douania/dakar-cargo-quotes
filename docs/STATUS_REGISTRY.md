@@ -64,6 +64,8 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 | 12 | `HUMAN_REVIEW` | `QUOTED_VERSIONED` | `generate-quotation-version` | operator-driven — accepté défensivement, non atteint en pratique |
 | 13 | `QUOTED_VERSIONED` | `SENT` | `send-quotation` | operator-driven |
 | 14 | `SENT` / `ACK_READY_FOR_PRICING` / `DECISIONS_PENDING` / `DECISIONS_COMPLETE` / `READY_TO_PRICE` | `FACTS_PARTIAL` | `sync-emails` | automatic (reopen) |
+| 15 | `SENT` | `ACCEPTED` | `close-commercial-outcome` | operator-driven |
+| 16 | `SENT` | `REJECTED` | `close-commercial-outcome` | operator-driven |
 
 ### Protection contre rétrogradation (Phase S3)
 
