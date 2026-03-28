@@ -1840,9 +1840,9 @@ export default function CaseView() {
         )}
 
         {/* Phase 12: Quotation versions */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status) && (
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <QuotationVersionCard caseId={caseId!} isLocked={caseData.status === 'SENT'} />
+            <QuotationVersionCard caseId={caseId!} isLocked={!!isLocked} />
           </div>
         )}
 
