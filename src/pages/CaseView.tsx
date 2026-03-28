@@ -206,7 +206,9 @@ export default function CaseView() {
   const isMultiLot = multiLotLineCount >= 2;
 
   // ── M9b: Output pipeline stepper data ──
-  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT'].includes(caseData.status);
+  const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status);
+  const isTerminalOutcome = caseData && ['ACCEPTED', 'REJECTED'].includes(caseData.status);
+  const isLocked = caseData && ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status);
   const { data: pipelineStepperData } = useQuery({
     queryKey: ["pipeline-stepper", caseId],
     queryFn: async () => {
