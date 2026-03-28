@@ -196,3 +196,9 @@ verify_jwt = false
 
 [functions.send-external-quote-request]
 verify_jwt = false
+
+[functions.create-quotation-email-draft]
+verify_jwt = false
+
+[functions.close-commercial-outcome]
+verify_jwt = false
