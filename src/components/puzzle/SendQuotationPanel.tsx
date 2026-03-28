@@ -279,7 +279,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Inline draft editor */}
-        {!isSent && ownerDraft && (
+        {!isFinalized && ownerDraft && (
           <div className="space-y-3 p-3 border border-border rounded-lg">
             <div className="flex items-center gap-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Revue du brouillon</p>
