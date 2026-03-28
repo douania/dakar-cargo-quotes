@@ -73,7 +73,7 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | B1 | M23c-fix multi-tenant | Pré-requis ouverture multi-société |
+| 1 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
 | 2 | F1 | Audit P0 métier | Validation justesse tarifaire |
 | 3 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 | 4 | D1 | Scroll-to-section | UX polish à fort impact perçu |
