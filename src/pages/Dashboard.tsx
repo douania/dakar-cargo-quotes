@@ -209,7 +209,10 @@ export default function Dashboard() {
         }
       });
 
-      // Get SENT drafts only
+      // B1-A: email_drafts is now owner-scoped. The "sent drafts" filter below
+      // only sees drafts created by the current user. Consequence: an email
+      // handled by operator A may reappear as "pending" for operator B.
+      // Accepted trade-off in current mono-team context.
       const { data: sentDrafts } = await withTimeout(
         supabase
           .from('email_drafts')

@@ -26,6 +26,17 @@ All Edge Functions set `verify_jwt = false` in `supabase/config.toml` for ES256 
 
 This model is appropriate for a single-company transit/customs team with a shared case portfolio.
 
+### Isolation Surfaces
+
+| Surface | Modèle d'accès | Notes |
+|---------|---------------|-------|
+| `email_drafts` | **Owner-scoped** (B1-A) | SELECT/DELETE: owner + legacy NULL transitoire. UPDATE/INSERT: owner strict. Service_role non affecté. |
+| `case_documents` + bucket | Shared workspace (B1-B reporté) | Flux upload-first/delete-first incompatible avec jointure RLS storage. |
+| `quotation_documents` | Owner-scoped (existant) | Policies `owner_select`/`owner_insert` déjà en place. |
+| `quote_cases` et tables enfants | Shared workspace | Contrat team-wide inchangé. |
+
+B1-A crée volontairement une asymétrie : les drafts deviennent owner-scoped tandis que les dossiers restent en shared workspace. Cette asymétrie est acceptée comme trade-off produit local, pas comme modèle d'isolation global.
+
 ---
 
 ## Function Classification
