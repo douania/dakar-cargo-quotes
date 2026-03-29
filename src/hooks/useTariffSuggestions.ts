@@ -142,7 +142,7 @@ export function useSearchTransportRate(destination?: string, containerType?: str
     queryFn: async () => {
       if (!destination) return null;
       
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search_transport_rate', 
           data: { destination, containerType, cargoCategory } 
