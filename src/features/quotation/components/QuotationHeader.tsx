@@ -149,7 +149,7 @@ export function QuotationHeader({
           </Badge>
         )}
       </div>
-      {!quotationCompleted && (
+      {!quotationCompleted && !isLegacyLocked && (
         <div className="flex gap-2">
           {onSaveDraft && (
             <Button 
