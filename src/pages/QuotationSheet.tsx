@@ -1794,8 +1794,8 @@ L'équipe SODATRA`;
               </div>
             )}
 
-            {/* Generated Response */}
-            {generatedResponse && (
+            {/* Generated Response — hidden when legacy pipeline is locked */}
+            {generatedResponse && !isLegacyLocked && (
               <Card className="border-primary/30 bg-primary/5">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">
