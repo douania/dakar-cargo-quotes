@@ -95,3 +95,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `export-quotation-version-pdf` | Added to classification as user_auth (inline). Docstring corrected: `verify_jwt = false`. Inline auth conserved — no migration in M7b. | 2026-03 |
 | `create-quotation-email-draft` | Added to classification as user_auth (requireUser). Previously missing from security contract. | 2026-03 |
 | `close-commercial-outcome` | Added as user_auth (requireUser). Transitions SENT → ACCEPTED/REJECTED. | 2026-03 |
+| `data-query` | Created as user_auth (requireUser). Decouples operator reads (search, tariffs, transport rates, historical references) from admin-only `data-admin`. Components migrated: `KnowledgeSearch`, `HistoricalRateReminders`, `useTariffSuggestions`, `MatchKnowledgeToSegmentDialog`. | 2026-03 |
