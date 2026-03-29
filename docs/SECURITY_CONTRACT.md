@@ -41,6 +41,29 @@ This model is appropriate for a single-company transit/customs team with a share
 
 B1-A crée volontairement une asymétrie : les drafts deviennent owner-scoped tandis que les dossiers restent en shared workspace. Cette asymétrie est acceptée comme trade-off produit local, pas comme modèle d'isolation global.
 
+### Admin Surface
+
+**Important** : les pages sous `/admin/*` dans l'application sont un **regroupement produit/UI**, pas une frontière d'autorisation backend. Il n'existe pas de garde frontend admin — tout utilisateur authentifié voit ces pages dans la sidebar.
+
+La protection réelle repose sur :
+
+1. **Edge Functions admin-only** (`data-admin`, `email-admin`) : protégées par `requireAdmin` (allowlist email). Les pages Knowledge, MarketIntelligence, PricingIntelligence, et les actions sensibles d'Emails passent par ces fonctions.
+
+2. **Tables de référence — shared workspace authenticated CRUD** : les tables suivantes sont accessibles en lecture/écriture à tout utilisateur authentifié, sans restriction de rôle :
+   - `hs_codes` (SELECT public, UPDATE/DELETE authenticated)
+   - `tax_rates` (SELECT public, INSERT/UPDATE authenticated)
+   - `customs_regimes` (SELECT public, INSERT/UPDATE authenticated)
+   - `port_tariffs` (SELECT public, INSERT/UPDATE/DELETE authenticated)
+   - `pricing_client_overrides` (SELECT/INSERT/UPDATE/DELETE authenticated)
+   - `documents` (SELECT/DELETE authenticated ; INSERT via `parse-document` service_role)
+   - `learned_knowledge` (SELECT authenticated ; writes via `data-admin` service_role)
+
+   Ce modèle est un **choix produit volontaire** pour une équipe mono-société. Ce n'est pas un modèle RBAC admin.
+
+3. **Suppression `documents`** : tout utilisateur authentifié peut supprimer tout document. C'est un choix accepté en mono-équipe, documenté explicitement. À restreindre si ouverture multi-société.
+
+**Décision de non-implémentation** : aucun système de rôles (RBAC) n'est implémenté à ce stade. Le ROI est négatif en mono-équipe. Voir `DEFERRED_BACKLOG.md` item RLS-ADMIN pour le déclencheur de réouverture.
+
 ---
 
 ## Function Classification
