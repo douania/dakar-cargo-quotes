@@ -71,7 +71,7 @@ export function useKnowledgeSearch(query: string, categories?: string[]) {
     queryFn: async () => {
       if (!query || query.length < 2) return [];
 
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search', 
           data: { query, categories } 
