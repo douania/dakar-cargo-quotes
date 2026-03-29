@@ -3,6 +3,10 @@
 > **Subordinate to `docs/MASTER_CONTEXT.md`** (source of truth).
 > This document details operational application of security rules defined in MASTER_CONTEXT.
 
+## Scope
+
+This contract covers the **canonical pipeline** and **critical functions** only. Functions not listed in the classification table are not individually formalized here; their absence does not imply lack of authentication — the project standard is `requireUser` for all non-public functions. For an exhaustive inventory of all edge functions, refer to the codebase directly.
+
 ---
 
 ## Authentication Standard
