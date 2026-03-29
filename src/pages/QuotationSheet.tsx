@@ -1334,6 +1334,11 @@ L'équipe SODATRA`;
   }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft]);
 
   const handleGenerateResponse = async () => {
+    // Pipeline lockdown: block legacy generation when canonical case exists
+    if (isLegacyLocked) {
+      toast.info('Ce dossier est géré depuis le cockpit principal');
+      return;
+    }
     // BUG #1 Fix: Guard préalable - pas de sauvegarde implicite
     if (!currentDraft?.id) {
       toast.error("Veuillez d'abord sauvegarder le brouillon");
