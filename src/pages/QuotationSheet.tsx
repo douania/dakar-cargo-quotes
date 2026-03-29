@@ -1288,6 +1288,11 @@ L'équipe SODATRA`;
    * Crée currentDraft.id pour débloquer generateQuotation
    */
   const handleSaveDraft = useCallback(async () => {
+    // Pipeline lockdown: block legacy draft creation when canonical case exists
+    if (isLegacyLocked) {
+      toast.info('Ce dossier est géré depuis le cockpit principal');
+      return;
+    }
     if (!destination) {
       toast.error('Destination requise');
       return;
