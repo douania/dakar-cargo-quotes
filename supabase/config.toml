@@ -202,3 +202,6 @@ verify_jwt = false
 
 [functions.close-commercial-outcome]
 verify_jwt = false
+
+[functions.data-query]
+verify_jwt = false
