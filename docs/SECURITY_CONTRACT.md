@@ -48,9 +48,13 @@ B1-A crée volontairement une asymétrie : les drafts deviennent owner-scoped ta
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome` |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, **`data-query`** |
 | **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `export-quotation-version-pdf` (canonical pipeline, inline auth conservé, `verify_jwt = false` en config) |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
+
+### `data-query` — Operator read surface (B1-audit)
+
+Created to decouple operator-level read queries from `data-admin` (which requires `requireAdmin`). Exposes **5 read-only actions**: `search`, `search_tariffs`, `find_historical_references`, `get_transport_rates`, `search_transport_rate`. Write operations (`create_knowledge`, etc.) remain in `data-admin` — see `DEFERRED_BACKLOG.md` item P2B.
 
 ### Auth migration stance
 
