@@ -34,6 +34,8 @@ interface QuotationHeaderProps {
   onStartAnalysis?: () => void;
   isStartingAnalysis?: boolean;
   needsAnalysis?: boolean;
+  // Pipeline lockdown: disable legacy write actions when canonical case exists
+  isLegacyLocked?: boolean;
 }
 
 // Labels humains pour les statuts (partagés avec BlockingGapsPanel)
