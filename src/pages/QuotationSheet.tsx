@@ -1460,6 +1460,7 @@ L'équipe SODATRA`;
           onStartAnalysis={handleStartAnalysis}
           isStartingAnalysis={isStartingAnalysis}
           needsAnalysis={needsAnalysis}
+          isLegacyLocked={isLegacyLocked}
         />
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}
