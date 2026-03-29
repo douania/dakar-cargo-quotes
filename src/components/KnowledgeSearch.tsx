@@ -89,7 +89,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
     const timeoutId = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const { data, error } = await supabase.functions.invoke('data-admin', {
+        const { data, error } = await supabase.functions.invoke('data-query', {
           body: { action: 'search', data: { query } }
         });
 

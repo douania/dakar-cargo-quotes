@@ -42,7 +42,7 @@ export function useTariffSuggestions(
     queryKey: ['tariff-suggestions', destination, cargoType, service, transportMode],
     queryFn: async (): Promise<TariffSuggestion[]> => {
       // Search for tariffs in learned_knowledge
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search_tariffs', 
           data: { destination, cargoType, service, transportMode } 
@@ -71,7 +71,7 @@ export function useKnowledgeSearch(query: string, categories?: string[]) {
     queryFn: async () => {
       if (!query || query.length < 2) return [];
 
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search', 
           data: { query, categories } 
@@ -117,7 +117,7 @@ export function useTransportRates(destination?: string, containerType?: string, 
   return useQuery({
     queryKey: ['transport-rates', destination, containerType, cargoCategory],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'get_transport_rates', 
           data: { destination, containerType, cargoCategory } 
@@ -142,7 +142,7 @@ export function useSearchTransportRate(destination?: string, containerType?: str
     queryFn: async () => {
       if (!destination) return null;
       
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search_transport_rate', 
           data: { destination, containerType, cargoCategory } 

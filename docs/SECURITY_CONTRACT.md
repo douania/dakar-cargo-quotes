@@ -3,6 +3,10 @@
 > **Subordinate to `docs/MASTER_CONTEXT.md`** (source of truth).
 > This document details operational application of security rules defined in MASTER_CONTEXT.
 
+## Scope
+
+This contract covers the **canonical pipeline** and **critical functions** only. Functions not listed in the classification table are not individually formalized here; their absence does not imply lack of authentication — the project standard is `requireUser` for all non-public functions. For an exhaustive inventory of all edge functions, refer to the codebase directly.
+
 ---
 
 ## Authentication Standard
@@ -44,9 +48,13 @@ B1-A crée volontairement une asymétrie : les drafts deviennent owner-scoped ta
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome` |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, **`data-query`** |
 | **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `export-quotation-version-pdf` (canonical pipeline, inline auth conservé, `verify_jwt = false` en config) |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
+
+### `data-query` — Operator read surface (B1-audit)
+
+Created to decouple operator-level read queries from `data-admin` (which requires `requireAdmin`). Exposes **5 read-only actions**: `search`, `search_tariffs`, `find_historical_references`, `get_transport_rates`, `search_transport_rate`. Write operations (`create_knowledge`, etc.) remain in `data-admin` — see `DEFERRED_BACKLOG.md` item P2B.
 
 ### Auth migration stance
 
@@ -87,3 +95,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `export-quotation-version-pdf` | Added to classification as user_auth (inline). Docstring corrected: `verify_jwt = false`. Inline auth conserved — no migration in M7b. | 2026-03 |
 | `create-quotation-email-draft` | Added to classification as user_auth (requireUser). Previously missing from security contract. | 2026-03 |
 | `close-commercial-outcome` | Added as user_auth (requireUser). Transitions SENT → ACCEPTED/REJECTED. | 2026-03 |
+| `data-query` | Created as user_auth (requireUser). Decouples operator reads (search, tariffs, transport rates, historical references) from admin-only `data-admin`. Components migrated: `KnowledgeSearch`, `HistoricalRateReminders`, `useTariffSuggestions`, `MatchKnowledgeToSegmentDialog`. | 2026-03 |

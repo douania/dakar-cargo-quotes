@@ -68,7 +68,7 @@ export function MatchKnowledgeToSegmentDialog({
     
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: {
           action: 'search',
           data: {

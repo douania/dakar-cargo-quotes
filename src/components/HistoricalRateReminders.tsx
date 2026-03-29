@@ -93,7 +93,7 @@ async function fetchHistoricalReferences(
   containerTypes?: string[],
   cargoType?: string
 ): Promise<{ references: GroupedHistoricalData[], evolutions: RateEvolution[] }> {
-  const { data, error } = await supabase.functions.invoke('data-admin', {
+  const { data, error } = await supabase.functions.invoke('data-query', {
     body: { 
       action: 'find_historical_references',
       data: { origin, destination, containerTypes, cargoType }

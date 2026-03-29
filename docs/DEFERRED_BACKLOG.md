@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-03-28
+Dernière mise à jour : 2026-03-29
 
 ---
 
@@ -66,6 +66,7 @@ Cela inclut les décisions formulées comme :
 | F2 | Smoke test post-M24b (cargo.weight_kg = 22000) | audit | closed | — | M24b | 2026-03-27 | Fix M24b confirmé en runtime : case 29b96eec, weight_kg=840000 → cargoWeight=840 (run 31a65987, 2026-03-27T16:07:19Z) | — | `run-pricing`, `quotation-engine` | chat M24b + runtime proof | Fermé | Aucune action requise |
 | S1 | Label `sent` EQ1 sémantiquement ambigu (devrait être draft_ready) | dette | watchlist | Basse | EQ1 | 2026-03 | Renommage coûteux | Ajout SMTP | `external_quote_requests`, STATUS_REGISTRY | repo | Confirmé | Conditionnel (si SMTP) |
 | S2 | HUMAN_REVIEW dormant dans l'enum (jamais atteint canoniquement) | dormant | dormant | Basse | M25 | 2026-03 | Supporté défensivement | Jamais (conservé par design) | Enum DB, `generate-quotation-version` | repo | Confirmé | Garder dormant |
+| P2B | `create_knowledge` dans `data-admin` inaccessible aux opérateurs non-admin | sécurité | deferred | Moyenne | B1-audit | 2026-03-29 | `create_knowledge` est une écriture opérateur (depuis `QuotationSheet.tsx` L1203) routée via `data-admin` (requireAdmin). Les lectures opérateur ont été extraites vers `data-query` (requireUser) en P2A. L'écriture `create_knowledge` reste dans `data-admin` car c'est une écriture avec implications métier/gouvernance qui nécessite une évaluation séparée : faut-il la déplacer vers `data-query`, créer un endpoint dédié, ou la maintenir en admin-only ? | Opérateur non-admin tente d'utiliser l'apprentissage depuis QuotationSheet, ou décision de gouvernance sur qui peut créer du knowledge | `supabase/functions/data-admin/index.ts` L189-205, `src/pages/QuotationSheet.tsx` L1203 | repo + audit B1 | Confirmé | Évaluer séparément : déplacer vers data-query, endpoint dédié, ou maintenir admin-only |
 
 ---
 
