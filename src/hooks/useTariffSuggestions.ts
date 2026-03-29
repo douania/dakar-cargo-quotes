@@ -117,7 +117,7 @@ export function useTransportRates(destination?: string, containerType?: string, 
   return useQuery({
     queryKey: ['transport-rates', destination, containerType, cargoCategory],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'get_transport_rates', 
           data: { destination, containerType, cargoCategory } 
