@@ -228,6 +228,9 @@ export default function QuotationSheet() {
   // CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
   const threadRef = stableThreadRef;
   const { quoteCase, blockingGaps, facts: quoteFacts, factsCount, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+
+  // Pipeline lockdown: when a canonical case exists, legacy write actions are disabled
+  const isLegacyLocked = !!quoteCase?.id;
   
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
@@ -1285,6 +1288,11 @@ L'équipe SODATRA`;
    * Crée currentDraft.id pour débloquer generateQuotation
    */
   const handleSaveDraft = useCallback(async () => {
+    // Pipeline lockdown: block legacy draft creation when canonical case exists
+    if (isLegacyLocked) {
+      toast.info('Ce dossier est géré depuis le cockpit principal');
+      return;
+    }
     if (!destination) {
       toast.error('Destination requise');
       return;
@@ -1323,9 +1331,14 @@ L'équipe SODATRA`;
       setCurrentDraft(draft);  // LIGNE CRITIQUE CTO - débloque le guard
       toast.success('Brouillon sauvegardé');
     }
-  }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft]);
+  }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft, isLegacyLocked]);
 
   const handleGenerateResponse = async () => {
+    // Pipeline lockdown: block legacy generation when canonical case exists
+    if (isLegacyLocked) {
+      toast.info('Ce dossier est géré depuis le cockpit principal');
+      return;
+    }
     // BUG #1 Fix: Guard préalable - pas de sauvegarde implicite
     if (!currentDraft?.id) {
       toast.error("Veuillez d'abord sauvegarder le brouillon");
@@ -1447,6 +1460,7 @@ L'équipe SODATRA`;
           onStartAnalysis={handleStartAnalysis}
           isStartingAnalysis={isStartingAnalysis}
           needsAnalysis={needsAnalysis}
+          isLegacyLocked={isLegacyLocked}
         />
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}
@@ -1780,8 +1794,8 @@ L'équipe SODATRA`;
               </div>
             )}
 
-            {/* Generated Response */}
-            {generatedResponse && (
+            {/* Generated Response — hidden when legacy pipeline is locked */}
+            {generatedResponse && !isLegacyLocked && (
               <Card className="border-primary/30 bg-primary/5">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">

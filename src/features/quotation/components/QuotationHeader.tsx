@@ -34,6 +34,8 @@ interface QuotationHeaderProps {
   onStartAnalysis?: () => void;
   isStartingAnalysis?: boolean;
   needsAnalysis?: boolean;
+  // Pipeline lockdown: disable legacy write actions when canonical case exists
+  isLegacyLocked?: boolean;
 }
 
 // Labels humains pour les statuts (partagés avec BlockingGapsPanel)
@@ -75,6 +77,7 @@ export function QuotationHeader({
   onStartAnalysis,
   isStartingAnalysis = false,
   needsAnalysis = true,
+  isLegacyLocked = false,
 }: QuotationHeaderProps) {
   // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
@@ -146,7 +149,7 @@ export function QuotationHeader({
           </Badge>
         )}
       </div>
-      {!quotationCompleted && (
+      {!quotationCompleted && !isLegacyLocked && (
         <div className="flex gap-2">
           {onSaveDraft && (
             <Button 
