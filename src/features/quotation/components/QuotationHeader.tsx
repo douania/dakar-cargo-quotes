@@ -77,6 +77,7 @@ export function QuotationHeader({
   onStartAnalysis,
   isStartingAnalysis = false,
   needsAnalysis = true,
+  isLegacyLocked = false,
 }: QuotationHeaderProps) {
   // Phase 8.7: Gating logic (étendu avec garde-fou quoteCase)
   const hasBlockingGaps = blockingGapsCount > 0;
