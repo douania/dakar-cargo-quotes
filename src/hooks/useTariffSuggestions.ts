@@ -42,7 +42,7 @@ export function useTariffSuggestions(
     queryKey: ['tariff-suggestions', destination, cargoType, service, transportMode],
     queryFn: async (): Promise<TariffSuggestion[]> => {
       // Search for tariffs in learned_knowledge
-      const { data, error } = await supabase.functions.invoke('data-admin', {
+      const { data, error } = await supabase.functions.invoke('data-query', {
         body: { 
           action: 'search_tariffs', 
           data: { destination, cargoType, service, transportMode } 
