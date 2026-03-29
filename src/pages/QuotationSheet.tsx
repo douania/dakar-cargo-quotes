@@ -1331,7 +1331,7 @@ L'équipe SODATRA`;
       setCurrentDraft(draft);  // LIGNE CRITIQUE CTO - débloque le guard
       toast.success('Brouillon sauvegardé');
     }
-  }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft]);
+  }, [destination, finalDestination, cargoLines, serviceLines, projectContext, incoterm, quotationTotals, regulatoryInfo, isNewQuotation, emailId, saveDraft, setCurrentDraft, isLegacyLocked]);
 
   const handleGenerateResponse = async () => {
     // Pipeline lockdown: block legacy generation when canonical case exists
