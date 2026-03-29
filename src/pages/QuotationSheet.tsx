@@ -228,6 +228,9 @@ export default function QuotationSheet() {
   // CTO #1: Utiliser stableThreadRef au lieu de threadEmails[0]
   const threadRef = stableThreadRef;
   const { quoteCase, blockingGaps, facts: quoteFacts, factsCount, isLoading: isLoadingQuoteCase } = useQuoteCaseData(stableThreadRef ?? undefined);
+
+  // Pipeline lockdown: when a canonical case exists, legacy write actions are disabled
+  const isLegacyLocked = !!quoteCase?.id;
   
   // Phase 12 Fix CTO: Bouton visible si pas de case OU case sans facts
   const needsAnalysis = !quoteCase || factsCount === 0;
