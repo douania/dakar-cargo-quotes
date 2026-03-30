@@ -81,6 +81,7 @@ const adminItems = [
   { title: 'Taux & Taxes', url: '/admin/tax-rates', icon: DollarSign },
   { title: 'Régimes douaniers', url: '/admin/customs-regimes', icon: FileText },
   { title: 'Tarifs portuaires', url: '/admin/tarifs-portuaires', icon: Ship },
+  { title: 'Templates compagnies', url: '/admin/carrier-billing', icon: Ship },
   { title: 'Documents', url: '/admin/documents', icon: BookOpen },
   { title: 'Intelligence marché', url: '/admin/market-intelligence', icon: BarChart3 },
   { title: 'Intelligence prix', url: '/admin/pricing-intelligence', icon: DollarSign },
