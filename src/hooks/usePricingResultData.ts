@@ -57,7 +57,7 @@ interface UsePricingResultDataReturn {
   refetchPricingRun: () => Promise<void>;
 }
 
-export function usePricingResultData(caseId: string | undefined): UsePricingResultDataReturn {
+export function usePricingResultData(caseId: string | undefined, refreshToken?: number): UsePricingResultDataReturn {
   const [pricingRun, setPricingRun] = useState<PricingRun | null>(null);
   const [versions, setVersions] = useState<QuotationVersion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -132,7 +132,7 @@ export function usePricingResultData(caseId: string | undefined): UsePricingResu
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, refreshToken]);
 
   const refetchVersions = useCallback(async () => {
     await loadVersions();

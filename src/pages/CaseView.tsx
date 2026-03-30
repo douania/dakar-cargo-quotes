@@ -88,6 +88,7 @@ export default function CaseView() {
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
   const [askingClientForGaps, setAskingClientForGaps] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
+  const [pricingRefreshToken, setPricingRefreshToken] = useState(0);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -476,6 +477,7 @@ export default function CaseView() {
       }
 
       toast.success("Analyse terminée avec succès");
+      setPricingRefreshToken(t => t + 1);
       handleRefresh();
     } catch (err) {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
@@ -1405,6 +1407,7 @@ export default function CaseView() {
                       } else {
                         toast.success("Pricing lancé automatiquement");
                       }
+                      setPricingRefreshToken(t => t + 1);
                       await handleRefresh();
                     }
                   }
@@ -1835,7 +1838,7 @@ export default function CaseView() {
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} />
+            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={pricingRefreshToken} />
           </div>
         )}
 
