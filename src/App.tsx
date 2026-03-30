@@ -31,6 +31,7 @@ import TransportRates from "./pages/admin/TransportRates";
 import QuotationHistory from "./pages/admin/QuotationHistory";
 import ClientOverrides from "./pages/admin/ClientOverrides";
 import ExchangeRates from "./pages/admin/ExchangeRates";
+import CarrierBillingTemplates from "./pages/admin/CarrierBillingTemplates";
 
 const queryClient = new QueryClient();
 
