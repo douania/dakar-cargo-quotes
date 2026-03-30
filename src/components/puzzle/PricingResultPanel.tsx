@@ -159,6 +159,19 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
               <>
                 <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{toConfirmCount}</p>
                 <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">À confirmer</p>
+                <div className="mt-1 space-y-0.5">
+                  {tariffLines
+                    .filter((l: any) => l.source?.type === 'TO_CONFIRM')
+                    .slice(0, 3)
+                    .map((l: any, i: number) => (
+                      <p key={i} className="text-[10px] text-amber-600/80 dark:text-amber-400/80 truncate max-w-[120px] mx-auto">
+                        {l.category || l.service_code || l.charge_code || `Ligne ${i + 1}`}
+                      </p>
+                    ))}
+                  {toConfirmCount > 3 && (
+                    <p className="text-[10px] text-amber-600/60">+{toConfirmCount - 3} autres</p>
+                  )}
+                </div>
               </>
             ) : (
               <>

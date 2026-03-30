@@ -132,7 +132,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, refreshToken]);
 
   const refetchVersions = useCallback(async () => {
     await loadVersions();
