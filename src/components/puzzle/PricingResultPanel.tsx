@@ -29,10 +29,11 @@ import { usePricingResultData } from '@/hooks/usePricingResultData';
 interface PricingResultPanelProps {
   caseId: string;
   isLocked?: boolean;
+  refreshToken?: number;
 }
 
-export function PricingResultPanel({ caseId, isLocked = false }: PricingResultPanelProps) {
-  const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId);
+export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: PricingResultPanelProps) {
+  const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
