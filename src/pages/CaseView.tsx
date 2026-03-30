@@ -88,6 +88,7 @@ export default function CaseView() {
   const [savingGapKey, setSavingGapKey] = React.useState<string | null>(null);
   const [askingClientForGaps, setAskingClientForGaps] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
+  const [pricingRefreshToken, setPricingRefreshToken] = useState(0);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
