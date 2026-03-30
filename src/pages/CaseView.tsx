@@ -1407,6 +1407,7 @@ export default function CaseView() {
                       } else {
                         toast.success("Pricing lancé automatiquement");
                       }
+                      setPricingRefreshToken(t => t + 1);
                       await handleRefresh();
                     }
                   }
