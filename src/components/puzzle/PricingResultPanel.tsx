@@ -143,12 +143,18 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
         })()}
 
         {/* Summary Section — always reads root columns (backward compat) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
           <div className="text-center">
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {formatAmount(pricingRun.total_ht)}
             </p>
-            <p className="text-xs text-muted-foreground">Total HT ({pricingRun.currency || 'XOF'})</p>
+            <p className="text-xs text-muted-foreground">Honoraires HT ({pricingRun.currency || 'XOF'})</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              {formatAmount(tariffLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0))}
+            </p>
+            <p className="text-xs text-muted-foreground">Total lignes ({pricingRun.currency || 'XOF'})</p>
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold">{tariffLines.length}</p>
