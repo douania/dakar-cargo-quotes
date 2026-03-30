@@ -477,6 +477,7 @@ export default function CaseView() {
       }
 
       toast.success("Analyse terminée avec succès");
+      setPricingRefreshToken(t => t + 1);
       handleRefresh();
     } catch (err) {
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
