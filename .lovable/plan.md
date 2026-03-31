@@ -1,48 +1,41 @@
 
 
-# Plan — Récupération d'accès + flux "Mot de passe oublié"
+# Plan — Reprise extraction pages 51→124 + regroupement dossiers
 
-## Situation
+## Contexte
+- 50 pages sur 124 déjà extraites (checkpoint sauvé dans `/tmp/extract_checkpoint.json`)
+- Images PNG déjà converties pour les 124 pages
+- Script `extract_all.py` validé par smoke test
 
-- Votre compte : `ramzi.hoballah@sodatra.sn` (dernière connexion 28 mars)
-- Aucun domaine email configuré sur le projet → impossible d'envoyer des emails de réinitialisation pour l'instant
-- La page de login n'a pas de lien "Mot de passe oublié"
+## Étapes d'exécution
 
-## Approche en 2 étapes
+### 1. Reprendre l'extraction (pages 51→124)
+- Charger le checkpoint existant (`/tmp/extract_checkpoint.json`)
+- Relancer le script sur les pages 51→124 en lots de ~40 pages par exécution (pour éviter les timeouts)
+- Passe 1 : pages 51→90
+- Passe 2 : pages 91→124
+- Sauvegarder le checkpoint après chaque passe
 
-### Étape 1 — Vous débloquer immédiatement (sans email)
+### 2. Regroupement dossiers (Étape B)
+- Logique Python déterministe (pas d'IA)
+- Priorité stricte : `same_bl` > `same_container` > `same_vessel_voyage` > `same_client+weight`
+- Dernier niveau automatiquement classé `low_confidence_match`
+- Détection doublons via `image_hash`
 
-Créer une **edge function temporaire sécurisée** `admin-reset-password` qui :
-- accepte un appel authentifié par `requireAdmin`
-- utilise le `service_role` pour appeler `supabase.auth.admin.updateUserById()` 
-- réinitialise le mot de passe de votre compte
+### 3. Génération des livrables dans `/mnt/documents/`
+- `pdf_analysis_pages.json` — 124 entrées avec `raw_extraction` + `normalized_fields`
+- `pdf_analysis_dossiers.json` — dossiers D001, D002... avec `evidence_basis`
+- `pdf_analysis_pages.csv` — vue tabulaire page-level
+- `pdf_analysis_dossiers.csv` — vue tabulaire dossier-level
 
-**Problème** : vous n'êtes pas connecté, donc `requireAdmin` ne fonctionnera pas.
+### 4. Compte-rendu
+- Nombre réel de pages traitées
+- Nombre de dossiers détectés
+- Pages non résolues / doublons probables
+- 5 exemples concrets de dossiers
 
-**Alternative plus simple et sûre** : je crée une edge function one-shot protégée par un secret temporaire (pas de JWT requis), qui réinitialise le mot de passe de votre compte spécifique. Vous me donnez le nouveau mot de passe souhaité, j'exécute, puis je supprime immédiatement la fonction.
-
-### Étape 2 — Ajouter le flux "Mot de passe oublié" (pour le futur)
-
-Ceci nécessite un **domaine email configuré** pour envoyer les emails de récupération. Sans domaine email, `resetPasswordForEmail()` ne pourra pas livrer l'email.
-
-**Fichiers à modifier :**
-- `src/pages/LoginPage.tsx` — ajouter le lien + dialog "Mot de passe oublié"
-- `src/pages/ResetPassword.tsx` — créer la page `/reset-password` pour saisir le nouveau mot de passe
-- `src/App.tsx` — ajouter la route `/reset-password` (publique, hors `RequireAuth`)
-
-**Prérequis** : configurer un domaine email d'abord.
-
-## Recommandation
-
-1. **Maintenant** : réinitialiser votre mot de passe via une edge function temporaire sécurisée
-2. **Ensuite** : configurer le domaine email + ajouter le flux complet "Mot de passe oublié"
-
-Pour l'étape 1, j'ai besoin que vous me disiez le **nouveau mot de passe** que vous souhaitez utiliser. Je le configurerai via une edge function sécurisée qui sera supprimée immédiatement après usage.
-
-## Périmètre strict
-
+## Contraintes
+- Aucun changement repo / DB / migration
 - Aucun module FROZEN touché
-- Aucun seed
-- Aucun changement de schéma DB
-- Edge function temporaire supprimée après usage
+- Travail documentaire uniquement
 
