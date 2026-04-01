@@ -298,32 +298,51 @@ export default function DesignationSuggestionBlock({
         Catégories suggérées
       </div>
 
-      {suggestions.map((s, i) => (
-        <div key={i} className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Badge
-              variant={s.source === "validated_match" ? "default" : "outline"}
-              className="text-xs shrink-0"
-            >
-              {s.padCategory || "—"}
-            </Badge>
-            <span className="truncate">{s.label}</span>
-            <span className="text-muted-foreground shrink-0">
-              {Math.round(s.score * 100)}%
-            </span>
+      {suggestions.map((s, i) => {
+        const rate = s.padCategory ? padRates?.[s.padCategory] : null;
+        return (
+          <div key={i} className="space-y-0.5">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Badge
+                  variant={s.source === "validated_match" ? "default" : "outline"}
+                  className="text-xs shrink-0"
+                >
+                  {s.padCategory || "—"}
+                </Badge>
+                <span className="truncate">{s.label}</span>
+                <span className="text-muted-foreground shrink-0">
+                  {Math.round(s.score * 100)}%
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                disabled={confirmMutation.isPending}
+                onClick={() => confirmMutation.mutate(s)}
+              >
+                <Check className="h-3 w-3 mr-1" />
+                Confirmer
+              </Button>
+            </div>
+            {s.padCategory && (
+              <div className="pl-6 text-[11px] text-muted-foreground">
+                {rate ? (
+                  <span>
+                    └ Droit de passage PAD : {Number(rate.amount).toLocaleString("fr-FR")} FCFA/t
+                    {rate.evidence_level === "official" && (
+                      <span className="ml-1 text-primary">· Source officielle</span>
+                    )}
+                  </span>
+                ) : (
+                  <span>└ Pas de barème PAD trouvé pour {s.padCategory}</span>
+                )}
+              </div>
+            )}
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-2 text-xs"
-            disabled={confirmMutation.isPending}
-            onClick={() => confirmMutation.mutate(s)}
-          >
-            <Check className="h-3 w-3 mr-1" />
-            Confirmer
-          </Button>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Correct button */}
       {!correcting ? (
