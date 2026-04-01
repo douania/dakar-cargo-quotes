@@ -51,7 +51,7 @@ export default function DesignationSuggestionBlock({
       const { data: matches } = await supabase
         .from("commodity_designation_matches")
         .select("*")
-        .limit(20);
+        .limit(200);
 
       // Source 2: commodity_categories
       const { data: categories } = await supabase
