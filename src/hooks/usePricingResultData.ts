@@ -70,7 +70,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
     try {
       const { data, error: fetchError } = await supabase
         .from('pricing_runs')
-        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, outputs_json, created_at, completed_at')
+        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, outputs_json, facts_snapshot, created_at, completed_at')
         .eq('case_id', caseId)
         .eq('status', 'success')
         .order('run_number', { ascending: false })
