@@ -281,7 +281,40 @@ export default function DesignationSuggestionBlock({
     },
   });
 
-  // Correct with manual category pick
+  // --- Apply to dossier mutation (writes quote_facts via set-case-fact) ---
+  const applyToDossierMutation = useMutation({
+    mutationFn: async (candidate: SuggestionCandidate) => {
+      // Always write cargo.pad_category
+      await supabase.functions.invoke("set-case-fact", {
+        body: {
+          case_id: caseId,
+          fact_key: "cargo.pad_category",
+          value_text: candidate.padCategory,
+        },
+      });
+
+      // Write cargo.pad_rate_fcfa_per_ton only if PAD rate exists
+      const rate = candidate.padCategory ? padRates?.[candidate.padCategory] : null;
+      if (rate) {
+        await supabase.functions.invoke("set-case-fact", {
+          body: {
+            case_id: caseId,
+            fact_key: "cargo.pad_rate_fcfa_per_ton",
+            value_number: rate.amount,
+          },
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["quote_facts"] });
+      toast({ title: "Catégorie PAD appliquée au dossier" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleCorrect = () => {
     if (!selectedCategoryId) return;
     const cat = allCategories?.find((c) => c.id === selectedCategoryId);
