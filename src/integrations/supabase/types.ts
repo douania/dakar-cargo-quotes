@@ -134,6 +134,122 @@ export type Database = {
         }
         Relationships: []
       }
+      case_document_metadata: {
+        Row: {
+          amount_ht: number | null
+          amount_ttc: number | null
+          awb_number: string | null
+          bl_number: string | null
+          carrier: string | null
+          case_document_id: string
+          client: string | null
+          consignee: string | null
+          container_numbers: string[] | null
+          created_at: string | null
+          currency: string | null
+          document_date: string | null
+          document_financial_profile: string | null
+          document_reference: string | null
+          document_type_refined: string | null
+          emitter: string | null
+          evidence_basis: string[] | null
+          evidence_level: string | null
+          goods_description: string | null
+          hbl_number: string | null
+          id: string
+          invoice_number: string | null
+          matching_confidence: number | null
+          notes_operator: string | null
+          packages: number | null
+          port_discharge: string | null
+          port_loading: string | null
+          updated_at: string | null
+          vat: number | null
+          vessel: string | null
+          volume_cbm: number | null
+          voyage: string | null
+          weight_kg: number | null
+        }
+        Insert: {
+          amount_ht?: number | null
+          amount_ttc?: number | null
+          awb_number?: string | null
+          bl_number?: string | null
+          carrier?: string | null
+          case_document_id: string
+          client?: string | null
+          consignee?: string | null
+          container_numbers?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          document_date?: string | null
+          document_financial_profile?: string | null
+          document_reference?: string | null
+          document_type_refined?: string | null
+          emitter?: string | null
+          evidence_basis?: string[] | null
+          evidence_level?: string | null
+          goods_description?: string | null
+          hbl_number?: string | null
+          id?: string
+          invoice_number?: string | null
+          matching_confidence?: number | null
+          notes_operator?: string | null
+          packages?: number | null
+          port_discharge?: string | null
+          port_loading?: string | null
+          updated_at?: string | null
+          vat?: number | null
+          vessel?: string | null
+          volume_cbm?: number | null
+          voyage?: string | null
+          weight_kg?: number | null
+        }
+        Update: {
+          amount_ht?: number | null
+          amount_ttc?: number | null
+          awb_number?: string | null
+          bl_number?: string | null
+          carrier?: string | null
+          case_document_id?: string
+          client?: string | null
+          consignee?: string | null
+          container_numbers?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          document_date?: string | null
+          document_financial_profile?: string | null
+          document_reference?: string | null
+          document_type_refined?: string | null
+          emitter?: string | null
+          evidence_basis?: string[] | null
+          evidence_level?: string | null
+          goods_description?: string | null
+          hbl_number?: string | null
+          id?: string
+          invoice_number?: string | null
+          matching_confidence?: number | null
+          notes_operator?: string | null
+          packages?: number | null
+          port_discharge?: string | null
+          port_loading?: string | null
+          updated_at?: string | null
+          vat?: number | null
+          vessel?: string | null
+          volume_cbm?: number | null
+          voyage?: string | null
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_document_metadata_case_document_id_fkey"
+            columns: ["case_document_id"]
+            isOneToOne: true
+            referencedRelation: "case_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       case_documents: {
         Row: {
           case_id: string
