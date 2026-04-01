@@ -1,41 +1,30 @@
 
 
-# Plan — Reprise extraction pages 51→124 + regroupement dossiers
+# Analyse pre-smoke-test + clarification cargo.freight_exchange_rate
 
-## Contexte
-- 50 pages sur 124 déjà extraites (checkpoint sauvé dans `/tmp/extract_checkpoint.json`)
-- Images PNG déjà converties pour les 124 pages
-- Script `extract_all.py` validé par smoke test
+## Clarification : cargo.freight_exchange_rate
 
-## Étapes d'exécution
+**Constat** : cette cle etait deja presente dans `src/pages/case-view/constants.ts` (EDITABLE_FACT_KEYS ligne 66 + NUMERIC_FACT_KEYS ligne 81) **avant** ce patch PAD. Elle etait donc editable dans le cockpit CaseView mais **non autorisee** par le backend `set-case-fact`.
 
-### 1. Reprendre l'extraction (pages 51→124)
-- Charger le checkpoint existant (`/tmp/extract_checkpoint.json`)
-- Relancer le script sur les pages 51→124 en lots de ~40 pages par exécution (pour éviter les timeouts)
-- Passe 1 : pages 51→90
-- Passe 2 : pages 91→124
-- Sauvegarder le checkpoint après chaque passe
+L'ajout a la whitelist est un **fix de coherence UI/backend** : sans lui, un operateur qui modifie ce champ dans le cockpit recevrait une erreur 400.
 
-### 2. Regroupement dossiers (Étape B)
-- Logique Python déterministe (pas d'IA)
-- Priorité stricte : `same_bl` > `same_container` > `same_vessel_voyage` > `same_client+weight`
-- Dernier niveau automatiquement classé `low_confidence_match`
-- Détection doublons via `image_hash`
+Cependant, `build-case-puzzle` a retire cette cle en Phase 16 (commentaires explicites : "cargo.freight_exchange_rate removed — exchange_rates table is source of truth"). C'est donc une cle **legacy/deprecated** cote moteur.
 
-### 3. Génération des livrables dans `/mnt/documents/`
-- `pdf_analysis_pages.json` — 124 entrées avec `raw_extraction` + `normalized_fields`
-- `pdf_analysis_dossiers.json` — dossiers D001, D002... avec `evidence_basis`
-- `pdf_analysis_pages.csv` — vue tabulaire page-level
-- `pdf_analysis_dossiers.csv` — vue tabulaire dossier-level
+**Ecart reel** : coherence whitelist restauree, mais hors perimetre PAD. A signaler dans le bilan de vague.
 
-### 4. Compte-rendu
-- Nombre réel de pages traitées
-- Nombre de dossiers détectés
-- Pages non résolues / doublons probables
-- 5 exemples concrets de dossiers
+## Plan : smoke test runtime
 
-## Contraintes
-- Aucun changement repo / DB / migration
-- Aucun module FROZEN touché
-- Travail documentaire uniquement
+Le smoke test necessite d'interagir avec le preview (saisir des designations, cliquer des boutons, verifier les facts). Cela requiert le mode execution avec les outils browser.
+
+### Tests a executer
+
+1. **Confirmer seul** (toles galvanisees) — verifier 0 fact ecrit
+2. **Appliquer au dossier** T12 — verifier cargo.pad_category=T12 + cargo.pad_rate_fcfa_per_ton=4780
+3. **Appliquer au dossier** T07 (clinker) — verifier 484
+4. **Appliquer au dossier** T01 (ordinateurs portables) — verifier 19239
+5. Controles : facts visibles cockpit, 0 erreur console, idempotence au re-clic
+
+### Action requise
+
+Passez en mode execution pour que je puisse lancer le smoke test browser sur ces 4 cas. Je ne peux pas interagir avec le preview en mode plan.
 
