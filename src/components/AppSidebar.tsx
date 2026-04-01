@@ -69,6 +69,8 @@ const mainNavItems = [
 import { TrendingUp, Briefcase, History, Coins, Layers, Eye } from 'lucide-react';
 
 const adminItems = [
+  { title: 'Vue tarifs consolidée', url: '/admin/tariff-overview', icon: Eye },
+  { title: 'Catégories marchandises', url: '/admin/commodity-categories', icon: Layers },
   { title: 'Emails', url: '/admin/emails', icon: Mail },
   { title: 'Tenders', url: '/admin/tenders', icon: Briefcase },
   { title: 'Historique cotations', url: '/admin/quotation-history', icon: History },

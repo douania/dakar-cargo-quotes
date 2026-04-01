@@ -69,6 +69,8 @@ const App = () => (
             <Route path="/admin/client-overrides" element={<RequireAuth><ClientOverrides /></RequireAuth>} />
             <Route path="/admin/exchange-rates" element={<RequireAuth><ExchangeRates /></RequireAuth>} />
             <Route path="/admin/carrier-billing" element={<RequireAuth><CarrierBillingTemplates /></RequireAuth>} />
+            <Route path="/admin/commodity-categories" element={<RequireAuth><CommodityCategories /></RequireAuth>} />
+            <Route path="/admin/tariff-overview" element={<RequireAuth><TariffOverview /></RequireAuth>} />
             <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
             <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />
             <Route path="/case/:caseId" element={<RequireAuth><CaseView /></RequireAuth>} />
