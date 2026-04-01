@@ -394,6 +394,20 @@ export default function PortTariffsAdmin() {
                   <Label htmlFor="is_active">Tarif actif</Label>
                 </div>
 
+                <div>
+                  <Label>Niveau de preuve</Label>
+                  <Select value={formData.evidence_level || 'official'} onValueChange={(v) => setFormData({ ...formData, evidence_level: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="official">Officiel</SelectItem>
+                      <SelectItem value="observed">Observé</SelectItem>
+                      <SelectItem value="to_confirm">À confirmer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Annuler
