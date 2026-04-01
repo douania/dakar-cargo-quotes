@@ -35,6 +35,9 @@ const ALLOWED_FACT_KEYS = new Set([
   "service.overrides",
   "customs.regime_code",
   "regulatory.exemption_title",
+  "cargo.pad_category",
+  "cargo.pad_rate_fcfa_per_ton",
+  "cargo.freight_exchange_rate",
 ]);
 
 // ── Category detection from prefix ──

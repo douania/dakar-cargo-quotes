@@ -79,6 +79,7 @@ export const NUMERIC_FACT_KEYS = new Set([
   "cargo.pieces_count",
   "cargo.freight_cost",
   "cargo.freight_exchange_rate",
+  "cargo.pad_rate_fcfa_per_ton",
 ]);
 
 /** Category labels for display */
