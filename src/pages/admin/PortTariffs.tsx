@@ -488,6 +488,7 @@ export default function PortTariffsAdmin() {
                 <TableHead className="text-right">Montant</TableHead>
                 <TableHead>Surcharge</TableHead>
                 <TableHead>Source</TableHead>
+                <TableHead>Preuve</TableHead>
                 <TableHead>Validité</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
