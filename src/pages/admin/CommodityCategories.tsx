@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -18,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Package, Filter, X } from "lucide-react";
-
+import CorrespondancesTab from "@/components/admin/CorrespondancesTab";
 const EVIDENCE_LEVELS = ['official', 'observed', 'to_confirm'] as const;
 const CARGO_TYPES = ['DRY', 'DG', 'REEFER', 'OOG', 'BREAKBULK', 'RORO', 'VEHICULE'];
 const TERMINAL_PROVIDERS = ['DP_WORLD', 'DAKAR_TERMINAL', 'TAL', 'PAD'];
