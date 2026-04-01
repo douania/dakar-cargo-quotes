@@ -81,6 +81,7 @@ export default function PortTariffsAdmin() {
     effective_date: new Date().toISOString().split('T')[0],
     expiry_date: null,
     is_active: true,
+    evidence_level: 'official',
   });
 
   const { data: tariffs, isLoading } = useQuery({
