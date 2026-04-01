@@ -66,7 +66,7 @@ const mainNavItems = [
   },
 ];
 
-import { TrendingUp, Briefcase, History, Coins } from 'lucide-react';
+import { TrendingUp, Briefcase, History, Coins, Layers, Eye } from 'lucide-react';
 
 const adminItems = [
   { title: 'Emails', url: '/admin/emails', icon: Mail },
