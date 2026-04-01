@@ -383,114 +383,133 @@ export default function CommodityCategories() {
             </DialogContent>
           </Dialog>
         </div>
+        <Tabs defaultValue="categories" className="mt-2">
+          <TabsList>
+            <TabsTrigger value="categories">Catégories</TabsTrigger>
+            <TabsTrigger value="correspondances">Correspondances</TabsTrigger>
+          </TabsList>
 
-        {/* Filters */}
-        <div className="flex gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={filterProvider} onValueChange={setFilterProvider}>
-              <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous providers</SelectItem>
-                {TERMINAL_PROVIDERS.map(p => <SelectItem key={p} value={p}>{p.replace(/_/g, ' ')}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <Select value={filterEvidence} onValueChange={setFilterEvidence}>
-            <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tous niveaux</SelectItem>
-              <SelectItem value="official">Officiel</SelectItem>
-              <SelectItem value="observed">Observé</SelectItem>
-              <SelectItem value="to_confirm">À confirmer</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+          <TabsContent value="categories">
+            {/* Filters */}
+            <div className="flex gap-4 mb-6">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <Select value={filterProvider} onValueChange={setFilterProvider}>
+                  <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous providers</SelectItem>
+                    {TERMINAL_PROVIDERS.map(p => <SelectItem key={p} value={p}>{p.replace(/_/g, ' ')}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Select value={filterEvidence} onValueChange={setFilterEvidence}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous niveaux</SelectItem>
+                  <SelectItem value="official">Officiel</SelectItem>
+                  <SelectItem value="observed">Observé</SelectItem>
+                  <SelectItem value="to_confirm">À confirmer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-card rounded-lg p-4 border">
-            <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{categories?.length || 0}</p>
-          </div>
-          <div className="bg-card rounded-lg p-4 border">
-            <p className="text-sm text-muted-foreground">Officiels</p>
-            <p className="text-2xl font-bold text-green-600">{categories?.filter(c => c.evidence_level === 'official').length || 0}</p>
-          </div>
-          <div className="bg-card rounded-lg p-4 border">
-            <p className="text-sm text-muted-foreground">Observés</p>
-            <p className="text-2xl font-bold text-amber-500">{categories?.filter(c => c.evidence_level === 'observed').length || 0}</p>
-          </div>
-          <div className="bg-card rounded-lg p-4 border">
-            <p className="text-sm text-muted-foreground">À confirmer</p>
-            <p className="text-2xl font-bold text-muted-foreground">{categories?.filter(c => c.evidence_level === 'to_confirm').length || 0}</p>
-          </div>
-        </div>
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+              <div className="bg-card rounded-lg p-4 border">
+                <p className="text-sm text-muted-foreground">Total</p>
+                <p className="text-2xl font-bold">{categories?.length || 0}</p>
+              </div>
+              <div className="bg-card rounded-lg p-4 border">
+                <p className="text-sm text-muted-foreground">Officiels</p>
+                <p className="text-2xl font-bold text-green-600">{categories?.filter(c => c.evidence_level === 'official').length || 0}</p>
+              </div>
+              <div className="bg-card rounded-lg p-4 border">
+                <p className="text-sm text-muted-foreground">Observés</p>
+                <p className="text-2xl font-bold text-amber-500">{categories?.filter(c => c.evidence_level === 'observed').length || 0}</p>
+              </div>
+              <div className="bg-card rounded-lg p-4 border">
+                <p className="text-sm text-muted-foreground">À confirmer</p>
+                <p className="text-2xl font-bold text-muted-foreground">{categories?.filter(c => c.evidence_level === 'to_confirm').length || 0}</p>
+              </div>
+            </div>
 
-        {/* Table */}
-        <div className="border rounded-lg overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Désignation</TableHead>
-                <TableHead>PAD</TableHead>
-                <TableHead>Terminal</TableHead>
-                <TableHead>Cargo</TableHead>
-                <TableHead>Preuve</TableHead>
-                <TableHead>Confiance</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8">Chargement...</TableCell></TableRow>
-              ) : filtered?.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucune catégorie trouvée</TableCell></TableRow>
-              ) : filtered?.map(c => (
-                <TableRow key={c.id}>
-                  <TableCell>
-                    <div>
-                      <span className="font-medium">{c.designation_normalized || c.designation_raw}</span>
-                      {c.designation_normalized && c.designation_normalized !== c.designation_raw && (
-                        <span className="block text-xs text-muted-foreground">{c.designation_raw}</span>
-                      )}
-                      {c.hs_chapter && <Badge variant="outline" className="ml-1 text-xs">HS {c.hs_chapter}</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {c.pad_category ? (
-                      <div>
-                        <Badge variant="outline">{c.pad_category}</Badge>
-                        {c.pad_category_label && <span className="block text-xs text-muted-foreground mt-0.5">{c.pad_category_label}</span>}
-                      </div>
-                    ) : '-'}
-                  </TableCell>
-                  <TableCell>
-                    {c.terminal_provider ? (
-                      <div className="text-sm">
-                        <span className="font-medium">{c.terminal_provider.replace(/_/g, ' ')}</span>
-                        {c.terminal_handling_code && <span className="block text-xs text-muted-foreground">Manut: {c.terminal_handling_code}</span>}
-                      </div>
-                    ) : '-'}
-                  </TableCell>
-                  <TableCell className="text-sm">{c.cargo_type || '-'}</TableCell>
-                  <TableCell>{getEvidenceBadge(c.evidence_level)}</TableCell>
-                  <TableCell>
-                    <span className="text-sm font-mono">{c.confidence != null ? `${Math.round(c.confidence * 100)}%` : '-'}</span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => handleEdit(c)}><Pencil className="h-4 w-4" /></Button>
-                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm('Supprimer ?')) deleteMutation.mutate(c.id); }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+            {/* Table */}
+            <div className="border rounded-lg overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Désignation</TableHead>
+                    <TableHead>PAD</TableHead>
+                    <TableHead>Terminal</TableHead>
+                    <TableHead>Cargo</TableHead>
+                    <TableHead>Preuve</TableHead>
+                    <TableHead>Confiance</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8">Chargement...</TableCell></TableRow>
+                  ) : filtered?.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucune catégorie trouvée</TableCell></TableRow>
+                  ) : filtered?.map(c => (
+                    <TableRow key={c.id}>
+                      <TableCell>
+                        <div>
+                          <span className="font-medium">{c.designation_normalized || c.designation_raw}</span>
+                          {c.designation_normalized && c.designation_normalized !== c.designation_raw && (
+                            <span className="block text-xs text-muted-foreground">{c.designation_raw}</span>
+                          )}
+                          {c.hs_chapter && <Badge variant="outline" className="ml-1 text-xs">HS {c.hs_chapter}</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {c.pad_category ? (
+                          <div>
+                            <Badge variant="outline">{c.pad_category}</Badge>
+                            {c.pad_category_label && <span className="block text-xs text-muted-foreground mt-0.5">{c.pad_category_label}</span>}
+                          </div>
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {c.terminal_provider ? (
+                          <div className="text-sm">
+                            <span className="font-medium">{c.terminal_provider.replace(/_/g, ' ')}</span>
+                            {c.terminal_handling_code && <span className="block text-xs text-muted-foreground">Manut: {c.terminal_handling_code}</span>}
+                          </div>
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell className="text-sm">{c.cargo_type || '-'}</TableCell>
+                      <TableCell>{getEvidenceBadge(c.evidence_level)}</TableCell>
+                      <TableCell>
+                        <span className="text-sm font-mono">{c.confidence != null ? `${Math.round(c.confidence * 100)}%` : '-'}</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => handleEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm('Supprimer ?')) deleteMutation.mutate(c.id); }}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="correspondances">
+            <CorrespondancesTab
+              categories={(categories || []).map(c => ({
+                id: c.id,
+                designation_raw: c.designation_raw,
+                designation_normalized: c.designation_normalized,
+                pad_category: c.pad_category,
+              }))}
+            />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
