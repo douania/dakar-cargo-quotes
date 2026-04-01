@@ -548,6 +548,12 @@ export default function PortTariffsAdmin() {
                         </div>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {tariff.evidence_level === 'official' && <Badge className="bg-green-600 text-white text-xs">Officiel</Badge>}
+                      {tariff.evidence_level === 'observed' && <Badge className="bg-amber-500 text-white text-xs">Observé</Badge>}
+                      {tariff.evidence_level === 'to_confirm' && <Badge variant="secondary" className="text-xs">À confirmer</Badge>}
+                      {!tariff.evidence_level && <Badge className="bg-green-600 text-white text-xs">Officiel</Badge>}
+                    </TableCell>
                     <TableCell className="text-sm">
                       {format(new Date(tariff.effective_date), 'dd/MM/yyyy', { locale: fr })}
                     </TableCell>
