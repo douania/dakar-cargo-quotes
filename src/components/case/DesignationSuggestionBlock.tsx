@@ -34,6 +34,7 @@ interface DesignationSuggestionBlockProps {
 export default function DesignationSuggestionBlock({
   goodsDescription,
   caseDocumentId,
+  caseId,
   sourceReference,
 }: DesignationSuggestionBlockProps) {
   const queryClient = useQueryClient();
