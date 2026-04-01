@@ -39,6 +39,7 @@ import {
   Copy,
   Mail,
   Send,
+  Anchor,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
