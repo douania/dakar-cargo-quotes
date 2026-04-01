@@ -65,6 +65,8 @@ export const EDITABLE_FACT_KEYS = new Set([
   "cargo.freight_currency",
   "cargo.freight_exchange_rate",
   "routing.transport_mode",
+  "cargo.pad_category",
+  "cargo.pad_rate_fcfa_per_ton",
 ]);
 
 export const NUMERIC_FACT_KEYS = new Set([
