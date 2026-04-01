@@ -48,6 +48,7 @@ interface PortTariff {
   effective_date: string;
   expiry_date: string | null;
   is_active: boolean;
+  evidence_level: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +81,7 @@ export default function PortTariffsAdmin() {
     effective_date: new Date().toISOString().split('T')[0],
     expiry_date: null,
     is_active: true,
+    evidence_level: 'official',
   });
 
   const { data: tariffs, isLoading } = useQuery({
@@ -159,6 +161,7 @@ export default function PortTariffsAdmin() {
       effective_date: new Date().toISOString().split('T')[0],
       expiry_date: null,
       is_active: true,
+      evidence_level: 'official',
     });
   };
 
@@ -178,6 +181,7 @@ export default function PortTariffsAdmin() {
       effective_date: tariff.effective_date,
       expiry_date: tariff.expiry_date,
       is_active: tariff.is_active,
+      evidence_level: tariff.evidence_level || 'official',
     });
     setIsDialogOpen(true);
   };
@@ -390,6 +394,20 @@ export default function PortTariffsAdmin() {
                   <Label htmlFor="is_active">Tarif actif</Label>
                 </div>
 
+                <div>
+                  <Label>Niveau de preuve</Label>
+                  <Select value={formData.evidence_level || 'official'} onValueChange={(v) => setFormData({ ...formData, evidence_level: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="official">Officiel</SelectItem>
+                      <SelectItem value="observed">Observé</SelectItem>
+                      <SelectItem value="to_confirm">À confirmer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Annuler
@@ -470,6 +488,7 @@ export default function PortTariffsAdmin() {
                 <TableHead className="text-right">Montant</TableHead>
                 <TableHead>Surcharge</TableHead>
                 <TableHead>Source</TableHead>
+                <TableHead>Preuve</TableHead>
                 <TableHead>Validité</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -477,13 +496,13 @@ export default function PortTariffsAdmin() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={10} className="text-center py-8">
                     Chargement...
                   </TableCell>
                 </TableRow>
               ) : filteredTariffs?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     Aucun tarif trouvé
                   </TableCell>
                 </TableRow>
@@ -528,6 +547,12 @@ export default function PortTariffsAdmin() {
                           {tariff.source_document}
                         </div>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {tariff.evidence_level === 'official' && <Badge className="bg-green-600 text-white text-xs">Officiel</Badge>}
+                      {tariff.evidence_level === 'observed' && <Badge className="bg-amber-500 text-white text-xs">Observé</Badge>}
+                      {tariff.evidence_level === 'to_confirm' && <Badge variant="secondary" className="text-xs">À confirmer</Badge>}
+                      {!tariff.evidence_level && <Badge className="bg-green-600 text-white text-xs">Officiel</Badge>}
                     </TableCell>
                     <TableCell className="text-sm">
                       {format(new Date(tariff.effective_date), 'dd/MM/yyyy', { locale: fr })}
