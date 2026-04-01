@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Edit2, Loader2, Search } from "lucide-react";
+import { Check, Edit2, FileInput, Loader2, Search } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, extractTokens } from "@/lib/normalizeForMatch";
 
@@ -26,6 +26,7 @@ interface SuggestionCandidate {
 interface DesignationSuggestionBlockProps {
   goodsDescription: string;
   caseDocumentId: string;
+  caseId: string;
   /** Build source_reference from available doc fields */
   sourceReference: string;
 }
@@ -33,6 +34,7 @@ interface DesignationSuggestionBlockProps {
 export default function DesignationSuggestionBlock({
   goodsDescription,
   caseDocumentId,
+  caseId,
   sourceReference,
 }: DesignationSuggestionBlockProps) {
   const queryClient = useQueryClient();
@@ -279,7 +281,40 @@ export default function DesignationSuggestionBlock({
     },
   });
 
-  // Correct with manual category pick
+  // --- Apply to dossier mutation (writes quote_facts via set-case-fact) ---
+  const applyToDossierMutation = useMutation({
+    mutationFn: async (candidate: SuggestionCandidate) => {
+      // Always write cargo.pad_category
+      await supabase.functions.invoke("set-case-fact", {
+        body: {
+          case_id: caseId,
+          fact_key: "cargo.pad_category",
+          value_text: candidate.padCategory,
+        },
+      });
+
+      // Write cargo.pad_rate_fcfa_per_ton only if PAD rate exists
+      const rate = candidate.padCategory ? padRates?.[candidate.padCategory] : null;
+      if (rate) {
+        await supabase.functions.invoke("set-case-fact", {
+          body: {
+            case_id: caseId,
+            fact_key: "cargo.pad_rate_fcfa_per_ton",
+            value_number: rate.amount,
+          },
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["quote_facts"] });
+      toast({ title: "Catégorie PAD appliquée au dossier" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleCorrect = () => {
     if (!selectedCategoryId) return;
     const cat = allCategories?.find((c) => c.id === selectedCategoryId);
@@ -341,17 +376,29 @@ export default function DesignationSuggestionBlock({
               </Button>
             </div>
             {s.padCategory && (
-              <div className="pl-6 text-[11px] text-muted-foreground">
-                {rate ? (
-                  <span>
-                    └ Droit de passage PAD : {Number(rate.amount).toLocaleString("fr-FR")} FCFA/t
-                    {rate.evidence_level === "official" && (
-                      <span className="ml-1 text-primary">· Source officielle</span>
-                    )}
-                  </span>
-                ) : (
-                  <span>└ Pas de barème PAD trouvé pour {s.padCategory}</span>
-                )}
+              <div className="pl-6 flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground flex-1">
+                  {rate ? (
+                    <>
+                      └ Droit de passage PAD : {Number(rate.amount).toLocaleString("fr-FR")} FCFA/t
+                      {rate.evidence_level === "official" && (
+                        <span className="ml-1 text-primary">· Source officielle</span>
+                      )}
+                    </>
+                  ) : (
+                    <>└ Pas de barème PAD trouvé pour {s.padCategory}</>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-5 px-2 text-[10px] shrink-0"
+                  disabled={applyToDossierMutation.isPending}
+                  onClick={() => applyToDossierMutation.mutate(s)}
+                >
+                  <FileInput className="h-3 w-3 mr-1" />
+                  Appliquer au dossier
+                </Button>
               </div>
             )}
           </div>

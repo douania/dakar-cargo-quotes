@@ -385,6 +385,7 @@ export default function DocumentMetadataEditor({
                 <DesignationSuggestionBlock
                   goodsDescription={form.goods_description}
                   caseDocumentId={caseDocumentId}
+                  caseId={caseId}
                   sourceReference={
                     form.bl_number || form.hbl_number || form.awb_number || form.document_reference || fileName
                   }
