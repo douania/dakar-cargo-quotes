@@ -181,6 +181,7 @@ export default function PortTariffsAdmin() {
       effective_date: tariff.effective_date,
       expiry_date: tariff.expiry_date,
       is_active: tariff.is_active,
+      evidence_level: tariff.evidence_level || 'official',
     });
     setIsDialogOpen(true);
   };
