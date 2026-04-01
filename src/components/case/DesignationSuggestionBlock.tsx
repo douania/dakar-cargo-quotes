@@ -376,17 +376,29 @@ export default function DesignationSuggestionBlock({
               </Button>
             </div>
             {s.padCategory && (
-              <div className="pl-6 text-[11px] text-muted-foreground">
-                {rate ? (
-                  <span>
-                    └ Droit de passage PAD : {Number(rate.amount).toLocaleString("fr-FR")} FCFA/t
-                    {rate.evidence_level === "official" && (
-                      <span className="ml-1 text-primary">· Source officielle</span>
-                    )}
-                  </span>
-                ) : (
-                  <span>└ Pas de barème PAD trouvé pour {s.padCategory}</span>
-                )}
+              <div className="pl-6 flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground flex-1">
+                  {rate ? (
+                    <>
+                      └ Droit de passage PAD : {Number(rate.amount).toLocaleString("fr-FR")} FCFA/t
+                      {rate.evidence_level === "official" && (
+                        <span className="ml-1 text-primary">· Source officielle</span>
+                      )}
+                    </>
+                  ) : (
+                    <>└ Pas de barème PAD trouvé pour {s.padCategory}</>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-5 px-2 text-[10px] shrink-0"
+                  disabled={applyToDossierMutation.isPending}
+                  onClick={() => applyToDossierMutation.mutate(s)}
+                >
+                  <FileInput className="h-3 w-3 mr-1" />
+                  Appliquer au dossier
+                </Button>
               </div>
             )}
           </div>
