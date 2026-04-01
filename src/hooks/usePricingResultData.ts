@@ -34,6 +34,7 @@ export interface PricingRun {
   tariff_lines: any[] | null;
   tariff_sources: any[] | null;
   outputs_json: { duty_breakdown?: DutyBreakdownItem[]; [key: string]: any } | null;
+  facts_snapshot: any[] | null;
   created_at: string | null;
   completed_at: string | null;
 }
