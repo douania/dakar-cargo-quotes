@@ -26,17 +26,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Download, Trash2, Loader2, FileText } from "lucide-react";
+import { Plus, Download, Trash2, Loader2, FileText, Pencil } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import DocumentMetadataEditor from "./DocumentMetadataEditor";
 
 const DOCUMENT_TYPES = [
-  "BL",
-  "Facture commerciale",
-  "Déclaration douane",
-  "DPI",
-  "Ordre de transit",
-  "Liste de colisage",
-  "Autre",
+  "BL", "HBL", "AWB",
+  "Facture compagnie", "Facture terminal", "Facture port",
+  "Magasinage", "Surestaries", "Detention", "Demurrage",
+  "Transport local", "Proforma", "Avoir", "Note de débit",
+  "Avis d'arrivée", "Liste de colisage", "Déclaration douane",
+  "DPI", "Ordre de transit", "Delivery order", "CSTT", "Autre",
 ] as const;
 
 interface CaseDocumentsTabProps {
@@ -50,13 +50,39 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function EvidenceBadge({ level }: { level?: string | null }) {
+  if (!level) return null;
+  const config: Record<string, { label: string; className: string }> = {
+    official: { label: "Officiel", className: "bg-green-100 text-green-800 border-green-300" },
+    observed: { label: "Observé", className: "bg-orange-100 text-orange-800 border-orange-300" },
+    to_confirm: { label: "À confirmer", className: "bg-muted text-muted-foreground" },
+  };
+  const c = config[level] ?? config.to_confirm;
+  return <Badge variant="outline" className={`text-[10px] ${c.className}`}>{c.label}</Badge>;
+}
+
+function PivotRef({ meta }: { meta: any }) {
+  if (!meta) return <span className="text-muted-foreground text-xs">—</span>;
+  const parts: string[] = [];
+  if (meta.bl_number) parts.push(`BL: ${meta.bl_number}`);
+  else if (meta.hbl_number) parts.push(`HBL: ${meta.hbl_number}`);
+  else if (meta.awb_number) parts.push(`AWB: ${meta.awb_number}`);
+  if (meta.carrier) parts.push(meta.carrier);
+  if (parts.length === 0 && meta.document_reference) parts.push(meta.document_reference);
+  if (parts.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
+  return <span className="text-xs">{parts.join(" · ")}</span>;
+}
+
 export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [docType, setDocType] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [editingFileName, setEditingFileName] = useState("");
 
+  // Left join: fetch documents then metadata separately
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["case-documents", caseId],
     queryFn: async () => {
@@ -70,6 +96,22 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
     },
   });
 
+  const docIds = documents.map((d: any) => d.id);
+  const { data: metadataMap = {} } = useQuery({
+    queryKey: ["case-documents-metadata", caseId, docIds],
+    enabled: docIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("case_document_metadata")
+        .select("*")
+        .in("case_document_id", docIds);
+      if (error) throw error;
+      const map: Record<string, any> = {};
+      (data ?? []).forEach((m: any) => { map[m.case_document_id] = m; });
+      return map;
+    },
+  });
+
   const uploadMutation = useMutation({
     mutationFn: async ({ file, documentType }: { file: File; documentType: string }) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -79,13 +121,11 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
       const safeName = file.name.replace(/[^\w.-]/g, "_");
       const storagePath = `${caseId}/${docId}-${safeName}`;
 
-      // 1. Upload to storage
       const { error: uploadError } = await supabase.storage
         .from("case-documents")
         .upload(storagePath, file);
       if (uploadError) throw uploadError;
 
-      // 2. Insert DB record
       const { error: dbError } = await supabase.from("case_documents").insert({
         id: docId,
         case_id: caseId,
@@ -97,12 +137,10 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
         uploaded_by: user.id,
       });
       if (dbError) {
-        // Rollback storage
         await supabase.storage.from("case-documents").remove([storagePath]);
         throw dbError;
       }
 
-      // 3. Timeline event
       await supabase.from("case_timeline_events").insert({
         case_id: caseId,
         event_type: "document_uploaded",
@@ -111,7 +149,6 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
         event_data: { document_type: documentType, file_name: file.name },
       });
 
-      // 4. Extract text via parse-document and store in extracted_text
       try {
         const parseFormData = new FormData();
         parseFormData.append('file', file);
@@ -142,14 +179,12 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
       queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
       toast({ title: "Document ajouté", description: "Le document a été uploadé avec succès." });
 
-      // Auto-lancer build-case-puzzle pour extraire les faits
       try {
         const { error } = await supabase.functions.invoke("build-case-puzzle", {
           body: { case_id: caseId },
         });
         if (error) throw error;
 
-        // Invalider les 7 caches CaseView pour refléter les nouveaux faits
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["case-view", caseId] }),
           queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] }),
@@ -174,13 +209,13 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (doc: { id: string; storage_path: string }) => {
-      // DB first (canonical source), then storage
       const { error } = await supabase.from("case_documents").delete().eq("id", doc.id);
       if (error) throw error;
       await supabase.storage.from("case-documents").remove([doc.storage_path]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["case-documents-metadata", caseId] });
       toast({ title: "Document supprimé" });
     },
     onError: (err: any) => {
@@ -208,119 +243,151 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          Documents du dossier
-        </CardTitle>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <Plus className="mr-2 h-4 w-4" />
-              Ajouter un document
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ajouter un document</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div>
-                <label className="text-sm font-medium mb-1 block">Type de document</label>
-                <Select value={docType} onValueChange={setDocType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner un type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DOCUMENT_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Fichier</label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                />
-              </div>
-              <Button
-                onClick={handleSubmit}
-                disabled={!selectedFile || !docType || uploadMutation.isPending}
-                className="w-full"
-              >
-                {uploadMutation.isPending ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Upload en cours...</>
-                ) : (
-                  "Uploader"
-                )}
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Documents du dossier
+          </CardTitle>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="mr-2 h-4 w-4" />
+                Ajouter un document
               </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Ajouter un document</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Type de document</label>
+                  <Select value={docType} onValueChange={setDocType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner un type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DOCUMENT_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Fichier</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!selectedFile || !docType || uploadMutation.isPending}
+                  className="w-full"
+                >
+                  {uploadMutation.isPending ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Upload en cours...</>
+                  ) : (
+                    "Uploader"
+                  )}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          </DialogContent>
-        </Dialog>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : documents.length === 0 ? (
-          <p className="text-muted-foreground text-center py-8">
-            Aucun document attaché à ce dossier.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Nom du fichier</TableHead>
-                <TableHead>Taille</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {documents.map((doc: any) => (
-                <TableRow key={doc.id}>
-                  <TableCell>
-                    <Badge variant="outline">{doc.document_type}</Badge>
-                  </TableCell>
-                  <TableCell className="font-medium max-w-[200px] truncate">
-                    {doc.file_name}
-                  </TableCell>
-                  <TableCell>{formatFileSize(doc.file_size)}</TableCell>
-                  <TableCell>
-                    {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDownload(doc.storage_path, doc.file_name)}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteMutation.mutate({ id: doc.id, storage_path: doc.storage_path })}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          ) : documents.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">
+              Aucun document attaché à ce dossier.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Nom du fichier</TableHead>
+                  <TableHead>Réf. pivot</TableHead>
+                  <TableHead>Evidence</TableHead>
+                  <TableHead>Taille</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="w-28">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+              </TableHeader>
+              <TableBody>
+                {documents.map((doc: any) => {
+                  const meta = (metadataMap as Record<string, any>)[doc.id];
+                  return (
+                    <TableRow key={doc.id}>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]">
+                          {meta?.document_type_refined || doc.document_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[180px] truncate text-xs">
+                        {doc.file_name}
+                      </TableCell>
+                      <TableCell><PivotRef meta={meta} /></TableCell>
+                      <TableCell><EvidenceBadge level={meta?.evidence_level} /></TableCell>
+                      <TableCell className="text-xs">{formatFileSize(doc.file_size)}</TableCell>
+                      <TableCell className="text-xs">
+                        {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditingDocId(doc.id);
+                              setEditingFileName(doc.file_name);
+                            }}
+                            title="Éditer métadonnées"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownload(doc.storage_path, doc.file_name)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteMutation.mutate({ id: doc.id, storage_path: doc.storage_path })}
+                            disabled={deleteMutation.isPending}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {editingDocId && (
+        <DocumentMetadataEditor
+          open={!!editingDocId}
+          onOpenChange={(open) => { if (!open) setEditingDocId(null); }}
+          caseDocumentId={editingDocId}
+          caseId={caseId}
+          fileName={editingFileName}
+        />
+      )}
+    </>
   );
 }
