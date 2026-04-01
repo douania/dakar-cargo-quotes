@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Edit2, Loader2, Search } from "lucide-react";
+import { Check, Edit2, FileInput, Loader2, Search } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, extractTokens } from "@/lib/normalizeForMatch";
 
