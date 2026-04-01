@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import DesignationSuggestionBlock from "./DesignationSuggestionBlock";
 
 const REFINED_TYPES = [
   "BL", "HBL", "AWB", "Facture compagnie", "Facture terminal", "Facture port",
