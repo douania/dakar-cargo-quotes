@@ -86,6 +86,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
           outputs_json: (typeof data.outputs_json === 'object' && data.outputs_json !== null && !Array.isArray(data.outputs_json))
             ? data.outputs_json as PricingRun['outputs_json']
             : null,
+          facts_snapshot: Array.isArray(data.facts_snapshot) ? data.facts_snapshot : null,
         });
       } else {
         setPricingRun(null);
