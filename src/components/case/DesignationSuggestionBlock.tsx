@@ -26,6 +26,7 @@ interface SuggestionCandidate {
 interface DesignationSuggestionBlockProps {
   goodsDescription: string;
   caseDocumentId: string;
+  caseId: string;
   /** Build source_reference from available doc fields */
   sourceReference: string;
 }
