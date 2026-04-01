@@ -61,6 +61,13 @@ export default function DesignationSuggestionBlock({
 
       const candidates: SuggestionCandidate[] = [];
 
+      // Build categoryId -> pad_category map for resolving missing pad codes
+      const categoryPadMap = new Map(
+        (categories || [])
+          .filter((c) => c.id && c.pad_category)
+          .map((c) => [c.id, c.pad_category] as const)
+      );
+
       // Score matches from designation_matches
       (matches || []).forEach((m) => {
         const obsNorm = normalizeForMatch(m.observed_term || "");
@@ -95,9 +102,16 @@ export default function DesignationSuggestionBlock({
           else if (m.is_validated && termNorm === normInput) boost = 0.2;
           else if (m.is_validated) boost = 0.1;
 
+          // Resolve padCategory: direct field first, then parent category fallback
+          const resolvedPadCategory =
+            m.pad_category_candidate ||
+            (m.commodity_category_id
+              ? categoryPadMap.get(m.commodity_category_id) ?? null
+              : null);
+
           candidates.push({
             categoryId: m.commodity_category_id,
-            padCategory: m.pad_category_candidate,
+            padCategory: resolvedPadCategory,
             label: m.observed_term,
             score: Math.min(1, baseScore + boost),
             reason: m.match_reason || (m.is_validated ? "Correspondance validée" : "Correspondance observée"),
