@@ -142,6 +142,34 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
           );
         })()}
 
+        {/* PAD Reference Note — from facts_snapshot (informational only) */}
+        {(() => {
+          const snapshot = Array.isArray(pricingRun.facts_snapshot) ? pricingRun.facts_snapshot : [];
+          const padCatFact = snapshot.find((f: any) => f?.key === 'cargo.pad_category');
+          const padRateFact = snapshot.find((f: any) => f?.key === 'cargo.pad_rate_fcfa_per_ton');
+          const padCategory = padCatFact?.value_text ?? null;
+          const padRate = padRateFact?.value_number ?? null;
+
+          if (!padCategory) return null;
+
+          return (
+            <div className="flex items-start gap-2 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <div className="text-sm text-blue-800 dark:text-blue-200">
+                <span className="font-medium">Référence PAD capturée au moment du pricing :</span>{' '}
+                {padRate != null ? (
+                  <span>{formatAmount(padRate)} FCFA/t · Catégorie {padCategory}</span>
+                ) : (
+                  <span>Catégorie {padCategory} · Montant non résolu</span>
+                )}
+                <span className="block text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">
+                  Non inclus dans le calcul moteur
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Summary Section — always reads root columns (backward compat) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
           <div className="text-center">

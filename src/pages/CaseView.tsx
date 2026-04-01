@@ -1835,6 +1835,30 @@ export default function CaseView() {
           );
         })()}
 
+        {/* PAD Reference Card — from current dossier facts */}
+        {(() => {
+          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
+          const padRateFact = facts.find((f: any) => f.fact_key === 'cargo.pad_rate_fcfa_per_ton' && f.is_current);
+          const padCategory = padCatFact?.value_text ?? null;
+          const padRate = padRateFact?.value_number ?? null;
+
+          if (!padCategory) return null;
+
+          return (
+            <div className="mb-4 flex items-start gap-3 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Anchor className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Référence PAD dossier</p>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  Catégorie {padCategory}
+                  {padRate != null ? ` · ${new Intl.NumberFormat('fr-FR').format(padRate)} FCFA/t` : ' · Montant non résolu'}
+                </p>
+                <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">Source officielle</p>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
