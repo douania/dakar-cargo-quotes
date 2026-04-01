@@ -522,6 +522,78 @@ export type Database = {
           },
         ]
       }
+      commodity_categories: {
+        Row: {
+          cargo_type: string | null
+          confidence: number | null
+          created_at: string | null
+          designation_normalized: string | null
+          designation_raw: string
+          evidence_level: string | null
+          hs_chapter: number | null
+          id: string
+          is_validated: boolean | null
+          notes_operator: string | null
+          pad_category: string | null
+          pad_category_label: string | null
+          source_documents: string[] | null
+          terminal_category: string | null
+          terminal_handling_code: string | null
+          terminal_provider: string | null
+          terminal_storage_code_p1: string | null
+          terminal_storage_code_p2: string | null
+          terminal_storage_code_p3: string | null
+          unit_basis: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cargo_type?: string | null
+          confidence?: number | null
+          created_at?: string | null
+          designation_normalized?: string | null
+          designation_raw: string
+          evidence_level?: string | null
+          hs_chapter?: number | null
+          id?: string
+          is_validated?: boolean | null
+          notes_operator?: string | null
+          pad_category?: string | null
+          pad_category_label?: string | null
+          source_documents?: string[] | null
+          terminal_category?: string | null
+          terminal_handling_code?: string | null
+          terminal_provider?: string | null
+          terminal_storage_code_p1?: string | null
+          terminal_storage_code_p2?: string | null
+          terminal_storage_code_p3?: string | null
+          unit_basis?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cargo_type?: string | null
+          confidence?: number | null
+          created_at?: string | null
+          designation_normalized?: string | null
+          designation_raw?: string
+          evidence_level?: string | null
+          hs_chapter?: number | null
+          id?: string
+          is_validated?: boolean | null
+          notes_operator?: string | null
+          pad_category?: string | null
+          pad_category_label?: string | null
+          source_documents?: string[] | null
+          terminal_category?: string | null
+          terminal_handling_code?: string | null
+          terminal_provider?: string | null
+          terminal_storage_code_p1?: string | null
+          terminal_storage_code_p2?: string | null
+          terminal_storage_code_p3?: string | null
+          unit_basis?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       contacts: {
         Row: {
           company: string | null
@@ -2570,6 +2642,7 @@ export type Database = {
           classification: string
           created_at: string | null
           effective_date: string
+          evidence_level: string | null
           expiry_date: string | null
           id: string
           is_active: boolean | null
@@ -2588,6 +2661,7 @@ export type Database = {
           classification: string
           created_at?: string | null
           effective_date: string
+          evidence_level?: string | null
           expiry_date?: string | null
           id?: string
           is_active?: boolean | null
@@ -2606,6 +2680,7 @@ export type Database = {
           classification?: string
           created_at?: string | null
           effective_date?: string
+          evidence_level?: string | null
           expiry_date?: string | null
           id?: string
           is_active?: boolean | null
