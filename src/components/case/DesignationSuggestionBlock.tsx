@@ -57,7 +57,7 @@ export default function DesignationSuggestionBlock({
       const { data: categories } = await supabase
         .from("commodity_categories")
         .select("*")
-        .limit(20);
+        .limit(50);
 
       const candidates: SuggestionCandidate[] = [];
 
