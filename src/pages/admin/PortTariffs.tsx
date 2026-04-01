@@ -48,6 +48,7 @@ interface PortTariff {
   effective_date: string;
   expiry_date: string | null;
   is_active: boolean;
+  evidence_level: string | null;
   created_at: string;
   updated_at: string;
 }
