@@ -496,7 +496,7 @@ export default function PortTariffsAdmin() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={10} className="text-center py-8">
                     Chargement...
                   </TableCell>
                 </TableRow>
