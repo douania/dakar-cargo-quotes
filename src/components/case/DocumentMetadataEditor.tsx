@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import DesignationSuggestionBlock from "./DesignationSuggestionBlock";
 
 const REFINED_TYPES = [
   "BL", "HBL", "AWB", "Facture compagnie", "Facture terminal", "Facture port",
@@ -380,6 +381,15 @@ export default function DocumentMetadataEditor({
                 <Label className="text-xs">Description</Label>
                 <Textarea className="text-xs min-h-[50px]" value={form.goods_description} onChange={e => updateField("goods_description", e.target.value)} />
               </div>
+              {form.goods_description?.trim() && (
+                <DesignationSuggestionBlock
+                  goodsDescription={form.goods_description}
+                  caseDocumentId={caseDocumentId}
+                  sourceReference={
+                    form.bl_number || form.hbl_number || form.awb_number || form.document_reference || fileName
+                  }
+                />
+              )}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs">Poids (kg)</Label>

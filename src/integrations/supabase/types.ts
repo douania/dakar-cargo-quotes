@@ -594,6 +594,81 @@ export type Database = {
         }
         Relationships: []
       }
+      commodity_designation_matches: {
+        Row: {
+          commodity_category_id: string | null
+          created_at: string | null
+          id: string
+          is_validated: boolean | null
+          match_method: string | null
+          match_reason: string | null
+          match_score: number | null
+          normalized_term: string | null
+          notes_operator: string | null
+          observed_term: string
+          pad_category_candidate: string | null
+          source_document_id: string | null
+          source_reference: string | null
+          source_type: string | null
+          updated_at: string | null
+          validated_at: string | null
+          validated_by: string | null
+        }
+        Insert: {
+          commodity_category_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_validated?: boolean | null
+          match_method?: string | null
+          match_reason?: string | null
+          match_score?: number | null
+          normalized_term?: string | null
+          notes_operator?: string | null
+          observed_term: string
+          pad_category_candidate?: string | null
+          source_document_id?: string | null
+          source_reference?: string | null
+          source_type?: string | null
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Update: {
+          commodity_category_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_validated?: boolean | null
+          match_method?: string | null
+          match_reason?: string | null
+          match_score?: number | null
+          normalized_term?: string | null
+          notes_operator?: string | null
+          observed_term?: string
+          pad_category_candidate?: string | null
+          source_document_id?: string | null
+          source_reference?: string | null
+          source_type?: string | null
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commodity_designation_matches_commodity_category_id_fkey"
+            columns: ["commodity_category_id"]
+            isOneToOne: false
+            referencedRelation: "commodity_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commodity_designation_matches_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "case_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           company: string | null
