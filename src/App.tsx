@@ -32,6 +32,8 @@ import QuotationHistory from "./pages/admin/QuotationHistory";
 import ClientOverrides from "./pages/admin/ClientOverrides";
 import ExchangeRates from "./pages/admin/ExchangeRates";
 import CarrierBillingTemplates from "./pages/admin/CarrierBillingTemplates";
+import CommodityCategories from "./pages/admin/CommodityCategories";
+import TariffOverview from "./pages/admin/TariffOverview";
 
 const queryClient = new QueryClient();
 
