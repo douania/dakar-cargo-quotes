@@ -317,11 +317,11 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                               </tr>
                             );
                           })}
-                          {lotLines.length > 15 && !showAllLotLines[lotIndex] && (
+                          {lotLines.length > 15 && !showAllLotLines[lot.lot_index] && (
                             <tr className="border-t bg-muted/50">
                               <td colSpan={3} className="p-2 text-center">
                                 <button
-                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lotIndex]: true }))}
+                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lot.lot_index]: true }))}
                                   className="text-xs text-primary hover:underline cursor-pointer"
                                 >
                                   Voir les {lotLines.length - 15} lignes restantes
@@ -329,11 +329,11 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                               </td>
                             </tr>
                           )}
-                          {lotLines.length > 15 && showAllLotLines[lotIndex] && (
+                          {lotLines.length > 15 && showAllLotLines[lot.lot_index] && (
                             <tr className="border-t bg-muted/50">
                               <td colSpan={3} className="p-2 text-center">
                                 <button
-                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lotIndex]: false }))}
+                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lot.lot_index]: false }))}
                                   className="text-xs text-primary hover:underline cursor-pointer"
                                 >
                                   Réduire
