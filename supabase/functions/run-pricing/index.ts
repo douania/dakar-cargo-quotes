@@ -43,6 +43,9 @@ interface PricingInputs {
   // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
   freightCost?: number;
   freightCurrency?: string;
+  // Phase 3: PAD droit de passage (fact-based, mono-lot only)
+  padCategory?: string;
+  padRateFcfaPerTon?: number;
 }
 
 // ═══ P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts) ═══
