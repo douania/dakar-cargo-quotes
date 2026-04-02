@@ -142,7 +142,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
           );
         })()}
 
-        {/* PAD Reference Note — from facts_snapshot (informational only) */}
+        {/* PAD Reference Note — from facts_snapshot (informational only, hidden when engine PAD line exists) */}
         {(() => {
           const snapshot = Array.isArray(pricingRun.facts_snapshot) ? pricingRun.facts_snapshot : [];
           const padCatFact = snapshot.find((f: any) => f?.key === 'cargo.pad_category');
@@ -152,6 +152,16 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
 
           if (!padCategory) return null;
 
+          // Defensive detection: mask note when a real PAD engine line exists
+          const hasEnginePadLine = tariffLines.some((l: any) =>
+            l?.canonical?.origin_layer === 'enrichment_pad' ||
+            l?.origin_layer === 'enrichment_pad' ||
+            l?.service_key === 'PAD_DROIT_PASSAGE' ||
+            l?.canonical?.service_key === 'PAD_DROIT_PASSAGE'
+          );
+          if (hasEnginePadLine) return null;
+
+          // Fallback: informative note for older runs without engine PAD line
           return (
             <div className="flex items-start gap-2 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />

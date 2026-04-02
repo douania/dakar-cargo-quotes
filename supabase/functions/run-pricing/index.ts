@@ -1585,6 +1585,36 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
+      // Multi-lot: skipped — cargo.pad_* are global facts, not per-lot. Extension future requise.
+      if (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0) {
+        const weightTonnes = inputs.cargoWeight || 0;
+        if (weightTonnes > 0) {
+          const padAmount = Math.round(inputs.padRateFcfaPerTon * weightTonnes);
+          const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+          engineLines.push(canonicalizeLine({
+            category: 'PAD_DROIT_PASSAGE',
+            label: `Droit de passage PAD ${inputs.padCategory}`,
+            description: `Droit de passage PAD ${inputs.padCategory}`,
+            amount: padAmount,
+            currency: 'FCFA',
+            unit: 'tonne',
+            quantity: weightTonnes,
+            unitPrice: inputs.padRateFcfaPerTon,
+            source: {
+              type: 'OFFICIAL',
+              reference: `Fact dossier PAD (barème Redevances Portuaires 2006)`,
+              confidence: 1.0,
+            },
+            isEditable: false,
+          }, { origin_layer: 'enrichment_pad' }));
+          engineResponse.lines = engineLines;
+          console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
+        } else {
+          console.warn(`[PAD] cargo.pad_rate set but cargoWeight=0 — skipping droit de passage`);
+        }
+      }
+
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
 
