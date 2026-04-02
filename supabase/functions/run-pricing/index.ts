@@ -43,6 +43,9 @@ interface PricingInputs {
   // P0 CAF strict: fret réel obligatoire pour FOB/FCA/FAS/EXW
   freightCost?: number;
   freightCurrency?: string;
+  // Phase 3: PAD droit de passage (fact-based, mono-lot only)
+  padCategory?: string;
+  padRateFcfaPerTon?: number;
 }
 
 // ═══ P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts) ═══
@@ -315,7 +318,7 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
@@ -372,6 +375,12 @@ function canonicalizeLine(
       canonical.source_table = normalizedSrcType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
       canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
+  } else if (context.origin_layer === 'enrichment_pad') {
+    canonical.service_key = 'PAD_DROIT_PASSAGE';
+    canonical.dedup_group = 'PAD_DROIT_PASSAGE';
+    canonical.source_system = 'fact_dossier';
+    canonical.source_table = null;
+    canonical.pricing_method = 'fact_based';
   }
 
   return { ...line, canonical };
@@ -1576,6 +1585,36 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
+      // Multi-lot: skipped — cargo.pad_* are global facts, not per-lot. Extension future requise.
+      if (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0) {
+        const weightTonnes = inputs.cargoWeight || 0;
+        if (weightTonnes > 0) {
+          const padAmount = Math.round(inputs.padRateFcfaPerTon * weightTonnes);
+          const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+          engineLines.push(canonicalizeLine({
+            category: 'PAD_DROIT_PASSAGE',
+            label: `Droit de passage PAD ${inputs.padCategory}`,
+            description: `Droit de passage PAD ${inputs.padCategory}`,
+            amount: padAmount,
+            currency: 'FCFA',
+            unit: 'tonne',
+            quantity: weightTonnes,
+            unitPrice: inputs.padRateFcfaPerTon,
+            source: {
+              type: 'OFFICIAL',
+              reference: `Fact dossier PAD (barème Redevances Portuaires 2006)`,
+              confidence: 1.0,
+            },
+            isEditable: false,
+          }, { origin_layer: 'enrichment_pad' }));
+          engineResponse.lines = engineLines;
+          console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
+        } else {
+          console.warn(`[PAD] cargo.pad_rate set but cargoWeight=0 — skipping droit de passage`);
+        }
+      }
+
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
 
@@ -1908,6 +1947,12 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       case "service.package":
         inputs.servicePackage = String(value);
+        break;
+      case "cargo.pad_category":
+        inputs.padCategory = String(value);
+        break;
+      case "cargo.pad_rate_fcfa_per_ton":
+        inputs.padRateFcfaPerTon = Number(value);
         break;
     }
   }

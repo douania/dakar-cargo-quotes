@@ -22,6 +22,7 @@ const LAYER_LABELS: Record<string, string> = {
   engine_structural: 'moteur',
   package_enrichment: 'package',
   manual_override: 'manuel',
+  enrichment_pad: 'PAD',
 };
 
 export function LineProvenanceBadges({ canonical }: LineProvenanceBadgesProps) {
