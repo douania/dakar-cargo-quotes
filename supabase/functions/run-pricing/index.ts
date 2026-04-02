@@ -1918,6 +1918,12 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "service.package":
         inputs.servicePackage = String(value);
         break;
+      case "cargo.pad_category":
+        inputs.padCategory = String(value);
+        break;
+      case "cargo.pad_rate_fcfa_per_ton":
+        inputs.padRateFcfaPerTon = Number(value);
+        break;
     }
   }
 
