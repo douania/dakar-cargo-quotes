@@ -322,3 +322,4 @@ La facture TOM analysée portait la désignation "MARCHANDISES NON REPRISES AILL
 - 0 UI
 - 0 peuplement de `commodity_categories`
 - Aucune table `terminal_tariff_codes` créée
+- 0 contamination du référentiel manutention DPW (`port_tariffs`)
