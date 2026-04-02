@@ -607,8 +607,8 @@ async function getDemurrageInfo(
 function normalizeContainerType(input: string): string {
   const normalized = input.toUpperCase().replace(/['\s-]/g, '');
   const mappings: Record<string, string> = {
-    '20': '20DV', '20FT': '20DV', '20GP': '20DV',
-    '40': '40DV', '40FT': '40DV', '40GP': '40DV',
+    '20': '20DV', '20FT': '20DV', '20GP': '20DV', '20DV': '20DV',
+    '40': '40DV', '40FT': '40DV', '40GP': '40DV', '40DV': '40DV',
     '40HQ': '40HC', '40HC': '40HC',
   };
   return mappings[normalized] || '40DV';
