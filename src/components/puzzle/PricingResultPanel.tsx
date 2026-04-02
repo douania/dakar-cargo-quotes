@@ -380,7 +380,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                     </tr>
                   </thead>
                   <tbody>
-                    {tariffLines.slice(0, 10).map((line: any, idx: number) => {
+                    {tariffLines.slice(0, showAllLines ? tariffLines.length : 10).map((line: any, idx: number) => {
                       const value = line.amount ?? line.total;
                       const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
                       return (
@@ -415,10 +415,27 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                         </tr>
                       );
                     })}
-                    {tariffLines.length > 10 && (
+                    {tariffLines.length > 10 && !showAllLines && (
                       <tr className="border-t bg-muted/50">
-                        <td colSpan={3} className="p-2 text-center text-muted-foreground text-xs">
-                          +{tariffLines.length - 10} lignes supplémentaires
+                        <td colSpan={3} className="p-2 text-center">
+                          <button
+                            onClick={() => setShowAllLines(true)}
+                            className="text-xs text-primary hover:underline cursor-pointer"
+                          >
+                            Voir les {tariffLines.length - 10} lignes restantes
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                    {tariffLines.length > 10 && showAllLines && (
+                      <tr className="border-t bg-muted/50">
+                        <td colSpan={3} className="p-2 text-center">
+                          <button
+                            onClick={() => setShowAllLines(false)}
+                            className="text-xs text-primary hover:underline cursor-pointer"
+                          >
+                            Réduire
+                          </button>
                         </td>
                       </tr>
                     )}
