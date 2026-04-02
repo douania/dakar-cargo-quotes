@@ -371,7 +371,8 @@ async function analyzeNatureRisk(
   supabase: any,
   input: RiskInput,
   vigilancePoints: VigilancePoint[],
-  provisions: ProvisionLine[]
+  provisions: ProvisionLine[],
+  cargoType: string
 ): Promise<NatureRisk> {
   let level: 'low' | 'medium' | 'high' = 'low';
   let imoClass: ImoClass | null = null;
