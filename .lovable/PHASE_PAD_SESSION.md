@@ -247,3 +247,66 @@ Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
 - Devise réelle dans la ligne (XOF, EUR), sans conversion
 - Fallback legacy inchangé pour compagnies sans tiers (COSCO, EVERGREEN, ONE)
 - Ligne générique "contacter armateur" inchangée si aucun parent trouvé
+
+---
+
+## Grille tarifaire Dakar Terminal (Bolloré) — Analyse documentaire (2026-04-02)
+
+### Source
+
+- **Document** : Grille Tarifaire Officielle, Dakar Terminal (Bolloré Africa Logistics)
+- **Date** : 09/12/2014
+- **Statut** : référence de structure / nomenclature — pas encore référence pleinement validée de tous les montants actuels
+
+### Structure du barème
+
+- ~500 désignations de marchandises
+- Chaque désignation → 1 code manutention (101–149) + 3 codes magasinage (4xx/5xx/6xx)
+- Franchise : 5 jours (10 jours transit Mali)
+- 3 périodes progressives :
+  - **P1** : J1–15 après franchise (codes 4xx)
+  - **P2** : J16–30 après franchise (codes 5xx)
+  - **P3** : J31+ après franchise (codes 6xx)
+- Unité de calcul : **Tonne × Jours × Taux** (sauf exceptions nommées : unité, M3, panier)
+- Incompatible avec le modèle `warehouse_franchise` actuel (basé conteneur/EVP)
+
+### Liaison prouvée avec factures TOM
+
+La facture TOM analysée portait la désignation "MARCHANDISES NON REPRISES AILLEURS", position tarifaire **138**, codes magasinage **419/519/619**.
+
+| Code | Grille 2014 (FCFA/T/j) | Facture TOM (FCFA/T/j) | Verdict |
+|------|------------------------|------------------------|---------|
+| 419 (P1) | 1 768 | 1 964 | **Écart observé à investiguer** (+11%) |
+| 519 (P2) | 2 873 | 2 873 | **Exact** |
+| 619 (P3) | 3 708 | 3 708 | **Exact** |
+
+### Conclusion documentaire
+
+- Les **codes** sont bien réutilisés dans les factures observées
+- Les **taux** sont souvent alignés entre la grille 2014 et les factures récentes
+- Au moins un **écart existe sur P1** (419 : 1 768 vs 1 964) — cause non prouvée (révision, contexte TOM/TCD, arrondi)
+- Donc : **structure validée**, mais **montants actuels restent à consolider** avant toute injection
+
+### Familles de codes magasinage identifiées
+
+| Codes P1/P2/P3 | Taux P1 (FCFA) | Taux P2 (FCFA) | Taux P3 (FCFA) | Exemples typiques |
+|----------------|----------------|----------------|----------------|-------------------|
+| 410/510/610 | 140 | 238 | 305 | Ciment, riz, céréales en sacs |
+| 412/512/612 | 177 | 294 | 394 | Tôles, bois, métaux <1T |
+| 413/513/613 | 215 | 354 | 461 | Huiles, bitume, vracs en sacs |
+| 414/514/614 | 355 | 599 | 775 | Colis lourds, véhicules >3T |
+| 416/516/616 | 571 | 954 | 1 229 | Produits frigo, dangereux |
+| 417/517/617 | 884 | 1 476 | 1 909 | Quincaillerie, lait, verre |
+| 418/518/618 | 1 396 | 2 325 | 3 073 | Boissons, conserves, papier |
+| 419/519/619 | 1 768 | 2 873 | 3 708 | Marchandises générales (138) |
+| 420/520/620 | 1 974 | — | — | Véhicules automobiles |
+| 421/521/621 | 3 558 | 5 921 | 7 654 | Électronique, textiles, luxe |
+
+### Ce qui n'a PAS été fait
+
+- 0 migration
+- 0 injection de données
+- 0 moteur
+- 0 UI
+- 0 peuplement de `commodity_categories`
+- Aucune table `terminal_tariff_codes` créée
