@@ -317,10 +317,27 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                               </tr>
                             );
                           })}
-                          {lotLines.length > 15 && (
+                          {lotLines.length > 15 && !showAllLotLines[lotIndex] && (
                             <tr className="border-t bg-muted/50">
-                              <td colSpan={3} className="p-2 text-center text-muted-foreground text-xs">
-                                +{lotLines.length - 15} lignes supplémentaires
+                              <td colSpan={3} className="p-2 text-center">
+                                <button
+                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lotIndex]: true }))}
+                                  className="text-xs text-primary hover:underline cursor-pointer"
+                                >
+                                  Voir les {lotLines.length - 15} lignes restantes
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                          {lotLines.length > 15 && showAllLotLines[lotIndex] && (
+                            <tr className="border-t bg-muted/50">
+                              <td colSpan={3} className="p-2 text-center">
+                                <button
+                                  onClick={() => setShowAllLotLines(prev => ({ ...prev, [lotIndex]: false }))}
+                                  className="text-xs text-primary hover:underline cursor-pointer"
+                                >
+                                  Réduire
+                                </button>
                               </td>
                             </tr>
                           )}
