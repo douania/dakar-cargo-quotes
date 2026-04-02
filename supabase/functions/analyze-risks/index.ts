@@ -232,7 +232,8 @@ Deno.serve(async (req) => {
 async function analyzeTimeRisk(
   supabase: any, 
   input: RiskInput, 
-  vigilancePoints: VigilancePoint[]
+  vigilancePoints: VigilancePoint[],
+  cargoType: string
 ): Promise<TimeRisk> {
   const etaDate = input.eta_date ? new Date(input.eta_date) : null;
   
