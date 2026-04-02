@@ -375,6 +375,12 @@ function canonicalizeLine(
       canonical.source_table = normalizedSrcType === 'catalogue_sodatra' ? 'pricing_service_catalogue' : null;
       canonical.pricing_method = SOURCE_TYPE_TO_METHOD[normalizedSrcType] || null;
     }
+  } else if (context.origin_layer === 'enrichment_pad') {
+    canonical.service_key = 'PAD_DROIT_PASSAGE';
+    canonical.dedup_group = 'PAD_DROIT_PASSAGE';
+    canonical.source_system = 'fact_dossier';
+    canonical.source_table = null;
+    canonical.pricing_method = 'fact_based';
   }
 
   return { ...line, canonical };
