@@ -1,43 +1,29 @@
 
 
-# Plan : Afficher l'ID court du dossier sur les cartes du dashboard
+# Plan : Rendre `cargo.description` éditable dans CaseView
 
-## Problème
+## Diagnostic
 
-Les cartes du dashboard n'affichent que le nom du client. Quand on connaît uniquement l'ID du dossier (ex: `6d4d996f...`), il est impossible de le retrouver visuellement.
+Le fichier `src/pages/case-view/constants.ts` définit `EDITABLE_FACT_KEYS` — la liste blanche des facts modifiables depuis l'UI. `cargo.description` n'y figure pas, ce qui bloque toute saisie manuelle.
 
-## Solution — 1 fichier
+C'est un gap critique car `cargo.description` est souvent un gap bloquant pour le pricing, et sans possibilité de le renseigner manuellement, le dossier reste bloqué.
 
-**`src/components/dashboard/CaseCard.tsx`**
+## Correction minimale
 
-Ajouter les 8 premiers caractères de `caseData.id` en gris discret à côté de la date (ligne 68-70).
+**1 fichier, 1 ligne ajoutée**
 
-```tsx
-{/* Existing date display — add case ID prefix */}
-<div className="flex items-center gap-2">
-  <span className="text-[10px] font-mono text-muted-foreground/60">
-    {caseData.id.substring(0, 8)}
-  </span>
-  <span className="text-xs text-muted-foreground whitespace-nowrap">
-    {format(new Date(caseData.updated_at), 'dd MMM HH:mm', { locale: fr })}
-  </span>
-</div>
-```
+**Fichier** : `src/pages/case-view/constants.ts`
 
-## Rendu attendu
+Ajouter `"cargo.description"` dans le Set `EDITABLE_FACT_KEYS` (ligne ~80).
 
-```text
-┌─────────────────────────────────────────────────┐
-│ 📁 HONG KONG GOTONE INT'L...    6d4d996f 02 avr│
-│     Décisions…  Maritime FCL Import             │
-│     ████████████████████░░░░  100%              │
-└─────────────────────────────────────────────────┘
-```
+## Vérification nécessaire
 
-## Ce qui ne change pas
+Il faut aussi vérifier que `set-case-fact` (edge function backend) accepte `cargo.description` dans sa propre whitelist. Si ce n'est pas le cas, il faudra aussi l'y ajouter — sinon l'UI permettra la saisie mais le backend la rejettera.
 
-- 0 module FROZEN
+## Impact
+
 - 0 migration
-- Aucune logique métier modifiée
-- L'ID est tronqué (8 chars), discret, en `font-mono`
+- 0 nouveau fichier
+- Débloque la saisie manuelle de la nature de marchandise
+- Permet de résoudre le gap bloquant sur le dossier `a5a58d25`
 
