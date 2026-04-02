@@ -182,3 +182,48 @@ Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
 - 4 tiers prouvés injectés (MSC 20DV `observed`, CMA CGM 40HC `official`)
 - Colonnes legacy `day_1_7/8_14/15_plus` conservées comme fallback
 - Moteur (`quotation-engine`, `analyze-risks`) et UI non modifiés dans cette vague
+
+---
+
+## Enrichissement officiel `demurrage_tiers` — Vague 3 (2026-04-02)
+
+### Sources utilisées
+
+| Compagnie | Source | Date effet | Devise |
+|-----------|--------|------------|--------|
+| CMA CGM | PDF officiel CMA CGM Sénégal | 01-Jan-2025 | XOF |
+| MAERSK | Page officielle Maersk Sénégal import | 25-Jan-2024 | XOF |
+| HAPAG-LLOYD | PDF officiel Hapag-Lloyd Sénégal | 01-May-2024 | EUR |
+
+### Parents special equipment créés
+
+6 nouveaux parents dans `demurrage_rates` :
+- CMA CGM : 20OT, 40OT (couvrent aussi FR/Tank au même tarif)
+- MAERSK : 20OT, 40OT (couvrent aussi FR au même tarif)
+- HAPAG-LLOYD : 20OT, 40OT (couvrent aussi FR au même tarif)
+- Montants legacy parent laissés volontairement à 0 (non utilisés)
+
+### Tiers injectés — Bilan
+
+| Compagnie | Tiers ajoutés | Types couverts |
+|-----------|--------------|----------------|
+| CMA CGM | 10 | 20DV, 40DV, 20RF, 40RF, 20OT, 40OT |
+| MAERSK | 7 | 20DV, 40DV, 40HC, 20RF, 40RF, 20OT, 40OT |
+| HAPAG-LLOYD | 14 | 20DV, 40DV, 40HC, 20RF, 40RF, 20OT, 40OT |
+| **Total nouveaux** | **31** | |
+
+### Tiers existants conservés
+
+- CMA CGM 40HC : 2 tiers `official` (inchangés, déjà corrects)
+- MSC 20DV : 2 tiers `observed` (inchangés)
+
+### Total `demurrage_tiers` : **35 lignes**
+
+### Ce qui n'a PAS changé
+
+- Moteur (`quotation-engine`, `analyze-risks`) : non touché
+- UI : non touchée (les tiers apparaissent automatiquement via TariffOverview vague 2)
+- MSC : tiers `observed` conservés, pas de tiers `official` ajoutés (source insuffisante)
+- COSCO / EVERGREEN / ONE : non touchés, restent `TO_CONFIRM`
+- Colonnes legacy `demurrage_rates` : inchangées
+- Moteur (`quotation-engine`, `analyze-risks`) et UI non modifiés dans cette vague
