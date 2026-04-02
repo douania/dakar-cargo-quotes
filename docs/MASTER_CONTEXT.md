@@ -15,6 +15,7 @@ Date: 2026-04
 - Silent failures corrigés
 - Module EQ1 (External Quote Requests) stabilisé et hardened
 - Module CL1 (Conversation Layer) opérationnel
+- Phase 3 PAD (droit de passage) validée et gelée
 - Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
