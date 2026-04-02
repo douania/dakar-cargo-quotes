@@ -258,6 +258,18 @@ Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
 - **Date** : 09/12/2014
 - **Statut** : référence de structure / nomenclature — pas encore référence pleinement validée de tous les montants actuels
 
+### Périmètre d'exploitation
+
+**Distinction obligatoire** :
+
+- **Magasinage** : la grille Dakar Terminal est retenue comme référence de structure / codification
+  (désignations, codes magasinage P1/P2/P3, périodes, franchise, logique poids × jours × taux).
+  Les factures TOM/TCD confirment que ces codes sont réutilisés en pratique.
+
+- **Manutention** : la grille Dakar Terminal ne doit PAS être utilisée pour la manutention.
+  DPW a son propre référentiel tarifaire, déjà paramétré dans `port_tariffs`.
+  Aucune fusion entre les deux sujets.
+
 ### Structure du barème
 
 - ~500 désignations de marchandises
@@ -310,3 +322,4 @@ La facture TOM analysée portait la désignation "MARCHANDISES NON REPRISES AILL
 - 0 UI
 - 0 peuplement de `commodity_categories`
 - Aucune table `terminal_tariff_codes` créée
+- 0 contamination du référentiel manutention DPW (`port_tariffs`)
