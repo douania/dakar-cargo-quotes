@@ -350,7 +350,40 @@ Contraintes :
 
 - 0 moteur
 - 0 UI
-- 0 peuplement de `commodity_categories`
 - 0 contamination du référentiel manutention DPW (`port_tariffs`)
 - 0 handling injecté
 - 0 dpw injecté
+
+---
+
+## Peuplement partiel conservateur `commodity_categories` — codes magasinage (2026-04-02)
+
+### Périmètre
+
+3 catégories PAD peuplées sur 10 — uniquement celles où le code terminal dominant est quasi non ambigu.
+
+### Mappings retenus (data-only, 3 UPDATE)
+
+| PAD | Désignation | Codes P1/P2/P3 | Famille grille 2014 | Justification |
+|-----|-------------|----------------|---------------------|---------------|
+| T05 | Céréales, ciment, riz, plâtre | 410 / 510 / 610 | Ciment, riz, céréales en sacs | Quasi univoque |
+| T09 | Tracteurs, véhicules industriels | 414 / 514 / 614 | Colis lourds, véhicules >3T | Correspondance directe |
+| T14 | Fil machine, bobines, feuillard | 412 / 512 / 612 | Tôles, bois, métaux <1T | Famille identifiable sans ambiguïté |
+
+### Catégories explicitement non peuplées (7)
+
+T01, T02, T03, T04, T07, T12, T13 — trop hétérogènes ou ambiguës.
+Colonnes `terminal_storage_code_p1/p2/p3` restent NULL.
+
+### Traçabilité
+
+Chaque catégorie peuplée a reçu une annotation dans `notes_operator` :
+> "Mapping terminal storage conservateur, non officiel, retenu comme approximation défendable."
+
+### Ce qui n'a PAS changé
+
+- 0 moteur
+- 0 UI
+- 0 `terminal_tariff_codes`
+- 0 handling / DPW
+- Les 7 catégories ambiguës restent vierges
