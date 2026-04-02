@@ -1,8 +1,8 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.1
-Phase: EQ1.2 + CL1 — Conversation Layer minimal
-Latest patch: CL1 — Conversation Layer minimal
-Date: 2026-03
+Version: 1.2
+Phase: EQ1.2 + CL1 + PAD
+Latest patch: Phase 3 PAD — clôture
+Date: 2026-04
 
 ---
 
