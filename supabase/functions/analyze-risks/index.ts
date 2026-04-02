@@ -114,8 +114,12 @@ Deno.serve(async (req) => {
     const vigilancePoints: VigilancePoint[] = [];
     const provisions: ProvisionLine[] = [];
 
+    // Dériver cargo_type une seule fois pour tout le scope
+    // container_type présent → FCL, sinon BREAKBULK
+    const cargoType = input.container_type ? 'FCL' : 'BREAKBULK';
+
     // ===== TIME RISK ANALYSIS =====
-    const timeRisk = await analyzeTimeRisk(supabase, input, vigilancePoints);
+    const timeRisk = await analyzeTimeRisk(supabase, input, vigilancePoints, cargoType);
 
     // ===== NATURE RISK ANALYSIS =====
     const natureRisk = await analyzeNatureRisk(supabase, input, vigilancePoints, provisions);
