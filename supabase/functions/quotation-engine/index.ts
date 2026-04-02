@@ -2047,25 +2047,77 @@ async function generateQuotationLines(
       // Prefer carrier-specific over GENERIC
       const bestMatch = demurrageData.find(d => detectedCarrier && d.carrier.toUpperCase().includes(detectedCarrier)) || demurrageData[0];
       
-      const paliers = [
-        `Jours 1-7: ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour`,
-        `Jours 8-14: ${bestMatch.day_8_14_rate} ${bestMatch.currency}/jour`,
-        `Jour 15+: ${bestMatch.day_15_plus_rate} ${bestMatch.currency}/jour`
-      ].join(' | ');
-      
+      // ===== TIERS RESOLUTION: tiers réels d'abord, fallback legacy ensuite =====
+      const { data: tiersRows } = await supabase
+        .from('demurrage_tiers')
+        .select('tier_order, day_from, day_to, rate_per_day, currency, evidence_level, source_document')
+        .eq('demurrage_rate_id', bestMatch.id)
+        .order('tier_order', { ascending: true });
+
+      const tiers = tiersRows || [];
+      const freeDays = bestMatch.free_days_import;
+
+      let demDescription: string;
+      let demCurrency: string;
+      let demSourceType: string;
+      let demSourceRef: string;
+      let demConfidence: number;
+      let demNotes: string;
+
+      if (tiers.length > 0) {
+        // Tiers réels trouvés → description dynamique depuis les paliers officiels
+        const paliersDesc = tiers.map(t => {
+          const range = t.day_to ? `J${t.day_from}-${t.day_to}` : `J${t.day_from}+`;
+          return `${range}: ${t.rate_per_day.toLocaleString()} ${t.currency}/j`;
+        }).join(' | ');
+
+        demDescription = `Surestaries ${bestMatch.carrier} (franchise ${freeDays}j) — ${paliersDesc}`;
+        demCurrency = tiers[0].currency;
+
+        // Source: priorité tier > parent > fallback texte
+        const evidenceLevel = tiers[0].evidence_level || 'to_confirm';
+        demSourceType = evidenceLevel === 'official' ? 'OFFICIAL'
+                      : evidenceLevel === 'observed' ? 'OBSERVED'
+                      : 'TO_CONFIRM';
+        demSourceRef = tiers[0].source_document || bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`;
+        demConfidence = evidenceLevel === 'official' ? 0.9
+                      : evidenceLevel === 'observed' ? 0.8
+                      : 0.7;
+        demNotes = `Barème réel (${tiers.length} palier(s)). Montant final dépend du temps réel de séjour.`;
+
+        console.log(`[quotation-engine §8c] demurrage TIERS carrier=${bestMatch.carrier} tiers=${tiers.length} currency=${demCurrency} evidence=${evidenceLevel}`);
+      } else {
+        // Fallback legacy — colonnes day_1_7_rate, day_8_14_rate, day_15_plus_rate
+        // NOTE: Ce fallback est un filet de compatibilité, pas une vérité métier.
+        const paliers = [
+          `Jours 1-7: ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour`,
+          `Jours 8-14: ${bestMatch.day_8_14_rate} ${bestMatch.currency}/jour`,
+          `Jour 15+: ${bestMatch.day_15_plus_rate} ${bestMatch.currency}/jour`
+        ].join(' | ');
+
+        demDescription = `Surestaries ${bestMatch.carrier} (franchise ${freeDays}j, puis ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour)`;
+        demCurrency = bestMatch.currency || 'USD'; // Fallback legacy — pas une vérité métier
+        demSourceType = 'TO_CONFIRM';
+        demSourceRef = bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`;
+        demConfidence = 0.7;
+        demNotes = `Toujours à confirmer (dépend du temps réel). Paliers legacy: ${paliers}`;
+
+        console.log(`[quotation-engine §8c] demurrage LEGACY FALLBACK carrier=${bestMatch.carrier} tiers=0 currency=${demCurrency}`);
+      }
+
       lines.push({
         id: 'demurrage_estimate',
         bloc: 'operationnel',
         category: 'Surestaries',
-        description: `Surestaries ${bestMatch.carrier} (franchise ${isTransit ? bestMatch.free_days_import : bestMatch.free_days_import}j, puis ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour)`,
+        description: demDescription,
         amount: null,
-        currency: bestMatch.currency || 'USD',
+        currency: demCurrency,
         source: {
-          type: 'TO_CONFIRM',
-          reference: bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`,
-          confidence: 0.8
+          type: demSourceType,
+          reference: demSourceRef,
+          confidence: demConfidence
         },
-        notes: `Toujours à confirmer (dépend du temps réel). Paliers: ${paliers}`,
+        notes: demNotes,
         isEditable: true
       });
     } else {
