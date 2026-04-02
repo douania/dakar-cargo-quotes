@@ -65,9 +65,14 @@ export function CaseCard({ caseData, clientName }: CaseCardProps) {
               {clientName || 'Client inconnu'}
             </span>
           </div>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {format(new Date(caseData.updated_at), 'dd MMM HH:mm', { locale: fr })}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-muted-foreground/60">
+              {caseData.id.substring(0, 8)}
+            </span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {format(new Date(caseData.updated_at), 'dd MMM HH:mm', { locale: fr })}
+            </span>
+          </div>
         </div>
 
         {/* Line 2: Status badge + request type */}
