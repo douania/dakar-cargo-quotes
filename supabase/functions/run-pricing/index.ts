@@ -318,7 +318,7 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
