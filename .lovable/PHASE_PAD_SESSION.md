@@ -314,12 +314,27 @@ La facture TOM analysée portait la désignation "MARCHANDISES NON REPRISES AILL
 | 420/520/620 | 1 974 | — | — | Véhicules automobiles |
 | 421/521/621 | 3 558 | 5 921 | 7 654 | Électronique, textiles, luxe |
 
+### Table `terminal_tariff_codes` — structure créée (2026-04-02)
+
+Table de résolution **code → montant FCFA** créée par migration. Chaînon manquant entre les codes stockés dans `commodity_categories` et les montants du barème terminal.
+
+Colonnes : `code`, `tariff_type` (storage/handling), `period` (P1/P2/P3), `amount_per_unit`, `currency`, `unit_basis`, `terminal_provider` (dakar_terminal/dpw), `source_document`, `evidence_level`, `effective_date`.
+
+Contraintes :
+- `tariff_type` IN ('storage', 'handling')
+- `terminal_provider` IN ('dakar_terminal', 'dpw')
+- Cohérence métier : storage → period obligatoire, handling → period interdit
+- `amount_per_unit >= 0`
+- `UNIQUE(code, terminal_provider, period)`
+- Index lookup : `(terminal_provider, tariff_type, code)`
+- RLS : shared workspace authenticated CRUD
+
+**0 donnée injectée.** Peuplement différé : montants 2014 à consolider avant injection.
+
 ### Ce qui n'a PAS été fait
 
-- 0 migration
-- 0 injection de données
+- 0 injection de données dans `terminal_tariff_codes`
 - 0 moteur
 - 0 UI
 - 0 peuplement de `commodity_categories`
-- Aucune table `terminal_tariff_codes` créée
 - 0 contamination du référentiel manutention DPW (`port_tariffs`)
