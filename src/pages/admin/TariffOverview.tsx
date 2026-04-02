@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { BarChart3, Ship, Anchor, Warehouse, Truck, Globe } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BarChart3, Ship, Anchor, Warehouse, Truck, Globe, Layers } from "lucide-react";
 
 const formatAmount = (n: number | null) => n != null ? new Intl.NumberFormat('fr-FR').format(n) : '-';
 
