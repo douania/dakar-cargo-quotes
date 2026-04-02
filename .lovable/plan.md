@@ -1,30 +1,42 @@
 
 
-# Analyse pre-smoke-test + clarification cargo.freight_exchange_rate
+# Plan : Rendre toutes les lignes tarifaires visibles
 
-## Clarification : cargo.freight_exchange_rate
+## Diagnostic
 
-**Constat** : cette cle etait deja presente dans `src/pages/case-view/constants.ts` (EDITABLE_FACT_KEYS ligne 66 + NUMERIC_FACT_KEYS ligne 81) **avant** ce patch PAD. Elle etait donc editable dans le cockpit CaseView mais **non autorisee** par le backend `set-case-fact`.
+Dans `PricingResultPanel.tsx` ligne 364, les lignes tarifaires sont tronquées à 10 avec `tariffLines.slice(0, 10)`. Le message "+7 lignes supplémentaires" (ligne 399-404) est un simple texte statique sans bouton ni action — l'utilisateur ne peut pas voir les lignes restantes.
 
-L'ajout a la whitelist est un **fix de coherence UI/backend** : sans lui, un operateur qui modifie ce champ dans le cockpit recevrait une erreur 400.
+## Solution — 1 fichier
 
-Cependant, `build-case-puzzle` a retire cette cle en Phase 16 (commentaires explicites : "cargo.freight_exchange_rate removed — exchange_rates table is source of truth"). C'est donc une cle **legacy/deprecated** cote moteur.
+**`src/components/puzzle/PricingResultPanel.tsx`**
 
-**Ecart reel** : coherence whitelist restauree, mais hors perimetre PAD. A signaler dans le bilan de vague.
+Remplacer la troncature statique par un mécanisme "Voir plus / Voir moins" :
 
-## Plan : smoke test runtime
+1. Ajouter un state `showAllLines` (défaut `false`)
+2. Afficher `tariffLines.slice(0, showAllLines ? tariffLines.length : 10)`
+3. Remplacer le `<tr>` statique "+N lignes supplémentaires" par un bouton cliquable qui bascule `showAllLines`
+4. Quand déplié, afficher un bouton "Réduire" pour revenir à 10 lignes
 
-Le smoke test necessite d'interagir avec le preview (saisir des designations, cliquer des boutons, verifier les facts). Cela requiert le mode execution avec les outils browser.
+Même traitement pour le bloc multi-lot (ligne 321) qui a la même troncature à 15 lignes.
 
-### Tests a executer
+## Rendu attendu
 
-1. **Confirmer seul** (toles galvanisees) — verifier 0 fact ecrit
-2. **Appliquer au dossier** T12 — verifier cargo.pad_category=T12 + cargo.pad_rate_fcfa_per_ton=4780
-3. **Appliquer au dossier** T07 (clinker) — verifier 484
-4. **Appliquer au dossier** T01 (ordinateurs portables) — verifier 19239
-5. Controles : facts visibles cockpit, 0 erreur console, idempotence au re-clic
+```text
+Avant (actuel) :
+  10 lignes affichées
+  "+7 lignes supplémentaires" (texte mort)
 
-### Action requise
+Après :
+  10 lignes affichées
+  [Voir les 7 lignes restantes]  ← bouton cliquable
+  → clic → toutes les 17 lignes visibles
+  [Réduire]  ← bouton pour replier
+```
 
-Passez en mode execution pour que je puisse lancer le smoke test browser sur ces 4 cas. Je ne peux pas interagir avec le preview en mode plan.
+## Ce qui ne change pas
+
+- 0 module FROZEN
+- 0 migration
+- Aucune logique métier modifiée
+- Affichage identique quand il y a 10 lignes ou moins
 
