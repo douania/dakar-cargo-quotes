@@ -1016,6 +1016,56 @@ export type Database = {
         }
         Relationships: []
       }
+      demurrage_tiers: {
+        Row: {
+          created_at: string | null
+          currency: string
+          day_from: number
+          day_to: number | null
+          demurrage_rate_id: string
+          evidence_level: string
+          id: string
+          notes: string | null
+          rate_per_day: number
+          source_document: string | null
+          tier_order: number
+        }
+        Insert: {
+          created_at?: string | null
+          currency: string
+          day_from: number
+          day_to?: number | null
+          demurrage_rate_id: string
+          evidence_level?: string
+          id?: string
+          notes?: string | null
+          rate_per_day: number
+          source_document?: string | null
+          tier_order: number
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string
+          day_from?: number
+          day_to?: number | null
+          demurrage_rate_id?: string
+          evidence_level?: string
+          id?: string
+          notes?: string | null
+          rate_per_day?: number
+          source_document?: string | null
+          tier_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demurrage_tiers_demurrage_rate_id_fkey"
+            columns: ["demurrage_rate_id"]
+            isOneToOne: false
+            referencedRelation: "demurrage_rates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       destination_terminal_rates: {
         Row: {
           calculation_method: string | null
