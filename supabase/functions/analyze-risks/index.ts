@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     const timeRisk = await analyzeTimeRisk(supabase, input, vigilancePoints, cargoType);
 
     // ===== NATURE RISK ANALYSIS =====
-    const natureRisk = await analyzeNatureRisk(supabase, input, vigilancePoints, provisions);
+    const natureRisk = await analyzeNatureRisk(supabase, input, vigilancePoints, provisions, cargoType);
 
     // ===== DEMURRAGE INFO =====
     const demurrageInfo = await getDemurrageInfo(supabase, input, vigilancePoints);
