@@ -36,6 +36,8 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
+  const [showAllLines, setShowAllLines] = useState(false);
+  const [showAllLotLines, setShowAllLotLines] = useState<Record<number, boolean>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expandedLots, setExpandedLots] = useState<Record<number, boolean>>({});
 
