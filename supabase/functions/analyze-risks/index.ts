@@ -114,11 +114,15 @@ Deno.serve(async (req) => {
     const vigilancePoints: VigilancePoint[] = [];
     const provisions: ProvisionLine[] = [];
 
+    // Dériver cargo_type une seule fois pour tout le scope
+    // container_type présent → FCL, sinon BREAKBULK
+    const cargoType = input.container_type ? 'FCL' : 'BREAKBULK';
+
     // ===== TIME RISK ANALYSIS =====
-    const timeRisk = await analyzeTimeRisk(supabase, input, vigilancePoints);
+    const timeRisk = await analyzeTimeRisk(supabase, input, vigilancePoints, cargoType);
 
     // ===== NATURE RISK ANALYSIS =====
-    const natureRisk = await analyzeNatureRisk(supabase, input, vigilancePoints, provisions);
+    const natureRisk = await analyzeNatureRisk(supabase, input, vigilancePoints, provisions, cargoType);
 
     // ===== DEMURRAGE INFO =====
     const demurrageInfo = await getDemurrageInfo(supabase, input, vigilancePoints);
@@ -133,14 +137,20 @@ Deno.serve(async (req) => {
     if (timeRisk.level !== 'low') {
       const daysOver = Math.max(0, timeRisk.estimated_clearance_days - timeRisk.franchise_days);
       if (daysOver > 0) {
-        // Fetch warehouse rate
-        const { data: warehouse } = await supabase
+        // Fetch warehouse rate — colonnes réelles: provider, cargo_type, rate_per_day
+        const { data: warehouseRates } = await supabase
           .from('warehouse_franchise')
-          .select('rate_after_franchise_day')
-          .eq('operation_type', input.is_transit ? 'TRANSIT_MALI' : 'IMPORT_SENEGAL')
-          .maybeSingle();
+          .select('rate_per_day')
+          .eq('provider', 'PAD')
+          .eq('cargo_type', cargoType)
+          .eq('is_active', true)
+          .order('effective_date', { ascending: false })
+          .limit(1);
 
-        const dailyRate = warehouse?.rate_after_franchise_day || 15000;
+        const warehouseRate = warehouseRates?.[0] ?? null;
+        // Fallback 15 000 FCFA si aucune ligne DB trouvée (filet de sécurité)
+        const dailyRate = warehouseRate?.rate_per_day || 15000;
+        console.log(`[analyze-risks] warehouse rate_per_day: ${warehouseRate?.rate_per_day ?? 'FALLBACK 15000'} (cargoType=${cargoType})`);
         stationnementFcfa = daysOver * dailyRate * (input.container_type?.includes('40') ? 2 : 1);
         provisions.push({
           item: 'Provision magasinage',
@@ -222,7 +232,8 @@ Deno.serve(async (req) => {
 async function analyzeTimeRisk(
   supabase: any, 
   input: RiskInput, 
-  vigilancePoints: VigilancePoint[]
+  vigilancePoints: VigilancePoint[],
+  cargoType: string
 ): Promise<TimeRisk> {
   const etaDate = input.eta_date ? new Date(input.eta_date) : null;
   
@@ -238,16 +249,21 @@ async function analyzeTimeRisk(
     operationType = 'TRANSIT_AUTRES';
   }
 
-  // Try to get exact franchise from database
-  const { data: warehouse } = await supabase
+  // Lecture franchise DB — colonnes réelles: provider, cargo_type, free_days
+  const { data: franchiseRows } = await supabase
     .from('warehouse_franchise')
     .select('free_days')
-    .eq('operation_type', operationType)
-    .maybeSingle();
+    .eq('provider', 'PAD')
+    .eq('cargo_type', cargoType)
+    .eq('is_active', true)
+    .order('effective_date', { ascending: false })
+    .limit(1);
 
-  if (warehouse) {
-    franchiseDays = warehouse.free_days;
+  const franchiseRow = franchiseRows?.[0] ?? null;
+  if (franchiseRow) {
+    franchiseDays = franchiseRow.free_days;
   }
+  console.log(`[analyze-risks] franchise free_days: ${franchiseRow?.free_days ?? 'FALLBACK ' + franchiseDays} (cargoType=${cargoType})`);
 
   let workingDaysToFranchise: number | null = null;
   let holidaysInRange: Holiday[] = [];
@@ -355,7 +371,8 @@ async function analyzeNatureRisk(
   supabase: any,
   input: RiskInput,
   vigilancePoints: VigilancePoint[],
-  provisions: ProvisionLine[]
+  provisions: ProvisionLine[],
+  cargoType: string
 ): Promise<NatureRisk> {
   let level: 'low' | 'medium' | 'high' = 'low';
   let imoClass: ImoClass | null = null;
@@ -502,9 +519,13 @@ async function getDemurrageInfo(
     .maybeSingle();
 
   if (demurrage) {
-    // Compare carrier free days with PAD franchise
-    const carrierFreeDays = demurrage.free_days_standard;
+    // Contexte analyze-risks = import par défaut
+    // L'input RiskInput n'expose pas de direction import/export
+    // Fallback import assumé — à étendre si le contexte export est ajouté
+    const carrierFreeDays = demurrage.free_days_import;
     const padFranchise = input.is_transit ? 20 : 10;
+
+    console.log(`[analyze-risks] demurrage carrier=${demurrage.carrier} free_days_import=${demurrage.free_days_import} day_1_7_rate=${demurrage.day_1_7_rate}`);
 
     if (carrierFreeDays < padFranchise) {
       vigilancePoints.push({
@@ -517,8 +538,10 @@ async function getDemurrageInfo(
 
     return {
       carrier: demurrage.carrier,
-      free_days: demurrage.free_days_standard,
-      rate_after_free_days_usd: demurrage.rate_day_1_7 || 100,
+      free_days: demurrage.free_days_import,
+      // Colonne réelle: day_1_7_rate (pas rate_day_1_7)
+      // Fallback 100 USD si données seed incomplètes
+      rate_after_free_days_usd: demurrage.day_1_7_rate || 100,
       container_type: demurrage.container_type,
     };
   }
