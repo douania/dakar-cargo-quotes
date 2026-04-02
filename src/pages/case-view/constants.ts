@@ -44,6 +44,7 @@ export const CLIENT_RESOLVABLE_GAP_KEYS = new Set([
 
 /** Editable fact keys (must match set-case-fact whitelist) */
 export const EDITABLE_FACT_KEYS = new Set([
+  "cargo.description",
   "cargo.weight_kg",
   "cargo.container_count",
   "cargo.container_type",
