@@ -249,16 +249,21 @@ async function analyzeTimeRisk(
     operationType = 'TRANSIT_AUTRES';
   }
 
-  // Try to get exact franchise from database
-  const { data: warehouse } = await supabase
+  // Lecture franchise DB — colonnes réelles: provider, cargo_type, free_days
+  const { data: franchiseRows } = await supabase
     .from('warehouse_franchise')
     .select('free_days')
-    .eq('operation_type', operationType)
-    .maybeSingle();
+    .eq('provider', 'PAD')
+    .eq('cargo_type', cargoType)
+    .eq('is_active', true)
+    .order('effective_date', { ascending: false })
+    .limit(1);
 
-  if (warehouse) {
-    franchiseDays = warehouse.free_days;
+  const franchiseRow = franchiseRows?.[0] ?? null;
+  if (franchiseRow) {
+    franchiseDays = franchiseRow.free_days;
   }
+  console.log(`[analyze-risks] franchise free_days: ${franchiseRow?.free_days ?? 'FALLBACK ' + franchiseDays} (cargoType=${cargoType})`);
 
   let workingDaysToFranchise: number | null = null;
   let holidaysInRange: Holiday[] = [];
