@@ -137,14 +137,20 @@ Deno.serve(async (req) => {
     if (timeRisk.level !== 'low') {
       const daysOver = Math.max(0, timeRisk.estimated_clearance_days - timeRisk.franchise_days);
       if (daysOver > 0) {
-        // Fetch warehouse rate
-        const { data: warehouse } = await supabase
+        // Fetch warehouse rate — colonnes réelles: provider, cargo_type, rate_per_day
+        const { data: warehouseRates } = await supabase
           .from('warehouse_franchise')
-          .select('rate_after_franchise_day')
-          .eq('operation_type', input.is_transit ? 'TRANSIT_MALI' : 'IMPORT_SENEGAL')
-          .maybeSingle();
+          .select('rate_per_day')
+          .eq('provider', 'PAD')
+          .eq('cargo_type', cargoType)
+          .eq('is_active', true)
+          .order('effective_date', { ascending: false })
+          .limit(1);
 
-        const dailyRate = warehouse?.rate_after_franchise_day || 15000;
+        const warehouseRate = warehouseRates?.[0] ?? null;
+        // Fallback 15 000 FCFA si aucune ligne DB trouvée (filet de sécurité)
+        const dailyRate = warehouseRate?.rate_per_day || 15000;
+        console.log(`[analyze-risks] warehouse rate_per_day: ${warehouseRate?.rate_per_day ?? 'FALLBACK 15000'} (cargoType=${cargoType})`);
         stationnementFcfa = daysOver * dailyRate * (input.container_type?.includes('40') ? 2 : 1);
         provisions.push({
           item: 'Provision magasinage',
