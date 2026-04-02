@@ -1,36 +1,37 @@
 
 
-# Plan : Rendre toutes les lignes tarifaires visibles
+# Plan : Afficher l'ID court du dossier sur les cartes du dashboard
 
-## Diagnostic
+## Problème
 
-Dans `PricingResultPanel.tsx` ligne 364, les lignes tarifaires sont tronquées à 10 avec `tariffLines.slice(0, 10)`. Le message "+7 lignes supplémentaires" (ligne 399-404) est un simple texte statique sans bouton ni action — l'utilisateur ne peut pas voir les lignes restantes.
+Les cartes du dashboard n'affichent que le nom du client. Quand on connaît uniquement l'ID du dossier (ex: `6d4d996f...`), il est impossible de le retrouver visuellement.
 
 ## Solution — 1 fichier
 
-**`src/components/puzzle/PricingResultPanel.tsx`**
+**`src/components/dashboard/CaseCard.tsx`**
 
-Remplacer la troncature statique par un mécanisme "Voir plus / Voir moins" :
+Ajouter les 8 premiers caractères de `caseData.id` en gris discret à côté de la date (ligne 68-70).
 
-1. Ajouter un state `showAllLines` (défaut `false`)
-2. Afficher `tariffLines.slice(0, showAllLines ? tariffLines.length : 10)`
-3. Remplacer le `<tr>` statique "+N lignes supplémentaires" par un bouton cliquable qui bascule `showAllLines`
-4. Quand déplié, afficher un bouton "Réduire" pour revenir à 10 lignes
-
-Même traitement pour le bloc multi-lot (ligne 321) qui a la même troncature à 15 lignes.
+```tsx
+{/* Existing date display — add case ID prefix */}
+<div className="flex items-center gap-2">
+  <span className="text-[10px] font-mono text-muted-foreground/60">
+    {caseData.id.substring(0, 8)}
+  </span>
+  <span className="text-xs text-muted-foreground whitespace-nowrap">
+    {format(new Date(caseData.updated_at), 'dd MMM HH:mm', { locale: fr })}
+  </span>
+</div>
+```
 
 ## Rendu attendu
 
 ```text
-Avant (actuel) :
-  10 lignes affichées
-  "+7 lignes supplémentaires" (texte mort)
-
-Après :
-  10 lignes affichées
-  [Voir les 7 lignes restantes]  ← bouton cliquable
-  → clic → toutes les 17 lignes visibles
-  [Réduire]  ← bouton pour replier
+┌─────────────────────────────────────────────────┐
+│ 📁 HONG KONG GOTONE INT'L...    6d4d996f 02 avr│
+│     Décisions…  Maritime FCL Import             │
+│     ████████████████████░░░░  100%              │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Ce qui ne change pas
@@ -38,5 +39,5 @@ Après :
 - 0 module FROZEN
 - 0 migration
 - Aucune logique métier modifiée
-- Affichage identique quand il y a 10 lignes ou moins
+- L'ID est tronqué (8 chars), discret, en `font-mono`
 
