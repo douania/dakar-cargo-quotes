@@ -154,3 +154,31 @@ Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
 
 - Données plus honnêtes
 - Gap résiduel = montants journaliers exacts et devises de publication officielle par compagnie
+
+---
+
+## Taux de surestaries prouvés par facture (2026-04-02)
+
+### MSC — 20DV (EUR)
+- Franchise : 10j (standard Dakar) — mention "17 FD" sur facture, interprétation non confirmée
+- Palier 1 (J11–J20) : **27.00 EUR/jour**
+- Palier 2 (J21+) : **37.00 EUR/jour**
+- Source : Facture MSC BL MEDUF8860316 + BL MEDUAK978032
+- Verdict : **preuve forte**
+
+### CMA CGM — 40HC (XOF)
+- Franchise : **10 jours** (explicite "10 Free Calendar Days")
+- Palier 1 (J11–J20) : **38 050 XOF/jour**
+- Palier 2 (J21+) : **45 920 XOF/jour**
+- Source : Facture CMA CGM BL SNIM0709935 + cohérence barème officiel Sénégal
+- Verdict : **preuve forte**
+
+### Séparation stricte maintenue
+- Demurrage brut compagnie ≠ commission Sodatra ≠ caution transit
+- Commissions Sodatra observées : 66 744 XOF et 320 334 XOF (séparées)
+
+### Nouveau modèle `demurrage_tiers`
+- Table enfant de `demurrage_rates`, non destructive
+- 4 tiers prouvés injectés (MSC 20DV `observed`, CMA CGM 40HC `official`)
+- Colonnes legacy `day_1_7/8_14/15_plus` conservées comme fallback
+- Moteur (`quotation-engine`, `analyze-risks`) et UI non modifiés dans cette vague
