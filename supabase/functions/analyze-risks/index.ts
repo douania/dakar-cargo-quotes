@@ -519,9 +519,13 @@ async function getDemurrageInfo(
     .maybeSingle();
 
   if (demurrage) {
-    // Compare carrier free days with PAD franchise
-    const carrierFreeDays = demurrage.free_days_standard;
+    // Contexte analyze-risks = import par défaut
+    // L'input RiskInput n'expose pas de direction import/export
+    // Fallback import assumé — à étendre si le contexte export est ajouté
+    const carrierFreeDays = demurrage.free_days_import;
     const padFranchise = input.is_transit ? 20 : 10;
+
+    console.log(`[analyze-risks] demurrage carrier=${demurrage.carrier} free_days_import=${demurrage.free_days_import} day_1_7_rate=${demurrage.day_1_7_rate}`);
 
     if (carrierFreeDays < padFranchise) {
       vigilancePoints.push({
@@ -534,8 +538,10 @@ async function getDemurrageInfo(
 
     return {
       carrier: demurrage.carrier,
-      free_days: demurrage.free_days_standard,
-      rate_after_free_days_usd: demurrage.rate_day_1_7 || 100,
+      free_days: demurrage.free_days_import,
+      // Colonne réelle: day_1_7_rate (pas rate_day_1_7)
+      // Fallback 100 USD si données seed incomplètes
+      rate_after_free_days_usd: demurrage.day_1_7_rate || 100,
       container_type: demurrage.container_type,
     };
   }
