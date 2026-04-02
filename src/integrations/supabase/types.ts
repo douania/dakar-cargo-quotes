@@ -4563,6 +4563,54 @@ export type Database = {
           },
         ]
       }
+      terminal_tariff_codes: {
+        Row: {
+          amount_per_unit: number
+          code: string
+          created_at: string | null
+          currency: string
+          effective_date: string | null
+          evidence_level: string
+          id: string
+          notes: string | null
+          period: string | null
+          source_document: string | null
+          tariff_type: string
+          terminal_provider: string
+          unit_basis: string
+        }
+        Insert: {
+          amount_per_unit: number
+          code: string
+          created_at?: string | null
+          currency?: string
+          effective_date?: string | null
+          evidence_level?: string
+          id?: string
+          notes?: string | null
+          period?: string | null
+          source_document?: string | null
+          tariff_type: string
+          terminal_provider?: string
+          unit_basis?: string
+        }
+        Update: {
+          amount_per_unit?: number
+          code?: string
+          created_at?: string | null
+          currency?: string
+          effective_date?: string | null
+          evidence_level?: string
+          id?: string
+          notes?: string | null
+          period?: string | null
+          source_document?: string | null
+          tariff_type?: string
+          terminal_provider?: string
+          unit_basis?: string
+        }
+        Relationships: []
+      }
       trailer_types: {
         Row: {
           axle_count_max: number | null
