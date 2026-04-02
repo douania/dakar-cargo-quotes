@@ -282,7 +282,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
                           </tr>
                         </thead>
                         <tbody>
-                          {lotLines.slice(0, 15).map((line: any, idx: number) => {
+                          {lotLines.slice(0, showAllLotLines[lot.lot_index] ? lotLines.length : 15).map((line: any, idx: number) => {
                             const value = line.amount ?? line.total;
                             const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
                             return (
