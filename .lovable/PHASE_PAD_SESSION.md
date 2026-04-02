@@ -128,3 +128,29 @@ La session a permis de passer d'un système de matching lexical à un flux opér
 
 La phase 3 PAD est validée.
 Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
+
+---
+
+## Correction data-only `demurrage_rates` (2026-04-02)
+
+### Franchises import corrigées
+
+- **CMA CGM, Maersk, Hapag-Lloyd, MSC** :
+  - Dry (20DV, 40DV, 40HC) : `free_days_import` 7j → **10j**
+  - Reefer (20RF, 40RF) : `free_days_import` 5j → **3j**
+- Sources : barèmes officiels Sénégal/Dakar par compagnie
+
+### Devises et montants
+
+- **Inchangés volontairement**
+- Pas de conversion USD → XOF/EUR sans montants exacts prouvés
+- `currency` reste USD pour toutes les lignes
+
+### Requalification prudente
+
+- **COSCO / EVERGREEN / ONE** : `notes` marquées `TO_CONFIRM`, `source_document` marqué non vérifié Sénégal
+
+### Verdict
+
+- Données plus honnêtes
+- Gap résiduel = montants journaliers exacts et devises de publication officielle par compagnie
