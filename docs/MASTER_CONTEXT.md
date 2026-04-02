@@ -1,8 +1,8 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.1
-Phase: EQ1.2 + CL1 — Conversation Layer minimal
-Latest patch: CL1 — Conversation Layer minimal
-Date: 2026-03
+Version: 1.2
+Phase: EQ1.2 + CL1 + PAD
+Latest patch: Phase 3 PAD — clôture
+Date: 2026-04
 
 ---
 
@@ -15,6 +15,7 @@ Date: 2026-03
 - Silent failures corrigés
 - Module EQ1 (External Quote Requests) stabilisé et hardened
 - Module CL1 (Conversation Layer) opérationnel
+- Phase 3 PAD (droit de passage) validée et gelée
 - Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
@@ -83,6 +84,21 @@ Cibles : par lot (`quote_request_lines`) ou case-level (`related_lot_index = nul
 Idempotence : applicative (SELECT before INSERT) — pas de contrainte DB UNIQUE dédiée
 Traçabilité : timeline event `external_request_created` avec `actor_type = 'system'`
 Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
+
+---
+
+## Phase 3 PAD — Droit de passage (clôturée)
+
+- **Statut** : validée et gelée (2026-04-02)
+- **Périmètre** : ajout d'une ligne `PAD_DROIT_PASSAGE` dans le pricing lorsque des facts dossier PAD ont été explicitement appliqués au dossier (`cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton`)
+- **Traçabilité** : enrichissement post-moteur, `origin_layer = enrichment_pad`, approche `fact_based`. Source marquée « Fact dossier PAD (barème Redevances Portuaires 2006) »
+- **Smoke tests** :
+  - T01 (`ab959454`) : PASS — PAD 19 239 × 3.086 t = 59 372 FCFA
+  - T12 (`29b96eec`) : PASS — PAD 4 780 × 840 t = 4 015 200 FCFA
+  - Régression (`2fa7861d`, AIR_IMPORT) : PASS — 0 ligne PAD
+  - T07 (`6d4d996f`) : bloqué par FCL-OVR (hors scope PAD, voir `docs/DEFERRED_BACKLOG.md`)
+- **Conclusion** : chemin positif validé, régression validée hors maritime, aucune régression démontrée sur les dossiers sans facts PAD
+- **Limite connue** : périmètre actuel borné au mono-lot / facts dossier globaux ; pas d'extension multi-lot dans cette phase
 
 ---
 
