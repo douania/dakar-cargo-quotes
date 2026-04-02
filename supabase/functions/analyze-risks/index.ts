@@ -61,12 +61,30 @@ interface ImoClass {
   handling_notes: string;
 }
 
+interface DemurrageTierInfo {
+  day_from: number;
+  day_to: number | null;
+  rate_per_day: number;
+  currency: string;
+  evidence_level: string;
+}
+
+interface DemurrageInfo {
+  carrier: string;
+  free_days: number;
+  rate_after_free_days: number;    // Premier tier ou legacy
+  rate_currency: string;           // Devise réelle (XOF, EUR, USD)
+  container_type: string;
+  tiers: DemurrageTierInfo[];      // Paliers réels (vide si fallback legacy)
+}
+
 interface Provisions {
   stationnement_fcfa: number;
-  surestaries_usd: number;
+  surestaries_amount: number;      // Montant brut dans la devise réelle
+  surestaries_currency: string;    // Devise réelle
   escorte_fcfa: number;
   segregation_fcfa: number;
-  total_provisions_fcfa: number;
+  total_provisions_fcfa: number;   // Somme des provisions FCFA/XOF natives UNIQUEMENT
   breakdown: ProvisionLine[];
 }
 
@@ -83,16 +101,6 @@ interface VigilancePoint {
   message_fr: string;
   message_en: string;
 }
-
-interface DemurrageInfo {
-  carrier: string;
-  free_days: number;
-  rate_after_free_days_usd: number;
-  container_type: string;
-}
-
-// Exchange rate (approximate)
-const USD_TO_FCFA = 615;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -129,7 +137,8 @@ Deno.serve(async (req) => {
 
     // ===== CALCULATE PROVISIONS =====
     let stationnementFcfa = 0;
-    let surestariesUsd = 0;
+    let surestariesAmount = 0;
+    let surestariesCurrency = 'XOF'; // Default, overridden if demurrageInfo exists
     let escorteFcfa = 0;
     let segregationFcfa = 0;
 
@@ -163,12 +172,13 @@ Deno.serve(async (req) => {
 
     // Surestaries provision
     if (demurrageInfo && timeRisk.level === 'high') {
-      surestariesUsd = demurrageInfo.rate_after_free_days_usd * 3; // 3 days provision
+      surestariesAmount = demurrageInfo.rate_after_free_days * 3; // 3 days provision
+      surestariesCurrency = demurrageInfo.rate_currency;
       provisions.push({
         item: 'Provision surestaries',
-        amount: surestariesUsd,
-        currency: 'USD',
-        reason: `3 jours de surestaries ${demurrageInfo.carrier}`,
+        amount: surestariesAmount,
+        currency: surestariesCurrency,
+        reason: `3 jours de surestaries ${demurrageInfo.carrier} (${surestariesCurrency})`,
       });
     }
 
@@ -196,15 +206,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    const totalProvisionsFcfa = stationnementFcfa + segregationFcfa + escorteFcfa + 
-      Math.round(surestariesUsd * USD_TO_FCFA);
+    // total_provisions_fcfa = somme des provisions FCFA/XOF natives UNIQUEMENT
+    // La surestarie n'y entre que si sa devise est nativement XOF/FCFA
+    // Pas de conversion implicite EUR→FCFA ou USD→FCFA
+    let totalProvisionsFcfa = stationnementFcfa + segregationFcfa + escorteFcfa;
+    if (surestariesCurrency === 'XOF' || surestariesCurrency === 'FCFA') {
+      totalProvisionsFcfa += surestariesAmount;
+    }
 
     const result: RiskResult = {
       time_risk: timeRisk,
       nature_risk: natureRisk,
       provisions: {
         stationnement_fcfa: stationnementFcfa,
-        surestaries_usd: surestariesUsd,
+        surestaries_amount: surestariesAmount,
+        surestaries_currency: surestariesCurrency,
         escorte_fcfa: escorteFcfa,
         segregation_fcfa: segregationFcfa,
         total_provisions_fcfa: totalProvisionsFcfa,
@@ -239,14 +255,11 @@ async function analyzeTimeRisk(
   
   // Determine franchise based on operation type
   let franchiseDays = 10; // Default import Senegal
-  let operationType = 'IMPORT_SENEGAL';
   
   if (input.is_transit || /mali|bamako/i.test(input.transit_destination || input.destination || '')) {
     franchiseDays = 20;
-    operationType = 'TRANSIT_MALI';
   } else if (/burkina|niger|guinée/i.test(input.destination || '')) {
     franchiseDays = 15;
-    operationType = 'TRANSIT_AUTRES';
   }
 
   // Lecture franchise DB — colonnes réelles: provider, cargo_type, free_days
@@ -509,7 +522,7 @@ async function getDemurrageInfo(
   const carrierNormalized = input.carrier.toUpperCase().replace(/[-\s]/g, '');
   const containerNormalized = normalizeContainerType(input.container_type || '40DV');
 
-  // Try to find demurrage rates
+  // Try to find demurrage rates parent
   const { data: demurrage } = await supabase
     .from('demurrage_rates')
     .select('*')
@@ -518,35 +531,77 @@ async function getDemurrageInfo(
     .eq('is_active', true)
     .maybeSingle();
 
-  if (demurrage) {
-    // Contexte analyze-risks = import par défaut
-    // L'input RiskInput n'expose pas de direction import/export
-    // Fallback import assumé — à étendre si le contexte export est ajouté
-    const carrierFreeDays = demurrage.free_days_import;
-    const padFranchise = input.is_transit ? 20 : 10;
+  if (!demurrage) return null;
 
-    console.log(`[analyze-risks] demurrage carrier=${demurrage.carrier} free_days_import=${demurrage.free_days_import} day_1_7_rate=${demurrage.day_1_7_rate}`);
+  // ===== TIERS RESOLUTION =====
+  // Priorité : demurrage_tiers (paliers réels) > colonnes legacy (day_1_7_rate, etc.)
+  const { data: tiersRows } = await supabase
+    .from('demurrage_tiers')
+    .select('tier_order, day_from, day_to, rate_per_day, currency, evidence_level, source_document')
+    .eq('demurrage_rate_id', demurrage.id)
+    .order('tier_order', { ascending: true });
 
-    if (carrierFreeDays < padFranchise) {
-      vigilancePoints.push({
-        category: 'carrier',
-        severity: 'warning',
-        message_fr: `⏰ ATTENTION: Franchise ${demurrage.carrier} (${carrierFreeDays}j) < Franchise PAD (${padFranchise}j) - Surestaries probables`,
-        message_en: `⏰ WARNING: ${demurrage.carrier} free time (${carrierFreeDays}d) < PAD franchise (${padFranchise}d) - Demurrage likely`,
-      });
-    }
+  const tiers: DemurrageTierInfo[] = (tiersRows || []).map((t: any) => ({
+    day_from: t.day_from,
+    day_to: t.day_to,
+    rate_per_day: t.rate_per_day,
+    currency: t.currency,
+    evidence_level: t.evidence_level,
+  }));
 
-    return {
-      carrier: demurrage.carrier,
-      free_days: demurrage.free_days_import,
-      // Colonne réelle: day_1_7_rate (pas rate_day_1_7)
-      // Fallback 100 USD si données seed incomplètes
-      rate_after_free_days_usd: demurrage.day_1_7_rate || 100,
-      container_type: demurrage.container_type,
-    };
+  let rateAfterFreeDays: number;
+  let rateCurrency: string;
+
+  if (tiers.length > 0) {
+    // Tiers réels trouvés → utiliser le premier palier comme référence "après franchise"
+    const firstTier = tiers[0];
+    rateAfterFreeDays = firstTier.rate_per_day;
+    rateCurrency = firstTier.currency;
+    console.log(`[analyze-risks] demurrage TIERS carrier=${demurrage.carrier} tiers=${tiers.length} rate=${rateAfterFreeDays} ${rateCurrency} evidence=${firstTier.evidence_level}`);
+  } else {
+    // Fallback legacy : colonnes day_1_7_rate du parent demurrage_rates
+    // NOTE: Ce fallback est un filet de compatibilité, pas une vérité métier.
+    // Les colonnes legacy (day_1_7_rate, currency) peuvent contenir des seeds
+    // non vérifiées ou des montants approximatifs.
+    rateAfterFreeDays = demurrage.day_1_7_rate || 100;
+    rateCurrency = demurrage.currency || 'USD'; // Fallback legacy — pas une vérité métier
+    console.log(`[analyze-risks] demurrage LEGACY FALLBACK carrier=${demurrage.carrier} tiers=0 rate=${rateAfterFreeDays} ${rateCurrency}`);
   }
 
-  return null;
+  // Contexte analyze-risks = import par défaut
+  const carrierFreeDays = demurrage.free_days_import;
+  const padFranchise = input.is_transit ? 20 : 10;
+
+  if (carrierFreeDays < padFranchise) {
+    vigilancePoints.push({
+      category: 'carrier',
+      severity: 'warning',
+      message_fr: `⏰ ATTENTION: Franchise ${demurrage.carrier} (${carrierFreeDays}j) < Franchise PAD (${padFranchise}j) - Surestaries probables`,
+      message_en: `⏰ WARNING: ${demurrage.carrier} free time (${carrierFreeDays}d) < PAD franchise (${padFranchise}d) - Demurrage likely`,
+    });
+  }
+
+  // Vigilance enrichie avec devise et paliers si tiers disponibles
+  if (tiers.length > 0) {
+    const tiersDesc = tiers.map(t => 
+      `J${t.day_from}${t.day_to ? `-${t.day_to}` : '+'}: ${t.rate_per_day.toLocaleString()} ${t.currency}/j`
+    ).join(' | ');
+    vigilancePoints.push({
+      category: 'carrier',
+      severity: 'info',
+      message_fr: `📊 Barème ${demurrage.carrier}: ${tiersDesc}`,
+      message_en: `📊 ${demurrage.carrier} tariff: ${tiersDesc}`,
+    });
+  }
+
+  return {
+    carrier: demurrage.carrier,
+    free_days: demurrage.free_days_import,
+    rate_after_free_days: rateAfterFreeDays,
+    rate_currency: rateCurrency,
+    container_type: demurrage.container_type,
+    tiers,
+  };
 }
 
 function normalizeContainerType(input: string): string {
