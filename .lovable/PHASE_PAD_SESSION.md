@@ -227,3 +227,23 @@ Le sujet `FCL-OVR` reste séparé et documenté comme dette différée.
 - COSCO / EVERGREEN / ONE : non touchés, restent `TO_CONFIRM`
 - Colonnes legacy `demurrage_rates` : inchangées
 - Moteur (`quotation-engine`, `analyze-risks`) et UI non modifiés dans cette vague
+
+### Vague 4 — Lecture `demurrage_tiers` dans `analyze-risks` (2026-04-02)
+
+`analyze-risks` lit désormais `demurrage_tiers` en priorité :
+- Tiers réels d'abord (triés par `tier_order`)
+- Fallback legacy (`day_1_7_rate`, etc.) si aucun tier
+- Devise réelle transportée (`rate_currency`), sans conversion implicite
+- `total_provisions_fcfa` n'intègre la surestarie que si devise = XOF/FCFA
+- Bugfix `normalizeContainerType` : 20DV mappé correctement
+
+### Vague 5 — Lecture `demurrage_tiers` dans `quotation-engine` (2026-04-02)
+
+`quotation-engine` section 8c lit désormais `demurrage_tiers` en priorité :
+- Même stratégie tiers-first que `analyze-risks`
+- Description dynamique : `Franchise 10j, puis J11-20: 17 715 XOF/j | J21+: 22 960 XOF/j`
+- Source documentaire : priorité `tier.source_document` > `parent.source_document` > fallback texte
+- Types source compatibles existant : `OFFICIAL`, `OBSERVED`, `TO_CONFIRM`
+- Devise réelle dans la ligne (XOF, EUR), sans conversion
+- Fallback legacy inchangé pour compagnies sans tiers (COSCO, EVERGREEN, ONE)
+- Ligne générique "contacter armateur" inchangée si aucun parent trouvé
