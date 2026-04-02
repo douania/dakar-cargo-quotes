@@ -329,12 +329,28 @@ Contraintes :
 - Index lookup : `(terminal_provider, tariff_type, code)`
 - RLS : shared workspace authenticated CRUD
 
-**0 donnée injectée.** Peuplement différé : montants 2014 à consolider avant injection.
+### Peuplement initial storage (2026-04-02)
+
+**28 lignes** injectées dans `terminal_tariff_codes` — magasinage Dakar Terminal uniquement.
+
+| Familles | Lignes | Evidence |
+|----------|--------|----------|
+| 410, 412, 413, 414, 416, 417, 418, 421 (× P1/P2/P3) | 24 | `official` |
+| 420 (P1 seul, P2/P3 non documentés) | 1 | `official` |
+| 519, 619 (corroborés par facture TOM) | 2 | `official` |
+| **419 (P1)** — écart +11% vs facture TOM | 1 | **`to_confirm`** |
+| **Total** | **28** | 27 `official`, 1 `to_confirm` |
+
+- `source_document` = `Grille Tarifaire Officielle Dakar Terminal 2014 p.34`
+- `effective_date` = `2014-12-09`
+- Notes corroboration sur 519/619 : "Montant grille 2014 corroboré par facture TOM"
+- Note 419 : "Ecart observé +11% vs facture TOM (1 964 FCFA/T/j)"
 
 ### Ce qui n'a PAS été fait
 
-- 0 injection de données dans `terminal_tariff_codes`
 - 0 moteur
 - 0 UI
 - 0 peuplement de `commodity_categories`
 - 0 contamination du référentiel manutention DPW (`port_tariffs`)
+- 0 handling injecté
+- 0 dpw injecté
