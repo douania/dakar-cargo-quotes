@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-03-29
+Dernière mise à jour : 2026-04-02
 
 ---
 
@@ -72,6 +72,7 @@ Cela inclut les décisions formulées comme :
 | RLS-REF | Write policies manquantes sur 5 tables de référence corrigé | sécurité | closed | — | RLS-audit | 2026-03-29 | Tables hs_codes, tax_rates, customs_regimes, port_tariffs, pricing_client_overrides avaient RLS activé avec uniquement SELECT → écriture bloquée par défaut. Corrigé : ajout INSERT/UPDATE/DELETE TO authenticated selon les besoins de chaque page admin. Modèle = shared workspace authenticated CRUD (choix produit, pas RBAC). | — | 5 tables de référence | repo + DB live | Fermé | Aucune action requise |
 | LEG-LOCK | Verrouillage pipeline legacy dans QuotationSheet | architecture | closed | — | LEG-audit | 2026-03-29 | QuotationSheet peut encore créer des artefacts legacy (quotation_history, PDF, email) concurrents au pipeline canonique quand un quote_case existe. Corrigé : `isLegacyLocked` désactive save draft, generate response, exports PDF/Excel, mark as sent quand `quoteCase?.id` est défini. Guards défensifs dans handlers + masquage UI. | — | `QuotationSheet.tsx`, `QuotationHeader.tsx` | repo + audit pipeline | Fermé | Aucune action requise |
 | LEG-CLEANUP | Retrait fonctions legacy pures (create-quotation-draft, generate-quotation, generate-quotation-pdf) | dette | deferred | Basse | LEG-audit | 2026-03-29 | Audit post-lockdown (2026-03-29). Ces 3 edge functions ne sont PAS du dead code : elles restent le seul pipeline de création pour `/quotation/new` (Dashboard → "Nouveau devis", QuotationHistory → "Charger comme modèle"). LEG-LOCK les rend inaccessibles quand un quote_case existe, mais le parcours manuel sans email les utilise activement. Retrait = régression produit. | Retrait possible uniquement si : (1) `/quotation/new` supprimé ou migré vers pipeline canonique, ET (2) "Charger comme modèle" redirigé vers CaseView | `create-quotation-draft`, `generate-quotation`, `generate-quotation-pdf`, `src/pages/Dashboard.tsx` L413, `src/pages/admin/QuotationHistory.tsx` L169 | repo + audit pipeline post-lockdown | Confirmé (legacy vivant, fallback actif) | Ne pas retirer. Garder tant que `/quotation/new` est un point d'entrée produit valide |
+| FCL-OVR | Override manuel FCL non pris en compte par la détection build-case-puzzle | dette | deferred | Moyenne | PAD-phase3 | 2026-04-02 | Diagnostic complet et patch validé (CTO), hors scope d'exécution phase courante. Pas d'incident production bloquant immédiat. | Ambiguïté FCL/LCL bloque un smoke test opérateur ou un flux pricing production | `supabase/functions/build-case-puzzle/index.ts` (détection L1755, `detectRequestType` L4249-4314) | repo + diagnostic chat PAD-phase3 | Confirmé (cause racine prouvée) | Patch ~15 lignes : après détection, si `ambiguous_lcl_fcl === true`, lire `quote_facts` manuels (`cargo.container_type`, `cargo.container_count`) source `manual_input`/`operator` ; si exploitable → forcer `SEA_FCL_IMPORT`, `ambiguous_lcl_fcl = false`. Garde-fous : valeur non vide, sources manuelles strictes, log explicite, pas de bypass autres ambiguïtés. Dépendance UI optionnelle : formulaire "Ajouter un fact" CaseView (ne résout rien sans ce patch) |
 
 ---
 
