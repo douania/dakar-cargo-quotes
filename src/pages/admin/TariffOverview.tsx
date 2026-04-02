@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { BarChart3, Ship, Anchor, Warehouse, Truck, Globe } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { BarChart3, Ship, Anchor, Warehouse, Truck, Globe, Layers } from "lucide-react";
 
 const formatAmount = (n: number | null) => n != null ? new Intl.NumberFormat('fr-FR').format(n) : '-';
 
@@ -102,39 +103,95 @@ function DemurrageTab() {
   const { data, isLoading } = useQuery({
     queryKey: ['tariff-overview-demurrage'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('demurrage_rates').select('id, carrier, container_type, free_days_import, free_days_export, day_1_7_rate, day_8_14_rate, day_15_plus_rate, currency, is_active').order('carrier').limit(200);
+      const { data, error } = await supabase
+        .from('demurrage_rates')
+        .select('id, carrier, container_type, free_days_import, free_days_export, day_1_7_rate, day_8_14_rate, day_15_plus_rate, currency, is_active, demurrage_tiers(id, tier_order, day_from, day_to, rate_per_day, currency, evidence_level, source_document, notes)')
+        .order('carrier')
+        .limit(200);
       if (error) throw error;
       return data;
     },
   });
+
+  const hasTiers = (r: any) => r.demurrage_tiers && r.demurrage_tiers.length > 0;
+
+  const sortedTiers = (tiers: any[]) =>
+    [...tiers].sort((a, b) => (a.tier_order ?? a.day_from) - (b.tier_order ?? b.day_from));
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Compagnie</TableHead>
-          <TableHead>Conteneur</TableHead>
-          <TableHead>Franchise Import</TableHead>
-          <TableHead>Franchise Export</TableHead>
-          <TableHead className="text-right">J1-7</TableHead>
-          <TableHead className="text-right">J8-14</TableHead>
-          <TableHead className="text-right">J15+</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {isLoading ? <TableRow><TableCell colSpan={7} className="text-center py-6">Chargement...</TableCell></TableRow> :
-        data?.map(r => (
-          <TableRow key={r.id} className={!r.is_active ? 'opacity-50' : ''}>
-            <TableCell><Badge variant="outline">{r.carrier}</Badge></TableCell>
-            <TableCell className="text-sm">{r.container_type}</TableCell>
-            <TableCell className="text-center">{r.free_days_import}j</TableCell>
-            <TableCell className="text-center">{r.free_days_export}j</TableCell>
-            <TableCell className="text-right font-mono">{formatAmount(r.day_1_7_rate)}</TableCell>
-            <TableCell className="text-right font-mono">{formatAmount(r.day_8_14_rate)}</TableCell>
-            <TableCell className="text-right font-mono">{formatAmount(r.day_15_plus_rate)}</TableCell>
+    <TooltipProvider>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Compagnie</TableHead>
+            <TableHead>Conteneur</TableHead>
+            <TableHead>Franchise Import</TableHead>
+            <TableHead>Franchise Export</TableHead>
+            <TableHead className="text-right">J1-7</TableHead>
+            <TableHead className="text-right">J8-14</TableHead>
+            <TableHead className="text-right">J15+</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? <TableRow><TableCell colSpan={7} className="text-center py-6">Chargement...</TableCell></TableRow> :
+          data?.map(r => {
+            const withTiers = hasTiers(r);
+            return (
+              <>
+                <TableRow key={r.id} className={!r.is_active ? 'opacity-50' : ''}>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline">{r.carrier}</Badge>
+                      {withTiers && (
+                        <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5">
+                          <Layers className="h-2.5 w-2.5 mr-0.5" />Paliers
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">{r.container_type}</TableCell>
+                  <TableCell className="text-center">{r.free_days_import}j</TableCell>
+                  <TableCell className="text-center">{r.free_days_export}j</TableCell>
+                  <TableCell className={`text-right font-mono ${withTiers ? 'text-muted-foreground/50' : ''}`}>{formatAmount(r.day_1_7_rate)}</TableCell>
+                  <TableCell className={`text-right font-mono ${withTiers ? 'text-muted-foreground/50' : ''}`}>{formatAmount(r.day_8_14_rate)}</TableCell>
+                  <TableCell className={`text-right font-mono ${withTiers ? 'text-muted-foreground/50' : ''}`}>{formatAmount(r.day_15_plus_rate)}</TableCell>
+                </TableRow>
+                {withTiers && sortedTiers(r.demurrage_tiers).map((t: any) => (
+                  <TableRow key={t.id} className="bg-accent/30">
+                    <TableCell />
+                    <TableCell colSpan={2} className="text-xs pl-8">
+                      <span className="font-medium">Palier {t.tier_order}</span>
+                      <span className="text-muted-foreground ml-1.5">
+                        J{t.day_from}→{t.day_to ? `J${t.day_to}` : '∞'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm font-semibold">
+                      {formatAmount(t.rate_per_day)} {t.currency}/j
+                    </TableCell>
+                    <TableCell>
+                      {getEvidenceBadge(t.evidence_level)}
+                    </TableCell>
+                    <TableCell colSpan={2} className="text-xs text-muted-foreground">
+                      {t.source_document ? (
+                        <Tooltip>
+                          <TooltipTrigger className="underline decoration-dotted cursor-help truncate max-w-[180px] inline-block">
+                            {t.source_document.length > 30 ? t.source_document.slice(0, 30) + '…' : t.source_document}
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <p className="text-xs">{t.source_document}</p>
+                            {t.notes && <p className="text-xs text-muted-foreground mt-1">{t.notes}</p>}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TooltipProvider>
   );
 }
 
