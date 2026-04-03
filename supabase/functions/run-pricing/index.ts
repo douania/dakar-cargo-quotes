@@ -318,7 +318,7 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
@@ -381,6 +381,12 @@ function canonicalizeLine(
     canonical.source_system = 'fact_dossier';
     canonical.source_table = null;
     canonical.pricing_method = 'fact_based';
+  } else if (context.origin_layer === 'enrichment_terminal_storage') {
+    canonical.service_key = 'TERMINAL_STORAGE_PROVISION_ESTIMATE';
+    canonical.dedup_group = 'TERMINAL_STORAGE';
+    canonical.source_system = 'terminal_designations';
+    canonical.source_table = 'terminal_tariff_codes';
+    canonical.pricing_method = 'provision_estimate';
   }
 
   return { ...line, canonical };
@@ -1612,6 +1618,85 @@ Deno.serve(async (req) => {
           console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
         } else {
           console.warn(`[PAD] cargo.pad_rate set but cargoWeight=0 — skipping droit de passage`);
+        }
+      }
+
+      // ═══ Phase 3-A: Terminal Storage Provision Estimate (Dakar Terminal, P1, mono-lot only) ═══
+      // Exact match only — 0 ILIKE, 0 fuzzy, 0 partial matching
+      // handling_code is metadata only — not consumed for pricing
+      const isMaritime = !String(caseData.request_type || '').toUpperCase().includes('AIR');
+      if (isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
+        try {
+          // Normalize description for exact match
+          const normalizedDesc = normalizePricingText(inputs.cargoDescription);
+          if (normalizedDesc) {
+            // Query terminal_designations — exact match on normalized label
+            const { data: tdRows } = await serviceClient
+              .from('terminal_designations')
+              .select('designation_label, storage_code_p1, unit_basis')
+              .eq('terminal_provider', 'dakar_terminal')
+              .not('storage_code_p1', 'is', null);
+
+            // Find exact normalized match
+            const matchedDesignation = (tdRows || []).find(
+              (td: any) => normalizePricingText(td.designation_label) === normalizedDesc
+            );
+
+            if (matchedDesignation) {
+              const storageCodeP1 = String(matchedDesignation.storage_code_p1);
+
+              // Lookup rate in terminal_tariff_codes
+              const { data: tariffRow } = await serviceClient
+                .from('terminal_tariff_codes')
+                .select('code, amount_per_unit, unit, currency, evidence_level, source_document')
+                .eq('code', storageCodeP1)
+                .eq('period', 'P1')
+                .eq('tariff_type', 'storage')
+                .eq('terminal_provider', 'dakar_terminal')
+                .maybeSingle();
+
+              if (tariffRow && tariffRow.amount_per_unit > 0) {
+                // Map evidence_level to runtime source.type format
+                const evidenceMap: Record<string, string> = {
+                  'official': 'OFFICIAL',
+                  'to_confirm': 'TO_CONFIRM',
+                  'observed': 'OBSERVED',
+                };
+                const sourceType = evidenceMap[tariffRow.evidence_level] || 'TO_CONFIRM';
+
+                const weightTonnes = inputs.cargoWeight;
+                const provisionDays = 3;
+                const provisionAmount = Math.round(tariffRow.amount_per_unit * weightTonnes * provisionDays);
+                const weightFormatted = weightTonnes % 1 === 0 ? `${weightTonnes}` : weightTonnes.toFixed(1);
+
+                const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+                engineLines.push(canonicalizeLine({
+                  category: 'TERMINAL_STORAGE_PROVISION_ESTIMATE',
+                  label: 'Provision estimative magasinage terminal Dakar Terminal (hyp. 3j P1)',
+                  description: `Provision estimative magasinage Dakar Terminal — Désignation: ${matchedDesignation.designation_label} — Taux P1 (code ${storageCodeP1}): ${tariffRow.amount_per_unit} FCFA/T/j × ${weightFormatted} T × ${provisionDays}j — Caractère estimatif, non contractuel`,
+                  amount: provisionAmount,
+                  currency: 'FCFA',
+                  unit: 'tonne',
+                  quantity: weightTonnes,
+                  unitPrice: tariffRow.amount_per_unit,
+                  source: {
+                    type: sourceType,
+                    reference: tariffRow.source_document || 'Grille Officielle Dakar Terminal 2014',
+                    confidence: 0.5,
+                  },
+                  isEditable: true,
+                }, { origin_layer: 'enrichment_terminal_storage' }));
+                engineResponse.lines = engineLines;
+                console.log(`[TERMINAL_STORAGE] Provision P1: ${provisionAmount} FCFA — designation="${matchedDesignation.designation_label}" code=${storageCodeP1} rate=${tariffRow.amount_per_unit} weight=${weightFormatted}T days=${provisionDays} evidence=${sourceType}`);
+              } else {
+                console.warn(`[TERMINAL_STORAGE] No P1 tariff found for code ${storageCodeP1} — skipping`);
+              }
+            } else {
+              console.warn(`[TERMINAL_STORAGE] No exact match for "${inputs.cargoDescription}" — skipping`);
+            }
+          }
+        } catch (tsError) {
+          console.warn('[TERMINAL_STORAGE] Enrichment failed, continuing:', tsError);
         }
       }
 

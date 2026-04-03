@@ -505,3 +505,63 @@ Dans le référentiel Dakar Terminal importé ici, la colonne "Position tarifair
 - 0 `commodity_categories`
 - 0 `port_tariffs`
 - 0 DPW
+
+---
+
+## Phase 3-A — Résolution provisionnelle P1 magasinage terminal (2026-04-03)
+
+### Objet
+
+Enrichissement post-moteur dans `run-pricing/index.ts` : résolution `terminal_designations → terminal_tariff_codes` pour calculer une provision estimative de magasinage terminal Dakar Terminal (P1 uniquement).
+
+### Chaîne de résolution
+
+```
+cargo.description (fact dossier)
+  → normalisation (lowercase, trim, strip accents)
+    → exact match dans terminal_designations (terminal_provider = 'dakar_terminal')
+      → storage_code_p1
+        → lookup terminal_tariff_codes (code, period='P1', tariff_type='storage', provider='dakar_terminal')
+          → montant = taux × poids_tonnes × 3 jours (hypothèse)
+```
+
+### Contraintes strictes
+
+- **Matching** : exact match normalisé uniquement. 0 ILIKE, 0 fuzzy, 0 partial.
+- **Conditions cumulatives** : les 5 suivantes doivent être réunies pour qu'un montant soit calculé :
+  1. `cargoDescription` présent et non vide
+  2. `cargoWeight` > 0
+  3. Match exact trouvé dans `terminal_designations`
+  4. `storage_code_p1` non NULL
+  5. Tarif P1 trouvé dans `terminal_tariff_codes`
+- Si une condition manque → skip silencieux (warning log)
+- `unit_basis = 'atypical'` → skip (via storage_code_p1 NULL)
+- Maritime conteneurisé uniquement (skip si AIR)
+- Mono-lot uniquement (multi-lot non enrichi)
+
+### Sortie produite
+
+- **Catégorie** : `TERMINAL_STORAGE_PROVISION_ESTIMATE`
+- **origin_layer** : `enrichment_terminal_storage`
+- **service_key** : `TERMINAL_STORAGE_PROVISION_ESTIMATE`
+- **dedup_group** : `TERMINAL_STORAGE`
+- **Confiance** : plafonnée à 0.5
+- **source.type** : mappé depuis `evidence_level` → `OFFICIAL` / `TO_CONFIRM` / `OBSERVED`
+- **Description** : explicitement estimative, mentionne désignation, taux, poids formaté, jours, caractère non contractuel
+- **isEditable** : true (l'opérateur peut corriger/supprimer)
+
+### Règles métier préservées
+
+- `handling_code` reste non consommé (métadonnée descriptive Dakar Terminal uniquement)
+- Dans le référentiel Dakar Terminal importé ici, la colonne "Position tarifaire" correspond factuellement aux valeurs 3 chiffres reprises dans `handling_code` ; cette équivalence est spécifique à ce référentiel et ne doit pas être généralisée.
+- 0 DPW, 0 handling moteur, 0 `port_tariffs`
+- 0 `quotation-engine` (FROZEN)
+
+### Hors scope (Phase 3-B, deferred)
+
+- Matching fuzzy / synonymes / table d'alias
+- P2/P3 (périodes ultérieures)
+- Calcul jours réels après franchise
+- Renvois VOIR TARIF
+- Cas vrac / atypical
+- DPW / handling
