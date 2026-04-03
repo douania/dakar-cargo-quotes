@@ -139,7 +139,7 @@ export default function TerminalStorage() {
     const m = new Map<string, number>();
     if (!tariffCodes) return m;
     for (const tc of tariffCodes) {
-      m.set(`${tc.code}_${tc.period}`, tc.amount);
+      m.set(`${tc.code}_${tc.period}`, tc.amount_per_unit);
     }
     return m;
   }, [tariffCodes]);
