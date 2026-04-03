@@ -339,12 +339,39 @@ Contraintes :
 | 420 (P1 seul, P2/P3 non documentés) | 1 | `official` |
 | 519, 619 (corroborés par facture TOM) | 2 | `official` |
 | **419 (P1)** — écart +11% vs facture TOM | 1 | **`to_confirm`** |
-| **Total** | **28** | 27 `official`, 1 `to_confirm` |
+| **Total initial** | **28** | 27 `official`, 1 `to_confirm` |
 
 - `source_document` = `Grille Tarifaire Officielle Dakar Terminal 2014 p.34`
 - `effective_date` = `2014-12-09`
 - Notes corroboration sur 519/619 : "Montant grille 2014 corroboré par facture TOM"
 - Note 419 : "Ecart observé +11% vs facture TOM (1 964 FCFA/T/j)"
+
+### Peuplement complémentaire — Vague 2 (2026-04-03)
+
+**6 lignes** ajoutées dans `terminal_tariff_codes` — codes manquants identifiés par audit couverture.
+
+| Code | Période | Montant (FCFA) | unit_basis | Famille | Evidence |
+|------|---------|---------------|------------|---------|----------|
+| 411 | P1 | 158 | tonne_per_day | RIZ en sacs | `official` |
+| 511 | P2 | 318 | tonne_per_day | RIZ en sacs | `official` |
+| 611 | P3 | 410 | tonne_per_day | RIZ en sacs | `official` |
+| 415 | P1 | 466 | unit | Animaux vivants | `official` |
+| 515 | P2 | 750 | unit | Animaux vivants | `official` |
+| 615 | P3 | 969 | unit | Animaux vivants | `official` |
+
+- Source : Grille Tarifaire Officielle Dakar Terminal 2014, page 34
+- Double-check : CSV `tariff_final_consolidated` ↔ PDF confirmé (unit_basis cohérent)
+- **Total `terminal_tariff_codes`** : **34 lignes** (33 `official`, 1 `to_confirm`)
+
+### Couverture après vague 2
+
+| Période | Couverts | Total non-vrac | Couverture |
+|---------|----------|----------------|------------|
+| P1 | 929 | 929 | **100%** |
+| P2 | 915 | 929 | **98.5%** |
+| P3 | 915 | 929 | **98.5%** |
+
+**Gap résiduel** : codes **520/620** (véhicules P2/P3) — absents de la grille PDF 2014, non inventés, documentés comme gap.
 
 ### Ce qui n'a PAS été fait
 
@@ -353,6 +380,7 @@ Contraintes :
 - 0 contamination du référentiel manutention DPW (`port_tariffs`)
 - 0 handling injecté
 - 0 dpw injecté
+- 0 codes 520/620 inventés
 
 ---
 
