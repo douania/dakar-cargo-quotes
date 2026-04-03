@@ -387,3 +387,57 @@ Chaque catégorie peuplée a reçu une annotation dans `notes_operator` :
 - 0 `terminal_tariff_codes`
 - 0 handling / DPW
 - Les 7 catégories ambiguës restent vierges
+
+---
+
+## ⚠️ Recadrage conceptuel — PAD ≠ classification terminale (2026-04-03)
+
+### Constat
+
+Le mapping `commodity_categories.terminal_storage_code_p1/p2/p3` (via catégories PAD) est une **approximation provisoire, pas le modèle cible**.
+
+PAD (redevances portuaires) et Dakar Terminal (magasinage) sont **deux systèmes de classification distincts** :
+- **PAD** : catégories agrégées de redevances portuaires (T01–T14)
+- **Dakar Terminal** : ~500 désignations de marchandises avec positions tarifaires propres
+
+### Schéma logique correct
+
+```
+BL goods_description
+  → normalisation / matching
+    → désignation Dakar Terminal (ex: "AVIONS (jouets)")
+      → position tarifaire (ex: 138)
+        → codes magasinage P1/P2/P3 (ex: 419/519/619)
+          → terminal_tariff_codes → montants
+            → calcul magasinage
+```
+
+### Ce qui est faux
+
+Utiliser les catégories PAD (T01, T02, ...) comme clé d'entrée du magasinage terminal.
+Le mapping PAD → code terminal est au mieux indirect et trop grossier.
+
+### Règle de non-usage moteur
+
+> **Tant qu'un modèle par désignation terminale n'existe pas, le moteur ne doit pas consommer `commodity_categories.terminal_storage_code_p1/p2/p3` comme source normative de calcul du magasinage.**
+
+### Données existantes
+
+Les 3 mappings T05/T09/T14 restent en base (pas de rollback) mais sont requalifiés comme :
+- approximation provisoire
+- non-cible architecturale
+- non consommable par le moteur
+
+### Modèle cible
+
+Référencé sous **DT-DESIGNATION-MODEL** dans `docs/DEFERRED_BACKLOG.md` :
+- Table `terminal_designations` (~500 désignations)
+- Résolution : `goods_description → terminal_designations → terminal_tariff_codes → montant`
+
+### Ce qui n'a PAS changé
+
+- 0 migration
+- 0 moteur
+- 0 UI
+- 0 suppression de données
+- 0 `terminal_tariff_codes`
