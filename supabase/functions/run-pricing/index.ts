@@ -1700,6 +1700,7 @@ Deno.serve(async (req) => {
         }
       }
 
+    } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
 
       // Phase EQ1.2-quinquies: detect recoverable exchange rate blocker
