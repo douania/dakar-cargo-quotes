@@ -451,3 +451,57 @@ Référencé sous **DT-DESIGNATION-MODEL** dans `docs/DEFERRED_BACKLOG.md` :
 - 0 suppression de données
 - 0 `terminal_tariff_codes`
 - 0 `commodity_categories`
+
+---
+
+## Peuplement terminal_designations — Phase 2 (2026-04-03)
+
+### Source
+
+- **Fichier** : `tariff_final_consolidated.csv` (956 lignes)
+- **Document d'origine** : Grille Tarifaire Officielle Dakar Terminal 2014
+- **Croisement qualité** : 100 lignes aléatoires vérifiées manuellement contre le PDF — 100% conformes
+
+### Données insérées
+
+- **956 lignes** dans `terminal_designations`
+- `terminal_provider = 'dakar_terminal'`
+- `evidence_level = 'official'`
+- `source_document = 'Grille Tarifaire Officielle Dakar Terminal 2014'`
+- `effective_date = '2014-12-09'`
+
+### Mapping `tariff_position`
+
+Dans le référentiel Dakar Terminal importé ici, la colonne "Position tarifaire" correspond factuellement aux valeurs 3 chiffres reprises dans `handling_code` ; cette équivalence est spécifique à ce référentiel et ne doit pas être généralisée.
+
+### `handling_code` — cadrage strict
+
+- Importé comme **métadonnée descriptive** de nomenclature Dakar Terminal
+- **Non consommable** par le moteur pour le calcul de la manutention
+- La manutention DPW reste un référentiel séparé via `port_tariffs`
+
+### Répartition `unit_basis`
+
+| unit_basis | Nombre |
+|------------|--------|
+| tonne_per_day | 858 |
+| unit | 54 |
+| m3 | 40 |
+| basket | 2 |
+| per_100kg | 1 |
+| atypical | 1 |
+
+### Cas particuliers traités
+
+- **27 lignes vrac** : storage codes convertis en `NULL` (valeurs source : `0`, `-`, vide)
+- **Cale frigo** : `unit_basis = 'atypical'`, note : "Libellé tarifaire non marchandise, conservé comme désignation de nomenclature Dakar Terminal."
+- **1 ligne VOIR TARIF** (`CHARPENTES métalliques et longueur supérieur à 8 m, + 3 T voir tarif colis lourds`) : conservée avec annotation de renvoi tarifaire
+
+### Ce qui n'a PAS changé
+
+- 0 moteur
+- 0 UI
+- 0 `terminal_tariff_codes`
+- 0 `commodity_categories`
+- 0 `port_tariffs`
+- 0 DPW
