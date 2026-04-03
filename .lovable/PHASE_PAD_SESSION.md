@@ -642,7 +642,7 @@ cargo.description (fact dossier)
 |-----|-------------|----------|--------|
 | T1 | `ceramic tiles` (alias validé) | ✅ PASS | 446 040 FCFA, match=alias, OFFICIAL |
 | T2 | `BATTERY ENERGY STORAGE SYSTEM` (aucun match) | ✅ PASS | Skip, log "No alias or direct match" |
-| T3 | Chaîne DB résolution prouvée | ✅ PASS | Query jointure alias→designation→tariff OK |
+| T3 | Chaîne DB résolution prouvée | ⚠️ INDIRECT | Fallback direct confirmé via jointure DB, pas par smoke test runtime isolé aussi fort que T1/T2 |
 
 **Règles** :
 - `normalized_term` = source de vérité moteur (jamais lookup sur `bl_term` brut)
