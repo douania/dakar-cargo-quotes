@@ -604,7 +604,9 @@ cargo.description (fact dossier)
 
 ### Hors scope (Phase 3-B, deferred)
 
-- Matching fuzzy / synonymes / table d'alias
+- ~~Matching fuzzy / synonymes / table d'alias~~ → **Phase 3-B.1-A livrée** (alias déterministes)
+- UI admin alias → Phase 3-B.1-B (deferred)
+- Fallback IA → Phase 3-B.2 (deferred)
 - P2/P3 (périodes ultérieures)
 - Calcul jours réels après franchise
 - Renvois VOIR TARIF
@@ -619,3 +621,30 @@ cargo.description (fact dossier)
   - **Correction factuelle** : ces codes sont référencés dans la nomenclature des désignations (pages 28-29, 32 du PDF 2014) mais leurs taux FCFA sont absents du barème officiel page 34 — c'est un gap de la source elle-même, pas une erreur d'extraction
   - Décision : non injectés (règle 0-extrapolation respectée)
   - Déclencheur de réouverture : obtention d'une source secondaire (facture TOM véhicules, grille post-2014) avec les montants réels
+
+### Phase 3-B.1-A — Alias BL → désignation terminale (2026-04-03)
+
+**Livré** :
+- Table `terminal_designation_aliases` créée (migration + RLS + trigger updated_at)
+- 9 alias seedés (`is_validated = true`, `source_type = 'seeded_synonym'`) :
+  - `ceramic tiles` / `tiles` → CARREAUX en vrac
+  - `rice in bags` / `rice bags` → RIZ en sacs
+  - `cement bags` / `bagged cement` → CIMENT en sac
+  - `used clothing` / `secondhand clothes` → VETEMENTS usagés
+  - `plywood` → CONTREPLAQUE (bois)
+- Lookup alias intégré dans `run-pricing` avant match direct Phase 3-A
+- Seuls les alias `is_validated = true` consommés par le moteur
+- Confidence plafonnée à 0.5
+- Log explicite avec `match=alias` ou `match=direct`
+
+**Smoke tests** :
+| Cas | Description | Résultat | Détail |
+|-----|-------------|----------|--------|
+| T1 | `ceramic tiles` (alias validé) | ✅ PASS | 446 040 FCFA, match=alias, OFFICIAL |
+| T2 | `BATTERY ENERGY STORAGE SYSTEM` (aucun match) | ✅ PASS | Skip, log "No alias or direct match" |
+| T3 | Chaîne DB résolution prouvée | ✅ PASS | Query jointure alias→designation→tariff OK |
+
+**Règles** :
+- `normalized_term` = source de vérité moteur (jamais lookup sur `bl_term` brut)
+- `validated_by` NULL autorisé pour seeds système
+- `updated_at` maintenu automatiquement par trigger DB

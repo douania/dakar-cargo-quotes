@@ -1621,7 +1621,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ═══ Phase 3-A: Terminal Storage Provision Estimate (Dakar Terminal, P1, mono-lot only) ═══
+      // ═══ Phase 3-B.1 + 3-A: Terminal Storage Provision Estimate (Dakar Terminal, P1, mono-lot only) ═══
+      // Phase 3-B.1: Alias lookup (validated only) → Phase 3-A: Direct match fallback
       // Exact match only — 0 ILIKE, 0 fuzzy, 0 partial matching
       // handling_code is metadata only — not consumed for pricing
       const isMaritime = !String(caseData.request_type || '').toUpperCase().includes('AIR');
@@ -1630,17 +1631,52 @@ Deno.serve(async (req) => {
           // Normalize description for exact match
           const normalizedDesc = normalizePricingText(inputs.cargoDescription);
           if (normalizedDesc) {
-            // Query terminal_designations — exact match on normalized label
-            const { data: tdRows } = await serviceClient
-              .from('terminal_designations')
-              .select('designation_label, storage_code_p1, unit_basis')
-              .eq('terminal_provider', 'dakar_terminal')
-              .not('storage_code_p1', 'is', null);
+            let matchedDesignation: { designation_label: string; storage_code_p1: string; unit_basis: string } | null = null;
+            let matchSource: 'alias' | 'direct' = 'direct';
 
-            // Find exact normalized match
-            const matchedDesignation = (tdRows || []).find(
-              (td: any) => normalizePricingText(td.designation_label) === normalizedDesc
-            );
+            // ── Phase 3-B.1: Alias lookup (validated only, normalized_term exact match) ──
+            const { data: aliasRows } = await serviceClient
+              .from('terminal_designation_aliases')
+              .select('terminal_designation_id, bl_term')
+              .eq('normalized_term', normalizedDesc)
+              .eq('is_validated', true)
+              .limit(1);
+
+            if (aliasRows && aliasRows.length === 1) {
+              const aliasRow = aliasRows[0];
+              // Resolve the target designation
+              const { data: targetDesignation } = await serviceClient
+                .from('terminal_designations')
+                .select('designation_label, storage_code_p1, unit_basis')
+                .eq('id', aliasRow.terminal_designation_id)
+                .eq('terminal_provider', 'dakar_terminal')
+                .not('storage_code_p1', 'is', null)
+                .maybeSingle();
+
+              if (targetDesignation) {
+                matchedDesignation = targetDesignation;
+                matchSource = 'alias';
+                console.log(`[TERMINAL_STORAGE] Alias match: "${inputs.cargoDescription}" → "${targetDesignation.designation_label}" via alias bl_term="${aliasRow.bl_term}"`);
+              }
+            }
+
+            // ── Phase 3-A fallback: Direct match on designation_label ──
+            if (!matchedDesignation) {
+              const { data: tdRows } = await serviceClient
+                .from('terminal_designations')
+                .select('designation_label, storage_code_p1, unit_basis')
+                .eq('terminal_provider', 'dakar_terminal')
+                .not('storage_code_p1', 'is', null);
+
+              const directMatch = (tdRows || []).find(
+                (td: any) => normalizePricingText(td.designation_label) === normalizedDesc
+              );
+
+              if (directMatch) {
+                matchedDesignation = directMatch;
+                matchSource = 'direct';
+              }
+            }
 
             if (matchedDesignation) {
               const storageCodeP1 = String(matchedDesignation.storage_code_p1);
@@ -1673,7 +1709,7 @@ Deno.serve(async (req) => {
                 engineLines.push(canonicalizeLine({
                   category: 'TERMINAL_STORAGE_PROVISION_ESTIMATE',
                   label: 'Provision estimative magasinage terminal Dakar Terminal (hyp. 3j P1)',
-                  description: `Provision estimative magasinage Dakar Terminal — Désignation: ${matchedDesignation.designation_label} — Taux P1 (code ${storageCodeP1}): ${tariffRow.amount_per_unit} FCFA/T/j × ${weightFormatted} T × ${provisionDays}j — Caractère estimatif, non contractuel`,
+                  description: `Provision estimative magasinage Dakar Terminal — Désignation: ${matchedDesignation.designation_label} — Taux P1 (code ${storageCodeP1}): ${tariffRow.amount_per_unit} FCFA/T/j × ${weightFormatted} T × ${provisionDays}j — Match: ${matchSource} — Caractère estimatif, non contractuel`,
                   amount: provisionAmount,
                   currency: 'FCFA',
                   unit: 'tonne',
@@ -1687,12 +1723,12 @@ Deno.serve(async (req) => {
                   isEditable: true,
                 }, { origin_layer: 'enrichment_terminal_storage' }));
                 engineResponse.lines = engineLines;
-                console.log(`[TERMINAL_STORAGE] Provision P1: ${provisionAmount} FCFA — designation="${matchedDesignation.designation_label}" code=${storageCodeP1} rate=${tariffRow.amount_per_unit} weight=${weightFormatted}T days=${provisionDays} evidence=${sourceType}`);
+                console.log(`[TERMINAL_STORAGE] Provision P1: ${provisionAmount} FCFA — designation="${matchedDesignation.designation_label}" code=${storageCodeP1} rate=${tariffRow.amount_per_unit} weight=${weightFormatted}T days=${provisionDays} evidence=${sourceType} match=${matchSource}`);
               } else {
                 console.warn(`[TERMINAL_STORAGE] No P1 tariff found for code ${storageCodeP1} — skipping`);
               }
             } else {
-              console.warn(`[TERMINAL_STORAGE] No exact match for "${inputs.cargoDescription}" — skipping`);
+              console.warn(`[TERMINAL_STORAGE] No alias or direct match for "${inputs.cargoDescription}" — skipping`);
             }
           }
         } catch (tsError) {
