@@ -648,3 +648,18 @@ cargo.description (fact dossier)
 - `normalized_term` = source de vérité moteur (jamais lookup sur `bl_term` brut)
 - `validated_by` NULL autorisé pour seeds système
 - `updated_at` maintenu automatiquement par trigger DB
+
+### Phase 3-B.1-B — UI admin alias (2026-04-03)
+
+**Livré** :
+- Onglet "Alias BL" ajouté à la page admin Magasinage (`TerminalStorage.tsx`)
+- Onglet "Désignations" existant inchangé (refactoré en composant `DesignationsTab`)
+- CRUD alias : création, validation explicite, suppression avec confirmation
+- `normalized_term` calculé automatiquement via `normalizeForMatch()` (read-only, non éditable)
+- Création = `is_validated: false` + `source_type: 'manual'` — validation = action séparée
+- Tri opératoire : alias en attente d'abord, puis validés, `created_at DESC`
+- KPI : total / en attente / validés
+- Filtres : recherche texte + filtre statut
+- `validated_by` affiché comme "Système" si NULL, sinon UUID tronqué
+- Badges visuels `source_type` (seeded_synonym, manual, operator_correction)
+- 0 migration, 0 moteur, 0 run-pricing
