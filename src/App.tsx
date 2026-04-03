@@ -34,6 +34,7 @@ import ExchangeRates from "./pages/admin/ExchangeRates";
 import CarrierBillingTemplates from "./pages/admin/CarrierBillingTemplates";
 import CommodityCategories from "./pages/admin/CommodityCategories";
 import TariffOverview from "./pages/admin/TariffOverview";
+import TerminalStorage from "./pages/admin/TerminalStorage";
 
 const queryClient = new QueryClient();
 
