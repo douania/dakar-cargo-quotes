@@ -4563,6 +4563,59 @@ export type Database = {
           },
         ]
       }
+      terminal_designation_aliases: {
+        Row: {
+          bl_term: string
+          created_at: string | null
+          id: string
+          is_validated: boolean
+          normalized_term: string
+          notes: string | null
+          source_reference: string | null
+          source_type: string
+          terminal_designation_id: string
+          updated_at: string | null
+          validated_at: string | null
+          validated_by: string | null
+        }
+        Insert: {
+          bl_term: string
+          created_at?: string | null
+          id?: string
+          is_validated?: boolean
+          normalized_term: string
+          notes?: string | null
+          source_reference?: string | null
+          source_type?: string
+          terminal_designation_id: string
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Update: {
+          bl_term?: string
+          created_at?: string | null
+          id?: string
+          is_validated?: boolean
+          normalized_term?: string
+          notes?: string | null
+          source_reference?: string | null
+          source_type?: string
+          terminal_designation_id?: string
+          updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "terminal_designation_aliases_terminal_designation_id_fkey"
+            columns: ["terminal_designation_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_designations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       terminal_designations: {
         Row: {
           created_at: string | null
