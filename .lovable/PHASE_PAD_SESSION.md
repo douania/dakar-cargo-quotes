@@ -428,16 +428,26 @@ Les 3 mappings T05/T09/T14 restent en base (pas de rollback) mais sont requalifi
 - non-cible architecturale
 - non consommable par le moteur
 
-### Modèle cible
+### Modèle cible — Phase 1 livrée (2026-04-03)
 
 Référencé sous **DT-DESIGNATION-MODEL** dans `docs/DEFERRED_BACKLOG.md` :
-- Table `terminal_designations` (~500 désignations)
-- Résolution : `goods_description → terminal_designations → terminal_tariff_codes → montant`
+- Table `terminal_designations` **créée** avec :
+  - CHECK constraints : codes 3 chiffres (`handling_code`, `storage_code_p1/p2/p3`), `tariff_position > 0`
+  - UNIQUE `(designation_label, terminal_provider)`
+  - `effective_date` nullable sans default (renseigné au peuplement)
+  - RLS authenticated CRUD (même modèle que `terminal_tariff_codes`)
+  - Index : `(terminal_provider, designation_label)` + `(terminal_provider, tariff_position)`
+- **0 donnée injectée** — peuplement = Phase 2 séparée
+- Résolution cible : `goods_description → terminal_designations → terminal_tariff_codes → montant`
+
+#### Notes de prudence
+- L'unicité `(designation_label, terminal_provider)` pourra évoluer vers `(terminal_provider, designation_label, tariff_position)` si le peuplement réel révèle des collisions de libellés
+- Le matching futur devra probablement utiliser une normalisation du libellé (index case-insensitive à créer)
 
 ### Ce qui n'a PAS changé
 
-- 0 migration
 - 0 moteur
 - 0 UI
 - 0 suppression de données
 - 0 `terminal_tariff_codes`
+- 0 `commodity_categories`
