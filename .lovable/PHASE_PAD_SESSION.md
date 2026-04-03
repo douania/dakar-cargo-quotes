@@ -557,6 +557,23 @@ cargo.description (fact dossier)
 - 0 DPW, 0 handling moteur, 0 `port_tariffs`
 - 0 `quotation-engine` (FROZEN)
 
+### Bugfix capturé
+
+- `unit` → `unit_basis` dans la requête `terminal_tariff_codes` (bloquant, corrigé et redéployé)
+
+### Validation métier — Smoke tests runtime (2026-04-03)
+
+| Cas | Description | Ligne produite ? | Montant | source.type | Verdict |
+|-----|-------------|-----------------|---------|-------------|---------|
+| T1b matché | "AVIONS (jouets)", 12.5T, SEA_FCL | ✅ OUI | 66 300 FCFA | TO_CONFIRM | **PASS** |
+| T2 non matché | description fantaisie, SEA_FCL | ❌ NON | — | — | **PASS** |
+| T3 vrac | désignation vrac (storage NULL), SEA_FCL | ❌ NON | — | — | PASS (indirect) |
+| T4 AIR | payload AIR_IMPORT | ❌ NON | — | — | PASS (indirect) |
+
+**Nuance de couverture** :
+- T1b et T2 : preuves runtime isolées complètes — valident le cœur fonctionnel (match exact + non-match)
+- T3 et T4 : confirmations indirectes via guards amont ; non testés en isolation complète du bloc terminal storage
+
 ### Hors scope (Phase 3-B, deferred)
 
 - Matching fuzzy / synonymes / table d'alias
