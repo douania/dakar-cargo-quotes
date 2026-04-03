@@ -1648,7 +1648,7 @@ Deno.serve(async (req) => {
               // Lookup rate in terminal_tariff_codes
               const { data: tariffRow } = await serviceClient
                 .from('terminal_tariff_codes')
-                .select('code, amount_per_unit, unit, currency, evidence_level, source_document')
+                .select('code, amount_per_unit, unit_basis, currency, evidence_level, source_document')
                 .eq('code', storageCodeP1)
                 .eq('period', 'P1')
                 .eq('tariff_type', 'storage')
