@@ -4563,6 +4563,57 @@ export type Database = {
           },
         ]
       }
+      terminal_designations: {
+        Row: {
+          created_at: string | null
+          designation_label: string
+          effective_date: string | null
+          evidence_level: string
+          handling_code: string | null
+          id: string
+          notes: string | null
+          source_document: string | null
+          storage_code_p1: string | null
+          storage_code_p2: string | null
+          storage_code_p3: string | null
+          tariff_position: number
+          terminal_provider: string
+          unit_basis: string
+        }
+        Insert: {
+          created_at?: string | null
+          designation_label: string
+          effective_date?: string | null
+          evidence_level?: string
+          handling_code?: string | null
+          id?: string
+          notes?: string | null
+          source_document?: string | null
+          storage_code_p1?: string | null
+          storage_code_p2?: string | null
+          storage_code_p3?: string | null
+          tariff_position: number
+          terminal_provider?: string
+          unit_basis?: string
+        }
+        Update: {
+          created_at?: string | null
+          designation_label?: string
+          effective_date?: string | null
+          evidence_level?: string
+          handling_code?: string | null
+          id?: string
+          notes?: string | null
+          source_document?: string | null
+          storage_code_p1?: string | null
+          storage_code_p2?: string | null
+          storage_code_p3?: string | null
+          tariff_position?: number
+          terminal_provider?: string
+          unit_basis?: string
+        }
+        Relationships: []
+      }
       terminal_tariff_codes: {
         Row: {
           amount_per_unit: number
