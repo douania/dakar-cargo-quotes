@@ -381,6 +381,12 @@ function canonicalizeLine(
     canonical.source_system = 'fact_dossier';
     canonical.source_table = null;
     canonical.pricing_method = 'fact_based';
+  } else if (context.origin_layer === 'enrichment_terminal_storage') {
+    canonical.service_key = 'TERMINAL_STORAGE_PROVISION_ESTIMATE';
+    canonical.dedup_group = 'TERMINAL_STORAGE';
+    canonical.source_system = 'terminal_designations';
+    canonical.source_table = 'terminal_tariff_codes';
+    canonical.pricing_method = 'provision_estimate';
   }
 
   return { ...line, canonical };
