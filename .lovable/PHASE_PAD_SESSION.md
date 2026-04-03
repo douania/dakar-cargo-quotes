@@ -610,3 +610,12 @@ cargo.description (fact dossier)
 - Renvois VOIR TARIF
 - Cas vrac / atypical
 - DPW / handling
+
+### Audit couverture codes/montants (2026-04-03)
+
+- **P1** : 100% des non-vrac (929/929 désignations résolues)
+- **P2/P3** : 98.5% (914/929 désignations résolues)
+- **Gap résiduel** : codes 520/620 (véhicules P2/P3) — ~14 désignations non résolubles
+  - **Correction factuelle** : ces codes sont référencés dans la nomenclature des désignations (pages 28-29, 32 du PDF 2014) mais leurs taux FCFA sont absents du barème officiel page 34 — c'est un gap de la source elle-même, pas une erreur d'extraction
+  - Décision : non injectés (règle 0-extrapolation respectée)
+  - Déclencheur de réouverture : obtention d'une source secondaire (facture TOM véhicules, grille post-2014) avec les montants réels
