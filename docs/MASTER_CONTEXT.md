@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.3
-Phase: EQ1.2 + CL1 + PAD + Magasinage DT
-Latest patch: Phase 3-B.2-A — IA suggestions magasinage Dakar Terminal
+Version: 1.4
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + Magasinage DT
+Latest patch: Phase PAD-1 — Alias runtime taxe de port
 Date: 2026-04
 
 ---
