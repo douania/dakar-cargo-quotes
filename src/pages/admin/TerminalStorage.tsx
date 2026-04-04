@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Search, AlertTriangle, Snowflake, ArrowRightLeft, CircleOff, CheckCircle2,
-  CircleDot, HelpCircle, Plus, ShieldCheck, Trash2,
+  CircleDot, HelpCircle, Plus, ShieldCheck, Trash2, Brain, LinkIcon, XCircle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch } from "@/lib/normalizeForMatch";
