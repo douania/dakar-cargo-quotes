@@ -2759,6 +2759,59 @@ export type Database = {
           },
         ]
       }
+      pad_designation_aliases: {
+        Row: {
+          bl_term: string
+          commodity_category_id: string
+          created_at: string
+          id: string
+          is_validated: boolean
+          normalized_term: string
+          pad_category: string
+          source_reference: string | null
+          source_type: string
+          updated_at: string
+          validated_at: string | null
+          validated_by: string | null
+        }
+        Insert: {
+          bl_term: string
+          commodity_category_id: string
+          created_at?: string
+          id?: string
+          is_validated?: boolean
+          normalized_term: string
+          pad_category: string
+          source_reference?: string | null
+          source_type?: string
+          updated_at?: string
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Update: {
+          bl_term?: string
+          commodity_category_id?: string
+          created_at?: string
+          id?: string
+          is_validated?: boolean
+          normalized_term?: string
+          pad_category?: string
+          source_reference?: string | null
+          source_type?: string
+          updated_at?: string
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pad_designation_aliases_commodity_category_id_fkey"
+            columns: ["commodity_category_id"]
+            isOneToOne: false
+            referencedRelation: "commodity_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       port_tariffs: {
         Row: {
           amount: number

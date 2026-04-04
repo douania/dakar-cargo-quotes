@@ -1,11 +1,11 @@
 
-# État courant — Sous-système Magasinage Dakar Terminal
+# État courant — Sous-systèmes Magasinage DT + Taxe de Port PAD
 
-## Statut
+## Magasinage Dakar Terminal
 
 **Phase 3-B.2-A livrée et validée métier** (2026-04)
 
-## Ce qui est livré
+### Ce qui est livré
 
 - **Référentiel** : `terminal_designations` (~956 entrées) + `terminal_tariff_codes` (~34 codes) peuplés et audités
 - **Alias BL** : table `terminal_designation_aliases`, consommation moteur des alias validés, UI admin (création / validation / suppression)
@@ -13,16 +13,30 @@
 - **Moteur** : `run-pricing` produit `TERMINAL_STORAGE_PROVISION_ESTIMATE` (P1 × poids × 3j) si match couche 1 (alias) ou couche 2 (direct)
 - **Règle centrale** : les suggestions IA ne produisent aucune ligne pricing ni aucun calcul tant qu'un opérateur ne les a pas validées et capitalisées en alias
 
-## Ce qui est différé
+### Ce qui est différé
 
-Voir `docs/DEFERRED_BACKLOG.md` pour le détail :
+Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CARGO, DT-DESIGNATION-MODEL, DT-2014-REVISION
 
-- P2/P3 dans le moteur (`DT-P2P3-ENGINE`)
-- Jours réels après franchise (`DT-RATE-TABLE`)
-- Multi-cargo IA (`DT-AI-MULTI-CARGO`)
-- Synonymes avancés / matching DPW (`DT-DESIGNATION-MODEL`)
-- Révision tarifs 2014 → 2024+ (`DT-2014-REVISION`)
+---
 
-## Prochaine suite logique
+## Taxe de Port PAD
 
-Enrichissement progressif du dictionnaire d'alias en exploitation réelle, puis Phase 3-B.2 avancée (multi-cargo, P2/P3) quand le besoin opérationnel se manifeste.
+**Phase PAD-1 livrée** (2026-04-04)
+
+### Ce qui est livré
+
+- **Table** : `pad_designation_aliases` — 51 alias seedés depuis `commodity_designation_matches` (0 collision auditée)
+- **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant (facts opérateur prioritaires)
+- **Résolution** : alias → `pad_category` → `port_tariffs` (provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT) → `pad_rate_fcfa_per_ton`
+- **Source de vérité** : `commodity_category_id` (FK). `pad_category` = copie dénormalisée runtime.
+- **Gestion collisions** : warning + skip si ambiguïté multi-catégorie
+- **Séparation** : tables distinctes du magasinage, 0 mélange
+
+### Ce qui est différé
+
+Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-ADMIN-UI, PAD-MULTI-LOT
+
+### Prochaine suite logique
+
+1. **PAD-ADMIN-UI** : UI admin pour créer/valider des alias PAD (quand les opérateurs en ont besoin)
+2. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
