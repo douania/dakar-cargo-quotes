@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Package, Filter, X } from "lucide-react";
 import CorrespondancesTab from "@/components/admin/CorrespondancesTab";
+import PadAliasTab from "@/components/admin/PadAliasTab";
 const EVIDENCE_LEVELS = ['official', 'observed', 'to_confirm'] as const;
 const CARGO_TYPES = ['DRY', 'DG', 'REEFER', 'OOG', 'BREAKBULK', 'RORO', 'VEHICULE'];
 const TERMINAL_PROVIDERS = ['DP_WORLD', 'DAKAR_TERMINAL', 'TAL', 'PAD'];
