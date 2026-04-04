@@ -388,6 +388,7 @@ export default function CommodityCategories() {
           <TabsList>
             <TabsTrigger value="categories">Catégories</TabsTrigger>
             <TabsTrigger value="correspondances">Correspondances</TabsTrigger>
+            <TabsTrigger value="alias-pad">Alias PAD</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories">
