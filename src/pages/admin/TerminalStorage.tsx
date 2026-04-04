@@ -719,6 +719,385 @@ function AliasTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Suggestions IA Tab (Phase 3-B.2-A)
+// ═══════════════════════════════════════════════════════════════════════
+
+const suggestionStatusColors: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-0",
+  accepted: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-0",
+  rejected: "bg-destructive/15 text-destructive border-0",
+};
+
+function confidenceBadge(score: number | null) {
+  if (score == null) return "—";
+  const pct = Math.round(score * 100);
+  const cls =
+    score >= 0.8 ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
+    score >= 0.5 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :
+    "bg-destructive/15 text-destructive";
+  return <Badge variant="outline" className={`text-xs ${cls} border-0`}>{pct}%</Badge>;
+}
+
+function SuggestionsTab() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const { data: suggestions, isLoading } = useQuery({
+    queryKey: ["terminal-suggestions-admin"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("terminal_designation_suggestions")
+        .select("*, terminal_designations(designation_label)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Accept mutation
+  const acceptMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("terminal_designation_suggestions")
+        .update({
+          suggestion_status: "accepted",
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["terminal-suggestions-admin"] });
+      toast({ title: "Suggestion acceptée" });
+    },
+  });
+
+  // Reject mutation
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("terminal_designation_suggestions")
+        .update({
+          suggestion_status: "rejected",
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["terminal-suggestions-admin"] });
+      toast({ title: "Suggestion rejetée" });
+    },
+  });
+
+  // Accept + create alias mutation
+  const acceptAndAliasMutation = useMutation({
+    mutationFn: async (suggestion: any) => {
+      // Anti-doublon: check if alias already exists
+      const { data: existingAlias } = await supabase
+        .from("terminal_designation_aliases")
+        .select("id")
+        .eq("normalized_term", suggestion.normalized_source_text)
+        .eq("terminal_designation_id", suggestion.terminal_designation_id)
+        .limit(1);
+
+      if (existingAlias && existingAlias.length > 0) {
+        // Alias already exists — just accept the suggestion, mark alias_created
+        const { error } = await supabase
+          .from("terminal_designation_suggestions")
+          .update({
+            suggestion_status: "accepted",
+            reviewed_at: new Date().toISOString(),
+            alias_created: true,
+            created_alias_id: existingAlias[0].id,
+          })
+          .eq("id", suggestion.id);
+        if (error) throw error;
+        return { alreadyExisted: true };
+      }
+
+      // Create new alias
+      const { data: newAlias, error: aliasErr } = await supabase
+        .from("terminal_designation_aliases")
+        .insert({
+          bl_term: suggestion.source_text,
+          normalized_term: suggestion.normalized_source_text,
+          terminal_designation_id: suggestion.terminal_designation_id,
+          source_type: "ai_suggestion_validated",
+          source_reference: suggestion.id,
+          is_validated: true,
+          validated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (aliasErr) throw aliasErr;
+
+      // Update suggestion
+      const { error: updateErr } = await supabase
+        .from("terminal_designation_suggestions")
+        .update({
+          suggestion_status: "accepted",
+          reviewed_at: new Date().toISOString(),
+          alias_created: true,
+          created_alias_id: newAlias.id,
+        })
+        .eq("id", suggestion.id);
+      if (updateErr) throw updateErr;
+
+      return { alreadyExisted: false };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["terminal-suggestions-admin"] });
+      queryClient.invalidateQueries({ queryKey: ["terminal-aliases-admin"] });
+      if (result.alreadyExisted) {
+        toast({ title: "Suggestion acceptée", description: "Un alias identique existait déjà — lié automatiquement." });
+      } else {
+        toast({ title: "Suggestion acceptée + alias créé", description: "L'alias est immédiatement consommable par le moteur." });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const filtered = useMemo(() => {
+    if (!suggestions) return [];
+    return suggestions.filter((s: any) => {
+      if (statusFilter !== "all" && s.suggestion_status !== statusFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        return (
+          (s.source_text || "").toLowerCase().includes(q) ||
+          (s.suggested_label || "").toLowerCase().includes(q) ||
+          (s.normalized_source_text || "").toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [suggestions, search, statusFilter]);
+
+  // Sort: pending first
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a: any, b: any) => {
+      const statusOrder: Record<string, number> = { pending: 0, accepted: 1, rejected: 2 };
+      const sa = statusOrder[a.suggestion_status] ?? 9;
+      const sb = statusOrder[b.suggestion_status] ?? 9;
+      if (sa !== sb) return sa - sb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [filtered]);
+
+  const kpis = useMemo(() => {
+    if (!suggestions) return { total: 0, pending: 0, accepted: 0, rejected: 0 };
+    const pending = suggestions.filter((s: any) => s.suggestion_status === "pending").length;
+    const accepted = suggestions.filter((s: any) => s.suggestion_status === "accepted").length;
+    const rejected = suggestions.filter((s: any) => s.suggestion_status === "rejected").length;
+    return { total: suggestions.length, pending, accepted, rejected };
+  }, [suggestions]);
+
+  return (
+    <div className="space-y-6">
+      {/* KPI */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-2xl font-bold text-foreground">{kpis.total}</p>
+            <p className="text-xs text-muted-foreground">Total</p>
+          </CardContent>
+        </Card>
+        <Card
+          className="cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all"
+          onClick={() => setStatusFilter(statusFilter === "pending" ? "all" : "pending")}
+        >
+          <CardContent className="p-3 text-center">
+            <p className="text-2xl font-bold text-foreground">{kpis.pending}</p>
+            <p className="text-xs text-muted-foreground">En attente</p>
+          </CardContent>
+        </Card>
+        <Card
+          className="cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all"
+          onClick={() => setStatusFilter(statusFilter === "accepted" ? "all" : "accepted")}
+        >
+          <CardContent className="p-3 text-center">
+            <p className="text-2xl font-bold text-foreground">{kpis.accepted}</p>
+            <p className="text-xs text-muted-foreground">Acceptées</p>
+          </CardContent>
+        </Card>
+        <Card
+          className="cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all"
+          onClick={() => setStatusFilter(statusFilter === "rejected" ? "all" : "rejected")}
+        >
+          <CardContent className="p-3 text-center">
+            <p className="text-2xl font-bold text-foreground">{kpis.rejected}</p>
+            <p className="text-xs text-muted-foreground">Rejetées</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-4 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher texte source, suggestion…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue placeholder="Statut" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous ({kpis.total})</SelectItem>
+              <SelectItem value="pending">En attente ({kpis.pending})</SelectItem>
+              <SelectItem value="accepted">Acceptées ({kpis.accepted})</SelectItem>
+              <SelectItem value="rejected">Rejetées ({kpis.rejected})</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {/* Table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            {sorted.length} suggestion{sorted.length > 1 ? "s" : ""}
+            {statusFilter !== "all" && <Badge variant="secondary" className="ml-2">{statusFilter}</Badge>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-8 text-center text-muted-foreground">Chargement des suggestions…</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[150px]">Texte source</TableHead>
+                    <TableHead className="min-w-[150px]">Suggestion</TableHead>
+                    <TableHead className="text-center">Score</TableHead>
+                    <TableHead className="text-center">Rang</TableHead>
+                    <TableHead className="min-w-[120px]">Raisonnement</TableHead>
+                    <TableHead className="text-center">Statut</TableHead>
+                    <TableHead className="text-center">Alias</TableHead>
+                    <TableHead className="text-center min-w-[200px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((s: any) => {
+                    const desLabel = (s.terminal_designations as any)?.designation_label || s.suggested_label || "—";
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-sm">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="truncate block max-w-[200px] font-medium">{s.source_text}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-sm">
+                              <p className="font-medium">{s.source_text}</p>
+                              <p className="text-xs text-muted-foreground font-mono mt-1">{s.normalized_source_text}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell className="text-sm max-w-[200px]">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="truncate block">{desLabel}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-sm">{desLabel}</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell className="text-center">{confidenceBadge(s.confidence_score)}</TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">#{s.suggestion_rank}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[160px]">
+                          {s.reasoning ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="truncate block">{s.reasoning}</span></TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-sm">{s.reasoning}</TooltipContent>
+                            </Tooltip>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className={`text-xs ${suggestionStatusColors[s.suggestion_status] || ""}`}>
+                            {s.suggestion_status === "pending" ? "En attente" :
+                             s.suggestion_status === "accepted" ? "Acceptée" : "Rejetée"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {s.alias_created ? (
+                            <Badge variant="outline" className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-0 gap-1">
+                              <LinkIcon className="h-3 w-3" /> Alias créé
+                            </Badge>
+                          ) : s.suggestion_status === "accepted" ? (
+                            <span className="text-xs text-muted-foreground">Non capitalisé</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {s.suggestion_status === "pending" && (
+                            <div className="flex items-center justify-center gap-1 flex-wrap">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-xs"
+                                onClick={() => acceptMutation.mutate(s.id)}
+                                disabled={acceptMutation.isPending}
+                              >
+                                <CheckCircle2 className="h-3 w-3" /> Accepter
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-xs text-primary"
+                                onClick={() => acceptAndAliasMutation.mutate(s)}
+                                disabled={acceptAndAliasMutation.isPending}
+                              >
+                                <LinkIcon className="h-3 w-3" /> + Alias
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-xs text-destructive"
+                                onClick={() => rejectMutation.mutate(s.id)}
+                                disabled={rejectMutation.isPending}
+                              >
+                                <XCircle className="h-3 w-3" /> Rejeter
+                              </Button>
+                            </div>
+                          )}
+                          {s.suggestion_status !== "pending" && (
+                            <span className="text-xs text-muted-foreground">
+                              {s.reviewed_at ? new Date(s.reviewed_at).toLocaleDateString("fr-FR") : "—"}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {sorted.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        Aucune suggestion IA trouvée
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Main component
 // ═══════════════════════════════════════════════════════════════════════
 export default function TerminalStorage() {
@@ -738,12 +1117,16 @@ export default function TerminalStorage() {
           <TabsList>
             <TabsTrigger value="designations">Désignations</TabsTrigger>
             <TabsTrigger value="aliases">Alias BL</TabsTrigger>
+            <TabsTrigger value="suggestions">Suggestions IA</TabsTrigger>
           </TabsList>
           <TabsContent value="designations">
             <DesignationsTab />
           </TabsContent>
           <TabsContent value="aliases">
             <AliasTab />
+          </TabsContent>
+          <TabsContent value="suggestions">
+            <SuggestionsTab />
           </TabsContent>
         </Tabs>
       </div>
