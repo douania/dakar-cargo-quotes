@@ -21,7 +21,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 
 ## Taxe de Port PAD
 
-**Phase PAD-1 livrée** (2026-04-04)
+**Phase PAD-ADMIN-UI livrée** (2026-04-04)
 
 ### Ce qui est livré
 
@@ -31,12 +31,12 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 - **Source de vérité** : `commodity_category_id` (FK). `pad_category` = copie dénormalisée runtime.
 - **Gestion collisions** : warning + skip si ambiguïté multi-catégorie
 - **Séparation** : tables distinctes du magasinage, 0 mélange
+- **UI Admin** : onglet "Alias PAD" dans `CommodityCategories.tsx` — KPI, recherche, filtre statut, création (anti-doublon), validation, suppression (AlertDialog)
 
 ### Ce qui est différé
 
-Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-ADMIN-UI, PAD-MULTI-LOT
+Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT
 
 ### Prochaine suite logique
 
-1. **PAD-ADMIN-UI** : UI admin pour créer/valider des alias PAD (quand les opérateurs en ont besoin)
-2. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+1. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)

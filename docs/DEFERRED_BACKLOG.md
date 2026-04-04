@@ -113,7 +113,7 @@ Cela inclut les décisions formulées comme :
 | ID | Catégorie | Statut | Priorité | Phase d'origine | Date | Déclencheur de réouverture | Recommandation |
 |----|-----------|--------|----------|----------------|------|---------------------------|----------------|
 | PAD-IA | PAD matching IA | `deferred` | moyenne | PAD-1 | 2026-04-04 | Quand le dictionnaire d'alias PAD atteint ses limites de couverture (>20% de descriptions non résolues) | Implémenter un fallback IA similaire au magasinage (Phase PAD-2), avec validation opérateur obligatoire |
-| PAD-ADMIN-UI | UI admin alias PAD | `deferred` | haute | PAD-1 | 2026-04-04 | Quand les opérateurs ont besoin de créer/valider des alias PAD depuis l'interface | Créer un onglet dédié dans l'admin, similaire à l'onglet Alias BL du magasinage |
+| PAD-ADMIN-UI | UI admin alias PAD | `done` | haute | PAD-1 | 2026-04-04 | ✅ Livré — onglet "Alias PAD" dans CommodityCategories.tsx | Onglet avec KPI, recherche, filtre statut, création anti-doublon, validation, suppression |
 | PAD-MULTI-LOT | PAD multi-lot | `deferred` | basse | Phase 3 | 2026-04-02 | Quand un dossier multi-lot nécessite des catégories PAD différentes par lot | Extension du schéma quote_gaps et des facts par lot |
 
 

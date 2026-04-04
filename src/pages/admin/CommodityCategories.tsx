@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Package, Filter, X } from "lucide-react";
 import CorrespondancesTab from "@/components/admin/CorrespondancesTab";
+import PadAliasTab from "@/components/admin/PadAliasTab";
 const EVIDENCE_LEVELS = ['official', 'observed', 'to_confirm'] as const;
 const CARGO_TYPES = ['DRY', 'DG', 'REEFER', 'OOG', 'BREAKBULK', 'RORO', 'VEHICULE'];
 const TERMINAL_PROVIDERS = ['DP_WORLD', 'DAKAR_TERMINAL', 'TAL', 'PAD'];
@@ -387,6 +388,7 @@ export default function CommodityCategories() {
           <TabsList>
             <TabsTrigger value="categories">Catégories</TabsTrigger>
             <TabsTrigger value="correspondances">Correspondances</TabsTrigger>
+            <TabsTrigger value="alias-pad">Alias PAD</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories">
@@ -505,6 +507,16 @@ export default function CommodityCategories() {
                 id: c.id,
                 designation_raw: c.designation_raw,
                 designation_normalized: c.designation_normalized,
+                pad_category: c.pad_category,
+              }))}
+            />
+          </TabsContent>
+
+          <TabsContent value="alias-pad">
+            <PadAliasTab
+              categories={(categories || []).map(c => ({
+                id: c.id,
+                designation_raw: c.designation_raw,
                 pad_category: c.pad_category,
               }))}
             />
