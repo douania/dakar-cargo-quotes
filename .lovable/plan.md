@@ -21,11 +21,13 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 
 ## Taxe de Port PAD
 
-**Phase PAD-ADMIN-UI livrée** (2026-04-04)
+**Phase PAD-ADMIN-UI livrée + T14 enrichi** (2026-04-04)
 
 ### Ce qui est livré
 
-- **Table** : `pad_designation_aliases` — 51 alias seedés depuis `commodity_designation_matches` (0 collision auditée)
+- **Table** : `pad_designation_aliases` — 57 alias (51 seed initial + 6 alias T14 ajoutés 2026-04-04), 0 collision auditée
+- **T14 désormais couverte** : 6 alias prudents (fil machine, wire rod, feuillard, steel strip, fer blanc, tinplate) — catégorie auparavant sans alias
+- **Couverture** : toutes les catégories PAD présentes dans `commodity_categories` ont au moins 1 alias
 - **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant (facts opérateur prioritaires)
 - **Résolution** : alias → `pad_category` → `port_tariffs` (provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT) → `pad_rate_fcfa_per_ton`
 - **Source de vérité** : `commodity_category_id` (FK). `pad_category` = copie dénormalisée runtime.
