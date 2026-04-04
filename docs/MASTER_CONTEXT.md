@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.2
-Phase: EQ1.2 + CL1 + PAD
-Latest patch: Phase 3 PAD — clôture
+Version: 1.3
+Phase: EQ1.2 + CL1 + PAD + Magasinage DT
+Latest patch: Phase 3-B.2-A — IA suggestions magasinage Dakar Terminal
 Date: 2026-04
 
 ---
