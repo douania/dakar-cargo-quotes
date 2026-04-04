@@ -1591,6 +1591,81 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
+      // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
+      // commodity_category_id = source de vérité métier, pad_category = copie dénormalisée runtime.
+      if (!inputs.padCategory && inputs.cargoDescription) {
+        try {
+          const normalizedDescPad = normalizePricingText(inputs.cargoDescription);
+          if (normalizedDescPad) {
+            const { data: padAliasRows } = await serviceClient
+              .from('pad_designation_aliases')
+              .select('pad_category, bl_term, commodity_category_id')
+              .eq('normalized_term', normalizedDescPad)
+              .eq('is_validated', true);
+
+            if (padAliasRows && padAliasRows.length > 0) {
+              if (padAliasRows.length > 1) {
+                // Collision detected — multiple validated aliases for same normalized_term
+                const cats = padAliasRows.map((r: any) => r.pad_category);
+                const uniqueCats = [...new Set(cats)];
+                if (uniqueCats.length > 1) {
+                  console.warn(`[PAD-ALIAS] COLLISION: normalized="${normalizedDescPad}" → ${uniqueCats.length} catégories distinctes: ${uniqueCats.join(', ')}. Skipping auto-resolve.`);
+                } else {
+                  // Same category, multiple aliases — safe to use
+                  const alias = padAliasRows[0];
+                  console.log(`[PAD-ALIAS] Multiple aliases same category: "${inputs.cargoDescription}" → ${alias.pad_category} (${padAliasRows.length} aliases)`);
+                  // Lookup tarif in port_tariffs
+                  const { data: padTariffRow } = await serviceClient
+                    .from('port_tariffs')
+                    .select('amount, unit, classification')
+                    .eq('provider', 'PAD')
+                    .eq('category', 'DROIT_PASSAGE')
+                    .eq('operation_type', 'IMPORT')
+                    .eq('classification', alias.pad_category)
+                    .eq('is_active', true)
+                    .maybeSingle();
+
+                  if (padTariffRow && padTariffRow.amount != null) {
+                    inputs.padCategory = alias.pad_category;
+                    inputs.padRateFcfaPerTon = Number(padTariffRow.amount);
+                    console.log(`[PAD-ALIAS] Resolved: ${alias.pad_category} → ${padTariffRow.amount} FCFA/t`);
+                  }
+                }
+              } else {
+                // Single alias — deterministic
+                const alias = padAliasRows[0];
+                console.log(`[PAD-ALIAS] Match: "${inputs.cargoDescription}" → ${alias.pad_category} via alias bl_term="${alias.bl_term}"`);
+
+                // Lookup tarif in port_tariffs
+                // Colonnes exactes: provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT, classification=<pad_category>
+                const { data: padTariffRow } = await serviceClient
+                  .from('port_tariffs')
+                  .select('amount, unit, classification')
+                  .eq('provider', 'PAD')
+                  .eq('category', 'DROIT_PASSAGE')
+                  .eq('operation_type', 'IMPORT')
+                  .eq('classification', alias.pad_category)
+                  .eq('is_active', true)
+                  .maybeSingle();
+
+                if (padTariffRow && padTariffRow.amount != null) {
+                  inputs.padCategory = alias.pad_category;
+                  inputs.padRateFcfaPerTon = Number(padTariffRow.amount);
+                  console.log(`[PAD-ALIAS] Resolved: ${alias.pad_category} → ${padTariffRow.amount} FCFA/t`);
+                } else {
+                  console.warn(`[PAD-ALIAS] Alias found (${alias.pad_category}) but no active tariff in port_tariffs`);
+                }
+              }
+            }
+          }
+        } catch (padAliasErr) {
+          console.warn('[PAD-ALIAS] Lookup failed (non-blocking):', padAliasErr);
+        }
+      } else if (inputs.padCategory) {
+        console.log(`[PAD] Facts opérateur présents: padCategory=${inputs.padCategory} — alias lookup skipped`);
+      }
+
       // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
       // Multi-lot: skipped — cargo.pad_* are global facts, not per-lot. Extension future requise.
       if (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0) {
