@@ -17,6 +17,7 @@ Date: 2026-04
 - Module CL1 (Conversation Layer) opérationnel
 - Phase 3 PAD (droit de passage) validée et gelée
 - Référentiel marchandises (commodity_categories + commodity_designation_matches) opérationnel
+- Sous-système magasinage Dakar Terminal opérationnel dans son périmètre actuel (P1 provisionnel, alias validés, suggestions IA assistées)
 - Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
