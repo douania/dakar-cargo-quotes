@@ -89,17 +89,32 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 
 ---
 
-## Phase 3 PAD — Droit de passage (clôturée)
+## Phase 3 PAD — Droit de passage (clôturée + alias PAD-1)
 
-- **Statut** : validée et gelée (2026-04-02)
-- **Périmètre** : ajout d'une ligne `PAD_DROIT_PASSAGE` dans le pricing lorsque des facts dossier PAD ont été explicitement appliqués au dossier (`cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton`)
+- **Statut** : Phase 3 validée et gelée (2026-04-02), Phase PAD-1 alias livrée (2026-04-04)
+- **Périmètre Phase 3** : ajout d'une ligne `PAD_DROIT_PASSAGE` dans le pricing lorsque des facts dossier PAD ont été explicitement appliqués au dossier (`cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton`)
+- **Périmètre PAD-1** : lookup alias automatique dans `pad_designation_aliases` avant consommation passive des facts. Si alias validé trouvé → résolution automatique `pad_category` + `pad_rate_fcfa_per_ton` depuis `port_tariffs`.
 - **Traçabilité** : enrichissement post-moteur, `origin_layer = enrichment_pad`, approche `fact_based`. Source marquée « Fact dossier PAD (barème Redevances Portuaires 2006) »
-- **Smoke tests** :
+- **Smoke tests Phase 3** :
   - T01 (`ab959454`) : PASS — PAD 19 239 × 3.086 t = 59 372 FCFA
   - T12 (`29b96eec`) : PASS — PAD 4 780 × 840 t = 4 015 200 FCFA
   - Régression (`2fa7861d`, AIR_IMPORT) : PASS — 0 ligne PAD
   - T07 (`6d4d996f`) : bloqué par FCL-OVR (hors scope PAD, voir `docs/DEFERRED_BACKLOG.md`)
 - **Conclusion** : chemin positif validé, régression validée hors maritime, aucune régression démontrée sur les dossiers sans facts PAD
+
+### Phase PAD-1 — Alias runtime (2026-04-04)
+
+- **Table** : `pad_designation_aliases` (bl_term, normalized_term, commodity_category_id, pad_category, is_validated, source_type)
+- **Source de vérité métier** : `commodity_category_id` (FK vers `commodity_categories`). `pad_category` est une copie dénormalisée pour la performance runtime.
+- **Seed** : 51 correspondances validées importées depuis `commodity_designation_matches` (0 collision auditée)
+- **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant :
+  1. Si facts opérateur déjà présents (`cargo.pad_category`) → pas d'override (opérateur prime)
+  2. Sinon, si `cargoDescription` présent → normaliser → lookup `pad_designation_aliases` (is_validated=true, exact match)
+  3. Si alias trouvé → lookup `port_tariffs` (provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT, classification=pad_category, is_active=true)
+  4. Si tarif trouvé → injecter `padCategory` + `padRateFcfaPerTon` dans inputs
+- **Gestion collisions** : si plusieurs alias pointent vers des catégories différentes → warning + skip (comportement déterministe garanti)
+- **Guards** : alias validés uniquement, exact match normalisé uniquement, 0 ILIKE, 0 fuzzy, 0 IA
+- **Séparation magasinage** : tables distinctes (`pad_designation_aliases` ≠ `terminal_designation_aliases`), aucun mélange
 - **Limite connue** : périmètre actuel borné au mono-lot / facts dossier globaux ; pas d'extension multi-lot dans cette phase
 
 ---
