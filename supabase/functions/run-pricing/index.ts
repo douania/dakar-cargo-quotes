@@ -1728,7 +1728,162 @@ Deno.serve(async (req) => {
                 console.warn(`[TERMINAL_STORAGE] No P1 tariff found for code ${storageCodeP1} — skipping`);
               }
             } else {
-              console.warn(`[TERMINAL_STORAGE] No alias or direct match for "${inputs.cargoDescription}" — skipping`);
+              // ═══ Phase 3-B.2-A: AI suggestion fallback (no pricing line produced) ═══
+              console.warn(`[TERMINAL_STORAGE] No alias or direct match for "${inputs.cargoDescription}" — attempting AI suggestion`);
+              try {
+                // Anti-duplication: check if pending suggestions already exist for this normalized text
+                const { data: existingSuggestions } = await serviceClient
+                  .from('terminal_designation_suggestions')
+                  .select('id')
+                  .eq('normalized_source_text', normalizedDesc)
+                  .eq('suggestion_status', 'pending')
+                  .limit(1);
+
+                if (existingSuggestions && existingSuggestions.length > 0) {
+                  console.log(`[TERMINAL_STORAGE] AI suggestion already pending for "${normalizedDesc}" — skipping AI call`);
+                } else {
+                  // Load minimal designation reference for AI (Dakar Terminal, storage_code_p1 NOT NULL only)
+                  const { data: aiRefDesignations } = await serviceClient
+                    .from('terminal_designations')
+                    .select('id, designation_label, unit_basis, notes')
+                    .eq('terminal_provider', 'dakar_terminal')
+                    .not('storage_code_p1', 'is', null);
+
+                  if (aiRefDesignations && aiRefDesignations.length > 0) {
+                    // Build minimal ref payload (id + label + unit_basis only, strip notes for payload size)
+                    const refPayload = aiRefDesignations.map(d => ({
+                      id: d.id,
+                      label: d.designation_label,
+                      unit: d.unit_basis,
+                    }));
+
+                    const validDesignationIds = new Set(aiRefDesignations.map(d => d.id));
+
+                    const systemPrompt = `Tu es un expert en nomenclature portuaire du terminal Dakar Terminal (Bolloré).
+Tu dois associer une description de marchandise (provenant d'un connaissement / BL) à une ou plusieurs désignations officielles du référentiel terminal.
+
+Règles strictes :
+- Ne propose QUE des désignations présentes dans le référentiel fourni ci-dessous
+- Maximum 3 suggestions, classées par pertinence décroissante
+- Si le texte semble composite (ex: "1 car and 2 motos"), signale-le dans le reasoning
+- Si le texte est ambigu, dis-le explicitement et baisse le confidence_score
+- Préfère dire "incertain" plutôt qu'inventer une correspondance
+- confidence_score doit être un nombre entre 0.0 et 1.0
+
+Réponds uniquement en JSON valide avec cette structure :
+{
+  "suggestions": [
+    {
+      "designation_id": "<uuid de la désignation>",
+      "designation_label": "<libellé exact>",
+      "confidence_score": <0.0 à 1.0>,
+      "reasoning": "<explication courte>"
+    }
+  ],
+  "is_composite": <true/false>,
+  "composite_note": "<si composite, explication>"
+}`;
+
+                    const userPrompt = `Description BL : "${inputs.cargoDescription}"
+Mode transport : maritime
+Poids : ${inputs.cargoWeight} tonnes
+
+Référentiel des désignations terminales Dakar Terminal :
+${JSON.stringify(refPayload)}`;
+
+                    // Call AI via Lovable AI Gateway
+                    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+                    if (LOVABLE_API_KEY) {
+                      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          model: "google/gemini-2.5-flash",
+                          messages: [
+                            { role: "system", content: systemPrompt },
+                            { role: "user", content: userPrompt },
+                          ],
+                          stream: false,
+                          temperature: 0.2,
+                        }),
+                        signal: AbortSignal.timeout(15000),
+                      });
+
+                      if (aiResponse.ok) {
+                        const aiData = await aiResponse.json();
+                        const aiContent = aiData.choices?.[0]?.message?.content || "";
+
+                        // Parse AI response — extract JSON
+                        let aiResult: { suggestions?: Array<{ designation_id: string; designation_label: string; confidence_score: number; reasoning: string }>; is_composite?: boolean; composite_note?: string } | null = null;
+                        try {
+                          // Strip code fences if present
+                          let jsonStr = aiContent.trim();
+                          if (jsonStr.startsWith("```")) {
+                            const firstNl = jsonStr.indexOf("\n");
+                            if (firstNl !== -1) jsonStr = jsonStr.slice(firstNl + 1);
+                            const lastFence = jsonStr.lastIndexOf("```");
+                            if (lastFence !== -1) jsonStr = jsonStr.slice(0, lastFence);
+                            jsonStr = jsonStr.trim();
+                          }
+                          aiResult = JSON.parse(jsonStr);
+                        } catch (parseErr) {
+                          console.warn(`[TERMINAL_STORAGE] AI response JSON parse failed:`, parseErr);
+                        }
+
+                        if (aiResult?.suggestions && Array.isArray(aiResult.suggestions)) {
+                          // Filter: valid scores, valid IDs, max 3
+                          const validSuggestions = aiResult.suggestions
+                            .filter(s => {
+                              const score = Number(s.confidence_score);
+                              return (
+                                s.designation_id &&
+                                validDesignationIds.has(s.designation_id) &&
+                                !isNaN(score) &&
+                                score >= 0 &&
+                                score <= 1
+                              );
+                            })
+                            .slice(0, 3)
+                            .map((s, idx) => ({
+                              source_text: inputs.cargoDescription,
+                              normalized_source_text: normalizedDesc,
+                              terminal_designation_id: s.designation_id,
+                              suggested_label: s.designation_label,
+                              confidence_score: Math.min(1, Math.max(0, Number(s.confidence_score))),
+                              reasoning: s.reasoning || (aiResult?.is_composite ? `Composite: ${aiResult.composite_note || ''}` : ''),
+                              suggestion_rank: idx + 1,
+                              suggestion_status: 'pending',
+                              source_type: 'ai',
+                            }));
+
+                          if (validSuggestions.length > 0) {
+                            const { error: insertErr } = await serviceClient
+                              .from('terminal_designation_suggestions')
+                              .insert(validSuggestions);
+
+                            if (insertErr) {
+                              console.warn(`[TERMINAL_STORAGE] Failed to insert AI suggestions:`, insertErr);
+                            } else {
+                              console.log(`[TERMINAL_STORAGE] AI suggestions stored for "${inputs.cargoDescription}" — ${validSuggestions.length} suggestions, awaiting operator review`);
+                            }
+                          } else {
+                            console.log(`[TERMINAL_STORAGE] AI returned no valid suggestions for "${inputs.cargoDescription}"`);
+                          }
+                        }
+                      } else {
+                        console.warn(`[TERMINAL_STORAGE] AI call failed (${aiResponse.status}) — skipping suggestion`);
+                      }
+                    } else {
+                      console.warn(`[TERMINAL_STORAGE] LOVABLE_API_KEY not available — skipping AI suggestion`);
+                    }
+                  }
+                }
+              } catch (aiError) {
+                console.warn(`[TERMINAL_STORAGE] AI suggestion fallback failed, continuing:`, aiError);
+              }
             }
           }
         } catch (tsError) {

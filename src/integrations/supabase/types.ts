@@ -4616,6 +4616,81 @@ export type Database = {
           },
         ]
       }
+      terminal_designation_suggestions: {
+        Row: {
+          alias_created: boolean
+          confidence_score: number | null
+          created_alias_id: string | null
+          created_at: string | null
+          id: string
+          normalized_source_text: string
+          reasoning: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_text: string
+          source_type: string
+          suggested_label: string | null
+          suggestion_rank: number
+          suggestion_status: string
+          terminal_designation_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          alias_created?: boolean
+          confidence_score?: number | null
+          created_alias_id?: string | null
+          created_at?: string | null
+          id?: string
+          normalized_source_text: string
+          reasoning?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_text: string
+          source_type?: string
+          suggested_label?: string | null
+          suggestion_rank?: number
+          suggestion_status?: string
+          terminal_designation_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          alias_created?: boolean
+          confidence_score?: number | null
+          created_alias_id?: string | null
+          created_at?: string | null
+          id?: string
+          normalized_source_text?: string
+          reasoning?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_text?: string
+          source_type?: string
+          suggested_label?: string | null
+          suggestion_rank?: number
+          suggestion_status?: string
+          terminal_designation_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "terminal_designation_suggestions_created_alias_id_fkey"
+            columns: ["created_alias_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_designation_aliases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "terminal_designation_suggestions_terminal_designation_id_fkey"
+            columns: ["terminal_designation_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_designations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       terminal_designations: {
         Row: {
           created_at: string | null

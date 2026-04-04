@@ -663,3 +663,37 @@ cargo.description (fact dossier)
 - `validated_by` affiché comme "Système" si NULL, sinon UUID tronqué
 - Badges visuels `source_type` (seeded_synonym, manual, operator_correction)
 - 0 migration, 0 moteur, 0 run-pricing
+
+### Phase 3-B.2-A — IA de suggestion assistée BL → désignation terminale (2026-04-04)
+
+**Livré** :
+- Table `terminal_designation_suggestions` créée (migration + RLS + trigger updated_at + indexes)
+  - Champs : `source_text`, `normalized_source_text`, `terminal_designation_id`, `suggested_label`, `confidence_score`, `reasoning`, `suggestion_rank`, `suggestion_status` (pending/accepted/rejected), `alias_created`, `created_alias_id`
+- Appel IA (Gemini 2.5 Flash via Lovable AI Gateway) intégré dans `run-pricing` :
+  - Uniquement après échec alias validé + match direct (3e couche)
+  - Anti-duplication : pas de nouvel appel IA si suggestion pending existe déjà pour le même `normalized_source_text`
+  - Référentiel IA minimal : uniquement `id`, `designation_label`, `unit_basis` pour Dakar Terminal avec `storage_code_p1 IS NOT NULL`
+  - Filtrage strict des suggestions IA : `confidence_score` ∈ [0,1], max 3 suggestions, `designation_id` validé contre le référentiel chargé
+  - **Aucune ligne pricing produite** — stockage des suggestions uniquement
+  - Timeout 15s, erreurs non bloquantes (skip silencieux)
+- UI admin 3e onglet "Suggestions IA" dans `TerminalStorage.tsx` :
+  - KPI : total / en attente / acceptées / rejetées
+  - Filtres texte + statut
+  - Tri : pending d'abord, puis created_at DESC
+  - Actions : Accepter, Accepter + créer alias, Rejeter
+  - Anti-doublon alias : vérification avant création (normalized_term + terminal_designation_id)
+  - Indicateur visuel `alias_created` : distingue "suggestion acceptée" de "alias créé et consommable moteur"
+
+**Règles métier** :
+- Aucune auto-validation
+- Aucun auto-enrichissement silencieux
+- Aucune substitution invisible par l'IA
+- L'opérateur reste décisionnaire à 100%
+- Dakar Terminal uniquement, magasinage uniquement
+
+**Statuts simplifiés** : pending → accepted / rejected (pas de superseded dans cette vague)
+
+**Différé Phase 3-B.2-B** :
+- Auto-segmentation BL composites multi-désignations
+- P2/P3 dans le moteur
+- Jours réels après franchise
