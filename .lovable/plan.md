@@ -1,29 +1,28 @@
 
+# État courant — Sous-système Magasinage Dakar Terminal
 
-# Plan : Rendre `cargo.description` éditable dans CaseView
+## Statut
 
-## Diagnostic
+**Phase 3-B.2-A livrée et validée métier** (2026-04)
 
-Le fichier `src/pages/case-view/constants.ts` définit `EDITABLE_FACT_KEYS` — la liste blanche des facts modifiables depuis l'UI. `cargo.description` n'y figure pas, ce qui bloque toute saisie manuelle.
+## Ce qui est livré
 
-C'est un gap critique car `cargo.description` est souvent un gap bloquant pour le pricing, et sans possibilité de le renseigner manuellement, le dossier reste bloqué.
+- **Référentiel** : `terminal_designations` (~956 entrées) + `terminal_tariff_codes` (~34 codes) peuplés et audités
+- **Alias BL** : table `terminal_designation_aliases`, consommation moteur des alias validés, UI admin (création / validation / suppression)
+- **IA suggestions** : table `terminal_designation_suggestions`, fallback Gemini 2.5 Flash après échec alias + direct, anti-duplication, UI revue opérateur (accepter / rejeter / accepter + créer alias)
+- **Moteur** : `run-pricing` produit `TERMINAL_STORAGE_PROVISION_ESTIMATE` (P1 × poids × 3j) si match couche 1 (alias) ou couche 2 (direct)
+- **Règle centrale** : les suggestions IA ne produisent aucune ligne pricing ni aucun calcul tant qu'un opérateur ne les a pas validées et capitalisées en alias
 
-## Correction minimale
+## Ce qui est différé
 
-**1 fichier, 1 ligne ajoutée**
+Voir `docs/DEFERRED_BACKLOG.md` pour le détail :
 
-**Fichier** : `src/pages/case-view/constants.ts`
+- P2/P3 dans le moteur (`DT-P2P3-ENGINE`)
+- Jours réels après franchise (`DT-RATE-TABLE`)
+- Multi-cargo IA (`DT-AI-MULTI-CARGO`)
+- Synonymes avancés / matching DPW (`DT-DESIGNATION-MODEL`)
+- Révision tarifs 2014 → 2024+ (`DT-2014-REVISION`)
 
-Ajouter `"cargo.description"` dans le Set `EDITABLE_FACT_KEYS` (ligne ~80).
+## Prochaine suite logique
 
-## Vérification nécessaire
-
-Il faut aussi vérifier que `set-case-fact` (edge function backend) accepte `cargo.description` dans sa propre whitelist. Si ce n'est pas le cas, il faudra aussi l'y ajouter — sinon l'UI permettra la saisie mais le backend la rejettera.
-
-## Impact
-
-- 0 migration
-- 0 nouveau fichier
-- Débloque la saisie manuelle de la nature de marchandise
-- Permet de résoudre le gap bloquant sur le dossier `a5a58d25`
-
+Enrichissement progressif du dictionnaire d'alias en exploitation réelle, puis Phase 3-B.2 avancée (multi-cargo, P2/P3) quand le besoin opérationnel se manifeste.

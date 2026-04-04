@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.2
-Phase: EQ1.2 + CL1 + PAD
-Latest patch: Phase 3 PAD — clôture
+Version: 1.3
+Phase: EQ1.2 + CL1 + PAD + Magasinage DT
+Latest patch: Phase 3-B.2-A — IA suggestions magasinage Dakar Terminal
 Date: 2026-04
 
 ---
@@ -17,6 +17,7 @@ Date: 2026-04
 - Module CL1 (Conversation Layer) opérationnel
 - Phase 3 PAD (droit de passage) validée et gelée
 - Référentiel marchandises (commodity_categories + commodity_designation_matches) opérationnel
+- Sous-système magasinage Dakar Terminal opérationnel dans son périmètre actuel (P1 provisionnel, alias validés, suggestions IA assistées)
 - Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
 
 ---
@@ -100,6 +101,71 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
   - T07 (`6d4d996f`) : bloqué par FCL-OVR (hors scope PAD, voir `docs/DEFERRED_BACKLOG.md`)
 - **Conclusion** : chemin positif validé, régression validée hors maritime, aucune régression démontrée sur les dossiers sans facts PAD
 - **Limite connue** : périmètre actuel borné au mono-lot / facts dossier globaux ; pas d'extension multi-lot dans cette phase
+
+---
+
+## Sous-système Magasinage Dakar Terminal (Phases 3-A → 3-B.2-A)
+
+- **Statut** : opérationnel dans son périmètre actuel (P1 provisionnel, alias validés, suggestions IA assistées)
+- **Périmètre strict** : Dakar Terminal uniquement, magasinage uniquement, pas de DPW, pas de handling
+
+### Tables
+
+| Table | Rôle |
+|-------|------|
+| `terminal_designations` | Référentiel des ~956 désignations terminales (label, unit_basis, storage_code_p1/p2/p3, terminal_handling_code) |
+| `terminal_tariff_codes` | Référentiel des ~34 codes tarifaires (code, montant, currency, tariff_type, period) |
+| `terminal_designation_aliases` | Alias BL → désignation terminale, validés par opérateur, consommés par le moteur |
+| `terminal_designation_suggestions` | Suggestions IA (pending/accepted/rejected), validation opérateur obligatoire |
+
+### Logique runtime — cascade 3 couches (run-pricing)
+
+1. **Couche 1 — Alias validé** : lookup sur `normalizeForMatch(cargoDescription)` dans `terminal_designation_aliases` (`is_validated = true`)
+2. **Couche 2 — Match direct** : lookup normalisé sur `terminal_designations.designation_label`
+3. **Couche 3 — Fallback IA** (Gemini 2.5 Flash) : déclenché uniquement si couches 1 et 2 échouent. Suggestions stockées dans `terminal_designation_suggestions`. **Les suggestions IA ne produisent aucune ligne pricing ni aucun calcul.** Elles sont stockées pour revue opérateur uniquement.
+
+### Calcul provisionnel
+
+- Ligne `TERMINAL_STORAGE_PROVISION_ESTIMATE` = P1 rate × poids (tonnes) × 3 jours
+- `confidence = 0.5`, `origin_layer = enrichment_terminal_storage`
+- Produit uniquement si couche 1 ou 2 résout un match
+
+### Guards
+
+- Maritime uniquement (`operation_type` maritime)
+- Mono-lot uniquement
+- `cargoDescription` présent et non vide
+- `cargoWeight > 0`
+- Match couche 1 ou couche 2 requis pour produire une ligne pricing
+
+### Anti-duplication IA
+
+- Avant appel IA : vérification qu'aucune suggestion `pending` n'existe pour le même `normalized_source_text`
+- Si doublon détecté : skip, log explicite, pas de nouvel appel
+
+### Capitalisation contrôlée
+
+- « Accepter + créer alias » depuis l'onglet Suggestions IA
+- Anti-doublon vérifié avant insertion (`normalized_term` + `terminal_designation_id`)
+- `source_type = 'ai_suggestion_validated'`, `alias_created = true`, `created_alias_id` rempli
+- L'alias devient consommable par le moteur au run suivant
+
+### UI Admin (`/admin/terminal-storage`)
+
+- **Onglet Désignations** : lecture seule, statuts visuels, filtres, KPI couverture
+- **Onglet Alias BL** : création / validation / suppression, tri opératoire (en attente d'abord)
+- **Onglet Suggestions IA** : accepter / rejeter / accepter + créer alias, KPI, filtres statut
+
+### Phases livrées
+
+- Phase 3-A : match direct + provision P1 dans run-pricing
+- Phase 3-B.1-A : alias runtime (table + consommation moteur)
+- Phase 3-B.1-B : UI admin alias (onglet dédié)
+- Phase 3-B.2-A : IA suggestions (fallback, stockage, UI revue, capitalisation)
+
+### Phases différées
+
+- P2/P3 dans le moteur, jours réels après franchise, multi-cargo IA, synonymes avancés, matching DPW → voir `docs/DEFERRED_BACKLOG.md`
 
 ---
 
