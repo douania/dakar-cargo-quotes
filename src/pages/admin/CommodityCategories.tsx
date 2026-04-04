@@ -511,6 +511,16 @@ export default function CommodityCategories() {
               }))}
             />
           </TabsContent>
+
+          <TabsContent value="alias-pad">
+            <PadAliasTab
+              categories={(categories || []).map(c => ({
+                id: c.id,
+                designation_raw: c.designation_raw,
+                pad_category: c.pad_category,
+              }))}
+            />
+          </TabsContent>
         </Tabs>
       </main>
     </div>
