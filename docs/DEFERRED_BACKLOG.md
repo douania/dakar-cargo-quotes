@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-02
+Dernière mise à jour : 2026-04-05
 
 ---
 
@@ -91,11 +91,11 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
-| 2 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 3 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 4 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 5 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 1 | CARRIER-CMACGM-TEMPLATES | Templates CMA CGM manquants | 5 lignes carrier non couvertes, 74.2% couverture actuelle |
+| 2 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
+| 3 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 4 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
+| 5 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 
 ---
 
@@ -116,7 +116,9 @@ Cela inclut les décisions formulées comme :
 | PAD-ADMIN-UI | UI admin alias PAD | `closed` | — | PAD-1 | 2026-04-04 | ✅ Livré — onglet "Alias PAD" dans CommodityCategories.tsx, enrichissement T14 (6 alias), total 57 alias | Aucune action requise |
 | PAD-MULTI-LOT | PAD multi-lot | `deferred` | basse | Phase 3 | 2026-04-02 | Quand un dossier multi-lot nécessite des catégories PAD différentes par lot | Extension du schéma quote_gaps et des facts par lot |
 | PAD-T06-T08-T10-T11 | Audit référentiel catégories PAD absentes (T06, T08, T10, T11) | `deferred` | moyenne | PAD-1 | 2026-04-05 | Non-matchs réels en exploitation montrant des descriptions relevant de ces catégories | Mini-audit : vérifier dans les données existantes (commodity_designation_matches, emails, quotations) si ces catégories sont un oubli ou un choix de périmètre volontaire |
-
+| PAD-GRIMALDI-T09 | Écart tarif PAD Grimaldi : facture 2 715 XOF/t vs DB 4 367 XOF/t — régime RORO à clarifier | donnée | `pending_validation` | moyenne | Blind-F1.0 | 2026-04-05 | Clarification obtenue de Grimaldi/PAD ou 2e facture Grimaldi avec même code pour comparer | Ne pas modifier le tarif T09 sans preuve formelle. Écart peut être dû à régime RORO spécifique, tarif négocié, ou classification facture différente |
+| CARRIER-CMACGM-TEMPLATES | Templates carrier billing CMA CGM manquants (5 lignes) | carrier | `deferred-high` | P0 | Blind-F1.0 | 2026-04-05 | Immédiat — prochaine priorité après fiabilisation PAD | Enrichir carrier_billing_templates avec les 5 codes CMA CGM identifiés dans le pré-audit blind |
+| CARRIER-GRIMALDI-RORO | Chantier dédié templates Grimaldi RORO (quasi non couvert, 1.1% couverture) | carrier | `deferred` | P2 | Blind-F1.0 | 2026-04-05 | Quand le chantier CMA CGM est clôturé et que Grimaldi devient priorité opérationnelle | Chantier séparé : modèle de facturation RORO très différent des conteneurs standard |
 
 
 ## Note méthodologique
