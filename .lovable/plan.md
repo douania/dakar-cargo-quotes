@@ -76,7 +76,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 
 ## Pré-audit blind carrier/terminal (2026-04-05)
 
-**Statut** : bilan figé pour carrier/terminal, PAD pending fix → **PAD fiabilisé** (3 alias ajoutés)
+**Statut** : bilan figé. Carrier/terminal validé. PAD fiabilisé et confirmé par re-run source-à-source (0 ECART_DB_LOOKUP). Réserves : D3 (poids manquant), D4 Grimaldi (écart tarif pending_validation).
 
 ### Résultats carrier/terminal (fiables)
 - DPW : 100% couverture ligne et économique
