@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-02
+Dernière mise à jour : 2026-04-05
 
 ---
 
@@ -91,11 +91,11 @@ Cela inclut les décisions formulées comme :
 
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
-| 1 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
-| 2 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 3 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
-| 4 | D1 | Scroll-to-section | UX polish à fort impact perçu |
-| 5 | A3 | Re-pricing après version | Flexibilité opérateur |
+| 1 | CARRIER-CMACGM-TEMPLATES | Templates CMA CGM manquants | 5 lignes carrier non couvertes, 74.2% couverture actuelle |
+| 2 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
+| 3 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 4 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
+| 5 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 
 ---
 
