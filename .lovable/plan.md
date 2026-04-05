@@ -33,12 +33,13 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 
 ## Taxe de Port PAD
 
-**Phase PAD-ADMIN-UI livrée + T14 enrichi** (2026-04-04)
+**Phase PAD-ADMIN-UI livrée + T14 enrichi + fiabilisation blind audit** (2026-04-05)
 
 ### Ce qui est livré
 
-- **Table** : `pad_designation_aliases` — 57 alias (51 seed initial + 6 alias T14 ajoutés 2026-04-04), 0 collision auditée
+- **Table** : `pad_designation_aliases` — 60 alias (51 seed initial + 6 alias T14 + 3 alias fiabilisation blind audit), 0 collision auditée
 - **T14 désormais couverte** : 6 alias prudents (fil machine, wire rod, feuillard, steel strip, fer blanc, tinplate) — catégorie auparavant sans alias
+- **Fiabilisation blind audit** : 3 alias ajoutés suite au contrôle source-à-source PAD (accessoires de plomberie → T02, plumbing accessories → T02, carreaux en ceramique → T12)
 - **Couverture** : toutes les catégories PAD actuellement présentes dans `commodity_categories` sont couvertes par au moins un alias
 - **T06 / T08 / T10 / T11** : restent hors périmètre référentiel applicatif actuel, audit différé en attente d'observation des non-matchs réels
 - **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant (facts opérateur prioritaires)
@@ -60,7 +61,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 |-------|--------------|-----|
 | **Référentiel** | ~956 désignations + 34 codes tarifaires | 10 catégories + 19 tarifs |
 | **Matching direct** | Oui (normalisé sur designation_label) | Non (pas de match direct) |
-| **Alias runtime** | Oui (`terminal_designation_aliases`) | Oui (`pad_designation_aliases`, 57) |
+| **Alias runtime** | Oui (`terminal_designation_aliases`) | Oui (`pad_designation_aliases`, 60) |
 | **IA fallback** | Oui (Gemini 2.5 Flash, 3 couches) | Non implémentée (différée) |
 | **UI admin** | 3 onglets (Désignations / Alias / Suggestions IA) | 1 onglet (Alias PAD) |
 | **Capitalisation** | Oui (IA → alias validé → moteur) | Oui (manuel uniquement) |
@@ -73,11 +74,37 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 - **Magasinage DT** : opérationnel dans son périmètre actuel, avec assistance IA et supervision opérateur
 - **PAD** : opérationnel en mode déterministe supervisé, sans couche IA à ce stade
 
+## Pré-audit blind carrier/terminal (2026-04-05)
+
+**Statut** : bilan figé pour carrier/terminal, PAD pending fix → **PAD fiabilisé** (3 alias ajoutés)
+
+### Résultats carrier/terminal (fiables)
+- DPW : 100% couverture ligne et économique
+- MSC : 99,6% couverture économique (1 ligne manquante marginale)
+- Hapag-Lloyd : 100%
+- Maersk : couverture carrier très bonne sur l'échantillon, mais validation PAD invalidée puis corrigée par ajout alias
+- CMA CGM : 74,2% (5 templates manquants — chantier P0)
+- Grimaldi RORO : 1,1% (quasi non couvert — chantier séparé)
+
+### Résultats PAD (invalidés par contrôle source-à-source, puis corrigés)
+- 6/8 dossiers étaient en ECART_DB_LOOKUP
+- Causes identifiées : alias manquants (accessoires de plomberie, carreaux en ceramique), taux T09 Grimaldi incohérent
+- **Correction** : 3 alias ajoutés (accessoires de plomberie → T02, plumbing accessories → T02, carreaux en ceramique → T12)
+- **Cas Grimaldi T09** : écart tarif facture (2 715) vs DB (4 367) documenté en backlog (PAD-GRIMALDI-T09)
+
+### Chantier prioritaire
+1. P0 : templates CMA CGM
+2. P1 : micro-gap MSC
+3. P2 : chantier Grimaldi RORO
+
+---
+
 ## Recommandation unique
 
 Observer les non-matchs réels en exploitation avant tout nouveau chantier structurel (PAD-IA, audit T06/T08/T10/T11, P2/P3 moteur).
 
 ### Prochaine suite logique
 
-1. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
-2. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+1. **P0 CMA CGM** : enrichissement templates carrier manquants
+2. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
+3. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
