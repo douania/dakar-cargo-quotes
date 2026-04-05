@@ -1,5 +1,17 @@
 
-# État courant — Sous-systèmes Magasinage DT + Taxe de Port PAD
+# État courant — Bilan consolidé Magasinage DT + PAD + Plan F1
+
+## Audit F1 — Plan validé (2026-04-05)
+
+- **Statut** : plan validé, en attente des devis SODATRA réels
+- **Outils prêts** : `run_p0_audit.mjs`, `audit_case_dossier.mjs`, templates CSV
+- **Échantillon cible** : 30–50 dossiers (40% maritime import, 20% export, 20% aérien, 20% complexes)
+- **Seuils Go/No-Go** : coverage ≥95%, MAPE ≤8%, incoterm ≥98%, bloquantes ≤2%, écart total ≤5%
+- **Champs d'annotation ajoutés** : `reference_doc_type`, `exception_metier`, `exception_reason`
+- **Règle** : la référence principale est le devis SODATRA émis, pas la facture finale
+- **Discipline** : les cas avec exception métier (geste commercial, surcharge ponctuelle, instruction client hors grille) doivent être annotés avant scoring
+
+---
 
 ## Magasinage Dakar Terminal
 
