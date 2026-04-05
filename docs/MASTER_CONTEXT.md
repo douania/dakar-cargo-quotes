@@ -19,6 +19,7 @@ Date: 2026-04
 - Référentiel marchandises (commodity_categories + commodity_designation_matches) opérationnel
 - Sous-système magasinage Dakar Terminal opérationnel dans son périmètre actuel (P1 provisionnel, alias validés, suggestions IA assistées)
 - Backlog différé centralisé : docs/DEFERRED_BACKLOG.md (source de vérité des sujets reportés)
+- **Audit F1 métier** : plan validé (2026-04-05), outils prêts (`run_p0_audit.mjs`, `audit_case_dossier.mjs`), bloqué par l'arrivée des devis SODATRA réels. Champs d'annotation ajoutés : `reference_doc_type`, `exception_metier`, `exception_reason`
 
 ---
 
