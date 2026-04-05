@@ -83,7 +83,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 - MSC : 99,6% couverture économique (1 ligne manquante marginale)
 - Hapag-Lloyd : 100%
 - Maersk : couverture carrier très bonne sur l'échantillon, mais validation PAD invalidée puis corrigée par ajout alias
-- CMA CGM : 74,2% (5 templates manquants — chantier P0)
+- CMA CGM : **corrigé P0** — 4 templates activés et recalibrés (ISPS_TERM 8.85 EUR, LOC_TERM 11.50 EUR, TBL 25 000 XOF, SVC 18 000 XOF). Recheck D5/D6 post-patch : ALL_MATCH (0 écart). Couverture attendue ~97%+. Source : calibration provisoire D5/D6 blind audit.
 - Grimaldi RORO : 1,1% (quasi non couvert — chantier séparé)
 
 ### Résultats PAD (invalidés par contrôle source-à-source, puis corrigés)
@@ -93,7 +93,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 - **Cas Grimaldi T09** : écart tarif facture (2 715) vs DB (4 367) documenté en backlog (PAD-GRIMALDI-T09)
 
 ### Chantier prioritaire
-1. P0 : templates CMA CGM
+1. ~~P0 : templates CMA CGM~~ → **DONE** (2026-04-05, recheck ALL_MATCH)
 2. P1 : micro-gap MSC
 3. P2 : chantier Grimaldi RORO
 
@@ -105,6 +105,7 @@ Observer les non-matchs réels en exploitation avant tout nouveau chantier struc
 
 ### Prochaine suite logique
 
-1. **P0 CMA CGM** : enrichissement templates carrier manquants
-2. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
-3. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+1. ~~**P0 CMA CGM**~~ : **DONE** — 4 templates corrigés et activés, recheck ALL_MATCH
+2. **P1 MSC** : micro-gap manifeste électronique (550 XOF)
+3. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
+4. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
