@@ -27,7 +27,8 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 
 - **Table** : `pad_designation_aliases` — 57 alias (51 seed initial + 6 alias T14 ajoutés 2026-04-04), 0 collision auditée
 - **T14 désormais couverte** : 6 alias prudents (fil machine, wire rod, feuillard, steel strip, fer blanc, tinplate) — catégorie auparavant sans alias
-- **Couverture** : toutes les catégories PAD présentes dans `commodity_categories` ont au moins 1 alias
+- **Couverture** : toutes les catégories PAD actuellement présentes dans `commodity_categories` sont couvertes par au moins un alias
+- **T06 / T08 / T10 / T11** : restent hors périmètre référentiel applicatif actuel, audit différé en attente d'observation des non-matchs réels
 - **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant (facts opérateur prioritaires)
 - **Résolution** : alias → `pad_category` → `port_tariffs` (provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT) → `pad_rate_fcfa_per_ton`
 - **Source de vérité** : `commodity_category_id` (FK). `pad_category` = copie dénormalisée runtime.
@@ -37,8 +38,34 @@ Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CAR
 
 ### Ce qui est différé
 
-Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT
+Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
+
+---
+
+## Comparatif consolidé
+
+| Sujet | Magasinage DT | PAD |
+|-------|--------------|-----|
+| **Référentiel** | ~956 désignations + 34 codes tarifaires | 10 catégories + 19 tarifs |
+| **Matching direct** | Oui (normalisé sur designation_label) | Non (pas de match direct) |
+| **Alias runtime** | Oui (`terminal_designation_aliases`) | Oui (`pad_designation_aliases`, 57) |
+| **IA fallback** | Oui (Gemini 2.5 Flash, 3 couches) | Non implémentée (différée) |
+| **UI admin** | 3 onglets (Désignations / Alias / Suggestions IA) | 1 onglet (Alias PAD) |
+| **Capitalisation** | Oui (IA → alias validé → moteur) | Oui (manuel uniquement) |
+| **Validation opérateur** | Obligatoire (alias + suggestions IA) | Obligatoire (alias) |
+| **P2/P3 moteur** | Non (différé) | N/A |
+| **Observation exploitation** | Requise | Requise |
+
+## Conclusion de maturité
+
+- **Magasinage DT** : opérationnel dans son périmètre actuel, avec assistance IA et supervision opérateur
+- **PAD** : opérationnel en mode déterministe supervisé, sans couche IA à ce stade
+
+## Recommandation unique
+
+Observer les non-matchs réels en exploitation avant tout nouveau chantier structurel (PAD-IA, audit T06/T08/T10/T11, P2/P3 moteur).
 
 ### Prochaine suite logique
 
-1. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+1. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
+2. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)

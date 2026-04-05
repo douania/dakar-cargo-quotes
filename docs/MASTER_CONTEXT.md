@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.4
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + Magasinage DT
-Latest patch: Phase PAD-1 — Alias runtime taxe de port
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT
+Latest patch: Phase PAD-ADMIN-UI + T14 enrichi — Bilan consolidé
 Date: 2026-04
 
 ---
@@ -116,6 +116,14 @@ Non-bloquant : erreurs loguées (`console.warn`), jamais fatales
 - **Guards** : alias validés uniquement, exact match normalisé uniquement, 0 ILIKE, 0 fuzzy, 0 IA
 - **Séparation magasinage** : tables distinctes (`pad_designation_aliases` ≠ `terminal_designation_aliases`), aucun mélange
 - **Limite connue** : périmètre actuel borné au mono-lot / facts dossier globaux ; pas d'extension multi-lot dans cette phase
+
+### Phase PAD-ADMIN-UI + enrichissement T14 (2026-04-04)
+
+- **UI Admin** : onglet "Alias PAD" dans `CommodityCategories.tsx` — KPI (total/en attente/validés), recherche texte, filtre statut, création (anti-doublon + normalisation), validation, suppression (AlertDialog)
+- **Enrichissement T14** : 6 alias prudents ajoutés (fil machine, wire rod, feuillard, steel strip, fer blanc, tinplate) — catégorie T14 (Fil machine, bobines, feuillard, fer blanc) désormais couverte
+- **Total alias PAD** : 57 (51 seed + 6 T14)
+- **Couverture** : toutes les catégories PAD actuellement présentes dans `commodity_categories` sont couvertes par au moins un alias
+- **Catégories absentes** : T06, T08, T10, T11 restent hors périmètre référentiel applicatif actuel — audit différé en attente d'observation des non-matchs réels (voir `docs/DEFERRED_BACKLOG.md`)
 
 ---
 
