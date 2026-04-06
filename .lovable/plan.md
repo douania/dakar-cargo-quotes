@@ -94,7 +94,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 
 ### Chantier prioritaire
 1. ~~P0 : templates CMA CGM~~ → **DONE** (2026-04-05, recheck ALL_MATCH)
-2. P1 : micro-gap MSC
+2. ~~P1 : micro-gap MSC~~ → **DONE** (2026-04-06, template EMANIF 550 XOF/BL inséré, recheck D1 ALL_MATCH 100%)
 3. P2 : chantier Grimaldi RORO
 
 ---
@@ -106,6 +106,6 @@ Observer les non-matchs réels en exploitation avant tout nouveau chantier struc
 ### Prochaine suite logique
 
 1. ~~**P0 CMA CGM**~~ : **DONE** — 4 templates corrigés et activés, recheck ALL_MATCH
-2. **P1 MSC** : micro-gap manifeste électronique (550 XOF)
+2. ~~**P1 MSC**~~ : **DONE** — template EMANIF inséré (550 XOF/BL, PER_BL, DOCUMENTATION), recheck D1 ALL_MATCH 100%
 3. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
 4. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)

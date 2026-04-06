@@ -92,10 +92,11 @@ Cela inclut les décisions formulées comme :
 | Rang | ID | Sujet | Valeur |
 |------|----|-------|--------|
 | 1 | ~~CARRIER-CMACGM-TEMPLATES~~ | ~~Templates CMA CGM manquants~~ | **DONE** (2026-04-05) — 4 templates corrigés + activés, recheck ALL_MATCH |
-| 2 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
-| 3 | F1 | Audit P0 métier | Validation justesse tarifaire |
-| 4 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
-| 5 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 2 | ~~CARRIER-MSC-EMANIF~~ | ~~Micro-gap MSC manifeste électronique~~ | **DONE** (2026-04-06) — template EMANIF 550 XOF/BL inséré, recheck D1 ALL_MATCH 100% |
+| 3 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
+| 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
+| 5 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
+| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 
 ---
 
@@ -119,6 +120,7 @@ Cela inclut les décisions formulées comme :
 | PAD-GRIMALDI-T09 | Écart tarif PAD Grimaldi : facture 2 715 XOF/t vs DB 4 367 XOF/t — régime RORO à clarifier | donnée | `pending_validation` | moyenne | Blind-F1.0 | 2026-04-05 | Clarification obtenue de Grimaldi/PAD ou 2e facture Grimaldi avec même code pour comparer | Ne pas modifier le tarif T09 sans preuve formelle. Écart peut être dû à régime RORO spécifique, tarif négocié, ou classification facture différente |
 | CARRIER-CMACGM-TEMPLATES | Templates carrier billing CMA CGM — 4 templates corrigés et activés | carrier | `closed` | P0 | Blind-F1.0 | 2026-04-05 | — | **DONE.** ISPS_TERM (8.85 EUR), LOC_TERM (11.50 EUR), TBL (25 000 XOF), SVC (18 000 XOF) corrigés, activés, source_documents tracés (D5/D6 blind audit). Recheck post-patch : ALL_MATCH sur D5 et D6. Réserve : montants dérivés de 2 factures, reclassables en `is_variable` si 3e dossier contredit |
 | CARRIER-GRIMALDI-RORO | Chantier dédié templates Grimaldi RORO (quasi non couvert, 1.1% couverture) | carrier | `deferred` | P2 | Blind-F1.0 | 2026-04-05 | Quand le chantier CMA CGM est clôturé et que Grimaldi devient priorité opérationnelle | Chantier séparé : modèle de facturation RORO très différent des conteneurs standard |
+| CARRIER-MSC-EMANIF | Micro-gap MSC manifeste électronique — template EMANIF ajouté | carrier | `closed` | P1 | Blind-F1.0 | 2026-04-06 | — | **DONE.** Template EMANIF inséré : 550 XOF/BL, PER_BL, DOCUMENTATION, is_active=true. Source : D1 blind audit sample - MSC invoice. Recheck D1 post-insert : ALL_MATCH 8/8 lignes, 100% couverture. Réserve : montant fixe 550 dérivé d'1 facture, reclassable is_variable si 2e dossier contredit |
 
 
 ## Note méthodologique
