@@ -84,7 +84,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 - Hapag-Lloyd : 100%
 - Maersk : couverture carrier très bonne sur l'échantillon, mais validation PAD invalidée puis corrigée par ajout alias
 - CMA CGM : **corrigé P0** — 4 templates activés et recalibrés (ISPS_TERM 8.85 EUR, LOC_TERM 11.50 EUR, TBL 25 000 XOF, SVC 18 000 XOF). Recheck D5/D6 post-patch : ALL_MATCH (0 écart). Couverture attendue ~97%+. Source : calibration provisoire D5/D6 blind audit.
-- Grimaldi RORO : 1,1% (quasi non couvert — chantier séparé)
+- Grimaldi RORO : **corrigé P2** — 3 templates corrigés/activés (TBL 25 000, SVC 18 000, TRL 15 000) + 1 inséré (EMANIF 550). Recheck D4 : ALL_CARRIER_LINES_MATCH (5/5 carrier, 100%). Ligne Taxe de Port (38 010 XOF) exclue du périmètre carrier → PAD-GRIMALDI-T09. Réserve : TRL=Telex provisoire, montants dérivés d'1 facture.
 
 ### Résultats PAD (invalidés par contrôle source-à-source, puis corrigés)
 - 6/8 dossiers étaient en ECART_DB_LOOKUP
@@ -95,7 +95,7 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 ### Chantier prioritaire
 1. ~~P0 : templates CMA CGM~~ → **DONE** (2026-04-05, recheck ALL_MATCH)
 2. ~~P1 : micro-gap MSC~~ → **DONE** (2026-04-06, template EMANIF 550 XOF/BL inséré, recheck D1 ALL_MATCH 100%)
-3. P2 : chantier Grimaldi RORO
+3. ~~P2 : chantier Grimaldi RORO~~ → **DONE carrier** (2026-04-06, 3 updates + 1 insert, recheck D4 ALL_CARRIER_LINES_MATCH 5/5). Ligne PAD exclue → PAD-GRIMALDI-T09.
 
 ---
 
@@ -107,5 +107,6 @@ Observer les non-matchs réels en exploitation avant tout nouveau chantier struc
 
 1. ~~**P0 CMA CGM**~~ : **DONE** — 4 templates corrigés et activés, recheck ALL_MATCH
 2. ~~**P1 MSC**~~ : **DONE** — template EMANIF inséré (550 XOF/BL, PER_BL, DOCUMENTATION), recheck D1 ALL_MATCH 100%
-3. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
-4. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+3. ~~**P2 Grimaldi RORO**~~ : **DONE carrier** — 3 updates + 1 insert, recheck D4 ALL_CARRIER_LINES_MATCH 5/5. Ligne PAD exclue → PAD-GRIMALDI-T09
+4. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
+5. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
