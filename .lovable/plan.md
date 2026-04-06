@@ -107,5 +107,6 @@ Observer les non-matchs réels en exploitation avant tout nouveau chantier struc
 
 1. ~~**P0 CMA CGM**~~ : **DONE** — 4 templates corrigés et activés, recheck ALL_MATCH
 2. ~~**P1 MSC**~~ : **DONE** — template EMANIF inséré (550 XOF/BL, PER_BL, DOCUMENTATION), recheck D1 ALL_MATCH 100%
-3. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
-4. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
+3. ~~**P2 Grimaldi RORO**~~ : **DONE carrier** — 3 updates + 1 insert, recheck D4 ALL_CARRIER_LINES_MATCH 5/5. Ligne PAD exclue → PAD-GRIMALDI-T09
+4. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
+5. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
