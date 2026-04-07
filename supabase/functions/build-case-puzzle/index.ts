@@ -129,6 +129,14 @@ const MANDATORY_FACTS: Record<string, string[]> = {
     "cargo.pieces_count",
     "contacts.client_email",
   ],
+  // STRUCTURAL_PATCH_ALLOWED: Export Sénégal gap profile (2026-04-07)
+  // Destination = port de déchargement, pas ville de livraison
+  EXPORT_SENEGAL: [
+    "routing.destination_port",
+    "cargo.description",
+    "cargo.containers",
+    "contacts.client_email",
+  ],
   // V4.2.2: Minimal universal facts for unknown transport mode
   UNKNOWN: [
     "routing.destination_city",
@@ -159,6 +167,12 @@ const SEA_LCL_BLOCKING_GAPS = new Set([
   "cargo.volume_cbm",
 ]);
 
+// STRUCTURAL_PATCH_ALLOWED: Export Sénégal blocking gaps (2026-04-07)
+const EXPORT_SENEGAL_BLOCKING_GAPS = new Set([
+  "routing.destination_port",
+  "cargo.description",
+]);
+
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
   "routing.incoterm": {
@@ -174,8 +188,8 @@ const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; 
     category: "routing",
   },
   "routing.destination_port": {
-    fr: "Veuillez confirmer le port de destination (Dakar ou autre)",
-    en: "Please confirm the destination port (Dakar or other)",
+    fr: "Quel est le port de déchargement ?",
+    en: "What is the port of discharge?",
     priority: "high",
     category: "routing",
   },
@@ -357,7 +371,8 @@ const PORT_COUNTRY_MAP: Record<string, string> = {
   'LE HAVRE': 'FR', 'MARSEILLE': 'FR', 'FOS': 'FR',
   'ANVERS': 'BE', 'ANTWERP': 'BE',
   'ISTANBUL': 'TR', 'MERSIN': 'TR',
-  'MUMBAI': 'IN', 'NHAVA SHEVA': 'IN',
+  'MUMBAI': 'IN', 'NHAVA SHEVA': 'IN', 'MUNDRA': 'IN', 'CHENNAI': 'IN', 'KOLKATA': 'IN',
+  'CHITTAGONG': 'BD', 'COLOMBO': 'LK',
   'DUBAI': 'AE', 'JEBEL ALI': 'AE', 'KHALIFA': 'AE', 'KHORFAKKAN': 'AE', 'KHOR FAKKAN': 'AE', 'FUJAIRAH': 'AE', 'ABU DHABI': 'AE',
   'HAMBURG': 'DE', 'ROTTERDAM': 'NL',
 };
@@ -1223,6 +1238,10 @@ async function injectAttachmentFacts(
         'MAURITANIE','BURKINA','BURKINA FASO','NIGER',
         "COTE D'IVOIRE","CÔTE D'IVOIRE",'GHANA','TOGO',
         'BENIN','BÉNIN','NIGERIA','CAMEROUN','CAMEROON',
+        // STRUCTURAL_PATCH_ALLOWED: pays commerciaux hors Afrique Ouest (2026-04-07)
+        'INDIA','INDE','CHINA','CHINE','TURKEY','TURQUIE',
+        'BRAZIL','BRÉSIL','USA','ÉTATS-UNIS','UNITED STATES',
+        'BANGLADESH','SRI LANKA','THAILAND','THAÏLANDE',
       ]);
 
       let effectiveFactKey = mapping.factKey;
