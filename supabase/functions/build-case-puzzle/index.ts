@@ -3010,6 +3010,11 @@ Deno.serve(async (req) => {
     const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds, detectedType);
     factsAdded += assumptionResult.added;
 
+    // STRUCTURAL_PATCH_ALLOWED: Export gap profile — use flowType for gap analysis when EXPORT_SENEGAL (2026-04-07)
+    const gapProfileType = assumptionResult.flowType === "EXPORT_SENEGAL" && MANDATORY_FACTS.EXPORT_SENEGAL
+      ? "EXPORT_SENEGAL"
+      : detectedType;
+
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
       const { data: knownContacts } = await serviceClient
@@ -3122,7 +3127,7 @@ Deno.serve(async (req) => {
     }
 
     // 10. Identify gaps
-    const mandatoryFacts = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.UNKNOWN;
+    const mandatoryFacts = MANDATORY_FACTS[gapProfileType] || MANDATORY_FACTS.UNKNOWN;
     const extractedKeys = extractedFacts.map((f) => f.key);
     
     // gapsIdentified already initialized above (before doc-regex block)
@@ -3429,7 +3434,9 @@ Deno.serve(async (req) => {
 
           // A1: Contextual blocking per request type
           let isBlocking: boolean;
-          if (detectedType === "SEA_FCL_IMPORT") {
+          if (gapProfileType === "EXPORT_SENEGAL") {
+            isBlocking = EXPORT_SENEGAL_BLOCKING_GAPS.has(requiredKey);
+          } else if (detectedType === "SEA_FCL_IMPORT") {
             isBlocking = SEA_FCL_BLOCKING_GAPS.has(requiredKey);
           } else if (detectedType === "SEA_LCL_IMPORT") {
             isBlocking = SEA_LCL_BLOCKING_GAPS.has(requiredKey);
@@ -3923,6 +3930,7 @@ Return a JSON array of facts with this structure:
 
 Fact keys to extract:
 - routing.origin_port, routing.destination_port, routing.destination_city, routing.incoterm
+- routing.origin_country, routing.destination_country
 - routing.origin_airport, routing.destination_airport
 - cargo.description, cargo.containers (as JSON array [{type, quantity, coc_soc}])
 - cargo.weight_kg, cargo.volume_cbm, cargo.value, cargo.value_currency, cargo.pieces_count
