@@ -3965,7 +3965,8 @@ CRITICAL RULES:
      - If neither (city, warehouse, industrial zone) → do NOT force it into origin_port or origin_airport.
        Simply do not extract a destination from this location.
    - DAP, DDP, CIF, CFR, CPT: the location next to the incoterm is the DESTINATION.
-   - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.`;
+    - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.
+8. COUNTRY EXTRACTION: If the email mentions a country name explicitly (e.g., "to India", "from Senegal", "destination: Nhava Sheva, India"), extract routing.origin_country and/or routing.destination_country as separate facts. Do not conflate country with city.`;
 
   const userPrompt = `Extract facts from this email thread:
 
