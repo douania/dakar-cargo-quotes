@@ -17,6 +17,10 @@
   - PACKAGE_SERVICE_DEFAULT_UNITS : THC_EXPORT=EVP, DOCUMENTATION_BL=BL, VGM_WEIGHING=EVP, STUFFING_FACTORY=EVP, STUFFING_CFS=EVP, EMPTY_REPO=EVP
   - SERVICE_KEY_LABELS : labels français ajoutés
   - DEDUP_GROUP_MAP : 6 entrées identitaires ajoutées
+  - `resolveServicePackageForLot()` : accepte globalServicePackage, respecte les packages EXPORT_* sans les écraser par la résolution import
+  - Appel lot-level passe désormais `lotInputs.servicePackage` au resolver
+  - `pricingCtxOverride.scope` : dynamique — 'export' si package EXPORT_*, sinon 'import'
+  - `buildPricingInputs()` : fallback finalDestination depuis destinationPort/destinationAirport
 - Migration DB :
   - `service_quantity_rules` : 6 règles de quantité (EVP/FLAT)
   - `pricing_service_catalogue` : 6 entrées FIXED à 0 XOF, mode_scope=NULL, description="Tarif à confirmer"
@@ -27,9 +31,12 @@ Les 6 codes export sont maintenant :
 - Auto-injectés via le package EXPORT_SENEGAL backend
 - Quantifiés via service_quantity_rules
 - Résolus par le catalogue avec rate=0, source="catalogue_sodatra"
+- Non écrasés par la résolution import lot-level (packages EXPORT_* respectés)
+- Traités en scope 'export' par price-service-lines
 
 ### Limitation connue
-Les tarifs réels restent à alimenter séparément (EXPORT-PRICING-SOURCING dans DEFERRED_BACKLOG.md).
+- Les tarifs réels restent à alimenter séparément (EXPORT-PRICING-SOURCING dans DEFERRED_BACKLOG.md).
+- Le moteur FROZEN quotation-engine continue de produire des honoraires import génériques (EXPORT-QE-FROZEN dans DEFERRED_BACKLOG.md).
 
 ### Hors périmètre
 - `EXPORT_SENEGAL_EXW` — décision produit, pas dans ce lot

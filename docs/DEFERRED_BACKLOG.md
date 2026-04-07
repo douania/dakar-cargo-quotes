@@ -2,7 +2,22 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-05
+Dernière mise à jour : 2026-04-07
+
+---
+
+## EXPORT-QE-FROZEN — quotation-engine FROZEN produit encore des honoraires import sur dossiers export
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | EXPORT-QE-FROZEN |
+| **Catégorie** | Moteur de pricing |
+| **Statut** | `deferred` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | Phase 15+ (export SENEGAL) |
+| **Date** | 2026-04-07 |
+| **Déclencheur de réouverture** | Quand quotation-engine sera dégelé ou qu'un client exige une cotation export sans lignes import parasites |
+| **Recommandation** | Le moteur FROZEN `quotation-engine` continue de produire des lignes honoraires génériques (fee_clearance, fee_follow_up, fee_file, fee_docs) car il opère en operationType=IMPORT. Le patch `run-pricing` corrige l'injection package lot-level et le scope P5, mais les lignes moteur FROZEN restent. Nécessite un dégel ciblé de quotation-engine pour supporter un operationType EXPORT. |
 
 ---
 
