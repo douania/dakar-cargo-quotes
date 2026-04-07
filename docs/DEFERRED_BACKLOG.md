@@ -111,8 +111,28 @@ Cela inclut les décisions formulées comme :
 | 3 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
 | 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
 | 5 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
-| 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 6 codes export | THC_EXPORT, DOCUMENTATION_BL, VGM_WEIGHING, STUFFING_FACTORY, STUFFING_CFS, EMPTY_REPO actuellement à 0 XOF |
-| 7 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 7 codes export | Priorité : SEA_FREIGHT > THC_EXPORT > DOCUMENTATION_BL > VGM_WEIGHING > STUFFING_FACTORY > STUFFING_CFS > EMPTY_REPO |
+| 7 | EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence HS 8 vs 10 digits inter-lots | Audit read-only mergeFactsForLot() ciblé |
+| 8 | EXPORT-CUSTOMS-SEMANTICS | Sémantique CUSTOMS_EXPORT / duties_total export | Clarification labels avant première offre client |
+| 9 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+
+---
+
+## Tableau de sourcing tarifaire export (EXPORT-PRICING-SOURCING)
+
+État au 2026-04-07 — confirmé par run #3 dossier 76c9819c.
+
+| Priorité | Service | Source visée | Nature tarif | Unité | Règle quantité | Mode MAJ | Statut catalogue |
+|----------|---------|-------------|--------------|-------|-----------------|----------|-----------------|
+| 1 | SEA_FREIGHT | Cotations compagnies maritimes (CMA CGM, MSC, Grimaldi) par destination/type conteneur | compagnie | EVP | `service_quantity_rules` existante | Rate card ou saisie manuelle | 0 XOF placeholder |
+| 2 | THC_EXPORT | Barème terminal export (DP World / MPTC Dakar) | officiel | EVP | `service_quantity_rules` existante | Document officiel tarifaire | 0 XOF placeholder |
+| 3 | DOCUMENTATION_BL | Compagnie maritime / agent | compagnie | BL | `service_quantity_rules` existante | Grille agent | 0 XOF placeholder |
+| 4 | VGM_WEIGHING | Peseur agréé / terminal | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 5 | STUFFING_FACTORY | Manutentionnaire usine | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 6 | STUFFING_CFS | Terminal CFS / magasin | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 7 | EMPTY_REPO | Dépôt conteneurs vides | prestataire | EVP | `service_quantity_rules` existante | Contrat dépôt | 0 XOF placeholder |
+
+Note : AGENCY (frais agence) est dans le package mais déjà géré par la grille interne SODATRA — pas dans le scope sourcing externe.
 
 ---
 
