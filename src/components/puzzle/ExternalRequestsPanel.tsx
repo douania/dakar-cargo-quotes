@@ -445,6 +445,11 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             {accepted.length} suggestion(s) confirmée(s)
                           </div>
                         )}
+                        {rejected.length > 0 && (
+                          <div className="text-[10px] text-muted-foreground/60 px-1">
+                            {rejected.length} suggestion(s) rejetée(s)
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

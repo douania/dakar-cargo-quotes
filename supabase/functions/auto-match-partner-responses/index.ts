@@ -246,7 +246,34 @@ serve(async (req: Request) => {
         return errorResponse("Suggestion is not pending (status: " + suggestion.suggestion_status + ")", 400);
       }
 
-      // Mark accepted
+      // Call analyze-partner-response FIRST, only accept if it succeeds
+      const analyzeUrl = `${supabaseUrl}/functions/v1/analyze-partner-response`;
+      let analyzeResult: Record<string, unknown> | null = null;
+      try {
+        const analyzeResp = await fetch(analyzeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            case_id,
+            request_id: suggestion.request_id,
+            email_id: suggestion.suggested_email_id,
+          }),
+        });
+        if (!analyzeResp.ok) {
+          const errText = await analyzeResp.text();
+          console.warn("[auto-match] analyze-partner-response failed:", analyzeResp.status, errText);
+          return errorResponse("Analyse partenaire échouée: " + errText, 502);
+        }
+        analyzeResult = await analyzeResp.json();
+      } catch (e) {
+        console.warn("[auto-match] analyze-partner-response call error:", (e as Error).message);
+        return errorResponse("Analyse partenaire inaccessible: " + (e as Error).message, 502);
+      }
+
+      // Analysis succeeded — now mark accepted
       const { error: updErr } = await serviceClient
         .from("partner_response_suggestions")
         .update({
@@ -275,32 +302,6 @@ serve(async (req: Request) => {
           confidence: suggestion.confidence_level,
         },
       });
-
-      // Call analyze-partner-response by forwarding user's auth token
-      const analyzeUrl = `${supabaseUrl}/functions/v1/analyze-partner-response`;
-      let analyzeResult: Record<string, unknown> | null = null;
-      try {
-        const analyzeResp = await fetch(analyzeUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-          },
-          body: JSON.stringify({
-            case_id,
-            request_id: suggestion.request_id,
-            email_id: suggestion.suggested_email_id,
-          }),
-        });
-        if (analyzeResp.ok) {
-          analyzeResult = await analyzeResp.json();
-        } else {
-          const errText = await analyzeResp.text();
-          console.warn("[auto-match] analyze-partner-response failed:", analyzeResp.status, errText);
-        }
-      } catch (e) {
-        console.warn("[auto-match] analyze-partner-response call error:", (e as Error).message);
-      }
 
       return jsonResponse({
         ok: true,
