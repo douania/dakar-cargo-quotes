@@ -99,6 +99,30 @@ Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
 
 ---
 
+## Patch Export Sénégal — gap profile (2026-04-07)
+
+**Statut** : patch appliqué, en attente de re-test sur dossier 76c9819c
+
+### Ce qui est corrigé
+
+- **Profil export** : `MANDATORY_FACTS.EXPORT_SENEGAL` + `EXPORT_SENEGAL_BLOCKING_GAPS` ajoutés
+- **Gap analysis** : `gapProfileType` dérivé de `assumptionResult.flowType` — les gaps export utilisent le profil export au lieu du profil import
+- **Ports/pays** : MUNDRA, CHENNAI, KOLKATA, CHITTAGONG, COLOMBO ajoutés à `PORT_COUNTRY_MAP` ; pays commerciaux hors Afrique Ouest ajoutés à `KNOWN_COUNTRIES`
+- **Prompt AI** : `routing.origin_country` et `routing.destination_country` ajoutés aux fact keys + règle COUNTRY EXTRACTION
+- **Wording** : `routing.destination_port` reformulé (« Quel est le port de déchargement ? »)
+
+### Limitation connue
+
+- Badge `request_type` reste import-only (enum DB `quote_request_type` inchangé) — documenté dans `docs/DEFERRED_BACKLOG.md` sous `EXPORT-DB-ENUM`
+- L1789 (`mandatoryFactsForType`) non modifié — la correction porte uniquement sur la gap analysis post-assumptionResult
+
+### Validation
+
+- Exception `STRUCTURAL_PATCH_ALLOWED` documentée dans `docs/MASTER_CONTEXT.md`
+- Re-test dossier 76c9819c requis pour confirmer la disparition du faux gap bloquant
+
+---
+
 ## Recommandation unique
 
 Observer les non-matchs réels en exploitation avant tout nouveau chantier structurel (PAD-IA, audit T06/T08/T10/T11, P2/P3 moteur).
