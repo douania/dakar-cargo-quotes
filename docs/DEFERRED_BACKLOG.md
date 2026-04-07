@@ -112,7 +112,7 @@ Cela inclut les décisions formulées comme :
 | 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
 | 5 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
 | 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 7 codes export | Priorité : SEA_FREIGHT > THC_EXPORT > DOCUMENTATION_BL > VGM_WEIGHING > STUFFING_FACTORY > STUFFING_CFS > EMPTY_REPO |
-| 7 | EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence HS 8 vs 10 digits inter-lots | Audit read-only mergeFactsForLot() ciblé |
+| 7 | EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence HS 8 vs 10 digits inter-lots | **Phase A livrée** — garde mergeFactsForLot + fallback SH6 candidat unique |
 | 8 | EXPORT-CUSTOMS-SEMANTICS | Sémantique CUSTOMS_EXPORT / duties_total export | Clarification labels avant première offre client |
 | 9 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 

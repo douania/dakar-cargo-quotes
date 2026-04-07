@@ -2384,6 +2384,22 @@ function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
       value_text = raw != null ? String(raw) : null;
     }
 
+    // HS-NORMALIZATION Phase A guard: don't let a lot-level short HS code
+    // overwrite a more precise global 10-digit code sharing the same SH6.
+    // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md
+    if (lf.key === 'cargo.hs_code' && value_text) {
+      const lotDigits = value_text.replace(/\D/g, '');
+      if (lotDigits.length > 0 && lotDigits.length < 10) {
+        const existing = merged.get('cargo.hs_code');
+        const existingDigits = existing?.value_text?.replace(/\D/g, '') || '';
+        if (existingDigits.length === 10 &&
+            lotDigits.substring(0, 6) === existingDigits.substring(0, 6)) {
+          // Same SH6, global more precise → keep global
+          continue;
+        }
+      }
+    }
+
     merged.set(lf.key, {
       fact_key: lf.key,
       value_text,
