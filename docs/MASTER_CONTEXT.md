@@ -467,3 +467,46 @@ Le badge `request_type` du dossier restera un type import (ex: `SEA_FCL_IMPORT`)
 - Exception validée pour Export Sénégal gap profile uniquement
 - `build-case-puzzle` reste FROZEN par défaut
 - Toute modification future nécessite une nouvelle justification explicite
+
+---
+
+## Exception contrôlée — HS-NORMALIZATION Phase A sur quotation-engine et run-pricing
+
+### Contexte
+
+Anomalie confirmée par audit DB (2026-04-07) : sur le dossier multi-lot 76c9819c, les lots 1-2 portent un `cargo.hs_code = "08013100"` (8 digits) dans `extracted_facts_json`, qui écrase le global 10 digits `0801310000` via `mergeFactsForLot()`. Le moteur `quotation-engine` ne normalise pas à 10 digits avant lookup, causant un échec de résolution incohérent entre lots.
+
+### Problème métier réel
+
+Le Système Harmonisé (SH) n'est fiable qu'à 6 chiffres mondialement. Au-delà, chaque pays applique ses propres subdivisions. Un code 8 digits provenant d'un lot-level override dégrade la résolution HS sans apporter de précision locale.
+
+### Patch autorisé
+
+**Fichier 1 — `run-pricing/index.ts`** (zone sensible/pricing) :
+Garde dans `mergeFactsForLot()` : si un lot apporte un `cargo.hs_code` < 10 digits et que le global a un 10 digits avec le même SH6, le global est préservé.
+
+**Fichier 2 — `quotation-engine/index.ts`** (FROZEN) :
+Résolution SH6 "candidat unique seulement" : exact match prioritaire, puis fallback SH6 uniquement si un seul candidat 10 digits existe dans `hs_codes`. Si plusieurs candidats ou aucun, comportement inchangé (non-résolu).
+
+### Justification de l'exception
+
+1. **Corrige un manque réel du modèle métier** — résolution HS incohérente entre lots d'un même dossier
+2. **Périmètre strictement localisé** — ~15 lignes dans chaque fichier, aucun impact sur le pipeline existant
+3. **Aucun refactor global** — insertion chirurgicale dans les blocs existants
+4. **Préservation de l'intégrité des données** — aucune modification des données, seulement de la logique de lecture
+5. **Préservation de l'idempotence** — la garde ne s'active que si SH6 identique + global plus précis
+6. **Aucune sur-correction** — pas de padEnd aveugle, pas de premier-match arbitraire
+
+### Contraintes d'implémentation
+
+- **Non-bloquant** : si le fallback SH6 ne trouve pas de candidat unique, le comportement existant est préservé
+- **Pas de sur-interprétation** : un code client étranger n'est jamais traité comme vérité locale
+- **Traçable** : commentaires `STRUCTURAL_PATCH_ALLOWED` dans le code
+
+### Statut
+
+- Exception validée pour HS-NORMALIZATION Phase A uniquement
+- `quotation-engine` reste FROZEN par défaut
+- `run-pricing` reste zone sensible par défaut
+- Phase B (architecture multi-couche HS) documentée dans DEFERRED_BACKLOG.md comme `HS-MULTI-LAYER-ARCHITECTURE`
+- Toute modification future nécessite une nouvelle justification explicite

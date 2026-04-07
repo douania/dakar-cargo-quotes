@@ -2297,11 +2297,35 @@ async function generateQuotationLines(
       for (const [idx, currentHsCode] of hsCodes.entries()) {
         const cafForArticle = cafDistribution[idx];
         const hsNormalized = currentHsCode.replace(/\D/g, '');
-        const { data: hsData } = await supabase
+
+        // HS-NORMALIZATION Phase A: exact match first, then SH6 unique-candidate fallback
+        // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md
+        let hsData: any[] | null = null;
+
+        // 1. Exact match (original behavior)
+        const { data: exactMatch } = await supabase
           .from('hs_codes')
           .select('*')
           .or(`code.eq.${currentHsCode},code_normalized.eq.${hsNormalized}`)
           .limit(1);
+
+        if (exactMatch && exactMatch.length > 0) {
+          hsData = exactMatch;
+        } else if (hsNormalized.length >= 6 && hsNormalized.length < 10) {
+          // 2. Fallback SH6 — unique candidate only (no arbitrary first-match)
+          const sh6 = hsNormalized.substring(0, 6);
+          const { data: sh6Matches, count: sh6Count } = await supabase
+            .from('hs_codes')
+            .select('*', { count: 'exact' })
+            .like('code_normalized', `${sh6}%`)
+            .limit(2);
+
+          if (sh6Matches && sh6Count === 1) {
+            // Single SH6 candidate → reliable resolution
+            hsData = sh6Matches;
+          }
+          // If sh6Count > 1 or 0 → no resolution, stays in missingCodes (current behavior)
+        }
 
         if (hsData && hsData.length > 0) {
           const hs = hsData[0];
