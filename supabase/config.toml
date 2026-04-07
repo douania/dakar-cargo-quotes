@@ -205,3 +205,6 @@ verify_jwt = false
 
 [functions.data-query]
 verify_jwt = false
+
+[functions.auto-match-partner-responses]
+verify_jwt = false

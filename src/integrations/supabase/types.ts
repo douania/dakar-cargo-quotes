@@ -2812,6 +2812,76 @@ export type Database = {
           },
         ]
       }
+      partner_response_suggestions: {
+        Row: {
+          case_id: string
+          confidence_level: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          id: string
+          reasons: Json
+          rejected_at: string | null
+          rejected_by: string | null
+          request_id: string
+          score: number
+          suggested_email_id: string
+          suggestion_status: string
+        }
+        Insert: {
+          case_id: string
+          confidence_level: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          reasons?: Json
+          rejected_at?: string | null
+          rejected_by?: string | null
+          request_id: string
+          score?: number
+          suggested_email_id: string
+          suggestion_status?: string
+        }
+        Update: {
+          case_id?: string
+          confidence_level?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          reasons?: Json
+          rejected_at?: string | null
+          rejected_by?: string | null
+          request_id?: string
+          score?: number
+          suggested_email_id?: string
+          suggestion_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_response_suggestions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_response_suggestions_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "external_quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_response_suggestions_suggested_email_id_fkey"
+            columns: ["suggested_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       port_tariffs: {
         Row: {
           amount: number

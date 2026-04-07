@@ -33,6 +33,7 @@ import {
   Package,
   Search,
   RefreshCw,
+  Radar,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -44,6 +45,7 @@ import {
   type ExternalResponseFact,
 } from "@/hooks/useExternalRequests";
 import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
+import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -98,6 +100,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   } = useExternalRequests(caseId);
 
   const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+
+  const {
+    pendingSuggestions,
+    scanSuggestions,
+    confirmSuggestion,
+    rejectSuggestion,
+    getPendingForRequest,
+    getSuggestionsForRequest,
+  } = usePartnerSuggestions(caseId);
 
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
@@ -183,15 +194,37 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
               </Badge>
             )}
           </CardTitle>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowForm(!showForm)}
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Nouvelle demande
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => scanSuggestions.mutate()}
+              disabled={scanSuggestions.isPending}
+            >
+              {scanSuggestions.isPending ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Radar className="h-3 w-3 mr-1" />
+              )}
+              Scanner
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowForm(!showForm)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Nouvelle demande
+            </Button>
+          </div>
         </div>
+        {pendingSuggestions.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+              {pendingSuggestions.length} suggestion(s) en attente
+            </Badge>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Create form */}
@@ -343,6 +376,78 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   {req.purpose_detail && (
                     <p className="text-sm text-muted-foreground whitespace-pre-line">{req.purpose_detail}</p>
                   )}
+
+                  {/* COM-2A: Suggestion banners */}
+                  {(() => {
+                    const reqSuggestions = getSuggestionsForRequest(req.id);
+                    const pending = reqSuggestions.filter((s) => s.suggestion_status === "pending");
+                    const accepted = reqSuggestions.filter((s) => s.suggestion_status === "accepted");
+                    const rejected = reqSuggestions.filter((s) => s.suggestion_status === "rejected");
+                    if (reqSuggestions.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5">
+                        {pending.map((s) => {
+                          const matchedEmail = threadEmails.find((e) => e.id === s.suggested_email_id);
+                          return (
+                            <div key={s.id} className="flex items-center gap-2 p-2 rounded border border-primary/20 bg-primary/5 text-xs">
+                              <Radar className="h-3.5 w-3.5 text-primary shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <span className="font-medium">Suggestion</span>
+                                <Badge
+                                  variant="outline"
+                                  className={`ml-1.5 text-[10px] px-1.5 py-0 ${
+                                    s.confidence_level === "high"
+                                      ? "border-green-300 text-green-700 dark:border-green-600 dark:text-green-300"
+                                      : s.confidence_level === "medium"
+                                      ? "border-yellow-300 text-yellow-700 dark:border-yellow-600 dark:text-yellow-300"
+                                      : "border-muted-foreground/30 text-muted-foreground"
+                                  }`}
+                                >
+                                  {s.confidence_level === "high" ? "Forte" : s.confidence_level === "medium" ? "Moyenne" : "Faible"}
+                                  {" "}({s.score})
+                                </Badge>
+                                {matchedEmail && (
+                                  <span className="text-muted-foreground ml-1.5">
+                                    {matchedEmail.from_address.split("@")[0]} — {(matchedEmail.subject || "(sans sujet)").slice(0, 35)}
+                                  </span>
+                                )}
+                                {s.reasons.length > 0 && (
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">{s.reasons.slice(0, 2).join(" · ")}</p>
+                                )}
+                              </div>
+                              <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[10px]"
+                                  disabled={confirmSuggestion.isPending}
+                                  onClick={() => confirmSuggestion.mutate(s.id)}
+                                >
+                                  {confirmSuggestion.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 mr-0.5" />}
+                                  Confirmer
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px]"
+                                  disabled={rejectSuggestion.isPending}
+                                  onClick={() => rejectSuggestion.mutate(s.id)}
+                                >
+                                  <X className="h-3 w-3 mr-0.5" />
+                                  Rejeter
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {accepted.length > 0 && (
+                          <div className="text-[10px] text-muted-foreground px-1">
+                            {accepted.length} suggestion(s) confirmée(s)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Actions */}
                   <div className="flex gap-2 flex-wrap items-end">
