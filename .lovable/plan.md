@@ -1,66 +1,49 @@
 
 
-# Plan — COM-2A Auto-matching réponses partenaires
+# Plan correctif COM-2A — Fermeture propre
 
-## Statut : LIVRÉ (2026-04-07)
+## 3 corrections ciblées, 3 fichiers
 
-### Périmètre livré
+### 1. Sécuriser confirm — `supabase/functions/auto-match-partner-responses/index.ts`
 
-#### Migration DB
-- Table `partner_response_suggestions` créée
-- FK : `case_id` → `quote_cases`, `request_id` → `external_quote_requests`, `suggested_email_id` → `emails`
-- UNIQUE `(request_id, suggested_email_id)` pour idempotence
-- Index `(case_id, suggestion_status)` pour performance UI
-- RLS shared workspace authenticated (cohérent avec EQ1)
-- Statuts : `pending`, `accepted`, `rejected` (transitions terminales)
+**Problème** : La suggestion passe à `accepted` (L250-257) et la timeline est écrite (L262-277) AVANT l'appel à `analyze-partner-response` (L280-303). Si l'analyse échoue, la suggestion reste `accepted` sans vraie réponse EQ1.
 
-#### Edge function `auto-match-partner-responses`
-- Action `scan` : charge demandes ouvertes (sent/response_received), emails du thread, exclut emails déjà utilisés dans `external_quote_responses`, exclut paires déjà suggérées, score >= 40 → insert suggestion pending
-- Action `confirm` : vérifie pending, passe accepted, timeline manual_action PARTNER_SUGGESTION_CONFIRMED, appelle analyze-partner-response via HTTP interne avec bearer token utilisateur
-- Action `reject` : vérifie pending, passe rejected, timeline manual_action PARTNER_SUGGESTION_REJECTED
-- Scoring : duplication contrôlée de suggestPartnerResponse.ts (dette acceptée, ~50 lignes)
-- Guards : requireUser, case access via RLS, idempotence unique constraint
+**Correction** : Inverser l'ordre.
 
-#### Frontend
-- `src/hooks/usePartnerSuggestions.ts` : queries + mutations scan/confirm/reject
-- `src/components/puzzle/ExternalRequestsPanel.tsx` :
-  - Bouton global "Scanner" (icône Radar)
-  - Badge compteur suggestions pending dans le header
-  - Bandeaux suggestion par demande avec badge confiance, email suggéré, reasons, boutons Confirmer/Rejeter
-  - Bouton Analyser manuel conservé comme fallback
+1. Appeler `analyze-partner-response` d'abord
+2. Si succès (`analyzeResp.ok`) → passer la suggestion à `accepted`, écrire la timeline, retourner `ok: true`
+3. Si échec → ne pas toucher la suggestion (reste `pending`), retourner `ok: false` avec message d'erreur et status 502
 
-#### Config
-- `supabase/config.toml` : bloc `[functions.auto-match-partner-responses]` ajouté
+Concrètement : déplacer le bloc fetch (L280-303) avant le bloc update (L250-277), puis conditionner update+timeline sur `analyzeResp.ok`.
 
-#### Documentation
-- `docs/MASTER_CONTEXT.md` : section COM-2A ajoutée dans module EQ1
-- `docs/DEFERRED_BACKLOG.md` : COM-2A marqué DONE, COM-1A/COM-3/COM-4 ajoutés comme deferred
-- `.lovable/plan.md` : ce fichier
+### 2. Afficher les suggestions rejetées — `src/components/puzzle/ExternalRequestsPanel.tsx`
 
-### Architecture retenue : Option B — Table dédiée
-- Séparation stricte entre suggestions (partner_response_suggestions) et pipeline EQ1 (external_quote_responses)
-- Pattern identique à terminal_designation_suggestions
-- Aucune pollution du pipeline aval EQ1
+**Problème** : La variable `rejected` (L385) est calculée mais jamais rendue dans le JSX. Seuls `pending` et `accepted` sont affichés.
 
-### Ce qui n'a PAS été touché
-- Pipeline EQ1 existant (external_quote_requests, responses, facts)
-- Zones FROZEN (quotation-engine, build-case-puzzle, set-case-fact)
-- analyze-thread-event (pas de hook auto)
-- Suggestion locale existante dans ExternalRequestsPanel (suggestPartnerResponse) — conservée en parallèle
-- Bouton Analyser manuel — conservé comme fallback
+**Correction** : Après le bloc `accepted.length > 0` (L443-447), ajouter un bloc discret pour `rejected` :
+```
+{rejected.length > 0 && (
+  <div className="text-[10px] text-muted-foreground/60 px-1">
+    {rejected.length} suggestion(s) rejetée(s)
+  </div>
+)}
+```
 
-### Corrections CTO appliquées
-- FK explicites sur request_id et suggested_email_id (Correction A)
-- Policies RLS explicites SELECT/INSERT/UPDATE/DELETE (Correction B)
-- Pas de nouvel event_type timeline — réutilisation de manual_action avec action_code (Correction C)
-- Exclusion scan par paire (request_id, suggested_email_id), pas par email global (Correction D)
-- Note : types.ts auto-généré par le système, pas modifiable manuellement (Correction E — géré via cast)
+### 3. Retirer les casts inutiles — `src/hooks/usePartnerSuggestions.ts`
 
-### Prochaines phases cockpit communication (deferred)
-- COM-1A : envoi réel emails partenaires (SMTP) — prérequis structurel
-- COM-3 : SLA / relances partenaires — nécessite COM-1A
-- COM-4 : comparaison multi-offres + réponse client consolidée
+**Problème** : `as any` (L31) et `as unknown as PartnerSuggestion[]` (L36) sont inutiles puisque `types.ts` contient déjà la table.
 
-### Dettes acceptées
-- Duplication scoring front/back (~50 lignes) — contrôlée, même algorithme
-- Cast `as any` / `as unknown` pour partner_response_suggestions dans le hook (table non encore dans types.ts auto-généré)
+**Correction** :
+- L31 : `.from("partner_response_suggestions" as any)` → `.from("partner_response_suggestions")`
+- L36 : `(data || []) as unknown as PartnerSuggestion[]` → `(data || []) as PartnerSuggestion[]`
+
+## Blast radius
+
+| Fichier | Nature |
+|---------|--------|
+| `auto-match-partner-responses/index.ts` | Réordonnancement interne du confirm |
+| `ExternalRequestsPanel.tsx` | +4 lignes JSX |
+| `usePartnerSuggestions.ts` | Nettoyage de 2 casts |
+
+Aucun autre fichier touché. Aucune zone FROZEN impactée. Aucune migration DB.
+
