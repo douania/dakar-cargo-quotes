@@ -52,6 +52,13 @@ Les 6 codes export sont maintenant :
 - Traités en scope 'export' par price-service-lines
 - **Run #3 success** : 5 lots, 750 000 XOF HT, 885 000 XOF TTC, 7 lignes P5/lot cohérentes
 
+### Validation runtime Phase A HS (confirmé run #6 dossier 76c9819c — 2026-04-07)
+- Phase A livrée dans le repo, puis validée runtime après redéploiement des edge functions
+- **Run #6** : 5 lots homogènes sur `0801310000`, warning `Code HS 08013100 non trouvé` disparu
+- Garde `mergeFactsForLot()` active : lots 1-2 ne dégradent plus le global 10 digits
+- Fallback SH6 candidat unique dans `quotation-engine` : opérationnel (1 seul candidat pour 080131)
+- Prochain chantier HS : Phase B architecture multi-couche (HS-MULTI-LAYER-ARCHITECTURE, backlogé)
+
 ### Limitation connue
 - Les tarifs réels restent à alimenter séparément (EXPORT-PRICING-SOURCING dans DEFERRED_BACKLOG.md).
 - Le moteur FROZEN quotation-engine continue de produire des honoraires import génériques (EXPORT-QE-FROZEN dans DEFERRED_BACKLOG.md).
