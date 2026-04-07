@@ -408,3 +408,62 @@ Le filtrage lot-level nécessiterait une extension du schéma quote_gaps (hors s
 - Exception validée pour P1 uniquement
 - `build-case-puzzle` reste FROZEN par défaut
 - Toute modification future nécessite une nouvelle justification explicite
+
+---
+
+## Exception contrôlée — Export Sénégal gap profile (2026-04-07)
+
+Edge function : build-case-puzzle (gap analysis + prompt extraction)
+Justification : STRUCTURAL_PATCH_ALLOWED
+
+### Problème métier
+
+Un dossier export maritime (origin = Dakar, destination = Nhava Sheva / Mundra, India) génère un faux gap bloquant « Quelle est la destination finale des marchandises ? » alors que le port de déchargement est explicitement mentionné dans l'email client. Cause : la logique de gaps utilise `detectedType` (import-centré) au lieu du `flowType` réel (`EXPORT_SENEGAL`), et aucun profil export n'existe dans `MANDATORY_FACTS`.
+
+### Périmètre du patch
+
+8 modifications locales dans `build-case-puzzle/index.ts` + documentation :
+
+1. **MANDATORY_FACTS** — ajout profil `EXPORT_SENEGAL` (destination_port, cargo.description, cargo.containers, contacts.client_email)
+2. **EXPORT_SENEGAL_BLOCKING_GAPS** — set dédié (destination_port, cargo.description)
+3. **gapProfileType** — variable locale créée après `assumptionResult`, utilisée uniquement dans la gap analysis (L3125, L3432+)
+4. **PORT_COUNTRY_MAP** — ajout MUNDRA, CHENNAI, KOLKATA, CHITTAGONG, COLOMBO
+5. **KNOWN_COUNTRIES** — ajout pays commerciaux hors Afrique Ouest (India, China, Turkey, Brazil, USA, Bangladesh, Sri Lanka, Thailand)
+6. **Prompt AI extraction** — ajout `routing.origin_country`, `routing.destination_country` + règle 8 (COUNTRY EXTRACTION)
+7. **GAP_QUESTIONS** — `routing.destination_port` reformulé (« Quel est le port de déchargement ? »)
+
+### Ce qui n'est PAS modifié
+
+- L1789 (`mandatoryFactsForType`) — inchangé
+- `detectedType` — inchangé
+- `request_type` en DB — inchangé (enum import-only, limitation connue)
+- `run-pricing`, `set-case-fact`, UI — aucun impact
+- Logique import existante — aucune modification
+
+### Limitation connue
+
+Le badge `request_type` du dossier restera un type import (ex: `SEA_FCL_IMPORT`) car l'enum DB `quote_request_type` ne contient pas `EXPORT_SENEGAL`. Cette limitation est documentée dans `docs/DEFERRED_BACKLOG.md` sous `EXPORT-DB-ENUM`.
+
+### Impact indirect (faible mais non nul)
+
+- Meilleure redirection pays → `destination_country` via KNOWN_COUNTRIES élargi
+- Meilleure résolution pays depuis certains ports (MUNDRA etc.)
+- Wording plus neutre pour `destination_port`
+
+### Risques
+
+- **Scope gapProfileType** : créé après `assumptionResult`, accessible dans la gap analysis — vérifié
+- **KNOWN_COUNTRIES élargi** : peut rediriger certains textes auparavant stockés en `destination_city` vers `destination_country` — souhaitable
+- **Branchement export** : strictement conditionné à `flowType === EXPORT_SENEGAL` — aucune interférence import
+
+### Contraintes
+
+- Non-bloquant : erreurs export loguées, jamais fatales
+- Idempotent : le branchement export n'intervient que si `flowType === EXPORT_SENEGAL`
+- Traçable : commentaires `STRUCTURAL_PATCH_ALLOWED` dans le code
+
+### Statut
+
+- Exception validée pour Export Sénégal gap profile uniquement
+- `build-case-puzzle` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
