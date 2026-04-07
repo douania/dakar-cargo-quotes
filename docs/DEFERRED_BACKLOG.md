@@ -111,8 +111,28 @@ Cela inclut les décisions formulées comme :
 | 3 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
 | 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
 | 5 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
-| 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 6 codes export | THC_EXPORT, DOCUMENTATION_BL, VGM_WEIGHING, STUFFING_FACTORY, STUFFING_CFS, EMPTY_REPO actuellement à 0 XOF |
-| 7 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 7 codes export | Priorité : SEA_FREIGHT > THC_EXPORT > DOCUMENTATION_BL > VGM_WEIGHING > STUFFING_FACTORY > STUFFING_CFS > EMPTY_REPO |
+| 7 | EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence HS 8 vs 10 digits inter-lots | Audit read-only mergeFactsForLot() ciblé |
+| 8 | EXPORT-CUSTOMS-SEMANTICS | Sémantique CUSTOMS_EXPORT / duties_total export | Clarification labels avant première offre client |
+| 9 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+
+---
+
+## Tableau de sourcing tarifaire export (EXPORT-PRICING-SOURCING)
+
+État au 2026-04-07 — confirmé par run #3 dossier 76c9819c.
+
+| Priorité | Service | Source visée | Nature tarif | Unité | Règle quantité | Mode MAJ | Statut catalogue |
+|----------|---------|-------------|--------------|-------|-----------------|----------|-----------------|
+| 1 | SEA_FREIGHT | Cotations compagnies maritimes (CMA CGM, MSC, Grimaldi) par destination/type conteneur | compagnie | EVP | `service_quantity_rules` existante | Rate card ou saisie manuelle | 0 XOF placeholder |
+| 2 | THC_EXPORT | Barème terminal export (DP World / MPTC Dakar) | officiel | EVP | `service_quantity_rules` existante | Document officiel tarifaire | 0 XOF placeholder |
+| 3 | DOCUMENTATION_BL | Compagnie maritime / agent | compagnie | BL | `service_quantity_rules` existante | Grille agent | 0 XOF placeholder |
+| 4 | VGM_WEIGHING | Peseur agréé / terminal | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 5 | STUFFING_FACTORY | Manutentionnaire usine | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 6 | STUFFING_CFS | Terminal CFS / magasin | prestataire | EVP | `service_quantity_rules` existante | Contrat prestataire | 0 XOF placeholder |
+| 7 | EMPTY_REPO | Dépôt conteneurs vides | prestataire | EVP | `service_quantity_rules` existante | Contrat dépôt | 0 XOF placeholder |
+
+Note : AGENCY (frais agence) est dans le package mais déjà géré par la grille interne SODATRA — pas dans le scope sourcing externe.
 
 ---
 
@@ -138,7 +158,9 @@ Cela inclut les décisions formulées comme :
 | CARRIER-GRIMALDI-RORO | Templates carrier billing Grimaldi RORO — carrier lines corrigées | carrier | `closed` | P2 | Blind-F1.0 | 2026-04-06 | — | **DONE carrier.** 3 templates corrigés/activés (TBL 25 000 XOF, SVC 18 000 XOF, TRL 15 000 XOF) + 1 inséré (EMANIF 550 XOF). Recheck D4 : ALL_CARRIER_LINES_MATCH 5/5 carrier (100%). Ligne Taxe de Port (38 010 XOF) exclue → PAD-GRIMALDI-T09 scope. Réserves : TRL=Telex Release provisoire (matched by amount/carrier/invoice context), montants dérivés d'1 seule facture RORO |
 | CARRIER-MSC-EMANIF | Micro-gap MSC manifeste électronique — template EMANIF ajouté | carrier | `closed` | P1 | Blind-F1.0 | 2026-04-06 | — | **DONE.** Template EMANIF inséré : 550 XOF/BL, PER_BL, DOCUMENTATION, is_active=true. Source : D1 blind audit sample - MSC invoice. Recheck D1 post-insert : ALL_MATCH 8/8 lignes, 100% couverture. Réserve : montant fixe 550 dérivé d'1 facture, reclassable is_variable si 2e dossier contredit |
 | EXPORT-DB-ENUM | Badge request_type ne peut pas stocker EXPORT_SENEGAL — enum DB import-only | dette | `deferred` | basse | Export-patch | 2026-04-07 | Enum `quote_request_type` ne contient que des types import. Le patch export gap profile (STRUCTURAL_PATCH_ALLOWED 2026-04-07) corrige la logique de gaps via `gapProfileType` mais le badge DB reste un type import. | Migration DB ajoutant `EXPORT_SENEGAL` à l'enum `quote_request_type` + mise à jour de `build-case-puzzle` L3667/L3853 pour écrire le type export | Pas d'impact fonctionnel immédiat : la gap analysis utilise `gapProfileType`, seul le badge UI est affecté |
-| EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 6 codes export (THC_EXPORT, DOCUMENTATION_BL, VGM_WEIGHING, STUFFING_FACTORY, STUFFING_CFS, EMPTY_REPO) | pricing | `deferred` | moyenne | P7-export | 2026-04-07 | Verrou technique levé : 6 codes dans whitelist moteur, catalogue placeholder FIXED à 0 XOF, quantification OK. Tarifs réels à alimenter via pricing_rate_cards ou mise à jour catalogue. THC_EXPORT prioritaire (service export le plus attendu). | Rate cards reçues de l'opérateur ou source officielle port/terminal pour THC export | Pas de régression : lignes à 0 visibles dans l'offre, filtrables par l'opérateur |
+| EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 7 codes export à 0 XOF | pricing | `deferred` | moyenne | P7-export | 2026-04-07 | Verrou technique levé : 6 codes dans whitelist moteur, catalogue placeholder FIXED à 0 XOF, quantification OK. Tarifs réels à alimenter via pricing_rate_cards ou mise à jour catalogue. Confirmé run #3 dossier 76c9819c : 7 lignes P5/lot injectées correctement, PORT_CHARGES (12 000) et CUSTOMS_EXPORT (200 000) valorisés, les 5 autres à 0 XOF source catalogue_sodatra. | Rate cards reçues de l'opérateur ou source officielle port/terminal | Pas de régression : lignes à 0 visibles dans l'offre, filtrables par l'opérateur |
+| EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence normalisation HS code entre lots sur dossiers export multi-lot | moteur/normalisation | `watchlist` | moyenne | P7-export | 2026-04-07 | Dossier 76c9819c run #3 : lots 1-2 évalués avec HS `08013100` (8 digits, non trouvé dans hs_codes), lots 3-5 évalués avec `0801310000` (10 digits, trouvé). Même fact global `cargo.hs_code = 0801310000`. Impact : incohérence documentaire, warnings inutiles, mauvaise sémantique douane export, risque de calcul parasite dans le moteur. À l'export sénégalais, pas de droits/taxes de sortie au sens import — impact fiscal limité mais sémantique dégradée. | Prochain dossier multi-lot avec incohérence HS, ou audit ciblé de `mergeFactsForLot()` / `request_lines.extracted_facts_json` | Cause probable : override lot-level de cargo.hs_code en 8 digits lors du merge des facts, ou normalisation incomplète dans le chemin duty resolver. Point de divergence suspect principal : `mergeFactsForLot()`, à confirmer par lecture des `extracted_facts_json` des lots 1-2 du dossier 76c9819c. Si confirmé, corriger soit l'extraction lot-level, soit ajouter un `padEnd(10, '0')` dans `quotation-engine` L2299. |
+| EXPORT-CUSTOMS-SEMANTICS | Sémantique CUSTOMS_EXPORT et duties_total en contexte export sénégalais | métier/sémantique | `watchlist` | basse | P7-export | 2026-04-07 | Le dossier export 76c9819c affiche encore des lignes `duties_total` et `CUSTOMS_EXPORT` à 200 000 XOF/lot. À l'export sénégalais, il n'y a pas de droits et taxes de sortie comparables à l'import. Le montant CUSTOMS_EXPORT couvre les frais de dédouanement export (honoraires/formalités), pas des droits de douane. Le label et la présentation au client doivent refléter cette distinction. `duties_total` est un artefact du moteur FROZEN import (cf. EXPORT-QE-FROZEN). | Première offre export envoyée à un client — le libellé doit être clair avant envoi | Clarifier le label CUSTOMS_EXPORT comme "Frais de dédouanement export" (pas "droits de douane"). Filtrer ou annoter `duties_total` dans le rendu export. Ne pas confondre honoraires dédouanement et taxation douanière. |
 
 
 ## Note méthodologique
