@@ -194,15 +194,37 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
               </Badge>
             )}
           </CardTitle>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowForm(!showForm)}
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Nouvelle demande
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => scanSuggestions.mutate()}
+              disabled={scanSuggestions.isPending}
+            >
+              {scanSuggestions.isPending ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Radar className="h-3 w-3 mr-1" />
+              )}
+              Scanner
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowForm(!showForm)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Nouvelle demande
+            </Button>
+          </div>
         </div>
+        {pendingSuggestions.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+              {pendingSuggestions.length} suggestion(s) en attente
+            </Badge>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Create form */}
