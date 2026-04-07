@@ -25,7 +25,7 @@
   - `service_quantity_rules` : 6 règles de quantité (EVP/FLAT)
   - `pricing_service_catalogue` : 6 entrées FIXED à 0 XOF, mode_scope=NULL, description="Tarif à confirmer"
 
-### Résultat
+### Résultat (confirmé run #3 dossier 76c9819c — 2026-04-07)
 Les 6 codes export sont maintenant :
 - Acceptés par la whitelist moteur
 - Auto-injectés via le package EXPORT_SENEGAL backend
@@ -33,10 +33,19 @@ Les 6 codes export sont maintenant :
 - Résolus par le catalogue avec rate=0, source="catalogue_sodatra"
 - Non écrasés par la résolution import lot-level (packages EXPORT_* respectés)
 - Traités en scope 'export' par price-service-lines
+- **Run #3 success** : 5 lots, 750 000 XOF HT, 885 000 XOF TTC, 7 lignes P5/lot cohérentes
 
 ### Limitation connue
 - Les tarifs réels restent à alimenter séparément (EXPORT-PRICING-SOURCING dans DEFERRED_BACKLOG.md).
 - Le moteur FROZEN quotation-engine continue de produire des honoraires import génériques (EXPORT-QE-FROZEN dans DEFERRED_BACKLOG.md).
+
+### Dettes ajoutées au backlog (2026-04-07)
+- **EXPORT-HS-NORMALIZATION-MULTILOT** (`watchlist`) : incohérence HS 8 vs 10 digits entre lots 1-2 et 3-5. Audit ciblé `mergeFactsForLot()` recommandé.
+- **EXPORT-CUSTOMS-SEMANTICS** (`watchlist`) : sémantique CUSTOMS_EXPORT / duties_total en contexte export sénégalais — clarifier labels avant première offre client.
+- Tableau de sourcing tarifaire export ajouté dans DEFERRED_BACKLOG.md avec priorités et nature tarif.
+
+### Prochain audit technique ciblé
+Chaîne HS lot-level : `mergeFactsForLot()` → `extracted_facts_json` lots 1-2 → normalisation `quotation-engine` L2299.
 
 ### Hors périmètre
 - `EXPORT_SENEGAL_EXW` — décision produit, pas dans ce lot
