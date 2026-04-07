@@ -1,136 +1,53 @@
 
-# État courant — Bilan consolidé Magasinage DT + PAD + Plan F1
 
-## Audit F1 — Plan validé (2026-04-05)
+# Plan — Enrichir le package EXPORT_SENEGAL (patch minimal)
 
-- **Statut** : plan validé, en attente des devis SODATRA réels
-- **Outils prêts** : `run_p0_audit.mjs`, `audit_case_dossier.mjs`, templates CSV
-- **Échantillon cible** : 30–50 dossiers (40% maritime import, 20% export, 20% aérien, 20% complexes)
-- **Seuils Go/No-Go** : coverage ≥95%, MAPE ≤8%, incoterm ≥98%, bloquantes ≤2%, écart total ≤5%
-- **Champs d'annotation ajoutés** : `reference_doc_type`, `exception_metier`, `exception_reason`
-- **Règle** : la référence principale est le devis SODATRA émis, pas la facture finale
-- **Discipline** : les cas avec exception métier (geste commercial, surcharge ponctuelle, instruction client hors grille) doivent être annotés avant scoring
+## Périmètre : 2 fichiers, 0 migration, 0 changement moteur
 
----
+### Fichier 1 — `src/features/quotation/constants.ts`
 
-## Magasinage Dakar Terminal
+**A. Ajouter 6 serviceTemplates export**
 
-**Phase 3-B.2-A livrée et validée métier** (2026-04)
+| service | description | unit |
+|---------|-------------|------|
+| `THC_EXPORT` | THC export (Terminal Handling) | EVP |
+| `DOCUMENTATION_BL` | Documentation / B/L fees | BL |
+| `VGM_WEIGHING` | VGM / Pesée conteneur | EVP |
+| `STUFFING_FACTORY` | Empotage usine | EVP |
+| `STUFFING_CFS` | Empotage CFS / port | EVP |
+| `EMPTY_REPO` | Repositionnement conteneur vide vers site | EVP |
 
-### Ce qui est livré
+**B. Enrichir `EXPORT_SENEGAL`**
 
-- **Référentiel** : `terminal_designations` (~956 entrées) + `terminal_tariff_codes` (~34 codes) peuplés et audités
-- **Alias BL** : table `terminal_designation_aliases`, consommation moteur des alias validés, UI admin (création / validation / suppression)
-- **IA suggestions** : table `terminal_designation_suggestions`, fallback Gemini 2.5 Flash après échec alias + direct, anti-duplication, UI revue opérateur (accepter / rejeter / accepter + créer alias)
-- **Moteur** : `run-pricing` produit `TERMINAL_STORAGE_PROVISION_ESTIMATE` (P1 × poids × 3j) si match couche 1 (alias) ou couche 2 (direct)
-- **Règle centrale** : les suggestions IA ne produisent aucune ligne pricing ni aucun calcul tant qu'un opérateur ne les a pas validées et capitalisées en alias
+Remplacer :
+```
+EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY']
+```
+Par :
+```
+EXPORT_SENEGAL: [
+  'PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT',
+  'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY',
+]
+```
 
-### Ce qui est différé
+Les services `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PICKUP_ORIGIN`, `PRE_CARRIAGE` restent hors package — disponibles dans "Services supplémentaires" du `ServiceOverridePanel`.
 
-Voir `docs/DEFERRED_BACKLOG.md` : DT-P2P3-ENGINE, DT-RATE-TABLE, DT-AI-MULTI-CARGO, DT-DESIGNATION-MODEL, DT-2014-REVISION
+### Fichier 2 — `src/pages/case-view/constants.ts`
 
----
+**C. Ajouter le groupe exclusif stuffing**
 
-## Taxe de Port PAD
+Dans `EXCLUSIVE_GROUPS`, ajouter :
+```
+["STUFFING_FACTORY", "STUFFING_CFS"]
+```
 
-**Phase PAD-ADMIN-UI livrée + T14 enrichi + fiabilisation blind audit** (2026-04-05)
+## Hors périmètre (Phase 2)
 
-### Ce qui est livré
+- `EXPORT_SENEGAL_EXW` — décision produit, pas dans ce lot
+- Support pricing automatique des nouveaux codes — à vérifier séparément via audit `run-pricing`
 
-- **Table** : `pad_designation_aliases` — 60 alias (51 seed initial + 6 alias T14 + 3 alias fiabilisation blind audit), 0 collision auditée
-- **T14 désormais couverte** : 6 alias prudents (fil machine, wire rod, feuillard, steel strip, fer blanc, tinplate) — catégorie auparavant sans alias
-- **Fiabilisation blind audit** : 3 alias ajoutés suite au contrôle source-à-source PAD (accessoires de plomberie → T02, plumbing accessories → T02, carreaux en ceramique → T12)
-- **Couverture** : toutes les catégories PAD actuellement présentes dans `commodity_categories` sont couvertes par au moins un alias
-- **T06 / T08 / T10 / T11** : restent hors périmètre référentiel applicatif actuel, audit différé en attente d'observation des non-matchs réels
-- **Lookup runtime** : `run-pricing` effectue un lookup alias PAD avant le bloc PAD existant (facts opérateur prioritaires)
-- **Résolution** : alias → `pad_category` → `port_tariffs` (provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT) → `pad_rate_fcfa_per_ton`
-- **Source de vérité** : `commodity_category_id` (FK). `pad_category` = copie dénormalisée runtime.
-- **Gestion collisions** : warning + skip si ambiguïté multi-catégorie
-- **Séparation** : tables distinctes du magasinage, 0 mélange
-- **UI Admin** : onglet "Alias PAD" dans `CommodityCategories.tsx` — KPI, recherche, filtre statut, création (anti-doublon), validation, suppression (AlertDialog)
+## Limitation connue
 
-### Ce qui est différé
+Les 6 nouveaux services seront visibles et sélectionnables dans le `ServiceOverridePanel`, mais leur calcul automatique par `run-pricing` n'est pas garanti sans audit ciblé du moteur de pricing.
 
-Voir `docs/DEFERRED_BACKLOG.md` : PAD-IA, PAD-MULTI-LOT, audit T06/T08/T10/T11
-
----
-
-## Comparatif consolidé
-
-| Sujet | Magasinage DT | PAD |
-|-------|--------------|-----|
-| **Référentiel** | ~956 désignations + 34 codes tarifaires | 10 catégories + 19 tarifs |
-| **Matching direct** | Oui (normalisé sur designation_label) | Non (pas de match direct) |
-| **Alias runtime** | Oui (`terminal_designation_aliases`) | Oui (`pad_designation_aliases`, 60) |
-| **IA fallback** | Oui (Gemini 2.5 Flash, 3 couches) | Non implémentée (différée) |
-| **UI admin** | 3 onglets (Désignations / Alias / Suggestions IA) | 1 onglet (Alias PAD) |
-| **Capitalisation** | Oui (IA → alias validé → moteur) | Oui (manuel uniquement) |
-| **Validation opérateur** | Obligatoire (alias + suggestions IA) | Obligatoire (alias) |
-| **P2/P3 moteur** | Non (différé) | N/A |
-| **Observation exploitation** | Requise | Requise |
-
-## Conclusion de maturité
-
-- **Magasinage DT** : opérationnel dans son périmètre actuel, avec assistance IA et supervision opérateur
-- **PAD** : opérationnel en mode déterministe supervisé, sans couche IA à ce stade
-
-## Pré-audit blind carrier/terminal (2026-04-05)
-
-**Statut** : bilan figé. Carrier/terminal validé. PAD fiabilisé et confirmé par re-run source-à-source (0 ECART_DB_LOOKUP). Réserves : D3 (poids manquant), D4 Grimaldi (écart tarif pending_validation).
-
-### Résultats carrier/terminal (fiables)
-- DPW : 100% couverture ligne et économique
-- MSC : 99,6% couverture économique (1 ligne manquante marginale)
-- Hapag-Lloyd : 100%
-- Maersk : couverture carrier très bonne sur l'échantillon, mais validation PAD invalidée puis corrigée par ajout alias
-- CMA CGM : **corrigé P0** — 4 templates activés et recalibrés (ISPS_TERM 8.85 EUR, LOC_TERM 11.50 EUR, TBL 25 000 XOF, SVC 18 000 XOF). Recheck D5/D6 post-patch : ALL_MATCH (0 écart). Couverture attendue ~97%+. Source : calibration provisoire D5/D6 blind audit.
-- Grimaldi RORO : **corrigé P2** — 3 templates corrigés/activés (TBL 25 000, SVC 18 000, TRL 15 000) + 1 inséré (EMANIF 550). Recheck D4 : ALL_CARRIER_LINES_MATCH (5/5 carrier, 100%). Ligne Taxe de Port (38 010 XOF) exclue du périmètre carrier → PAD-GRIMALDI-T09. Réserve : TRL=Telex provisoire, montants dérivés d'1 facture.
-
-### Résultats PAD (invalidés par contrôle source-à-source, puis corrigés)
-- 6/8 dossiers étaient en ECART_DB_LOOKUP
-- Causes identifiées : alias manquants (accessoires de plomberie, carreaux en ceramique), taux T09 Grimaldi incohérent
-- **Correction** : 3 alias ajoutés (accessoires de plomberie → T02, plumbing accessories → T02, carreaux en ceramique → T12)
-- **Cas Grimaldi T09** : écart tarif facture (2 715) vs DB (4 367) documenté en backlog (PAD-GRIMALDI-T09)
-
-### Chantier prioritaire
-1. ~~P0 : templates CMA CGM~~ → **DONE** (2026-04-05, recheck ALL_MATCH)
-2. ~~P1 : micro-gap MSC~~ → **DONE** (2026-04-06, template EMANIF 550 XOF/BL inséré, recheck D1 ALL_MATCH 100%)
-3. ~~P2 : chantier Grimaldi RORO~~ → **DONE carrier** (2026-04-06, 3 updates + 1 insert, recheck D4 ALL_CARRIER_LINES_MATCH 5/5). Ligne PAD exclue → PAD-GRIMALDI-T09.
-
----
-
-## Patch Export Sénégal — gap profile (2026-04-07)
-
-**Statut** : patch appliqué, en attente de re-test sur dossier 76c9819c
-
-### Ce qui est corrigé
-
-- **Profil export** : `MANDATORY_FACTS.EXPORT_SENEGAL` + `EXPORT_SENEGAL_BLOCKING_GAPS` ajoutés
-- **Gap analysis** : `gapProfileType` dérivé de `assumptionResult.flowType` — les gaps export utilisent le profil export au lieu du profil import
-- **Ports/pays** : MUNDRA, CHENNAI, KOLKATA, CHITTAGONG, COLOMBO ajoutés à `PORT_COUNTRY_MAP` ; pays commerciaux hors Afrique Ouest ajoutés à `KNOWN_COUNTRIES`
-- **Prompt AI** : `routing.origin_country` et `routing.destination_country` ajoutés aux fact keys + règle COUNTRY EXTRACTION
-- **Wording** : `routing.destination_port` reformulé (« Quel est le port de déchargement ? »)
-
-### Limitation connue
-
-- Badge `request_type` reste import-only (enum DB `quote_request_type` inchangé) — documenté dans `docs/DEFERRED_BACKLOG.md` sous `EXPORT-DB-ENUM`
-- L1789 (`mandatoryFactsForType`) non modifié — la correction porte uniquement sur la gap analysis post-assumptionResult
-
-### Validation
-
-- Exception `STRUCTURAL_PATCH_ALLOWED` documentée dans `docs/MASTER_CONTEXT.md`
-- Re-test dossier 76c9819c requis pour confirmer la disparition du faux gap bloquant
-
----
-
-## Recommandation unique
-
-Observer les non-matchs réels en exploitation avant tout nouveau chantier structurel (PAD-IA, audit T06/T08/T10/T11, P2/P3 moteur).
-
-### Prochaine suite logique
-
-1. ~~**P0 CMA CGM**~~ : **DONE** — 4 templates corrigés et activés, recheck ALL_MATCH
-2. ~~**P1 MSC**~~ : **DONE** — template EMANIF inséré (550 XOF/BL, PER_BL, DOCUMENTATION), recheck D1 ALL_MATCH 100%
-3. ~~**P2 Grimaldi RORO**~~ : **DONE carrier** — 3 updates + 1 insert, recheck D4 ALL_CARRIER_LINES_MATCH 5/5. Ligne PAD exclue → PAD-GRIMALDI-T09
-4. **Observation exploitation** : mesurer les non-matchs réels sur les deux sous-systèmes
-5. **PAD-IA** : Fallback IA pour les descriptions non couvertes par les alias (quand la couverture alias atteint ses limites)
