@@ -28,12 +28,12 @@ export function usePartnerSuggestions(caseId: string | undefined) {
     queryFn: async () => {
       if (!caseId) return [];
       const { data, error } = await supabase
-        .from("partner_response_suggestions" as any)
+        .from("partner_response_suggestions")
         .select("*")
         .eq("case_id", caseId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data || []) as unknown as PartnerSuggestion[];
+      return (data || []) as PartnerSuggestion[];
     },
     enabled: !!caseId,
   });
