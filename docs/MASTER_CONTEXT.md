@@ -63,6 +63,19 @@ Injection : via supersede_fact RPC (pas de write direct dans quote_facts)
 Validation : humaine obligatoire, pas d'auto-merge  
 Idempotence : UNIQUE (request_id, source_email_id) + facts-existence guard + exact-match replay guard  
 
+### COM-2A — Suggestions de réponse partenaire (2026-04-07)
+
+Edge function : auto-match-partner-responses (actions: scan, confirm, reject)  
+Table : partner_response_suggestions (séparée du pipeline EQ1)  
+Hook : usePartnerSuggestions  
+Pattern : identique à terminal_designation_suggestions — suggestions isolées, validation opérateur obligatoire  
+Scoring : duplication contrôlée de suggestPartnerResponse.ts (~50 lignes, dette acceptée)  
+Doctrine : assistant structurant — scan déclenché manuellement, confirm/reject par opérateur, aucune action auto  
+Confirm : passe la suggestion à accepted, puis appelle analyze-partner-response avec le bearer token utilisateur  
+Reject : passe la suggestion à rejected, empêche re-proposition  
+Timeline : event_type manual_action avec action_code PARTNER_SUGGESTION_CONFIRMED / PARTNER_SUGGESTION_REJECTED  
+Idempotence : UNIQUE (request_id, suggested_email_id) + garde pending-only sur confirm/reject
+
 ---
 
 ## Module CL1
