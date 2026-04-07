@@ -96,7 +96,8 @@ Cela inclut les décisions formulées comme :
 | 3 | B1-B | Isolation case_documents + storage | Pré-requis ouverture multi-société (B1-A email_drafts déjà traité) |
 | 4 | F1 | Audit P0 métier | Validation justesse tarifaire |
 | 5 | CARRIER-GRIMALDI-RORO | Chantier Grimaldi RORO | Modèle facturation RORO quasi non couvert (1.1%) |
-| 6 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 6 codes export | THC_EXPORT, DOCUMENTATION_BL, VGM_WEIGHING, STUFFING_FACTORY, STUFFING_CFS, EMPTY_REPO actuellement à 0 XOF |
+| 7 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
 
 ---
 
@@ -122,6 +123,7 @@ Cela inclut les décisions formulées comme :
 | CARRIER-GRIMALDI-RORO | Templates carrier billing Grimaldi RORO — carrier lines corrigées | carrier | `closed` | P2 | Blind-F1.0 | 2026-04-06 | — | **DONE carrier.** 3 templates corrigés/activés (TBL 25 000 XOF, SVC 18 000 XOF, TRL 15 000 XOF) + 1 inséré (EMANIF 550 XOF). Recheck D4 : ALL_CARRIER_LINES_MATCH 5/5 carrier (100%). Ligne Taxe de Port (38 010 XOF) exclue → PAD-GRIMALDI-T09 scope. Réserves : TRL=Telex Release provisoire (matched by amount/carrier/invoice context), montants dérivés d'1 seule facture RORO |
 | CARRIER-MSC-EMANIF | Micro-gap MSC manifeste électronique — template EMANIF ajouté | carrier | `closed` | P1 | Blind-F1.0 | 2026-04-06 | — | **DONE.** Template EMANIF inséré : 550 XOF/BL, PER_BL, DOCUMENTATION, is_active=true. Source : D1 blind audit sample - MSC invoice. Recheck D1 post-insert : ALL_MATCH 8/8 lignes, 100% couverture. Réserve : montant fixe 550 dérivé d'1 facture, reclassable is_variable si 2e dossier contredit |
 | EXPORT-DB-ENUM | Badge request_type ne peut pas stocker EXPORT_SENEGAL — enum DB import-only | dette | `deferred` | basse | Export-patch | 2026-04-07 | Enum `quote_request_type` ne contient que des types import. Le patch export gap profile (STRUCTURAL_PATCH_ALLOWED 2026-04-07) corrige la logique de gaps via `gapProfileType` mais le badge DB reste un type import. | Migration DB ajoutant `EXPORT_SENEGAL` à l'enum `quote_request_type` + mise à jour de `build-case-puzzle` L3667/L3853 pour écrire le type export | Pas d'impact fonctionnel immédiat : la gap analysis utilise `gapProfileType`, seul le badge UI est affecté |
+| EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 6 codes export (THC_EXPORT, DOCUMENTATION_BL, VGM_WEIGHING, STUFFING_FACTORY, STUFFING_CFS, EMPTY_REPO) | pricing | `deferred` | moyenne | P7-export | 2026-04-07 | Verrou technique levé : 6 codes dans whitelist moteur, catalogue placeholder FIXED à 0 XOF, quantification OK. Tarifs réels à alimenter via pricing_rate_cards ou mise à jour catalogue. THC_EXPORT prioritaire (service export le plus attendu). | Rate cards reçues de l'opérateur ou source officielle port/terminal pour THC export | Pas de régression : lignes à 0 visibles dans l'offre, filtrables par l'opérateur |
 
 
 ## Note méthodologique

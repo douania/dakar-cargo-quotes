@@ -2,52 +2,36 @@
 
 # Plan — Enrichir le package EXPORT_SENEGAL (patch minimal)
 
-## Périmètre : 2 fichiers, 0 migration, 0 changement moteur
+## Statut : LIVRÉ (2026-04-07)
 
-### Fichier 1 — `src/features/quotation/constants.ts`
+### Périmètre livré : 2 fichiers frontend + 2 edge functions + 1 migration DB
 
-**A. Ajouter 6 serviceTemplates export**
+#### Frontend (livré phase précédente)
+- `src/features/quotation/constants.ts` : 6 serviceTemplates export + EXPORT_SENEGAL enrichi à 7 services
+- `src/pages/case-view/constants.ts` : EXCLUSIVE_GROUPS + ["STUFFING_FACTORY", "STUFFING_CFS"]
 
-| service | description | unit |
-|---------|-------------|------|
-| `THC_EXPORT` | THC export (Terminal Handling) | EVP |
-| `DOCUMENTATION_BL` | Documentation / B/L fees | BL |
-| `VGM_WEIGHING` | VGM / Pesée conteneur | EVP |
-| `STUFFING_FACTORY` | Empotage usine | EVP |
-| `STUFFING_CFS` | Empotage CFS / port | EVP |
-| `EMPTY_REPO` | Repositionnement conteneur vide vers site | EVP |
+#### Backend (livré 2026-04-07)
+- `supabase/functions/price-service-lines/index.ts` : 6 codes ajoutés à VALID_SERVICE_KEYS
+- `supabase/functions/run-pricing/index.ts` :
+  - SERVICE_PACKAGES.EXPORT_SENEGAL aligné avec frontend (7 services)
+  - PACKAGE_SERVICE_DEFAULT_UNITS : THC_EXPORT=EVP, DOCUMENTATION_BL=BL, VGM_WEIGHING=EVP, STUFFING_FACTORY=EVP, STUFFING_CFS=EVP, EMPTY_REPO=EVP
+  - SERVICE_KEY_LABELS : labels français ajoutés
+  - DEDUP_GROUP_MAP : 6 entrées identitaires ajoutées
+- Migration DB :
+  - `service_quantity_rules` : 6 règles de quantité (EVP/FLAT)
+  - `pricing_service_catalogue` : 6 entrées FIXED à 0 XOF, mode_scope=NULL, description="Tarif à confirmer"
 
-**B. Enrichir `EXPORT_SENEGAL`**
+### Résultat
+Les 6 codes export sont maintenant :
+- Acceptés par la whitelist moteur
+- Auto-injectés via le package EXPORT_SENEGAL backend
+- Quantifiés via service_quantity_rules
+- Résolus par le catalogue avec rate=0, source="catalogue_sodatra"
 
-Remplacer :
-```
-EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY']
-```
-Par :
-```
-EXPORT_SENEGAL: [
-  'PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT',
-  'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY',
-]
-```
+### Limitation connue
+Les tarifs réels restent à alimenter séparément (EXPORT-PRICING-SOURCING dans DEFERRED_BACKLOG.md).
 
-Les services `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PICKUP_ORIGIN`, `PRE_CARRIAGE` restent hors package — disponibles dans "Services supplémentaires" du `ServiceOverridePanel`.
-
-### Fichier 2 — `src/pages/case-view/constants.ts`
-
-**C. Ajouter le groupe exclusif stuffing**
-
-Dans `EXCLUSIVE_GROUPS`, ajouter :
-```
-["STUFFING_FACTORY", "STUFFING_CFS"]
-```
-
-## Hors périmètre (Phase 2)
-
+### Hors périmètre
 - `EXPORT_SENEGAL_EXW` — décision produit, pas dans ce lot
-- Support pricing automatique des nouveaux codes — à vérifier séparément via audit `run-pricing`
-
-## Limitation connue
-
-Les 6 nouveaux services seront visibles et sélectionnables dans le `ServiceOverridePanel`, mais leur calcul automatique par `run-pricing` n'est pas garanti sans audit ciblé du moteur de pricing.
-
+- Tarifs réels pour les 6 codes — sourcing opérateur requis
+- Mapping spécifique port_tariffs pour THC_EXPORT (contrairement à DTHC côté import)

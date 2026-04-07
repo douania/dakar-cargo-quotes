@@ -41,6 +41,9 @@ const VALID_SERVICE_KEYS = new Set([
   "AIR_HANDLING", "AIR_FREIGHT",
   // P5: New service keys for EXW/origin packages
   "PICKUP_ORIGIN", "PRE_CARRIAGE", "SEA_FREIGHT",
+  // P7: Export-specific service keys
+  "THC_EXPORT", "DOCUMENTATION_BL", "VGM_WEIGHING",
+  "STUFFING_FACTORY", "STUFFING_CFS", "EMPTY_REPO",
 ]);
 
 // ═══ CTO-1: Currency normalization ═══

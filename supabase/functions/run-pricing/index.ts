@@ -52,7 +52,7 @@ interface PricingInputs {
 const SERVICE_PACKAGES: Record<string, string[]> = {
   DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
-  EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
+  EXPORT_SENEGAL: ['PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT', 'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY'],
   BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
   AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
@@ -82,6 +82,13 @@ const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
   BORDER_FEES: 'forfait',
   CUSTOMS_BAMAKO: 'forfait',
   ON_CARRIAGE: 'voyage',
+  // P7: Export-specific service units
+  THC_EXPORT: 'EVP',
+  DOCUMENTATION_BL: 'BL',
+  VGM_WEIGHING: 'EVP',
+  STUFFING_FACTORY: 'EVP',
+  STUFFING_CFS: 'EVP',
+  EMPTY_REPO: 'EVP',
 };
 
 // P5.1: Human-readable labels for service keys (static, no DB call)
@@ -104,6 +111,13 @@ const SERVICE_KEY_LABELS: Record<string, string> = {
   BORDER_FEES: 'Frais frontière',
   CUSTOMS_BAMAKO: 'Dédouanement Bamako',
   ON_CARRIAGE: 'Post-acheminement',
+  // P7: Export-specific labels
+  THC_EXPORT: 'THC export',
+  DOCUMENTATION_BL: 'Documentation / B/L',
+  VGM_WEIGHING: 'VGM / Pesée',
+  STUFFING_FACTORY: 'Empotage usine',
+  STUFFING_CFS: 'Empotage CFS',
+  EMPTY_REPO: 'Repositionnement conteneur vide',
 };
 
 // P5: Conservative engine-line-to-service-key deduplication
@@ -283,6 +297,13 @@ const DEDUP_GROUP_MAP: Record<string, string> = {
   'TRUCKING': 'TRUCKING',
   'ON_CARRIAGE': 'ON_CARRIAGE',
   'PRE_CARRIAGE': 'PRE_CARRIAGE',
+  // P7: Export-specific dedup groups
+  'THC_EXPORT': 'THC_EXPORT',
+  'DOCUMENTATION_BL': 'DOCUMENTATION_BL',
+  'VGM_WEIGHING': 'VGM_WEIGHING',
+  'STUFFING_FACTORY': 'STUFFING_FACTORY',
+  'STUFFING_CFS': 'STUFFING_CFS',
+  'EMPTY_REPO': 'EMPTY_REPO',
 };
 
 /** Maps source.type values to standardized pricing_method labels. */
