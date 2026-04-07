@@ -38,6 +38,13 @@ export const serviceTemplates = [
   { service: 'PICKUP_ORIGIN', description: "Enlèvement à l'origine", unit: 'forfait' },
   { service: 'PRE_CARRIAGE', description: 'Pré-acheminement vers port/aéroport', unit: 'voyage' },
   { service: 'SEA_FREIGHT', description: 'Fret maritime', unit: 'EVP' },
+  // Export-specific services
+  { service: 'THC_EXPORT', description: 'THC export (Terminal Handling)', unit: 'EVP' },
+  { service: 'DOCUMENTATION_BL', description: 'Documentation / B/L fees', unit: 'BL' },
+  { service: 'VGM_WEIGHING', description: 'VGM / Pesée conteneur', unit: 'EVP' },
+  { service: 'STUFFING_FACTORY', description: 'Empotage usine', unit: 'EVP' },
+  { service: 'STUFFING_CFS', description: 'Empotage CFS / port', unit: 'EVP' },
+  { service: 'EMPTY_REPO', description: 'Repositionnement conteneur vide vers site', unit: 'EVP' },
 ];
 
 /**
@@ -47,7 +54,7 @@ export const serviceTemplates = [
 export const SERVICE_PACKAGES: Record<string, string[]> = {
   DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
-  EXPORT_SENEGAL: ['PORT_CHARGES', 'CUSTOMS_EXPORT', 'AGENCY'],
+  EXPORT_SENEGAL: ['PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT', 'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY'],
   BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
   AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
