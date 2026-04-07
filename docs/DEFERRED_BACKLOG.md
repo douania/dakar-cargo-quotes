@@ -114,11 +114,11 @@ Cela inclut les décisions formulées comme :
 | 6 | EXPORT-PRICING-SOURCING | Sourcing tarifaire réel des 7 codes export | Priorité : SEA_FREIGHT > THC_EXPORT > DOCUMENTATION_BL > VGM_WEIGHING > STUFFING_FACTORY > STUFFING_CFS > EMPTY_REPO |
 | 7 | EXPORT-HS-NORMALIZATION-MULTILOT | Incohérence HS 8 vs 10 digits inter-lots | **Phase A livrée et validée runtime** — garde mergeFactsForLot + fallback SH6 candidat unique. Validation run #6 (2026-04-07) : 5 lots homogènes sur `0801310000`, warning 8 digits disparu |
 | 8 | EXPORT-CUSTOMS-SEMANTICS | Sémantique CUSTOMS_EXPORT / duties_total export | Clarification labels avant première offre client |
-| 9 | COM-1A | Envoi réel emails partenaires (SMTP) | Prérequis pour cockpit communication complet — dépend de décision produit SMTP |
+| 9 | COM-1A | Envoi réel emails partenaires (SMTP) — décision produit + secrets + traçabilité | Prérequis cockpit communication complet — absorbe A6 |
 | 10 | COM-3 | SLA / relances partenaires | Badges overdue, relances brouillon, nécessite COM-1A |
 | 11 | COM-4 | Comparaison multi-offres + réponse client consolidée | Vue comparative par lot/purpose, sélection offre retenue |
-| — | ~~COM-2A~~ | ~~Auto-matching réponses partenaires~~ | **DONE (2026-04-07)** — table `partner_response_suggestions`, edge function `auto-match-partner-responses` (scan/confirm/reject), hook `usePartnerSuggestions`, UI intégrée dans ExternalRequestsPanel |
-| 9 | A6 | Intégration SMTP | Automatisation envoi (si décision produit) |
+| — | ~~COM-2A~~ | ~~Auto-matching réponses partenaires~~ | **DONE (2026-04-07)** — table `partner_response_suggestions`, edge function `auto-match-partner-responses` (scan/confirm/reject), hook `usePartnerSuggestions`, UI intégrée dans ExternalRequestsPanel, correctif final confirm : analyse EQ1 avant passage à accepted |
+| — | ~~A6~~ | ~~Intégration SMTP~~ | **closed — absorbé par COM-1A** |
 
 ---
 

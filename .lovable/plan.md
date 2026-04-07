@@ -1,49 +1,40 @@
 
 
-# Plan correctif COM-2A — Fermeture propre
+# Bilan de clôture COM-2A — Auto-matching réponses partenaires
 
-## 3 corrections ciblées, 3 fichiers
+## Objectif livré
 
-### 1. Sécuriser confirm — `supabase/functions/auto-match-partner-responses/index.ts`
+Permettre à l'opérateur de scanner les emails d'un dossier pour identifier automatiquement les réponses partenaires candidates, puis les confirmer ou rejeter manuellement avant injection dans le pipeline EQ1.
 
-**Problème** : La suggestion passe à `accepted` (L250-257) et la timeline est écrite (L262-277) AVANT l'appel à `analyze-partner-response` (L280-303). Si l'analyse échoue, la suggestion reste `accepted` sans vraie réponse EQ1.
+## Architecture retenue (Option B)
 
-**Correction** : Inverser l'ordre.
+- **Table dédiée** : `partner_response_suggestions` (séparée de `external_quote_responses`)
+- **Edge function** : `auto-match-partner-responses` (actions: scan, confirm, reject)
+- **Hook** : `usePartnerSuggestions`
+- **UI** : intégrée dans `ExternalRequestsPanel` (pending, accepted, rejected)
+- **Doctrine** : assistant structurant — scan déclenché manuellement, confirm/reject par opérateur
 
-1. Appeler `analyze-partner-response` d'abord
-2. Si succès (`analyzeResp.ok`) → passer la suggestion à `accepted`, écrire la timeline, retourner `ok: true`
-3. Si échec → ne pas toucher la suggestion (reste `pending`), retourner `ok: false` avec message d'erreur et status 502
+## Correctif final de confirm (2026-04-07)
 
-Concrètement : déplacer le bloc fetch (L280-303) avant le bloc update (L250-277), puis conditionner update+timeline sur `analyzeResp.ok`.
+**Défaut corrigé** : le confirm passait la suggestion à `accepted` avant d'appeler `analyze-partner-response`. Si l'analyse échouait, la suggestion restait `accepted` sans vraie réponse EQ1.
 
-### 2. Afficher les suggestions rejetées — `src/components/puzzle/ExternalRequestsPanel.tsx`
+**Correction** : appel `analyze-partner-response` d'abord ; si succès → passage à `accepted` + timeline. Si échec → suggestion reste `pending`, retour 502.
 
-**Problème** : La variable `rejected` (L385) est calculée mais jamais rendue dans le JSX. Seuls `pending` et `accepted` sont affichés.
+Validé CTO sur le zip (33).
 
-**Correction** : Après le bloc `accepted.length > 0` (L443-447), ajouter un bloc discret pour `rejected` :
-```
-{rejected.length > 0 && (
-  <div className="text-[10px] text-muted-foreground/60 px-1">
-    {rejected.length} suggestion(s) rejetée(s)
-  </div>
-)}
-```
+## Ce qui n'a pas été touché
 
-### 3. Retirer les casts inutiles — `src/hooks/usePartnerSuggestions.ts`
+- Aucune zone FROZEN modifiée
+- Aucune migration DB pour le correctif (table déjà en place)
+- Pipeline EQ1 (`external_quote_responses` / `external_quote_response_facts`) intact
+- `suggestPartnerResponse.ts` conservé côté front (dette acceptée, ~50 lignes)
 
-**Problème** : `as any` (L31) et `as unknown as PartnerSuggestion[]` (L36) sont inutiles puisque `types.ts` contient déjà la table.
+## Statut : **CLOSED**
 
-**Correction** :
-- L31 : `.from("partner_response_suggestions" as any)` → `.from("partner_response_suggestions")`
-- L36 : `(data || []) as unknown as PartnerSuggestion[]` → `(data || []) as PartnerSuggestion[]`
+## Prochaines phases
 
-## Blast radius
-
-| Fichier | Nature |
-|---------|--------|
-| `auto-match-partner-responses/index.ts` | Réordonnancement interne du confirm |
-| `ExternalRequestsPanel.tsx` | +4 lignes JSX |
-| `usePartnerSuggestions.ts` | Nettoyage de 2 casts |
-
-Aucun autre fichier touché. Aucune zone FROZEN impactée. Aucune migration DB.
-
+| Lot | Description | Statut |
+|-----|-------------|--------|
+| COM-1A | Envoi réel emails partenaires (SMTP) — décision produit + secrets + traçabilité | deferred |
+| COM-3 | SLA / relances partenaires | deferred (dépend COM-1A) |
+| COM-4 | Comparaison multi-offres + réponse client consolidée | deferred |
