@@ -33,6 +33,7 @@ import {
   Package,
   Search,
   RefreshCw,
+  Radar,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -44,6 +45,7 @@ import {
   type ExternalResponseFact,
 } from "@/hooks/useExternalRequests";
 import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
+import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -98,6 +100,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   } = useExternalRequests(caseId);
 
   const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+
+  const {
+    pendingSuggestions,
+    scanSuggestions,
+    confirmSuggestion,
+    rejectSuggestion,
+    getPendingForRequest,
+    getSuggestionsForRequest,
+  } = usePartnerSuggestions(caseId);
 
   const [showForm, setShowForm] = useState(false);
   const [expandedRequests, setExpandedRequests] = useState<Set<string>>(new Set());
