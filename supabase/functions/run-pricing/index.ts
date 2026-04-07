@@ -674,7 +674,7 @@ Deno.serve(async (req) => {
 
         // Resolve per-lot service package and transport mode
         const lotIncoterm = String(lotInputs.incoterm ?? "").trim().toUpperCase();
-        const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm);
+        const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm, lotInputs.servicePackage);
         const lotTransportMode = resolveTransportModeForLot(requestTypeHint);
 
 
@@ -952,7 +952,7 @@ Deno.serve(async (req) => {
 
                 // Build pricing_context_override from lot inputs
                 const pricingCtxOverride: Record<string, unknown> = {
-                  scope: 'import',
+                  scope: lotPackageKey.startsWith('EXPORT_') ? 'export' : 'import',
                   containers: Array.isArray(lc.inputs.containers) ? lc.inputs.containers : [],
                   container_type: lc.inputs.containers?.[0]?.type || null,
                   container_count: Array.isArray(lc.inputs.containers)
@@ -2402,7 +2402,13 @@ function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
  * Aligned with P3a — covers only currently emitted request types.
  * Does NOT replace the global service package registry.
  */
-function resolveServicePackageForLot(requestTypeHint: string, incoterm: string): string | undefined {
+function resolveServicePackageForLot(requestTypeHint: string, incoterm: string, globalServicePackage?: string): string | undefined {
+  // If global package is explicitly export, respect it over import resolution
+  const gp = String(globalServicePackage || "").trim().toUpperCase();
+  if (gp && SERVICE_PACKAGES[gp] && gp.startsWith("EXPORT_")) {
+    return gp;
+  }
+
   const rt = String(requestTypeHint || "").trim().toUpperCase();
   const ic = String(incoterm || "").trim().toUpperCase();
   const isOrigin = ["EXW", "FCA", "FAS"].includes(ic);
