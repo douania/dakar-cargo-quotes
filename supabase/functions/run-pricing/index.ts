@@ -2329,6 +2329,14 @@ function buildPricingInputs(facts: any[]): PricingInputs {
     }
   }
 
+  // P8: Fallback — export dossiers have destination_port but not destination_city
+  if (!inputs.finalDestination) {
+    inputs.finalDestination =
+      inputs.destinationPort ||
+      inputs.destinationAirport ||
+      undefined;
+  }
+
   return inputs;
 }
 
