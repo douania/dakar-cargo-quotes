@@ -71,7 +71,7 @@ Hook : usePartnerSuggestions
 Pattern : identique à terminal_designation_suggestions — suggestions isolées, validation opérateur obligatoire  
 Scoring : duplication contrôlée de suggestPartnerResponse.ts (~50 lignes, dette acceptée)  
 Doctrine : assistant structurant — scan déclenché manuellement, confirm/reject par opérateur, aucune action auto  
-Confirm : passe la suggestion à accepted, puis appelle analyze-partner-response avec le bearer token utilisateur  
+Confirm : appelle d'abord analyze-partner-response avec le bearer token utilisateur ; en cas de succès seulement, passe la suggestion à accepted et journalise l'action  
 Reject : passe la suggestion à rejected, empêche re-proposition  
 Timeline : event_type manual_action avec action_code PARTNER_SUGGESTION_CONFIRMED / PARTNER_SUGGESTION_REJECTED  
 Idempotence : UNIQUE (request_id, suggested_email_id) + garde pending-only sur confirm/reject
