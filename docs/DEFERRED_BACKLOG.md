@@ -119,6 +119,7 @@ Cela inclut les décisions formulées comme :
 | 11 | COM-4 | Comparaison multi-offres + réponse client consolidée | Vue comparative par lot/purpose, sélection offre retenue |
 | — | ~~COM-2A~~ | ~~Auto-matching réponses partenaires~~ | **DONE (2026-04-07)** — table `partner_response_suggestions`, edge function `auto-match-partner-responses` (scan/confirm/reject), hook `usePartnerSuggestions`, UI intégrée dans ExternalRequestsPanel, correctif final confirm : analyse EQ1 avant passage à accepted |
 | — | ~~A6~~ | ~~Intégration SMTP~~ | **closed — absorbé par COM-1A** |
+| — | ~~COCKPIT-2~~ | ~~Garde-fous communication SendQuotationPanel~~ | **DONE (2026-04-08)** — Avertissements (non bloquants) dans SendQuotationPanel : demandes partenaires non clôturées (tout sauf `closed`), faits partenaires `proposed`, clarifications client `drafted`/`sent`/`answered`. Rappel dans dialog de confirmation. `canSend` inchangé (opérateur souverain). Fichiers : `useSendQuotation.ts`, `SendQuotationPanel.tsx`. Aucune migration DB. |
 
 ---
 

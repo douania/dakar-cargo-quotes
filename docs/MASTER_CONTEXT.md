@@ -76,6 +76,17 @@ Reject : passe la suggestion à rejected, empêche re-proposition
 Timeline : event_type manual_action avec action_code PARTNER_SUGGESTION_CONFIRMED / PARTNER_SUGGESTION_REJECTED  
 Idempotence : UNIQUE (request_id, suggested_email_id) + garde pending-only sur confirm/reject
 
+### COCKPIT-2 — Garde-fous communication avant envoi devis (2026-04-08)
+
+Composants : `useSendQuotation.ts`, `SendQuotationPanel.tsx`
+Pattern : avertissements informatifs, pas blocage dur (`canSend` inchangé — opérateur souverain)
+Vérifications pré-envoi :
+- Demandes partenaires non clôturées (`external_quote_requests` tout sauf `closed`)
+- Faits partenaires en attente de validation (`external_quote_response_facts` en `proposed`)
+- Clarifications client non résolues (`client_gap_requests` en `drafted`, `sent` ou `answered`)
+Affichage : section alertes ambrées dans le panneau + rappel dans le dialog de confirmation finale
+Doctrine : cockpit de communication assistée — l'opérateur est informé mais peut décider d'envoyer un devis partiel volontairement
+
 ---
 
 ## Module CL1
