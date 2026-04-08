@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-7B — Vue détaillée par partenaire / par purpose
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7B |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COCKPIT-7B |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si besoin d'actions inline (clôture, relance) depuis la vue détaillée |
+| **Recommandation** | Composant `PartnerRequestsDetailView` lecture seule. 2 queries (requests + facts). Badge hiérarchique. Suite logique : COCKPIT-7C (complétude avant pricing final). |
+
+---
+
 ## COCKPIT-7A — Vue synthétique "Offres attendues vs reçues"
 
 | Champ | Valeur |
