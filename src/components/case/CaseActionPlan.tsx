@@ -72,7 +72,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         versionResult,
         pdfResult,
         draftResult,
-      ] = await Promise.all([
+      ] = await (Promise.all as any)([
         supabase
           .from("quote_cases")
           .select("status")
@@ -111,15 +111,15 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           .from("quotation_versions")
           .select("id", { count: "exact", head: true })
           .eq("case_id", caseId)
-          .eq("is_selected", true) as any,
+          .eq("is_selected", true),
         supabase
           .from("quotation_documents")
           .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId) as any,
+          .eq("case_id", caseId),
         supabase
           .from("email_drafts")
           .select("id", { count: "exact", head: true })
-          .eq("status", "draft") as any,
+          .eq("status", "draft"),
       ]);
 
       // For drafts, filter client-side by case versions
