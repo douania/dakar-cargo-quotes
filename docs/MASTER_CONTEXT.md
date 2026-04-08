@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.4
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1
-Latest patch: COCKPIT-5 Phase 1 livré — suggestion partenaires prudente, validé fonctionnellement sur dossier maritime réel
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P2
+Latest patch: COCKPIT-5 Phase 2 livré — known_business_contacts enrichi (contact_email, service_types), PartnerSuggestionPanel amélioré, préremplissage email partenaire
 Date: 2026-04
 
 ---

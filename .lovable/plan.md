@@ -13,19 +13,16 @@
 
 ---
 
-# COCKPIT-5 Phase 2 — Plan actif
+# COCKPIT-5 Phase 2 — Clôture
 
-## Problème
-`known_business_contacts` ne contient pas d'email de contact ni de type de service structuré.
+## Statut : DONE ✅
 
-## Livraison
-- Migration : `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
-- `PartnerSuggestionPanel` : query enrichie, `derivePurpose()` priorise `service_types`, affiche icône email
-- `ExternalRequestsPanel` : `onPrefill(name, purpose, email?)` préremplir le champ email
+- Migration livrée : `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
+- `PartnerSuggestionPanel` : `derivePurpose()` priorise `service_types`, fallback heuristique notes
+- Icône email affichée si `contact_email` présent
+- `ExternalRequestsPanel` : `onPrefill(name, purpose, email?)` préremplit `partner_email`
+- Types.ts mis à jour automatiquement
 
-## Blast radius
-| Fichier | Nature |
-|---------|--------|
-| Migration SQL | 2 colonnes ajoutées, non-breaking |
-| `PartnerSuggestionPanel.tsx` | Query + rendu enrichis |
-| `ExternalRequestsPanel.tsx` | Signature onPrefill étendue |
+### Suite logique
+- Audit readiness COM-1A
+- Peuplement progressif des contacts (service_types, contact_email) via admin/opérateur
