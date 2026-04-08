@@ -1612,11 +1612,13 @@ export type Database = {
           email_draft_id: string | null
           email_sent_at: string | null
           id: string
+          is_selected: boolean
           partner_email: string | null
           partner_name: string
           purpose: string
           purpose_detail: string | null
           related_lot_index: number | null
+          selected_at: string | null
           sent_at: string | null
           status: string
           updated_at: string
@@ -1629,11 +1631,13 @@ export type Database = {
           email_draft_id?: string | null
           email_sent_at?: string | null
           id?: string
+          is_selected?: boolean
           partner_email?: string | null
           partner_name: string
           purpose: string
           purpose_detail?: string | null
           related_lot_index?: number | null
+          selected_at?: string | null
           sent_at?: string | null
           status?: string
           updated_at?: string
@@ -1646,11 +1650,13 @@ export type Database = {
           email_draft_id?: string | null
           email_sent_at?: string | null
           id?: string
+          is_selected?: boolean
           partner_email?: string | null
           partner_name?: string
           purpose?: string
           purpose_detail?: string | null
           related_lot_index?: number | null
+          selected_at?: string | null
           sent_at?: string | null
           status?: string
           updated_at?: string
