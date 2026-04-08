@@ -175,7 +175,7 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
               {s.name}
             </span>
             {s.email && (
-              <Mail className="h-3 w-3 text-muted-foreground shrink-0" title={s.email} />
+              <span title={s.email}><Mail className="h-3 w-3 text-muted-foreground shrink-0" /></span>
             )}
             <span className="text-muted-foreground">
               · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
