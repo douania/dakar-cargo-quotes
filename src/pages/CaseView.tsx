@@ -1842,6 +1842,7 @@ export default function CaseView() {
 
           return (
             <div className="mb-6">
+              <PricingReadinessCard caseId={caseId!} />
               <PricingLaunchPanel
                 caseId={caseId!}
                 onComplete={handleRefresh}
