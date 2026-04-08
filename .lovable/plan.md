@@ -1,35 +1,28 @@
 
 
-# Bilan de clôture — COCKPIT-5 Phase 1
+# Fix Build Error — Missing CardContent wrapper in ExternalRequestsPanel
 
-## Statut : DONE (2026-04-08)
+## Problem
 
-## Ce qui a été livré
+Lines 238-987 (PartnerSuggestionPanel, create form, request list) sit between `</CardHeader>` (L237) and `</CardContent>` (L988), but there is no opening `<CardContent>` tag. The JSX tree is malformed.
 
-- `src/components/puzzle/PartnerSuggestionPanel.tsx` — nouveau composant autonome
-- `src/components/puzzle/ExternalRequestsPanel.tsx` — intégration du panel + callback onPrefill
+## Fix
 
-## Logique
+Add `<CardContent className="space-y-3">` immediately after line 237 (`</CardHeader>`), before the PartnerSuggestionPanel at line 238.
 
-- Lecture `routing.transport_mode` depuis `quote_facts`
-- Lecture `known_business_contacts` (supplier/partner/agent actifs)
-- Lecture `external_quote_requests` pour détection "déjà contacté" (normalisé)
-- Maritime → filtre notes "Armateur" + rôle agent
-- Purpose déduit : armateur → freight_rate, agent → origin_charges
-- Préremplissage formulaire (pas de création automatique)
+**Single edit in `src/components/puzzle/ExternalRequestsPanel.tsx`:**
 
-## Ce qui n'a PAS changé
+Line 237-238, change:
+```tsx
+      </CardHeader>
+        {/* COCKPIT-5: Partner suggestions */}
+```
+to:
+```tsx
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* COCKPIT-5: Partner suggestions */}
+```
 
-- Aucune migration
-- Aucune zone FROZEN
-- Aucune mutation métier nouvelle (réutilise createRequest existant)
-- Aucun matching route-carrier (données absentes)
-- Pipeline EQ1 intact
+This matches the existing `</CardContent>` at line 988. No other file changes needed.
 
-## Phases suivantes (hors scope)
-
-- Phase 2 : enrichir known_business_contacts (contact_email, ports)
-- Phase 3 : ports/zones desservis pour matching route-carrier
-- Phase 4 : tableau offres attendues vs reçues
-- Phase 5 : comparaison et sélection d'offre retenue
-- COM-1A : envoi réel
