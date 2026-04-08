@@ -1,12 +1,15 @@
 /**
- * COCKPIT-4: Case Action Plan — checklist ordonnée des étapes dossier
+ * COCKPIT-4B: Case Action Plan — checklist ordonnée orientée communication réelle
  *
  * Composant autonome (propres queries, staleTime 30s).
  * Lecture seule, aucune mutation.
- * 8 étapes max, compactes, orientées pilotage.
+ * 12 étapes max, décomposant les boucles partenaire et client.
  *
- * Logique skip : étapes 3/4 masquées seulement si aucune demande/gap
- * n'a JAMAIS existé (totalCount === 0), pas si tout est simplement clôturé.
+ * Logique skip : étapes partenaires masquées si totalPartnerRequests === 0,
+ * étapes client masquées si totalClientGaps === 0.
+ *
+ * Étape 4 "Confirmer l'envoi" est honnête : done seulement si email_sent_at
+ * est renseigné, avec note COM-1A si pending.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +53,7 @@ interface Step {
   id: string;
   label: string;
   status: StepStatus;
+  note?: string;
 }
 
 interface CaseActionPlanProps {
@@ -61,22 +65,36 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     queryKey: ["case-action-plan", caseId],
     staleTime: 30_000,
     queryFn: async () => {
-      // Split into two groups to avoid TS2589 (deep type instantiation with 10+ Supabase queries)
+      // Batch 1: core case data
       const [caseResult, gapsResult, eqrOpenResult, eqrTotalResult, factsProposedResult] =
         await Promise.all([
           supabase.from("quote_cases").select("status").eq("id", caseId).single(),
           supabase.from("quote_gaps").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("is_blocking", true).eq("status", "open"),
+          // openPartnerRequests: tout sauf closed (aligné COCKPIT-2/COCKPIT-3)
           supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).neq("status", "closed"),
           supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
           supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
         ]);
 
-      const [clientGapsOpenResult, clientGapsTotalResult, versionResult] =
-        await Promise.all([
-          supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
-          supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
-          supabase.from("quotation_versions").select("id, is_selected").eq("case_id", caseId),
-        ]);
+      // Batch 2: client gaps + versions + COCKPIT-4B specific counts
+      const [
+        clientGapsOpenResult,
+        clientGapsTotalResult,
+        versionResult,
+        draftPartnerResult,
+        unsentPartnerResult,
+        draftedClientGapsResult,
+      ] = await Promise.all([
+        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
+        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
+        supabase.from("quotation_versions").select("id, is_selected").eq("case_id", caseId),
+        // Étape 3: demandes partenaires encore en brouillon
+        supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "draft"),
+        // Étape 4: demandes marquées sent mais sans preuve d'envoi réel
+        supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "sent").is("email_sent_at", null),
+        // Étape 6: clarifications client encore en brouillon
+        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "drafted"),
+      ]);
 
       const versions = versionResult.data ?? [];
       const selectedVersionId = versions.find((v: any) => v.is_selected)?.id;
@@ -102,6 +120,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         pendingPartnerFacts: factsProposedResult.count ?? 0,
         openClientGaps: clientGapsOpenResult.count ?? 0,
         totalClientGaps: clientGapsTotalResult.count ?? 0,
+        draftPartnerRequests: draftPartnerResult.count ?? 0,
+        unsentPartnerRequests: unsentPartnerResult.count ?? 0,
+        draftedClientGaps: draftedClientGapsResult.count ?? 0,
         hasVersion,
         hasPdf,
         hasDraft,
@@ -119,18 +140,21 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     pendingPartnerFacts,
     openClientGaps,
     totalClientGaps,
+    draftPartnerRequests,
+    unsentPartnerRequests,
+    draftedClientGaps,
     hasVersion,
     hasPdf,
     hasDraft,
   } = data;
 
-  // Build steps
+  // Build 12 steps
   const allSteps: Step[] = [];
 
-  // 1. Analyser le dossier
+  // 1. Analyser la demande client
   allSteps.push({
     id: "analyze",
-    label: "Analyser le dossier",
+    label: "Analyser la demande client",
     status: statusAbove(status, "INTAKE") ? "done" : "current",
   });
 
@@ -141,51 +165,94 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     status: blockingGapsCount === 0 ? "done" : "blocked",
   });
 
-  // 3. Demandes partenaires (skip if never existed)
+  // 3. Préparer les demandes partenaires
+  // done = plus aucun brouillon partenaire à compléter (toutes les demandes sont au moins en status sent ou au-delà)
   if (totalPartnerRequests > 0) {
-    const partnerDone =
-      openPartnerRequests === 0 && pendingPartnerFacts === 0;
     allSteps.push({
-      id: "partners",
-      label: "Demandes partenaires",
-      status: partnerDone ? "done" : "pending",
+      id: "prepare-partners",
+      label: "Préparer les demandes partenaires",
+      status: draftPartnerRequests === 0 ? "done" : "pending",
     });
   }
 
-  // 4. Clarifications client (skip if never existed)
+  // 4. Confirmer l'envoi des demandes partenaires
+  // done = aucune request sent avec email_sent_at IS NULL
+  // Honnête : ne prétend pas que l'app sait envoyer avant COM-1A
+  if (totalPartnerRequests > 0) {
+    const allSentConfirmed = unsentPartnerRequests === 0 && draftPartnerRequests === 0;
+    allSteps.push({
+      id: "confirm-partner-send",
+      label: "Confirmer l'envoi des demandes",
+      status: allSentConfirmed ? "done" : "pending",
+      note: !allSentConfirmed && unsentPartnerRequests > 0
+        ? "Envoi réel confirmé après activation COM-1A"
+        : undefined,
+    });
+  }
+
+  // 5. Traiter les réponses partenaires
+  // openPartnerRequests = tout sauf closed (aligné COCKPIT-2/COCKPIT-3)
+  if (totalPartnerRequests > 0) {
+    const partnerResponsesDone = openPartnerRequests === 0 && pendingPartnerFacts === 0;
+    allSteps.push({
+      id: "treat-partner-responses",
+      label: "Traiter les réponses partenaires",
+      status: partnerResponsesDone ? "done" : "pending",
+    });
+  }
+
+  // 6. Envoyer les clarifications client
+  // done = aucun client_gap en status drafted
   if (totalClientGaps > 0) {
     allSteps.push({
-      id: "client-gaps",
-      label: "Clarifications client",
+      id: "send-client-clarifications",
+      label: "Envoyer les clarifications client",
+      status: draftedClientGaps === 0 ? "done" : "pending",
+    });
+  }
+
+  // 7. Analyser les réponses client
+  // done = aucun client gap ouvert (drafted, sent, answered)
+  if (totalClientGaps > 0) {
+    allSteps.push({
+      id: "analyze-client-responses",
+      label: "Analyser les réponses client",
       status: openClientGaps === 0 ? "done" : "pending",
     });
   }
 
-  // 5. Lancer le pricing
+  // 8. Lancer le pricing
   allSteps.push({
     id: "pricing",
     label: "Lancer le pricing",
     status: statusAtLeast(status, "PRICED_DRAFT") ? "done" : "pending",
   });
 
-  // 6. Créer la version
+  // 9. Créer la version
   allSteps.push({
     id: "version",
     label: "Créer la version",
     status: hasVersion ? "done" : "pending",
   });
 
-  // 7. Exporter le PDF
+  // 10. Exporter le PDF
   allSteps.push({
     id: "pdf",
     label: "Exporter le PDF",
     status: hasPdf ? "done" : "pending",
   });
 
-  // 8. Envoyer au client
+  // 11. Préparer l'email client
+  allSteps.push({
+    id: "prepare-email",
+    label: "Préparer l'email client",
+    status: hasDraft ? "done" : "pending",
+  });
+
+  // 12. Marquer l'envoi client
   allSteps.push({
     id: "send",
-    label: "Envoyer au client",
+    label: "Marquer l'envoi client",
     status: ["SENT", "ACCEPTED", "REJECTED"].includes(status)
       ? "done"
       : "pending",
@@ -240,20 +307,26 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
 
         <div className="space-y-1">
           {steps.map((step) => (
-            <div
-              key={step.id}
-              className={`flex items-center gap-2 py-0.5 text-xs ${
-                step.status === "done"
-                  ? "text-muted-foreground line-through"
-                  : step.status === "current"
-                  ? "text-foreground font-medium"
-                  : step.status === "blocked"
-                  ? "text-amber-700 font-medium"
-                  : "text-muted-foreground/60"
-              }`}
-            >
-              {iconForStatus(step.status)}
-              <span>{step.label}</span>
+            <div key={step.id}>
+              <div
+                className={`flex items-center gap-2 py-0.5 text-xs ${
+                  step.status === "done"
+                    ? "text-muted-foreground line-through"
+                    : step.status === "current"
+                    ? "text-foreground font-medium"
+                    : step.status === "blocked"
+                    ? "text-amber-700 font-medium"
+                    : "text-muted-foreground/60"
+                }`}
+              >
+                {iconForStatus(step.status)}
+                <span>{step.label}</span>
+              </div>
+              {step.note && step.status !== "done" && (
+                <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
+                  {step.note}
+                </div>
+              )}
             </div>
           ))}
         </div>
