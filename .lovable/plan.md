@@ -1,17 +1,16 @@
-# COCKPIT-8 Phase 1 — Bandeau "Prochaine action prioritaire + blocage principal" : DONE ✅
+# COCKPIT-9 Phase 1 — Suffisance de collecte partenaire : DONE ✅
 
-## Composant `NextActionBanner.tsx`
-- 6 queries parallélisées + 2 lazy (si version sélectionnée)
-- Hiérarchie 12 niveaux, premier match gagne
-- STATUS_ORDER explicite (pas de comparaison naïve de strings)
-- Niveau 7 : blocage = "Aucun blocage majeur" (pas de faux positif)
-- Terminal (SENT/ACCEPTED/REJECTED/ARCHIVED) → `null` (pas de bandeau)
-- Pas de CTA (Phase 1)
+## Composant `PartnerCollectionReadinessCard.tsx`
+- 2 queries : `external_quote_requests` + `external_quote_response_facts`
+- Logique "exploitable" : status ∈ response phase + 0 proposed facts, ou closed
+- 4 verdicts : neutral / insuffisante / en cours / suffisante
+- Ligne "Offre retenue : Sélection requise" (placeholder Phase 1)
+- Pas de doublon avec PricingReadinessCard (pas de ligne "Impact pricing")
 
 ## Blast radius
 | Fichier | Nature |
 |---------|--------|
-| `NextActionBanner.tsx` | Nouveau composant |
-| `CaseView.tsx` | +import + rendu avant CaseActionPlan |
+| `PartnerCollectionReadinessCard.tsx` | Nouveau composant |
+| `CaseView.tsx` | +import + rendu avant PricingReadinessCard |
 | `.lovable/plan.md` | Plan actif |
 | `docs/DEFERRED_BACKLOG.md` | Entrée ajoutée |
