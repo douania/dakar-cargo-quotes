@@ -1,32 +1,34 @@
-# COCKPIT-10 — Email partenaire professionnel : DONE ✅
 
-## Problème corrigé
-Les briefs partenaires généraient un "résumé de dossier" au lieu d'une vraie demande de cotation professionnelle prête à envoyer.
 
-## Approche
-Template déterministe partagé entre UI et edge function, avec variations par purpose.
+# COCKPIT-10 — Micro-correctif de clôture
 
-## Fichiers créés
-| Fichier | Rôle |
-|---------|------|
-| `src/lib/partnerEmailTemplate.ts` | Template professionnel côté UI |
-| `supabase/functions/_shared/partner-email-template.ts` | Template professionnel côté edge (synchronisé) |
+## Problème
 
-## Fichiers modifiés
-| Fichier | Nature |
-|---------|--------|
-| `PartnerSuggestionPanel.tsx` | Import du template partagé, query enrichie (+final_destination, +fcl_lcl) |
-| `send-external-quote-request/index.ts` | purpose_detail prioritaire si non vide, sinon fallback template déterministe |
+`send-external-quote-request/index.ts` ligne 134 : `ai_generated: true` est factuellement incorrect. Le corps de l'email provient soit d'un texte opérateur (`purpose_detail`), soit d'un template déterministe — jamais d'une génération IA.
 
-## Règles appliquées
-1. **purpose_detail prioritaire** : si non vide → source opérateur ; sinon → template déterministe
-2. **Variations par purpose** : intro + bloc "merci d'inclure" adaptés (freight_rate, origin_charges, air_tariff…)
-3. **Ambiguïtés prudentes** : destinations multiples signalées "à confirmer"
-4. **Logique synchronisée** : structure, ordre des blocs et variations identiques entre UI et edge function
+## Correctif
+
+### Fichier unique : `supabase/functions/send-external-quote-request/index.ts`
+
+Ligne 134 : remplacer `ai_generated: true` par `ai_generated: false`.
+
+### Redéploiement
+
+Déployer la function `send-external-quote-request` après modification.
+
+### Documentation
+
+Aucune mise à jour doc nécessaire — le lot COCKPIT-10 est déjà documenté dans plan.md et DEFERRED_BACKLOG.md.
+
+## Point 2 — Référence dossier dans purpose_detail
+
+Conformément à la recommandation CTO (option 1) : `purpose_detail` est la vérité opérateur. Si l'opérateur n'inclut pas la référence, c'est son choix. Aucun correctif code nécessaire. Le commentaire existant (ligne 102-104) documente déjà cette convention.
 
 ## Blast radius
-- 2 fichiers créés (helpers)
-- 2 fichiers modifiés (UI + edge function)
-- Aucune migration
-- Aucune zone FROZEN
-- Aucune mutation de données
+
+| Fichier | Changement |
+|---------|-----------|
+| `send-external-quote-request/index.ts` | 1 ligne : `true` → `false` |
+
+Aucune migration. Aucune zone FROZEN. Aucun autre fichier impacté.
+
