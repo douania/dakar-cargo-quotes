@@ -15,7 +15,7 @@ describe("getNextAction", () => {
 
   it("draft → awaiting_send", () => {
     expect(
-      getNextAction({ status: "draft", responsesCount: 0, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "draft", responsesCount: 0, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("awaiting_send");
   });
 
@@ -30,6 +30,7 @@ describe("getNextAction", () => {
         responsesCount: 0,
         proposedFactsCount: 0,
         lastUpdateAt: new Date("2026-03-23T11:00:00Z").toISOString(), // 1h ago
+        emailSentAt: null,
       }),
     ).toBe("awaiting_response");
   });
@@ -45,57 +46,74 @@ describe("getNextAction", () => {
         responsesCount: 0,
         proposedFactsCount: 0,
         lastUpdateAt: new Date("2026-03-23T00:00:00Z").toISOString(), // 60h ago
+        emailSentAt: null,
       }),
     ).toBe("stale_followup");
   });
 
   it("response_received → response_to_analyze", () => {
     expect(
-      getNextAction({ status: "response_received", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "response_received", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("response_to_analyze");
   });
 
   it("response_analyzed + proposed facts → facts_to_validate", () => {
     expect(
-      getNextAction({ status: "response_analyzed", responsesCount: 1, proposedFactsCount: 2, lastUpdateAt: recent }),
+      getNextAction({ status: "response_analyzed", responsesCount: 1, proposedFactsCount: 2, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("facts_to_validate");
   });
 
   it("response_analyzed + no proposed facts → ready", () => {
     expect(
-      getNextAction({ status: "response_analyzed", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "response_analyzed", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("ready");
   });
 
   it("partially_validated + proposed facts → facts_to_validate", () => {
     expect(
-      getNextAction({ status: "partially_validated", responsesCount: 1, proposedFactsCount: 1, lastUpdateAt: recent }),
+      getNextAction({ status: "partially_validated", responsesCount: 1, proposedFactsCount: 1, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("facts_to_validate");
   });
 
   it("partially_validated + no proposed facts → ready", () => {
     expect(
-      getNextAction({ status: "partially_validated", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "partially_validated", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("ready");
   });
 
   it("facts_validated → ready", () => {
     expect(
-      getNextAction({ status: "facts_validated", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "facts_validated", responsesCount: 1, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("ready");
   });
 
   it("closed → closed", () => {
     expect(
-      getNextAction({ status: "closed", responsesCount: 5, proposedFactsCount: 3, lastUpdateAt: recent }),
+      getNextAction({ status: "closed", responsesCount: 5, proposedFactsCount: 3, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("closed");
   });
 
   // M1-lite regression lock: unknown status must NOT return "awaiting_response"
   it("unknown status → ready (M1-lite regression lock)", () => {
     expect(
-      getNextAction({ status: "unknown_status_xyz", responsesCount: 0, proposedFactsCount: 0, lastUpdateAt: recent }),
+      getNextAction({ status: "unknown_status_xyz", responsesCount: 0, proposedFactsCount: 0, lastUpdateAt: recent, emailSentAt: null }),
     ).toBe("ready");
+  });
+
+  it("stale_followup uses emailSentAt when available", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-25T12:00:00Z"));
+
+    // email_sent_at is recent → NOT stale even though lastUpdateAt is old
+    expect(
+      getNextAction({
+        status: "sent",
+        responsesCount: 0,
+        proposedFactsCount: 0,
+        lastUpdateAt: new Date("2026-03-20T00:00:00Z").toISOString(), // 5 days ago
+        emailSentAt: new Date("2026-03-25T10:00:00Z").toISOString(), // 2h ago
+      }),
+    ).toBe("awaiting_response");
   });
 
   it("uses STALE_THRESHOLD_HOURS from constants", () => {
