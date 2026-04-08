@@ -87,7 +87,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       let hasDraft = false;
       if (selectedVersionId) {
         const [pdfResult, draftResult] = await Promise.all([
-          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId),
+          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId).eq("document_type", "pdf"),
           supabase.from("email_drafts").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId).eq("status", "draft"),
         ]);
         hasPdf = (pdfResult.count ?? 0) > 0;
