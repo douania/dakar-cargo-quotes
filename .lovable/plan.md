@@ -1,39 +1,66 @@
 
 
-# Bilan de clôture — COCKPIT-4B : Plan d'actions orienté communication réelle
+# Plan COCKPIT-4C — Séparation visuelle Communication / Consolidation
 
-## Statut : DONE (2026-04-08)
+## Problème
 
-## Ce qui a été livré
+Le plan d'actions actuel (12 étapes) affiche une liste plate. L'opérateur ne voit pas que le pricing final doit venir **après** la boucle communication. L'étape 8 "Lancer le pricing" apparaît comme une étape parmi d'autres, sans signaler qu'elle dépend de la résolution des étapes partenaires/client.
 
-- `src/components/case/CaseActionPlan.tsx` : passage de 8 à 12 étapes orientées communication
-- Décomposition boucle partenaire : préparer → confirmer envoi → traiter réponses
-- Décomposition boucle client : envoyer clarifications → analyser réponses
-- Étape 4 "Confirmer l'envoi" honnête : done seulement si `email_sent_at` renseigné
-- Note UI discrète pré-COM-1A quand envoi non confirmé
-- Étape 11 "Préparer l'email client" utilise `hasDraft`
-- Contrôle PDF via `quotation_documents` (corrigé par rapport à COCKPIT-4)
-- 3 queries supplémentaires : draftPartnerRequests, unsentPartnerRequests, draftedClientGaps
-- Filtres openPartnerRequests alignés COCKPIT-2/COCKPIT-3 (tout sauf closed)
+## Solution
 
-## Fichiers modifiés
+Ajouter une séparation visuelle en 2 sections dans le même composant, sans changer la logique métier ni les queries :
+
+```text
+┌─────────────────────────────────┐
+│ Plan d'actions        7/12      │
+│                                 │
+│ ── Communication ──             │
+│ ✓ Analyser la demande client    │
+│ ✓ Résoudre les gaps bloquants   │
+│ ● Préparer demandes partenaires │
+│ ○ Confirmer l'envoi             │
+│ ○ Traiter réponses partenaires  │
+│ ○ Envoyer clarifications client │
+│ ○ Analyser réponses client      │
+│                                 │
+│ ── Consolidation commerciale ── │
+│ ○ Lancer le pricing             │
+│ ○ Créer la version              │
+│ ○ Exporter le PDF               │
+│ ○ Préparer l'email client       │
+│ ○ Marquer l'envoi client        │
+└─────────────────────────────────┘
+```
+
+## Fichier modifié
+
+**`src/components/case/CaseActionPlan.tsx`** — seul fichier code modifié :
+
+1. Ajouter une propriété `group: "communication" | "consolidation"` à chaque étape
+2. Étapes 1-7 → group `"communication"`, étapes 8-12 → group `"consolidation"`
+3. Dans le rendu, séparer les deux groupes avec un petit label de section (texte `text-[10px] uppercase tracking-wide text-muted-foreground/60`)
+4. Aucun changement aux queries, à la logique de statut, ni au compteur global
+
+## Ce qui ne change PAS
+
+- Aucune query ajoutée ou modifiée
+- Aucune logique de statut modifiée
+- Le compteur `done/total` reste global
+- Skip logic inchangée
+- Aucune migration, aucune zone FROZEN, aucune mutation
+
+## Documentation
+
+- `docs/DEFERRED_BACKLOG.md` : ajouter entrée COCKPIT-4C en `planned`
+- `.lovable/plan.md` : plan actif COCKPIT-4C
+
+## Blast radius
 
 | Fichier | Nature |
 |---------|--------|
-| `src/components/case/CaseActionPlan.tsx` | Évolution majeure (8 → 12 étapes) |
-| `docs/DEFERRED_BACKLOG.md` | COCKPIT-4B → DONE |
-| `docs/MASTER_CONTEXT.md` | Section COCKPIT-4B ajoutée |
-| `.lovable/plan.md` | Bilan de clôture |
+| `src/components/case/CaseActionPlan.tsx` | ~15 lignes modifiées (rendu uniquement) |
+| `docs/DEFERRED_BACKLOG.md` | Entrée ajoutée |
+| `.lovable/plan.md` | Plan actif |
 
-## Blast radius vérifié
+Aucune migration. Aucune zone FROZEN. Aucune mutation métier. Pipeline EQ1 intact.
 
-- 0 migration DB
-- 0 zone FROZEN touchée
-- 0 mutation métier
-- 0 edge function modifié
-- Pipeline EQ1 intact
-- Filtres alignés COCKPIT-2/COCKPIT-3
-
-## Prochaine étape
-
-Cadrage final COM-1A — audit de readiness pour activer l'envoi réel.
