@@ -154,11 +154,12 @@ serve(async (req: Request) => {
       return errorResponse("Failed to create email draft", 500);
     }
 
-    // 8. Mark request as sent — CRITICAL
+    // 8. Mark request as sent + store draft link — CRITICAL
+    // NOTE: email_sent_at remains NULL — real SMTP transmission (COM-1A) will fill it.
     const now = new Date().toISOString();
     const { error: updateErr } = await serviceClient
       .from("external_quote_requests")
-      .update({ status: "sent", sent_at: now })
+      .update({ status: "sent", sent_at: now, email_draft_id: draft.id })
       .eq("id", request_id);
 
     if (updateErr) {

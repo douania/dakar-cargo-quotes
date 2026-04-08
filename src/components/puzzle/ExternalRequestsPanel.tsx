@@ -59,13 +59,20 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  sent: "Envoyée",
+  sent: "Envoyée (brouillon)",
+  sent_confirmed: "Envoyée (confirmée)",
   response_received: "Réponse reçue",
   response_analyzed: "Analysée",
   partially_validated: "Validation partielle",
   facts_validated: "Faits validés",
   closed: "Clôturée",
 };
+
+/** Resolve display status: if status=sent and email_sent_at exists, show confirmed variant */
+function getDisplayStatus(request: { status: string; email_sent_at?: string | null }): string {
+  if (request.status === "sent" && request.email_sent_at) return "sent_confirmed";
+  return request.status;
+}
 
 const PURPOSE_OPTIONS = [
   { value: "origin_charges", label: "Frais d'origine" },

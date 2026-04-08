@@ -25,9 +25,9 @@ export function useExternalRequestFlow(caseId: string | undefined) {
     },
     onSuccess: (data) => {
       if (data?.idempotent) {
-        toast.info("Demande déjà envoyée");
+        toast.info("Demande déjà préparée");
       } else {
-        toast.success("Demande partenaire envoyée — brouillon email créé");
+        toast.success("Brouillon email créé pour le partenaire");
       }
       invalidateAll();
     },

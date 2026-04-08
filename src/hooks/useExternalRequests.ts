@@ -16,6 +16,8 @@ export interface ExternalRequest {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  email_sent_at: string | null;
+  email_draft_id: string | null;
 }
 
 export interface ExternalResponse {
