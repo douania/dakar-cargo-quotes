@@ -1,36 +1,27 @@
 
 
-# Plan micro-correctif S1 — Badge couleur brouillon/confirmé
+# Bilan de clôture S1 — Clarification sémantique statut partenaire
 
-## Problème
+## Statut : FERMÉ (2026-04-08)
 
-Dans `ExternalRequestsPanel.tsx` :
-- `STATUS_LABELS` contient bien `sent_confirmed` (L63)
-- `STATUS_COLORS` ne contient **pas** `sent_confirmed` (L50-58)
-- Le badge utilise `STATUS_COLORS[req.status]` (L359) au lieu de `STATUS_COLORS[displayStatus]`
+## Périmètre livré
 
-Résultat : le texte distingue brouillon/confirmé, mais la couleur reste identique.
-
-## Correctif (1 fichier, 2 lignes)
-
-### `src/components/puzzle/ExternalRequestsPanel.tsx`
-
-**Étape 1** — Ajouter `sent_confirmed` dans `STATUS_COLORS` (après L52) :
-```typescript
-sent_confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
-```
-Couleur emerald pour distinguer visuellement de `sent` (blue = brouillon, emerald = confirmé).
-
-**Étape 2** — Ligne 359, remplacer :
-```tsx
-<Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
-```
-par :
-```tsx
-<Badge className={STATUS_COLORS[displayStatus] || ""} variant="secondary">
-```
+- Migration : colonnes `email_sent_at` + `email_draft_id` ajoutées sur `external_quote_requests`, index sur `email_draft_id`
+- `send-external-quote-request/index.ts` : stocke `email_draft_id`, laisse `email_sent_at` à NULL (contrat COM-1A)
+- `getNextAction.ts` : timer stale basé sur `emailSentAt ?? lastUpdateAt`
+- `getNextAction.test.ts` : tests mis à jour + test spécifique `emailSentAt`
+- `useExternalRequests.ts` : interface mise à jour avec les 2 nouveaux champs
+- `useExternalRequestFlow.ts` : toast corrigé ("Brouillon email créé pour le partenaire")
+- `ExternalRequestsPanel.tsx` : `sent_confirmed` dans `STATUS_COLORS` (emerald), badge utilise `displayStatus`
 
 ## Blast radius
 
-1 fichier, 2 modifications mineures. Aucune migration. Aucune zone FROZEN. Aucun changement logique métier.
+- 0 zone FROZEN touchée
+- 0 mutation métier
+- 0 changement d'enum DB
+- Pipeline EQ1 intact
 
+## Prochaine action
+
+Audit readiness COM-1A → implémentation COM-1A (sendEmail + adresse SODATRA + remplissage email_sent_at).
+Provider d'envoi : option prioritaire Lovable Emails, sous réserve de validation configuration domaine.
