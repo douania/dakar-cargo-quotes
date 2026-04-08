@@ -61,70 +61,24 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     queryKey: ["case-action-plan", caseId],
     staleTime: 30_000,
     queryFn: async () => {
-      const [
-        caseResult,
-        gapsResult,
-        eqrOpenResult,
-        eqrTotalResult,
-        factsProposedResult,
-        clientGapsOpenResult,
-        clientGapsTotalResult,
-        versionResult,
-        pdfResult,
-        draftResult,
-      ] = await (Promise.all as any)([
-        supabase
-          .from("quote_cases")
-          .select("status")
-          .eq("id", caseId)
-          .single(),
-        supabase
-          .from("quote_gaps")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId)
-          .eq("is_blocking", true)
-          .eq("status", "open"),
-        supabase
-          .from("external_quote_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId)
-          .neq("status", "closed"),
-        supabase
-          .from("external_quote_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId),
-        supabase
-          .from("external_quote_response_facts")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId)
-          .eq("validation_status", "proposed"),
-        supabase
-          .from("client_gap_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId)
-          .in("status", ["drafted", "sent", "answered"] as string[]),
-        supabase
-          .from("client_gap_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId),
-        supabase
-          .from("quotation_versions")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId)
-          .eq("is_selected", true),
-        supabase
-          .from("quotation_documents")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId),
-        supabase
-          .from("email_drafts")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "draft"),
-      ]);
+      // Split into two groups to avoid TS2589 (deep type instantiation with 10+ Supabase queries)
+      const [caseResult, gapsResult, eqrOpenResult, eqrTotalResult, factsProposedResult] =
+        await Promise.all([
+          supabase.from("quote_cases").select("status").eq("id", caseId).single(),
+          supabase.from("quote_gaps").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("is_blocking", true).eq("status", "open"),
+          supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).neq("status", "closed"),
+          supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
+          supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
+        ]);
 
-      // For drafts, filter client-side by case versions
-      const caseVersionIds = versionResult.data ? [] : [];
-      const hasDraft = (draftResult.data?.length ?? 0) > 0;
+      const [clientGapsOpenResult, clientGapsTotalResult, versionResult, pdfResult, draftResult] =
+        await Promise.all([
+          supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
+          supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
+          supabase.from("quotation_versions").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("is_selected", true),
+          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("case_id", caseId),
+          supabase.from("email_drafts").select("id", { count: "exact", head: true }).eq("status", "draft"),
+        ]);
 
       return {
         status: (caseResult.data?.status as string) ?? "INTAKE",
@@ -136,7 +90,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         totalClientGaps: clientGapsTotalResult.count ?? 0,
         hasVersion: (versionResult.count ?? 0) > 0,
         hasPdf: (pdfResult.count ?? 0) > 0,
-        hasDraft,
+        hasDraft: (draftResult.count ?? 0) > 0,
       };
     },
   });
