@@ -87,12 +87,12 @@ export function NextActionBanner({ caseId }: Props) {
       let hasDraftEmail = false;
       if (hasSelectedVersion) {
         const versionId = versionsRes.data![0].id;
-        const [pdfRes, emailRes] = await Promise.all([
-          supabase.from("quotation_documents").select("id", { count: "exact", head: true })
-            .eq("version_id", versionId).eq("document_type", "pdf"),
-          supabase.from("email_drafts").select("id", { count: "exact", head: true })
-            .eq("quotation_version_id", versionId).eq("status", "draft"),
-        ]);
+        const pdfRes = await supabase.from("quotation_documents")
+          .select("id", { count: "exact", head: true })
+          .eq("quotation_version_id", versionId).eq("document_type", "pdf");
+        const emailRes = await supabase.from("email_drafts")
+          .select("id", { count: "exact", head: true })
+          .eq("quotation_version_id", versionId).eq("status", "draft");
         hasPdf = (pdfRes.count ?? 0) > 0;
         hasDraftEmail = (emailRes.count ?? 0) > 0;
       }
