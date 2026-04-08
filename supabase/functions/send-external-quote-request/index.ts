@@ -1,9 +1,11 @@
 // Phase P2.1 — Send external quote request to partner
+// COCKPIT-10: Professional partner email with purpose-specific template
 // SECURITY: requireUser is mandatory because verify_jwt=false
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { buildPartnerEmailBody } from "../_shared/partner-email-template.ts";
 
 const PURPOSE_LABELS: Record<string, string> = {
   origin_charges: "Frais d'origine",
@@ -75,64 +77,50 @@ serve(async (req: Request) => {
     }
     if (!caseData) return errorResponse("Case not found", 404);
 
-    // 5. Load relevant facts for context
+    // 5. Load relevant facts for professional email generation
     const { data: facts, error: factsErr } = await serviceClient
       .from("quote_facts")
       .select("fact_key, value_text, value_number")
       .eq("case_id", case_id)
       .eq("is_current", true)
       .in("fact_key", [
-        "cargo.description", "routing.origin_country", "routing.destination_country",
-        "routing.final_destination", "cargo.incoterm", "cargo.total_weight_kg",
-        "cargo.total_volume_cbm", "routing.transport_mode",
+        "cargo.description", "cargo.articles_detail",
+        "cargo.container_type", "cargo.container_count",
+        "cargo.weight_kg", "cargo.volume_cbm", "cargo.fcl_lcl",
+        "routing.origin_port", "routing.origin_country",
+        "routing.destination_port", "routing.destination_city",
+        "routing.destination_country", "routing.final_destination",
+        "routing.incoterm", "routing.transport_mode",
+        "contacts.client_company",
+        "timing.loading_date",
       ]);
 
     if (factsErr) {
       console.warn("[send-external-quote-request] Failed to load facts (non-critical):", factsErr.message);
     }
 
-    // 6. Build email content
+    // 6. Build email content — COCKPIT-10 rules:
+    //    purpose_detail non-empty → operator source of truth
+    //    otherwise → deterministic professional template
     const purposeLabel = PURPOSE_LABELS[request.purpose] || request.purpose;
     const caseRef = caseData.reference || case_id.slice(0, 8);
-    const factMap: Record<string, string> = {};
-    for (const f of facts || []) {
-      factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : "");
-    }
-
-    const contextLines: string[] = [];
-    if (factMap["cargo.description"]) contextLines.push(`Marchandise : ${factMap["cargo.description"]}`);
-    if (factMap["routing.origin_country"]) contextLines.push(`Origine : ${factMap["routing.origin_country"]}`);
-    if (factMap["routing.destination_country"] || factMap["routing.final_destination"]) {
-      contextLines.push(`Destination : ${factMap["routing.final_destination"] || factMap["routing.destination_country"]}`);
-    }
-    if (factMap["cargo.incoterm"]) contextLines.push(`Incoterm : ${factMap["cargo.incoterm"]}`);
-    if (factMap["routing.transport_mode"]) contextLines.push(`Mode : ${factMap["routing.transport_mode"]}`);
-    if (factMap["cargo.total_weight_kg"]) contextLines.push(`Poids : ${factMap["cargo.total_weight_kg"]} kg`);
-    if (factMap["cargo.total_volume_cbm"]) contextLines.push(`Volume : ${factMap["cargo.total_volume_cbm"]} m³`);
 
     const subject = `Demande de cotation — ${purposeLabel} — Réf. ${caseRef}`;
-    const bodyParts = [
-      `Bonjour,`,
-      ``,
-      `Dans le cadre du dossier Réf. ${caseRef}, nous sollicitons votre offre pour : ${purposeLabel}.`,
-    ];
-    if (request.purpose_detail) {
-      bodyParts.push(``, `Détails : ${request.purpose_detail}`);
+
+    let bodyText: string;
+    const purposeDetail = (request.purpose_detail ?? "").trim();
+
+    if (purposeDetail.length > 0) {
+      // Operator-provided text is the source of truth
+      bodyText = purposeDetail;
+    } else {
+      // Deterministic fallback using shared template
+      const factMap: Record<string, string | null> = {};
+      for (const f of facts || []) {
+        factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : null);
+      }
+      bodyText = buildPartnerEmailBody(factMap, request.partner_name, request.purpose, caseRef);
     }
-    if (contextLines.length > 0) {
-      bodyParts.push(``, `Contexte du dossier :`, ...contextLines.map((l) => `  - ${l}`));
-    }
-    if (request.related_lot_index != null) {
-      bodyParts.push(``, `Lot concerné : #${request.related_lot_index}`);
-    }
-    bodyParts.push(
-      ``,
-      `Merci de nous transmettre votre meilleure offre dans les meilleurs délais.`,
-      ``,
-      `Cordialement,`,
-      `L'équipe transit`,
-    );
-    const bodyText = bodyParts.join("\n");
 
     // 7. Create email draft
     const userId = auth.user.id;
