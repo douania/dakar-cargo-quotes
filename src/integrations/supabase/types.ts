@@ -1609,6 +1609,8 @@ export type Database = {
           created_at: string
           created_by: string | null
           due_at: string | null
+          email_draft_id: string | null
+          email_sent_at: string | null
           id: string
           partner_email: string | null
           partner_name: string
@@ -1624,6 +1626,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           due_at?: string | null
+          email_draft_id?: string | null
+          email_sent_at?: string | null
           id?: string
           partner_email?: string | null
           partner_name: string
@@ -1639,6 +1643,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           due_at?: string | null
+          email_draft_id?: string | null
+          email_sent_at?: string | null
           id?: string
           partner_email?: string | null
           partner_name?: string
@@ -1655,6 +1661,13 @@ export type Database = {
             columns: ["case_id"]
             isOneToOne: false
             referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_quote_requests_email_draft_id_fkey"
+            columns: ["email_draft_id"]
+            isOneToOne: false
+            referencedRelation: "email_drafts"
             referencedColumns: ["id"]
           },
         ]

@@ -1,37 +1,44 @@
 
-# Bilan de clôture COCKPIT-2 + COCKPIT-3
+# Bilan de clôture S1 — Clarification sémantique statut partenaire
 
-## Statut : DONE — les deux lots livrés et validés CTO le 2026-04-08
+## Statut : DONE — livré et validé le 2026-04-08
 
-## COCKPIT-2 — Garde-fous communication SendQuotationPanel
+## Problème résolu
 
-Avertissements (non bloquants) dans SendQuotationPanel avant marquage d'envoi :
-- Demandes partenaires non clôturées (tout sauf `closed`)
-- Faits partenaires `proposed` (non validés)
-- Clarifications client `drafted`, `sent` ou `answered` (non clôturées)
+`status = "sent"` dans `external_quote_requests` signifiait "brouillon email créé" alors qu'aucun envoi SMTP réel n'avait lieu. Le timer `stale_followup` (24h) se déclenchait depuis la date de marquage, pas d'envoi réel.
 
-Rappel dans le dialog de confirmation finale. `canSend` inchangé (opérateur souverain).
+## Solution : Option B — preuve d'envoi séparée
 
-Fichiers modifiés : `useSendQuotation.ts`, `SendQuotationPanel.tsx`, 2 docs.
+- Migration DB : `email_sent_at TIMESTAMPTZ NULL` + `email_draft_id UUID NULL REFERENCES email_drafts(id)` sur `external_quote_requests`
+- `send-external-quote-request/index.ts` : stocke `email_draft_id`, laisse `email_sent_at = NULL`
+- `getNextAction.ts` : timer stale basé sur `email_sent_at ?? sent_at`
+- `ExternalRequestsPanel.tsx` : badge "Envoyée (brouillon)" vs "Envoyée (confirmée)"
+- `useExternalRequestFlow.ts` : toast corrigé "Brouillon email créé pour le partenaire"
+- `useExternalRequests.ts` : interface `ExternalRequest` enrichie avec `email_sent_at` + `email_draft_id`
+- Tests : 13/13 passent, incluant nouveau test `emailSentAt`
 
-## COCKPIT-3 — Résumé communication dossier
+## Fichiers modifiés
 
-Composant : `src/components/case/CommunicationSummaryCard.tsx`
-Placement : CaseView, juste avant ExternalRequestsPanel, même gating (`caseId`)
-Requêtes : 3 queries parallèles réutilisant les filtres COCKPIT-2
-UI : badge vert/amber + mini-liste partenaires (max 3)
-staleTime : 30s
-
-Fichiers modifiés : `CommunicationSummaryCard.tsx` (nouveau), `CaseView.tsx` (+import+placement), 2 docs.
+| Fichier | Nature |
+|---------|--------|
+| Migration DB | +2 colonnes, +1 index |
+| `send-external-quote-request/index.ts` | Stocke email_draft_id |
+| `getNextAction.ts` | +param emailSentAt, timer adapté |
+| `getNextAction.test.ts` | +1 test emailSentAt, tous mis à jour |
+| `useExternalRequests.ts` | Interface enrichie |
+| `useExternalRequestFlow.ts` | Toast corrigé |
+| `ExternalRequestsPanel.tsx` | Badge brouillon/confirmé |
+| `docs/MASTER_CONTEXT.md` | Section S1 ajoutée |
+| `docs/DEFERRED_BACKLOG.md` | S1 DONE, COM-1A prérequis mis à jour |
 
 ## Invariants respectés
 
-- Aucune migration DB
+- Aucun changement d'enum DB
 - Aucune zone FROZEN touchée
-- Aucune mutation métier
 - Pipeline EQ1 intact
 - `canSend` inchangé
+- Rétro-compatible : `email_sent_at = NULL` = pas encore envoyé réellement
 
 ## Prochaine action
 
-Cadrage COM-1A (envoi réel partenaires) ou priorisation CTO.
+COM-1A : remplir `email_sent_at` après transmission SMTP réussie.

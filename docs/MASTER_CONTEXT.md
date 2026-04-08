@@ -103,6 +103,20 @@ UI :
 staleTime : 30s
 Doctrine : lecture seule, aucun effet métier, aucun blocage opérateur, aucun impact sur le pipeline EQ1
 
+### S1 — Clarification sémantique du statut partenaire (2026-04-08)
+
+Problème résolu : `status = "sent"` dans `external_quote_requests` signifiait "brouillon email créé" alors qu'aucun envoi SMTP réel n'avait lieu. Le timer `stale_followup` (24h) se déclenchait depuis la date de marquage, pas d'envoi réel.
+
+Solution (Option B — preuve d'envoi séparée) :
+- Ajout de `email_sent_at TIMESTAMPTZ NULL` sur `external_quote_requests` — preuve d'envoi réel (NULL = brouillon seulement, rempli par COM-1A après transmission SMTP)
+- Ajout de `email_draft_id UUID NULL` avec FK vers `email_drafts` — traçabilité du brouillon source
+- `send-external-quote-request` stocke `email_draft_id` et laisse `email_sent_at = NULL`
+- `getNextAction.ts` : timer stale basé sur `email_sent_at ?? sent_at` (fallback gracieux)
+- UI : badge "Envoyée (brouillon)" vs "Envoyée (confirmée)" selon `email_sent_at`
+- Toast corrigé : "Brouillon email créé pour le partenaire"
+- `status = "sent"` = "demandé/préparé côté opérateur, sans preuve d'envoi réel"
+- Aucun changement d'enum DB, rétro-compatible, prépare COM-1A
+
 ---
 
 ## Module CL1

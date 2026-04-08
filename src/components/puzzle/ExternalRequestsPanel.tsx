@@ -59,13 +59,20 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  sent: "Envoyée",
+  sent: "Envoyée (brouillon)",
+  sent_confirmed: "Envoyée (confirmée)",
   response_received: "Réponse reçue",
   response_analyzed: "Analysée",
   partially_validated: "Validation partielle",
   facts_validated: "Faits validés",
   closed: "Clôturée",
 };
+
+/** Resolve display status: if status=sent and email_sent_at exists, show confirmed variant */
+function getDisplayStatus(request: { status: string; email_sent_at?: string | null }): string {
+  if (request.status === "sent" && request.email_sent_at) return "sent_confirmed";
+  return request.status;
+}
 
 const PURPOSE_OPTIONS = [
   { value: "origin_charges", label: "Frais d'origine" },
@@ -309,7 +316,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             responsesCount: reqResponses.length,
             proposedFactsCount: proposedFacts.length,
             lastUpdateAt: req.updated_at ?? req.created_at,
+            emailSentAt: req.email_sent_at,
           });
+          const displayStatus = getDisplayStatus(req);
 
           const suggestion = ["sent", "response_received"].includes(req.status)
             ? suggestPartnerResponse(req, threadEmails, usedEmailIds)
@@ -348,7 +357,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   </span>
                 </div>
                 <Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
-                  {STATUS_LABELS[req.status] || req.status}
+                  {STATUS_LABELS[displayStatus] || req.status}
                 </Badge>
                 <Badge className={`text-[10px] ${NEXT_ACTION_COLORS[nextAction]}`} variant="secondary">
                   {NEXT_ACTION_LABELS[nextAction]}

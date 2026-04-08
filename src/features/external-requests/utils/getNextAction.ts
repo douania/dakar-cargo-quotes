@@ -34,11 +34,13 @@ export function getNextAction({
   responsesCount,
   proposedFactsCount,
   lastUpdateAt,
+  emailSentAt,
 }: {
   status: string;
   responsesCount: number;
   proposedFactsCount: number;
   lastUpdateAt: string;
+  emailSentAt?: string | null;
 }): NextAction {
   // Terminal state
   if (status === "closed") return "closed";
@@ -46,7 +48,9 @@ export function getNextAction({
   if (status === "draft") return "awaiting_send";
 
   if (status === "sent" && responsesCount === 0) {
-    const hours = (Date.now() - new Date(lastUpdateAt).getTime()) / 36e5;
+    // Use real send timestamp if available, otherwise fall back to marking timestamp
+    const referenceTime = emailSentAt ?? lastUpdateAt;
+    const hours = (Date.now() - new Date(referenceTime).getTime()) / 36e5;
     if (hours > STALE_THRESHOLD_HOURS) return "stale_followup";
     return "awaiting_response";
   }
