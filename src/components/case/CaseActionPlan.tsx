@@ -102,7 +102,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           .from("client_gap_requests")
           .select("id", { count: "exact", head: true })
           .eq("case_id", caseId)
-          .in("status", ["drafted", "sent", "answered"]),
+          .in("status", ["drafted", "sent", "answered"] as string[]),
         supabase
           .from("client_gap_requests")
           .select("id", { count: "exact", head: true })

@@ -1648,6 +1648,13 @@ export default function CaseView() {
           </div>
         )}
 
+        {/* COCKPIT-4: Case Action Plan */}
+        {caseId && (
+          <div className="mb-6">
+            <CaseActionPlan caseId={caseId} />
+          </div>
+        )}
+
         {/* COCKPIT-3: Communication summary widget */}
         {caseId && (
           <div className="mb-6">
