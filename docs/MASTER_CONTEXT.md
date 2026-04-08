@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.4
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT
-Latest patch: Phase PAD-ADMIN-UI + T14 enrichi — Bilan consolidé
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1
+Latest patch: COCKPIT-5 Phase 1 livré — suggestion partenaires prudente, validé fonctionnellement sur dossier maritime réel
 Date: 2026-04
 
 ---
