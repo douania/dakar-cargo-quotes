@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-10 — Email partenaire professionnel
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-10 |
+| **Catégorie** | Communication partenaire |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-10 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COM-1A — si le format email nécessite ajustement post envoi réel |
+| **Recommandation** | Template déterministe partagé (src/lib + _shared). Variations par purpose. purpose_detail opérateur prioritaire. |
+
+---
+
 ## COCKPIT-9 Phase 2 — Offre retenue opérateur
 
 | Champ | Valeur |
