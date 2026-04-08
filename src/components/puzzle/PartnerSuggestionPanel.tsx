@@ -1,5 +1,5 @@
 /**
- * COCKPIT-5 Phase 1 — Suggestion prudente des partenaires à contacter.
+ * COCKPIT-5 Phase 1+2 — Suggestion prudente des partenaires à contacter.
  * Composant autonome avec ses propres queries.
  * Lecture seule + callback onPrefill pour préremplir le formulaire d'ExternalRequestsPanel.
  */
@@ -7,11 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, CheckCircle2, ArrowRight } from "lucide-react";
+import { Users, CheckCircle2, ArrowRight, Mail } from "lucide-react";
 
 interface Props {
   caseId: string;
-  onPrefill: (partnerName: string, purpose: string) => void;
+  onPrefill: (partnerName: string, purpose: string, partnerEmail?: string) => void;
 }
 
 /** Normalize for "already contacted" matching: trim + lowercase + collapse spaces */
@@ -19,8 +19,17 @@ function norm(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Derive purpose from role/notes */
-function derivePurpose(role: string, notes: string | null): string {
+/** Derive purpose from service_types (priority) then role/notes (fallback) */
+function derivePurpose(serviceTypes: string[], role: string, notes: string | null): string {
+  // Phase 2: use service_types as primary source
+  if (serviceTypes.length > 0) {
+    if (serviceTypes.includes("freight_maritime")) return "freight_rate";
+    if (serviceTypes.includes("freight_aerien")) return "air_tariff";
+    if (serviceTypes.includes("origin_charges")) return "origin_charges";
+    // Default to first service type if no specific mapping
+    return serviceTypes[0];
+  }
+  // Phase 1 fallback: heuristic from notes/role
   const n = (notes ?? "").toLowerCase();
   if (n.includes("armateur")) return "freight_rate";
   if (role === "agent") return "origin_charges";
@@ -31,6 +40,10 @@ const PURPOSE_LABELS: Record<string, string> = {
   freight_rate: "Taux de fret",
   origin_charges: "Frais d'origine",
   air_tariff: "Tarif aérien",
+  freight_maritime: "Fret maritime",
+  freight_aerien: "Fret aérien",
+  terminal: "Terminal",
+  transport_local: "Transport local",
   general: "Général",
 };
 
@@ -52,13 +65,13 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
     staleTime: 30_000,
   });
 
-  // 2. Active partner contacts
+  // 2. Active partner contacts (Phase 2: includes contact_email, service_types)
   const { data: contacts = [] } = useQuery({
     queryKey: ["partner-suggestion-contacts"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("known_business_contacts")
-        .select("company_name, default_role, domain_pattern, notes")
+        .select("company_name, default_role, domain_pattern, notes, contact_email, service_types")
         .eq("is_active", true)
         .in("default_role", ["supplier", "partner", "agent"]);
       if (error) throw error;
@@ -67,6 +80,8 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
         default_role: string;
         domain_pattern: string | null;
         notes: string | null;
+        contact_email: string | null;
+        service_types: string[];
       }>;
     },
     staleTime: 60_000,
@@ -96,6 +111,11 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
   const suggested = contacts
     .filter((c) => {
       if (isMaritime) {
+        // Phase 2: check service_types first
+        if (c.service_types.length > 0) {
+          return c.service_types.includes("freight_maritime") || c.service_types.includes("origin_charges");
+        }
+        // Phase 1 fallback
         const n = (c.notes ?? "").toLowerCase();
         return n.includes("armateur") || c.default_role === "agent";
       }
@@ -105,9 +125,11 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
     .map((c) => ({
       name: c.company_name,
       domain: c.domain_pattern,
+      email: c.contact_email,
       role: c.default_role,
       notes: c.notes,
-      purpose: derivePurpose(c.default_role, c.notes),
+      serviceTypes: c.service_types,
+      purpose: derivePurpose(c.service_types, c.default_role, c.notes),
       alreadyContacted: contactedNames.has(norm(c.company_name)),
     }))
     // Sort: not-yet-contacted first
@@ -152,6 +174,9 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
             <span className={s.alreadyContacted ? "line-through" : "font-medium"}>
               {s.name}
             </span>
+            {s.email && (
+              <Mail className="h-3 w-3 text-muted-foreground shrink-0" title={s.email} />
+            )}
             <span className="text-muted-foreground">
               · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
             </span>
@@ -160,7 +185,7 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
                 size="sm"
                 variant="ghost"
                 className="h-5 px-1.5 text-[10px]"
-                onClick={() => onPrefill(s.name, s.purpose)}
+                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined)}
               >
                 <ArrowRight className="h-3 w-3" />
                 Préremplir
