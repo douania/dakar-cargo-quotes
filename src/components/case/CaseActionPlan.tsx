@@ -48,12 +48,14 @@ function statusAbove(current: string, threshold: string): boolean {
 }
 
 type StepStatus = "done" | "current" | "pending" | "blocked" | "skipped";
+type StepGroup = "communication" | "consolidation";
 
 interface Step {
   id: string;
   label: string;
   status: StepStatus;
   note?: string;
+  group: StepGroup;
 }
 
 interface CaseActionPlanProps {
@@ -156,6 +158,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "analyze",
     label: "Analyser la demande client",
     status: statusAbove(status, "INTAKE") ? "done" : "current",
+    group: "communication",
   });
 
   // 2. Résoudre les gaps bloquants
@@ -163,6 +166,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "gaps",
     label: "Résoudre les gaps bloquants",
     status: blockingGapsCount === 0 ? "done" : "blocked",
+    group: "communication",
   });
 
   // 3. Préparer les demandes partenaires
@@ -172,6 +176,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "prepare-partners",
       label: "Préparer les demandes partenaires",
       status: draftPartnerRequests === 0 ? "done" : "pending",
+      group: "communication",
     });
   }
 
@@ -187,6 +192,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       note: !allSentConfirmed && unsentPartnerRequests > 0
         ? "Envoi réel confirmé après activation COM-1A"
         : undefined,
+      group: "communication",
     });
   }
 
@@ -198,6 +204,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "treat-partner-responses",
       label: "Traiter les réponses partenaires",
       status: partnerResponsesDone ? "done" : "pending",
+      group: "communication",
     });
   }
 
@@ -208,6 +215,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "send-client-clarifications",
       label: "Envoyer les clarifications client",
       status: draftedClientGaps === 0 ? "done" : "pending",
+      group: "communication",
     });
   }
 
@@ -218,6 +226,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "analyze-client-responses",
       label: "Analyser les réponses client",
       status: openClientGaps === 0 ? "done" : "pending",
+      group: "communication",
     });
   }
 
@@ -226,6 +235,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "pricing",
     label: "Lancer le pricing",
     status: statusAtLeast(status, "PRICED_DRAFT") ? "done" : "pending",
+    group: "consolidation",
   });
 
   // 9. Créer la version
@@ -233,6 +243,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "version",
     label: "Créer la version",
     status: hasVersion ? "done" : "pending",
+    group: "consolidation",
   });
 
   // 10. Exporter le PDF
@@ -240,6 +251,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "pdf",
     label: "Exporter le PDF",
     status: hasPdf ? "done" : "pending",
+    group: "consolidation",
   });
 
   // 11. Préparer l'email client
@@ -247,6 +259,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     id: "prepare-email",
     label: "Préparer l'email client",
     status: hasDraft ? "done" : "pending",
+    group: "consolidation",
   });
 
   // 12. Marquer l'envoi client
@@ -256,6 +269,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     status: ["SENT", "ACCEPTED", "REJECTED"].includes(status)
       ? "done"
       : "pending",
+    group: "consolidation",
   });
 
   // Mark first non-done step as "current" (if not already blocked)
@@ -305,31 +319,40 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           </Badge>
         </div>
 
-        <div className="space-y-1">
-          {steps.map((step) => (
-            <div key={step.id}>
-              <div
-                className={`flex items-center gap-2 py-0.5 text-xs ${
-                  step.status === "done"
-                    ? "text-muted-foreground line-through"
-                    : step.status === "current"
-                    ? "text-foreground font-medium"
-                    : step.status === "blocked"
-                    ? "text-amber-700 font-medium"
-                    : "text-muted-foreground/60"
-                }`}
-              >
-                {iconForStatus(step.status)}
-                <span>{step.label}</span>
+        {(["communication", "consolidation"] as const).map((group) => {
+          const groupSteps = steps.filter((s) => s.group === group);
+          if (groupSteps.length === 0) return null;
+          return (
+            <div key={group} className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/60 pt-1.5 pb-0.5">
+                {group === "communication" ? "Communication" : "Consolidation commerciale"}
               </div>
-              {step.note && step.status !== "done" && (
-                <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
-                  {step.note}
+              {groupSteps.map((step) => (
+                <div key={step.id}>
+                  <div
+                    className={`flex items-center gap-2 py-0.5 text-xs ${
+                      step.status === "done"
+                        ? "text-muted-foreground line-through"
+                        : step.status === "current"
+                        ? "text-foreground font-medium"
+                        : step.status === "blocked"
+                        ? "text-amber-700 font-medium"
+                        : "text-muted-foreground/60"
+                    }`}
+                  >
+                    {iconForStatus(step.status)}
+                    <span>{step.label}</span>
+                  </div>
+                  {step.note && step.status !== "done" && (
+                    <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
+                      {step.note}
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
