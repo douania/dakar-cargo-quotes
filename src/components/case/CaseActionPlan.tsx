@@ -319,6 +319,37 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           </Badge>
         </div>
 
+        {/* COCKPIT-6: Operational counters */}
+        {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0) && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {draftPartnerRequests > 0 && (
+              <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
+                {draftPartnerRequests} à préparer
+              </Badge>
+            )}
+            {unsentPartnerRequests > 0 && (
+              <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 bg-orange-50">
+                {unsentPartnerRequests} envois à confirmer
+              </Badge>
+            )}
+            {pendingPartnerFacts > 0 && (
+              <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 bg-blue-50">
+                {pendingPartnerFacts} faits à valider
+              </Badge>
+            )}
+            {draftedClientGaps > 0 && (
+              <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 bg-purple-50">
+                {draftedClientGaps} clarifications à envoyer
+              </Badge>
+            )}
+            {blockingGapsCount > 0 && (
+              <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
+                {blockingGapsCount} gaps bloquants
+              </Badge>
+            )}
+          </div>
+        )}
+
         {(["communication", "consolidation"] as const).map((group) => {
           const groupSteps = steps.filter((s) => s.group === group);
           if (groupSteps.length === 0) return null;

@@ -11,7 +11,7 @@ import { Users, CheckCircle2, ArrowRight, Mail } from "lucide-react";
 
 interface Props {
   caseId: string;
-  onPrefill: (partnerName: string, purpose: string, partnerEmail?: string) => void;
+  onPrefill: (partnerName: string, purpose: string, partnerEmail?: string, briefText?: string) => void;
 }
 
 /** Normalize for "already contacted" matching: trim + lowercase + collapse spaces */
@@ -47,7 +47,91 @@ const PURPOSE_LABELS: Record<string, string> = {
   general: "Général",
 };
 
+/** Build a brief text from case facts for partner pre-fill */
+function buildBriefText(
+  facts: Record<string, string | null>,
+  partnerName: string,
+  purpose: string,
+): string {
+  const lines: string[] = [];
+
+  // Line 1: purpose
+  const purposeLabel = PURPOSE_LABELS[purpose] ?? purpose;
+  lines.push(`Demande : ${purposeLabel} — ${partnerName}`);
+
+  // Line 2: client
+  const client = facts["contacts.client_company"];
+  if (client) lines.push(`Client : ${client}`);
+
+  // Line 3: route + incoterm
+  const origin = facts["routing.origin_port"] ?? facts["routing.origin_country"];
+  const dest = facts["routing.destination_port"] ?? facts["routing.destination_city"];
+  const incoterm = facts["routing.incoterm"];
+  if (origin || dest) {
+    let route = `Route : ${origin ?? "?"} → ${dest ?? "?"}`;
+    if (incoterm) route += ` (${incoterm})`;
+    lines.push(route);
+  }
+
+  // Line 4: cargo
+  const desc = facts["cargo.description"] ?? facts["cargo.articles_detail"];
+  const containerType = facts["cargo.container_type"];
+  const containerCount = facts["cargo.container_count"];
+  if (desc || containerType) {
+    let cargo = "Cargo : ";
+    if (containerCount && containerType) cargo += `${containerCount}x ${containerType}, `;
+    else if (containerType) cargo += `${containerType}, `;
+    if (desc) cargo += desc.slice(0, 120);
+    lines.push(cargo.replace(/, $/, ""));
+  }
+
+  // Line 5: weight / volume
+  const weight = facts["cargo.weight_kg"];
+  const volume = facts["cargo.volume_cbm"];
+  if (weight || volume) {
+    const parts: string[] = [];
+    if (weight) parts.push(`${weight} kg`);
+    if (volume) parts.push(`${volume} cbm`);
+    lines.push(parts.join(" | "));
+  }
+
+  // Line 6: timing
+  const loading = facts["timing.loading_date"];
+  if (loading) lines.push(`Date chargement : ${loading}`);
+
+  return lines.join("\n");
+}
+
 export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
+  // 0. Case facts for brief generation
+  const { data: caseFacts = {} } = useQuery({
+    queryKey: ["partner-brief-facts", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quote_facts")
+        .select("fact_key, value_text")
+        .eq("case_id", caseId)
+        .eq("is_current", true)
+        .in("fact_key", [
+          "routing.transport_mode", "routing.origin_port", "routing.destination_port",
+          "routing.origin_country", "routing.destination_country", "routing.destination_city",
+          "routing.incoterm",
+          "cargo.description", "cargo.articles_detail", "cargo.container_type",
+          "cargo.container_count", "cargo.weight_kg", "cargo.volume_cbm",
+          "cargo.hs_code", "cargo.value", "cargo.value_currency",
+          "contacts.client_company", "contacts.client_email",
+          "timing.loading_date",
+        ]);
+      if (error) throw error;
+      const map: Record<string, string | null> = {};
+      for (const row of data ?? []) {
+        map[row.fact_key] = row.value_text;
+      }
+      return map;
+    },
+    staleTime: 30_000,
+  });
+
   // 1. Transport mode from quote_facts
   const { data: transportModeFact } = useQuery({
     queryKey: ["partner-suggestion-mode", caseId],
@@ -185,7 +269,7 @@ export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
                 size="sm"
                 variant="ghost"
                 className="h-5 px-1.5 text-[10px]"
-                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined)}
+                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined, buildBriefText(caseFacts, s.name, s.purpose))}
               >
                 <ArrowRight className="h-3 w-3" />
                 Préremplir
