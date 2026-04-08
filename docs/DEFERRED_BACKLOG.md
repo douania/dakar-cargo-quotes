@@ -6,7 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
-## COCKPIT-7B — Vue détaillée par partenaire / par purpose
+## COCKPIT-7C — Verdict de complétude avant pricing final
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7C |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-7C |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si ajout de client_gap_requests dans le verdict |
+| **Recommandation** | Composant `PricingReadinessCard` lecture seule. 2 queries. Verdict 4 niveaux (Prêt/Provisoire/Incomplet/Neutre). Placé au-dessus de PricingLaunchPanel. |
+
+---
+
 
 | Champ | Valeur |
 |-------|--------|
