@@ -59,7 +59,7 @@ export function NextActionBanner({ caseId }: Props) {
         supabase.from("quote_cases").select("status").eq("id", caseId).maybeSingle(),
         supabase.from("quote_gaps").select("id", { count: "exact", head: true })
           .eq("case_id", caseId).eq("is_blocking", true).eq("status", "open"),
-        supabase.from("external_quote_requests").select("id, status, email_sent_at")
+        supabase.from("external_quote_requests").select("id, status, email_sent_at, is_selected")
           .eq("case_id", caseId),
         supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true })
           .eq("case_id", caseId).eq("validation_status", "proposed"),
@@ -78,6 +78,10 @@ export function NextActionBanner({ caseId }: Props) {
 
       const draftRequests = requests.filter(r => r.status === "draft").length;
       const unsentRequests = requests.filter(r => r.status === "sent" && !r.email_sent_at).length;
+      const hasSelectedPartner = requests.some(r => r.is_selected);
+      const hasExploitableRequests = requests.some(r =>
+        ["response_received", "response_analyzed", "partially_validated", "facts_validated", "closed"].includes(r.status)
+      );
 
       const draftedClientGaps = clientGaps.filter(g => g.status === "drafted").length;
       const openClientGaps = clientGaps.filter(g => g.status === "sent" || g.status === "answered").length;
@@ -100,7 +104,8 @@ export function NextActionBanner({ caseId }: Props) {
       return {
         status, blockingGaps, draftRequests, unsentRequests, pendingFacts,
         draftedClientGaps, openClientGaps, hasSelectedVersion, hasPdf,
-        hasDraftEmail,
+        hasDraftEmail, hasSelectedPartner, hasExploitableRequests,
+        totalRequests: requests.length,
       };
     },
   });
@@ -141,7 +146,8 @@ function computeAction(d: {
   status: string; blockingGaps: number; draftRequests: number;
   unsentRequests: number; pendingFacts: number; draftedClientGaps: number;
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
-  hasDraftEmail: boolean;
+  hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
+  totalRequests: number;
 }): ActionResult | null {
 
   // Terminal
@@ -195,7 +201,15 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 7 — Launch pricing
+  // 7 — Select partner offer (if exploitable requests exist but none selected)
+  if (d.totalRequests > 0 && d.hasExploitableRequests && !d.hasSelectedPartner) return {
+    action: "Retenir une offre partenaire",
+    blocker: "Sélection commerciale non faite",
+    icon: <CheckCircle2 className="h-4 w-4 text-amber-600" />,
+    color: "amber",
+  };
+
+  // 8 — Launch pricing
   if (statusBelow(d.status, "PRICED_DRAFT")) return {
     action: "Lancer le pricing",
     blocker: "Aucun blocage majeur",

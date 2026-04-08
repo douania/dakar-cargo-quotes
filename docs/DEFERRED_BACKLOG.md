@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-9 Phase 2 — Offre retenue opérateur
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-9-P2 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-9-P2 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COM-1A — envoi réel des demandes partenaires |
+| **Recommandation** | Migration is_selected/selected_at sur external_quote_requests. Edge function select-partner-request. Badge + bouton "Retenir" dans PartnerRequestsDetailView. Enrichissement de PartnerCollectionReadinessCard, NextActionBanner, PricingReadinessCard. |
+
+---
+
 ## COCKPIT-9 Phase 1 — Suffisance de collecte partenaire
 
 | Champ | Valeur |

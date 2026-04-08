@@ -17,6 +17,8 @@ interface Props {
 interface RequestRow {
   id: string;
   status: string;
+  partner_name: string;
+  is_selected: boolean;
 }
 
 interface FactRow {
@@ -48,7 +50,7 @@ export function PartnerCollectionReadinessCard({ caseId }: Props) {
       const [reqResult, factsResult] = await Promise.all([
         supabase
           .from('external_quote_requests')
-          .select('id, status')
+          .select('id, status, partner_name, is_selected')
           .eq('case_id', caseId),
         supabase
           .from('external_quote_response_facts')
@@ -108,13 +110,17 @@ export function PartnerCollectionReadinessCard({ caseId }: Props) {
       if (totalPending > 0) parts.push(`${totalPending} fait(s) à valider`);
       const summary = parts.join(' · ');
 
-      return { verdict, total, exploitable, openCount, pendingFacts: totalPending, summary };
+      // Find selected partner name
+      const selectedRequest = requests.find(r => r.is_selected);
+      const selectedPartnerName = selectedRequest?.partner_name ?? null;
+
+      return { verdict, total, exploitable, openCount, pendingFacts: totalPending, summary, selectedPartnerName };
     },
   });
 
   if (isLoading || !data) return null;
 
-  const { verdict, summary } = data;
+  const { verdict, summary, selectedPartnerName } = data;
 
   const config: Record<CollectionVerdict, {
     icon: React.ReactNode;
@@ -163,7 +169,11 @@ export function PartnerCollectionReadinessCard({ caseId }: Props) {
         {verdict !== 'neutral' && (
           <div className="flex items-center gap-2 pl-7">
             <span className="text-xs text-muted-foreground">Offre retenue :</span>
-            <span className="text-xs text-muted-foreground/70 italic">Sélection requise</span>
+            {selectedPartnerName ? (
+              <span className="text-xs font-medium">{selectedPartnerName}</span>
+            ) : (
+              <span className="text-xs text-muted-foreground/70 italic">Sélection opérateur requise</span>
+            )}
           </div>
         )}
       </CardContent>

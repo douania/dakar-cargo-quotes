@@ -16,6 +16,7 @@ interface PricingReadinessCardProps {
 interface RequestRow {
   id: string;
   status: string;
+  is_selected: boolean;
 }
 
 type Verdict = 'ready' | 'provisional' | 'incomplete' | 'neutral';
@@ -28,7 +29,7 @@ export function PricingReadinessCard({ caseId }: PricingReadinessCardProps) {
       const [reqResult, factsResult] = await Promise.all([
         supabase
           .from('external_quote_requests')
-          .select('id, status')
+          .select('id, status, is_selected')
           .eq('case_id', caseId),
         supabase
           .from('external_quote_response_facts')
@@ -56,14 +57,16 @@ export function PricingReadinessCard({ caseId }: PricingReadinessCardProps) {
 
       const open = total - closed;
 
-      return { total, closed, open, responsePhase, pendingFacts };
+      const hasSelectedPartner = requests.some(r => r.is_selected);
+
+      return { total, closed, open, responsePhase, pendingFacts, hasSelectedPartner };
     },
     enabled: !!caseId,
   });
 
   if (isLoading || !data) return null;
 
-  const { total, closed, open, responsePhase, pendingFacts } = data;
+  const { total, closed, open, responsePhase, pendingFacts, hasSelectedPartner } = data;
 
   // Determine verdict
   let verdict: Verdict;
@@ -114,10 +117,17 @@ export function PricingReadinessCard({ caseId }: PricingReadinessCardProps) {
 
   return (
     <Card className="border-border/50 mb-3">
-      <CardContent className="py-3 px-4 flex items-center gap-3">
-        {c.icon}
-        <Badge className={`${c.badgeClass} text-xs font-medium`}>{c.label}</Badge>
-        <span className="text-xs text-muted-foreground">{c.summary}</span>
+      <CardContent className="py-3 px-4 space-y-1">
+        <div className="flex items-center gap-3">
+          {c.icon}
+          <Badge className={`${c.badgeClass} text-xs font-medium`}>{c.label}</Badge>
+          <span className="text-xs text-muted-foreground">{c.summary}</span>
+        </div>
+        {verdict === 'ready' && total > 0 && !hasSelectedPartner && (
+          <p className="text-xs text-muted-foreground/70 italic pl-7">
+            Sélection partenaire requise
+          </p>
+        )}
       </CardContent>
     </Card>
   );
