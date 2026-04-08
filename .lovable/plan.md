@@ -1,9 +1,9 @@
 
-# Bilan COCKPIT-2 — Garde-fous communication SendQuotationPanel
+# Bilan de clôture COCKPIT-2 + COCKPIT-3
 
-## Statut : DONE — livré et validé CTO le 2026-04-08
+## Statut : DONE — les deux lots livrés et validés CTO le 2026-04-08
 
-## Périmètre livré
+## COCKPIT-2 — Garde-fous communication SendQuotationPanel
 
 Avertissements (non bloquants) dans SendQuotationPanel avant marquage d'envoi :
 - Demandes partenaires non clôturées (tout sauf `closed`)
@@ -12,24 +12,26 @@ Avertissements (non bloquants) dans SendQuotationPanel avant marquage d'envoi :
 
 Rappel dans le dialog de confirmation finale. `canSend` inchangé (opérateur souverain).
 
-## Filtres exacts
+Fichiers modifiés : `useSendQuotation.ts`, `SendQuotationPanel.tsx`, 2 docs.
 
-| Requête | Table | Filtre |
-|---------|-------|--------|
-| Demandes partenaires | `external_quote_requests` | `neq('status', 'closed')` |
-| Faits partenaires | `external_quote_response_facts` | `eq('validation_status', 'proposed')` |
-| Clarifications client | `client_gap_requests` | `in('status', ['drafted', 'sent', 'answered'])` |
+## COCKPIT-3 — Résumé communication dossier
 
-## Fichiers modifiés
+Composant : `src/components/case/CommunicationSummaryCard.tsx`
+Placement : CaseView, juste avant ExternalRequestsPanel, même gating (`caseId`)
+Requêtes : 3 queries parallèles réutilisant les filtres COCKPIT-2
+UI : badge vert/amber + mini-liste partenaires (max 3)
+staleTime : 30s
 
-| Fichier | Nature |
-|---------|--------|
-| `src/hooks/useSendQuotation.ts` | +3 requêtes parallèles, derived flags |
-| `src/components/puzzle/SendQuotationPanel.tsx` | Alertes ambrées + rappel dialog |
-| `docs/DEFERRED_BACKLOG.md` | Entrée COCKPIT-2 → DONE |
-| `docs/MASTER_CONTEXT.md` | Section COCKPIT-2 ajoutée |
+Fichiers modifiés : `CommunicationSummaryCard.tsx` (nouveau), `CaseView.tsx` (+import+placement), 2 docs.
 
-## Prochaine action : COCKPIT-3 — Résumé communication dossier
+## Invariants respectés
 
-Widget synthétique case-level dans CaseView, réutilisant les mêmes filtres COCKPIT-2.
-Placement : juste avant ExternalRequestsPanel, même condition d'affichage.
+- Aucune migration DB
+- Aucune zone FROZEN touchée
+- Aucune mutation métier
+- Pipeline EQ1 intact
+- `canSend` inchangé
+
+## Prochaine action
+
+Cadrage COM-1A (envoi réel partenaires) ou priorisation CTO.

@@ -87,6 +87,22 @@ Vérifications pré-envoi :
 Affichage : section alertes ambrées dans le panneau + rappel dans le dialog de confirmation finale
 Doctrine : cockpit de communication assistée — l'opérateur est informé mais peut décider d'envoyer un devis partiel volontairement
 
+### COCKPIT-3 — Résumé communication dossier (2026-04-08)
+
+Composant : `src/components/case/CommunicationSummaryCard.tsx` (autonome, ~130 lignes)
+Placement : CaseView, juste avant ExternalRequestsPanel, même gating (`caseId` présent)
+Rôle : synthèse dossier-level de l'état communication
+Requêtes : 3 queries parallèles réutilisant les filtres COCKPIT-2 :
+- Demandes partenaires ouvertes (`external_quote_requests` tout sauf `closed`)
+- Faits partenaires à valider (`external_quote_response_facts` en `proposed`)
+- Clarifications client ouvertes (`client_gap_requests` en `drafted`, `sent`, `answered`)
+UI :
+- Badge vert « Communication complète » si tout est à 0
+- Badge amber « X point(s) en attente » sinon
+- Mini-liste limitée aux demandes partenaires ouvertes (max 3 affichées)
+staleTime : 30s
+Doctrine : lecture seule, aucun effet métier, aucun blocage opérateur, aucun impact sur le pipeline EQ1
+
 ---
 
 ## Module CL1
