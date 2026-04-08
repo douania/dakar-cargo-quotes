@@ -72,6 +72,7 @@ import { CommunicationSummaryCard } from "@/components/case/CommunicationSummary
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
+import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 
 export default function CaseView() {
