@@ -1,44 +1,36 @@
 
-# Bilan de clôture S1 — Clarification sémantique statut partenaire
 
-## Statut : DONE — livré et validé le 2026-04-08
+# Plan micro-correctif S1 — Badge couleur brouillon/confirmé
 
-## Problème résolu
+## Problème
 
-`status = "sent"` dans `external_quote_requests` signifiait "brouillon email créé" alors qu'aucun envoi SMTP réel n'avait lieu. Le timer `stale_followup` (24h) se déclenchait depuis la date de marquage, pas d'envoi réel.
+Dans `ExternalRequestsPanel.tsx` :
+- `STATUS_LABELS` contient bien `sent_confirmed` (L63)
+- `STATUS_COLORS` ne contient **pas** `sent_confirmed` (L50-58)
+- Le badge utilise `STATUS_COLORS[req.status]` (L359) au lieu de `STATUS_COLORS[displayStatus]`
 
-## Solution : Option B — preuve d'envoi séparée
+Résultat : le texte distingue brouillon/confirmé, mais la couleur reste identique.
 
-- Migration DB : `email_sent_at TIMESTAMPTZ NULL` + `email_draft_id UUID NULL REFERENCES email_drafts(id)` sur `external_quote_requests`
-- `send-external-quote-request/index.ts` : stocke `email_draft_id`, laisse `email_sent_at = NULL`
-- `getNextAction.ts` : timer stale basé sur `email_sent_at ?? sent_at`
-- `ExternalRequestsPanel.tsx` : badge "Envoyée (brouillon)" vs "Envoyée (confirmée)"
-- `useExternalRequestFlow.ts` : toast corrigé "Brouillon email créé pour le partenaire"
-- `useExternalRequests.ts` : interface `ExternalRequest` enrichie avec `email_sent_at` + `email_draft_id`
-- Tests : 13/13 passent, incluant nouveau test `emailSentAt`
+## Correctif (1 fichier, 2 lignes)
 
-## Fichiers modifiés
+### `src/components/puzzle/ExternalRequestsPanel.tsx`
 
-| Fichier | Nature |
-|---------|--------|
-| Migration DB | +2 colonnes, +1 index |
-| `send-external-quote-request/index.ts` | Stocke email_draft_id |
-| `getNextAction.ts` | +param emailSentAt, timer adapté |
-| `getNextAction.test.ts` | +1 test emailSentAt, tous mis à jour |
-| `useExternalRequests.ts` | Interface enrichie |
-| `useExternalRequestFlow.ts` | Toast corrigé |
-| `ExternalRequestsPanel.tsx` | Badge brouillon/confirmé |
-| `docs/MASTER_CONTEXT.md` | Section S1 ajoutée |
-| `docs/DEFERRED_BACKLOG.md` | S1 DONE, COM-1A prérequis mis à jour |
+**Étape 1** — Ajouter `sent_confirmed` dans `STATUS_COLORS` (après L52) :
+```typescript
+sent_confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+```
+Couleur emerald pour distinguer visuellement de `sent` (blue = brouillon, emerald = confirmé).
 
-## Invariants respectés
+**Étape 2** — Ligne 359, remplacer :
+```tsx
+<Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
+```
+par :
+```tsx
+<Badge className={STATUS_COLORS[displayStatus] || ""} variant="secondary">
+```
 
-- Aucun changement d'enum DB
-- Aucune zone FROZEN touchée
-- Pipeline EQ1 intact
-- `canSend` inchangé
-- Rétro-compatible : `email_sent_at = NULL` = pas encore envoyé réellement
+## Blast radius
 
-## Prochaine action
+1 fichier, 2 modifications mineures. Aucune migration. Aucune zone FROZEN. Aucun changement logique métier.
 
-COM-1A : remplir `email_sent_at` après transmission SMTP réussie.
