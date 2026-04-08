@@ -50,6 +50,7 @@ import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartne
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
   sent: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  sent_confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   response_received: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   response_analyzed: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   partially_validated: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
@@ -356,7 +357,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     {PURPOSE_OPTIONS.find((o) => o.value === req.purpose)?.label || req.purpose}
                   </span>
                 </div>
-                <Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
+                <Badge className={STATUS_COLORS[displayStatus] || ""} variant="secondary">
                   {STATUS_LABELS[displayStatus] || req.status}
                 </Badge>
                 <Badge className={`text-[10px] ${NEXT_ACTION_COLORS[nextAction]}`} variant="secondary">
