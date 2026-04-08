@@ -75,10 +75,24 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         await Promise.all([
           supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
           supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
-          supabase.from("quotation_versions").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("is_selected", true),
-          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("case_id", caseId),
-          supabase.from("email_drafts").select("id", { count: "exact", head: true }).eq("status", "draft"),
+          supabase.from("quotation_versions").select("id, is_selected").eq("case_id", caseId),
         ]);
+
+      const versions = versionResult.data ?? [];
+      const selectedVersionId = versions.find((v: any) => v.is_selected)?.id;
+      const hasVersion = !!selectedVersionId;
+
+      // Check PDF and draft only if we have a version
+      let hasPdf = false;
+      let hasDraft = false;
+      if (selectedVersionId) {
+        const [pdfResult, draftResult] = await Promise.all([
+          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId),
+          supabase.from("email_drafts").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId).eq("status", "draft"),
+        ]);
+        hasPdf = (pdfResult.count ?? 0) > 0;
+        hasDraft = (draftResult.count ?? 0) > 0;
+      }
 
       return {
         status: (caseResult.data?.status as string) ?? "INTAKE",
@@ -88,9 +102,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         pendingPartnerFacts: factsProposedResult.count ?? 0,
         openClientGaps: clientGapsOpenResult.count ?? 0,
         totalClientGaps: clientGapsTotalResult.count ?? 0,
-        hasVersion: (versionResult.count ?? 0) > 0,
-        hasPdf: (pdfResult.count ?? 0) > 0,
-        hasDraft: (draftResult.count ?? 0) > 0,
+        hasVersion,
+        hasPdf,
+        hasDraft,
       };
     },
   });
