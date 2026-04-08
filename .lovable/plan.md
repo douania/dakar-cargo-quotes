@@ -1,31 +1,39 @@
-# COCKPIT-5 Phase 1 — Clôture
+# COCKPIT-5 — Clôture complète
 
-## Statut : DONE ✅
+## Phase 1 : DONE ✅
+- Suggestion prudente basée sur transport mode + rôle/notes
+- Badge "déjà contacté", préremplissage (name, purpose)
+- Validé fonctionnellement sur dossier maritime réel
 
-- Validé fonctionnellement sur dossier maritime réel (case 57f0043c)
-- Test préremplissage confirmé (MSC, purpose=freight_rate)
-- Badge "déjà contacté" fiable
-- Filtre maritime pertinent
-
-### Réserves mineures documentées
-- `domain_pattern` non rendu dans le panneau (acceptable P1)
-- Heuristique `notes.includes("armateur")` fragile → amélioré en P2 via `service_types`
+## Phase 2 : DONE ✅
+- Migration: `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
+- `derivePurpose()` priorise `service_types`
+- Icône email, préremplissage `partner_email`
 
 ---
 
-# COCKPIT-5 Phase 2 — Plan actif
+# COCKPIT-6 — Brief intelligent + Compteurs honnêtes
 
-## Problème
-`known_business_contacts` ne contient pas d'email de contact ni de type de service structuré.
+## Statut : DONE ✅
 
-## Livraison
-- Migration : `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
-- `PartnerSuggestionPanel` : query enrichie, `derivePurpose()` priorise `service_types`, affiche icône email
-- `ExternalRequestsPanel` : `onPrefill(name, purpose, email?)` préremplir le champ email
+### Volet A — Brief partenaire intelligent
+- Query autonome `quote_facts` (routing, cargo, contacts, timing)
+- `buildBriefText(facts, partnerName, purpose)` : 3-6 lignes, tolérant aux absences
+- Extension `onPrefill(name, purpose, email, briefText)`
+- Injection dans `purpose_detail` uniquement si vide
 
-## Blast radius
+### Volet B — Compteurs opérationnels dans CaseActionPlan
+- Badges conditionnels (affichés seulement si > 0) :
+  - `draftPartnerRequests` → à préparer
+  - `unsentPartnerRequests` → envois à confirmer
+  - `pendingPartnerFacts` → faits à valider
+  - `draftedClientGaps` → clarifications à envoyer
+  - `blockingGapsCount` → gaps bloquants
+- Aucune query supplémentaire, données déjà calculées
+
+### Blast radius
 | Fichier | Nature |
 |---------|--------|
-| Migration SQL | 2 colonnes ajoutées, non-breaking |
-| `PartnerSuggestionPanel.tsx` | Query + rendu enrichis |
-| `ExternalRequestsPanel.tsx` | Signature onPrefill étendue |
+| `PartnerSuggestionPanel.tsx` | +1 query facts, +`buildBriefText`, signature étendue |
+| `ExternalRequestsPanel.tsx` | Callback +1 param, injection `purpose_detail` si vide |
+| `CaseActionPlan.tsx` | +badges compteurs conditionnels |
