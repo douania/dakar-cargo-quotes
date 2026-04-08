@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-7A — Vue synthétique "Offres attendues vs reçues"
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7A |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COCKPIT-7A |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si des compteurs supplémentaires sont nécessaires (ex: réponses attendues vs reçues par partenaire) |
+| **Recommandation** | Composant `PartnerRequestsSummary` lecture seule. 2 queries (requests + facts). Barre de progression clôturées/total. Suite logique : COCKPIT-7B (vue par partenaire). |
+
+---
+
 ## PRICING-GUARD — Garde-fou communication avant pricing
 
 | Champ | Valeur |

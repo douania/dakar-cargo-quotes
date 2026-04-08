@@ -73,6 +73,7 @@ import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
+import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 
 export default function CaseView() {
@@ -1691,6 +1692,13 @@ export default function CaseView() {
         {caseId && (
           <div className="mb-6">
             <CommunicationSummaryCard caseId={caseId} />
+          </div>
+        )}
+
+        {/* COCKPIT-7A: Partner requests summary */}
+        {caseId && (
+          <div className="mb-4">
+            <PartnerRequestsSummary caseId={caseId} />
           </div>
         )}
 
