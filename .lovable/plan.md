@@ -1,27 +1,32 @@
-# COCKPIT-9 Phase 2 — Offre retenue opérateur : DONE ✅
+# COCKPIT-10 — Email partenaire professionnel : DONE ✅
 
-## Migration DB
-- `external_quote_requests` : +`is_selected` (boolean NOT NULL DEFAULT false) + `selected_at` (timestamptz)
-- Index unique partiel `idx_eqr_one_selected_per_case` : une seule offre retenue par dossier
+## Problème corrigé
+Les briefs partenaires généraient un "résumé de dossier" au lieu d'une vraie demande de cotation professionnelle prête à envoyer.
 
-## Edge function `select-partner-request`
-- Auth requise (requireUser)
-- Préconditions strictes : status exploitable + 0 fait proposé en attente
-- Atomique : deselect all → select target
-- Gestion concurrence : erreur 409 sur conflit d'unicité
-- Événement timeline `PARTNER_REQUEST_SELECTED`
+## Approche
+Template déterministe partagé entre UI et edge function, avec variations par purpose.
 
-## Composants modifiés
+## Fichiers créés
+| Fichier | Rôle |
+|---------|------|
+| `src/lib/partnerEmailTemplate.ts` | Template professionnel côté UI |
+| `supabase/functions/_shared/partner-email-template.ts` | Template professionnel côté edge (synchronisé) |
+
+## Fichiers modifiés
 | Fichier | Nature |
 |---------|--------|
-| `PartnerRequestsDetailView.tsx` | Badge "Retenue" + bouton "Retenir" (exploitable only) |
-| `PartnerCollectionReadinessCard.tsx` | Ligne offre retenue dynamique (partner_name ou "Sélection opérateur requise") |
-| `NextActionBanner.tsx` | Nouveau niveau 7 : "Retenir une offre partenaire" |
-| `PricingReadinessCard.tsx` | Sous-ligne "Sélection partenaire requise" si ready mais pas de sélection |
+| `PartnerSuggestionPanel.tsx` | Import du template partagé, query enrichie (+final_destination, +fcl_lcl) |
+| `send-external-quote-request/index.ts` | purpose_detail prioritaire si non vide, sinon fallback template déterministe |
+
+## Règles appliquées
+1. **purpose_detail prioritaire** : si non vide → source opérateur ; sinon → template déterministe
+2. **Variations par purpose** : intro + bloc "merci d'inclure" adaptés (freight_rate, origin_charges, air_tariff…)
+3. **Ambiguïtés prudentes** : destinations multiples signalées "à confirmer"
+4. **Logique synchronisée** : structure, ordre des blocs et variations identiques entre UI et edge function
 
 ## Blast radius
-- Migration SQL : +2 colonnes + 1 partial unique index
-- Nouvelle edge function : `select-partner-request/index.ts`
-- 4 composants UI enrichis
-- Aucune zone FROZEN touchée
-- `run-pricing` intact
+- 2 fichiers créés (helpers)
+- 2 fichiers modifiés (UI + edge function)
+- Aucune migration
+- Aucune zone FROZEN
+- Aucune mutation de données
