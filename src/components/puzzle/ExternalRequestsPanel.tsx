@@ -46,6 +46,7 @@ import {
 } from "@/hooks/useExternalRequests";
 import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
+import { PartnerSuggestionPanel } from "@/components/puzzle/PartnerSuggestionPanel";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -234,7 +235,15 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           </div>
         )}
       </CardHeader>
-      <CardContent className="space-y-3">
+        {/* COCKPIT-5: Partner suggestions */}
+        <PartnerSuggestionPanel
+          caseId={caseId}
+          onPrefill={(name, purpose) => {
+            setFormData((prev) => ({ ...prev, partner_name: name, purpose }));
+            setShowForm(true);
+          }}
+        />
+
         {/* Create form */}
         {showForm && (
           <div className="border rounded-lg p-3 space-y-3 bg-muted/50">
