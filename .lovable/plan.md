@@ -1,20 +1,20 @@
-# COCKPIT-7A — Vue synthétique "Offres attendues vs reçues" : DONE ✅
+# COCKPIT-7B — Vue détaillée par partenaire / par purpose : DONE ✅
 
-## Composant `PartnerRequestsSummary.tsx`
-- Query `external_quote_requests` → compteurs par statut (draft, sent sans email, sent avec email, response_*, closed)
-- Query `external_quote_response_facts` → faits à valider (validation_status = proposed)
-- Pas de query `external_quote_responses` (non nécessaire pour les compteurs)
-- Barre de progression clôturées/total
-- Badges colorés conditionnels (affichés si > 0)
-- Texte neutre si aucune demande
+## Composant `PartnerRequestsDetailView.tsx`
+- Query `external_quote_requests` → liste des demandes avec partner_name, purpose, lot, status, email_sent_at, created_at
+- Query `external_quote_response_facts` → regroupement par request_id, comptage total + proposed
+- Badge hiérarchique : closed > facts_proposed > response > sent > to_confirm > draft
+- Tooltip sur purpose_detail
+- Date relative (date-fns fr)
+- Retourne null si aucune demande
 
 ## Intégration
-- Rendu dans CaseView.tsx au-dessus de ExternalRequestsPanel
+- Rendu dans CaseView.tsx entre PartnerRequestsSummary (7A) et ExternalRequestsPanel
 
 ## Blast radius
 | Fichier | Nature |
 |---------|--------|
-| `PartnerRequestsSummary.tsx` | Nouveau composant |
+| `PartnerRequestsDetailView.tsx` | Nouveau composant |
 | `CaseView.tsx` | +import + rendu |
 | `.lovable/plan.md` | Plan actif |
 | `docs/DEFERRED_BACKLOG.md` | Entrée ajoutée |
