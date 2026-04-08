@@ -73,6 +73,7 @@ import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
+import { PricingReadinessCard } from "@/components/puzzle/PricingReadinessCard";
 import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
