@@ -2,7 +2,22 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-07
+Dernière mise à jour : 2026-04-08
+
+---
+
+## PRICING-GUARD — Garde-fou communication avant pricing
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PRICING-GUARD |
+| **Catégorie** | Orchestration |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | PRICING-GUARD (post COCKPIT-6) |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si un guard backend supplémentaire est nécessaire dans `run-pricing` |
+| **Recommandation** | Implémenté en 3 volets : (1) auto-pricing conditionné par état des boucles comm, (2) warning ambre au pricing manuel via `PricingCommWarnings`, (3) badge "Provisoire" sur `PricingResultPanel`. Aucune modification de `run-pricing` (FROZEN respecté). Guard backend optionnel à évaluer après retour terrain. |
 
 ---
 

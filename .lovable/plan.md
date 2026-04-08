@@ -1,20 +1,6 @@
-# COCKPIT-5 — Clôture complète
+# COCKPIT-6 — DONE ✅ + PRICING-GUARD — DONE ✅
 
-## Phase 1 : DONE ✅
-- Suggestion prudente basée sur transport mode + rôle/notes
-- Badge "déjà contacté", préremplissage (name, purpose)
-- Validé fonctionnellement sur dossier maritime réel
-
-## Phase 2 : DONE ✅
-- Migration: `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
-- `derivePurpose()` priorise `service_types`
-- Icône email, préremplissage `partner_email`
-
----
-
-# COCKPIT-6 — Brief intelligent + Compteurs honnêtes
-
-## Statut : DONE ✅
+## COCKPIT-6 — Brief intelligent + Compteurs honnêtes : DONE ✅
 
 ### Volet A — Brief partenaire intelligent
 - Query autonome `quote_facts` (routing, cargo, contacts, timing)
@@ -29,11 +15,30 @@
   - `pendingPartnerFacts` → faits à valider
   - `draftedClientGaps` → clarifications à envoyer
   - `blockingGapsCount` → gaps bloquants
-- Aucune query supplémentaire, données déjà calculées
+
+---
+
+## PRICING-GUARD — Garde-fou communication avant pricing : DONE ✅
+
+### 1. Auto-pricing conditionné (CaseView.tsx)
+- Avant lancement auto, vérifie : EQR ouvertes, faits proposés, client gaps non clos
+- Si boucle communication ouverte → skip auto-pricing + toast info
+
+### 2. Warning au lancement manuel (PricingCommWarnings.tsx)
+- Composant autonome affiché sous PricingLaunchPanel
+- Alerte ambrée avec chiffres concrets si communications ouvertes
+- Non bloquant (souveraineté opérateur)
+
+### 3. Badge "Provisoire" (PricingResultPanel.tsx)
+- Badge ambre conditionnel `isProvisional` calculé côté CaseView
+- Tooltip : "Ce pricing a été calculé alors que certaines communications sont encore en cours."
+- Aucune migration, déduction UI pure
 
 ### Blast radius
 | Fichier | Nature |
 |---------|--------|
-| `PartnerSuggestionPanel.tsx` | +1 query facts, +`buildBriefText`, signature étendue |
-| `ExternalRequestsPanel.tsx` | Callback +1 param, injection `purpose_detail` si vide |
-| `CaseActionPlan.tsx` | +badges compteurs conditionnels |
+| `CaseView.tsx` | Auto-pricing guard + props comm warnings + provisional |
+| `PricingCommWarnings.tsx` | Nouveau composant (warnings comm) |
+| `PricingResultPanel.tsx` | +prop `isProvisional`, +badge |
+| `.lovable/plan.md` | Plan actif |
+| `docs/DEFERRED_BACKLOG.md` | Entrée mise à jour |
