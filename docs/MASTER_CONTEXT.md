@@ -103,6 +103,18 @@ UI :
 staleTime : 30s
 Doctrine : lecture seule, aucun effet métier, aucun blocage opérateur, aucun impact sur le pipeline EQ1
 
+### COCKPIT-4B — Plan d'actions orienté communication réelle (2026-04-08)
+
+Composant : `src/components/case/CaseActionPlan.tsx` (autonome, ~336 lignes)
+Placement : CaseView, avant CommunicationSummaryCard, même gating (`caseId` présent)
+Rôle : checklist ordonnée de 12 étapes orientées orchestration communication réelle
+Étapes : Analyser demande → Résoudre gaps → Préparer demandes partenaires → Confirmer envoi demandes → Traiter réponses partenaires → Envoyer clarifications client → Analyser réponses client → Pricing → Version → PDF → Préparer email client → Marquer envoi client
+Dynamisme : étapes partenaires masquées si totalPartnerRequests === 0, étapes client masquées si totalClientGaps === 0
+Étape 4 : "Confirmer l'envoi des demandes" — done seulement si `email_sent_at` renseigné, note discrète pré-COM-1A sinon
+Queries : 3 comptages supplémentaires (draftPartnerRequests, unsentPartnerRequests, draftedClientGaps) + queries existantes
+staleTime : 30s
+Doctrine : lecture seule, aucune mutation, aucun blocage opérateur, assistant structurant
+
 ### S1 — Clarification sémantique du statut partenaire (2026-04-08)
 
 Problème résolu : `status = "sent"` dans `external_quote_requests` signifiait "brouillon email créé" alors qu'aucun envoi SMTP réel n'avait lieu. Le timer `stale_followup` (24h) se déclenchait depuis la date de marquage, pas d'envoi réel.
