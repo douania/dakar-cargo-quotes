@@ -46,6 +46,7 @@ import {
 } from "@/hooks/useExternalRequests";
 import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
+import { PartnerSuggestionPanel } from "@/components/puzzle/PartnerSuggestionPanel";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
