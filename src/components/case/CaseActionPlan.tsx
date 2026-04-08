@@ -71,7 +71,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
         ]);
 
-      const [clientGapsOpenResult, clientGapsTotalResult, versionResult, pdfResult, draftResult] =
+      const [clientGapsOpenResult, clientGapsTotalResult, versionResult] =
         await Promise.all([
           supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
           supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
