@@ -75,6 +75,7 @@ import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
 import { PricingReadinessCard } from "@/components/puzzle/PricingReadinessCard";
+import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerCollectionReadinessCard";
 import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
@@ -1847,6 +1848,7 @@ export default function CaseView() {
 
           return (
             <div className="mb-6">
+              <PartnerCollectionReadinessCard caseId={caseId!} />
               <PricingReadinessCard caseId={caseId!} />
               <PricingLaunchPanel
                 caseId={caseId!}
