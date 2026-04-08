@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-9 Phase 1 — Suffisance de collecte partenaire
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-9-P1 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-9-P1 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COCKPIT-9 Phase 2 — notion persistée d'offre retenue opérateur |
+| **Recommandation** | Composant `PartnerCollectionReadinessCard` lecture seule. 2 queries. 4 verdicts (neutre/insuffisante/en cours/suffisante). Ligne "Offre retenue" placeholder. Placé au-dessus de PricingReadinessCard. |
+
+---
+
 ## COCKPIT-7C — Verdict de complétude avant pricing final
 
 | Champ | Valeur |
