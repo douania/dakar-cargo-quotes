@@ -70,6 +70,7 @@ import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPan
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
 import { CommunicationSummaryCard } from "@/components/case/CommunicationSummaryCard";
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
+import { NextActionBanner } from "@/components/case/NextActionBanner";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
@@ -1682,6 +1683,9 @@ export default function CaseView() {
             <DecisionSupportPanel caseId={caseId!} />
           </div>
         )}
+
+        {/* COCKPIT-8: Next action priority banner */}
+        {caseId && <NextActionBanner caseId={caseId} />}
 
         {/* COCKPIT-4: Case Action Plan */}
         {caseId && (

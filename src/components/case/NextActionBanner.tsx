@@ -64,7 +64,7 @@ export function NextActionBanner({ caseId }: Props) {
         supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true })
           .eq("case_id", caseId).eq("validation_status", "proposed"),
         supabase.from("client_gap_requests").select("id, status")
-          .eq("case_id", caseId).in("status", ["drafted", "sent", "answered"]),
+          .eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as unknown as string[]),
         supabase.from("quotation_versions").select("id")
           .eq("case_id", caseId).eq("is_selected", true).limit(1),
       ]);
