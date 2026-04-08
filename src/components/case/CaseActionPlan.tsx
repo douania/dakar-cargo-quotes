@@ -115,12 +115,11 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         supabase
           .from("quotation_documents")
           .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId),
+          .eq("case_id", caseId) as any,
         supabase
           .from("email_drafts")
-          .select("id, quotation_version_id")
-          .eq("status", "draft")
-          .not("quotation_version_id", "is", null),
+          .select("id", { count: "exact", head: true })
+          .eq("status", "draft") as any,
       ]);
 
       // For drafts, filter client-side by case versions
