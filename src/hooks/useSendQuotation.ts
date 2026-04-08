@@ -4,11 +4,31 @@
  * Pattern: useQuery (load data) + useMutation (send action)
  * CTO corrections: C1-A (caseId keys), C1-B (canSend with FSM), C2 (no thread_ref)
  * P0 Hardening: hasPdf best-effort only (not in canSend due to RLS visibility)
+ * COCKPIT-2: Communication safeguards (warnings, not blocking)
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+
+interface OpenPartnerRequest {
+  id: string;
+  status: string;
+  partner_name: string | null;
+  purpose: string | null;
+}
+
+interface PendingPartnerFact {
+  id: string;
+  fact_key: string;
+  validation_status: string;
+}
+
+interface OpenClientGap {
+  id: string;
+  gap_key: string;
+  status: string;
+}
 
 interface SendQuotationData {
   ownerDraft: {
@@ -30,6 +50,9 @@ interface SendQuotationData {
   } | null;
   caseStatus: string | null;
   latestPdf: { id: string; file_path: string; created_at: string } | null;
+  openPartnerRequests: OpenPartnerRequest[];
+  pendingPartnerFacts: PendingPartnerFact[];
+  openClientGaps: OpenClientGap[];
 }
 
 export function useSendQuotation(caseId: string | undefined) {
@@ -42,8 +65,8 @@ export function useSendQuotation(caseId: string | undefined) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Step 1: fetch version + case status in parallel
-      const [versionResult, caseResult] = await Promise.all([
+      // Step 1: fetch version + case status + communication safeguards in parallel
+      const [versionResult, caseResult, eqrResult, factsResult, gapsResult] = await Promise.all([
         supabase
           .from('quotation_versions')
           .select('id, version_number, status, snapshot')
@@ -57,6 +80,27 @@ export function useSendQuotation(caseId: string | undefined) {
           .select('status')
           .eq('id', caseId!)
           .maybeSingle(),
+
+        // COCKPIT-2: open partner requests (everything except closed)
+        supabase
+          .from('external_quote_requests')
+          .select('id, status, partner_name, purpose')
+          .eq('case_id', caseId!)
+          .neq('status', 'closed'),
+
+        // COCKPIT-2: pending partner facts (proposed = not yet validated)
+        supabase
+          .from('external_quote_response_facts')
+          .select('id, fact_key, validation_status')
+          .eq('case_id', caseId!)
+          .eq('validation_status', 'proposed'),
+
+        // COCKPIT-2: open client gaps (drafted, sent, or answered = not yet resolved)
+        supabase
+          .from('client_gap_requests')
+          .select('id, gap_key, status')
+          .eq('case_id', caseId!)
+          .in('status', ['drafted', 'sent', 'answered']),
       ]);
 
       const selectedVersion = versionResult.data ?? null;
@@ -67,7 +111,6 @@ export function useSendQuotation(caseId: string | undefined) {
 
       if (selectedVersion) {
         const [draftResult, pdfResult] = await Promise.all([
-          // Draft scoped strictly by quotation_version_id
           supabase
             .from('email_drafts')
             .select('id, subject, to_addresses, status, sent_at, quotation_version_id, body_text, body_html, ai_generated')
@@ -77,7 +120,6 @@ export function useSendQuotation(caseId: string | undefined) {
             .limit(1)
             .maybeSingle(),
 
-          // Best-effort PDF query (may return null due to RLS on quotation_documents)
           supabase
             .from('quotation_documents')
             .select('id, file_path, created_at')
@@ -97,6 +139,9 @@ export function useSendQuotation(caseId: string | undefined) {
         selectedVersion,
         caseStatus: caseResult.data?.status ?? null,
         latestPdf,
+        openPartnerRequests: (eqrResult.data ?? []) as OpenPartnerRequest[],
+        pendingPartnerFacts: (factsResult.data ?? []) as PendingPartnerFact[],
+        openClientGaps: (gapsResult.data ?? []) as OpenClientGap[],
       };
     },
   });
@@ -105,6 +150,9 @@ export function useSendQuotation(caseId: string | undefined) {
   const selectedVersion = data?.selectedVersion ?? null;
   const caseStatus = data?.caseStatus ?? null;
   const latestPdf = data?.latestPdf ?? null;
+  const openPartnerRequests = data?.openPartnerRequests ?? [];
+  const pendingPartnerFacts = data?.pendingPartnerFacts ?? [];
+  const openClientGaps = data?.openClientGaps ?? [];
 
   // Derived flags
   const hasRecipient = (ownerDraft?.to_addresses?.length ?? 0) > 0;
@@ -113,7 +161,14 @@ export function useSendQuotation(caseId: string | undefined) {
   // hasPdf is informational only — NOT used in canSend (RLS visibility issue in multi-operator)
   const hasPdf = !!latestPdf;
 
+  // COCKPIT-2: communication warnings (informational, NOT blocking canSend)
+  const hasCommunicationWarnings =
+    openPartnerRequests.length > 0 ||
+    pendingPartnerFacts.length > 0 ||
+    openClientGaps.length > 0;
+
   // canSend: strict guards WITHOUT hasPdf (backend enforces PDF presence)
+  // canSend is NOT affected by communication warnings (operator discretion)
   const canSend = !!ownerDraft
     && !!selectedVersion
     && ownerDraft.status !== 'sent'
@@ -187,5 +242,10 @@ export function useSendQuotation(caseId: string | undefined) {
     hasBody,
     // A4 flag
     aiGenerated: ownerDraft?.ai_generated ?? false,
+    // COCKPIT-2: communication safeguards
+    openPartnerRequests,
+    pendingPartnerFacts,
+    openClientGaps,
+    hasCommunicationWarnings,
   };
 }
