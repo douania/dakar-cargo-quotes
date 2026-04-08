@@ -1,72 +1,35 @@
 
+# Bilan COCKPIT-2 — Garde-fous communication SendQuotationPanel
 
-# Plan COCKPIT-2 — Garde-fous communication dans SendQuotationPanel
+## Statut : DONE — livré et validé CTO le 2026-04-08
 
-## Objectif
+## Périmètre livré
 
-Avertir l'operateur avant marquage d'envoi si le dossier communication n'est pas "safe" : demandes partenaires non clôturées, faits partenaires non validés, clarifications client ouvertes. Avertissements visibles, pas blocage dur.
+Avertissements (non bloquants) dans SendQuotationPanel avant marquage d'envoi :
+- Demandes partenaires non clôturées (tout sauf `closed`)
+- Faits partenaires `proposed` (non validés)
+- Clarifications client `drafted`, `sent` ou `answered` (non clôturées)
 
-## Fichiers impactés (3 fichiers code + 2 docs)
+Rappel dans le dialog de confirmation finale. `canSend` inchangé (opérateur souverain).
 
-### 1. `src/hooks/useSendQuotation.ts` — +25 lignes
+## Filtres exacts
 
-Enrichir le `queryFn` avec 3 requêtes parallèles dans le step 1 existant :
+| Requête | Table | Filtre |
+|---------|-------|--------|
+| Demandes partenaires | `external_quote_requests` | `neq('status', 'closed')` |
+| Faits partenaires | `external_quote_response_facts` | `eq('validation_status', 'proposed')` |
+| Clarifications client | `client_gap_requests` | `in('status', ['drafted', 'sent', 'answered'])` |
 
-```typescript
-const [eqrResult, factsResult, gapsResult] = await Promise.all([
-  supabase
-    .from('external_quote_requests')
-    .select('id, status, partner_name, purpose')
-    .eq('case_id', caseId!)
-    .neq('status', 'closed'),
+## Fichiers modifiés
 
-  supabase
-    .from('external_quote_response_facts')
-    .select('id, fact_key, validation_status')
-    .eq('case_id', caseId!)
-    .eq('validation_status', 'proposed'),
+| Fichier | Nature |
+|---------|--------|
+| `src/hooks/useSendQuotation.ts` | +3 requêtes parallèles, derived flags |
+| `src/components/puzzle/SendQuotationPanel.tsx` | Alertes ambrées + rappel dialog |
+| `docs/DEFERRED_BACKLOG.md` | Entrée COCKPIT-2 → DONE |
+| `docs/MASTER_CONTEXT.md` | Section COCKPIT-2 ajoutée |
 
-  supabase
-    .from('client_gap_requests')
-    .select('id, gap_key, status')
-    .eq('case_id', caseId!)
-    .in('status', ['drafted', 'sent', 'answered']),
-]);
-```
+## Prochaine action : COCKPIT-3 — Résumé communication dossier
 
-Ajouter au type `SendQuotationData` et au retour du hook :
-- `openPartnerRequests` — demandes EQ1 non clôturées (tout sauf `closed`)
-- `pendingPartnerFacts` — faits partenaires `proposed`
-- `openClientGaps` — clarifications client `drafted`, `sent` ou `answered`
-- `hasCommunicationWarnings: boolean` — true si l'un des 3 est non-vide
-
-`canSend` reste inchangé (pas de blocage dur).
-
-### 2. `src/components/puzzle/SendQuotationPanel.tsx` — +40 lignes
-
-Destructurer les nouveaux champs du hook. Après le bloc "Pré-vérifications" (ligne 206), ajouter un bloc conditionnel "Alertes communication" :
-
-- Si `openPartnerRequests.length > 0` : alerte ambrée avec `AlertTriangle` — **"X demande(s) partenaire encore ouverte(s)"**
-- Si `pendingPartnerFacts.length > 0` : alerte ambrée — **"X fait(s) partenaire en attente de validation"**
-- Si `openClientGaps.length > 0` : alerte ambrée — **"X clarification(s) client non clôturée(s)"**
-
-Style identique au warning PDF existant (amber background, `AlertTriangle` icon).
-
-Dans le `AlertDialogDescription` (confirmation finale, ligne 392), ajouter un résumé des warnings si `hasCommunicationWarnings` est true, pour que l'opérateur voie le rappel au moment du clic final.
-
-### 3. Documentation — 2 fichiers
-
-- `docs/DEFERRED_BACKLOG.md` : ajouter entrée COCKPIT-2 en `DONE` avec date, périmètre, et filtres exacts utilisés
-- `docs/MASTER_CONTEXT.md` : ajouter section COCKPIT-2 dans la zone COM, mentionnant les garde-fous et la doctrine "warning, pas blocage"
-
-## Blast radius
-
-| Fichier | Lignes ajoutées |
-|---------|----------------|
-| `useSendQuotation.ts` | ~25 |
-| `SendQuotationPanel.tsx` | ~40 |
-| `DEFERRED_BACKLOG.md` | ~15 |
-| `MASTER_CONTEXT.md` | ~10 |
-
-Aucune migration DB. Aucune zone FROZEN. Pipeline EQ1 intact. `canSend` inchangé.
-
+Widget synthétique case-level dans CaseView, réutilisant les mêmes filtres COCKPIT-2.
+Placement : juste avant ExternalRequestsPanel, même condition d'affichage.
