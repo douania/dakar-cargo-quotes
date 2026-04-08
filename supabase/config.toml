@@ -208,3 +208,6 @@ verify_jwt = false
 
 [functions.auto-match-partner-responses]
 verify_jwt = false
+
+[functions.select-partner-request]
+verify_jwt = false
