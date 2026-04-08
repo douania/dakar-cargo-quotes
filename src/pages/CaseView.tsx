@@ -69,6 +69,7 @@ import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
 import { CommunicationSummaryCard } from "@/components/case/CommunicationSummaryCard";
+import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
@@ -1645,6 +1646,13 @@ export default function CaseView() {
         {['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(caseData.status) && (
           <div className="mb-6">
             <DecisionSupportPanel caseId={caseId!} />
+          </div>
+        )}
+
+        {/* COCKPIT-4: Case Action Plan */}
+        {caseId && (
+          <div className="mb-6">
+            <CaseActionPlan caseId={caseId} />
           </div>
         )}
 
