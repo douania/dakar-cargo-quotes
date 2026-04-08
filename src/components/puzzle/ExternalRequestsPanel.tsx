@@ -235,6 +235,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           </div>
         )}
       </CardHeader>
+      <CardContent className="space-y-3">
         {/* COCKPIT-5: Partner suggestions */}
         <PartnerSuggestionPanel
           caseId={caseId}
