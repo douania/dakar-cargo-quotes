@@ -1,11 +1,14 @@
 /**
- * Phase 19A P0 Hardening + A4: SendQuotationPanel
+ * Phase 19A P0 Hardening + A4 + COCKPIT-2: SendQuotationPanel
  * Manual review + marking panel for quotation sending.
  * 
  * This panel does NOT send emails automatically.
  * It provides a review interface and marks the quotation as manually sent.
  * 
  * A4: Added AI enrichment toggle + ai_generated badge on draft.
+ * COCKPIT-2: Communication safeguards — warnings for open partner requests,
+ *            pending partner facts, and unresolved client gaps.
+ *            Warnings are informational, NOT blocking (operator discretion).
  * 
  * Visible only when case status is QUOTED_VERSIONED or SENT.
  */
@@ -64,6 +67,11 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     hasSubject,
     hasBody,
     aiGenerated,
+    // COCKPIT-2
+    openPartnerRequests,
+    pendingPartnerFacts,
+    openClientGaps,
+    hasCommunicationWarnings,
   } = useSendQuotation(caseId);
 
   // Unified lock flag: draft sent OR case in terminal state
@@ -205,6 +213,51 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
           </div>
         )}
 
+        {/* COCKPIT-2: Communication safeguards */}
+        {!isFinalized && hasCommunicationWarnings && (
+          <div className="space-y-2">
+            {openPartnerRequests.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium">
+                    {openPartnerRequests.length} demande{openPartnerRequests.length > 1 ? 's' : ''} partenaire encore ouverte{openPartnerRequests.length > 1 ? 's' : ''}
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
+                    {openPartnerRequests.slice(0, 3).map((r) => (
+                      <li key={r.id}>
+                        {r.partner_name || 'Partenaire'} — {r.status}
+                        {r.purpose ? ` (${r.purpose})` : ''}
+                      </li>
+                    ))}
+                    {openPartnerRequests.length > 3 && (
+                      <li>…et {openPartnerRequests.length - 3} autre{openPartnerRequests.length - 3 > 1 ? 's' : ''}</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {pendingPartnerFacts.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  {pendingPartnerFacts.length} fait{pendingPartnerFacts.length > 1 ? 's' : ''} partenaire en attente de validation
+                </p>
+              </div>
+            )}
+
+            {openClientGaps.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  {openClientGaps.length} clarification{openClientGaps.length > 1 ? 's' : ''} client non clôturée{openClientGaps.length > 1 ? 's' : ''}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* PDF warning */}
         {!isFinalized && selectedVersion && !hasPdf && (
           <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
@@ -247,7 +300,6 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
                   if (!data?.ok) throw new Error(data?.error || 'Échec de la création du brouillon');
                   queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
 
-                  // Differentiated toast based on generation_mode
                   if (data.idempotent) {
                     toast.success('Brouillon existant récupéré');
                   } else if (data.generation_mode === 'ai') {
@@ -407,6 +459,32 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
                     <p className="text-sm text-muted-foreground">
                       PDF détecté côté interface : <strong>{hasPdf ? 'oui' : 'non'}</strong>
                     </p>
+
+                    {/* COCKPIT-2: communication warnings in confirmation dialog */}
+                    {hasCommunicationWarnings && (
+                      <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg space-y-1">
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200 flex items-center gap-1">
+                          <AlertTriangle className="h-4 w-4" />
+                          Alertes communication
+                        </p>
+                        {openPartnerRequests.length > 0 && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            • {openPartnerRequests.length} demande{openPartnerRequests.length > 1 ? 's' : ''} partenaire encore ouverte{openPartnerRequests.length > 1 ? 's' : ''}
+                          </p>
+                        )}
+                        {pendingPartnerFacts.length > 0 && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            • {pendingPartnerFacts.length} fait{pendingPartnerFacts.length > 1 ? 's' : ''} partenaire en attente de validation
+                          </p>
+                        )}
+                        {openClientGaps.length > 0 && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            • {openClientGaps.length} clarification{openClientGaps.length > 1 ? 's' : ''} client non clôturée{openClientGaps.length > 1 ? 's' : ''}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-amber-600 dark:text-amber-400 font-medium mt-2">
                       Cette action ne déclenche pas d'envoi email automatique. Elle sert à tracer qu'un envoi a été effectué manuellement hors application.
                     </p>
