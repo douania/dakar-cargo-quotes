@@ -1,20 +1,16 @@
-# COCKPIT-7B — Vue détaillée par partenaire / par purpose : DONE ✅
+# COCKPIT-7C — Verdict de complétude avant pricing : DONE ✅
 
-## Composant `PartnerRequestsDetailView.tsx`
-- Query `external_quote_requests` → liste des demandes avec partner_name, purpose, lot, status, email_sent_at, created_at
-- Query `external_quote_response_facts` → regroupement par request_id, comptage total + proposed
-- Badge hiérarchique : closed > facts_proposed > response > sent > to_confirm > draft
-- Tooltip sur purpose_detail
-- Date relative (date-fns fr)
-- Retourne null si aucune demande
-
-## Intégration
-- Rendu dans CaseView.tsx entre PartnerRequestsSummary (7A) et ExternalRequestsPanel
+## Composant `PricingReadinessCard.tsx`
+- 2 queries : `external_quote_requests` + `external_quote_response_facts`
+- Verdict 4 niveaux : Prêt / Provisoire / Incomplet / Neutre
+- Logique corrigée : Incomplet = demandes lancées mais aucune réponse/fait exploitable
+- Résumé compact : `x/y clôturées · n fait(s) à valider`
+- Placement au-dessus de PricingLaunchPanel
 
 ## Blast radius
 | Fichier | Nature |
 |---------|--------|
-| `PartnerRequestsDetailView.tsx` | Nouveau composant |
+| `PricingReadinessCard.tsx` | Nouveau composant |
 | `CaseView.tsx` | +import + rendu |
 | `.lovable/plan.md` | Plan actif |
 | `docs/DEFERRED_BACKLOG.md` | Entrée ajoutée |
