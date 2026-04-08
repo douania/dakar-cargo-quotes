@@ -72,6 +72,7 @@ import { CommunicationSummaryCard } from "@/components/case/CommunicationSummary
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
+import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 
 export default function CaseView() {
@@ -254,6 +255,22 @@ export default function CaseView() {
     enabled: !!caseId && !!isPipelineVisible,
     staleTime: 15000,
   });
+
+  // PRICING-GUARD: provisional pricing detection (open comm loops)
+  const { data: pricingCommCounts } = useQuery({
+    queryKey: ['pricing-provisional-check', caseId],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const [eqr, facts, gaps] = await Promise.all([
+        supabase.from('external_quote_requests').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).neq('status', 'closed'),
+        supabase.from('external_quote_response_facts').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).eq('validation_status', 'proposed'),
+        supabase.from('client_gap_requests' as any).select('id', { count: 'exact', head: true }).eq('case_id', caseId!).in('status', ['drafted', 'sent', 'answered'] as string[]),
+      ]);
+      return (eqr.count ?? 0) + (facts.count ?? 0) + (gaps.count ?? 0);
+    },
+    enabled: !!caseId && !!isPipelineVisible,
+  });
+  const pricingIsProvisional = (pricingCommCounts ?? 0) > 0;
 
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
@@ -1390,6 +1407,20 @@ export default function CaseView() {
                   const noBlockingGaps = !updatedGaps || updatedGaps.length === 0;
 
                   if (noBlockingGaps) {
+                    // PRICING-GUARD: check open communication loops before auto-pricing
+                    const [eqrOpenCheck, factsProposedCheck, clientGapsOpenCheck] = await Promise.all([
+                      supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).neq("status", "closed"),
+                      supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
+                      supabase.from("client_gap_requests" as any).select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
+                    ]);
+                    const openCommCount = (eqrOpenCheck.count ?? 0) + (factsProposedCheck.count ?? 0) + (clientGapsOpenCheck.count ?? 0);
+                    if (openCommCount > 0) {
+                      toast.info("Boucle communication en cours — pricing automatique reporté.");
+                      setPricingRefreshToken(t => t + 1);
+                      await handleRefresh();
+                      return;
+                    }
+
                     const { data: recentRun } = await supabase
                       .from("pricing_runs")
                       .select("status")
@@ -1816,6 +1847,8 @@ export default function CaseView() {
                 })()}
                 pricingPrechecks={prechecks}
               />
+              {/* PRICING-GUARD: Communication warnings — queried locally */}
+              <PricingCommWarnings caseId={caseId!} />
             </div>
           );
         })()}
@@ -1879,7 +1912,7 @@ export default function CaseView() {
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={pricingRefreshToken} />
+            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={pricingRefreshToken} isProvisional={pricingIsProvisional} />
           </div>
         )}
 
