@@ -30,9 +30,10 @@ interface PricingResultPanelProps {
   caseId: string;
   isLocked?: boolean;
   refreshToken?: number;
+  isProvisional?: boolean;
 }
 
-export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: PricingResultPanelProps) {
+export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isProvisional = false }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
@@ -113,6 +114,11 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken }: P
           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
             Succès
           </Badge>
+          {isProvisional && (
+            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Ce pricing a été calculé alors que certaines communications sont encore en cours.">
+              Provisoire
+            </Badge>
+          )}
         </div>
         <CardDescription>
           Calcul terminé le {pricingRun.completed_at ? format(new Date(pricingRun.completed_at), "d MMMM yyyy 'à' HH:mm", { locale: fr }) : '—'}
