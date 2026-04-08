@@ -111,7 +111,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
           .from("quotation_versions")
           .select("id", { count: "exact", head: true })
           .eq("case_id", caseId)
-          .eq("is_selected", true),
+          .eq("is_selected", true) as any,
         supabase
           .from("quotation_documents")
           .select("id", { count: "exact", head: true })
