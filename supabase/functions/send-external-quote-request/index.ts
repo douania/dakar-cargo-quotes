@@ -131,7 +131,7 @@ serve(async (req: Request) => {
         body_text: bodyText,
         to_addresses: [request.partner_email.trim()],
         status: "draft",
-        ai_generated: true,
+        ai_generated: false,
         created_by: userId,
       })
       .select("id")
