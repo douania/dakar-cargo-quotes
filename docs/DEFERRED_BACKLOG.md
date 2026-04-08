@@ -21,6 +21,21 @@ Dernière mise à jour : 2026-04-08
 
 ---
 
+## COCKPIT-8 Phase 1 — Bandeau prochaine action prioritaire
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-8-P1 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-8 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Phase 2 (CTA + scroll vers section concernée) |
+| **Recommandation** | Composant `NextActionBanner` lecture seule. 6+2 queries. Hiérarchie 12 niveaux, STATUS_ORDER explicite. Placé avant CaseActionPlan. |
+
+---
+
 
 | Champ | Valeur |
 |-------|--------|
