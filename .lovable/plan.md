@@ -1,28 +1,31 @@
+# COCKPIT-5 Phase 1 — Clôture
 
+## Statut : DONE ✅
 
-# Fix Build Error — Missing CardContent wrapper in ExternalRequestsPanel
+- Validé fonctionnellement sur dossier maritime réel (case 57f0043c)
+- Test préremplissage confirmé (MSC, purpose=freight_rate)
+- Badge "déjà contacté" fiable
+- Filtre maritime pertinent
 
-## Problem
+### Réserves mineures documentées
+- `domain_pattern` non rendu dans le panneau (acceptable P1)
+- Heuristique `notes.includes("armateur")` fragile → amélioré en P2 via `service_types`
 
-Lines 238-987 (PartnerSuggestionPanel, create form, request list) sit between `</CardHeader>` (L237) and `</CardContent>` (L988), but there is no opening `<CardContent>` tag. The JSX tree is malformed.
+---
 
-## Fix
+# COCKPIT-5 Phase 2 — Plan actif
 
-Add `<CardContent className="space-y-3">` immediately after line 237 (`</CardHeader>`), before the PartnerSuggestionPanel at line 238.
+## Problème
+`known_business_contacts` ne contient pas d'email de contact ni de type de service structuré.
 
-**Single edit in `src/components/puzzle/ExternalRequestsPanel.tsx`:**
+## Livraison
+- Migration : `contact_email TEXT NULL`, `service_types TEXT[] NOT NULL DEFAULT '{}'::text[]`
+- `PartnerSuggestionPanel` : query enrichie, `derivePurpose()` priorise `service_types`, affiche icône email
+- `ExternalRequestsPanel` : `onPrefill(name, purpose, email?)` préremplir le champ email
 
-Line 237-238, change:
-```tsx
-      </CardHeader>
-        {/* COCKPIT-5: Partner suggestions */}
-```
-to:
-```tsx
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* COCKPIT-5: Partner suggestions */}
-```
-
-This matches the existing `</CardContent>` at line 988. No other file changes needed.
-
+## Blast radius
+| Fichier | Nature |
+|---------|--------|
+| Migration SQL | 2 colonnes ajoutées, non-breaking |
+| `PartnerSuggestionPanel.tsx` | Query + rendu enrichis |
+| `ExternalRequestsPanel.tsx` | Signature onPrefill étendue |

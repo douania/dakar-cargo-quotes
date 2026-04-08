@@ -2239,6 +2239,7 @@ export type Database = {
         Row: {
           client_code: string | null
           company_name: string
+          contact_email: string | null
           country: string | null
           created_at: string | null
           default_role: string
@@ -2246,11 +2247,13 @@ export type Database = {
           id: string
           is_active: boolean | null
           notes: string | null
+          service_types: string[]
           updated_at: string | null
         }
         Insert: {
           client_code?: string | null
           company_name: string
+          contact_email?: string | null
           country?: string | null
           created_at?: string | null
           default_role: string
@@ -2258,11 +2261,13 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           notes?: string | null
+          service_types?: string[]
           updated_at?: string | null
         }
         Update: {
           client_code?: string | null
           company_name?: string
+          contact_email?: string | null
           country?: string | null
           created_at?: string | null
           default_role?: string
@@ -2270,6 +2275,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           notes?: string | null
+          service_types?: string[]
           updated_at?: string | null
         }
         Relationships: []
