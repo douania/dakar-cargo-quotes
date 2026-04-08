@@ -316,7 +316,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             responsesCount: reqResponses.length,
             proposedFactsCount: proposedFacts.length,
             lastUpdateAt: req.updated_at ?? req.created_at,
+            emailSentAt: req.email_sent_at,
           });
+          const displayStatus = getDisplayStatus(req);
 
           const suggestion = ["sent", "response_received"].includes(req.status)
             ? suggestPartnerResponse(req, threadEmails, usedEmailIds)
@@ -355,7 +357,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   </span>
                 </div>
                 <Badge className={STATUS_COLORS[req.status] || ""} variant="secondary">
-                  {STATUS_LABELS[req.status] || req.status}
+                  {STATUS_LABELS[displayStatus] || req.status}
                 </Badge>
                 <Badge className={`text-[10px] ${NEXT_ACTION_COLORS[nextAction]}`} variant="secondary">
                   {NEXT_ACTION_LABELS[nextAction]}
