@@ -256,6 +256,22 @@ export default function CaseView() {
     staleTime: 15000,
   });
 
+  // PRICING-GUARD: provisional pricing detection (open comm loops)
+  const { data: pricingCommCounts } = useQuery({
+    queryKey: ['pricing-provisional-check', caseId],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const [eqr, facts, gaps] = await Promise.all([
+        supabase.from('external_quote_requests').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).neq('status', 'closed'),
+        supabase.from('external_quote_response_facts').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).eq('validation_status', 'proposed'),
+        supabase.from('client_gap_requests' as any).select('id', { count: 'exact', head: true }).eq('case_id', caseId!).in('status', ['drafted', 'sent', 'answered'] as string[]),
+      ]);
+      return (eqr.count ?? 0) + (facts.count ?? 0) + (gaps.count ?? 0);
+    },
+    enabled: !!caseId && !!isPipelineVisible,
+  });
+  const pricingIsProvisional = (pricingCommCounts ?? 0) > 0;
+
   const blockingGaps = gaps.filter((g: any) => g.is_blocking);
   const nonBlockingOpenGaps = gaps.filter((g: any) => !g.is_blocking);
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
