@@ -1,6 +1,6 @@
 
 
-# COCKPIT-11 — Extraction de scope fournisseur multi-postes
+# COCKPIT-11 — Extraction de scope fournisseur multi-postes (complet)
 
 ## Problème
 
@@ -8,22 +8,21 @@ L'application réduisait une demande client complexe (fret + origin charges + st
 
 ## Correctif
 
-### Nouveau helper : `src/lib/partnerRequestScope.ts`
+### Phase 1 (zip 52) — Détection et affichage
 
-- `derivePartnerRequestScope(facts, textSignal?)` → `PartnerScopeItem[]`
+- Nouveau helper `src/lib/partnerRequestScope.ts` : `derivePartnerRequestScope(facts, textSignal?)` → `PartnerScopeItem[]`
 - Détection déterministe de 4 blocs : `freight_rate`, `origin_charges`, `stuffing_factory`, `stuffing_port_cfs`
 - Garde-fou CTO : facts structurés = source primaire, texte email = signal complémentaire uniquement
+- Nouveau composant `PartnerScopeCard.tsx` : lecture seule, affiche les blocs détectés avec confiance
+- Templates enrichis : 2 nouveaux purposes (stuffing) synchronisés UI + edge
 
-### Nouveau composant : `src/components/puzzle/PartnerScopeCard.tsx`
+### Phase 2 (zip 53) — Branchement suggestions → scope
 
-- Lecture seule, affiche les blocs détectés avec confiance (Élevée / Moyenne / Faible)
-- Placé au-dessus de PartnerSuggestionPanel dans ExternalRequestsPanel
-
-### Templates enrichis
-
-- 2 nouveaux purposes : `stuffing_factory`, `stuffing_port_cfs`
-- Ajoutés dans `src/lib/partnerEmailTemplate.ts` et `supabase/functions/_shared/partner-email-template.ts` (synchronisés)
-- Ajoutés dans PURPOSE_OPTIONS (ExternalRequestsPanel) et PURPOSE_LABELS (PartnerSuggestionPanel)
+- `PartnerSuggestionPanel` importe et utilise `derivePartnerRequestScope`
+- `derivePurpose()` prend le scope détecté comme source prioritaire via `scopePurposes: Set<string>`
+- Hiérarchie de résolution : scope détecté → service_types → role/notes
+- `threadId` passé en prop pour cohérence avec PartnerScopeCard
+- Le brief prérempli utilise le purpose issu du scope détecté
 
 ## Blast radius
 
@@ -33,7 +32,7 @@ L'application réduisait une demande client complexe (fret + origin charges + st
 | `src/components/puzzle/PartnerScopeCard.tsx` | Nouveau composant lecture seule |
 | `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing) |
 | `supabase/functions/_shared/partner-email-template.ts` | Synchronisation |
-| `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + 2 options purpose |
-| `src/components/puzzle/PartnerSuggestionPanel.tsx` | +2 labels purpose |
+| `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + threadId prop |
+| `src/components/puzzle/PartnerSuggestionPanel.tsx` | Branchement scope + derivePurpose enrichi |
 
 Aucune migration. Aucune zone FROZEN. Aucune mutation.
