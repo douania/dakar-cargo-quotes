@@ -1,5 +1,6 @@
 
 
+
 # COCKPIT-11 — Extraction de scope fournisseur multi-postes (complet)
 
 ## Problème
@@ -24,15 +25,24 @@ L'application réduisait une demande client complexe (fret + origin charges + st
 - `threadId` passé en prop pour cohérence avec PartnerScopeCard
 - Le brief prérempli utilise le purpose issu du scope détecté
 
+### Phase 3 (zip 54) — COCKPIT-11B : Email partenaire scope-aware
+
+- `buildPartnerEmailBody` accepte un paramètre optionnel `scope: PartnerScopeItem[]`
+- Introduction reste centrée sur le purpose principal
+- Bloc secondaire agrégé : "Merci également de préciser, si applicable :" avec items dédupliqués des autres blocs du scope
+- Fallback prudent quand scope vide et purpose freight : ajoute THC, surcharges, vessel schedule
+- PartnerSuggestionPanel passe le scope au préremplissage
+- Synchronisation UI (`src/lib/partnerEmailTemplate.ts`) et edge (`_shared/partner-email-template.ts`)
+
 ## Blast radius
 
 | Fichier | Changement |
 |---------|-----------|
 | `src/lib/partnerRequestScope.ts` | Nouveau helper métier |
 | `src/components/puzzle/PartnerScopeCard.tsx` | Nouveau composant lecture seule |
-| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing) |
+| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing), paramètre `scope`, agrégation multi-blocs |
 | `supabase/functions/_shared/partner-email-template.ts` | Synchronisation |
 | `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + threadId prop |
-| `src/components/puzzle/PartnerSuggestionPanel.tsx` | Branchement scope + derivePurpose enrichi |
+| `src/components/puzzle/PartnerSuggestionPanel.tsx` | Branchement scope + derivePurpose enrichi + passage scope au template |
 
 Aucune migration. Aucune zone FROZEN. Aucune mutation.

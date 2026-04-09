@@ -139,7 +139,7 @@ function resolveTransportLabel(facts: PartnerEmailFacts, purpose: string): strin
  */
 export function buildPartnerEmailBody(
   facts: PartnerEmailFacts,
-  partnerName: string,
+  _partnerName: string,
   purpose: string,
   caseRef?: string,
   scope?: Array<{ purpose: string; label: string; requiredItems: string[] }>,
