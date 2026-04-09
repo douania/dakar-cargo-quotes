@@ -17,7 +17,7 @@ Dernière mise à jour : 2026-04-09
 | **Phase d'origine** | COCKPIT-11 |
 | **Date** | 2026-04-09 |
 | **Déclencheur de réouverture** | COCKPIT-11 Phase 2 — pré-création assistée de demandes multiples depuis le scope détecté |
-| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). **11B livré** : agrégation multi-blocs avec déduplication. **11C livré** : PURPOSE_INCLUDES freight enrichi (8 items), origin_charges adapté SODATRA (sans customs clearance), promotion scope high/medium via `PROMOTION_LABELS`, `normalizeForDedup()` anti-doublons, `confidence ?? "medium"` backward compatible. Phase 2 : pré-création assistée de demandes multiples depuis le scope détecté. |
+| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). **11B livré** : agrégation multi-blocs avec déduplication. **11C livré** : PURPOSE_INCLUDES freight enrichi (8 items), origin_charges adapté SODATRA (sans customs clearance), promotion scope high/medium via `PROMOTION_LABELS`, `normalizeForDedup()` anti-doublons, `confidence ?? "medium"` backward compatible. **11D livré** : mapping cargo.containers (value_json) → clés synthétiques container_type/count/fcl_lcl, fallback value_number pour weight_kg/volume_cbm, support conteneurs hétérogènes, label "Poids total". Phase 2 : pré-création assistée de demandes multiples depuis le scope détecté. |
 
 ---
 

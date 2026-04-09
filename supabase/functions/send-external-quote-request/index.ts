@@ -80,9 +80,6 @@ serve(async (req: Request) => {
     // 5. Load relevant facts for professional email generation
     const { data: facts, error: factsErr } = await serviceClient
       .from("quote_facts")
-      .select("fact_key, value_text, value_number")
-      .eq("case_id", case_id)
-      .eq("is_current", true)
       .select("fact_key, value_text, value_number, value_json")
       .eq("case_id", case_id)
       .eq("is_current", true)
