@@ -15,7 +15,7 @@ import { Package, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
 import { EXCLUSIVE_GROUPS } from "./constants";
-import { isServiceRelevant } from "./helpers";
+import { isServiceCompatibleWithPackage } from "./helpers";
 
 export function ServiceOverridePanel({
   facts,
@@ -153,7 +153,7 @@ export function ServiceOverridePanel({
 
   const extraServices = serviceTemplates.filter((t) => {
     if (packageServices.includes(t.service)) return false;
-    if (!isServiceRelevant(t.service, serviceMode)) return false;
+    if (!isServiceCompatibleWithPackage(t.service, packageKey, serviceMode)) return false;
     if (excludedByExclusive.has(t.service)) return false;
     return true;
   });
