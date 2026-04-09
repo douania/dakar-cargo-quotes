@@ -15,7 +15,7 @@ import { Package, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { SERVICE_PACKAGES, serviceTemplates } from "@/features/quotation/constants";
 import { EXCLUSIVE_GROUPS } from "./constants";
-import { isServiceRelevant } from "./helpers";
+import { isServiceCompatibleWithPackage } from "./helpers";
 
 export function ServiceOverridePanel({
   facts,

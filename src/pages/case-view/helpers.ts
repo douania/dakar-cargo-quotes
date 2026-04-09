@@ -34,6 +34,61 @@ export function isServiceRelevant(service: string, mode: string): boolean {
   return true;
 }
 
+// ────────────────────────────────────────────────────────────
+// PACKAGE_COMPATIBLE_EXTRAS defines only optional/additional services
+// that may still be proposed beside an already detected package.
+// Included package services are filtered upstream in ServiceOverridePanel.
+// ────────────────────────────────────────────────────────────
+const PACKAGE_COMPATIBLE_EXTRAS: Record<string, Set<string>> = {
+  EXPORT_SENEGAL: new Set([
+    'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'STUFFING_FACTORY', 'STUFFING_CFS',
+    'EMPTY_REPO', 'SURVEY',
+  ]),
+  DAP_PROJECT_IMPORT: new Set([
+    'SURVEY', 'AGENCY', 'SEA_FREIGHT', 'PORT_CHARGES', 'ON_CARRIAGE', 'DISCHARGE',
+  ]),
+  TRANSIT_GAMBIA_ALL_IN: new Set([
+    'SURVEY', 'CUSTOMS_DAKAR', 'EMPTY_RETURN', 'SEA_FREIGHT',
+  ]),
+  BREAKBULK_PROJECT: new Set([
+    'AGENCY', 'ON_CARRIAGE', 'EMPTY_RETURN', 'PORT_CHARGES',
+  ]),
+  AIR_IMPORT_DAP: new Set([
+    'SURVEY', 'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT',
+  ]),
+  LCL_IMPORT_DAP: new Set([
+    'SURVEY', 'PORT_CHARGES', 'SEA_FREIGHT',
+  ]),
+  TRANSIT_REGIONAL_VIA_DAKAR: new Set([
+    'SURVEY', 'EMPTY_RETURN', 'SEA_FREIGHT', 'ON_CARRIAGE',
+  ]),
+  DAP_PROJECT_IMPORT_EXW: new Set([
+    'SURVEY', 'AGENCY', 'PORT_CHARGES', 'ON_CARRIAGE', 'STUFFING_FACTORY', 'STUFFING_CFS',
+  ]),
+  AIR_IMPORT_EXW: new Set([
+    'SURVEY', 'STUFFING_FACTORY',
+  ]),
+  LCL_IMPORT_EXW: new Set([
+    'SURVEY', 'PORT_CHARGES', 'STUFFING_CFS',
+  ]),
+};
+
+/**
+ * Package-aware service compatibility check.
+ * If the package is known, uses a whitelist of compatible extras.
+ * Falls back to the generic isServiceRelevant() for unknown packages.
+ */
+export function isServiceCompatibleWithPackage(
+  service: string,
+  packageCode: string | null,
+  mode: string,
+): boolean {
+  if (!packageCode || !PACKAGE_COMPATIBLE_EXTRAS[packageCode]) {
+    return isServiceRelevant(service, mode);
+  }
+  return PACKAGE_COMPATIBLE_EXTRAS[packageCode].has(service);
+}
+
 /** Normalize a proposed fact record into a clean payload for set-case-fact */
 export function toFactPayload(f: Record<string, unknown>) {
   const factKey = String(f["fact_key"] ?? "").trim();
