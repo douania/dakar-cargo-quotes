@@ -244,7 +244,7 @@ export function buildPartnerEmailBody(
   const volume = facts["cargo.volume_cbm"];
   if (weight || volume) {
     const parts: string[] = [];
-    if (weight) parts.push(`${weight} kg`);
+    if (weight) parts.push(`Poids total : ${weight} kg`);
     if (volume) parts.push(`${volume} m³`);
     cargoLines.push(parts.join(" | "));
   }
