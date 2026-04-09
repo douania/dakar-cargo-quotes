@@ -123,6 +123,8 @@ const SERVICE_KEY_LABELS: Record<string, string> = {
 // P5: Conservative engine-line-to-service-key deduplication
 const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'DTHC': 'DTHC',
+  'Terminal (DPW)': 'DTHC',
+  'Terminal': 'DTHC',
   'Retour conteneur vide': 'EMPTY_RETURN',
   'Dédouanement': 'CUSTOMS_DAKAR',
   'Douane': 'CUSTOMS_DAKAR',
@@ -297,6 +299,8 @@ const DEDUP_GROUP_MAP: Record<string, string> = {
   'TRUCKING': 'TRUCKING',
   'ON_CARRIAGE': 'ON_CARRIAGE',
   'PRE_CARRIAGE': 'PRE_CARRIAGE',
+  // TARIFF-COHERENCE-1: Terminal handling dedup (DTHC only, PORT_DAKAR_HANDLING intentionally excluded pending business validation)
+  'DTHC': 'TERMINAL_HANDLING',
   // P7: Export-specific dedup groups
   'THC_EXPORT': 'THC_EXPORT',
   'DOCUMENTATION_BL': 'DOCUMENTATION_BL',
