@@ -1074,6 +1074,53 @@ async function applyAssumptionRules(
     flowType = `${flowType}_EXW`;
   }
 
+  // FLOW-FIX-1: Port inference for maritime imports to Senegal
+  // Only infer destination_port=Dakar for SEA imports to SN (not air/road/ambiguous)
+  const MARITIME_IMPORT_FLOWS = new Set([
+    'IMPORT_PROJECT_DAP', 'IMPORT_PROJECT_DAP_EXW',
+    'SEA_LCL_IMPORT', 'TRANSIT_REGIONAL_VIA_DAKAR',
+  ]);
+  const destCountryForPort = await resolveCountry(serviceClient, factMap, 'routing.destination_country', 'routing.destination_port', 'routing.destination_city');
+  const existingDestPort = factMap.get('routing.destination_port')?.value;
+  if (
+    MARITIME_IMPORT_FLOWS.has(flowType) &&
+    destCountryForPort === 'SN' &&
+    !existingDestPort
+  ) {
+    console.log(`[FLOW-FIX-1] Inferring routing.destination_port=Dakar for maritime import to SN (flow: ${flowType})`);
+    const { error: portErr } = await serviceClient.rpc('supersede_fact', {
+      p_case_id: caseId,
+      p_fact_key: 'routing.destination_port',
+      p_fact_category: 'routing',
+      p_value_text: 'Dakar',
+      p_value_number: null,
+      p_value_json: null,
+      p_value_date: null,
+      p_source_type: 'port_inference',
+      p_source_email_id: null,
+      p_source_attachment_id: null,
+      p_source_excerpt: '[FLOW-FIX-1] Senegal has one main commercial port: Dakar (PAD)',
+      p_confidence: 0.85,
+    });
+    if (!portErr) {
+      factMap.set('routing.destination_port', { value: 'Dakar', source: 'port_inference' });
+      await serviceClient.from('case_timeline_events').insert({
+        case_id: caseId,
+        event_type: 'assumption_applied',
+        event_data: {
+          flow_type: flowType,
+          fact_key: 'routing.destination_port',
+          value: 'Dakar',
+          confidence: 0.85,
+          inference_rule: 'FLOW-FIX-1_SN_MONO_PORT',
+        },
+        actor_type: 'system',
+      });
+    } else {
+      console.error('[FLOW-FIX-1] Failed to inject destination_port:', portErr);
+    }
+  }
+
   result.flowType = flowType;
 
   if (flowType === 'UNKNOWN' || !ASSUMPTION_RULES[flowType]) {
