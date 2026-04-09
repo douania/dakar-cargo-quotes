@@ -6,6 +6,21 @@ Dernière mise à jour : 2026-04-09
 
 ---
 
+## FLOW-FIX-1 — Normalisation pays + inférence port Sénégal
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | FLOW-FIX-1 |
+| **Catégorie** | Flow detection / Routing |
+| **Statut** | `done` |
+| **Priorité** | Critique |
+| **Phase d'origine** | FLOW-FIX-1 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | (1) Étendre `COUNTRY_NAME_TO_ISO` en table DB pour maintenance sans redéploiement. (2) Étendre l'inférence port à d'autres pays mono-port (Gambie→Banjul, Guinée-Bissau→Bissau). |
+| **Recommandation** | Map `COUNTRY_NAME_TO_ISO` (~45 pays) ajoutée inline dans build-case-puzzle. À terme, migrer en table `country_aliases` pour éviter les redéploiements. L'inférence port est strictement limitée aux flows maritimes import vers SN. |
+
+---
+
 ## COCKPIT-11 — Scope fournisseur multi-postes
 
 | Champ | Valeur |

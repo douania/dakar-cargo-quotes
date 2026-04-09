@@ -830,6 +830,62 @@ function normalizeLocationKey(value: string): string {
   return String(value || '').toUpperCase().trim().replace(/\s+/g, ' ');
 }
 
+// FLOW-FIX-1: Normalize country names to ISO 2-letter codes
+const COUNTRY_NAME_TO_ISO: Record<string, string> = {
+  'SENEGAL': 'SN', 'SÉNÉGAL': 'SN',
+  'INDIA': 'IN', 'INDE': 'IN',
+  'FRANCE': 'FR',
+  'CHINA': 'CN', 'CHINE': 'CN',
+  'TURKEY': 'TR', 'TURQUIE': 'TR', 'TÜRKIYE': 'TR',
+  'GAMBIA': 'GM', 'GAMBIE': 'GM',
+  'MALI': 'ML',
+  'GUINEA': 'GN', 'GUINÉE': 'GN', 'GUINEE': 'GN',
+  'IVORY COAST': 'CI', "CÔTE D'IVOIRE": 'CI', 'COTE D\'IVOIRE': 'CI',
+  'GHANA': 'GH',
+  'NIGERIA': 'NG', 'NIGÉRIA': 'NG',
+  'EGYPT': 'EG', 'EGYPTE': 'EG', 'ÉGYPTE': 'EG',
+  'BURKINA FASO': 'BF',
+  'NIGER': 'NE',
+  'MAURITANIA': 'MR', 'MAURITANIE': 'MR',
+  'GERMANY': 'DE', 'ALLEMAGNE': 'DE',
+  'NETHERLANDS': 'NL', 'PAYS-BAS': 'NL',
+  'BELGIUM': 'BE', 'BELGIQUE': 'BE',
+  'UNITED ARAB EMIRATES': 'AE', 'UAE': 'AE',
+  'SAUDI ARABIA': 'SA', 'ARABIE SAOUDITE': 'SA',
+  'BANGLADESH': 'BD',
+  'SRI LANKA': 'LK',
+  'GUINEA-BISSAU': 'GW', 'GUINÉE-BISSAU': 'GW',
+  'TOGO': 'TG',
+  'BENIN': 'BJ', 'BÉNIN': 'BJ',
+  'UNITED KINGDOM': 'GB', 'ROYAUME-UNI': 'GB', 'UK': 'GB',
+  'UNITED STATES': 'US', 'USA': 'US', 'ÉTATS-UNIS': 'US',
+  'SPAIN': 'ES', 'ESPAGNE': 'ES',
+  'ITALY': 'IT', 'ITALIE': 'IT',
+  'PORTUGAL': 'PT',
+  'MOROCCO': 'MA', 'MAROC': 'MA',
+  'SOUTH KOREA': 'KR', 'CORÉE DU SUD': 'KR',
+  'JAPAN': 'JP', 'JAPON': 'JP',
+  'BRAZIL': 'BR', 'BRÉSIL': 'BR',
+  'PAKISTAN': 'PK',
+  'THAILAND': 'TH', 'THAÏLANDE': 'TH',
+  'VIETNAM': 'VN', 'VIÊT NAM': 'VN',
+  'INDONESIA': 'ID', 'INDONÉSIE': 'ID',
+  'MALAYSIA': 'MY', 'MALAISIE': 'MY',
+  'SINGAPORE': 'SG', 'SINGAPOUR': 'SG',
+  'CAMEROON': 'CM', 'CAMEROUN': 'CM',
+  'CONGO': 'CG',
+  'SIERRA LEONE': 'SL',
+  'LIBERIA': 'LR', 'LIBÉRIA': 'LR',
+};
+
+function normalizeCountryToISO(raw: string): string {
+  if (!raw) return '';
+  const upper = raw.toUpperCase().trim();
+  // Already ISO 2-letter code
+  if (upper.length === 2) return upper;
+  return COUNTRY_NAME_TO_ISO[upper] || upper;
+}
+
 async function resolveCountry(
   serviceClient: any,
   factMap: Map<string, { value: string; source: string }>,
@@ -837,9 +893,9 @@ async function resolveCountry(
   portKey: string,
   cityKey?: string
 ): Promise<string> {
-  // 1. Direct country fact
-  const direct = factMap.get(countryKey)?.value?.toUpperCase() || '';
-  if (direct) return direct;
+  // 1. Direct country fact — normalize to ISO
+  const direct = factMap.get(countryKey)?.value?.toUpperCase()?.trim() || '';
+  if (direct) return normalizeCountryToISO(direct);
 
   // 2. Collect candidates for DB + fallback lookup
   const rawPort = factMap.get(portKey)?.value || '';
@@ -1016,6 +1072,53 @@ async function applyAssumptionRules(
   if (ORIGIN_INCOTERMS_P3.has(p3aIncoterm) && ASSUMPTION_RULES[`${flowType}_EXW`]) {
     console.log(`[P3a] Incoterm ${p3aIncoterm} detected — switching ${flowType} → ${flowType}_EXW`);
     flowType = `${flowType}_EXW`;
+  }
+
+  // FLOW-FIX-1: Port inference for maritime imports to Senegal
+  // Only infer destination_port=Dakar for SEA imports to SN (not air/road/ambiguous)
+  const MARITIME_IMPORT_FLOWS = new Set([
+    'IMPORT_PROJECT_DAP', 'IMPORT_PROJECT_DAP_EXW',
+    'SEA_LCL_IMPORT', 'TRANSIT_REGIONAL_VIA_DAKAR',
+  ]);
+  const destCountryForPort = await resolveCountry(serviceClient, factMap, 'routing.destination_country', 'routing.destination_port', 'routing.destination_city');
+  const existingDestPort = factMap.get('routing.destination_port')?.value;
+  if (
+    MARITIME_IMPORT_FLOWS.has(flowType) &&
+    destCountryForPort === 'SN' &&
+    !existingDestPort
+  ) {
+    console.log(`[FLOW-FIX-1] Inferring routing.destination_port=Dakar for maritime import to SN (flow: ${flowType})`);
+    const { error: portErr } = await serviceClient.rpc('supersede_fact', {
+      p_case_id: caseId,
+      p_fact_key: 'routing.destination_port',
+      p_fact_category: 'routing',
+      p_value_text: 'Dakar',
+      p_value_number: null,
+      p_value_json: null,
+      p_value_date: null,
+      p_source_type: 'port_inference',
+      p_source_email_id: null,
+      p_source_attachment_id: null,
+      p_source_excerpt: '[FLOW-FIX-1] Senegal has one main commercial port: Dakar (PAD)',
+      p_confidence: 0.85,
+    });
+    if (!portErr) {
+      factMap.set('routing.destination_port', { value: 'Dakar', source: 'port_inference' });
+      await serviceClient.from('case_timeline_events').insert({
+        case_id: caseId,
+        event_type: 'assumption_applied',
+        event_data: {
+          flow_type: flowType,
+          fact_key: 'routing.destination_port',
+          value: 'Dakar',
+          confidence: 0.85,
+          inference_rule: 'FLOW-FIX-1_SN_MONO_PORT',
+        },
+        actor_type: 'system',
+      });
+    } else {
+      console.error('[FLOW-FIX-1] Failed to inject destination_port:', portErr);
+    }
   }
 
   result.flowType = flowType;
