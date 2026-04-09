@@ -1,36 +1,45 @@
 
-
-# COCKPIT-11C — Micro-correctif déduplication origin charges
+# COCKPIT-11D — Connecter les vraies données cargo au template partenaire
 
 ## Diagnostic
 
-La réserve mineure signalée est confirmée dans le code.
+Les facts cargo sont stockés dans des colonnes que le code ne lisait pas :
+- `cargo.containers` → `value_json` (ex: `[{"type":"40HC","quantity":5}]`)
+- `cargo.weight_kg` → `value_number` (ex: `135000`)
+- `cargo.volume_cbm` → `value_number`
 
-Le regex de déduplication (ligne 146) :
-```
-/origin charges\s+d[eé]taill[eé]s(\s*\(.*?\))?/g
-```
-
-Normalise :
-- `"Origin charges détaillés (THC, manutention, documentation)"` → `"origin charges"`
-- `"Origin charges détaillés au départ"` → `"origin charges au départ"` (le suffixe " au départ" n'est pas capturé)
-
-Résultat : les deux ne sont PAS dédupliquées. Sur un dossier freight avec scope origin_charges en medium/high, le bloc principal contiendra les deux lignes — redondance visible.
+Le code ne lisait que `value_text`, qui est `NULL` pour ces facts.
+Résultat : le bloc Conteneurs/Poids de l'email partenaire était **toujours vide**.
 
 ## Correctif
 
-Modifier le regex dans les deux fichiers template pour capturer aussi le suffixe " au départ" :
+### Nouveau helper partagé (UI)
 
-```typescript
-s = s.replace(/origin charges\s+d[eé]taill[eé]s(\s*\(.*?\))?(\s+au départ)?/g, "origin charges");
-```
+`src/lib/extractContainerSynthetics.ts` — `buildFactMapWithSynthetics(rows)`
+- Lit `value_text`, `value_number`, `value_json`
+- Dérive `cargo.container_type`, `cargo.container_count`, `cargo.fcl_lcl` depuis `cargo.containers` JSON
+- Multi-types supporté : `"2x 20GP + 3x 40HC"`
+- Ne surcharge pas les clefs si elles existent déjà en base
 
-## Fichiers impactés
+### Fichiers modifiés
 
 | Fichier | Changement |
 |---------|-----------|
-| `src/lib/partnerEmailTemplate.ts` | 1 regex (ligne 146) |
-| `supabase/functions/_shared/partner-email-template.ts` | 1 regex (même ligne) |
+| `src/lib/extractContainerSynthetics.ts` | Nouveau helper |
+| `src/components/puzzle/PartnerSuggestionPanel.tsx` | Query: `value_number` + `value_json` + `cargo.containers`, utilise `buildFactMapWithSynthetics` |
+| `src/components/puzzle/PartnerScopeCard.tsx` | Idem |
+| `supabase/functions/send-external-quote-request/index.ts` | Ajoute `cargo.containers` à la query, extraction synthétique inline (même logique) |
 
-Aucune migration. Aucune zone FROZEN. Aucun autre fichier. Backward compatible.
+### Ce que ce lot ne fait PAS
 
+- Pas de modification des templates email (ils lisent déjà les bonnes clefs)
+- Pas de migration
+- Pas de zone FROZEN
+- Backward compatible
+
+## Phases précédentes
+
+- COCKPIT-11C micro-correctif : regex déduplication "au départ" corrigé
+- COCKPIT-11B : agrégation multi-blocs scope dans email
+- COCKPIT-11 : extraction de scope fournisseur multi-postes
+- COCKPIT-10 : template partenaire professionnel
