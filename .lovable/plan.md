@@ -1,56 +1,83 @@
 
-Diagnostic confirmé
 
-- Le problème n’est pas côté UI ni cache React Query.
-- `CaseView` et `QuotationSheet` relancent bien `build-case-puzzle`.
-- Le code source contient déjà `FLOW-FIX-1` dans `supabase/functions/build-case-puzzle/index.ts` :
-  - normalisation `SENEGAL` → `SN`
-  - inférence `routing.destination_port = Dakar` pour les imports maritimes vers le Sénégal
-- Mais les logs runtime du rerun montrent encore l’ancien comportement :
-  - `destCountry=SENEGAL`
-  - `Detected flow type: EXPORT_SENEGAL`
-  - aucun log `[FLOW-FIX-1]`
-- Conclusion : le gap persiste très probablement parce que la fonction backend exécutée n’embarque pas encore le correctif présent dans le repo. Le problème ressemble à un drift repo/runtime, pas à une règle absente du code.
+# TARIFF-COHERENCE-1 — Correction prudente des recouvrements package / lignes moteur
 
-Plan d’exécution
+## Diagnostic confirmé sur le code réel
 
-1. Redéployer uniquement `build-case-puzzle`
-   - Pas de migration
-   - Pas de changement UI
-   - Pas de refactor global
+**Fichier : `supabase/functions/run-pricing/index.ts`**
 
-2. Relancer l’analyse sur le dossier courant
-   - Rejouer `build-case-puzzle` après redéploiement
-   - Vérifier dans les logs :
-     - `destCountry=SN`
-     - un flow import maritime cohérent
-     - le log d’inférence Dakar
+1. **Canonicalisation THC absente** — `ENGINE_CATEGORY_TO_SERVICE_KEY` (L124-134) ne contient pas `'Terminal (DPW)'` ni `'Terminal'`. Résultat : les lignes moteur THC import obtiennent `service_key = null`, `dedup_group = null`.
 
-3. Vérifier les effets métier
-   - `quote_facts` contient `routing.destination_port = Dakar`
-   - `source_type = port_inference`
-   - le gap ouvert `routing.destination_port` est résolu/fermé
-   - le dossier n’est plus bloqué par ce gap
+2. **Déduplication par couverture, pas par confiance** — La logique n'est pas un merge avec tri par confiance. C'est un mécanisme de *skip* : `inferCoveredServiceDiagnostics()` (L183) collecte les `dedup_group` des lignes moteur dans un `Set<string>`. Puis les lignes package dont le `service_key` est dans ce set sont simplement **non ajoutées**. Donc pas besoin de trier par confiance — la ligne moteur (officielle) prévaut automatiquement car elle est déjà présente et la ligne package est sautée.
 
-4. Filet de sécurité si le gap reste ouvert après redéploiement
-   - Appliquer un micro-correctif local dans `supabase/functions/build-case-puzzle/index.ts`
-   - Aligner la persistance finale sur le flow réellement déduit (`assumptionResult.flowType`) si nécessaire
-   - Ne toucher à rien d’autre
+3. **`DEDUP_GROUP_MAP`** (L288-307) ne contient pas `'DTHC'` → quand une ligne moteur serait canonicalisée en `service_key = 'DTHC'`, son `dedup_group` tomberait en fallback sur `'DTHC'` (L379: `DEDUP_GROUP_MAP[serviceKey] || serviceKey`). C'est suffisant pour la couverture, mais ajouter explicitement `'DTHC': 'TERMINAL_HANDLING'` dans le map est plus propre et prépare le regroupement futur.
 
-Détails techniques
+**Fichier : `src/pages/case-view/helpers.ts`** (L47-49)
 
-- Avec le code actuel, `resolveCountry()` ne devrait plus jamais logger `SENEGAL` en sortie directe : il doit renvoyer `SN`.
-- Le log actuel prouve donc que la version exécutée n’est pas celle que montre le repo.
-- Le pipeline de relance côté frontend est correct ; je ne vois pas de bug UI principal à corriger pour ce symptôme.
+4. `DAP_PROJECT_IMPORT` whitelist contient `SEA_FREIGHT` et `DISCHARGE` — confirmé, à retirer.
 
-Blast radius attendu
+## Plan d'exécution
 
-- Cas normal : redéploiement d’une seule edge function, zéro patch code supplémentaire
-- Cas de secours : 1 seul fichier edge function (`supabase/functions/build-case-puzzle/index.ts`), sans migration ni impact frontend
+### Étape 1 — Canonicalisation THC moteur
 
-Livrable attendu après exécution
+**Fichier** : `supabase/functions/run-pricing/index.ts` (L124-134)
 
-- confirmation du runtime corrigé
-- preuve loguée du flow import + inférence Dakar
-- statut final du gap bloquant
-- diff réel uniquement si un micro-patch supplémentaire s’avère nécessaire
+Ajouter dans `ENGINE_CATEGORY_TO_SERVICE_KEY` :
+```typescript
+'Terminal (DPW)': 'DTHC',
+'Terminal': 'DTHC',
+```
+
+**Effet** : les lignes moteur THC import reçoivent `service_key = 'DTHC'` → `dedup_group = 'DTHC'` (ou `'TERMINAL_HANDLING'` après étape 2) → `inferCoveredServiceDiagnostics` marque DTHC comme couvert → la ligne package DTHC est sautée.
+
+### Étape 2 — Déduplication explicite DTHC uniquement
+
+**Fichier** : `supabase/functions/run-pricing/index.ts` (L288-307)
+
+Ajouter dans `DEDUP_GROUP_MAP` :
+```typescript
+'DTHC': 'TERMINAL_HANDLING',
+```
+
+**Ne PAS ajouter** `'PORT_DAKAR_HANDLING': 'TERMINAL_HANDLING'` — doctrine métier non validée.
+
+### Étape 3 — Pas de correctif confiance nécessaire
+
+La logique de déduplication est un *skip* (pas un merge). La ligne moteur officielle est déjà dans le résultat, la ligne package est simplement non ajoutée si couverte. Aucun correctif nécessaire.
+
+### Étape 4 — Nettoyage whitelist DAP_PROJECT_IMPORT
+
+**Fichier** : `src/pages/case-view/helpers.ts` (L47-49)
+
+```typescript
+DAP_PROJECT_IMPORT: new Set([
+  'SURVEY', 'AGENCY', 'PORT_CHARGES', 'ON_CARRIAGE',
+]),
+```
+
+### Étape 5 — PORT_DAKAR_HANDLING laissé intact
+
+Aucune modification. Point de décision reporté.
+
+### Étape 6 — Documentation
+
+- `.lovable/plan.md` : clôture TARIFF-COHERENCE-1
+- `docs/DEFERRED_BACKLOG.md` : dette métier PORT_DAKAR_HANDLING vs DTHC
+
+## Fichiers impactés
+
+| Fichier | Changement |
+|---------|-----------|
+| `supabase/functions/run-pricing/index.ts` | +2 entrées canonicalisation, +1 entrée dedup (~3 lignes) |
+| `src/pages/case-view/helpers.ts` | Retrait SEA_FREIGHT + DISCHARGE (~1 ligne) |
+| `.lovable/plan.md` | Documentation |
+| `docs/DEFERRED_BACKLOG.md` | Dette métier |
+
+Aucune migration. Aucune zone FROZEN. Aucun nouveau composant. Backward compatible.
+
+## Résultat attendu
+
+- La ligne package DTHC disparaît quand la ligne moteur THC import officielle est présente
+- SEA_FREIGHT et DISCHARGE disparaissent des extras UI pour DAP_PROJECT_IMPORT
+- PORT_DAKAR_HANDLING reste inchangé
+
