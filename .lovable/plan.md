@@ -72,8 +72,64 @@ La section "Services supplémentaires" dans `ServiceOverridePanel.tsx` affichait
 
 ## Statut : PACKAGE-FILTER-1 **FERMÉ**
 
+---
+
+# FLOW-FIX-1 — Normalisation pays + inférence port maritime Sénégal
+
+## Diagnostic
+
+`resolveCountry()` retournait le texte brut du fact (ex: `"SENEGAL"`) au lieu du code ISO (`"SN"`).
+Conséquence : `detectFlowType` comparait `"SENEGAL" !== 'SN'` → classait un import vers Dakar comme `EXPORT_SENEGAL`.
+
+De plus, `routing.destination_port` n'était jamais inféré, créant un gap bloquant permanent sur les imports maritimes vers le Sénégal.
+
+## Correctif
+
+### 1. Normalisation pays → ISO
+
+- Nouvelle map `COUNTRY_NAME_TO_ISO` (~45 pays, FR/EN)
+- Nouveau helper `normalizeCountryToISO(raw)` : ISO 2 lettres si connu, sinon passthrough
+- `resolveCountry()` applique la normalisation sur le chemin "direct fact"
+- Les chemins DB et `PORT_COUNTRY_MAP` restent inchangés (déjà en ISO)
+
+### 2. Inférence port de déchargement (maritime uniquement)
+
+- Après détection du flowType, si :
+  - flowType ∈ {IMPORT_PROJECT_DAP, IMPORT_PROJECT_DAP_EXW, SEA_LCL_IMPORT, TRANSIT_REGIONAL_VIA_DAKAR}
+  - destCountry = SN
+  - routing.destination_port absent
+- Alors injecte `routing.destination_port = "Dakar"` via `supersede_fact`
+  - source_type = `port_inference`, confidence = 0.85
+  - Timeline event avec `inference_rule: FLOW-FIX-1_SN_MONO_PORT`
+
+### Garde-fous
+
+- Ne s'applique PAS aux flux aérien, terrestre, ou ambigus
+- Ne surcharge pas un port déjà existant
+- Limité au Sénégal (mono-port commercial : Dakar/PAD)
+
+### Fichiers modifiés
+
+| Fichier | Changement |
+|---------|-----------|
+| `supabase/functions/build-case-puzzle/index.ts` | `COUNTRY_NAME_TO_ISO` + `normalizeCountryToISO()` + normalisation dans `resolveCountry` + inférence port maritime |
+| `.lovable/plan.md` | Phase FLOW-FIX-1 |
+| `docs/DEFERRED_BACKLOG.md` | Entrée future : map pays en DB |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration
+- Pas de zone FROZEN
+- Pas de changement UI
+- Pas de généralisation à d'autres pays mono-port (futur lot)
+- Backward compatible
+
+## Statut : FLOW-FIX-1 **FERMÉ**
+
 ## Phases précédentes
 
+- PACKAGE-FILTER-1 : filtrage contextuel services par package
+- COCKPIT-11D : connexion données cargo au template partenaire
 - COCKPIT-11C micro-correctif : regex déduplication "au départ" corrigé
 - COCKPIT-11B : agrégation multi-blocs scope dans email
 - COCKPIT-11 : extraction de scope fournisseur multi-postes
