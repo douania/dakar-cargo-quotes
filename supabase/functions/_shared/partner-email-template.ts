@@ -1,5 +1,5 @@
 /**
- * COCKPIT-10 — Génération déterministe d'email partenaire professionnel.
+ * COCKPIT-10 / 11B / 11C — Génération déterministe d'email partenaire professionnel.
  * Logique identique à src/lib/partnerEmailTemplate.ts.
  * Les deux fichiers DOIVENT rester synchronisés en structure, ordre de blocs,
  * et variations par purpose.
@@ -8,6 +8,10 @@
 export interface PartnerEmailFacts {
   [key: string]: string | null | undefined;
 }
+
+// ---------------------------------------------------------------------------
+// PURPOSE_INCLUDES — COCKPIT-11C: enriched freight, SODATRA-adapted origin
+// ---------------------------------------------------------------------------
 
 const PURPOSE_INTRO: Record<string, string> = {
   freight_rate: "votre meilleure cotation fret maritime",
@@ -24,16 +28,24 @@ const PURPOSE_INTRO: Record<string, string> = {
 
 const PURPOSE_INCLUDES: Record<string, string[]> = {
   freight_rate: [
-    "Taux de fret",
+    "Taux de fret maritime",
     "Transit time",
-    "Free days",
+    "Vessel schedule disponible",
+    "Free days / detention-demurrage",
+    "Origin charges détaillés (THC, manutention, documentation)",
+    "Port surcharges / local charges",
+    "Surcharges éventuelles (BAF, CAF, etc.)",
     "Validité de l'offre",
   ],
   origin_charges: [
-    "Frais d'origine détaillés",
-    "THC / manutention / documentation si applicable",
-    "Validité",
-    "Conditions locales",
+    "THC / manutention au départ",
+    "Documentation / BL fees",
+    "VGM si applicable",
+    "Port handling / terminal handling",
+    "Frais de pesée si applicable",
+    "Surcharges locales / port surcharges",
+    "Conditions locales applicables",
+    "Validité de l'offre",
   ],
   air_tariff: [
     "Tarif aérien",
@@ -42,9 +54,13 @@ const PURPOSE_INCLUDES: Record<string, string[]> = {
     "Validité de l'offre",
   ],
   freight_maritime: [
-    "Taux de fret",
+    "Taux de fret maritime",
     "Transit time",
-    "Free days",
+    "Vessel schedule disponible",
+    "Free days / detention-demurrage",
+    "Origin charges détaillés (THC, manutention, documentation)",
+    "Port surcharges / local charges",
+    "Surcharges éventuelles (BAF, CAF, etc.)",
     "Validité de l'offre",
   ],
   freight_aerien: [
@@ -87,6 +103,34 @@ const PURPOSE_INCLUDES: Record<string, string[]> = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// COCKPIT-11C: Promotion labels for structurally important scope blocks
+// ---------------------------------------------------------------------------
+
+const PROMOTION_LABELS: Record<string, string> = {
+  origin_charges: "Origin charges détaillés au départ",
+  stuffing_factory: "Conditions pour Factory Stuffing / Pre-Stuffed Containers",
+  stuffing_port_cfs: "Conditions pour Port Stuffing / CFS Handling",
+};
+
+// ---------------------------------------------------------------------------
+// COCKPIT-11C: Deduplication helper
+// ---------------------------------------------------------------------------
+
+function normalizeForDedup(text: string): string {
+  let s = text.toLowerCase().trim();
+  s = s.replace(/[.,;:!?]+$/, "");
+  s = s.replace(/free days\s*\/?\s*detention[\s-]*demurrage/g, "free days");
+  s = s.replace(/surcharges\s+[eé]ventuelles(\s*\(.*?\))?/g, "surcharges");
+  s = s.replace(/port surcharges\s*\/?\s*local charges(\s+[eé]ventuels)?/g, "port surcharges");
+  s = s.replace(/origin charges\s+d[eé]taill[eé]s(\s*\(.*?\))?/g, "origin charges");
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Resolve helpers
+// ---------------------------------------------------------------------------
+
 function resolveOrigin(facts: PartnerEmailFacts): string | null {
   return (facts["routing.origin_port"] || facts["routing.origin_country"]) ?? null;
 }
@@ -114,15 +158,26 @@ function resolveTransportLabel(facts: PartnerEmailFacts, purpose: string): strin
   return "de transport";
 }
 
+// ---------------------------------------------------------------------------
+// COCKPIT-11C: Scope type with optional confidence
+// ---------------------------------------------------------------------------
+
+interface ScopeBlock {
+  purpose: string;
+  label: string;
+  requiredItems: string[];
+  confidence?: string;
+}
+
 /**
- * COCKPIT-11B — scope-aware partner email generation.
+ * COCKPIT-11C — scope-aware, hierarchized partner email generation.
  */
 export function buildPartnerEmailBody(
   facts: PartnerEmailFacts,
   _partnerName: string,
   purpose: string,
   caseRef?: string,
-  scope?: Array<{ purpose: string; label: string; requiredItems: string[] }>,
+  scope?: ScopeBlock[],
 ): string {
   const lines: string[] = [];
   const origin = resolveOrigin(facts);
@@ -180,44 +235,71 @@ export function buildPartnerEmailBody(
 
   // Primary request block
   const primaryItems = PURPOSE_INCLUDES[purpose] ?? PURPOSE_INCLUDES.general;
+  const dedupSet = new Set(primaryItems.map((i) => normalizeForDedup(i)));
+
   lines.push("");
   lines.push("Merci d'inclure dans votre offre :");
   for (const item of primaryItems) {
     lines.push(`- ${item}`);
   }
 
-  // COCKPIT-11B: Secondary blocks from scope (aggregated, deduplicated)
+  // COCKPIT-11C: Scope promotion logic
+  const isFreightPurpose = purpose === "freight_rate" || purpose === "freight_maritime";
   const secondaryBlocks = (scope ?? []).filter((s) => s.purpose !== purpose);
+
   if (secondaryBlocks.length > 0) {
-    const alreadyIncluded = new Set(primaryItems.map((i) => i.toLowerCase()));
-    const extraItems: string[] = [];
+    const promotedItems: string[] = [];
+    const secondaryItems: string[] = [];
+
     for (const block of secondaryBlocks) {
-      for (const item of block.requiredItems) {
-        const key = item.toLowerCase();
-        if (!alreadyIncluded.has(key)) {
-          alreadyIncluded.add(key);
-          extraItems.push(item);
+      const confidence = block.confidence ?? "medium";
+      const isPromotable = confidence === "high" || confidence === "medium";
+
+      if (isPromotable && isFreightPurpose && PROMOTION_LABELS[block.purpose]) {
+        const label = PROMOTION_LABELS[block.purpose];
+        const key = normalizeForDedup(label);
+        if (!dedupSet.has(key)) {
+          dedupSet.add(key);
+          promotedItems.push(label);
+        }
+      } else if (isPromotable) {
+        for (const item of block.requiredItems) {
+          const key = normalizeForDedup(item);
+          if (!dedupSet.has(key)) {
+            dedupSet.add(key);
+            promotedItems.push(item);
+          }
+        }
+      } else {
+        for (const item of block.requiredItems) {
+          const key = normalizeForDedup(item);
+          if (!dedupSet.has(key)) {
+            dedupSet.add(key);
+            secondaryItems.push(item);
+          }
         }
       }
     }
-    if (extraItems.length > 0) {
+
+    for (const item of promotedItems) {
+      lines.push(`- ${item}`);
+    }
+
+    if (secondaryItems.length > 0) {
       lines.push("");
       lines.push("Merci également de préciser, si applicable :");
-      for (const item of extraItems) {
+      for (const item of secondaryItems) {
         lines.push(`- ${item}`);
       }
     }
   }
 
-  // COCKPIT-11B: Prudent fallback when scope is empty
-  if ((!scope || scope.length === 0) && (purpose === "freight_rate" || purpose === "freight_maritime")) {
+  // COCKPIT-11C: Enriched fallback when scope is empty
+  if ((!scope || scope.length === 0) && isFreightPurpose) {
     const fallbackItems = [
-      "Frais d'origine / THC si applicable",
-      "Surcharges éventuelles",
-      "Vessel schedule disponible",
+      "Conditions d'empotage, si applicable",
     ];
-    const alreadyInPrimary = new Set(primaryItems.map((i) => i.toLowerCase()));
-    const newFallback = fallbackItems.filter((f) => !alreadyInPrimary.has(f.toLowerCase()));
+    const newFallback = fallbackItems.filter((f) => !dedupSet.has(normalizeForDedup(f)));
     if (newFallback.length > 0) {
       lines.push("");
       lines.push("Merci également de préciser, si applicable :");
