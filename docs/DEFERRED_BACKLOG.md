@@ -2,7 +2,22 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-08
+Dernière mise à jour : 2026-04-09
+
+---
+
+## COCKPIT-11 — Scope fournisseur multi-postes
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-11 |
+| **Catégorie** | Communication partenaire |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-11 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | COCKPIT-11 Phase 2 — pré-création assistée de demandes multiples depuis le scope détecté |
+| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). Phase 2 : suggestion automatique de création multi-demandes. |
 
 ---
 

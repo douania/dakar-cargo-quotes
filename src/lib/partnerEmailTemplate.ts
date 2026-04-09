@@ -34,6 +34,8 @@ const PURPOSE_INTRO: Record<string, string> = {
   freight_aerien: "votre meilleur tarif aérien",
   pre_carriage: "votre offre de pré-acheminement",
   documentation: "votre offre pour les frais de documentation",
+  stuffing_factory: "votre offre d'empotage usine (factory stuffing)",
+  stuffing_port_cfs: "votre offre d'empotage port / CFS",
   general: "votre meilleure offre",
 };
 
@@ -77,6 +79,23 @@ const PURPOSE_INCLUDES: Record<string, string[]> = {
     "Frais de documentation",
     "Délai de traitement",
     "Validité",
+  ],
+  stuffing_factory: [
+    "Repositionnement conteneur vide",
+    "Transport usine → port",
+    "Scellage / sealing",
+    "Manutention / handling",
+    "Conditions et tarif",
+    "Validité de l'offre",
+  ],
+  stuffing_port_cfs: [
+    "Réception marchandise au port / CFS",
+    "Entreposage / magasinage",
+    "Empotage / stuffing",
+    "Manutention",
+    "Inspection si applicable",
+    "Conditions et tarif",
+    "Validité de l'offre",
   ],
   general: [
     "Détail de l'offre",
