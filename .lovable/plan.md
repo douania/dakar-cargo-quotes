@@ -28,14 +28,17 @@ Résultat : le bloc Conteneurs/Poids de l'email partenaire était **toujours vid
 | `src/lib/extractContainerSynthetics.ts` | Nouveau helper |
 | `src/components/puzzle/PartnerSuggestionPanel.tsx` | Query: `value_number` + `value_json` + `cargo.containers`, utilise `buildFactMapWithSynthetics` |
 | `src/components/puzzle/PartnerScopeCard.tsx` | Idem |
-| `supabase/functions/send-external-quote-request/index.ts` | Ajoute `cargo.containers` à la query, extraction synthétique inline (même logique) |
+| `supabase/functions/send-external-quote-request/index.ts` | Ajoute `cargo.containers` à la query, extraction synthétique inline (même logique), suppression `.select()` dupliqué |
+| `src/lib/partnerEmailTemplate.ts` | Label poids : `Poids total : X kg` |
+| `supabase/functions/_shared/partner-email-template.ts` | Idem label poids |
 
 ### Ce que ce lot ne fait PAS
 
-- Pas de modification des templates email (ils lisent déjà les bonnes clefs)
 - Pas de migration
 - Pas de zone FROZEN
 - Backward compatible
+
+## Statut : COCKPIT-11D **FERMÉ**
 
 ## Phases précédentes
 
