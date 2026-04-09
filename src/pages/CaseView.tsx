@@ -922,7 +922,7 @@ export default function CaseView() {
 
   return (
     <MainLayout>
-      <div className="container mx-auto py-8 px-4 max-w-5xl case-print-root">
+      <div className="container mx-auto py-8 px-4 max-w-5xl case-print-root" data-print-date={new Date().toLocaleDateString('fr-FR')}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
