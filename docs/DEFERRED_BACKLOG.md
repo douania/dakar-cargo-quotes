@@ -21,6 +21,21 @@ Dernière mise à jour : 2026-04-09
 
 ---
 
+## PACKAGE-FILTER-1 — Filtrage contextuel des services compatibles
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PACKAGE-FILTER-1 |
+| **Catégorie** | UI / Service packages |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | PACKAGE-FILTER-1 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | Ajout de nouveaux packages dans SERVICE_PACKAGES nécessitant une entrée dans PACKAGE_COMPATIBLE_EXTRAS |
+| **Recommandation** | Whitelist explicite par package dans `helpers.ts`. Fallback sur `isServiceRelevant()` si package inconnu. TRUCKING exclu de EXPORT_SENEGAL (service destination). Évolution future possible : filtrage dynamique par facts corridor/pays. |
+
+---
+
 ## COCKPIT-10 — Email partenaire professionnel
 
 | Champ | Valeur |

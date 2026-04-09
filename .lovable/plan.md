@@ -40,6 +40,38 @@ Résultat : le bloc Conteneurs/Poids de l'email partenaire était **toujours vid
 
 ## Statut : COCKPIT-11D **FERMÉ**
 
+---
+
+# PACKAGE-FILTER-1 — Filtrage contextuel des services compatibles
+
+## Diagnostic
+
+La section "Services supplémentaires" dans `ServiceOverridePanel.tsx` affichait un catalogue quasi global (~15 services) même quand le package était clairement identifié (ex: EXPORT_SENEGAL). Le filtre `isServiceRelevant()` ne connaissait que le mode transport (SEA/AIR) et le flow (IMPORT/EXPORT), pas la logique métier du package.
+
+## Correctif
+
+### Nouveau helper dans `src/pages/case-view/helpers.ts`
+
+- `PACKAGE_COMPATIBLE_EXTRAS` : whitelist explicite d'extras compatibles pour chacun des 10 packages
+- `isServiceCompatibleWithPackage(service, packageCode, mode)` : utilise la whitelist si le package est connu, sinon fallback sur `isServiceRelevant()`
+- TRUCKING exclu de EXPORT_SENEGAL (= "Transport routier vers site", service destination)
+
+### Fichiers modifiés
+
+| Fichier | Changement |
+|---------|-----------|
+| `src/pages/case-view/helpers.ts` | Nouveau helper + map whitelist (10 packages) |
+| `src/pages/case-view/ServiceOverridePanel.tsx` | 1 import + 1 ligne : `isServiceRelevant` → `isServiceCompatibleWithPackage` |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration
+- Pas de zone FROZEN
+- Pas de refactor du catalogue `serviceTemplates`
+- Backward compatible (fallback si package inconnu)
+
+## Statut : PACKAGE-FILTER-1 **FERMÉ**
+
 ## Phases précédentes
 
 - COCKPIT-11C micro-correctif : regex déduplication "au départ" corrigé
