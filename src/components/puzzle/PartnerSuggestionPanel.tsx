@@ -259,7 +259,7 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
                 size="sm"
                 variant="ghost"
                 className="h-5 px-1.5 text-[10px]"
-                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined, buildPartnerEmailBody(caseFacts, s.name, s.purpose))}
+                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined, buildPartnerEmailBody(caseFacts, s.name, s.purpose, undefined, scope))}
               >
                 <ArrowRight className="h-3 w-3" />
                 Préremplir
