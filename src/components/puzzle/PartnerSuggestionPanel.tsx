@@ -45,6 +45,8 @@ const PURPOSE_LABELS: Record<string, string> = {
   freight_aerien: "Fret aérien",
   terminal: "Terminal",
   transport_local: "Transport local",
+  stuffing_factory: "Empotage usine",
+  stuffing_port_cfs: "Empotage port / CFS",
   general: "Général",
 };
 

@@ -239,6 +239,9 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
         )}
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* COCKPIT-11: Partner scope detection */}
+        <PartnerScopeCard caseId={caseId} threadId={threadId} />
+
         {/* COCKPIT-5: Partner suggestions */}
         <PartnerSuggestionPanel
           caseId={caseId}
