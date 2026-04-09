@@ -81,7 +81,7 @@ const PURPOSE_LABELS: Record<string, string> = {
   general: "Général",
 };
 
-export function PartnerSuggestionPanel({ caseId, onPrefill }: Props) {
+export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
   // 0. Case facts for brief generation
   const { data: caseFacts = {} } = useQuery({
     queryKey: ["partner-brief-facts", caseId],
