@@ -132,11 +132,17 @@ function resolveTransportLabel(facts: PartnerEmailFacts, purpose: string): strin
   return "de transport";
 }
 
+/**
+ * COCKPIT-11B — scope-aware partner email generation.
+ * @param scope  Optional detected scope items. When provided with >1 block,
+ *               secondary blocks are aggregated as "Merci également de préciser".
+ */
 export function buildPartnerEmailBody(
   facts: PartnerEmailFacts,
   partnerName: string,
   purpose: string,
   caseRef?: string,
+  scope?: Array<{ purpose: string; label: string; requiredItems: string[] }>,
 ): string {
   const lines: string[] = [];
   const origin = resolveOrigin(facts);
@@ -195,12 +201,53 @@ export function buildPartnerEmailBody(
     lines.push(...cargoLines);
   }
 
-  // --- Explicit request block, varies by purpose ---
-  const includes = PURPOSE_INCLUDES[purpose] ?? PURPOSE_INCLUDES.general;
+  // --- Primary request block (purpose principal) ---
+  const primaryItems = PURPOSE_INCLUDES[purpose] ?? PURPOSE_INCLUDES.general;
   lines.push("");
   lines.push("Merci d'inclure dans votre offre :");
-  for (const item of includes) {
+  for (const item of primaryItems) {
     lines.push(`- ${item}`);
+  }
+
+  // --- COCKPIT-11B: Secondary blocks from scope (aggregated, deduplicated) ---
+  const secondaryBlocks = (scope ?? []).filter((s) => s.purpose !== purpose);
+  if (secondaryBlocks.length > 0) {
+    const alreadyIncluded = new Set(primaryItems.map((i) => i.toLowerCase()));
+    const extraItems: string[] = [];
+    for (const block of secondaryBlocks) {
+      for (const item of block.requiredItems) {
+        const key = item.toLowerCase();
+        if (!alreadyIncluded.has(key)) {
+          alreadyIncluded.add(key);
+          extraItems.push(item);
+        }
+      }
+    }
+    if (extraItems.length > 0) {
+      lines.push("");
+      lines.push("Merci également de préciser, si applicable :");
+      for (const item of extraItems) {
+        lines.push(`- ${item}`);
+      }
+    }
+  }
+
+  // --- COCKPIT-11B: Prudent fallback when scope is empty ---
+  if ((!scope || scope.length === 0) && (purpose === "freight_rate" || purpose === "freight_maritime")) {
+    const fallbackItems = [
+      "Frais d'origine / THC si applicable",
+      "Surcharges éventuelles",
+      "Vessel schedule disponible",
+    ];
+    const alreadyInPrimary = new Set(primaryItems.map((i) => i.toLowerCase()));
+    const newFallback = fallbackItems.filter((f) => !alreadyInPrimary.has(f.toLowerCase()));
+    if (newFallback.length > 0) {
+      lines.push("");
+      lines.push("Merci également de préciser, si applicable :");
+      for (const item of newFallback) {
+        lines.push(`- ${item}`);
+      }
+    }
   }
 
   // --- Case reference ---
