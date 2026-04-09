@@ -1,17 +1,22 @@
 /**
- * COCKPIT-5 Phase 1+2 — Suggestion prudente des partenaires à contacter.
+ * COCKPIT-5 Phase 1+2+11 — Suggestion prudente des partenaires à contacter.
  * Composant autonome avec ses propres queries.
  * Lecture seule + callback onPrefill pour préremplir le formulaire d'ExternalRequestsPanel.
+ *
+ * COCKPIT-11: derivePurpose utilise le scope détecté comme source prioritaire.
  */
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, CheckCircle2, ArrowRight, Mail } from "lucide-react";
 import { buildPartnerEmailBody } from "@/lib/partnerEmailTemplate";
+import { derivePartnerRequestScope, type PartnerScopeItem } from "@/lib/partnerRequestScope";
 
 interface Props {
   caseId: string;
+  threadId?: string | null;
   onPrefill: (partnerName: string, purpose: string, partnerEmail?: string, briefText?: string) => void;
 }
 
@@ -20,16 +25,42 @@ function norm(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Derive purpose from service_types (priority) then role/notes (fallback) */
-function derivePurpose(serviceTypes: string[], role: string, notes: string | null): string {
-  // Phase 2: use service_types as primary source
+/** Map between service_types values and scope purposes */
+const SERVICE_TYPE_TO_SCOPE: Record<string, string> = {
+  freight_maritime: "freight_rate",
+  freight_aerien: "air_tariff",
+  origin_charges: "origin_charges",
+  stuffing_factory: "stuffing_factory",
+  stuffing_port_cfs: "stuffing_port_cfs",
+};
+
+/**
+ * COCKPIT-11: Derive purpose using detected scope as priority source.
+ * 1. If scope is detected, find the best match between partner service_types and scope purposes
+ * 2. Fallback to legacy heuristic (service_types → role/notes)
+ */
+function derivePurpose(
+  serviceTypes: string[],
+  role: string,
+  notes: string | null,
+  scopePurposes: Set<string>,
+): string {
+  // Phase 11: try to match partner capabilities to detected scope
+  if (scopePurposes.size > 0 && serviceTypes.length > 0) {
+    for (const st of serviceTypes) {
+      const mapped = SERVICE_TYPE_TO_SCOPE[st] ?? st;
+      if (scopePurposes.has(mapped)) return mapped;
+    }
+  }
+
+  // Phase 2 fallback: service_types without scope context
   if (serviceTypes.length > 0) {
     if (serviceTypes.includes("freight_maritime")) return "freight_rate";
     if (serviceTypes.includes("freight_aerien")) return "air_tariff";
     if (serviceTypes.includes("origin_charges")) return "origin_charges";
-    // Default to first service type if no specific mapping
     return serviceTypes[0];
   }
+
   // Phase 1 fallback: heuristic from notes/role
   const n = (notes ?? "").toLowerCase();
   if (n.includes("armateur")) return "freight_rate";

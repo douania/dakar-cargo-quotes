@@ -245,6 +245,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
         {/* COCKPIT-5: Partner suggestions */}
         <PartnerSuggestionPanel
           caseId={caseId}
+          threadId={threadId}
           onPrefill={(name, purpose, email, briefText) => {
             setFormData((prev) => ({
               ...prev,
