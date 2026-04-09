@@ -47,6 +47,7 @@ import {
 import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
 import { PartnerSuggestionPanel } from "@/components/puzzle/PartnerSuggestionPanel";
+import { PartnerScopeCard } from "@/components/puzzle/PartnerScopeCard";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -82,6 +83,8 @@ const PURPOSE_OPTIONS = [
   { value: "air_tariff", label: "Tarif aérien" },
   { value: "pre_carriage", label: "Pré-acheminement" },
   { value: "documentation", label: "Documentation" },
+  { value: "stuffing_factory", label: "Empotage usine (Factory Stuffing)" },
+  { value: "stuffing_port_cfs", label: "Empotage port / CFS" },
   { value: "general", label: "Autre / Général" },
 ];
 
