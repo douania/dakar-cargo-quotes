@@ -1,34 +1,39 @@
 
 
-# COCKPIT-10 — Micro-correctif de clôture
+# COCKPIT-11 — Extraction de scope fournisseur multi-postes
 
 ## Problème
 
-`send-external-quote-request/index.ts` ligne 134 : `ai_generated: true` est factuellement incorrect. Le corps de l'email provient soit d'un texte opérateur (`purpose_detail`), soit d'un template déterministe — jamais d'une génération IA.
+L'application réduisait une demande client complexe (fret + origin charges + stuffing + surcharges) à un seul purpose générique. Le scope partenaire n'était pas structuré en amont.
 
 ## Correctif
 
-### Fichier unique : `supabase/functions/send-external-quote-request/index.ts`
+### Nouveau helper : `src/lib/partnerRequestScope.ts`
 
-Ligne 134 : remplacer `ai_generated: true` par `ai_generated: false`.
+- `derivePartnerRequestScope(facts, textSignal?)` → `PartnerScopeItem[]`
+- Détection déterministe de 4 blocs : `freight_rate`, `origin_charges`, `stuffing_factory`, `stuffing_port_cfs`
+- Garde-fou CTO : facts structurés = source primaire, texte email = signal complémentaire uniquement
 
-### Redéploiement
+### Nouveau composant : `src/components/puzzle/PartnerScopeCard.tsx`
 
-Déployer la function `send-external-quote-request` après modification.
+- Lecture seule, affiche les blocs détectés avec confiance (Élevée / Moyenne / Faible)
+- Placé au-dessus de PartnerSuggestionPanel dans ExternalRequestsPanel
 
-### Documentation
+### Templates enrichis
 
-Aucune mise à jour doc nécessaire — le lot COCKPIT-10 est déjà documenté dans plan.md et DEFERRED_BACKLOG.md.
-
-## Point 2 — Référence dossier dans purpose_detail
-
-Conformément à la recommandation CTO (option 1) : `purpose_detail` est la vérité opérateur. Si l'opérateur n'inclut pas la référence, c'est son choix. Aucun correctif code nécessaire. Le commentaire existant (ligne 102-104) documente déjà cette convention.
+- 2 nouveaux purposes : `stuffing_factory`, `stuffing_port_cfs`
+- Ajoutés dans `src/lib/partnerEmailTemplate.ts` et `supabase/functions/_shared/partner-email-template.ts` (synchronisés)
+- Ajoutés dans PURPOSE_OPTIONS (ExternalRequestsPanel) et PURPOSE_LABELS (PartnerSuggestionPanel)
 
 ## Blast radius
 
 | Fichier | Changement |
 |---------|-----------|
-| `send-external-quote-request/index.ts` | 1 ligne : `true` → `false` |
+| `src/lib/partnerRequestScope.ts` | Nouveau helper métier |
+| `src/components/puzzle/PartnerScopeCard.tsx` | Nouveau composant lecture seule |
+| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing) |
+| `supabase/functions/_shared/partner-email-template.ts` | Synchronisation |
+| `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + 2 options purpose |
+| `src/components/puzzle/PartnerSuggestionPanel.tsx` | +2 labels purpose |
 
-Aucune migration. Aucune zone FROZEN. Aucun autre fichier impacté.
-
+Aucune migration. Aucune zone FROZEN. Aucune mutation.
