@@ -83,10 +83,14 @@ serve(async (req: Request) => {
       .select("fact_key, value_text, value_number")
       .eq("case_id", case_id)
       .eq("is_current", true)
+      .select("fact_key, value_text, value_number, value_json")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
       .in("fact_key", [
         "cargo.description", "cargo.articles_detail",
         "cargo.container_type", "cargo.container_count",
         "cargo.weight_kg", "cargo.volume_cbm", "cargo.fcl_lcl",
+        "cargo.containers",
         "routing.origin_port", "routing.origin_country",
         "routing.destination_port", "routing.destination_city",
         "routing.destination_country", "routing.final_destination",

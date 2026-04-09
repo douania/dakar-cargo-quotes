@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { derivePartnerRequestScope, type PartnerScopeItem } from "@/lib/partnerRequestScope";
+import { buildFactMapWithSynthetics } from "@/lib/extractContainerSynthetics";
 import { Badge } from "@/components/ui/badge";
 import { Layers, CheckCircle2, AlertCircle } from "lucide-react";
 
@@ -26,7 +27,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("quote_facts")
-        .select("fact_key, value_text")
+        .select("fact_key, value_text, value_number, value_json")
         .eq("case_id", caseId)
         .eq("is_current", true)
         .in("fact_key", [
@@ -35,12 +36,10 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
           "routing.final_destination", "routing.incoterm",
           "cargo.description", "cargo.articles_detail", "cargo.container_type",
           "cargo.container_count", "cargo.weight_kg", "cargo.volume_cbm",
-          "cargo.fcl_lcl", "cargo.hs_code",
+          "cargo.fcl_lcl", "cargo.containers", "cargo.hs_code",
         ]);
       if (error) throw error;
-      const map: Record<string, string | null> = {};
-      for (const row of data ?? []) map[row.fact_key] = row.value_text;
-      return map;
+      return buildFactMapWithSynthetics(data ?? []);
     },
     staleTime: 30_000,
   });
