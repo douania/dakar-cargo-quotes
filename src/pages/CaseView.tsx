@@ -40,6 +40,7 @@ import {
   Mail,
   Send,
   Anchor,
+  Printer,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -921,11 +922,11 @@ export default function CaseView() {
 
   return (
     <MainLayout>
-      <div className="container mx-auto py-8 px-4 max-w-5xl">
+      <div className="container mx-auto py-8 px-4 max-w-5xl case-print-root" data-print-date={new Date().toLocaleDateString('fr-FR')}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <Button variant="ghost" onClick={() => navigate("/intake")} className="mb-2">
+            <Button variant="ghost" onClick={() => navigate("/intake")} className="mb-2 print:hidden">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Retour
             </Button>
@@ -938,6 +939,10 @@ export default function CaseView() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 print:hidden">
+              <Printer className="h-4 w-4" />
+              Imprimer PDF
+            </Button>
             <Badge className={TASK_STATUS_COLORS[caseData.status.toLowerCase()] || "bg-muted text-muted-foreground"}>
               {STATUS_LABELS[caseData.status] || caseData.status}
             </Badge>

@@ -168,3 +168,54 @@
     border-radius: 3px;
   }
 }
+
+/* Print styles for CaseView PDF export */
+@media print {
+  /* Hide app-level chrome only — NOT content headers */
+  [data-sidebar],
+  .sidebar-trigger,
+  header.sticky,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* SidebarInset: remove flex constraint */
+  [data-panel-group] {
+    display: block !important;
+  }
+
+  /* Full-width clean layout for case content */
+  .case-print-root {
+    margin: 0 !important;
+    padding: 1rem !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Print-friendly appearance */
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove decorative shadows */
+  .shadow-card,
+  .shadow-glow,
+  .shadow-ocean,
+  [class*="shadow-"] {
+    box-shadow: none !important;
+  }
+
+  /* Print header with case info */
+  .case-print-root::before {
+    content: "SODATRA — Export dossier — " attr(data-print-date);
+    display: block;
+    font-size: 10px;
+    color: #666;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 4px;
+    margin-bottom: 12px;
+  }
+}
