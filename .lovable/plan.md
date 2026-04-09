@@ -1,6 +1,7 @@
 
 
 
+
 # COCKPIT-11 — Extraction de scope fournisseur multi-postes (complet)
 
 ## Problème
@@ -34,13 +35,23 @@ L'application réduisait une demande client complexe (fret + origin charges + st
 - PartnerSuggestionPanel passe le scope au préremplissage
 - Synchronisation UI (`src/lib/partnerEmailTemplate.ts`) et edge (`_shared/partner-email-template.ts`)
 
+### Phase 4 — COCKPIT-11C : Hiérarchisation du scope dans l'email partenaire
+
+- **PURPOSE_INCLUDES enrichi** : `freight_rate` / `freight_maritime` passent de 4 à 8 items professionnels (vessel schedule, origin charges, surcharges BAF/CAF, port surcharges)
+- **origin_charges adapté SODATRA** : sans customs clearance par défaut (SODATRA garde le dédouanement)
+- **Promotion scope high/medium** : les blocs structurants (origin_charges, stuffing_factory, stuffing_port_cfs) avec confidence high ou medium sont promus dans le bloc principal via des labels synthétiques (`PROMOTION_LABELS`)
+- **confidence ?? "medium"** : absence de confidence traitée comme medium pour backward compatibility
+- **Déduplication renforcée** : `normalizeForDedup()` helper avec normalisation de synonymes (free days, surcharges, port surcharges, origin charges)
+- **Fallback scope vide simplifié** : "Conditions d'empotage, si applicable" (les anciens items du fallback sont désormais dans PURPOSE_INCLUDES enrichi)
+- Synchronisation stricte UI + edge function
+
 ## Blast radius
 
 | Fichier | Changement |
 |---------|-----------|
 | `src/lib/partnerRequestScope.ts` | Nouveau helper métier |
 | `src/components/puzzle/PartnerScopeCard.tsx` | Nouveau composant lecture seule |
-| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing), paramètre `scope`, agrégation multi-blocs |
+| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing), paramètre `scope`, agrégation multi-blocs, 11C: enrichissement + promotion + dedup |
 | `supabase/functions/_shared/partner-email-template.ts` | Synchronisation |
 | `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + threadId prop |
 | `src/components/puzzle/PartnerSuggestionPanel.tsx` | Branchement scope + derivePurpose enrichi + passage scope au template |
