@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Users, CheckCircle2, ArrowRight, Mail } from "lucide-react";
 import { buildPartnerEmailBody } from "@/lib/partnerEmailTemplate";
 import { derivePartnerRequestScope, type PartnerScopeItem } from "@/lib/partnerRequestScope";
+import { buildFactMapWithSynthetics } from "@/lib/extractContainerSynthetics";
 
 interface Props {
   caseId: string;
@@ -88,7 +89,7 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("quote_facts")
-        .select("fact_key, value_text")
+        .select("fact_key, value_text, value_number, value_json")
         .eq("case_id", caseId)
         .eq("is_current", true)
         .in("fact_key", [
@@ -97,17 +98,13 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
           "routing.final_destination", "routing.incoterm",
           "cargo.description", "cargo.articles_detail", "cargo.container_type",
           "cargo.container_count", "cargo.weight_kg", "cargo.volume_cbm",
-          "cargo.fcl_lcl",
+          "cargo.fcl_lcl", "cargo.containers",
           "cargo.hs_code", "cargo.value", "cargo.value_currency",
           "contacts.client_company", "contacts.client_email",
           "timing.loading_date",
         ]);
       if (error) throw error;
-      const map: Record<string, string | null> = {};
-      for (const row of data ?? []) {
-        map[row.fact_key] = row.value_text;
-      }
-      return map;
+      return buildFactMapWithSynthetics(data ?? []);
     },
     staleTime: 30_000,
   });

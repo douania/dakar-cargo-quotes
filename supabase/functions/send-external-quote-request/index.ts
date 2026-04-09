@@ -83,10 +83,14 @@ serve(async (req: Request) => {
       .select("fact_key, value_text, value_number")
       .eq("case_id", case_id)
       .eq("is_current", true)
+      .select("fact_key, value_text, value_number, value_json")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
       .in("fact_key", [
         "cargo.description", "cargo.articles_detail",
         "cargo.container_type", "cargo.container_count",
         "cargo.weight_kg", "cargo.volume_cbm", "cargo.fcl_lcl",
+        "cargo.containers",
         "routing.origin_port", "routing.origin_country",
         "routing.destination_port", "routing.destination_city",
         "routing.destination_country", "routing.final_destination",
@@ -116,8 +120,32 @@ serve(async (req: Request) => {
     } else {
       // Deterministic fallback using shared template
       const factMap: Record<string, string | null> = {};
+      let containersJson: Array<{ type?: string; quantity?: number }> | null = null;
       for (const f of facts || []) {
         factMap[f.fact_key] = f.value_text || (f.value_number != null ? String(f.value_number) : null);
+        if (f.fact_key === "cargo.containers" && f.value_json) {
+          containersJson = f.value_json as Array<{ type?: string; quantity?: number }>;
+        }
+      }
+      // COCKPIT-11D: Derive synthetic container keys from cargo.containers JSON
+      if (Array.isArray(containersJson) && containersJson.length > 0) {
+        const typeAgg: Record<string, number> = {};
+        for (const entry of containersJson) {
+          const t = (entry.type ?? "").trim();
+          const q = typeof entry.quantity === "number" ? entry.quantity : 0;
+          if (t && q > 0) typeAgg[t] = (typeAgg[t] || 0) + q;
+        }
+        const types = Object.keys(typeAgg);
+        const totalQty = Object.values(typeAgg).reduce((a, b) => a + b, 0);
+        if (totalQty > 0) {
+          if (types.length === 1) {
+            factMap["cargo.container_type"] = factMap["cargo.container_type"] || types[0];
+          } else if (types.length > 1) {
+            factMap["cargo.container_type"] = factMap["cargo.container_type"] || types.map(t => `${typeAgg[t]}x ${t}`).join(" + ");
+          }
+          factMap["cargo.container_count"] = factMap["cargo.container_count"] || String(totalQty);
+          factMap["cargo.fcl_lcl"] = factMap["cargo.fcl_lcl"] || "FCL";
+        }
       }
       bodyText = buildPartnerEmailBody(factMap, request.partner_name, request.purpose, caseRef);
     }
