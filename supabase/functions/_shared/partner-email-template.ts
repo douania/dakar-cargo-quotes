@@ -123,7 +123,7 @@ function normalizeForDedup(text: string): string {
   s = s.replace(/free days\s*\/?\s*detention[\s-]*demurrage/g, "free days");
   s = s.replace(/surcharges\s+[eé]ventuelles(\s*\(.*?\))?/g, "surcharges");
   s = s.replace(/port surcharges\s*\/?\s*local charges(\s+[eé]ventuels)?/g, "port surcharges");
-  s = s.replace(/origin charges\s+d[eé]taill[eé]s(\s*\(.*?\))?/g, "origin charges");
+  s = s.replace(/origin charges\s+d[eé]taill[eé]s(\s*\(.*?\))?(\s+au départ)?/g, "origin charges");
   return s;
 }
 
