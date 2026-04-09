@@ -263,6 +263,21 @@ Cela inclut les décisions formulées comme :
 | DT-RATE-TABLE | Table `terminal_tariff_codes` — 34 lignes storage (12 familles), handling et révision 419 à suivre | architecture | deferred | Moyenne | DT-V1 | 2026-04-02 | Table créée + peuplement storage Dakar Terminal 2014 : **34 lignes** (12 familles, P1/P2/P3). 33 `official`, 1 `to_confirm` (419/P1). Vague 2 (2026-04-03) : ajout familles 411 (RIZ en sacs, `tonne_per_day`) et 415 (animaux vivants, `unit`). Couverture résultante : P1=100%, P2/P3=98.5%. **Gap résiduel : codes 520/620 (véhicules P2/P3) — référencés dans la nomenclature des désignations (pages 28-29, 32) mais taux FCFA absents du barème officiel page 34 — gap de la source elle-même, non injectés (règle 0-extrapolation).** ~14 désignations véhicules non résolubles en P2/P3. Notes corroboration sur 519/619. **Handling non injecté. DPW non injecté.** | Prochaine étape : investigation écart 419, puis éventuel peuplement handling ou intégration moteur. Codes 520/620 : injectable si source secondaire (facture TOM véhicules, grille post-2014) obtenue. | `public.terminal_tariff_codes` | grille officielle 2014 p.34 + factures TOM | Confirmé | Périmètre strictement magasinage / codification terminal. Ne pas étendre à la manutention ; DPW reste le référentiel séparé via `port_tariffs`. |
 | DT-2014-REVISION | Investigation écart taux P1 magasinage Dakar Terminal (grille 2014 vs facture TOM) | donnée | pending_validation | Basse | DT-V1 | 2026-04-02 | Écart observé à investiguer : code 419 (P1 magasinage) = 1 768 FCFA/T/j dans grille 2014 vs 1 964 FCFA/T/j sur facture TOM récente (+11%). P2 et P3 exacts. Cause possible : révision partielle, contexte TOM/TCD spécifique, arrondi, ou surcharge locale. | Obtention d'une grille Dakar Terminal post-2014, ou d'une deuxième facture TOM avec même code pour comparer | Grille 2014 page 34 (code 419), facture TOM (position 138) | grille officielle + facture réelle | Confirmé | Périmètre strictement magasinage / codification terminal. Ne pas étendre à la manutention ; DPW reste le référentiel séparé via `port_tariffs`. Ne pas utiliser le montant 2014 du code 419 comme vérité tarifaire sans consolidation. P2 (519) et P3 (619) exploitables tels quels |
 
+---
+
+## TARIFF-COHERENCE-1 — PORT_DAKAR_HANDLING vs DTHC/THC import
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-COHERENCE-1-DEBT |
+| **Catégorie** | Pricing / Déduplication |
+| **Statut** | `deferred` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | TARIFF-COHERENCE-1 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | Validation métier confirmant si PORT_DAKAR_HANDLING (15K) est un poste distinct ou un doublon du THC import DPW (930K). |
+| **Recommandation** | Ne pas fusionner PORT_DAKAR_HANDLING dans le dedup_group TERMINAL_HANDLING tant que la doctrine métier n'est pas arbitrée. Si doublon confirmé, ajouter `'PORT_DAKAR_HANDLING': 'TERMINAL_HANDLING'` dans DEDUP_GROUP_MAP. Si poste distinct, documenter la différence et conserver séparé. |
+
 
 ---
 
