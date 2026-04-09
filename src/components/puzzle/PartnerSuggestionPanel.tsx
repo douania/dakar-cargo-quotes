@@ -168,6 +168,16 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
   // Build already-contacted set (normalized)
   const contactedNames = new Set(existingRequests.map((r) => norm(r.partner_name)));
 
+  // COCKPIT-11: Derive scope from facts (priority source)
+  const scope = useMemo(
+    () => derivePartnerRequestScope({ facts: caseFacts }),
+    [caseFacts],
+  );
+  const scopePurposes = useMemo(
+    () => new Set(scope.map((s) => s.purpose)),
+    [scope],
+  );
+
   // Filter contacts by transport mode
   const transportMode = transportModeFact?.toLowerCase() ?? "";
   const isMaritime = transportMode.includes("marit") || transportMode.includes("sea") || transportMode.includes("mer");
@@ -193,7 +203,7 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
       role: c.default_role,
       notes: c.notes,
       serviceTypes: c.service_types,
-      purpose: derivePurpose(c.service_types, c.default_role, c.notes),
+      purpose: derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes),
       alreadyContacted: contactedNames.has(norm(c.company_name)),
     }))
     // Sort: not-yet-contacted first
