@@ -17,7 +17,7 @@ Dernière mise à jour : 2026-04-09
 | **Phase d'origine** | COCKPIT-11 |
 | **Date** | 2026-04-09 |
 | **Déclencheur de réouverture** | COCKPIT-11 Phase 2 — pré-création assistée de demandes multiples depuis le scope détecté |
-| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). Phase 2 : suggestion automatique de création multi-demandes. |
+| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). **11B livré** : `buildPartnerEmailBody` accepte un `scope` optionnel, agrégation multi-blocs avec déduplication, fallback prudent quand scope vide, PartnerSuggestionPanel passe le scope au préremplissage. Phase 2 : pré-création assistée de demandes multiples depuis le scope détecté. |
 
 ---
 

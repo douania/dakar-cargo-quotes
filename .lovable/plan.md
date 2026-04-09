@@ -1,45 +1,48 @@
 
 
-# COCKPIT-11B — Clôture + mise à jour documentation
 
-## Statut
+# COCKPIT-11 — Extraction de scope fournisseur multi-postes (complet)
 
-COCKPIT-11B est **validé CTO**. Le lot est complet et cohérent.
+## Problème
 
-## Correctifs restants
+L'application réduisait une demande client complexe (fret + origin charges + stuffing + surcharges) à un seul purpose générique. Le scope partenaire n'était pas structuré en amont.
 
-### 1. Mise à jour `.lovable/plan.md`
+## Correctif
 
-Ajouter la Phase 3 (COCKPIT-11B) au plan existant :
-- Nouveau paramètre `scope` dans `buildPartnerEmailBody`
-- Agrégation multi-blocs avec déduplication
-- Fallback prudent quand scope vide
+### Phase 1 (zip 52) — Détection et affichage
+
+- Nouveau helper `src/lib/partnerRequestScope.ts` : `derivePartnerRequestScope(facts, textSignal?)` → `PartnerScopeItem[]`
+- Détection déterministe de 4 blocs : `freight_rate`, `origin_charges`, `stuffing_factory`, `stuffing_port_cfs`
+- Garde-fou CTO : facts structurés = source primaire, texte email = signal complémentaire uniquement
+- Nouveau composant `PartnerScopeCard.tsx` : lecture seule, affiche les blocs détectés avec confiance
+- Templates enrichis : 2 nouveaux purposes (stuffing) synchronisés UI + edge
+
+### Phase 2 (zip 53) — Branchement suggestions → scope
+
+- `PartnerSuggestionPanel` importe et utilise `derivePartnerRequestScope`
+- `derivePurpose()` prend le scope détecté comme source prioritaire via `scopePurposes: Set<string>`
+- Hiérarchie de résolution : scope détecté → service_types → role/notes
+- `threadId` passé en prop pour cohérence avec PartnerScopeCard
+- Le brief prérempli utilise le purpose issu du scope détecté
+
+### Phase 3 (zip 54) — COCKPIT-11B : Email partenaire scope-aware
+
+- `buildPartnerEmailBody` accepte un paramètre optionnel `scope: PartnerScopeItem[]`
+- Introduction reste centrée sur le purpose principal
+- Bloc secondaire agrégé : "Merci également de préciser, si applicable :" avec items dédupliqués des autres blocs du scope
+- Fallback prudent quand scope vide et purpose freight : ajoute THC, surcharges, vessel schedule
 - PartnerSuggestionPanel passe le scope au préremplissage
-
-### 2. Mise à jour `docs/DEFERRED_BACKLOG.md`
-
-Mettre à jour l'entrée COCKPIT-11 :
-- Statut reste `done`
-- Ajouter mention de 11B (scope-aware email generation) comme livré
-- Déclencheur de réouverture : COCKPIT-11 Phase 2 (pré-création assistée multi-demandes) reste la suite logique
-
-### 3. Réserve mineure `partnerName`
-
-Le paramètre `partnerName` est présent dans la signature UI mais non utilisé dans le corps. Le edge function l'a renommé `_partnerName` (convention underscore). Aligner le fichier UI avec la même convention `_partnerName` pour clarifier l'intention.
+- Synchronisation UI (`src/lib/partnerEmailTemplate.ts`) et edge (`_shared/partner-email-template.ts`)
 
 ## Blast radius
 
 | Fichier | Changement |
 |---------|-----------|
-| `.lovable/plan.md` | Ajout Phase 3 (11B) |
-| `docs/DEFERRED_BACKLOG.md` | Mise à jour entrée COCKPIT-11 |
-| `src/lib/partnerEmailTemplate.ts` | `partnerName` → `_partnerName` (1 ligne) |
+| `src/lib/partnerRequestScope.ts` | Nouveau helper métier |
+| `src/components/puzzle/PartnerScopeCard.tsx` | Nouveau composant lecture seule |
+| `src/lib/partnerEmailTemplate.ts` | +2 purposes (stuffing), paramètre `scope`, agrégation multi-blocs |
+| `supabase/functions/_shared/partner-email-template.ts` | Synchronisation |
+| `src/components/puzzle/ExternalRequestsPanel.tsx` | Intégration PartnerScopeCard + threadId prop |
+| `src/components/puzzle/PartnerSuggestionPanel.tsx` | Branchement scope + derivePurpose enrichi + passage scope au template |
 
-Aucune migration. Aucune zone FROZEN. Aucune logique métier modifiée.
-
-## Suite logique
-
-Après ce micro-lot de clôture, les options sont :
-1. **COM-1A** — audit readiness final avant envoi réel
-2. **Validation terrain** — test sur vrais emails avant COM-1A
-
+Aucune migration. Aucune zone FROZEN. Aucune mutation.
