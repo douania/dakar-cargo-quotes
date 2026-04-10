@@ -184,6 +184,22 @@
     display: block !important;
   }
 
+  /* Fix: neutralize sidebar flex layout for full-width print */
+  .min-h-screen.flex {
+    display: block !important;
+  }
+
+  /* Fix: SidebarInset — remove all sidebar-relative positioning */
+  [data-sidebar] ~ main,
+  main.relative.flex.min-h-svh {
+    margin-left: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+  }
+
   /* Full-width clean layout for case content */
   .case-print-root {
     margin: 0 !important;
