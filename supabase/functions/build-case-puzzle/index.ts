@@ -1852,6 +1852,16 @@ Deno.serve(async (req) => {
       .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
       .join("\n\n---\n\n");
 
+    // SOURCE-GUARD-1: Build filtered context excluding outbound SODATRA emails
+    const inboundEmails = emails.filter(e => !isSodatraEmail(e.from_address));
+    const filteredOutCount = emails.length - inboundEmails.length;
+    if (filteredOutCount > 0) {
+      console.log(`[SOURCE-GUARD] Filtered ${filteredOutCount} outbound SODATRA email(s) from fact extraction context (kept ${inboundEmails.length}/${emails.length})`);
+    }
+    const inboundThreadContext = inboundEmails
+      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
+      .join("\n\n---\n\n");
+
     const attachmentContext = (attachments || [])
       .filter((a) => a.extracted_text || a.extracted_data)
       .map((a) => `[Attachment: ${a.filename}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
@@ -1868,9 +1878,9 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join("\n\n");
 
-    // 7. Call AI for fact extraction
+    // 7. Call AI for fact extraction (uses INBOUND context only — SOURCE-GUARD-1)
     const extractedFacts = await extractFactsWithAI(
-      threadContext,
+      inboundThreadContext,
       fullAttachmentContext,
       emails,
       attachments || [],
