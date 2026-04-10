@@ -63,6 +63,13 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
   const tariffLines = pricingRun.tariff_lines || [];
   const tariffSources = pricingRun.tariff_sources || [];
   const toConfirmCount = tariffLines.filter((l: any) => l.source?.type === 'TO_CONFIRM').length;
+  const informationalCount = tariffLines.filter((l: any) => {
+    const v = l.amount ?? l.total;
+    return l.source?.type !== 'TO_CONFIRM' && v === 0 && (
+      l.source?.type === 'business_rule' || l.source?.type === 'OFFICIAL'
+    );
+  }).length;
+  const calculatedCount = tariffLines.length - toConfirmCount - informationalCount;
   const nextVersionNumber = versions.length > 0
     ? Math.max(...versions.map(v => v.version_number)) + 1
     : 1;
@@ -205,6 +212,11 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
           <div className="text-center">
             <p className="text-2xl font-bold">{tariffLines.length}</p>
             <p className="text-xs text-muted-foreground">Lignes tarifaires</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {calculatedCount} calculées · {toConfirmCount > 0 && <span className="text-amber-600 dark:text-amber-400">{toConfirmCount} à confirmer</span>}
+              {toConfirmCount > 0 && informationalCount > 0 && ' · '}
+              {informationalCount > 0 && <span>{informationalCount} info</span>}
+            </p>
           </div>
           <div className="text-center">
             {toConfirmCount > 0 ? (
@@ -237,6 +249,16 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
             <p className="text-xs text-muted-foreground">Versions créées</p>
           </div>
         </div>
+
+        {/* Provisional total warning */}
+        {toConfirmCount > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              <span className="font-medium">Total provisoire</span> — {toConfirmCount} poste{toConfirmCount > 1 ? 's' : ''} en attente de confirmation
+            </p>
+          </div>
+        )}
 
         {/* Tariff Sources */}
         {tariffSources.length > 0 && (
@@ -290,9 +312,12 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                         <tbody>
                           {lotLines.slice(0, showAllLotLines[lot.lot_index] ? lotLines.length : 15).map((line: any, idx: number) => {
                             const value = line.amount ?? line.total;
-                            const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
+                            const isToConfirm = line.source?.type === 'TO_CONFIRM';
+                            const isInformational = !isToConfirm && value === 0 && (
+                              line.source?.type === 'business_rule' || line.source?.type === 'OFFICIAL'
+                            );
                             return (
-                              <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
+                              <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : isInformational ? 'opacity-60' : ''}`}>
                                 <td className="p-2 font-mono text-xs">
                             {line.service_code || line.charge_code || line.category || `L${idx + 1}`}
                           </td>
@@ -303,7 +328,14 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                                   {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
                                 </span>
                               ) : (
-                                (line.description || line.charge_name || line.label || '').substring(0, 40)
+                                <span>
+                                  {(line.description || line.charge_name || line.label || '').substring(0, 40)}
+                                  {isInformational && (
+                                    <span className="ml-1 text-[10px] text-muted-foreground italic">
+                                      {line.explanation ? `— ${line.explanation.substring(0, 35)}` : '(informatif)'}
+                                    </span>
+                                  )}
+                                </span>
                               )}
                               <LineProvenanceBadges canonical={line.canonical} />
                             </div>
@@ -316,6 +348,8 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                                     </Badge>
                                   ) : value == null ? (
                                     <span className="text-muted-foreground">—</span>
+                                  ) : isInformational ? (
+                                    <span className="text-muted-foreground">{formatAmount(value)}</span>
                                   ) : (
                                     formatAmount(value)
                                   )}
@@ -388,9 +422,12 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                   <tbody>
                     {tariffLines.slice(0, showAllLines ? tariffLines.length : 10).map((line: any, idx: number) => {
                       const value = line.amount ?? line.total;
-                      const isToConfirm = value == null && line.source?.type === 'TO_CONFIRM';
+                      const isToConfirm = line.source?.type === 'TO_CONFIRM';
+                      const isInformational = !isToConfirm && value === 0 && (
+                        line.source?.type === 'business_rule' || line.source?.type === 'OFFICIAL'
+                      );
                       return (
-                        <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
+                        <tr key={idx} className={`border-t ${isToConfirm ? 'bg-amber-50/60 dark:bg-amber-950/20' : isInformational ? 'opacity-60' : ''}`}>
                           <td className="p-2 font-mono text-xs">
                             {line.service_code || line.charge_code || line.category || `L${idx + 1}`}
                           </td>
@@ -401,7 +438,14 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                                   {(line.source?.note || line.description || line.charge_name || line.label || '').substring(0, 50)}
                                 </span>
                               ) : (
-                                (line.description || line.charge_name || line.label || '').substring(0, 40)
+                                <span>
+                                  {(line.description || line.charge_name || line.label || '').substring(0, 40)}
+                                  {isInformational && (
+                                    <span className="ml-1 text-[10px] text-muted-foreground italic">
+                                      {line.explanation ? `— ${line.explanation.substring(0, 35)}` : '(informatif)'}
+                                    </span>
+                                  )}
+                                </span>
                               )}
                               <LineProvenanceBadges canonical={line.canonical} />
                             </div>
@@ -414,6 +458,8 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                               </Badge>
                             ) : value == null ? (
                               <span className="text-muted-foreground">—</span>
+                            ) : isInformational ? (
+                              <span className="text-muted-foreground">{formatAmount(value)}</span>
                             ) : (
                               formatAmount(value)
                             )}

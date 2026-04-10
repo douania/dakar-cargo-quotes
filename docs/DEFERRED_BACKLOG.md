@@ -399,6 +399,22 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | **Déclencheur de réouverture** | Dépend de COM-1A (envoi SMTP réel). Quand COM-1A sera livré, le bouton "Marquer envoyé" pourra être remplacé par un vrai bouton "Envoyer" avec envoi effectif. |
 | **Recommandation** | Ajouter un envoi SMTP réel derrière le bouton "Envoyer la clarification" dans ReadyActionsPanel. Nécessite l'intégration SMTP (COM-1A). En attendant, le workflow est : copier le message → envoyer manuellement → marquer envoyé dans l'app. |
 
+---
+
+## PORT-DAKAR-HANDLING-AUDIT — Validation métier PORT_DAKAR_HANDLING
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PORT-DAKAR-HANDLING-AUDIT |
+| **Catégorie** | Pricing / Tariff validation |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | PRICING-AUDIT-1 |
+| **Date** | 2026-04-10 |
+| **Déclencheur de réouverture** | (1) Retour métier sur la légitimité du poste PORT_DAKAR_HANDLING distinct de THC IMPORT. (2) Confiance actuelle = 69% (faible). (3) Le commentaire L302 dans run-pricing exclut explicitement ce poste du dedup DTHC en attendant validation. |
+| **Recommandation** | Ne pas supprimer le poste. Attendre validation métier explicite avant de l'inclure ou l'exclure définitivement. Le `dedup_group` est `PORT_DAKAR_HANDLING` (distinct de `TERMINAL_HANDLING` pour DTHC), donc pas de doublon technique, mais la justification métier reste à confirmer. |
+
+---
 
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
