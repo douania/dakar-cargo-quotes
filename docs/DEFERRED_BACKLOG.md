@@ -2,7 +2,22 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-09
+Dernière mise à jour : 2026-04-10
+
+---
+
+## SOURCE-GUARD-1-DEBT — Tagging systématique sender_role sur les emails
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | SOURCE-GUARD-1-DEBT |
+| **Catégorie** | Data provenance / Email pipeline |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | SOURCE-GUARD-1 |
+| **Date** | 2026-04-10 |
+| **Déclencheur de réouverture** | (1) Nouveaux domaines SODATRA ou partenaires non couverts par le domain matching. (2) Besoin de filtrage plus fin (ex: distinguer client vs fournisseur vs partenaire). (3) Chemin doc-regex qui extrait des montants depuis des documents internes SODATRA. |
+| **Recommandation** | Implémenter un vrai champ `sender_role` (client/internal/partner) sur la table `emails` au moment de l'import (`sync-emails`), plutôt que le domain matching à chaque extraction. Cela permettrait un filtrage plus robuste, extensible, et éviterait de dupliquer la liste de domaines SODATRA dans chaque edge function. Le chemin doc-regex (`L2588-2702`) est un risque secondaire non traité par SOURCE-GUARD-1. |
 
 ---
 
