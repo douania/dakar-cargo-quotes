@@ -10,6 +10,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { toFactPayload } from "@/pages/case-view/helpers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -168,7 +169,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     staleTime: 30_000,
     enabled: !!caseId,
     queryFn: async () => {
-      const [caseRes, gapsRes, clientGapsRes, reqRes, factsRes, versionsRes] =
+      const [caseRes, gapsRes, clientGapsRes, reqRes, factsRes, versionsRes, currentFactsRes] =
         await Promise.all([
           supabase
             .from("quote_cases")
@@ -201,6 +202,11 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             .eq("case_id", caseId)
             .eq("is_selected", true)
             .limit(1),
+          supabase
+            .from("quote_facts")
+            .select("fact_key, value_text, value_number")
+            .eq("case_id", caseId)
+            .eq("is_current", true),
         ]);
 
       const status = caseRes.data?.status ?? "INTAKE";
@@ -223,7 +229,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
-      // P0-B: detect unapplied reply_analysis facts from existing timeline query (no new DB call)
+      // P0-B: detect unapplied reply_analysis facts — same logic as isFactAlreadyApplied() in CaseView
       const replyAnalysis = (draftEvents ?? []).find(
         (e: any) => e.event_data?.kind === "reply_analysis_v1"
       );
@@ -232,8 +238,20 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       const proposedFacts: unknown[] = Array.isArray(raAnalysis?.proposed_facts)
         ? raAnalysis.proposed_facts
         : [];
-      // We consider facts "unapplied" if proposed_facts exist — the section handles exact applied state
-      const hasProposedFacts = proposedFacts.length > 0;
+      const currentFacts = currentFactsRes.data ?? [];
+      const unappliedFacts = proposedFacts.filter((f: any) => {
+        const payload = toFactPayload(f);
+        if (!payload) return false;
+        return !currentFacts.some((existing: any) => {
+          if (existing.fact_key !== payload.fact_key) return false;
+          if (payload.value_number !== null)
+            return Number(existing.value_number) === Number(payload.value_number);
+          if (payload.value_text !== null)
+            return String(existing.value_text ?? "").trim() === payload.value_text;
+          return false;
+        });
+      });
+      const hasProposedFacts = unappliedFacts.length > 0;
 
       return {
         status,
