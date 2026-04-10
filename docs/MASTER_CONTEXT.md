@@ -1,8 +1,8 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.4
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1
-Latest patch: COCKPIT-5 Phase 1 livré — suggestion partenaires prudente, validé fonctionnellement sur dossier maritime réel
-Date: 2026-04
+Version: 1.5
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX
+Latest patch: DOC-ALIGN-1 — alignement documentaire complet repo ↔ état réel
+Date: 2026-04-10
 
 ---
 
@@ -328,6 +328,50 @@ Les fonctions suivantes ont été supprimées comme dead code confirmé :
 
 ---
 
+## Lots récents (2026-04-09 → 2026-04-10)
+
+| Lot | Date | Résumé |
+|-----|------|--------|
+| SOURCE-GUARD-1 | 2026-04-10 | Filtrage emails domaines SODATRA hors contexte extraction IA dans build-case-puzzle |
+| SOURCE-GUARD-2 | 2026-04-10 | Classification provenance emails + blocage facts monétaires sensibles (internal/partner/unknown) + skip doc-regex documents internes |
+| FLOW-FIX-1 | 2026-04-09 | Normalisation pays ISO + inférence port Sénégal dans build-case-puzzle |
+| PAD-GAP-1 | 2026-04-09 | pricing.pad_category comme gap structurel pricing détecté par build-case-puzzle |
+| PAD-GAP-SYNC-1 | 2026-04-09 | Synchronisation gaps → actions client via sync-gap-client-actions |
+| ORCH-ACTION-1 | 2026-04-09 | ReadyActionsPanel comme couche opératoire principale dans CaseView |
+| ORCH-SYNC-2 | 2026-04-10 | Alignement bloc Actions CaseView + guard hasBlockingGaps sur actions internes ReadyActionsPanel |
+| PRICING-AUDIT-1 | 2026-04-10 | Distinction À confirmer / Estimé / Informatif dans PricingResultPanel + résumé fiabilité |
+| CARRIER-PORT-TAX-1B-A | 2026-04-10 | Injection carrier charges IMPORT (carrier connu) — suppression guard isTransit sur quotation-engine (exception STRUCTURAL_PATCH_ALLOWED) |
+| CLIENT-GAP-POLICY-FIX | 2026-04-10 | pricing.pad_category ajouté à CLIENT_RESOLVABLE_GAP_KEYS + GAP_QUESTION_MAP dans client-gap-policy.ts |
+
+Détails d'exécution : voir `.lovable/plan.md`.
+Dettes et sujets reportés : voir `docs/DEFERRED_BACKLOG.md`.
+
+---
+
+## SOURCE-GUARD — Protection provenance facts (2026-04-10)
+
+Edge function : `build-case-puzzle` (FROZEN — exception SOURCE-GUARD)
+
+### Problème métier
+
+Risque de « contamination des faits » : un prix proposé par SODATRA dans un email sortant peut être ré-extrait comme un coût de fret entrant, faussant le pricing.
+
+### Mécanisme
+
+1. **SG-1 — Filtrage contexte extraction IA** : les emails des domaines internes (`@sodatra.sn`, `@sodatra.com`) sont exclus du contexte fourni à l'IA pour l'extraction de facts
+2. **SG-2 — Classification provenance + garde monétaire** :
+   - Chaque email est classifié par `classifyEmailProvenance()` (client / internal / partner / unknown) via domain matching
+   - Les facts monétaires sensibles (`cargo.value`, `cargo.freight_cost`, etc.) sont bloqués si la provenance n'est pas `client`
+   - Seule la provenance `client` démontrée autorise l'extraction de facts monétaires
+3. **SG-2 doc-regex** : les documents internes (devis, brouillons SODATRA) sont ignorés lors de l'extraction par regex
+
+### Limitations connues
+
+- Le domain matching est heuristique et ne couvre pas les cas multi-domaines (clients utilisant Gmail/Outlook)
+- Pas de champ `sender_role` persisté sur la table `emails` — voir `SOURCE-GUARD-DEBT` dans `docs/DEFERRED_BACKLOG.md`
+
+---
+
 ## Modules FROZEN
 
 Ne pas modifier :
@@ -532,6 +576,44 @@ Le badge `request_type` du dossier restera un type import (ex: `SEA_FCL_IMPORT`)
 
 - Exception validée pour Export Sénégal gap profile uniquement
 - `build-case-puzzle` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
+
+---
+
+## Exception contrôlée — CARRIER-PORT-TAX-1B-A sur quotation-engine (2026-04-10)
+
+Edge function : `quotation-engine/index.ts` (FROZEN)
+Justification : STRUCTURAL_PATCH_ALLOWED
+
+### Problème métier
+
+Le moteur `quotation-engine` chargeait les carrier charges pour toutes les opérations via `fetchCarrierCharges()`, mais ne les injectait que pour les dossiers TRANSIT (`if (isTransit && carrierCharges.length > 0)`). Les charges carrier IMPORT (TXI, HTF, etc.) étaient donc ignorées même quand le carrier était connu et les données chargées.
+
+### Patch autorisé
+
+Suppression de la condition `isTransit &&` sur l'injection carrier charges (~L1457). Le bloc d'injection existant (PER_BL, PER_CNT, PER_TEU) est déjà générique et fonctionne pour tous les types d'opération.
+
+### Garde naturelle
+
+Quand `carrier` est absent, `fetchCarrierCharges` ne retourne que les templates `GENERIC` (aucun pour import), donc `carrierCharges.length === 0` → le bloc n'est pas exécuté. Aucun faux positif.
+
+### Justification de l'exception
+
+1. **Corrige un manque réel** — charges carrier IMPORT systématiquement absentes du pricing
+2. **Périmètre strictement localisé** — 1 condition supprimée, bloc existant inchangé
+3. **Aucun refactor global** — suppression d'un guard restrictif uniquement
+4. **Préservation de l'intégrité** — aucune modification des données ou du calcul
+5. **Idempotence préservée** — le bloc d'injection est déjà idempotent
+6. **Garde naturelle** — carrier absent → carrierCharges vide → bloc non exécuté
+
+### Option B reportée
+
+La stratégie "carrier inconnu → provisionnement prudent sur plus haute valeur fixe connue" est documentée dans `docs/DEFERRED_BACKLOG.md` (ID: `CARRIER-PORT-TAX-1B`) comme décision produit à arbitrer séparément.
+
+### Statut
+
+- Exception validée pour CARRIER-PORT-TAX-1B-A uniquement
+- `quotation-engine` reste FROZEN par défaut
 - Toute modification future nécessite une nouvelle justification explicite
 
 ---
