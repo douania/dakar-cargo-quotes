@@ -1347,6 +1347,7 @@ export default function CaseView() {
             </Card>
           );
         })()}
+        </div>
 
         {allDrafts.length > 0 && (
           <Card>
