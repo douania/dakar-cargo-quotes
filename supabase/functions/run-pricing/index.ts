@@ -1695,7 +1695,7 @@ Deno.serve(async (req) => {
 
       // ═══ PAD-GAP-1: Gap bloquant si PAD applicable mais catégorie non résolue ═══
       // Condition identique au bloc terminal storage (maritime + description + poids > 0)
-      if (!inputs.padCategory && isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
+      if (!inputs.padCategory && isMaritime && inputs.cargoDescription) {
         try {
           // Idempotent: ne pas dupliquer si gap existe déjà (ouvert)
           const { data: existingGap } = await serviceClient
@@ -1707,15 +1707,19 @@ Deno.serve(async (req) => {
             .maybeSingle();
 
           if (!existingGap) {
+            const weightMissing = !inputs.cargoWeight || inputs.cargoWeight <= 0;
+            const questionText = weightMissing
+              ? `Pourriez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`
+              : `Pourriez-vous préciser la nature exacte de la marchandise (ex: matériaux de construction, produits chimiques, équipements industriels, céréales, véhicules, etc.) ? Cette information est nécessaire pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`;
             await serviceClient.from('quote_gaps').insert({
               case_id: caseId,
               gap_key: 'pricing.pad_category',
               gap_category: 'pricing',
-              question_fr: `Pourriez-vous préciser la nature exacte de la marchandise (ex: matériaux de construction, produits chimiques, équipements industriels, céréales, véhicules, etc.) ? Cette information est nécessaire pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`,
+              question_fr: questionText,
               is_blocking: true,
               status: 'open',
             });
-            console.log(`[PAD-GAP] Gap bloquant créé: pricing.pad_category (description="${inputs.cargoDescription}")`);
+            console.log(`[PAD-GAP] Gap bloquant créé: pricing.pad_category (description="${inputs.cargoDescription}", weightMissing=${weightMissing})`);
           } else {
             console.log(`[PAD-GAP] Gap pricing.pad_category déjà ouvert (id=${existingGap.id}) — skip`);
           }
@@ -1734,7 +1738,7 @@ Deno.serve(async (req) => {
               amount: 0,
               currency: 'FCFA',
               unit: 'tonne',
-              quantity: inputs.cargoWeight,
+              quantity: inputs.cargoWeight || 0,
               unitPrice: 0,
               source: {
                 type: 'TO_CONFIRM',
@@ -1744,7 +1748,7 @@ Deno.serve(async (req) => {
               isEditable: false,
             }, { origin_layer: 'enrichment_pad' }));
             engineResponse.lines = engineLines;
-            console.log(`[PAD-GAP] Ligne placeholder PAD TO_CONFIRM ajoutée (poids=${inputs.cargoWeight}t)`);
+            console.log(`[PAD-GAP] Ligne placeholder PAD TO_CONFIRM ajoutée (poids=${inputs.cargoWeight || 0}t)`);
           }
         } catch (padGapErr) {
           console.warn('[PAD-GAP] Gap creation failed (non-blocking):', padGapErr);
