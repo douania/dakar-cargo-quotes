@@ -43,6 +43,8 @@ export function usePartnerSuggestions(caseId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ["external-requests", caseId] });
     queryClient.invalidateQueries({ queryKey: ["external-responses", caseId] });
     queryClient.invalidateQueries({ queryKey: ["external-response-facts", caseId] });
+    // P1-A: unified cockpit state
+    queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] });
   };
 
   const scanSuggestions = useMutation({

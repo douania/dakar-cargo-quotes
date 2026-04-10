@@ -179,6 +179,8 @@ export function DecisionSupportPanel({ caseId }: Props) {
       toast.success('Pricing débloqué - prêt pour le calcul');
       queryClient.invalidateQueries({ queryKey: ['quote-case-status'] });
       queryClient.invalidateQueries({ queryKey: ['quote-case'] });
+      // P1-A: unified cockpit state
+      queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
       toast.error(`Échec du déblocage: ${errorMessage}`);

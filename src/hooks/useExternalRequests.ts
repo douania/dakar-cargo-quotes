@@ -103,6 +103,8 @@ export function useExternalRequests(caseId: string | undefined) {
     queryClient.invalidateQueries({ queryKey });
     queryClient.invalidateQueries({ queryKey: ["external-responses", caseId] });
     queryClient.invalidateQueries({ queryKey: ["external-response-facts", caseId] });
+    // P1-A: unified cockpit state
+    queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] });
   };
 
   const createRequest = useMutation({
