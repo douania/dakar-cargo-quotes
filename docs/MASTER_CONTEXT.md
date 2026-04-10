@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
 Version: 1.5
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX
-Latest patch: DOC-ALIGN-1 — alignement documentaire complet repo ↔ état réel
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A
+Latest patch: P1-A — moteur unique de lecture d'état cockpit (useCockpitState + cockpitStatusConstants)
 Date: 2026-04-10
 
 ---
