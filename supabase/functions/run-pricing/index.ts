@@ -1702,7 +1702,7 @@ Deno.serve(async (req) => {
           const { data: existingGap } = await serviceClient
             .from('quote_gaps')
             .select('id')
-            .eq('case_id', caseId)
+            .eq('case_id', case_id)
             .eq('gap_key', 'pricing.pad_category')
             .eq('status', 'open')
             .maybeSingle();
@@ -1713,7 +1713,7 @@ Deno.serve(async (req) => {
               ? `Pourriez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`
               : `Pourriez-vous préciser la nature exacte de la marchandise (ex: matériaux de construction, produits chimiques, équipements industriels, céréales, véhicules, etc.) ? Cette information est nécessaire pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`;
             await serviceClient.from('quote_gaps').insert({
-              case_id: caseId,
+              case_id,
               gap_key: 'pricing.pad_category',
               gap_category: 'pricing',
               question_fr: questionText,
