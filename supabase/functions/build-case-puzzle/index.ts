@@ -14,6 +14,43 @@ function isSodatraEmail(email: string): boolean {
   return SODATRA_DOMAINS.some(d => domain?.includes(d));
 }
 
+// --- SOURCE-GUARD-2: Provenance classification & monetary fact protection ---
+type MessageProvenance = 'internal_sodatra' | 'partner' | 'client' | 'unknown';
+
+function classifyEmailProvenance(
+  fromAddress: string,
+  clientEmail: string | null,
+  partnerEmail: string | null
+): MessageProvenance {
+  if (isSodatraEmail(fromAddress)) return 'internal_sodatra';
+  const from = fromAddress.toLowerCase();
+  const fromDomain = from.split('@')[1];
+  if (!fromDomain) return 'unknown';
+  if (partnerEmail) {
+    const partnerDomain = partnerEmail.split('@')[1]?.toLowerCase();
+    if (partnerDomain && fromDomain === partnerDomain) return 'partner';
+  }
+  if (clientEmail) {
+    const clientDomain = clientEmail.split('@')[1]?.toLowerCase();
+    if (clientDomain && fromDomain === clientDomain) return 'client';
+  }
+  return 'unknown';
+}
+
+// Sensitive monetary facts: require proven client provenance
+const SENSITIVE_MONETARY_FACTS = new Set([
+  'cargo.freight_cost',
+  'cargo.freight_currency',
+  'cargo.value',
+  'cargo.value_currency',
+]);
+
+// Internal document types that should not be scanned for cargo facts
+const INTERNAL_DOC_TYPES = new Set([
+  'quotation_draft', 'quotation_sent', 'internal_note',
+  'devis', 'proforma_sent',
+]);
+
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
 function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
@@ -1780,7 +1817,7 @@ Deno.serve(async (req) => {
     // 3. Load case and verify ownership
     const { data: caseData, error: caseError } = await serviceClient
       .from("quote_cases")
-      .select("*, email_threads(id, subject_normalized)")
+      .select("*, email_threads(id, subject_normalized, client_email, partner_email)")
       .eq("id", case_id)
       .single();
 
@@ -1946,7 +1983,40 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const fact of extractedFacts) {
+    // SOURCE-GUARD-2: Post-extraction provenance filter for sensitive monetary facts
+    const threadClientEmail = (caseData as any)?.email_threads?.client_email || null;
+    const threadPartnerEmail = (caseData as any)?.email_threads?.partner_email || null;
+    let sg2Blocked = 0;
+
+    const guardedFacts = extractedFacts.filter(fact => {
+      if (!SENSITIVE_MONETARY_FACTS.has(fact.key)) return true;
+
+      // Check provenance via sourceEmailId
+      if (fact.sourceEmailId) {
+        const sourceEmail = emails.find(e => e.id === fact.sourceEmailId);
+        if (sourceEmail) {
+          const prov = classifyEmailProvenance(
+            sourceEmail.from_address, threadClientEmail, threadPartnerEmail
+          );
+          if (prov === 'client') return true; // Allowed
+          // internal_sodatra, partner, unknown → block
+          console.log(`[SOURCE-GUARD-2] BLOCKED ${fact.key} (provenance=${prov}, from=${sourceEmail.from_address})`);
+          sg2Blocked++;
+          return false;
+        }
+      }
+
+      // No sourceEmailId or email not found → block sensitive monetary facts (prudent)
+      console.log(`[SOURCE-GUARD-2] BLOCKED ${fact.key} (no provable client provenance, sourceEmailId=${fact.sourceEmailId || 'none'})`);
+      sg2Blocked++;
+      return false;
+    });
+
+    if (sg2Blocked > 0) {
+      console.log(`[SOURCE-GUARD-2] Total blocked: ${sg2Blocked} sensitive monetary fact(s)`);
+    }
+
+    for (const fact of guardedFacts) {
       try {
         // --- HS Code guard: validate against hs_codes table before injection ---
         if (fact.key === "cargo.hs_code") {
@@ -2609,6 +2679,11 @@ Deno.serve(async (req) => {
       let bestDocName = '';
       for (const doc of (caseDocuments || [])) {
         if (!doc.extracted_text) continue;
+        // SOURCE-GUARD-2: Skip internal/quotation documents from cargo value extraction
+        if (doc.document_type && INTERNAL_DOC_TYPES.has(doc.document_type)) {
+          console.log(`[SOURCE-GUARD-2] Skipping doc-regex on internal document "${doc.file_name}" (type: ${doc.document_type})`);
+          continue;
+        }
         console.log(`[cargo-value doc-regex] Text preview from "${doc.file_name || 'unknown'}":`, (doc.extracted_text || "").slice(0, 400));
         const candidate = extractCargoValueFromText(doc.extracted_text);
         console.log(`[cargo-value doc-regex] Candidate from "${doc.file_name || 'unknown'}":`, JSON.stringify(candidate));

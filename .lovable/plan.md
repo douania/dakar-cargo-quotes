@@ -105,3 +105,54 @@ Résultat : une action pour `routing.destination_port` restait affichée alors q
 - Pas de modification backend
 - Pas de création d'action timeline pour `pricing.pad_category`
 - Pas de refactor global
+
+---
+
+# SOURCE-GUARD-2 — Séparer proprement facts client, facts partenaires et facts internes
+
+## Statut : DONE (2026-04-10)
+
+### Diagnostic confirmé
+
+1. **SOURCE-GUARD-1** filtre le contexte AI (emails SODATRA exclus)
+2. **Filière partenaire** déjà séparée (`external_quote_response_facts`) — aucun risque direct
+3. **Risques résiduels** : (a) hallucination AI malgré Rule 9, (b) doc-regex sur documents internes
+
+### Correctifs appliqués
+
+1. **`classifyEmailProvenance`** (L16-35)
+   - Classification : `internal_sodatra` | `partner` | `client` | `unknown`
+   - Basé sur domain matching avec `client_email`/`partner_email` du thread
+
+2. **`SENSITIVE_MONETARY_FACTS`** (L38-43)
+   - Set protégé : `cargo.freight_cost`, `cargo.freight_currency`, `cargo.value`, `cargo.value_currency`
+
+3. **Post-extraction guard** (~L1990-2020)
+   - Filtre `extractedFacts` → `guardedFacts` avant promotion vers `quote_facts`
+   - Règle stricte : facts monétaires sensibles autorisés **uniquement** si provenance = `client`
+   - `unknown` → bloqué (pas traité comme client)
+   - `sourceEmailId` absent → bloqué prudemment
+   - Logs `[SOURCE-GUARD-2] BLOCKED {key} (provenance={prov})`
+
+4. **Doc-regex guard** (~L2685)
+   - Documents de type `quotation_draft`, `quotation_sent`, `internal_note`, `devis`, `proforma_sent` exclus du scan cargo value
+   - Log `[SOURCE-GUARD-2] Skipping doc-regex on internal document`
+
+5. **Thread metadata enrichi** (L1822)
+   - Query `email_threads` étendue avec `client_email, partner_email`
+
+### Fichiers impactés
+
+| Fichier | Changement |
+|---------|-----------|
+| `supabase/functions/build-case-puzzle/index.ts` | `classifyEmailProvenance` + post-extraction guard + doc-regex guard (~70 lignes) |
+| `.lovable/plan.md` | Documentation SOURCE-GUARD-2 |
+| `docs/DEFERRED_BACKLOG.md` | SOURCE-GUARD-1-DEBT → SOURCE-GUARD-DEBT (consolidé) |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration DB
+- Pas de nouveau composant UI
+- Pas de modification de `run-pricing` ni `analyze-partner-response`
+- Pas de reroutage des partner facts vers `quote_facts`
+- Pas de suppression massive d'anciens facts
