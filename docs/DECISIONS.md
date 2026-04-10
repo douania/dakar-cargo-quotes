@@ -1,5 +1,14 @@
 # DECISIONS — Dakar Cargo Quotes
 
+> **Document historique** — Ce fichier couvre les décisions fondamentales D1-D7 (phases initiales).
+> Les décisions structurantes postérieures sont documentées dans :
+> - `docs/MASTER_CONTEXT.md` (source de vérité architecture et lots)
+> - `docs/DEFERRED_BACKLOG.md` (sujets reportés, dettes, options différées)
+>
+> Ce fichier est conservé pour référence historique et n'est plus activement maintenu.
+
+---
+
 ## D1 — Direction produit
 Construire un moteur conversationnel structuré avant toute autonomie.
 

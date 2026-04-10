@@ -58,3 +58,36 @@ La stratégie "carrier inconnu → provisionnement prudent sur plus haute valeur
 - `supabase/functions/quotation-engine/index.ts` — suppression guard `isTransit` sur injection carrier charges
 - `docs/DEFERRED_BACKLOG.md` — Option B documentée
 - `.lovable/plan.md` — documentation
+
+---
+
+## CLIENT-GAP-POLICY-FIX — pricing.pad_category ajouté comme gap client-résolvable ✅ DONE
+
+### Problème
+Le bouton "Générer brouillon client" dans CaseView échouait silencieusement quand le seul gap ouvert était `pricing.pad_category`. La chaîne `sync-gap-client-actions` → `generate-reply-draft` ne produisait aucune action car `pricing.pad_category` n'était pas dans la whitelist `CLIENT_RESOLVABLE_GAP_KEYS`.
+
+### Diagnostic
+1. `sync-gap-client-actions` filtre les gaps via `isClientResolvableGap()` — `pricing.pad_category` absent → `no_client_resolvable_gaps`
+2. `generate-reply-draft` utilise exclusivement `GAP_QUESTION_MAP` pour formuler les questions — pas de fallback sur `quote_gaps.question_fr`
+3. Les deux ajouts (whitelist + question map) sont donc nécessaires
+
+### Correctif appliqué
+1. **`supabase/functions/_shared/client-gap-policy.ts`** : ajout de `"pricing.pad_category"` dans `CLIENT_RESOLVABLE_GAP_KEYS`
+2. **`supabase/functions/_shared/client-gap-policy.ts`** : ajout de l'entrée `GAP_QUESTION_MAP["pricing.pad_category"]` = "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables."
+
+### Fichiers modifiés
+- `supabase/functions/_shared/client-gap-policy.ts` — whitelist + question map
+
+---
+
+## DOC-ALIGN-1 — Alignement documentaire complet repo ↔ état réel ✅ DONE
+
+### Périmètre
+Mise en cohérence de la documentation avec le runtime réel, les lots exécutés et les décisions prises.
+
+### Fichiers modifiés
+- `.lovable/plan.md` — ajout CLIENT-GAP-POLICY-FIX + DOC-ALIGN-1
+- `docs/MASTER_CONTEXT.md` — phase line, SOURCE-GUARD, exception CARRIER-PORT-TAX-1B-A, lots récents
+- `docs/SECURITY_CONTRACT.md` — 6 fonctions manquantes + section SOURCE-GUARD
+- `docs/STATUS_REGISTRY.md` — date mise à jour
+- `docs/DECISIONS.md` — déclassement historique (Option A)
