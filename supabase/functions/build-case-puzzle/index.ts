@@ -14,6 +14,43 @@ function isSodatraEmail(email: string): boolean {
   return SODATRA_DOMAINS.some(d => domain?.includes(d));
 }
 
+// --- SOURCE-GUARD-2: Provenance classification & monetary fact protection ---
+type MessageProvenance = 'internal_sodatra' | 'partner' | 'client' | 'unknown';
+
+function classifyEmailProvenance(
+  fromAddress: string,
+  clientEmail: string | null,
+  partnerEmail: string | null
+): MessageProvenance {
+  if (isSodatraEmail(fromAddress)) return 'internal_sodatra';
+  const from = fromAddress.toLowerCase();
+  const fromDomain = from.split('@')[1];
+  if (!fromDomain) return 'unknown';
+  if (partnerEmail) {
+    const partnerDomain = partnerEmail.split('@')[1]?.toLowerCase();
+    if (partnerDomain && fromDomain === partnerDomain) return 'partner';
+  }
+  if (clientEmail) {
+    const clientDomain = clientEmail.split('@')[1]?.toLowerCase();
+    if (clientDomain && fromDomain === clientDomain) return 'client';
+  }
+  return 'unknown';
+}
+
+// Sensitive monetary facts: require proven client provenance
+const SENSITIVE_MONETARY_FACTS = new Set([
+  'cargo.freight_cost',
+  'cargo.freight_currency',
+  'cargo.value',
+  'cargo.value_currency',
+]);
+
+// Internal document types that should not be scanned for cargo facts
+const INTERNAL_DOC_TYPES = new Set([
+  'quotation_draft', 'quotation_sent', 'internal_note',
+  'devis', 'proforma_sent',
+]);
+
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
 function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
