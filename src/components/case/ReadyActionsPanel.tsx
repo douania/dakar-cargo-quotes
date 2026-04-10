@@ -227,8 +227,10 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       const replyAnalysis = (draftEvents ?? []).find(
         (e: any) => e.event_data?.kind === "reply_analysis_v1"
       );
-      const proposedFacts: unknown[] = Array.isArray(replyAnalysis?.event_data?.analysis?.proposed_facts)
-        ? replyAnalysis.event_data.analysis.proposed_facts
+      const raData = replyAnalysis?.event_data as Record<string, any> | null;
+      const raAnalysis = raData?.analysis as Record<string, any> | null;
+      const proposedFacts: unknown[] = Array.isArray(raAnalysis?.proposed_facts)
+        ? raAnalysis.proposed_facts
         : [];
       // We consider facts "unapplied" if proposed_facts exist — the section handles exact applied state
       const hasProposedFacts = proposedFacts.length > 0;
