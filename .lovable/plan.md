@@ -177,3 +177,32 @@ Seule `APPLY_FACT_PROPOSALS` nécessite un micro-patch de navigation. Toutes les
 - `src/pages/CaseView.tsx` — ancre `section-reply-analysis`
 - `src/components/case/ReadyActionsPanel.tsx` — ActionKey, scroll target, nav label, next step, détection reply_analysis, filtrage unapplied facts via toFactPayload, CTA builder
 - `.lovable/plan.md` — documentation P0-B
+
+---
+
+## P0-C — Confirmation traçable d'envoi partenaire ✅ DONE
+
+### Problème
+L'UI affichait "À confirmer" pour les demandes partenaires `status=sent && !email_sent_at`, mais aucune action opératoire ne permettait de confirmer l'envoi réel.
+
+### Solution — Option A (pas de nouvel enum)
+- Nouvelle edge function `confirm-external-request-sent` (`requireUser`)
+- Préconditions backend :
+  - `request` existe avec `case_id` correspondant
+  - `status === "sent"`
+  - `email_draft_id` présent (garde d'intégrité)
+  - `email_sent_at` NULL → sinon retour idempotent
+- Mutation : `UPDATE email_sent_at = now()`
+- Timeline : `manual_action` avec `action_code = "PARTNER_REQUEST_SEND_CONFIRMED"`, `dedupe_key`
+- UI : bouton "Confirmer l'envoi" dans ExternalRequestsPanel, conditionné à `status=sent && !email_sent_at`
+- Invalidation large : `external-*` + 8 surfaces cockpit
+- Compatible COM-1A futur
+
+### Fichiers modifiés
+- `supabase/functions/confirm-external-request-sent/index.ts` — nouvelle edge function
+- `supabase/config.toml` — entrée `[functions.confirm-external-request-sent]` avec `verify_jwt = false`
+- `src/hooks/useExternalRequestFlow.ts` — mutation `confirmSent` + invalidation large (8 surfaces cockpit)
+- `src/components/puzzle/ExternalRequestsPanel.tsx` — bouton "Confirmer l'envoi" + import CheckCircle
+- `docs/MASTER_CONTEXT.md` — section P0-C ajoutée sous S1
+- `docs/SECURITY_CONTRACT.md` — `confirm-external-request-sent` ajouté à la classification + S1 Patch Log
+- `.lovable/plan.md` — documentation P0-C

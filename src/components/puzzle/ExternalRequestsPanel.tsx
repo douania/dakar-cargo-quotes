@@ -25,6 +25,7 @@ import {
   Send,
   Plus,
   Check,
+  CheckCircle,
   X,
   Loader2,
   ExternalLink,
@@ -111,7 +112,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     closeRequest,
   } = useExternalRequests(caseId);
 
-  const { sendRequest, validateFactAndRerun, isPricingRerunning } = useExternalRequestFlow(caseId);
+  const { sendRequest, validateFactAndRerun, confirmSent, isPricingRerunning, isConfirming } = useExternalRequestFlow(caseId);
 
   const {
     pendingSuggestions,
@@ -530,6 +531,25 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                             <Send className="h-3 w-3 mr-1" />
                           )}
                           Envoyer
+                        </Button>
+                      </div>
+                    )}
+                    {/* P0-C: Confirm send button — visible when status=sent but email_sent_at is NULL */}
+                    {req.status === "sent" && !req.email_sent_at && (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                          disabled={isConfirming}
+                          onClick={() => confirmSent.mutateAsync(req.id)}
+                        >
+                          {isConfirming ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                          )}
+                          Confirmer l'envoi
                         </Button>
                       </div>
                     )}

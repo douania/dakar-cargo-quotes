@@ -129,6 +129,21 @@ Solution (Option B — preuve d'envoi séparée) :
 - `status = "sent"` = "demandé/préparé côté opérateur, sans preuve d'envoi réel"
 - Aucun changement d'enum DB, rétro-compatible, prépare COM-1A
 
+### P0-C — Confirmation traçable d'envoi partenaire (2026-04-10)
+
+Problème résolu : l'opérateur voyait "À confirmer" dans le cockpit mais ne pouvait pas confirmer — aucune action opératoire pour renseigner `email_sent_at`.
+
+Solution (Option A — pas de nouvel enum) :
+- Nouvelle edge function `confirm-external-request-sent` (`requireUser`)
+- Préconditions vérifiées : `status === "sent"`, `email_draft_id` présent, `email_sent_at` NULL
+- Idempotence : si `email_sent_at` déjà renseigné → retour `{ ok: true, idempotent: true }`
+- Mutation : `UPDATE email_sent_at = now()` sur `external_quote_requests`
+- Timeline : `manual_action` avec `action_code = "PARTNER_REQUEST_SEND_CONFIRMED"` et `dedupe_key`
+- UI : bouton "Confirmer l'envoi" dans `ExternalRequestsPanel`, conditionné à `status=sent && !email_sent_at`
+- Le bouton disparaît dès que `email_sent_at` est renseigné — toutes les surfaces cockpit reflètent l'état confirmé
+- Invalidation large : `external-*`, `ready-actions-panel`, `next-action-banner`, `case-action-plan`, `partner-requests-*`, `communication-summary`, `partner-collection-readiness`, `pricing-readiness`
+- Compatible COM-1A futur : quand l'envoi SMTP réel sera implémenté, `email_sent_at` sera renseigné automatiquement et le bouton manuel deviendra inutile
+
 ---
 
 ## Module CL1
