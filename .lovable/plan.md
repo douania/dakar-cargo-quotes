@@ -91,3 +91,37 @@ Mise en cohérence de la documentation avec le runtime réel, les lots exécuté
 - `docs/SECURITY_CONTRACT.md` — 6 fonctions manquantes + section SOURCE-GUARD
 - `docs/STATUS_REGISTRY.md` — date mise à jour
 - `docs/DECISIONS.md` — déclassement historique (Option A)
+
+---
+
+## P0-A — ReadyActionsPanel : console de priorisation avec navigation directe ✅ DONE
+
+### Problème
+ReadyActionsPanel calculait 9 priorités opérationnelles mais n'exécutait directement que 3 (brouillon client, copier, marquer envoyé). Les 6 actions restantes (partenaire draft/envoi/faits/sélection, pricing, version) étaient orphelines — affichées sans bouton d'action ni navigation.
+
+### Décision architecturale
+ReadyActionsPanel = **console de priorisation** avec navigation directe vers les panneaux spécialisés. Ce n'est **pas** une couche d'exécution universelle. L'exécution métier complexe reste dans les panneaux opératoires dédiés.
+
+### Discriminant d'action
+Chaque action porte un `actionKey` explicite (type `ActionKey`) utilisé pour le routage de navigation. Les actions partenaire `to_execute` sont distinguées par `actionKey` (`pending_facts` vs `select_partner`), pas par une heuristique fragile `type + status`.
+
+### Mapping actions → surfaces opératoires
+
+| Action | actionKey | Surface cible | Mode |
+|---|---|---|---|
+| Gap bloquant client | `blocking_gap` | ReadyActionsPanel | Exécution directe |
+| Clarification drafted | `drafted_client_gap` | ReadyActionsPanel | Exécution directe |
+| Clarification en attente | `open_client_gap` | — | Informatif |
+| Demande partenaire draft | `draft_partner` | ExternalRequestsPanel | Navigation |
+| Envoi partenaire | `unsent_partner` | ExternalRequestsPanel | Navigation |
+| Faits partenaires | `pending_facts` | ExternalRequestsPanel | Navigation |
+| Sélection offre | `select_partner` | PartnerRequestsDetailView | Navigation |
+| Pricing | `launch_pricing` | PricingLaunchPanel | Navigation |
+| Version | `create_version` | QuotationVersionCard | Navigation |
+
+### Fix défensif `kind || output_type`
+Le filtre des brouillons timeline (L184) accepte maintenant `kind === "reply_draft_v1"` OU `output_type === "reply_draft_v1"` pour tolérer les deux conventions.
+
+### Fichiers modifiés
+- `src/components/case/ReadyActionsPanel.tsx` — type `ActionKey`, `actionKey` sur chaque action, `scrollToSection` helper, boutons de navigation, fix filter draft
+- `src/pages/CaseView.tsx` — 4 ancres `id` stables (`section-partner-detail`, `section-external-requests`, `section-pricing`, `section-version`)
