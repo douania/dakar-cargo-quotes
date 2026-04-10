@@ -125,3 +125,48 @@ Le filtre des brouillons timeline (L184) accepte maintenant `kind === "reply_dra
 ### Fichiers modifiés
 - `src/components/case/ReadyActionsPanel.tsx` — type `ActionKey`, `actionKey` sur chaque action, `scrollToSection` helper, boutons de navigation, fix filter draft
 - `src/pages/CaseView.tsx` — 4 ancres `id` stables (`section-partner-detail`, `section-external-requests`, `section-pricing`, `section-version`)
+
+---
+
+## P0-B — Réintégration manual_action dans le cockpit actif ✅ DONE
+
+### Diagnostic
+
+Inventaire exhaustif des `manual_action` produites par les edge functions actives :
+
+| action_code | Source edge function | Couvert nativement ? | Décision |
+|---|---|---|---|
+| `REQUEST_CLIENT_INFO_FOR_GAPS` | `sync-gap-client-actions` | **OUI** — ReadyActionsPanel (blocking gaps) | Ignorer |
+| `PREPARE_CLIENT_REPLY_DRAFT` | `analyze-reply-event`, `apply-thread-intent-v1` | **OUI** — ReadyActionsPanel (gaps ouverts) | Ignorer |
+| `LAUNCH_PRICING` | `analyze-reply-event` | **OUI** — ReadyActionsPanel (action pricing) | Ignorer |
+| `REVIEW_PARTNER_RESPONSE` | `analyze-partner-response` | **OUI** — ReadyActionsPanel (pending_facts) | Ignorer |
+| `APPLY_FACT_PROPOSALS` | `analyze-reply-event` | **Partiel** — section CaseView existe, pas de CTA cockpit | Micro-patch navigation |
+| `IDENTIFY_MISSING_INFO` | `apply-thread-intent-v1` | **OUI** — bloc Thread intent CaseView | Ignorer |
+| `REVIEW_NEW_REQUEST` | `apply-thread-intent-v1` | **OUI** — bloc Thread intent CaseView | Ignorer |
+| `REVIEW_THREAD_INTENT` | `apply-thread-intent-v1` | **OUI** — bloc Thread intent CaseView | Ignorer |
+
+### Décision architecturale
+
+Seule `APPLY_FACT_PROPOSALS` nécessite un micro-patch de navigation. Toutes les autres actions sont déjà couvertes nativement ou par des blocs dédiés existants. Aucun système parallèle de lecture des `manual_action` n'est créé.
+
+### Correctif appliqué (Option 2 — micro-patch navigation)
+
+1. **CaseView.tsx** : ancre `id="section-reply-analysis"` ajoutée sur la section « Analyse dernière réponse client »
+2. **ReadyActionsPanel.tsx** :
+   - `"apply_facts"` ajouté au type `ActionKey`
+   - Entrée `apply_facts: "section-reply-analysis"` dans `ACTION_SCROLL_TARGETS`
+   - Entrée `apply_facts: "Voir les faits proposés"` dans `ACTION_NAV_LABELS`
+   - Entrée `apply_facts` dans `NEXT_STEPS`
+   - Détection de `reply_analysis_v1` depuis la requête timeline **déjà existante** (aucune nouvelle requête DB)
+   - CTA affiché avec `priority: "next"` uniquement si `proposed_facts.length > 0`
+
+### Contraintes respectées
+- **Aucune nouvelle requête DB** : réutilisation du fetch `output_generated` déjà présent (L214-220)
+- **Aucune lecture de `manual_action`** : la source de vérité reste `reply_analysis_v1`
+- **Aucun doublon** : le CTA navigue vers la section existante, il ne recrée pas le rendu des faits
+- **Priorité modérée** : `"next"`, ne concurrence pas les gaps bloquants ou clarifications client
+
+### Fichiers modifiés
+- `src/pages/CaseView.tsx` — ancre `section-reply-analysis`
+- `src/components/case/ReadyActionsPanel.tsx` — ActionKey, scroll target, nav label, next step, détection reply_analysis, CTA builder
+- `.lovable/plan.md` — documentation P0-B

@@ -1250,6 +1250,7 @@ export default function CaseView() {
         {/* M27b: CL1 tracking moved — single instance near gaps (line ~2147) */}
 
         {/* ── Analyse dernière réponse client (C3/P0) ── */}
+        <div id="section-reply-analysis">
         {(() => {
           const replyAnalysisEvent = events.find((e: any) => {
             if (e.event_type !== "output_generated") return false;
@@ -1346,6 +1347,7 @@ export default function CaseView() {
             </Card>
           );
         })()}
+        </div>
 
         {allDrafts.length > 0 && (
           <Card>

@@ -46,7 +46,8 @@ type ActionKey =
   | "pending_facts"
   | "select_partner"
   | "launch_pricing"
-  | "create_version";
+  | "create_version"
+  | "apply_facts";
 
 interface ReadyAction {
   type: "client" | "partner" | "internal";
@@ -76,6 +77,7 @@ const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
   select_partner: "section-partner-detail",
   launch_pricing: "section-pricing",
   create_version: "section-version",
+  apply_facts: "section-reply-analysis",
 };
 
 const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
@@ -85,6 +87,7 @@ const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
   select_partner: "Voir les offres",
   launch_pricing: "Aller au pricing",
   create_version: "Aller à la version",
+  apply_facts: "Voir les faits proposés",
 };
 
 function scrollToSection(id: string) {
@@ -113,6 +116,7 @@ const NEXT_STEPS: Record<string, string> = {
   draft_partner: "Préparer et confirmer l'envoi aux partenaires",
   unsent_partner: "Confirmer l'envoi, puis attendre les réponses",
   pending_facts: "Après validation, relancer le pricing",
+  apply_facts: "Valider ou rejeter chaque fait, puis relancer l'analyse",
   select_partner: "Sélectionner l'offre, puis relancer le pricing",
   launch_pricing: "Créer la version du devis",
   create_version: "Exporter le PDF",
@@ -219,6 +223,18 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
+      // P0-B: detect unapplied reply_analysis facts from existing timeline query (no new DB call)
+      const replyAnalysis = (draftEvents ?? []).find(
+        (e: any) => e.event_data?.kind === "reply_analysis_v1"
+      );
+      const raData = replyAnalysis?.event_data as Record<string, any> | null;
+      const raAnalysis = raData?.analysis as Record<string, any> | null;
+      const proposedFacts: unknown[] = Array.isArray(raAnalysis?.proposed_facts)
+        ? raAnalysis.proposed_facts
+        : [];
+      // We consider facts "unapplied" if proposed_facts exist — the section handles exact applied state
+      const hasProposedFacts = proposedFacts.length > 0;
+
       return {
         status,
         gaps,
@@ -227,6 +243,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         pendingFacts,
         hasSelectedVersion,
         drafts,
+        hasProposedFacts,
       };
     },
   });
@@ -234,7 +251,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
   /* ── Build actions list ── */
   const actions = useMemo<ReadyAction[]>(() => {
     if (!data) return [];
-    const { status, gaps, clientGaps, requests, pendingFacts, hasSelectedVersion, drafts } = data;
+    const { status, gaps, clientGaps, requests, pendingFacts, hasSelectedVersion, drafts, hasProposedFacts } = data;
 
     if (TERMINAL.has(status)) return [];
 
@@ -408,6 +425,21 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         status: "to_execute",
         nextStep: NEXT_STEPS.create_version,
         icon: <FileText className="h-4 w-4 text-blue-600" />,
+        color: "blue",
+      });
+    }
+
+    // P0-B: CTA navigation vers faits proposés par analyse réponse client
+    if (hasProposedFacts && result.length < 5) {
+      result.push({
+        type: "client",
+        actionKey: "apply_facts",
+        priority: "next",
+        title: "Faits proposés par l'IA à valider",
+        reason: "L'analyse de la réponse client a extrait des faits à vérifier",
+        status: "to_execute",
+        nextStep: NEXT_STEPS.apply_facts,
+        icon: <FileText className="h-4 w-4 text-accent" />,
         color: "blue",
       });
     }
