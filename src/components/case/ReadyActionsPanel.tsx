@@ -339,8 +339,10 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       });
     }
 
-    // 8 — Internal sequencing actions
-    if (statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
+    // 8 — Internal sequencing actions (ORCH-SYNC-2: blocked while blocking gaps exist)
+    const hasBlockingGaps = blockingGaps.length > 0;
+
+    if (!hasBlockingGaps && statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
         priority: getPriority(),
