@@ -28,3 +28,37 @@
 
 - Tarif max PAD comme fallback conservateur → voir `docs/DEFERRED_BACKLOG.md` (PAD-GAP-1-DEBT)
 
+---
+
+# ACTION-SYNC-1 — Synchroniser le bloc Actions avec les gaps réellement ouverts
+
+## Statut : DONE (2026-04-10)
+
+### Diagnostic
+
+Le bloc "Actions" dans CaseView lisait `case_timeline_events` (event_type `manual_action`) et filtrait uniquement par `event_data.status === "open"`, sans vérifier si les gaps référencés dans `requested_gap_keys` étaient encore ouverts dans `quote_gaps`.
+
+Résultat : une action pour `routing.destination_port` restait affichée alors que ce gap était déjà `resolved`.
+
+### Correctif
+
+**Fichier** : `src/pages/CaseView.tsx` — `openActions` useMemo
+
+- Ajout d'un cross-reference avec le tableau `gaps` (qui ne contient que les gaps `status = 'open'`)
+- Si une action timeline référence des `requested_gap_keys`, elle n'est affichée que si **au moins un** de ces gap keys est encore ouvert
+- Si aucun gap key n'est référencé, l'action reste visible (comportement conservateur)
+- Pas de blacklist codée en dur sur un gap spécifique
+
+### Fichiers impactés
+
+| Fichier | Changement |
+|---------|-----------|
+| `src/pages/CaseView.tsx` | `openActions` memo croisé avec gaps ouverts (~20 lignes) |
+| `.lovable/plan.md` | Documentation |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration
+- Pas de modification backend
+- Pas de création d'action timeline pour `pricing.pad_category`
+- Pas de refactor global
