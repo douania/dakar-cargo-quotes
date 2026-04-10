@@ -37,8 +37,20 @@ import { toast } from "sonner";
 
 /* ─── Types ─── */
 
+type ActionKey =
+  | "blocking_gap"
+  | "drafted_client_gap"
+  | "open_client_gap"
+  | "draft_partner"
+  | "unsent_partner"
+  | "pending_facts"
+  | "select_partner"
+  | "launch_pricing"
+  | "create_version";
+
 interface ReadyAction {
   type: "client" | "partner" | "internal";
+  actionKey: ActionKey;
   priority: "now" | "next" | "waiting" | "later";
   title: string;
   reason: string;
@@ -54,6 +66,29 @@ interface ReadyAction {
   nextStep?: string;
   icon: React.ReactNode;
   color: string;
+}
+
+/* ─── Navigation targets by actionKey ─── */
+const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
+  draft_partner: "section-external-requests",
+  unsent_partner: "section-external-requests",
+  pending_facts: "section-external-requests",
+  select_partner: "section-partner-detail",
+  launch_pricing: "section-pricing",
+  create_version: "section-version",
+};
+
+const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
+  draft_partner: "Voir les demandes",
+  unsent_partner: "Voir les envois",
+  pending_facts: "Voir les faits à valider",
+  select_partner: "Voir les offres",
+  launch_pricing: "Aller au pricing",
+  create_version: "Aller à la version",
+};
+
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ─── Status hierarchy (shared with NextActionBanner) ─── */
@@ -181,7 +216,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .limit(10);
 
       const drafts = (draftEvents ?? [])
-        .filter((e: any) => e.event_data?.output_type === "reply_draft_v1")
+        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
       return {
@@ -225,6 +260,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
         result.push({
           type: "client",
+          actionKey: "blocking_gap",
           priority: getPriority(),
           title: gap.question_fr || `Résoudre le gap ${gap.gap_key}`,
           reason: `Gap bloquant : ${gap.gap_category ?? gap.gap_key}`,
@@ -246,6 +282,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (draftedGaps.length > 0) {
       result.push({
         type: "client",
+        actionKey: "drafted_client_gap",
         priority: getPriority(),
         title: `Envoyer ${draftedGaps.length} clarification(s) client`,
         reason: "Clarifications prêtes mais non envoyées",
@@ -263,6 +300,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (sentClientGaps.length > 0 && result.length < 4) {
       result.push({
         type: "client",
+        actionKey: "open_client_gap",
         priority: result.length === 0 ? "now" : "waiting",
         title: `${sentClientGaps.length} clarification(s) en attente de réponse client`,
         reason: "Réponses client attendues",
@@ -278,6 +316,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (draftRequests.length > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "draft_partner",
         priority: getPriority(),
         title: `Préparer ${draftRequests.length} demande(s) partenaire(s)`,
         reason: "Demandes non préparées",
@@ -296,6 +335,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (unsentRequests.length > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "unsent_partner",
         priority: getPriority(),
         title: `Confirmer l'envoi de ${unsentRequests.length} demande(s)`,
         reason: "Envois non confirmés",
@@ -311,6 +351,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (pendingFacts > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "pending_facts",
         priority: getPriority(),
         title: `Valider ${pendingFacts} fait(s) partenaire(s)`,
         reason: "Faits partenaires à valider",
@@ -329,6 +370,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (requests.length > 0 && hasExploitable && !hasSelected && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "select_partner",
         priority: getPriority(),
         title: "Retenir une offre partenaire",
         reason: "Sélection commerciale non faite",
@@ -345,6 +387,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (!hasBlockingGaps && statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
+        actionKey: "launch_pricing",
         priority: getPriority(),
         title: "Lancer le pricing",
         reason: "Aucun blocage majeur",
@@ -358,6 +401,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (!hasBlockingGaps && !hasSelectedVersion && !statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
+        actionKey: "create_version",
         priority: getPriority(),
         title: "Créer la version du devis",
         reason: "Version non créée",
@@ -610,6 +654,22 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
                           Marquer envoyé
                         </Button>
                       )}
+
+                    {/* Navigation button — for actions delegated to specialized panels */}
+                    {ACTION_SCROLL_TARGETS[action.actionKey] && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          scrollToSection(ACTION_SCROLL_TARGETS[action.actionKey]!);
+                        }}
+                      >
+                        <ArrowRight className="h-3 w-3 mr-1" />
+                        {ACTION_NAV_LABELS[action.actionKey] ?? "Voir"}
+                      </Button>
+                    )}
                   </div>
 
                   {/* Next step */}
