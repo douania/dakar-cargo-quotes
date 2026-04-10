@@ -72,6 +72,7 @@ import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel
 import { CommunicationSummaryCard } from "@/components/case/CommunicationSummaryCard";
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
+import { ReadyActionsPanel } from "@/components/case/ReadyActionsPanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
@@ -1710,6 +1711,9 @@ export default function CaseView() {
 
         {/* COCKPIT-8: Next action priority banner */}
         {caseId && <NextActionBanner caseId={caseId} />}
+
+        {/* ORCH-ACTION-1: Ready actions panel */}
+        {caseId && <ReadyActionsPanel caseId={caseId} />}
 
         {/* COCKPIT-4: Case Action Plan */}
         {caseId && (
