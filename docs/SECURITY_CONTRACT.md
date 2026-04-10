@@ -71,7 +71,7 @@ La protection réelle repose sur :
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, **`data-query`** |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, `generate-reply-draft`, `sync-gap-client-actions`, `auto-match-partner-responses`, `select-partner-request`, `close-manual-action`, `mark-client-gap-request-sent`, **`data-query`** |
 | **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `export-quotation-version-pdf` (canonical pipeline, inline auth conservé, `verify_jwt = false` en config) |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
 
@@ -90,6 +90,18 @@ All non-FROZEN functions without a specific observability justification have bee
 - `build-case-puzzle` — **FROZEN**. Must not be reopened without a `STRUCTURAL_PATCH_ALLOWED` exception.
 
 No further auth migration should be opened unless a new business or structural need justifies it.
+
+---
+
+## SOURCE-GUARD — Protection provenance facts
+
+`build-case-puzzle` implémente un système de protection contre la contamination des faits depuis les sources internes ou partenaires :
+
+1. **SG-1 — Filtrage contexte IA** : les emails des domaines internes (`@sodatra.sn`, `@sodatra.com`) sont exclus du contexte d'extraction IA
+2. **SG-2 — Garde monétaire post-extraction** : les facts monétaires sensibles (`cargo.value`, `cargo.freight_cost`, etc.) sont bloqués si la provenance email n'est pas `client` (classification par `classifyEmailProvenance()` via domain matching)
+3. **SG-2 doc-regex** : les documents internes (devis, brouillons) sont ignorés lors de l'extraction par regex
+
+Limitations : le domain matching est heuristique — voir `SOURCE-GUARD-DEBT` dans `docs/DEFERRED_BACKLOG.md`.
 
 ---
 
