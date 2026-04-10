@@ -137,3 +137,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `select-partner-request` | Added to classification as user_auth (requireUser). COCKPIT-9 P2 partner offer selection. | 2026-04 |
 | `close-manual-action` | Added to classification as user_auth (requireUser). Closes manual_action timeline events. | 2026-04 |
 | `mark-client-gap-request-sent` | Added to classification as user_auth (requireUser). CL1 marks client_gap_requests as sent. | 2026-04 |
+| `confirm-external-request-sent` | Added as user_auth (requireUser). P0-C: confirms partner request actual send, sets `email_sent_at`. Preconditions: `status=sent`, `email_draft_id` present. Idempotent. | 2026-04 |
