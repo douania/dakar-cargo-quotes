@@ -85,7 +85,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       label: "Confirmer l'envoi des demandes",
       status: allSentConfirmed ? "done" : "pending",
       note: !allSentConfirmed && unsentPartnerRequests > 0
-        ? "Envoi réel confirmé après activation COM-1A"
+        ? "Confirmation manuelle disponible — COM-1A automatisera l'envoi"
         : undefined,
       group: "communication",
     });
