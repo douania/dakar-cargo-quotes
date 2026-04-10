@@ -1,21 +1,23 @@
 
 
-# P1-A micro-fix — Note CaseActionPlan cohérente avec P0-C
+# P1-B — Clôture partenaire backendisée
 
 ## Problème
-Line 88 de `CaseActionPlan.tsx` affiche :
-```
-"Envoi réel confirmé après activation COM-1A"
-```
-Ce wording est devenu faux depuis P0-C : la confirmation manuelle traçable via `email_sent_at` existe déjà.
+`closeRequest` dans `useExternalRequests.ts` faisait un `update` front direct + timeline best-effort silencieuse.
+Seul flux de mutation EQ1 non backendisé.
 
-## Correctif
-Remplacer la note (ligne 88) par un wording reflétant le runtime actuel :
-```
-"Confirmation manuelle disponible — COM-1A automatisera l'envoi"
-```
+## Correctif appliqué
+- Nouvelle edge function `close-external-quote-request` (requireUser, verify_jwt=false)
+- Préconditions backend : request existe + case_id match, idempotent si closed, 409 si proposed facts restants
+- Pas de whitelist de statuts — tout statut non-closed est clôturable
+- Timeline NON-SILENT : si l'insert timeline échoue, la fonction retourne 500 (pas de best-effort silencieux)
+- Hook `useExternalRequests.ts` : closeRequest remplacé par `supabase.functions.invoke`
+- Invalidations existantes réutilisées via `invalidateAll()`
 
 ## Blast radius
-- 1 ligne modifiée dans `src/components/case/CaseActionPlan.tsx`
-- Aucun autre fichier impacté
-
+- 1 edge function créée : `supabase/functions/close-external-quote-request/index.ts`
+- 1 ligne ajoutée : `supabase/config.toml`
+- ~40 lignes modifiées : `src/hooks/useExternalRequests.ts`
+- Docs : `MASTER_CONTEXT.md`, `SECURITY_CONTRACT.md`
+- Aucune migration DB
+- P0-A/P0-B/P0-C/P1-A non impactés

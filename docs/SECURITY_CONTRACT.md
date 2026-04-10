@@ -71,7 +71,7 @@ La protection réelle repose sur :
 | Level | Auth method | Examples |
 |-------|-------------|---------|
 | **public** | None | `healthz` |
-| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `confirm-external-request-sent`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, `generate-reply-draft`, `sync-gap-client-actions`, `auto-match-partner-responses`, `select-partner-request`, `close-manual-action`, `mark-client-gap-request-sent`, **`data-query`** |
+| **user_auth (requireUser)** | `requireUser` helper | `ack-pricing-ready`, `suggest-decisions`, `generate-quotation-version`, `analyze-partner-response`, `validate-partner-fact`, `send-external-quote-request`, `confirm-external-request-sent`, `close-external-quote-request`, `analyze-reply-event`, `analyze-attachments`, `analyze-service-scope`, `analyze-risks`, `ensure-quote-case`, `send-quotation`, `create-quotation-email-draft`, `close-commercial-outcome`, `generate-reply-draft`, `sync-gap-client-actions`, `auto-match-partner-responses`, `select-partner-request`, `close-manual-action`, `mark-client-gap-request-sent`, **`data-query`** |
 | **user_auth (inline)** | Inline JWT validation | `commit-decision` (S1.3 — granular error codes), `run-pricing` (FROZEN), `build-case-puzzle` (FROZEN), `export-quotation-version-pdf` (canonical pipeline, inline auth conservé, `verify_jwt = false` en config) |
 | **admin** | `requireAdmin` | `data-admin`, `email-admin` |
 
@@ -138,3 +138,4 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `close-manual-action` | Added to classification as user_auth (requireUser). Closes manual_action timeline events. | 2026-04 |
 | `mark-client-gap-request-sent` | Added to classification as user_auth (requireUser). CL1 marks client_gap_requests as sent. | 2026-04 |
 | `confirm-external-request-sent` | Added as user_auth (requireUser). P0-C: confirms partner request actual send, sets `email_sent_at`. Preconditions: `status=sent`, `email_draft_id` present. Idempotent. | 2026-04 |
+| `close-external-quote-request` | Added as user_auth (requireUser). P1-B: backendised partner request closure. Preconditions: no `proposed` facts remaining (409 if any). No status whitelist — any non-closed status allowed. Idempotent if already closed. Timeline: NON-SILENT (failure → 500). | 2026-04 |
