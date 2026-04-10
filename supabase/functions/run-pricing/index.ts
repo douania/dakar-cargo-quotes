@@ -1616,6 +1616,9 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ═══ isMaritime — hoisted for PAD-GAP-1 + terminal storage ═══
+      const isMaritime = !String(caseData.request_type || '').toUpperCase().includes('AIR');
+
       // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
       // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
       // commodity_category_id = source de vérité métier, pad_category = copie dénormalisée runtime.
@@ -1663,7 +1666,6 @@ Deno.serve(async (req) => {
                 console.log(`[PAD-ALIAS] Match: "${inputs.cargoDescription}" → ${alias.pad_category} via alias bl_term="${alias.bl_term}"`);
 
                 // Lookup tarif in port_tariffs
-                // Colonnes exactes: provider=PAD, category=DROIT_PASSAGE, operation_type=IMPORT, classification=<pad_category>
                 const { data: padTariffRow } = await serviceClient
                   .from('port_tariffs')
                   .select('amount, unit, classification')
@@ -1689,6 +1691,64 @@ Deno.serve(async (req) => {
         }
       } else if (inputs.padCategory) {
         console.log(`[PAD] Facts opérateur présents: padCategory=${inputs.padCategory} — alias lookup skipped`);
+      }
+
+      // ═══ PAD-GAP-1: Gap bloquant si PAD applicable mais catégorie non résolue ═══
+      // Condition identique au bloc terminal storage (maritime + description + poids > 0)
+      if (!inputs.padCategory && isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
+        try {
+          // Idempotent: ne pas dupliquer si gap existe déjà (ouvert)
+          const { data: existingGap } = await serviceClient
+            .from('quote_gaps')
+            .select('id')
+            .eq('case_id', caseId)
+            .eq('gap_key', 'pricing.pad_category')
+            .eq('status', 'open')
+            .maybeSingle();
+
+          if (!existingGap) {
+            await serviceClient.from('quote_gaps').insert({
+              case_id: caseId,
+              gap_key: 'pricing.pad_category',
+              gap_category: 'pricing',
+              question_fr: `Pourriez-vous préciser la nature exacte de la marchandise (ex: matériaux de construction, produits chimiques, équipements industriels, céréales, véhicules, etc.) ? Cette information est nécessaire pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`,
+              is_blocking: true,
+              status: 'open',
+            });
+            console.log(`[PAD-GAP] Gap bloquant créé: pricing.pad_category (description="${inputs.cargoDescription}")`);
+          } else {
+            console.log(`[PAD-GAP] Gap pricing.pad_category déjà ouvert (id=${existingGap.id}) — skip`);
+          }
+
+          // Ligne placeholder TO_CONFIRM (amount=0, non comptée comme tarif confirmé)
+          // Garde-fou: vérifier qu'une ligne PAD placeholder n'existe pas déjà
+          const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+          const hasExistingPadPlaceholder = engineLines.some(
+            (l: any) => l.category === 'PAD_DROIT_PASSAGE' && l.source?.type === 'TO_CONFIRM'
+          );
+          if (!hasExistingPadPlaceholder) {
+            engineLines.push(canonicalizeLine({
+              category: 'PAD_DROIT_PASSAGE',
+              label: 'Droit de passage PAD — catégorie à déterminer',
+              description: 'Taxe de port PAD non résolue — en attente de classification marchandise',
+              amount: 0,
+              currency: 'FCFA',
+              unit: 'tonne',
+              quantity: inputs.cargoWeight,
+              unitPrice: 0,
+              source: {
+                type: 'TO_CONFIRM',
+                reference: 'Classification PAD requise — gap bloquant ouvert',
+                confidence: 0,
+              },
+              isEditable: false,
+            }, { origin_layer: 'enrichment_pad' }));
+            engineResponse.lines = engineLines;
+            console.log(`[PAD-GAP] Ligne placeholder PAD TO_CONFIRM ajoutée (poids=${inputs.cargoWeight}t)`);
+          }
+        } catch (padGapErr) {
+          console.warn('[PAD-GAP] Gap creation failed (non-blocking):', padGapErr);
+        }
       }
 
       // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
