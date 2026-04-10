@@ -7,6 +7,13 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
+// --- SOURCE-GUARD-1: Identify outbound SODATRA emails ---
+const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
+function isSodatraEmail(email: string): boolean {
+  const domain = (email || '').split('@')[1]?.toLowerCase();
+  return SODATRA_DOMAINS.some(d => domain?.includes(d));
+}
+
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
 function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
