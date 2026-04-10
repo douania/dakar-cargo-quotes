@@ -3408,6 +3408,7 @@ Deno.serve(async (req) => {
       const policyKeysAll = new Set([
         "cargo.hs_code", "customs.regime_code",
         "cargo.freight_cost", "cargo.value",
+        "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
       // P1: Protect clarification gap from orphan closure when ambiguity is active
