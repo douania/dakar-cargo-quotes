@@ -654,6 +654,22 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
                           Marquer envoyé
                         </Button>
                       )}
+
+                    {/* Navigation button — for actions delegated to specialized panels */}
+                    {ACTION_SCROLL_TARGETS[action.actionKey] && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          scrollToSection(ACTION_SCROLL_TARGETS[action.actionKey]!);
+                        }}
+                      >
+                        <ArrowRight className="h-3 w-3 mr-1" />
+                        {ACTION_NAV_LABELS[action.actionKey] ?? "Voir"}
+                      </Button>
+                    )}
                   </div>
 
                   {/* Next step */}
