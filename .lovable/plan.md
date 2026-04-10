@@ -157,16 +157,23 @@ Seule `APPLY_FACT_PROPOSALS` nécessite un micro-patch de navigation. Toutes les
    - Entrée `apply_facts: "section-reply-analysis"` dans `ACTION_SCROLL_TARGETS`
    - Entrée `apply_facts: "Voir les faits proposés"` dans `ACTION_NAV_LABELS`
    - Entrée `apply_facts` dans `NEXT_STEPS`
-   - Détection de `reply_analysis_v1` depuis la requête timeline **déjà existante** (aucune nouvelle requête DB)
-   - CTA affiché avec `priority: "next"` uniquement si `proposed_facts.length > 0`
+   - Détection de `reply_analysis_v1` depuis la requête timeline **déjà existante** (aucune nouvelle requête DB timeline)
+   - Filtrage des faits proposés vs `quote_facts` courants via `toFactPayload()` (même logique que `isFactAlreadyApplied()` de CaseView)
+   - CTA affiché avec `priority: "next"` uniquement si au moins un fait proposé n'est pas encore appliqué
+
+### Micro-correctif condition de visibilité (P0-B-fix)
+- **Problème** : le CTA s'affichait dès que `proposed_facts.length > 0`, même si tous les faits étaient déjà appliqués (faux positif)
+- **Correctif** : ajout d'une 7e requête `quote_facts` (filtre `is_current`) dans le `Promise.all` existant, puis filtrage via `toFactPayload()` importé depuis `helpers.ts` — logique identique à `isFactAlreadyApplied()` de CaseView
+- **Le CTA disparaît automatiquement quand tous les faits sont appliqués**
 
 ### Contraintes respectées
-- **Aucune nouvelle requête DB** : réutilisation du fetch `output_generated` déjà présent (L214-220)
+- **1 requête DB supplémentaire légère** : `quote_facts` avec `is_current` (quelques dizaines de rows max)
 - **Aucune lecture de `manual_action`** : la source de vérité reste `reply_analysis_v1`
 - **Aucun doublon** : le CTA navigue vers la section existante, il ne recrée pas le rendu des faits
 - **Priorité modérée** : `"next"`, ne concurrence pas les gaps bloquants ou clarifications client
+- **Logique de comparaison identique** à `isFactAlreadyApplied()` — pas de divergence
 
 ### Fichiers modifiés
 - `src/pages/CaseView.tsx` — ancre `section-reply-analysis`
-- `src/components/case/ReadyActionsPanel.tsx` — ActionKey, scroll target, nav label, next step, détection reply_analysis, CTA builder
+- `src/components/case/ReadyActionsPanel.tsx` — ActionKey, scroll target, nav label, next step, détection reply_analysis, filtrage unapplied facts via toFactPayload, CTA builder
 - `.lovable/plan.md` — documentation P0-B
