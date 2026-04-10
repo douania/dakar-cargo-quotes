@@ -1817,7 +1817,7 @@ Deno.serve(async (req) => {
     // 3. Load case and verify ownership
     const { data: caseData, error: caseError } = await serviceClient
       .from("quote_cases")
-      .select("*, email_threads(id, subject_normalized)")
+      .select("*, email_threads(id, subject_normalized, client_email, partner_email)")
       .eq("id", case_id)
       .single();
 
@@ -1983,7 +1983,40 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const fact of extractedFacts) {
+    // SOURCE-GUARD-2: Post-extraction provenance filter for sensitive monetary facts
+    const threadClientEmail = (caseData as any)?.email_threads?.client_email || null;
+    const threadPartnerEmail = (caseData as any)?.email_threads?.partner_email || null;
+    let sg2Blocked = 0;
+
+    const guardedFacts = extractedFacts.filter(fact => {
+      if (!SENSITIVE_MONETARY_FACTS.has(fact.key)) return true;
+
+      // Check provenance via sourceEmailId
+      if (fact.sourceEmailId) {
+        const sourceEmail = emails.find(e => e.id === fact.sourceEmailId);
+        if (sourceEmail) {
+          const prov = classifyEmailProvenance(
+            sourceEmail.from_address, threadClientEmail, threadPartnerEmail
+          );
+          if (prov === 'client') return true; // Allowed
+          // internal_sodatra, partner, unknown → block
+          console.log(`[SOURCE-GUARD-2] BLOCKED ${fact.key} (provenance=${prov}, from=${sourceEmail.from_address})`);
+          sg2Blocked++;
+          return false;
+        }
+      }
+
+      // No sourceEmailId or email not found → block sensitive monetary facts (prudent)
+      console.log(`[SOURCE-GUARD-2] BLOCKED ${fact.key} (no provable client provenance, sourceEmailId=${fact.sourceEmailId || 'none'})`);
+      sg2Blocked++;
+      return false;
+    });
+
+    if (sg2Blocked > 0) {
+      console.log(`[SOURCE-GUARD-2] Total blocked: ${sg2Blocked} sensitive monetary fact(s)`);
+    }
+
+    for (const fact of guardedFacts) {
       try {
         // --- HS Code guard: validate against hs_codes table before injection ---
         if (fact.key === "cargo.hs_code") {
