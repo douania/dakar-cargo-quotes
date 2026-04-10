@@ -6,18 +6,18 @@ Dernière mise à jour : 2026-04-10
 
 ---
 
-## SOURCE-GUARD-1-DEBT — Tagging systématique sender_role sur les emails
+## SOURCE-GUARD-DEBT — Tagging systématique sender_role sur les emails
 
 | Champ | Valeur |
 |-------|--------|
-| **ID** | SOURCE-GUARD-1-DEBT |
+| **ID** | SOURCE-GUARD-DEBT |
 | **Catégorie** | Data provenance / Email pipeline |
 | **Statut** | `ouvert` |
 | **Priorité** | Moyenne |
-| **Phase d'origine** | SOURCE-GUARD-1 |
+| **Phase d'origine** | SOURCE-GUARD-1 + SOURCE-GUARD-2 |
 | **Date** | 2026-04-10 |
-| **Déclencheur de réouverture** | (1) Nouveaux domaines SODATRA ou partenaires non couverts par le domain matching. (2) Besoin de filtrage plus fin (ex: distinguer client vs fournisseur vs partenaire). (3) Chemin doc-regex qui extrait des montants depuis des documents internes SODATRA. |
-| **Recommandation** | Implémenter un vrai champ `sender_role` (client/internal/partner) sur la table `emails` au moment de l'import (`sync-emails`), plutôt que le domain matching à chaque extraction. Cela permettrait un filtrage plus robuste, extensible, et éviterait de dupliquer la liste de domaines SODATRA dans chaque edge function. Le chemin doc-regex (`L2588-2702`) est un risque secondaire non traité par SOURCE-GUARD-1. |
+| **Déclencheur de réouverture** | (1) Nouveaux domaines SODATRA ou partenaires non couverts par le domain matching. (2) Clients multi-domaines ou partenaires utilisant Gmail/Outlook. (3) Besoin de `fact_provenance` explicite et persisté dans `quote_facts`. |
+| **Recommandation** | Implémenter un vrai champ `sender_role` (client/internal/partner) sur la table `emails` au moment de l'import (`sync-emails`). Cela remplacerait le domain matching heuristique de `classifyEmailProvenance()` par une classification persistée et fiable. À terme, ajouter un champ `fact_provenance` dans la chaîne d'extraction pour traçabilité complète. Le matching par domaine (SG-2) est prudent mais imparfait pour les cas multi-domaines. |
 
 ---
 
