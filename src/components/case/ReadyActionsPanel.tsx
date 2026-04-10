@@ -251,7 +251,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
   /* ── Build actions list ── */
   const actions = useMemo<ReadyAction[]>(() => {
     if (!data) return [];
-    const { status, gaps, clientGaps, requests, pendingFacts, hasSelectedVersion, drafts } = data;
+    const { status, gaps, clientGaps, requests, pendingFacts, hasSelectedVersion, drafts, hasProposedFacts } = data;
 
     if (TERMINAL.has(status)) return [];
 
@@ -425,6 +425,21 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         status: "to_execute",
         nextStep: NEXT_STEPS.create_version,
         icon: <FileText className="h-4 w-4 text-blue-600" />,
+        color: "blue",
+      });
+    }
+
+    // P0-B: CTA navigation vers faits proposés par analyse réponse client
+    if (hasProposedFacts && result.length < 5) {
+      result.push({
+        type: "client",
+        actionKey: "apply_facts",
+        priority: "next",
+        title: "Faits proposés par l'IA à valider",
+        reason: "L'analyse de la réponse client a extrait des faits à vérifier",
+        status: "to_execute",
+        nextStep: NEXT_STEPS.apply_facts,
+        icon: <FileText className="h-4 w-4 text-accent" />,
         color: "blue",
       });
     }
