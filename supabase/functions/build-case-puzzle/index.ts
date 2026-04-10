@@ -7,6 +7,13 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
+// --- SOURCE-GUARD-1: Identify outbound SODATRA emails ---
+const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
+function isSodatraEmail(email: string): boolean {
+  const domain = (email || '').split('@')[1]?.toLowerCase();
+  return SODATRA_DOMAINS.some(d => domain?.includes(d));
+}
+
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
 function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
@@ -1845,6 +1852,16 @@ Deno.serve(async (req) => {
       .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
       .join("\n\n---\n\n");
 
+    // SOURCE-GUARD-1: Build filtered context excluding outbound SODATRA emails
+    const inboundEmails = emails.filter(e => !isSodatraEmail(e.from_address));
+    const filteredOutCount = emails.length - inboundEmails.length;
+    if (filteredOutCount > 0) {
+      console.log(`[SOURCE-GUARD] Filtered ${filteredOutCount} outbound SODATRA email(s) from fact extraction context (kept ${inboundEmails.length}/${emails.length})`);
+    }
+    const inboundThreadContext = inboundEmails
+      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
+      .join("\n\n---\n\n");
+
     const attachmentContext = (attachments || [])
       .filter((a) => a.extracted_text || a.extracted_data)
       .map((a) => `[Attachment: ${a.filename}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
@@ -1861,9 +1878,9 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join("\n\n");
 
-    // 7. Call AI for fact extraction
+    // 7. Call AI for fact extraction (uses INBOUND context only — SOURCE-GUARD-1)
     const extractedFacts = await extractFactsWithAI(
-      threadContext,
+      inboundThreadContext,
       fullAttachmentContext,
       emails,
       attachments || [],
@@ -4069,7 +4086,15 @@ CRITICAL RULES:
        Simply do not extract a destination from this location.
    - DAP, DDP, CIF, CFR, CPT: the location next to the incoterm is the DESTINATION.
     - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.
-8. COUNTRY EXTRACTION: If the email mentions a country name explicitly (e.g., "to India", "from Senegal", "destination: Nhava Sheva, India"), extract routing.origin_country and/or routing.destination_country as separate facts. Do not conflate country with city.`;
+8. COUNTRY EXTRACTION: If the email mentions a country name explicitly (e.g., "to India", "from Senegal", "destination: Nhava Sheva, India"), extract routing.origin_country and/or routing.destination_country as separate facts. Do not conflate country with city.
+9. SOURCE PROVENANCE (CRITICAL):
+   - cargo.freight_cost and cargo.freight_currency must ONLY be extracted from:
+     a) Client request emails (inbound from the requesting party)
+     b) Supplier/carrier quotes addressed TO the freight forwarder
+   - NEVER extract these from outbound quotation emails sent BY the freight forwarder (SODATRA, @sodatra.sn, @sodatra.com)
+   - If a monetary amount appears in an email FROM the freight forwarder, it is a PROPOSED PRICE, not a cargo fact
+   - This rule applies to all monetary facts in the cargo.* namespace (cargo.value, cargo.freight_cost, etc.)
+   - When in doubt about a price source, do NOT extract it as a cargo fact`;
 
   const userPrompt = `Extract facts from this email thread:
 
