@@ -355,7 +355,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       });
     }
 
-    if (!hasSelectedVersion && !statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
+    if (!hasBlockingGaps && !hasSelectedVersion && !statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
         priority: getPriority(),
