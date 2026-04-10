@@ -4086,7 +4086,15 @@ CRITICAL RULES:
        Simply do not extract a destination from this location.
    - DAP, DDP, CIF, CFR, CPT: the location next to the incoterm is the DESTINATION.
     - Never map an EXW/FCA/FAS location to routing.destination_city or routing.destination_port.
-8. COUNTRY EXTRACTION: If the email mentions a country name explicitly (e.g., "to India", "from Senegal", "destination: Nhava Sheva, India"), extract routing.origin_country and/or routing.destination_country as separate facts. Do not conflate country with city.`;
+8. COUNTRY EXTRACTION: If the email mentions a country name explicitly (e.g., "to India", "from Senegal", "destination: Nhava Sheva, India"), extract routing.origin_country and/or routing.destination_country as separate facts. Do not conflate country with city.
+9. SOURCE PROVENANCE (CRITICAL):
+   - cargo.freight_cost and cargo.freight_currency must ONLY be extracted from:
+     a) Client request emails (inbound from the requesting party)
+     b) Supplier/carrier quotes addressed TO the freight forwarder
+   - NEVER extract these from outbound quotation emails sent BY the freight forwarder (SODATRA, @sodatra.sn, @sodatra.com)
+   - If a monetary amount appears in an email FROM the freight forwarder, it is a PROPOSED PRICE, not a cargo fact
+   - This rule applies to all monetary facts in the cargo.* namespace (cargo.value, cargo.freight_cost, etc.)
+   - When in doubt about a price source, do NOT extract it as a cargo fact`;
 
   const userPrompt = `Extract facts from this email thread:
 
