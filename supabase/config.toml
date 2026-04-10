@@ -214,3 +214,6 @@ verify_jwt = false
 
 [functions.confirm-external-request-sent]
 verify_jwt = false
+
+[functions.close-external-quote-request]
+verify_jwt = false

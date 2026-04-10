@@ -215,46 +215,28 @@ export function useExternalRequests(caseId: string | undefined) {
     },
   });
 
-  // P1-1: Timeline event for closing request
+  // P1-B: Backend-only close via edge function
   const closeRequest = useMutation({
     mutationFn: async (requestId: string) => {
-      const { error } = await supabase
-        .from("external_quote_requests")
-        .update({ status: "closed" })
-        .eq("id", requestId);
+      const { data, error } = await supabase.functions.invoke("close-external-quote-request", {
+        body: { case_id: caseId, request_id: requestId },
+      });
       if (error) throw error;
-
-      // Timeline event with dedupe_key
-      const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id || null;
-      const req = requests.find((r) => r.id === requestId);
-      const { error: timelineError } = await supabase
-        .from("case_timeline_events")
-        .insert({
-          case_id: caseId,
-          event_type: "manual_action",
-          actor_type: "operator",
-          actor_user_id: userId,
-          new_value: `Demande partenaire clôturée: ${req?.partner_name || requestId}`,
-          event_data: {
-            dedupe_key: `external_request_closed:${requestId}`,
-            action_code: "PARTNER_REQUEST_CLOSED",
-            status: "done",
-            request_id: requestId,
-            partner_name: req?.partner_name || null,
-          },
-        });
-      if (timelineError) {
-        console.warn("[EQ1] Timeline insert failed (close)", {
-          caseId,
-          requestId,
-          error: timelineError.message,
-        });
-      }
+      if (data?.error) throw new Error(data.error === "pending_facts_remain"
+        ? data.message
+        : data.error);
+      return data;
     },
-    onSuccess: () => {
-      toast.info("Demande clôturée");
+    onSuccess: (data) => {
+      if (data?.idempotent) {
+        toast.info("Demande déjà clôturée");
+      } else {
+        toast.info("Demande clôturée");
+      }
       invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast.error("Erreur: " + err.message);
     },
   });
 
