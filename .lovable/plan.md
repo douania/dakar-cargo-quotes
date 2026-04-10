@@ -1,5 +1,48 @@
 
-# PAD-GAP-1 — Gap bloquant quand la catégorie PAD ne peut pas être résolue
+# SOURCE-GUARD-1 — Empêcher la contamination des facts par les emails sortants SODATRA
+
+## Statut : DONE (2026-04-10)
+
+### Diagnostic
+
+`threadContext` (L1844) était construit à partir de **tous les emails** du thread sans filtrage par expéditeur.
+`extractFactsWithAI` recevait donc le contenu des emails sortants SODATRA, permettant à l'AI d'extraire des montants de devis (ex: 4187 USD) comme `cargo.freight_cost`.
+
+### Correctifs appliqués
+
+1. **Helper `isSodatraEmail`** (L10-15)
+   - Détection par domaine (`sodatra.sn`, `sodatra.com`)
+   - Même logique que le frontend (`useThreadEmails.ts`)
+
+2. **Contexte filtré `inboundThreadContext`** (L1856-1864)
+   - Emails dont `from_address` n'est PAS un domaine SODATRA
+   - Passé à `extractFactsWithAI` à la place de `threadContext`
+   - `threadContext` complet conservé pour détection de type et multi-quote
+
+3. **Prompt Rule 9: SOURCE PROVENANCE** (L4089-4098)
+   - Instruction explicite à l'AI de ne jamais extraire `cargo.freight_cost` / `cargo.freight_currency` depuis des emails sortants SODATRA
+   - Double protection : filtrage contexte EN AMONT + instruction AI EN AVAL
+
+4. **Log d'audit** (L1858-1860)
+   - `[SOURCE-GUARD]` log avec nombre d'emails filtrés
+
+### Fichiers impactés
+
+| Fichier | Changement |
+|---------|-----------|
+| `supabase/functions/build-case-puzzle/index.ts` | Helper + filtrage + prompt rule 9 (~30 lignes) |
+| `.lovable/plan.md` | Documentation |
+| `docs/DEFERRED_BACKLOG.md` | Dette SOURCE-GUARD-1-DEBT |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration
+- Pas de modification du schéma `quote_facts`
+- Pas de purge automatique des facts contaminés existants
+- Pas de modification du chemin doc-regex (risque secondaire)
+
+---
+
 
 ## Statut : DONE (2026-04-10)
 
