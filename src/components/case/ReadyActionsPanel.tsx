@@ -223,6 +223,16 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
+      // P0-B: detect unapplied reply_analysis facts from existing timeline query (no new DB call)
+      const replyAnalysis = (draftEvents ?? []).find(
+        (e: any) => e.event_data?.kind === "reply_analysis_v1"
+      );
+      const proposedFacts: unknown[] = Array.isArray(replyAnalysis?.event_data?.analysis?.proposed_facts)
+        ? replyAnalysis.event_data.analysis.proposed_facts
+        : [];
+      // We consider facts "unapplied" if proposed_facts exist — the section handles exact applied state
+      const hasProposedFacts = proposedFacts.length > 0;
+
       return {
         status,
         gaps,
@@ -231,6 +241,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         pendingFacts,
         hasSelectedVersion,
         drafts,
+        hasProposedFacts,
       };
     },
   });
