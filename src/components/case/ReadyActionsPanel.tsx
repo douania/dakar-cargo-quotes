@@ -260,6 +260,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
         result.push({
           type: "client",
+          actionKey: "blocking_gap",
           priority: getPriority(),
           title: gap.question_fr || `Résoudre le gap ${gap.gap_key}`,
           reason: `Gap bloquant : ${gap.gap_category ?? gap.gap_key}`,
@@ -281,6 +282,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (draftedGaps.length > 0) {
       result.push({
         type: "client",
+        actionKey: "drafted_client_gap",
         priority: getPriority(),
         title: `Envoyer ${draftedGaps.length} clarification(s) client`,
         reason: "Clarifications prêtes mais non envoyées",
@@ -298,6 +300,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (sentClientGaps.length > 0 && result.length < 4) {
       result.push({
         type: "client",
+        actionKey: "open_client_gap",
         priority: result.length === 0 ? "now" : "waiting",
         title: `${sentClientGaps.length} clarification(s) en attente de réponse client`,
         reason: "Réponses client attendues",
@@ -313,6 +316,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (draftRequests.length > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "draft_partner",
         priority: getPriority(),
         title: `Préparer ${draftRequests.length} demande(s) partenaire(s)`,
         reason: "Demandes non préparées",
@@ -331,6 +335,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (unsentRequests.length > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "unsent_partner",
         priority: getPriority(),
         title: `Confirmer l'envoi de ${unsentRequests.length} demande(s)`,
         reason: "Envois non confirmés",
@@ -346,6 +351,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (pendingFacts > 0 && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "pending_facts",
         priority: getPriority(),
         title: `Valider ${pendingFacts} fait(s) partenaire(s)`,
         reason: "Faits partenaires à valider",
@@ -364,6 +370,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (requests.length > 0 && hasExploitable && !hasSelected && result.length < 4) {
       result.push({
         type: "partner",
+        actionKey: "select_partner",
         priority: getPriority(),
         title: "Retenir une offre partenaire",
         reason: "Sélection commerciale non faite",
@@ -380,6 +387,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (!hasBlockingGaps && statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
+        actionKey: "launch_pricing",
         priority: getPriority(),
         title: "Lancer le pricing",
         reason: "Aucun blocage majeur",
@@ -393,6 +401,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (!hasBlockingGaps && !hasSelectedVersion && !statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
       result.push({
         type: "internal",
+        actionKey: "create_version",
         priority: getPriority(),
         title: "Créer la version du devis",
         reason: "Version non créée",
