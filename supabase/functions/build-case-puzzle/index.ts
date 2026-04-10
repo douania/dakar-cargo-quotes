@@ -2679,6 +2679,11 @@ Deno.serve(async (req) => {
       let bestDocName = '';
       for (const doc of (caseDocuments || [])) {
         if (!doc.extracted_text) continue;
+        // SOURCE-GUARD-2: Skip internal/quotation documents from cargo value extraction
+        if (doc.document_type && INTERNAL_DOC_TYPES.has(doc.document_type)) {
+          console.log(`[SOURCE-GUARD-2] Skipping doc-regex on internal document "${doc.file_name}" (type: ${doc.document_type})`);
+          continue;
+        }
         console.log(`[cargo-value doc-regex] Text preview from "${doc.file_name || 'unknown'}":`, (doc.extracted_text || "").slice(0, 400));
         const candidate = extractCargoValueFromText(doc.extracted_text);
         console.log(`[cargo-value doc-regex] Candidate from "${doc.file_name || 'unknown'}":`, JSON.stringify(candidate));
