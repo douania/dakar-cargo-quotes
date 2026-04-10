@@ -116,6 +116,7 @@ const NEXT_STEPS: Record<string, string> = {
   draft_partner: "Préparer et confirmer l'envoi aux partenaires",
   unsent_partner: "Confirmer l'envoi, puis attendre les réponses",
   pending_facts: "Après validation, relancer le pricing",
+  apply_facts: "Valider ou rejeter chaque fait, puis relancer l'analyse",
   select_partner: "Sélectionner l'offre, puis relancer le pricing",
   launch_pricing: "Créer la version du devis",
   create_version: "Exporter le PDF",
