@@ -156,3 +156,56 @@ Résultat : une action pour `routing.destination_port` restait affichée alors q
 - Pas de modification de `run-pricing` ni `analyze-partner-response`
 - Pas de reroutage des partner facts vers `quote_facts`
 - Pas de suppression massive d'anciens facts
+
+---
+
+# ORCH-ACTION-1 — ReadyActionsPanel : actions exécutables ordonnées
+
+## Statut : DONE (2026-04-10)
+
+### Diagnostic
+
+Le `NextActionBanner` (COCKPIT-8) affiche la priorité mais sans détail actionnable. L'opérateur doit naviguer manuellement entre gaps, timeline et boutons éparpillés dans CaseView.
+
+### Correctifs appliqués
+
+1. **`ReadyActionsPanel`** (`src/components/case/ReadyActionsPanel.tsx`)
+   - Nouveau composant autonome (prop: `caseId`)
+   - Construit une liste ordonnée de 1-4 `ReadyAction` items
+   - Réutilise la même hiérarchie de priorité que `NextActionBanner.computeAction()`
+   - 3 types d'actions : Client, Partenaire, Interne
+   - 5 statuts opératoires : à_préparer, prêt_à_envoyer, envoyé, en_attente, à_exécuter
+
+2. **Actions client avec message prêt**
+   - Pour les gaps bloquants : affiche `question_fr` en bloc lisible
+   - Bouton "Générer brouillon client" → `sync-gap-client-actions` + `generate-reply-draft`
+   - Bouton "Marquer envoyé" → `mark-client-gap-request-sent`
+   - Bouton "Copier" pour le message
+   - Strictement conditionnels selon le statut réel du gap/request
+
+3. **Séquencement "maintenant / ensuite"**
+   - Table déterministe `NEXT_STEPS` (pas d'IA)
+   - Chaque action affiche sa prochaine étape attendue
+   - Ex: "À réception de la réponse client, relancer l'analyse puis le pricing"
+
+4. **Intégration CaseView**
+   - Inséré entre `NextActionBanner` et `CaseActionPlan`
+   - Hiérarchie : Banner (cap) → ReadyActions (exécution) → ActionPlan (macro)
+   - Invalidation croisée des query keys après mutation
+
+### Fichiers impactés
+
+| Fichier | Changement |
+|---------|-----------|
+| `src/components/case/ReadyActionsPanel.tsx` | **Nouveau** (~350 lignes) |
+| `src/pages/CaseView.tsx` | Import + insertion (~5 lignes) |
+| `.lovable/plan.md` | Documentation ORCH-ACTION-1 |
+
+### Ce que ce lot ne fait PAS
+
+- Pas de migration DB
+- Pas de nouvelle edge function
+- Pas d'envoi SMTP réel (COM-1A en dette)
+- Pas de refactor de CaseView.tsx
+- Pas de modification du NextActionBanner ni du CaseActionPlan
+- Pas de logique IA de planification
