@@ -20,3 +20,22 @@
 ## Fix impression PDF ✅ DONE
 
 Neutralisation du layout flex sidebar dans `@media print` (`src/index.css`).
+
+---
+
+## PRICING-AUDIT-1 — Clarification des lignes tarifaires ✅ DONE
+
+### Problème
+Les lignes pricing affichaient des faux zéros (PAD_DROIT_PASSAGE = 0 au lieu de "À confirmer") et ne distinguaient pas visuellement les lignes calculées, informatives et en attente.
+
+### Correctif appliqué
+1. **PricingResultPanel.tsx** : `isToConfirm` corrigé pour détecter `source.type === 'TO_CONFIRM'` indépendamment du montant (couvre les cas `amount: 0`).
+2. **PricingResultPanel.tsx** : Ajout de la détection `isInformational` pour les lignes à zéro métier (`business_rule` / `OFFICIAL` avec `amount: 0`), rendu en style muted avec label explicatif.
+3. **PricingResultPanel.tsx** : Résumé de fiabilité ajouté sous le compteur de lignes (`X calculées · Y à confirmer · Z info`).
+4. **PricingResultPanel.tsx** : Avertissement "Total provisoire" affiché quand des postes sont encore à confirmer.
+5. **DEFERRED_BACKLOG.md** : PORT_DAKAR_HANDLING documenté comme dette métier sous audit (confiance 69%).
+
+### Fichiers modifiés
+- `src/components/puzzle/PricingResultPanel.tsx` — fix isToConfirm, rendu informatif, résumé fiabilité, total provisoire
+- `docs/DEFERRED_BACKLOG.md` — PORT-DAKAR-HANDLING-AUDIT ajouté
+- `.lovable/plan.md` — documentation
