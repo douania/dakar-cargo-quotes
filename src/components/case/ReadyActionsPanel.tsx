@@ -46,7 +46,8 @@ type ActionKey =
   | "pending_facts"
   | "select_partner"
   | "launch_pricing"
-  | "create_version";
+  | "create_version"
+  | "apply_facts";
 
 interface ReadyAction {
   type: "client" | "partner" | "internal";
@@ -76,6 +77,7 @@ const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
   select_partner: "section-partner-detail",
   launch_pricing: "section-pricing",
   create_version: "section-version",
+  apply_facts: "section-reply-analysis",
 };
 
 const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
@@ -85,6 +87,7 @@ const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
   select_partner: "Voir les offres",
   launch_pricing: "Aller au pricing",
   create_version: "Aller à la version",
+  apply_facts: "Voir les faits proposés",
 };
 
 function scrollToSection(id: string) {
