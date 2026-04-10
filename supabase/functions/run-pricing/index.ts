@@ -1694,6 +1694,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ PAD-GAP-1: Gap bloquant si PAD applicable mais catégorie non résolue ═══
+      // PAD-GAP-1-FIX: condition assouplie — poids non requis pour lever le gap
       // Condition identique au bloc terminal storage (maritime + description + poids > 0)
       if (!inputs.padCategory && isMaritime && inputs.cargoDescription) {
         try {
