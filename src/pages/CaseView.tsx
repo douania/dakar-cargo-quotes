@@ -1104,7 +1104,8 @@ export default function CaseView() {
           );
         })()}
 
-        {/* ── Open Actions (C2/P0.3) ── */}
+        {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}
+        {['SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(caseData.status) && (
         <Card className="mb-6">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -1217,6 +1218,7 @@ export default function CaseView() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* ── Actions clôturées ── */}
         {doneActions.length > 0 && (
