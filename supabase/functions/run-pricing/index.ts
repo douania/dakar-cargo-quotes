@@ -1785,7 +1785,7 @@ Deno.serve(async (req) => {
       // Phase 3-B.1: Alias lookup (validated only) → Phase 3-A: Direct match fallback
       // Exact match only — 0 ILIKE, 0 fuzzy, 0 partial matching
       // handling_code is metadata only — not consumed for pricing
-      const isMaritime = !String(caseData.request_type || '').toUpperCase().includes('AIR');
+      // isMaritime already computed above (PAD-GAP-1 hoist)
       if (isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
         try {
           // Normalize description for exact match
