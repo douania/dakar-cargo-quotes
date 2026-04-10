@@ -1,51 +1,16 @@
 /**
  * COCKPIT-4B: Case Action Plan — checklist ordonnée orientée communication réelle
  *
- * Composant autonome (propres queries, staleTime 30s).
- * Lecture seule, aucune mutation.
+ * P1-A: Migrated to useCockpitState + cockpitStatusConstants.
+ * Composant autonome, lecture seule, aucune mutation.
  * 12 étapes max, décomposant les boucles partenaire et client.
- *
- * Logique skip : étapes partenaires masquées si totalPartnerRequests === 0,
- * étapes client masquées si totalClientGaps === 0.
- *
- * Étape 4 "Confirmer l'envoi" est honnête : done seulement si email_sent_at
- * est renseigné, avec note COM-1A si pending.
  */
 
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useCockpitState } from "@/hooks/useCockpitState";
+import { statusAtLeast, statusAbove } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Circle, AlertCircle, ListChecks } from "lucide-react";
-
-/** Explicit status hierarchy — no naive string comparison */
-const STATUS_ORDER: Record<string, number> = {
-  INTAKE: 0,
-  NEW_THREAD: 1,
-  RFQ_DETECTED: 2,
-  FACTS_PARTIAL: 3,
-  NEED_INFO: 4,
-  READY_TO_PRICE: 5,
-  DECISIONS_PENDING: 6,
-  DECISIONS_COMPLETE: 7,
-  ACK_READY_FOR_PRICING: 8,
-  PRICING_RUNNING: 9,
-  PRICED_DRAFT: 10,
-  HUMAN_REVIEW: 11,
-  QUOTED_VERSIONED: 12,
-  SENT: 13,
-  ACCEPTED: 14,
-  REJECTED: 15,
-  ARCHIVED: 16,
-};
-
-function statusAtLeast(current: string, threshold: string): boolean {
-  return (STATUS_ORDER[current] ?? -1) >= (STATUS_ORDER[threshold] ?? 999);
-}
-
-function statusAbove(current: string, threshold: string): boolean {
-  return (STATUS_ORDER[current] ?? -1) > (STATUS_ORDER[threshold] ?? 999);
-}
 
 type StepStatus = "done" | "current" | "pending" | "blocked" | "skipped";
 type StepGroup = "communication" | "consolidation";
@@ -63,74 +28,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["case-action-plan", caseId],
-    staleTime: 30_000,
-    queryFn: async () => {
-      // Batch 1: core case data
-      const [caseResult, gapsResult, eqrOpenResult, eqrTotalResult, factsProposedResult] =
-        await Promise.all([
-          supabase.from("quote_cases").select("status").eq("id", caseId).single(),
-          supabase.from("quote_gaps").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("is_blocking", true).eq("status", "open"),
-          // openPartnerRequests: tout sauf closed (aligné COCKPIT-2/COCKPIT-3)
-          supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).neq("status", "closed"),
-          supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
-          supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
-        ]);
-
-      // Batch 2: client gaps + versions + COCKPIT-4B specific counts
-      const [
-        clientGapsOpenResult,
-        clientGapsTotalResult,
-        versionResult,
-        draftPartnerResult,
-        unsentPartnerResult,
-        draftedClientGapsResult,
-      ] = await Promise.all([
-        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
-        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId),
-        supabase.from("quotation_versions").select("id, is_selected").eq("case_id", caseId),
-        // Étape 3: demandes partenaires encore en brouillon
-        supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "draft"),
-        // Étape 4: demandes marquées sent mais sans preuve d'envoi réel
-        supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "sent").is("email_sent_at", null),
-        // Étape 6: clarifications client encore en brouillon
-        supabase.from("client_gap_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("status", "drafted"),
-      ]);
-
-      const versions = versionResult.data ?? [];
-      const selectedVersionId = versions.find((v: any) => v.is_selected)?.id;
-      const hasVersion = !!selectedVersionId;
-
-      // Check PDF and draft only if we have a version
-      let hasPdf = false;
-      let hasDraft = false;
-      if (selectedVersionId) {
-        const [pdfResult, draftResult] = await Promise.all([
-          supabase.from("quotation_documents").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId).eq("document_type", "pdf"),
-          supabase.from("email_drafts").select("id", { count: "exact", head: true }).eq("quotation_version_id", selectedVersionId).eq("status", "draft"),
-        ]);
-        hasPdf = (pdfResult.count ?? 0) > 0;
-        hasDraft = (draftResult.count ?? 0) > 0;
-      }
-
-      return {
-        status: (caseResult.data?.status as string) ?? "INTAKE",
-        blockingGapsCount: gapsResult.count ?? 0,
-        openPartnerRequests: eqrOpenResult.count ?? 0,
-        totalPartnerRequests: eqrTotalResult.count ?? 0,
-        pendingPartnerFacts: factsProposedResult.count ?? 0,
-        openClientGaps: clientGapsOpenResult.count ?? 0,
-        totalClientGaps: clientGapsTotalResult.count ?? 0,
-        draftPartnerRequests: draftPartnerResult.count ?? 0,
-        unsentPartnerRequests: unsentPartnerResult.count ?? 0,
-        draftedClientGaps: draftedClientGapsResult.count ?? 0,
-        hasVersion,
-        hasPdf,
-        hasDraft,
-      };
-    },
-  });
+  const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
 
@@ -145,9 +43,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     draftPartnerRequests,
     unsentPartnerRequests,
     draftedClientGaps,
-    hasVersion,
+    hasSelectedVersion,
     hasPdf,
-    hasDraft,
+    hasDraftEmail,
   } = data;
 
   // Build 12 steps
@@ -170,7 +68,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   });
 
   // 3. Préparer les demandes partenaires
-  // done = plus aucun brouillon partenaire à compléter (toutes les demandes sont au moins en status sent ou au-delà)
   if (totalPartnerRequests > 0) {
     allSteps.push({
       id: "prepare-partners",
@@ -181,8 +78,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   }
 
   // 4. Confirmer l'envoi des demandes partenaires
-  // done = aucune request sent avec email_sent_at IS NULL
-  // Honnête : ne prétend pas que l'app sait envoyer avant COM-1A
   if (totalPartnerRequests > 0) {
     const allSentConfirmed = unsentPartnerRequests === 0 && draftPartnerRequests === 0;
     allSteps.push({
@@ -197,7 +92,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   }
 
   // 5. Traiter les réponses partenaires
-  // openPartnerRequests = tout sauf closed (aligné COCKPIT-2/COCKPIT-3)
   if (totalPartnerRequests > 0) {
     const partnerResponsesDone = openPartnerRequests === 0 && pendingPartnerFacts === 0;
     allSteps.push({
@@ -209,7 +103,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   }
 
   // 6. Envoyer les clarifications client
-  // done = aucun client_gap en status drafted
   if (totalClientGaps > 0) {
     allSteps.push({
       id: "send-client-clarifications",
@@ -220,7 +113,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   }
 
   // 7. Analyser les réponses client
-  // done = aucun client gap ouvert (drafted, sent, answered)
   if (totalClientGaps > 0) {
     allSteps.push({
       id: "analyze-client-responses",
@@ -242,7 +134,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   allSteps.push({
     id: "version",
     label: "Créer la version",
-    status: hasVersion ? "done" : "pending",
+    status: hasSelectedVersion ? "done" : "pending",
     group: "consolidation",
   });
 
@@ -258,7 +150,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   allSteps.push({
     id: "prepare-email",
     label: "Préparer l'email client",
-    status: hasDraft ? "done" : "pending",
+    status: hasDraftEmail ? "done" : "pending",
     group: "consolidation",
   });
 

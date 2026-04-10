@@ -95,19 +95,12 @@ function scrollToSection(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/* ─── Status hierarchy (shared with NextActionBanner) ─── */
-const STATUS_ORDER: Record<string, number> = {
-  INTAKE: 0, NEW_THREAD: 1, RFQ_DETECTED: 2, FACTS_PARTIAL: 3, NEED_INFO: 4,
-  READY_TO_PRICE: 5, DECISIONS_PENDING: 6, DECISIONS_COMPLETE: 7,
-  ACK_READY_FOR_PRICING: 8, PRICING_RUNNING: 9, PRICED_DRAFT: 10,
-  HUMAN_REVIEW: 11, QUOTED_VERSIONED: 12, SENT: 13, ACCEPTED: 14,
-  REJECTED: 15, ARCHIVED: 16,
-};
-const TERMINAL = new Set(["SENT", "ACCEPTED", "REJECTED", "ARCHIVED"]);
-
-function statusBelow(current: string, threshold: string): boolean {
-  return (STATUS_ORDER[current] ?? -1) < (STATUS_ORDER[threshold] ?? 999);
-}
+/* ─── Status hierarchy (P1-A: imported from shared constants) ─── */
+import {
+  STATUS_ORDER,
+  TERMINAL_STATUSES as TERMINAL,
+  statusBelow,
+} from "@/lib/cockpitStatusConstants";
 
 /* ─── Next-step table (deterministic, no AI) ─── */
 const NEXT_STEPS: Record<string, string> = {
@@ -568,6 +561,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     queryClient.invalidateQueries({ queryKey: ["client-gap-requests", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-action-plan", caseId] });
+    // P1-A: unified cockpit state
+    queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] });
   }
 
   function copyToClipboard(text: string) {

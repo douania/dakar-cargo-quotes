@@ -158,6 +158,8 @@ export function PartnerRequestsDetailView({ caseId }: Props) {
       queryClient.invalidateQueries({ queryKey: ['partner-collection-readiness', caseId] });
       queryClient.invalidateQueries({ queryKey: ['pricing-readiness', caseId] });
       queryClient.invalidateQueries({ queryKey: ['next-action-banner', caseId] });
+      // P1-A: unified cockpit state
+      queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] });
     } finally {
       setSelectingId(null);
     }

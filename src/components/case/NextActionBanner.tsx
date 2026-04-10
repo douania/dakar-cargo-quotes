@@ -1,11 +1,12 @@
 /**
  * COCKPIT-8 Phase 1: Next action priority banner.
  * Read-only synthesis: shows the single most important action + main blocker.
- * Uses explicit STATUS_ORDER — no naive string comparison.
+ *
+ * P1-A: Migrated to useCockpitState + cockpitStatusConstants.
  */
 
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useCockpitState } from "@/hooks/useCockpitState";
+import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,20 +23,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-/* ─── Status hierarchy (same as CaseActionPlan) ─── */
-const STATUS_ORDER: Record<string, number> = {
-  INTAKE: 0, NEW_THREAD: 1, RFQ_DETECTED: 2, FACTS_PARTIAL: 3, NEED_INFO: 4,
-  READY_TO_PRICE: 5, DECISIONS_PENDING: 6, DECISIONS_COMPLETE: 7,
-  ACK_READY_FOR_PRICING: 8, PRICING_RUNNING: 9, PRICED_DRAFT: 10,
-  HUMAN_REVIEW: 11, QUOTED_VERSIONED: 12, SENT: 13, ACCEPTED: 14,
-  REJECTED: 15, ARCHIVED: 16,
-};
-function statusBelow(current: string, threshold: string): boolean {
-  return (STATUS_ORDER[current] ?? -1) < (STATUS_ORDER[threshold] ?? 999);
-}
-
-const TERMINAL = new Set(["SENT", "ACCEPTED", "REJECTED", "ARCHIVED"]);
-
 /* ─── Types ─── */
 interface Props { caseId: string }
 
@@ -48,67 +35,7 @@ interface ActionResult {
 
 /* ─── Component ─── */
 export function NextActionBanner({ caseId }: Props) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["next-action-banner", caseId],
-    staleTime: 30_000,
-    enabled: !!caseId,
-    queryFn: async () => {
-      const [
-        caseRes, gapsRes, reqRes, factsRes, clientGapsRes, versionsRes,
-      ] = await Promise.all([
-        supabase.from("quote_cases").select("status").eq("id", caseId).maybeSingle(),
-        supabase.from("quote_gaps").select("id", { count: "exact", head: true })
-          .eq("case_id", caseId).eq("is_blocking", true).eq("status", "open"),
-        supabase.from("external_quote_requests").select("id, status, email_sent_at, is_selected")
-          .eq("case_id", caseId),
-        supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true })
-          .eq("case_id", caseId).eq("validation_status", "proposed"),
-        supabase.from("client_gap_requests").select("id, status")
-          .eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as unknown as string[]),
-        supabase.from("quotation_versions").select("id")
-          .eq("case_id", caseId).eq("is_selected", true).limit(1),
-      ]);
-
-      const status = caseRes.data?.status ?? "INTAKE";
-      const blockingGaps = gapsRes.count ?? 0;
-      const requests = reqRes.data ?? [];
-      const pendingFacts = factsRes.count ?? 0;
-      const clientGaps = clientGapsRes.data ?? [];
-      const hasSelectedVersion = (versionsRes.data?.length ?? 0) > 0;
-
-      const draftRequests = requests.filter(r => r.status === "draft").length;
-      const unsentRequests = requests.filter(r => r.status === "sent" && !r.email_sent_at).length;
-      const hasSelectedPartner = requests.some(r => r.is_selected);
-      const hasExploitableRequests = requests.some(r =>
-        ["response_received", "response_analyzed", "partially_validated", "facts_validated", "closed"].includes(r.status)
-      );
-
-      const draftedClientGaps = clientGaps.filter(g => g.status === "drafted").length;
-      const openClientGaps = clientGaps.filter(g => g.status === "sent" || g.status === "answered").length;
-
-      // Lazy queries only if version exists
-      let hasPdf = false;
-      let hasDraftEmail = false;
-      if (hasSelectedVersion) {
-        const versionId = versionsRes.data![0].id;
-        const pdfRes = await supabase.from("quotation_documents")
-          .select("id", { count: "exact", head: true })
-          .eq("quotation_version_id", versionId).eq("document_type", "pdf");
-        const emailRes = await supabase.from("email_drafts")
-          .select("id", { count: "exact", head: true })
-          .eq("quotation_version_id", versionId).eq("status", "draft");
-        hasPdf = (pdfRes.count ?? 0) > 0;
-        hasDraftEmail = (emailRes.count ?? 0) > 0;
-      }
-
-      return {
-        status, blockingGaps, draftRequests, unsentRequests, pendingFacts,
-        draftedClientGaps, openClientGaps, hasSelectedVersion, hasPdf,
-        hasDraftEmail, hasSelectedPartner, hasExploitableRequests,
-        totalRequests: requests.length,
-      };
-    },
-  });
+  const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
 
@@ -143,43 +70,43 @@ export function NextActionBanner({ caseId }: Props) {
 
 /* ─── Decision hierarchy — first match wins ─── */
 function computeAction(d: {
-  status: string; blockingGaps: number; draftRequests: number;
-  unsentRequests: number; pendingFacts: number; draftedClientGaps: number;
+  status: string; blockingGapsCount: number; draftPartnerRequests: number;
+  unsentPartnerRequests: number; pendingPartnerFacts: number; draftedClientGaps: number;
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
   hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
-  totalRequests: number;
+  totalPartnerRequests: number;
 }): ActionResult | null {
 
   // Terminal
-  if (TERMINAL.has(d.status)) return null;
+  if (TERMINAL_STATUSES.has(d.status)) return null;
 
   // 1 — Blocking gaps
-  if (d.blockingGaps > 0) return {
-    action: `Résoudre ${d.blockingGaps} gap(s) bloquant(s)`,
-    blocker: `${d.blockingGaps} gap(s) bloquant(s)`,
+  if (d.blockingGapsCount > 0) return {
+    action: `Résoudre ${d.blockingGapsCount} gap(s) bloquant(s)`,
+    blocker: `${d.blockingGapsCount} gap(s) bloquant(s)`,
     icon: <AlertTriangle className="h-4 w-4 text-destructive" />,
     color: "red",
   };
 
   // 2 — Draft partner requests
-  if (d.draftRequests > 0) return {
-    action: `Préparer ${d.draftRequests} demande(s) partenaire(s)`,
+  if (d.draftPartnerRequests > 0) return {
+    action: `Préparer ${d.draftPartnerRequests} demande(s) partenaire(s)`,
     blocker: "Demandes non préparées",
     icon: <FileText className="h-4 w-4 text-amber-600" />,
     color: "amber",
   };
 
   // 3 — Unsent partner requests
-  if (d.unsentRequests > 0) return {
-    action: `Confirmer l'envoi de ${d.unsentRequests} demande(s)`,
+  if (d.unsentPartnerRequests > 0) return {
+    action: `Confirmer l'envoi de ${d.unsentPartnerRequests} demande(s)`,
     blocker: "Envois non confirmés",
     icon: <Send className="h-4 w-4 text-amber-600" />,
     color: "amber",
   };
 
   // 4 — Pending partner facts
-  if (d.pendingFacts > 0) return {
-    action: `Valider ${d.pendingFacts} fait(s) partenaire(s)`,
+  if (d.pendingPartnerFacts > 0) return {
+    action: `Valider ${d.pendingPartnerFacts} fait(s) partenaire(s)`,
     blocker: "Faits partenaires à valider",
     icon: <ShieldCheck className="h-4 w-4 text-amber-600" />,
     color: "amber",
@@ -202,7 +129,7 @@ function computeAction(d: {
   };
 
   // 7 — Select partner offer (if exploitable requests exist but none selected)
-  if (d.totalRequests > 0 && d.hasExploitableRequests && !d.hasSelectedPartner) return {
+  if (d.totalPartnerRequests > 0 && d.hasExploitableRequests && !d.hasSelectedPartner) return {
     action: "Retenir une offre partenaire",
     blocker: "Sélection commerciale non faite",
     icon: <CheckCircle2 className="h-4 w-4 text-amber-600" />,
@@ -217,7 +144,7 @@ function computeAction(d: {
     color: "emerald",
   };
 
-  // 8 — Create version
+  // 9 — Create version
   if (!d.hasSelectedVersion) return {
     action: "Créer la version du devis",
     blocker: "Version non créée",
@@ -225,7 +152,7 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 9 — Export PDF
+  // 10 — Export PDF
   if (!d.hasPdf) return {
     action: "Exporter le PDF",
     blocker: "PDF non généré",
@@ -233,7 +160,7 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 10 — Prepare client email
+  // 11 — Prepare client email
   if (!d.hasDraftEmail) return {
     action: "Préparer l'email client",
     blocker: "Brouillon non créé",
@@ -241,7 +168,7 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 11 — Mark sent
+  // 12 — Mark sent
   if (d.status !== "SENT") return {
     action: "Marquer l'envoi client",
     blocker: "Envoi non confirmé",

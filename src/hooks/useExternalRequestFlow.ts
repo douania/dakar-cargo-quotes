@@ -83,6 +83,8 @@ export function useExternalRequestFlow(caseId: string | undefined) {
 
   const invalidateCockpit = () => {
     invalidateAll();
+    // P1-A: unified cockpit state
+    queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] });
     // Broad invalidation: all cockpit surfaces reading email_sent_at
     queryClient.invalidateQueries({ queryKey: ["ready-actions-panel", caseId] });
     queryClient.invalidateQueries({ queryKey: ["next-action-banner", caseId] });

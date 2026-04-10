@@ -203,6 +203,8 @@ export function useSendQuotation(caseId: string | undefined) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
       queryClient.invalidateQueries({ queryKey: ['quote-case'], exact: false });
+      // P1-A: unified cockpit state
+      queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] });
 
       if (data.idempotent) {
         toast.info('Devis déjà marqué comme envoyé', {

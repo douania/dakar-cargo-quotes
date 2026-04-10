@@ -191,6 +191,8 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           queryClient.invalidateQueries({ queryKey: ["case-gaps", caseId] }),
           queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
           queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] }),
+          // P1-A: unified cockpit state
+          queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] }),
         ]);
         toast({ title: "Analyse terminée", description: "Le dossier a été réanalysé. Vérifiez l'onglet Faits." });
       } catch (e) {

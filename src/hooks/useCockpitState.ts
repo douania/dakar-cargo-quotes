@@ -1,0 +1,191 @@
+/**
+ * P1-A — Unified cockpit state hook.
+ * Single React Query hook returning counts, flags, booleans.
+ * No full rows, no detailed previews — strictly synthetic.
+ */
+
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  TERMINAL_STATUSES,
+  RESPONSE_PHASE_STATUSES,
+} from "@/lib/cockpitStatusConstants";
+
+export interface CockpitState {
+  // Case
+  status: string;
+  isTerminal: boolean;
+
+  // Gaps
+  blockingGapsCount: number;
+
+  // Partner requests
+  totalPartnerRequests: number;
+  draftPartnerRequests: number;
+  unsentPartnerRequests: number; // sent && !email_sent_at
+  openPartnerRequests: number; // != closed
+  closedPartnerRequests: number;
+  responsePhaseRequests: number;
+  hasExploitableRequests: boolean;
+  hasSelectedPartner: boolean;
+
+  // Partner facts
+  pendingPartnerFacts: number;
+
+  // Client gaps
+  totalClientGaps: number;
+  draftedClientGaps: number;
+  openClientGaps: number; // drafted + sent + answered
+
+  // Version pipeline
+  hasSelectedVersion: boolean;
+  selectedVersionId: string | null;
+  hasPdf: boolean;
+  hasDraftEmail: boolean;
+}
+
+export function useCockpitState(caseId: string | undefined) {
+  return useQuery<CockpitState>({
+    queryKey: ["cockpit-state", caseId],
+    staleTime: 30_000,
+    enabled: !!caseId,
+    queryFn: async (): Promise<CockpitState> => {
+      // Batch 1: all independent counts/selects
+      const [
+        caseRes,
+        gapsRes,
+        reqRes,
+        factsRes,
+        clientGapsOpenRes,
+        clientGapsTotalRes,
+        clientGapsDraftedRes,
+        versionsRes,
+      ] = await Promise.all([
+        supabase
+          .from("quote_cases")
+          .select("status")
+          .eq("id", caseId!)
+          .maybeSingle(),
+        supabase
+          .from("quote_gaps")
+          .select("id", { count: "exact", head: true })
+          .eq("case_id", caseId!)
+          .eq("is_blocking", true)
+          .eq("status", "open"),
+        supabase
+          .from("external_quote_requests")
+          .select("id, status, email_sent_at, is_selected")
+          .eq("case_id", caseId!),
+        supabase
+          .from("external_quote_response_facts")
+          .select("id", { count: "exact", head: true })
+          .eq("case_id", caseId!)
+          .eq("validation_status", "proposed"),
+        supabase
+          .from("client_gap_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("case_id", caseId!)
+          .in("status", ["drafted", "sent", "answered"] as string[]),
+        supabase
+          .from("client_gap_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("case_id", caseId!),
+        supabase
+          .from("client_gap_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("case_id", caseId!)
+          .eq("status", "drafted"),
+        supabase
+          .from("quotation_versions")
+          .select("id, is_selected")
+          .eq("case_id", caseId!),
+      ]);
+
+      const status = (caseRes.data?.status as string) ?? "INTAKE";
+      const blockingGapsCount = gapsRes.count ?? 0;
+      const pendingPartnerFacts = factsRes.count ?? 0;
+      const openClientGaps = clientGapsOpenRes.count ?? 0;
+      const totalClientGaps = clientGapsTotalRes.count ?? 0;
+      const draftedClientGaps = clientGapsDraftedRes.count ?? 0;
+
+      // Derive partner request signals from rows
+      const requests = (reqRes.data ?? []) as Array<{
+        id: string;
+        status: string;
+        email_sent_at: string | null;
+        is_selected: boolean;
+      }>;
+      const totalPartnerRequests = requests.length;
+      let draftPartnerRequests = 0;
+      let unsentPartnerRequests = 0;
+      let closedPartnerRequests = 0;
+      let responsePhaseRequests = 0;
+      let hasSelectedPartner = false;
+
+      for (const r of requests) {
+        if (r.status === "draft") draftPartnerRequests++;
+        if (r.status === "sent" && !r.email_sent_at) unsentPartnerRequests++;
+        if (r.status === "closed") closedPartnerRequests++;
+        if (RESPONSE_PHASE_STATUSES.has(r.status)) responsePhaseRequests++;
+        if (r.is_selected) hasSelectedPartner = true;
+      }
+
+      const openPartnerRequests = totalPartnerRequests - closedPartnerRequests;
+      const hasExploitableRequests =
+        requests.some(
+          (r) => RESPONSE_PHASE_STATUSES.has(r.status) || r.status === "closed"
+        );
+
+      // Version pipeline (lazy PDF/draft only if version exists)
+      const versions = (versionsRes.data ?? []) as Array<{
+        id: string;
+        is_selected: boolean;
+      }>;
+      const selectedVersion = versions.find((v) => v.is_selected);
+      const hasSelectedVersion = !!selectedVersion;
+      const selectedVersionId = selectedVersion?.id ?? null;
+
+      let hasPdf = false;
+      let hasDraftEmail = false;
+
+      if (selectedVersionId) {
+        const [pdfRes, emailRes] = await Promise.all([
+          supabase
+            .from("quotation_documents")
+            .select("id", { count: "exact", head: true })
+            .eq("quotation_version_id", selectedVersionId)
+            .eq("document_type", "pdf"),
+          supabase
+            .from("email_drafts")
+            .select("id", { count: "exact", head: true })
+            .eq("quotation_version_id", selectedVersionId)
+            .eq("status", "draft"),
+        ]);
+        hasPdf = (pdfRes.count ?? 0) > 0;
+        hasDraftEmail = (emailRes.count ?? 0) > 0;
+      }
+
+      return {
+        status,
+        isTerminal: TERMINAL_STATUSES.has(status),
+        blockingGapsCount,
+        totalPartnerRequests,
+        draftPartnerRequests,
+        unsentPartnerRequests,
+        openPartnerRequests,
+        closedPartnerRequests,
+        responsePhaseRequests,
+        hasExploitableRequests,
+        hasSelectedPartner,
+        pendingPartnerFacts,
+        totalClientGaps,
+        draftedClientGaps,
+        openClientGaps,
+        hasSelectedVersion,
+        selectedVersionId,
+        hasPdf,
+        hasDraftEmail,
+      };
+    },
+  });
+}
