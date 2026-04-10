@@ -354,7 +354,22 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | COCKPIT-5-P2 | Enrichissement known_business_contacts (contact_email, service_types) | cockpit/données | `DONE` | moyenne | COM/COCKPIT | 2026-04-08 | Livré. Migration : contact_email TEXT NULL, service_types TEXT[] NOT NULL DEFAULT '{}'. PartnerSuggestionPanel enrichi : derivePurpose() priorise service_types, affiche icône email, passe email dans onPrefill. ExternalRequestsPanel : préremplissage email. |
 | COCKPIT-6 | Brief intelligent partenaire + compteurs opérationnels honnêtes | cockpit/UX | `DONE` | moyenne | COM/COCKPIT | 2026-04-08 | Livré. Volet A : query autonome quote_facts dans PartnerSuggestionPanel, buildBriefText() génère brief 3-6 lignes (route, cargo, client, timing), injection dans purpose_detail si vide. Volet B : badges conditionnels dans CaseActionPlan (à préparer, envois à confirmer, faits à valider, clarifications à envoyer, gaps bloquants). Aucune migration, aucune mutation, données déjà calculées. |
 
-## Note méthodologique
+---
+
+## PAD-GAP-1-DEBT — Fallback tarif max PAD si client ne répond pas
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PAD-GAP-1-DEBT |
+| **Catégorie** | Pricing / PAD |
+| **Statut** | `reporté` |
+| **Priorité** | Basse |
+| **Phase d'origine** | PAD-GAP-1 |
+| **Date** | 2026-04-10 |
+| **Déclencheur de réouverture** | Client ne répond pas à la demande de clarification dans un délai configurable (ex: 48h). |
+| **Recommandation** | Option 2 alternative : appliquer le tarif PAD maximal (T01 = 28 100 FCFA/t) comme fallback conservateur si le gap `pricing.pad_category` reste ouvert au-delà d'un seuil. Permet de débloquer le pricing sans sous-estimer. À valider avec doctrine métier avant implémentation. |
+
+
 
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
