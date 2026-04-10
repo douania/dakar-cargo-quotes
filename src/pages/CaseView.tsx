@@ -513,6 +513,7 @@ export default function CaseView() {
   }
 
   // ── Open actions (append-only: group by dedupe_key, keep latest, filter open) ──
+  // ACTION-SYNC-1: cross-reference with real open gaps to exclude resolved actions
   const openActions = useMemo(() => {
     const byKey = new Map<string, any>();
     for (const e of events ?? []) {
@@ -522,11 +523,28 @@ export default function CaseView() {
       if (!key) continue;
       if (!byKey.has(key)) byKey.set(key, e); // first = latest (events are desc)
     }
+
+    // Build set of currently open gap keys from quote_gaps (source of truth)
+    const openGapKeys = new Set(gaps.map((g: any) => g.gap_key as string));
+
     return Array.from(byKey.values()).filter((e: any) => {
-      const status = ((e.event_data as Record<string, unknown> | null)?.["status"] as string) ?? "open";
-      return status === "open";
+      const ed = e.event_data as Record<string, unknown> | null;
+      const status = (ed?.["status"] as string) ?? "open";
+      if (status !== "open") return false;
+
+      // If the action references specific gap keys, check if at least one is still open
+      const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
+        ? (ed["requested_gap_keys"] as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
+
+      if (requestedGapKeys.length > 0) {
+        return requestedGapKeys.some((k) => openGapKeys.has(k));
+      }
+
+      // No gap keys referenced — keep the action visible
+      return true;
     });
-  }, [events]);
+  }, [events, gaps]);
 
   // ── Done actions (append-only: group by dedupe_key, keep latest, filter done) ──
   const doneActions = useMemo(() => {
