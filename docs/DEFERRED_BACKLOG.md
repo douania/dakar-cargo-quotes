@@ -384,6 +384,20 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | **Déclencheur de réouverture** | Client ne répond pas à la demande de clarification dans un délai configurable (ex: 48h). |
 | **Recommandation** | Option 2 alternative : appliquer le tarif PAD maximal (T01 = 28 100 FCFA/t) comme fallback conservateur si le gap `pricing.pad_category` reste ouvert au-delà d'un seuil. Permet de débloquer le pricing sans sous-estimer. À valider avec doctrine métier avant implémentation. |
 
+---
+
+## ORCH-ACTION-2 — Envoi SMTP réel depuis le panneau d'actions
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | ORCH-ACTION-2 |
+| **Catégorie** | Communication client / Orchestration |
+| **Statut** | `reporté` |
+| **Priorité** | Haute |
+| **Phase d'origine** | ORCH-ACTION-1 |
+| **Date** | 2026-04-10 |
+| **Déclencheur de réouverture** | Dépend de COM-1A (envoi SMTP réel). Quand COM-1A sera livré, le bouton "Marquer envoyé" pourra être remplacé par un vrai bouton "Envoyer" avec envoi effectif. |
+| **Recommandation** | Ajouter un envoi SMTP réel derrière le bouton "Envoyer la clarification" dans ReadyActionsPanel. Nécessite l'intégration SMTP (COM-1A). En attendant, le workflow est : copier le message → envoyer manuellement → marquer envoyé dans l'app. |
 
 
 Cet inventaire couvre les sources suivantes :
