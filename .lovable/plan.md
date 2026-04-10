@@ -206,3 +206,17 @@ L'UI affichait "À confirmer" pour les demandes partenaires `status=sent && !ema
 - `docs/MASTER_CONTEXT.md` — section P0-C ajoutée sous S1
 - `docs/SECURITY_CONTRACT.md` — `confirm-external-request-sent` ajouté à la classification + S1 Patch Log
 - `.lovable/plan.md` — documentation P0-C
+
+---
+
+## P1-A — Moteur unique de lecture d'état cockpit ✅ DONE
+
+### Problème
+Duplication de constantes de statut et de logique de dérivation cockpit entre NextActionBanner, CaseActionPlan, PricingReadinessCard, ReadyActionsPanel — risque de drift logique futur.
+
+### Correctif appliqué
+- Module pur `src/lib/cockpitStatusConstants.ts` (STATUS_ORDER, TERMINAL_STATUSES, RESPONSE_PHASE_STATUSES, helpers)
+- Hook `src/hooks/useCockpitState.ts` — lecture synthétique (counts/flags/booleans uniquement)
+- 3 composants migrés : NextActionBanner, CaseActionPlan, PricingReadinessCard
+- ReadyActionsPanel : constantes déduplicées via import (query autonome conservée)
+- Invalidation `["cockpit-state", caseId]` dans 8 fichiers
