@@ -561,6 +561,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     queryClient.invalidateQueries({ queryKey: ["client-gap-requests", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-action-plan", caseId] });
+    // P1-A: unified cockpit state
+    queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] });
   }
 
   function copyToClipboard(text: string) {
