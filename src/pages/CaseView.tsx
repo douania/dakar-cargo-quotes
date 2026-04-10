@@ -1218,6 +1218,7 @@ export default function CaseView() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* ── Actions clôturées ── */}
         {doneActions.length > 0 && (
