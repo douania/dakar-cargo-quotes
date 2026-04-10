@@ -1740,14 +1740,14 @@ export default function CaseView() {
 
         {/* COCKPIT-7B: Detail per partner / purpose */}
         {caseId && (
-          <div className="mb-4">
+          <div className="mb-4" id="section-partner-detail">
             <PartnerRequestsDetailView caseId={caseId} />
           </div>
         )}
 
         {/* Phase EQ1: External partner requests panel */}
         {caseId && (
-          <div className="mb-6">
+          <div className="mb-6" id="section-external-requests">
             <ExternalRequestsPanel caseId={caseId} threadId={caseData?.thread_id} />
           </div>
         )}
@@ -1876,7 +1876,7 @@ export default function CaseView() {
           }
 
           return (
-            <div className="mb-6">
+            <div className="mb-6" id="section-pricing">
               <PartnerCollectionReadinessCard caseId={caseId!} />
               <PricingReadinessCard caseId={caseId!} />
               <PricingLaunchPanel
@@ -1971,7 +1971,7 @@ export default function CaseView() {
 
         {/* Phase 12: Quotation versions */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <div className="mb-6">
+          <div className="mb-6" id="section-version">
             <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} />
           </div>
         )}

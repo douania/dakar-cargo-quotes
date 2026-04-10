@@ -37,8 +37,20 @@ import { toast } from "sonner";
 
 /* ─── Types ─── */
 
+type ActionKey =
+  | "blocking_gap"
+  | "drafted_client_gap"
+  | "open_client_gap"
+  | "draft_partner"
+  | "unsent_partner"
+  | "pending_facts"
+  | "select_partner"
+  | "launch_pricing"
+  | "create_version";
+
 interface ReadyAction {
   type: "client" | "partner" | "internal";
+  actionKey: ActionKey;
   priority: "now" | "next" | "waiting" | "later";
   title: string;
   reason: string;
@@ -54,6 +66,29 @@ interface ReadyAction {
   nextStep?: string;
   icon: React.ReactNode;
   color: string;
+}
+
+/* ─── Navigation targets by actionKey ─── */
+const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
+  draft_partner: "section-external-requests",
+  unsent_partner: "section-external-requests",
+  pending_facts: "section-external-requests",
+  select_partner: "section-partner-detail",
+  launch_pricing: "section-pricing",
+  create_version: "section-version",
+};
+
+const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
+  draft_partner: "Voir les demandes",
+  unsent_partner: "Voir les envois",
+  pending_facts: "Voir les faits à valider",
+  select_partner: "Voir les offres",
+  launch_pricing: "Aller au pricing",
+  create_version: "Aller à la version",
+};
+
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ─── Status hierarchy (shared with NextActionBanner) ─── */
@@ -181,7 +216,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .limit(10);
 
       const drafts = (draftEvents ?? [])
-        .filter((e: any) => e.event_data?.output_type === "reply_draft_v1")
+        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
       return {
