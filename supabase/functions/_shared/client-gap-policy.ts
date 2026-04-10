@@ -19,6 +19,7 @@ export const CLIENT_RESOLVABLE_GAP_KEYS = new Set<string>([
   "routing.destination_city",
   "routing.destination_country",
   "routing.transport_mode",
+  "pricing.pad_category",
 ]);
 
 export function isClientResolvableGap(gapKey: string): boolean {
@@ -37,6 +38,7 @@ const GAP_QUESTION_MAP: Record<string, string> = {
   "routing.destination_city": "Quelle est la ville de destination finale des marchandises ?",
   "routing.destination_country": "Quel est le pays de destination finale ?",
   "routing.transport_mode": "Le transport se fait-il par avion, par mer ou par route ?",
+  "pricing.pad_category": "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables.",
 };
 
 /**
