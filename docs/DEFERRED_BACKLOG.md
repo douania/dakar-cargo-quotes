@@ -416,6 +416,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## CARRIER-PORT-TAX-1B — Provisionnement prudent carrier inconnu (Option B)
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | CARRIER-PORT-TAX-1B |
+| **Catégorie** | Pricing / Décision produit |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | CARRIER-PORT-TAX-1B |
+| **Date** | 2026-04-10 |
+| **Déclencheur de réouverture** | (1) Décision métier explicite sur le périmètre des postes à provisionner (TXI seul ? EDO ? ISPS ?). (2) Arbitrage sur la comparabilité PER_BL vs PER_CNT pour le calcul du "max". (3) Validation de l'introduction de `source.type: 'ESTIMATED'` dans le pipeline. (4) MSC THO et Maersk FAI restent variables sans montant exploitable — à enrichir quand des montants réels seront collectés. |
+| **Recommandation** | Ne pas implémenter tant que les questions métier ne sont pas tranchées. Option A (carrier connu uniquement) est en place. La distinction "À confirmer" vs "Estimé" vs "Calculé" est saine en principe mais nécessite un cadrage produit avant injection dans le moteur. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)

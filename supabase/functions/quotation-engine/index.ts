@@ -1451,10 +1451,10 @@ async function generateQuotationLines(
   }
   
   // =====================================================
-  // 4. CARRIER CHARGES (For Transit)
+  // 4. CARRIER CHARGES (Transit + Import when carrier known)
   // =====================================================
   
-  if (isTransit && carrierCharges.length > 0) {
+  if (carrierCharges.length > 0) {
     for (const charge of carrierCharges) {
       let amount = 0;
       
