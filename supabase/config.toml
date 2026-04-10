@@ -211,3 +211,6 @@ verify_jwt = false
 
 [functions.select-partner-request]
 verify_jwt = false
+
+[functions.confirm-external-request-sent]
+verify_jwt = false

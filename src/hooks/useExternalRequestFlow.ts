@@ -81,10 +81,48 @@ export function useExternalRequestFlow(caseId: string | undefined) {
     },
   });
 
+  const invalidateCockpit = () => {
+    invalidateAll();
+    // Broad invalidation: all cockpit surfaces reading email_sent_at
+    queryClient.invalidateQueries({ queryKey: ["ready-actions-panel", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["next-action-banner", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["case-action-plan", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["partner-requests-summary", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["partner-requests-detail", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["communication-summary", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["partner-collection-readiness", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["pricing-readiness", caseId] });
+  };
+
+  // P0-C: Confirm that a partner request was actually sent
+  const confirmSent = useMutation({
+    mutationFn: async (requestId: string) => {
+      const { data, error } = await supabase.functions.invoke("confirm-external-request-sent", {
+        body: { case_id: caseId, request_id: requestId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data?.idempotent) {
+        toast.info("Envoi déjà confirmé");
+      } else {
+        toast.success("Envoi partenaire confirmé");
+      }
+      invalidateCockpit();
+    },
+    onError: (err: Error) => {
+      toast.error("Erreur de confirmation: " + err.message);
+    },
+  });
+
   return {
     sendRequest,
     rerunPricing,
     validateFactAndRerun,
+    confirmSent,
     isPricingRerunning: rerunPricing.isPending,
+    isConfirming: confirmSent.isPending,
   };
 }
