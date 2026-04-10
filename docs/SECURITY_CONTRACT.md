@@ -131,3 +131,9 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `create-quotation-email-draft` | Added to classification as user_auth (requireUser). Previously missing from security contract. | 2026-03 |
 | `close-commercial-outcome` | Added as user_auth (requireUser). Transitions SENT → ACCEPTED/REJECTED. | 2026-03 |
 | `data-query` | Created as user_auth (requireUser). Decouples operator reads (search, tariffs, transport rates, historical references) from admin-only `data-admin`. Components migrated: `KnowledgeSearch`, `HistoricalRateReminders`, `useTariffSuggestions`, `MatchKnowledgeToSegmentDialog`. | 2026-03 |
+| `generate-reply-draft` | Added to classification as user_auth (requireUser). Generates client reply drafts from gap questions. | 2026-04 |
+| `sync-gap-client-actions` | Added to classification as user_auth (requireUser). Syncs open gaps to idempotent manual_action timeline events. | 2026-04 |
+| `auto-match-partner-responses` | Added to classification as user_auth (requireUser). COM-2A partner response suggestion scanning. | 2026-04 |
+| `select-partner-request` | Added to classification as user_auth (requireUser). COCKPIT-9 P2 partner offer selection. | 2026-04 |
+| `close-manual-action` | Added to classification as user_auth (requireUser). Closes manual_action timeline events. | 2026-04 |
+| `mark-client-gap-request-sent` | Added to classification as user_auth (requireUser). CL1 marks client_gap_requests as sent. | 2026-04 |
