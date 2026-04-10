@@ -39,3 +39,22 @@ Les lignes pricing affichaient des faux zéros (PAD_DROIT_PASSAGE = 0 au lieu de
 - `src/components/puzzle/PricingResultPanel.tsx` — fix isToConfirm, rendu informatif, résumé fiabilité, total provisoire
 - `docs/DEFERRED_BACKLOG.md` — PORT-DAKAR-HANDLING-AUDIT ajouté
 - `.lovable/plan.md` — documentation
+
+---
+
+## CARRIER-PORT-TAX-1B-A — Injection carrier charges IMPORT (carrier connu) ✅ DONE
+
+### Problème
+Le moteur `quotation-engine` chargeait les carrier charges pour toutes les opérations via `fetchCarrierCharges()`, mais ne les injectait que pour TRANSIT (`if (isTransit && carrierCharges.length > 0)`). Les charges carrier IMPORT (TXI, HTF, etc.) étaient donc ignorées même quand le carrier était connu.
+
+### Correctif appliqué
+1. **quotation-engine/index.ts** L1457 : condition `isTransit &&` supprimée → `if (carrierCharges.length > 0)`. Le bloc d'injection existant (PER_BL, PER_CNT, PER_TEU) est déjà générique.
+2. Quand `carrier` est absent, `fetchCarrierCharges` ne retourne que les templates `GENERIC` (aucun pour import), donc `carrierCharges.length === 0` → pas de faux positif.
+
+### Option B reportée
+La stratégie "carrier inconnu → provisionnement prudent sur plus haute valeur fixe connue" est documentée dans `docs/DEFERRED_BACKLOG.md` (ID: CARRIER-PORT-TAX-1B) comme décision produit à arbitrer séparément.
+
+### Fichiers modifiés
+- `supabase/functions/quotation-engine/index.ts` — suppression guard `isTransit` sur injection carrier charges
+- `docs/DEFERRED_BACKLOG.md` — Option B documentée
+- `.lovable/plan.md` — documentation
