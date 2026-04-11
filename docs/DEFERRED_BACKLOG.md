@@ -446,6 +446,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## P2-C-AIR-SCOPE — Garde-fou aérien non validé par signal réel
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | P2-C-AIR-SCOPE |
+| **Catégorie** | Scope contractuel / Suggestions partenaires |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | P2-C |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | (1) Dossier aérien où le fret est hors scope (rare mais possible). (2) Ajout d'un champ `air_scope` dans `service_scope_v1`. |
+| **Recommandation** | Le garde-fou P2-C utilise `freightScope` de `service_scope_v1` pour bloquer `freight_rate` et `air_tariff` symétriquement. Mais `air_scope` n'existe pas encore comme champ distinct dans le payload de `analyze-service-scope`. Le garde-fou aérien est conservatif par symétrie mais non validé par un signal réel dédié. À terme, envisager un champ `air_scope` séparé si les cas aériens hors-scope deviennent fréquents. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
