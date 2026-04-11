@@ -505,6 +505,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## CLAIM-BULK-POSTGREST — Bulk fetch filter encore dépendant de PostgREST
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | CLAIM-BULK-POSTGREST |
+| **Catégorie** | Edge Function / PostgREST cache |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Hotfix RPC claim bypass (2026-04-11) |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | Le mode bulk/start de `analyze-attachments` (sans `attachmentId`) est utilisé en production et échoue avec `column does not exist` sur `analysis_claimed_at`. |
+| **Recommandation** | Le pattern E (ligne ~1109 de `analyze-attachments/index.ts`) utilise `.or('analysis_claimed_at.is.null,analysis_claimed_at.lt...')` via PostgREST pour le fetch bulk. Ce filtre reste vulnérable au cache PostgREST obsolète. Solution : créer une RPC `fetch_unclaimed_attachments(p_limit int)` qui retourne les PJ non analysées et non claimées, ou claimées depuis >15 min. Non bloquant pour le flux `build-case-puzzle` qui passe toujours un `attachmentId` explicite. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)

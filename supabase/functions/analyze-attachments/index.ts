@@ -675,23 +675,19 @@ async function analyzeAttachmentInBackground(
       return { success: true, filename: attachment.filename };
     }
     
-    // CL2-final A+: Atomic claim with ownership + expired recovery
+    // CL2-final A+: Atomic claim via RPC (bypasses PostgREST cache)
     claimTs = new Date().toISOString();
-    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    const { data: claimed, error: claimErr } = await supabase
-      .from('email_attachments')
-      .update({ analysis_claimed_at: claimTs })
-      .eq('id', attachment.id)
-      .eq('is_analyzed', false)
-      .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
-      .select('id')
-      .maybeSingle();
+    const { data: claimedId, error: claimErr } = await supabase
+      .rpc('claim_attachment_for_analysis', {
+        p_attachment_id: attachment.id,
+        p_claim_ts: claimTs,
+      });
 
     if (claimErr) {
       console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
       return { success: false, filename: attachment.filename, error: 'Claim failed' };
     }
-    if (!claimed) {
+    if (!claimedId) {
       console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
       return { success: true, filename: attachment.filename };
     }
@@ -702,11 +698,10 @@ async function analyzeAttachmentInBackground(
     
     if (downloadError || !fileData) {
       console.error(`[BG] Download failed: ${attachment.filename}`, downloadError);
-      const { error: updateErr } = await supabase.from('email_attachments').update({ 
-        is_analyzed: true,
-        extracted_data: { type: 'error', message: 'Download failed' },
-        analysis_claimed_at: null
-      }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+      const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+        p_attachment_id: attachment.id, p_claim_ts: claimTs,
+        p_extracted_text: null, p_extracted_data: { type: 'error', message: 'Download failed' },
+      });
       if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
       return { success: false, filename: attachment.filename, error: 'Download failed' };
     }
@@ -719,11 +714,10 @@ async function analyzeAttachmentInBackground(
       const { text: excelText, sheets } = parseExcelToText(arrayBuffer);
       
       if (!excelText || excelText.length < 50) {
-        const { error: updateErr } = await supabase.from('email_attachments').update({ 
-          is_analyzed: true,
-          extracted_data: { type: 'error', message: 'Empty Excel file' },
-          analysis_claimed_at: null
-        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+        const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+          p_attachment_id: attachment.id, p_claim_ts: claimTs,
+          p_extracted_text: null, p_extracted_data: { type: 'error', message: 'Empty Excel file' },
+        });
         if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
         return { success: false, filename: attachment.filename, error: 'Empty file' };
       }
@@ -811,11 +805,10 @@ ${excelText}`;
       
       if (!aiResponse.ok) {
         console.error(`[BG] AI error: ${aiResponse.status}`);
-        const { error: updateErr } = await supabase.from('email_attachments').update({ 
-          is_analyzed: true,
-          extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` },
-          analysis_claimed_at: null
-        }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+        const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+          p_attachment_id: attachment.id, p_claim_ts: claimTs,
+          p_extracted_text: null, p_extracted_data: { type: 'error', message: `AI error: ${aiResponse.status}` },
+        });
         if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
         return { success: false, filename: attachment.filename, error: `AI error: ${aiResponse.status}` };
       }
@@ -1028,15 +1021,14 @@ REGLES CRITIQUES :
       await storePackingListKnowledge(supabase, attachment, extractedData);
     }
     
-    // CL2-final A+: Final update with ownership check + return verification
+    // CL2-final A+: Final update via RPC (bypasses PostgREST cache)
     const finalText = normalizeText(extractedText || '');
-    const { data: finalized, error: finalUpdateErr } = await supabase.from('email_attachments').update({
-      is_analyzed: true,
-      extracted_text: finalText.substring(0, 10000),
-      extracted_data: extractedData,
-      analysis_claimed_at: null,
-    }).eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs)
-      .select('id').maybeSingle();
+    const { data: finalized, error: finalUpdateErr } = await supabase.rpc('finalize_attachment_analysis', {
+      p_attachment_id: attachment.id,
+      p_claim_ts: claimTs,
+      p_extracted_text: finalText.substring(0, 10000),
+      p_extracted_data: extractedData,
+    });
     if (finalUpdateErr) console.warn('[analyze-attachments] Final update failed:', finalUpdateErr.message);
     if (!finalized) console.log(`[analyze] ${attachment.id} lost claim before finalization`);
     
@@ -1045,13 +1037,12 @@ REGLES CRITIQUES :
     
   } catch (error) {
     console.error(`[BG] Error: ${attachment.filename}`, error);
-    // CL2-final A+: Release claim on error (only if claim was acquired)
+    // CL2-final A+: Release claim on error via RPC (only if claim was acquired)
     if (claimTs) {
-      await supabase.from('email_attachments')
-        .update({ analysis_claimed_at: null })
-        .eq('id', attachment.id)
-        .eq('is_analyzed', false)
-        .eq('analysis_claimed_at', claimTs);
+      await supabase.rpc('release_attachment_claim', {
+        p_attachment_id: attachment.id,
+        p_claim_ts: claimTs,
+      });
     }
     return { success: false, filename: attachment.filename, error: String(error) };
   }
@@ -1281,23 +1272,19 @@ async function processAttachmentsLoop(
           continue; // unsupported is PRE-CLAIM, no ownership release needed
         }
         
-        // CL2-final A+: Atomic claim with ownership + expired recovery
+        // CL2-final A+: Atomic claim via RPC (bypasses PostgREST cache)
         claimTs = new Date().toISOString();
-        const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-        const { data: claimed, error: claimErr } = await supabase
-          .from('email_attachments')
-          .update({ analysis_claimed_at: claimTs })
-          .eq('id', attachment.id)
-          .eq('is_analyzed', false)
-          .or(`analysis_claimed_at.is.null,analysis_claimed_at.lt.${fifteenMinAgo}`)
-          .select('id')
-          .maybeSingle();
+        const { data: claimedId, error: claimErr } = await supabase
+          .rpc('claim_attachment_for_analysis', {
+            p_attachment_id: attachment.id,
+            p_claim_ts: claimTs,
+          });
 
         if (claimErr) {
           console.warn(`[analyze] Claim failed for ${attachment.id}:`, claimErr.message);
           continue;
         }
-        if (!claimed) {
+        if (!claimedId) {
           console.log(`[analyze] ${attachment.id} already claimed/analyzed, skip`);
           continue;
         }
@@ -1305,22 +1292,16 @@ async function processAttachmentsLoop(
         // Check if storage_path exists (file may not have been uploaded due to timeout)
         if (!attachment.storage_path) {
           console.error(`Missing storage_path for ${attachment.filename} - file was not uploaded to storage`);
-          const { error: updateErr } = await supabase
-            .from('email_attachments')
-            .update({ 
-              is_analyzed: true,
-              extracted_text: null,
-              extracted_data: { 
-                type: 'error', 
-                message: 'File not uploaded to storage (storage_path is null)', 
-                requires_reimport: true,
-                email_id: attachment.email_id
-              },
-              analysis_claimed_at: null
-            })
-            .eq('id', attachment.id)
-            .eq('is_analyzed', false)
-            .eq('analysis_claimed_at', claimTs);
+          const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+            p_attachment_id: attachment.id, p_claim_ts: claimTs,
+            p_extracted_text: null,
+            p_extracted_data: { 
+              type: 'error', 
+              message: 'File not uploaded to storage (storage_path is null)', 
+              requires_reimport: true,
+              email_id: attachment.email_id
+            },
+          });
           if (updateErr) console.warn('[analyze-attachments] Update failed (no storage_path):', updateErr.message);
           results.push({
             id: attachment.id,
@@ -1339,17 +1320,11 @@ async function processAttachmentsLoop(
         
         if (downloadError || !fileData) {
           console.error(`Failed to download ${attachment.filename}:`, downloadError);
-          const { error: updateErr } = await supabase
-            .from('email_attachments')
-            .update({ 
-              is_analyzed: true,
-              extracted_text: null,
-              extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message },
-              analysis_claimed_at: null
-            })
-            .eq('id', attachment.id)
-            .eq('is_analyzed', false)
-            .eq('analysis_claimed_at', claimTs);
+          const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+            p_attachment_id: attachment.id, p_claim_ts: claimTs,
+            p_extracted_text: null,
+            p_extracted_data: { type: 'error', message: 'Download failed', error: downloadError?.message },
+          });
           if (updateErr) console.warn('[analyze-attachments] Update failed (download):', updateErr.message);
           continue;
         }
@@ -1364,17 +1339,11 @@ async function processAttachmentsLoop(
         // Check if file is too small (likely corrupted)
         if (uint8Array.length < 100) {
           console.error(`File too small (${uint8Array.length} bytes): ${attachment.filename}`);
-          const { error: updateErr } = await supabase
-            .from('email_attachments')
-            .update({ 
-              is_analyzed: true,
-              extracted_text: null,
-              extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length },
-              analysis_claimed_at: null
-            })
-            .eq('id', attachment.id)
-            .eq('is_analyzed', false)
-            .eq('analysis_claimed_at', claimTs);
+          const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+            p_attachment_id: attachment.id, p_claim_ts: claimTs,
+            p_extracted_text: null,
+            p_extracted_data: { type: 'error', message: 'File too small or corrupted', size: uint8Array.length },
+          });
           if (updateErr) console.warn('[analyze-attachments] Update failed (too small):', updateErr.message);
           continue;
         }
@@ -1399,17 +1368,11 @@ async function processAttachmentsLoop(
           
           if (!excelText || excelText.length < 50) {
             console.error(`Failed to parse Excel or empty file: ${attachment.filename}`);
-            const { error: updateErr } = await supabase
-              .from('email_attachments')
-              .update({ 
-                is_analyzed: true,
-                extracted_text: 'Fichier Excel vide ou non lisible',
-                extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' },
-                analysis_claimed_at: null
-              })
-              .eq('id', attachment.id)
-              .eq('is_analyzed', false)
-              .eq('analysis_claimed_at', claimTs);
+            const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+              p_attachment_id: attachment.id, p_claim_ts: claimTs,
+              p_extracted_text: 'Fichier Excel vide ou non lisible',
+              p_extracted_data: { type: 'error', message: 'Excel parsing failed or empty file' },
+            });
             if (updateErr) console.warn('[analyze-attachments] Update failed (empty excel):', updateErr.message);
             continue;
           }
@@ -1477,33 +1440,23 @@ ${excelText.substring(0, 50000)}`;
             
             if (aiResponse.status === 402) {
               // CL2-final A+: Release claim before early HTTP return
-              await supabase.from('email_attachments')
-                .update({ analysis_claimed_at: null })
-                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+              await supabase.rpc('release_attachment_claim', { p_attachment_id: attachment.id, p_claim_ts: claimTs });
               results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_QUOTA_402', error_message: 'Crédits AI insuffisants.' });
               continue;
             }
             if (aiResponse.status === 429) {
               // CL2-final A+: Release claim before early HTTP return
-              await supabase.from('email_attachments')
-                .update({ analysis_claimed_at: null })
-                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+              await supabase.rpc('release_attachment_claim', { p_attachment_id: attachment.id, p_claim_ts: claimTs });
               results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_RATE_LIMIT_429', error_message: 'Limite de requêtes atteinte, réessayez plus tard.' });
               continue;
             }
             
-            // Mark as analyzed with error — ownership-aware
-            const { error: updateErr } = await supabase
-              .from('email_attachments')
-              .update({ 
-                is_analyzed: true,
-                extracted_text: null,
-                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
-                analysis_claimed_at: null
-              })
-              .eq('id', attachment.id)
-              .eq('is_analyzed', false)
-              .eq('analysis_claimed_at', claimTs);
+            // Mark as analyzed with error via RPC
+            const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+              p_attachment_id: attachment.id, p_claim_ts: claimTs,
+              p_extracted_text: null,
+              p_extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+            });
             if (updateErr) console.warn('[analyze-attachments] Update failed (AI error):', updateErr.message);
             continue;
           }
@@ -1594,32 +1547,22 @@ Réponds en JSON avec cette structure:
             
             if (aiResponse.status === 402) {
               // CL2-final A+: Release claim before early HTTP return
-              await supabase.from('email_attachments')
-                .update({ analysis_claimed_at: null })
-                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+              await supabase.rpc('release_attachment_claim', { p_attachment_id: attachment.id, p_claim_ts: claimTs });
               results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_QUOTA_402', error_message: 'Crédits AI insuffisants.' });
               continue;
             }
             if (aiResponse.status === 429) {
               // CL2-final A+: Release claim before early HTTP return
-              await supabase.from('email_attachments')
-                .update({ analysis_claimed_at: null })
-                .eq('id', attachment.id).eq('is_analyzed', false).eq('analysis_claimed_at', claimTs);
+              await supabase.rpc('release_attachment_claim', { p_attachment_id: attachment.id, p_claim_ts: claimTs });
               results.push({ attachment_id: attachment.id, filename: attachment.filename, success: false, skipped: true, error_code: 'AI_RATE_LIMIT_429', error_message: 'Limite de requêtes atteinte, réessayez plus tard.' });
               continue;
             }
-            // Mark as analyzed with error — ownership-aware (align with Excel branch)
-            const { error: updateErr } = await supabase
-              .from('email_attachments')
-              .update({
-                is_analyzed: true,
-                extracted_text: extractedText || null,
-                extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
-                analysis_claimed_at: null
-              })
-              .eq('id', attachment.id)
-              .eq('is_analyzed', false)
-              .eq('analysis_claimed_at', claimTs);
+            // Mark as analyzed with error via RPC
+            const { error: updateErr } = await supabase.rpc('finalize_attachment_analysis_error', {
+              p_attachment_id: attachment.id, p_claim_ts: claimTs,
+              p_extracted_text: extractedText || null,
+              p_extracted_data: { type: 'error', message: 'AI analysis failed', status: aiResponse.status },
+            });
             if (updateErr) console.warn('[analyze-attachments] Update failed (AI error doc):', updateErr.message);
             results.push({
               attachment_id: attachment.id,
@@ -1791,19 +1734,13 @@ Réponds en JSON avec cette structure:
         
         // CL2-final A+: Final update with ownership check + return verification
         const finalText = normalizeText(extractedText || '');
-        const { data: finalized, error: updateError } = await supabase
-          .from('email_attachments')
-          .update({
-            is_analyzed: true,
-            extracted_text: finalText.substring(0, 10000),
-            extracted_data: extractedData,
-            analysis_claimed_at: null,
-          })
-          .eq('id', attachment.id)
-          .eq('is_analyzed', false)
-          .eq('analysis_claimed_at', claimTs)
-          .select('id')
-          .maybeSingle();
+        // CL2-final A+: Final update via RPC (bypasses PostgREST cache)
+        const { data: finalized, error: updateError } = await supabase.rpc('finalize_attachment_analysis', {
+          p_attachment_id: attachment.id,
+          p_claim_ts: claimTs,
+          p_extracted_text: finalText.substring(0, 10000),
+          p_extracted_data: extractedData,
+        });
         
         if (updateError) {
           console.warn(`[analyze] Final update failed for ${attachment.id}:`, updateError.message);
@@ -1824,13 +1761,9 @@ Réponds en JSON avec cette structure:
         
       } catch (attachmentError) {
         console.error(`Error processing ${attachment.filename}:`, attachmentError);
-        // CL2-final A+: Release claim on error (only if claim was acquired)
+        // CL2-final A+: Release claim on error via RPC (only if claim was acquired)
         if (claimTs) {
-          await supabase.from('email_attachments')
-            .update({ analysis_claimed_at: null })
-            .eq('id', attachment.id)
-            .eq('is_analyzed', false)
-            .eq('analysis_claimed_at', claimTs);
+          await supabase.rpc('release_attachment_claim', { p_attachment_id: attachment.id, p_claim_ts: claimTs });
         }
         results.push({
           id: attachment.id,
