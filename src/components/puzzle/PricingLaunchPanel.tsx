@@ -61,6 +61,14 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // P2-D: scope-aware description
+  const { data: serviceScope } = useServiceScope(caseId);
+  const scopeResult = useMemo(
+    () => qualifyScope({ serviceScope: serviceScope ?? null, facts: {}, caseStatus: "INTAKE" }),
+    [serviceScope],
+  );
+  const hasCriticalUnconfirmed = scopeResult.hasCriticalUnconfirmed;
+
   // Exchange rate modal state
   const [missingCurrency, setMissingCurrency] = useState<string | null>(null);
   const [showRateModal, setShowRateModal] = useState(false);
@@ -213,7 +221,9 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           <CardDescription>
             {isRerun
               ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
-              : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
+              : hasCriticalUnconfirmed
+                ? 'Un pricing peut être lancé. Des services restent non confirmés dans le périmètre du dossier.'
+                : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
         </CardHeader>
         
