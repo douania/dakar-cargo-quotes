@@ -89,6 +89,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
   const scope = derivePartnerRequestScope({
     facts: factsMap,
     latestClientEmailText: latestClientText,
+    freightScope,
   });
 
   if (scope.length === 0) return null;
