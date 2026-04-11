@@ -221,16 +221,25 @@ export function useExternalRequests(caseId: string | undefined) {
       const { data, error } = await supabase.functions.invoke("close-external-quote-request", {
         body: { case_id: caseId, request_id: requestId },
       });
-      if (error) throw error;
-      if (data?.error) {
-        // Attach error code so onError can distinguish timeline_insert_failed
-        const err = new Error(data.error === "pending_facts_remain"
-          ? data.message
-          : data.error);
-        (err as any).code = data.error;
+
+      // Normalize: supabase.functions.invoke puts the parsed JSON body
+      // into `data` even for non-2xx responses. `error` is set for network
+      // failures or when the body cannot be parsed.
+      const body = data ?? (error as any)?.context?.body ?? null;
+
+      // If we have a structured error from the edge function body, use it
+      if (body?.error) {
+        const err = new Error(
+          body.error === "pending_facts_remain" ? body.message : body.error
+        );
+        (err as any).code = body.error;
         throw err;
       }
-      return data;
+
+      // Pure transport / network error with no usable body
+      if (error) throw error;
+
+      return body;
     },
     onSuccess: (data) => {
       if (data?.timeline_repaired) {
@@ -244,7 +253,11 @@ export function useExternalRequests(caseId: string | undefined) {
     },
     onError: (err: Error) => {
       const code = (err as any).code;
-      if (code === "timeline_insert_failed" || code === "timeline_repair_failed") {
+      if (
+        code === "timeline_insert_failed" ||
+        code === "timeline_repair_failed" ||
+        code === "timeline_check_failed"
+      ) {
         // DB state may already be closed — refresh UI
         invalidateAll();
         toast.warning("Demande clôturée mais trace timeline incomplète");
