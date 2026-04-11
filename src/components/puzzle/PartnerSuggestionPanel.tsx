@@ -45,6 +45,7 @@ function derivePurpose(
   role: string,
   notes: string | null,
   scopePurposes: Set<string>,
+  freightScope?: boolean | null,
 ): string {
   // Phase 11: try to match partner capabilities to detected scope
   if (scopePurposes.size > 0 && serviceTypes.length > 0) {
@@ -56,17 +57,18 @@ function derivePurpose(
 
   // Phase 2 fallback: service_types without scope context
   if (serviceTypes.length > 0) {
-    if (serviceTypes.includes("freight_maritime")) return "freight_rate";
-    if (serviceTypes.includes("freight_aerien")) return "air_tariff";
+    if (serviceTypes.includes("freight_maritime")) return freightScope === false ? "general" : "freight_rate";
+    if (serviceTypes.includes("freight_aerien")) return freightScope === false ? "general" : "air_tariff";
     if (serviceTypes.includes("origin_charges")) return "origin_charges";
     return serviceTypes[0];
   }
 
   // Phase 1 fallback: heuristic from notes/role
+  // P2-C: if freight is out of scope, fallback to "general" instead of "freight_rate"
   const n = (notes ?? "").toLowerCase();
-  if (n.includes("armateur")) return "freight_rate";
+  if (n.includes("armateur")) return freightScope === false ? "general" : "freight_rate";
   if (role === "agent") return "origin_charges";
-  return "freight_rate";
+  return freightScope === false ? "general" : "freight_rate";
 }
 
 const PURPOSE_LABELS: Record<string, string> = {
@@ -162,13 +164,35 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     staleTime: 30_000,
   });
 
+  // P2-C: Read freight_scope from latest service_scope_v1 timeline event
+  const { data: freightScope } = useQuery({
+    queryKey: ["partner-suggestion-freight-scope", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("case_timeline_events")
+        .select("event_data")
+        .eq("case_id", caseId)
+        .eq("event_type", "service_scope_v1")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.event_data) return undefined;
+      const ed = data.event_data as Record<string, unknown>;
+      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
+      const fs = scope?.["freight_scope"];
+      return typeof fs === "boolean" ? fs : undefined;
+    },
+    staleTime: 60_000,
+  });
+
   // Build already-contacted set (normalized)
   const contactedNames = new Set(existingRequests.map((r) => norm(r.partner_name)));
 
-  // COCKPIT-11: Derive scope from facts (priority source)
+  // COCKPIT-11 + P2-C: Derive scope from facts with freight guard
   const scope = useMemo(
-    () => derivePartnerRequestScope({ facts: caseFacts }),
-    [caseFacts],
+    () => derivePartnerRequestScope({ facts: caseFacts, freightScope }),
+    [caseFacts, freightScope],
   );
   const scopePurposes = useMemo(
     () => new Set(scope.map((s) => s.purpose)),
@@ -193,22 +217,30 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
       // Fallback: all active suppliers/partners/agents
       return true;
     })
-    .map((c) => ({
-      name: c.company_name,
-      domain: c.domain_pattern,
-      email: c.contact_email,
-      role: c.default_role,
-      notes: c.notes,
-      serviceTypes: c.service_types,
-      purpose: derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes),
-      alreadyContacted: contactedNames.has(norm(c.company_name)),
-    }))
-    // Sort: not-yet-contacted first
-    .sort((a, b) => (a.alreadyContacted === b.alreadyContacted ? 0 : a.alreadyContacted ? 1 : -1));
+    .map((c) => {
+      const purpose = derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope);
+      return {
+        name: c.company_name,
+        domain: c.domain_pattern,
+        email: c.contact_email,
+        role: c.default_role,
+        notes: c.notes,
+        serviceTypes: c.service_types,
+        purpose,
+        // P2-C: mark as out-of-scope if freight not in contractual perimeter and purpose ended up as general (was freight)
+        outOfScope: freightScope === false && purpose === "general",
+        alreadyContacted: contactedNames.has(norm(c.company_name)),
+      };
+    })
+    // Sort: out-of-scope last, then not-yet-contacted first
+    .sort((a, b) => {
+      if (a.outOfScope !== b.outOfScope) return a.outOfScope ? 1 : -1;
+      return a.alreadyContacted === b.alreadyContacted ? 0 : a.alreadyContacted ? 1 : -1;
+    });
 
   if (suggested.length === 0) return null;
 
-  const notContactedCount = suggested.filter((s) => !s.alreadyContacted).length;
+  const notContactedCount = suggested.filter((s) => !s.alreadyContacted && !s.outOfScope).length;
 
   return (
     <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
@@ -234,24 +266,31 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
           <div
             key={s.name}
             className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-              s.alreadyContacted
-                ? "bg-muted/50 text-muted-foreground border-muted"
-                : "bg-background border-border"
+              s.outOfScope
+                ? "bg-muted/30 text-muted-foreground border-muted opacity-60"
+                : s.alreadyContacted
+                  ? "bg-muted/50 text-muted-foreground border-muted"
+                  : "bg-background border-border"
             }`}
           >
-            {s.alreadyContacted && (
-              <CheckCircle2 className="h-3 w-3 text-green-600 dark:text-green-400 shrink-0" />
+            {s.alreadyContacted && !s.outOfScope && (
+              <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
             )}
-            <span className={s.alreadyContacted ? "line-through" : "font-medium"}>
+            <span className={s.alreadyContacted ? "line-through" : s.outOfScope ? "" : "font-medium"}>
               {s.name}
             </span>
+            {s.outOfScope && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                hors scope
+              </Badge>
+            )}
             {s.email && (
               <span title={s.email}><Mail className="h-3 w-3 text-muted-foreground shrink-0" /></span>
             )}
             <span className="text-muted-foreground">
               · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
             </span>
-            {!s.alreadyContacted && (
+            {!s.alreadyContacted && !s.outOfScope && (
               <Button
                 size="sm"
                 variant="ghost"
