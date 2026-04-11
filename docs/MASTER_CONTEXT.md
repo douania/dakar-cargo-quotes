@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.5
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B
-Latest patch: P1-B — clôture partenaire backendisée (close-external-quote-request)
+Version: 1.6
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C
+Latest patch: P1-C — alignement contrat timeline / outputs
 Date: 2026-04-10
 
 ---
@@ -673,3 +673,47 @@ Résolution SH6 "candidat unique seulement" : exact match prioritaire, puis fall
 - `run-pricing` reste zone sensible par défaut
 - Phase B (architecture multi-couche HS) documentée dans DEFERRED_BACKLOG.md comme `HS-MULTI-LAYER-ARCHITECTURE`
 - Toute modification future nécessite une nouvelle justification explicite
+
+---
+
+## Contrat canonique timeline — case_timeline_events (P1-C)
+
+### output_generated
+
+Clé discriminante : `event_data.kind` (string).
+
+| `kind` | Producteur | Notes |
+|---|---|---|
+| `reply_analysis_v1` | `analyze-reply-event` | Contient `analysis`, `model_meta`, `dedupe_key` |
+| `reply_draft_v1` | `generate-reply-draft` | Contient `draft_reply`, `dedupe_key` |
+| `quotation_email_draft_v1` | `create-quotation-email-draft` | ⚠ Pas de `dedupe_key` — watchlist TIMELINE-DEDUPE-1 |
+
+Règle : tout nouveau producteur de `output_generated` **doit** écrire `event_data.kind` et `event_data.dedupe_key`.
+
+Clé historique `output_type` : **abandonnée**. N'a jamais été écrite par aucun producteur actif. Le seul lecteur vestigial a été supprimé en P1-C.
+
+### manual_action
+
+Clé discriminante : `event_data.action_code` (string).
+
+Clés obligatoires : `action_code`, `dedupe_key`, `status` (open | done).
+
+| `action_code` | Producteur |
+|---|---|
+| `APPLY_FACT_PROPOSALS` | `analyze-reply-event` |
+| `PREPARE_CLIENT_REPLY_DRAFT` | `analyze-reply-event` |
+| `LAUNCH_PRICING` | `analyze-reply-event` |
+| `REQUEST_CLIENT_INFO_FOR_GAPS` | `sync-gap-client-actions` |
+| `PARTNER_REQUEST_CLOSED` | `close-external-quote-request` |
+| `PARTNER_REQUEST_SENT` | `send-external-quote-request` |
+| `PARTNER_FACT_VALIDATED` | `validate-partner-fact` |
+| `PARTNER_ALL_FACTS_VALIDATED` | `validate-partner-fact` |
+| `AUTO_MATCH_RESPONSE` | `auto-match-partner-responses` |
+| `PARTNER_RESPONSE_ANALYZED` | `auto-match-partner-responses` |
+| `REVIEW_PARTNER_FACTS` | `analyze-partner-response` |
+
+Règle : tout nouveau producteur de `manual_action` **doit** écrire `action_code` + `dedupe_key` + `status`.
+
+### Compatibilité historique
+
+Les données historiques en base utilisent déjà `kind` / `action_code`. Aucune migration de données nécessaire.
