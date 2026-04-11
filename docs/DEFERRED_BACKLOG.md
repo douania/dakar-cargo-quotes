@@ -476,6 +476,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## P2-D-PRICING-SCOPE — Brancher PricingLaunchPanel sur qualifyScope avec facts réels
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | P2-D-PRICING-SCOPE |
+| **Catégorie** | Scope / Pricing UI |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | P2-D Lot 1 |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | PricingLaunchPanel reçoit les facts réels du dossier (via prop ou query dédiée) |
+| **Recommandation** | Réintroduire le wording conditionnel dérivé de `qualifyScope()` dans PricingLaunchPanel uniquement quand les facts structurants (hs_code, cargo_value, transport_mode, etc.) sont disponibles dans le composant. Ne pas passer `facts: {}` ni `caseStatus: "INTAKE"` en dur. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
