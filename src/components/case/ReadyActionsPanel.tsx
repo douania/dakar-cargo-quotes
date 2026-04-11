@@ -181,6 +181,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             .from("client_gap_requests" as any)
             .select("id, gap_key, status, sent_at, draft_subject, draft_body")
             .eq("case_id", caseId)
+            .in("status", ["drafted", "sent", "answered"] as string[])
             .order("created_at", { ascending: false }),
           supabase
             .from("external_quote_requests")

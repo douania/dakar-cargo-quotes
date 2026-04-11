@@ -357,6 +357,7 @@ Les fonctions suivantes ont été supprimées comme dead code confirmé :
 | PRICING-AUDIT-1 | 2026-04-10 | Distinction À confirmer / Estimé / Informatif dans PricingResultPanel + résumé fiabilité |
 | CARRIER-PORT-TAX-1B-A | 2026-04-10 | Injection carrier charges IMPORT (carrier connu) — suppression guard isTransit sur quotation-engine (exception STRUCTURAL_PATCH_ALLOWED) |
 | CLIENT-GAP-POLICY-FIX | 2026-04-10 | pricing.pad_category ajouté à CLIENT_RESOLVABLE_GAP_KEYS + GAP_QUESTION_MAP dans client-gap-policy.ts |
+| P1-CGR-SYNC-2 | 2026-04-11 | Synchronisation complète client_gap_requests resolved→cancelled dans build-case-puzzle (4 sites) + fermeture auto actions obsolètes dans sync-gap-client-actions + fix idempotence dedupe_key (done≠bloquant) + filtrage UI CaseView/CaseActionPlan/ReadyActionsPanel/useCockpitState (exception FROZEN build-case-puzzle + sync-gap-client-actions) |
 
 Détails d'exécution : voir `.lovable/plan.md`.
 Dettes et sujets reportés : voir `docs/DEFERRED_BACKLOG.md`.

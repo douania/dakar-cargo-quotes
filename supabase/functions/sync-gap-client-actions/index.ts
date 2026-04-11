@@ -103,14 +103,20 @@ serve(async (req: Request) => {
     return errorResponse("Failed to load existing actions", 500);
   }
 
-  // Check 1: exact dedupe_key match
+  // Check 1: exact dedupe_key match — but only block if latest status is NOT "done"
+  // This allows re-creation after a previous action was closed/done
   const exactMatch = (existingActions ?? []).find((e: Record<string, unknown>) => {
     const ed = e["event_data"] as Record<string, unknown> | null;
     return ed?.["dedupe_key"] === dedupeKey;
   });
 
   if (exactMatch) {
-    return jsonResponse({ created: false, reason: "dedupe_key_exists" });
+    const matchStatus = (exactMatch["event_data"] as Record<string, unknown>)?.["status"] as string;
+    // Only block if the latest event with this dedupe_key is still open
+    if (matchStatus !== "done") {
+      return jsonResponse({ created: false, reason: "dedupe_key_exists" });
+    }
+    // If done, allow re-creation (gaps reopened scenario)
   }
 
   // Check 2: open action with same action_code and same gap keys (legacy robustness)
@@ -132,6 +138,38 @@ serve(async (req: Request) => {
 
   if (equivalentOpen) {
     return jsonResponse({ created: false, reason: "equivalent_open_action_exists" });
+  }
+
+  // ── P1-CGR-SYNC: Close obsolete open actions whose gap keys are all resolved ──
+  const openGapKeySet = new Set(gapKeys);
+  for (const evt of (existingActions ?? [])) {
+    const ed = evt["event_data"] as Record<string, unknown> | null;
+    if (!ed) continue;
+    if (ed["action_code"] !== "REQUEST_CLIENT_INFO_FOR_GAPS") continue;
+    if (ed["status"] !== "open") continue;
+
+    const actionGapKeys = ed["requested_gap_keys"] as string[] | undefined;
+    if (!actionGapKeys?.length) continue;
+
+    // Check if ALL requested gap keys in this action are still open
+    const hasOpenGap = actionGapKeys.some((k) => openGapKeySet.has(k));
+    if (!hasOpenGap) {
+      // All gaps for this action are resolved — close it
+      await serviceClient
+        .from("case_timeline_events")
+        .insert({
+          case_id: caseId,
+          event_type: "manual_action",
+          actor_type: "system",
+          event_data: {
+            ...ed,
+            status: "done",
+            done_at: new Date().toISOString(),
+            done_reason: "all_gaps_resolved",
+          },
+        });
+      console.log(`[sync-gap-client-actions] Closed obsolete action: ${ed["dedupe_key"]}`);
+    }
   }
 
   // ── Insert action ──
