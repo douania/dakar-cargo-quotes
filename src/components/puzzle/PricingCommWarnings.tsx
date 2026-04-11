@@ -1,36 +1,21 @@
 /**
- * PRICING-GUARD: Communication warnings before manual pricing.
+ * PRICING-GUARD + P2-D: Communication warnings before manual pricing.
  * Displays an amber alert listing open partner requests, pending partner facts,
  * and unclosed client gaps. Purely informational — does not block.
+ *
+ * P2-D: Migrated from 3 local HEAD queries to useCockpitState (single source).
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { supabase } from '@/integrations/supabase/client';
+import { useCockpitState } from '@/hooks/useCockpitState';
 
 interface PricingCommWarningsProps {
   caseId: string;
 }
 
 export function PricingCommWarnings({ caseId }: PricingCommWarningsProps) {
-  const { data } = useQuery({
-    queryKey: ['pricing-comm-warnings', caseId],
-    staleTime: 30_000,
-    queryFn: async () => {
-      const [eqrOpen, factsPending, clientGapsOpen] = await Promise.all([
-        supabase.from('external_quote_requests').select('id', { count: 'exact', head: true }).eq('case_id', caseId).neq('status', 'closed'),
-        supabase.from('external_quote_response_facts').select('id', { count: 'exact', head: true }).eq('case_id', caseId).eq('validation_status', 'proposed'),
-        supabase.from('client_gap_requests' as any).select('id', { count: 'exact', head: true }).eq('case_id', caseId).in('status', ['drafted', 'sent', 'answered'] as string[]),
-      ]);
-      return {
-        openPartnerRequests: eqrOpen.count ?? 0,
-        pendingPartnerFacts: factsPending.count ?? 0,
-        openClientGaps: clientGapsOpen.count ?? 0,
-      };
-    },
-    enabled: !!caseId,
-  });
+  const { data } = useCockpitState(caseId);
 
   if (!data) return null;
   const { openPartnerRequests, pendingPartnerFacts, openClientGaps } = data;
