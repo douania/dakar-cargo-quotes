@@ -34,7 +34,7 @@ export function useQualifiedScopeGate(caseId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("quote_facts")
-        .select("fact_key, value_text")
+        .select("fact_key, value_text, value_number")
         .eq("case_id", caseId!)
         .eq("is_current", true)
         .in("fact_key", [...SCOPE_FACT_KEYS]);
@@ -43,7 +43,13 @@ export function useQualifiedScopeGate(caseId: string | undefined) {
 
       const map: Record<string, string | null> = {};
       for (const row of data ?? []) {
-        map[row.fact_key] = row.value_text;
+        const vt = typeof row.value_text === "string" && row.value_text.trim() !== ""
+          ? row.value_text.trim()
+          : null;
+        const vn = typeof row.value_number === "number" && Number.isFinite(row.value_number)
+          ? String(row.value_number)
+          : null;
+        map[row.fact_key] = vt ?? vn;
       }
       return map;
     },
