@@ -20,6 +20,7 @@ import { fr } from 'date-fns/locale';
 import { Users, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { RESPONSE_PHASE_STATUSES } from '@/lib/cockpitStatusConstants';
 
 interface Props {
   caseId: string;
@@ -43,15 +44,12 @@ interface FactRow {
   validation_status: string;
 }
 
-const RESPONSE_PHASE_STATUSES = new Set([
-  'response_received',
-  'response_analyzed',
-  'partially_validated',
-  'facts_validated',
-  'closed',
-]);
-
+/**
+ * P2-B: closed is an exploitable terminal state, NOT a response phase.
+ * Matches computeCollectionVerdict logic from cockpitStatusConstants.
+ */
 function isExploitable(status: string, proposedFacts: number): boolean {
+  if (status === 'closed') return true;
   return RESPONSE_PHASE_STATUSES.has(status) && proposedFacts === 0;
 }
 

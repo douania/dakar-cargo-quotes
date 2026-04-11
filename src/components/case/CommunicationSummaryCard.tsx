@@ -1,17 +1,18 @@
 /**
- * COCKPIT-3: Communication summary widget (case-level)
+ * COCKPIT-3 + P2-B: Communication summary widget (case-level)
  * 
  * Displays a compact overview of communication status:
- * - Open partner requests (everything except closed)
- * - Pending partner facts (proposed, not yet validated)
- * - Open client gaps (drafted, sent, answered)
+ * - Open partner requests (preview rows from local mini-query)
+ * - Pending partner facts (from useCockpitState)
+ * - Open client gaps (from useCockpitState)
  * 
- * Same filters as COCKPIT-2 (useSendQuotation safeguards).
- * Read-only, no mutations. staleTime 30s.
+ * P2-B: counts consumed from useCockpitState to eliminate redundant queries.
+ * Only the preview rows (partner_name, purpose, status) use a local query.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useCockpitState } from '@/hooks/useCockpitState';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { MessageSquare, Users, FileQuestion, CheckCircle2 } from 'lucide-react';
@@ -20,7 +21,7 @@ interface CommunicationSummaryCardProps {
   caseId: string;
 }
 
-interface OpenPartnerRequest {
+interface OpenRequestPreview {
   id: string;
   partner_name: string | null;
   status: string;
@@ -28,42 +29,29 @@ interface OpenPartnerRequest {
 }
 
 export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardProps) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['communication-summary', caseId],
+  const { data: cockpit } = useCockpitState(caseId);
+
+  // Mini-query locale : preview rows uniquement (colonnes minimales, demandes ouvertes, limit 4)
+  const { data: previewRows } = useQuery({
+    queryKey: ['communication-preview-rows', caseId],
     staleTime: 30_000,
+    enabled: !!caseId,
     queryFn: async () => {
-      const [eqrResult, factsResult, gapsResult] = await Promise.all([
-        supabase
-          .from('external_quote_requests')
-          .select('id, partner_name, status, purpose')
-          .eq('case_id', caseId)
-          .neq('status', 'closed'),
-
-        supabase
-          .from('external_quote_response_facts')
-          .select('id', { count: 'exact', head: true })
-          .eq('case_id', caseId)
-          .eq('validation_status', 'proposed'),
-
-        supabase
-          .from('client_gap_requests')
-          .select('id', { count: 'exact', head: true })
-          .eq('case_id', caseId)
-          .in('status', ['drafted', 'sent', 'answered']),
-      ]);
-
-      return {
-        openRequests: (eqrResult.data ?? []) as OpenPartnerRequest[],
-        pendingFactsCount: factsResult.count ?? 0,
-        openGapsCount: gapsResult.count ?? 0,
-      };
+      const { data } = await supabase
+        .from('external_quote_requests')
+        .select('id, partner_name, status, purpose')
+        .eq('case_id', caseId)
+        .neq('status', 'closed')
+        .limit(4);
+      return (data ?? []) as OpenRequestPreview[];
     },
   });
 
-  if (isLoading || !data) return null;
+  if (!cockpit) return null;
 
-  const { openRequests, pendingFactsCount, openGapsCount } = data;
-  const totalWarnings = openRequests.length + pendingFactsCount + openGapsCount;
+  const { openPartnerRequests, pendingPartnerFacts: pendingFactsCount, openClientGaps: openGapsCount } = cockpit;
+  const rows = previewRows ?? [];
+  const totalWarnings = openPartnerRequests + pendingFactsCount + openGapsCount;
   const isComplete = totalWarnings === 0;
 
   return (
@@ -88,21 +76,21 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
 
         {!isComplete && (
           <div className="space-y-1.5 text-xs text-muted-foreground">
-            {openRequests.length > 0 && (
+            {openPartnerRequests > 0 && (
               <div className="flex items-start gap-2">
                 <Users className="h-3.5 w-3.5 mt-0.5 text-amber-600 shrink-0" />
                 <div>
                   <span className="font-medium text-foreground">
-                    {openRequests.length} demande{openRequests.length > 1 ? 's' : ''} partenaire ouverte{openRequests.length > 1 ? 's' : ''}
+                    {openPartnerRequests} demande{openPartnerRequests > 1 ? 's' : ''} partenaire ouverte{openPartnerRequests > 1 ? 's' : ''}
                   </span>
                   <div className="mt-0.5 space-y-0.5">
-                    {openRequests.slice(0, 3).map((req) => (
+                    {rows.slice(0, 3).map((req) => (
                       <div key={req.id} className="text-muted-foreground">
                         {req.partner_name || '—'} · {req.purpose || '—'} · <span className="italic">{req.status}</span>
                       </div>
                     ))}
-                    {openRequests.length > 3 && (
-                      <div className="text-muted-foreground italic">+{openRequests.length - 3} autre{openRequests.length - 3 > 1 ? 's' : ''}</div>
+                    {openPartnerRequests > 3 && (
+                      <div className="text-muted-foreground italic">+{openPartnerRequests - 3} autre{openPartnerRequests - 3 > 1 ? 's' : ''}</div>
                     )}
                   </div>
                 </div>

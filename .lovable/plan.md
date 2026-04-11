@@ -1,62 +1,54 @@
 
 
-# P2-A — Consolidation widgets secondaires partenaires
+
+# P2-B — Previews détaillés cohérents
 
 ## Problème
-`PartnerRequestsSummary` et `PartnerCollectionReadinessCard` maintenaient chacun
-des requêtes Supabase indépendantes dupliquant largement les signaux déjà
-calculés par `useCockpitState`. Risque de drift croissant (constantes locales,
-compteurs divergents, logiques parallèles).
+`CommunicationSummaryCard` effectuait 3 queries parallèles dont 2 counts
+purement redondants avec `useCockpitState`. `PartnerRequestsDetailView`
+redéfinissait localement `RESPONSE_PHASE_STATUSES` avec `closed` inclus,
+reproduisant le même drift corrigé en P2-A pour `ReadinessCard`.
 
 ## Diagnostic confirmé
-- `PartnerRequestsSummary` : query propre sur `external_quote_requests` +
-  `external_quote_response_facts` (count head) — 100 % redondant
-- `PartnerCollectionReadinessCard` : query propre + set local
-  `RESPONSE_PHASE_STATUSES` incluant `closed` (drift vs constante partagée) +
-  calcul de verdict local
-- `CommunicationSummaryCard` / `PartnerRequestsDetailView` : besoins plus
-  détaillés → hors périmètre (P2-B)
+- `CommunicationSummaryCard` : query `external_quote_response_facts` count
+  (= `pendingPartnerFacts`) + query `client_gap_requests` count
+  (= `openClientGaps`) — 100 % redondant
+- `PartnerRequestsDetailView` L46-52 : set local avec `closed` inclus,
+  divergence avec la constante partagée `cockpitStatusConstants.ts`
 
 ## Correctif appliqué
 
-### useCockpitState étendu (4 champs, 1 query ajustée)
-- `partner_name` ajouté au select `external_quote_requests`
-- Query facts : `count head` → `select request_id` filtré `proposed`
-  (permet groupage par request_id)
-- Nouveaux champs exposés :
-  - `sentConfirmedPartnerRequests`
-  - `selectedPartnerName`
-  - `exploitablePartnerRequests`
-  - `collectionVerdict`
-  - `pendingFactsByRequestId`
+### CommunicationSummaryCard migré
+- 2 queries count supprimées (facts + client gaps)
+- Consomme `useCockpitState(caseId)` pour `pendingPartnerFacts`,
+  `openClientGaps`, `openPartnerRequests`
+- Mini-query locale conservée, strictement bornée :
+  - colonnes : `id, partner_name, status, purpose`
+  - filtre : `status != closed`
+  - `limit(4)` pour borner le preview
+- `purpose` NON ajouté à `useCockpitState` (contrat synthétique préservé)
 
-### cockpitStatusConstants enrichi
-- Type `CollectionVerdict` exporté
-- Fonction pure `computeCollectionVerdict(requests, pendingFactsByRequestId)`
-  - `closed` traité comme exploitable terminal, PAS ajouté à `RESPONSE_PHASE_STATUSES`
-  - Sémantique explicite dans le code
+### PartnerRequestsDetailView corrigé
+- Set local `RESPONSE_PHASE_STATUSES` supprimé (5 statuts dont `closed`)
+- Import de `RESPONSE_PHASE_STATUSES` depuis `cockpitStatusConstants.ts`
+- `isExploitable` corrigé :
+  - `closed` → `return true` (état terminal exploitable)
+  - sinon → `RESPONSE_PHASE_STATUSES.has(status) && proposedFacts === 0`
+- Aligné avec `computeCollectionVerdict` de P2-A
 
-### PartnerRequestsSummary migré
-- Query interne supprimée
-- Consomme `useCockpitState` (React Query déduplique la clé)
-- Libellé "En phase réponse" (≡ `responsePhaseRequests`) au lieu de
-  l'ancien "Réponses reçues" pour refléter le calcul réel
-
-### PartnerCollectionReadinessCard migré
-- Query interne supprimée
-- Set local `RESPONSE_PHASE_STATUSES` supprimé (drift éliminé)
-- Consomme verdict + exploitable + selectedPartnerName de `useCockpitState`
+### Option retenue : B (pas de hook commun)
+Les deux composants ont des besoins de colonnes trop différents pour
+justifier un hook partagé. Seul le drift de constante a été corrigé.
 
 ## Garde-fous respectés
-1. `RESPONSE_PHASE_STATUSES` non modifié — `closed` reste explicitement
-   traité dans `computeCollectionVerdict`, pas glissé dans le set
-2. Compteur renommé : "En phase réponse" reflète exactement
-   `responsePhaseRequests` (= demandes dont le status ∈ RESPONSE_PHASE_STATUSES)
+1. `RESPONSE_PHASE_STATUSES` non modifié — `closed` traité explicitement
+2. `useCockpitState` non élargi — `purpose` reste hors contrat
+3. Mini-query preview bornée à 4 rows et colonnes minimales
 
 ## Blast radius
 - 0 edge function modifiée
 - 0 migration DB
-- 2 widgets simplifiés (queries locales supprimées)
-- 1 hook étendu (4 champs, 1 query ajustée)
-- 1 module constants enrichi (type + helper pur)
-- P0-A/P0-B/P0-C/P1-A/P1-B/P1-C non impactés
+- 1 widget simplifié (2 queries supprimées) : CommunicationSummaryCard
+- 1 drift corrigé : PartnerRequestsDetailView
+- useCockpitState inchangé
+- P0-A/P0-B/P0-C/P1-A/P1-B/P1-C/P2-A non impactés
