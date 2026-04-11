@@ -1,13 +1,21 @@
 /**
- * COCKPIT-11 — Scope fournisseur multi-postes détecté.
- * Composant lecture seule. Affiche les blocs du scope dérivé des facts + signal texte.
+ * COCKPIT-11 + P2-D — Scope fournisseur multi-postes détecté.
+ * P2-D: Consomme useServiceScope + qualifyScope.
+ *
+ * Règles de surface (information) :
+ *   confirmed    → affichage normal
+ *   unconfirmed  → badge "non confirmé", style normal
+ *   out_of_scope → visible mais secondaire (muted, badge "hors périmètre")
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { derivePartnerRequestScope, type PartnerScopeItem } from "@/lib/partnerRequestScope";
 import { buildFactMapWithSynthetics } from "@/lib/extractContainerSynthetics";
 import { Badge } from "@/components/ui/badge";
-import { Layers, CheckCircle2, AlertCircle } from "lucide-react";
+import { Layers, CheckCircle2 } from "lucide-react";
+import { useServiceScope } from "@/hooks/useServiceScope";
+import { qualifyScope, isServiceOutOfScope } from "@/lib/scopeQualification";
+import { useMemo } from "react";
 
 interface Props {
   caseId: string;
@@ -20,30 +28,20 @@ const CONFIDENCE_STYLE: Record<string, { label: string; className: string }> = {
   low: { label: "Faible", className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
 };
 
-export function PartnerScopeCard({ caseId, threadId }: Props) {
-  // P2-C: Read freight_scope from latest service_scope_v1 timeline event
-  const { data: freightScope } = useQuery({
-    queryKey: ["partner-scope-freight-scope", caseId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("case_timeline_events")
-        .select("event_data")
-        .eq("case_id", caseId)
-        .eq("event_type", "service_scope_v1")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.event_data) return undefined;
-      const ed = data.event_data as Record<string, unknown>;
-      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
-      const fs = scope?.["freight_scope"];
-      return typeof fs === "boolean" ? fs : undefined;
-    },
-    staleTime: 60_000,
-  });
+/** Map purpose → service for scope qualification lookup */
+const PURPOSE_TO_SERVICE: Record<string, string> = {
+  freight_rate: "freight",
+  air_tariff: "freight",
+  origin_charges: "customs",
+  stuffing_factory: "customs",
+  stuffing_port_cfs: "customs",
+};
 
-  // 1. Facts structured (primary source)
+export function PartnerScopeCard({ caseId, threadId }: Props) {
+  const { data: serviceScope } = useServiceScope(caseId);
+  const freightScope = serviceScope?.freightScope ?? undefined;
+
+  // Facts structured (primary source)
   const { data: factsMap = {} } = useQuery({
     queryKey: ["partner-scope-facts", caseId],
     queryFn: async () => {
@@ -66,12 +64,11 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
     staleTime: 30_000,
   });
 
-  // 2. Latest client email text (complementary signal only)
+  // Latest client email text (complementary signal only)
   const { data: latestClientText } = useQuery({
     queryKey: ["partner-scope-client-text", caseId, threadId],
     enabled: !!threadId,
     queryFn: async () => {
-      // Get latest non-internal email from the thread as complementary signal
       const { data, error } = await supabase
         .from("emails")
         .select("body_text")
@@ -92,6 +89,16 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
     freightScope,
   });
 
+  // P2-D: qualified scope for visual rules
+  const qualifiedScopeResult = useMemo(
+    () => qualifyScope({
+      serviceScope: serviceScope ?? null,
+      facts: factsMap,
+      caseStatus: "INTAKE", // ScopeCard doesn't need status-based gating
+    }),
+    [serviceScope, factsMap],
+  );
+
   if (scope.length === 0) return null;
 
   return (
@@ -107,24 +114,43 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
       </div>
 
       <div className="space-y-2">
-        {scope.map((item) => (
-          <ScopeBlock key={item.purpose} item={item} />
-        ))}
+        {scope.map((item) => {
+          const relatedService = PURPOSE_TO_SERVICE[item.purpose] ?? "freight";
+          const qItem = qualifiedScopeResult.items.find((i) => i.service === relatedService);
+          const qualification = qItem?.qualification ?? "unconfirmed";
+
+          return (
+            <ScopeBlock key={item.purpose} item={item} qualification={qualification} />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ScopeBlock({ item }: { item: PartnerScopeItem }) {
+function ScopeBlock({ item, qualification }: { item: PartnerScopeItem; qualification: string }) {
   const conf = CONFIDENCE_STYLE[item.confidence];
+  const isOutOfScope = qualification === "out_of_scope";
+  const isUnconfirmed = qualification === "unconfirmed";
+
   return (
-    <div className="border rounded-md p-2 bg-background space-y-1">
+    <div className={`border rounded-md p-2 bg-background space-y-1 ${isOutOfScope ? "opacity-60" : ""}`}>
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-medium">{item.label}</span>
+        <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${isOutOfScope ? "text-muted-foreground" : "text-primary"}`} />
+        <span className={`text-xs font-medium ${isOutOfScope ? "text-muted-foreground" : ""}`}>{item.label}</span>
         <Badge className={`text-[9px] ${conf.className}`}>
           {conf.label}
         </Badge>
+        {isOutOfScope && (
+          <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+            hors périmètre
+          </Badge>
+        )}
+        {isUnconfirmed && !isOutOfScope && (
+          <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+            non confirmé
+          </Badge>
+        )}
       </div>
       <ul className="ml-6 space-y-0.5">
         {item.requiredItems.map((ri) => (
