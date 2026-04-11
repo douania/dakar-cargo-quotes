@@ -83,10 +83,13 @@ Remplace 2 queries dupliquées dans PartnerSuggestionPanel et PartnerScopeCard.
 - 0 edge function modifiée
 - 0 modification de useCockpitState
 
-## Lot 2 (différé — après validation lot 1)
+## Lot 2 (implémenté)
 
-- NextActionBanner : dégrader priorité "Lancer le pricing" si `hasCriticalUnconfirmed`
-- ReadyActionsPanel : même logique de dégradation
+- `useQualifiedScopeGate(caseId)` : hook léger partagé, lit `useServiceScope` (cache) + 7 fact keys exactes (1 query légère partagée), retourne `hasCriticalUnconfirmed`
+- NextActionBanner step 8 : si `hasCriticalUnconfirmed` → "Confirmer le périmètre du dossier" (amber) au lieu de "Lancer le pricing" (emerald)
+- ReadyActionsPanel step 8 : si `hasCriticalUnconfirmed` → priorité "later" au lieu de `getPriority()`, reason ajustée
+- Pas de query `quote_cases.status` dans le hook — le statut reste géré par chaque consommateur
+- `out_of_scope` et `scope_absent` restent strictement neutres
 
 ## Garde-fous respectés
 
@@ -95,3 +98,4 @@ Remplace 2 queries dupliquées dans PartnerSuggestionPanel et PartnerScopeCard.
 3. Aucune migration DB
 4. Comportement conservatif : scope null → `unconfirmed` (pas de présomption)
 5. Gate de statut respecte la doctrine opérateur souverain (informatif, pas bloquant)
+6. Blast radius faible : 1 hook créé, 2 composants modifiés, 1 query facts légère partagée ajoutée

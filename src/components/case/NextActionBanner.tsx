@@ -7,6 +7,7 @@
 
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
+import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,10 +37,11 @@ interface ActionResult {
 /* ─── Component ─── */
 export function NextActionBanner({ caseId }: Props) {
   const { data, isLoading } = useCockpitState(caseId);
+  const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
   if (isLoading || !data) return null;
 
-  const result = computeAction(data);
+  const result = computeAction(data, hasCriticalUnconfirmed);
   if (!result) return null;
 
   const colorMap: Record<string, string> = {
@@ -75,7 +77,7 @@ function computeAction(d: {
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
   hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
   totalPartnerRequests: number;
-}): ActionResult | null {
+}, hasCriticalUnconfirmed: boolean): ActionResult | null {
 
   // Terminal
   if (TERMINAL_STATUSES.has(d.status)) return null;
@@ -136,13 +138,23 @@ function computeAction(d: {
     color: "amber",
   };
 
-  // 8 — Launch pricing
-  if (statusBelow(d.status, "PRICED_DRAFT")) return {
-    action: "Lancer le pricing",
-    blocker: "Aucun blocage majeur",
-    icon: <Calculator className="h-4 w-4 text-emerald-600" />,
-    color: "emerald",
-  };
+  // 8 — Launch pricing (P2-D Lot 2: scope gate)
+  if (statusBelow(d.status, "PRICED_DRAFT")) {
+    if (hasCriticalUnconfirmed) {
+      return {
+        action: "Confirmer le périmètre du dossier",
+        blocker: "Des services dans le scope restent insuffisamment qualifiés",
+        icon: <CircleDashed className="h-4 w-4 text-amber-600" />,
+        color: "amber",
+      };
+    }
+    return {
+      action: "Lancer le pricing",
+      blocker: "Aucun blocage majeur",
+      icon: <Calculator className="h-4 w-4 text-emerald-600" />,
+      color: "emerald",
+    };
+  }
 
   // 9 — Create version
   if (!d.hasSelectedVersion) return {

@@ -467,12 +467,11 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | P2-D-LOT2 |
 | **Catégorie** | Cockpit opérateur |
-| **Statut** | `deferred` |
+| **Statut** | `fermé` |
 | **Priorité** | Moyenne |
 | **Phase d'origine** | P2-D |
-| **Date** | 2026-04-11 |
-| **Déclencheur de réouverture** | Validation terrain du lot 1 P2-D (qualifyScope + useServiceScope) |
-| **Recommandation** | Consommer `qualifyScope()` dans NextActionBanner et ReadyActionsPanel pour dégrader la priorité "Lancer le pricing" de "now" à "later" si `hasCriticalUnconfirmed`. Ne pas bloquer, seulement dégrader. |
+| **Date de fermeture** | 2026-04-11 |
+| **Résolution** | Implémenté via `useQualifiedScopeGate(caseId)`. NextActionBanner step 8 : dépromotion "Confirmer le périmètre du dossier" (amber). ReadyActionsPanel step 8 : priorité "later". Seul `unconfirmed + scope_confirmed` déclenche. `out_of_scope` et `scope_absent` neutres. 1 query facts légère partagée ajoutée (7 keys). |
 
 ---
 

@@ -11,6 +11,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toFactPayload } from "@/pages/case-view/helpers";
+import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
   const [isAskingClient, setIsAskingClient] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0);
+  const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
   /* ── Consolidated data query ── */
   const { data, isLoading } = useQuery({
@@ -416,13 +418,15 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       result.push({
         type: "internal",
         actionKey: "launch_pricing",
-        priority: getPriority(),
+        priority: hasCriticalUnconfirmed ? "later" : getPriority(),
         title: "Lancer le pricing",
-        reason: "Aucun blocage majeur",
+        reason: hasCriticalUnconfirmed
+          ? "Des services dans le scope restent insuffisamment qualifiés"
+          : "Aucun blocage majeur",
         status: "to_execute",
         nextStep: NEXT_STEPS.launch_pricing,
         icon: <Calculator className="h-4 w-4 text-emerald-600" />,
-        color: "emerald",
+        color: hasCriticalUnconfirmed ? "amber" : "emerald",
       });
     }
 
