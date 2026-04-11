@@ -3,7 +3,7 @@
 // + Modale taux de change GAINDE (exchange_rates)
 // ============================================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,6 +38,9 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useServiceScope } from '@/hooks/useServiceScope';
+import { qualifyScope } from '@/lib/scopeQualification';
+import { useMemo } from 'react';
 
 type PricingPrecheck = {
   code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
