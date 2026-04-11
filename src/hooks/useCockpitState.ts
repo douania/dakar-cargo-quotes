@@ -1,5 +1,5 @@
 /**
- * P1-A — Unified cockpit state hook.
+ * P1-A + P2-A — Unified cockpit state hook.
  * Single React Query hook returning counts, flags, booleans.
  * No full rows, no detailed previews — strictly synthetic.
  */
@@ -9,6 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   TERMINAL_STATUSES,
   RESPONSE_PHASE_STATUSES,
+  computeCollectionVerdict,
+  type CollectionVerdict,
 } from "@/lib/cockpitStatusConstants";
 
 export interface CockpitState {
@@ -23,14 +25,20 @@ export interface CockpitState {
   totalPartnerRequests: number;
   draftPartnerRequests: number;
   unsentPartnerRequests: number; // sent && !email_sent_at
+  sentConfirmedPartnerRequests: number; // sent && email_sent_at
   openPartnerRequests: number; // != closed
   closedPartnerRequests: number;
   responsePhaseRequests: number;
   hasExploitableRequests: boolean;
   hasSelectedPartner: boolean;
+  selectedPartnerName: string | null;
+  exploitablePartnerRequests: number;
+  collectionVerdict: CollectionVerdict;
 
   // Partner facts
   pendingPartnerFacts: number;
+  /** Per-request pending fact counts (for verdict calculation) */
+  pendingFactsByRequestId: ReadonlyMap<string, number>;
 
   // Client gaps
   totalClientGaps: number;
@@ -74,11 +82,13 @@ export function useCockpitState(caseId: string | undefined) {
           .eq("status", "open"),
         supabase
           .from("external_quote_requests")
-          .select("id, status, email_sent_at, is_selected")
+          .select("id, status, email_sent_at, is_selected, partner_name")
           .eq("case_id", caseId!),
+        // P2-A: select request_id rows instead of count head
+        // to allow per-request grouping for exploitability verdict
         supabase
           .from("external_quote_response_facts")
-          .select("id", { count: "exact", head: true })
+          .select("request_id")
           .eq("case_id", caseId!)
           .eq("validation_status", "proposed"),
         supabase
@@ -103,10 +113,21 @@ export function useCockpitState(caseId: string | undefined) {
 
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
-      const pendingPartnerFacts = factsRes.count ?? 0;
       const openClientGaps = clientGapsOpenRes.count ?? 0;
       const totalClientGaps = clientGapsTotalRes.count ?? 0;
       const draftedClientGaps = clientGapsDraftedRes.count ?? 0;
+
+      // P2-A: build per-request pending facts map
+      const factsRows = (factsRes.data ?? []) as Array<{ request_id: string }>;
+      const pendingFactsByRequestId = new Map<string, number>();
+      let pendingPartnerFacts = 0;
+      for (const f of factsRows) {
+        pendingFactsByRequestId.set(
+          f.request_id,
+          (pendingFactsByRequestId.get(f.request_id) ?? 0) + 1,
+        );
+        pendingPartnerFacts++;
+      }
 
       // Derive partner request signals from rows
       const requests = (reqRes.data ?? []) as Array<{
@@ -114,27 +135,37 @@ export function useCockpitState(caseId: string | undefined) {
         status: string;
         email_sent_at: string | null;
         is_selected: boolean;
+        partner_name: string | null;
       }>;
       const totalPartnerRequests = requests.length;
       let draftPartnerRequests = 0;
       let unsentPartnerRequests = 0;
+      let sentConfirmedPartnerRequests = 0;
       let closedPartnerRequests = 0;
       let responsePhaseRequests = 0;
       let hasSelectedPartner = false;
+      let selectedPartnerName: string | null = null;
 
       for (const r of requests) {
         if (r.status === "draft") draftPartnerRequests++;
         if (r.status === "sent" && !r.email_sent_at) unsentPartnerRequests++;
+        if (r.status === "sent" && r.email_sent_at) sentConfirmedPartnerRequests++;
         if (r.status === "closed") closedPartnerRequests++;
         if (RESPONSE_PHASE_STATUSES.has(r.status)) responsePhaseRequests++;
-        if (r.is_selected) hasSelectedPartner = true;
+        if (r.is_selected) {
+          hasSelectedPartner = true;
+          selectedPartnerName = r.partner_name;
+        }
       }
 
       const openPartnerRequests = totalPartnerRequests - closedPartnerRequests;
       const hasExploitableRequests =
         requests.some(
-          (r) => RESPONSE_PHASE_STATUSES.has(r.status) || r.status === "closed"
+          (r) => RESPONSE_PHASE_STATUSES.has(r.status) || r.status === "closed",
         );
+
+      // P2-A: collection verdict
+      const verdictResult = computeCollectionVerdict(requests, pendingFactsByRequestId);
 
       // Version pipeline (lazy PDF/draft only if version exists)
       const versions = (versionsRes.data ?? []) as Array<{
@@ -172,12 +203,17 @@ export function useCockpitState(caseId: string | undefined) {
         totalPartnerRequests,
         draftPartnerRequests,
         unsentPartnerRequests,
+        sentConfirmedPartnerRequests,
         openPartnerRequests,
         closedPartnerRequests,
         responsePhaseRequests,
         hasExploitableRequests,
         hasSelectedPartner,
+        selectedPartnerName,
+        exploitablePartnerRequests: verdictResult.exploitable,
+        collectionVerdict: verdictResult.verdict,
         pendingPartnerFacts,
+        pendingFactsByRequestId,
         totalClientGaps,
         draftedClientGaps,
         openClientGaps,
