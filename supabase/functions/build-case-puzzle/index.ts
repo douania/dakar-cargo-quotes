@@ -1961,7 +1961,7 @@ Deno.serve(async (req) => {
       inboundThreadContext,
       fullAttachmentContext,
       emails,
-      attachments || [],
+      reloadedAttachments || [],
       lovableApiKey
     );
 
