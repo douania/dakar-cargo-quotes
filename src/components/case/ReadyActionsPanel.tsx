@@ -219,7 +219,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .limit(10);
 
       const drafts = (draftEvents ?? [])
-        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" || e.event_data?.output_type === "reply_draft_v1")
+        .filter((e: any) => e.event_data?.kind === "reply_draft_v1")
         .map((e: any) => e.event_data);
 
       // P0-B: detect unapplied reply_analysis facts — same logic as isFactAlreadyApplied() in CaseView

@@ -431,6 +431,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## TIMELINE-DEDUPE-1 — quotation_email_draft_v1 sans dedupe_key
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TIMELINE-DEDUPE-1 |
+| **Catégorie** | Timeline contract / Idempotence |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | P1-C |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | (1) Doublons observés en production pour `quotation_email_draft_v1`. (2) Besoin d'idempotence stricte sur la génération d'email de cotation. |
+| **Recommandation** | Ajouter un `dedupe_key` dans le `event_data` écrit par `create-quotation-email-draft` pour aligner avec le contrat canonique P1-C. Le fix est trivial (une ligne) mais non bloquant actuellement car l'écriture est en try/catch best-effort. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
