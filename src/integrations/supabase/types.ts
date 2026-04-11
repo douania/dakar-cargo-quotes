@@ -5380,6 +5380,10 @@ export type Database = {
           value: string
         }[]
       }
+      claim_attachment_for_analysis: {
+        Args: { p_attachment_id: string; p_claim_ts: string }
+        Returns: string
+      }
       commit_decision_atomic: {
         Args: {
           p_case_id: string
@@ -5394,6 +5398,24 @@ export type Database = {
           p_user_id?: string
         }
         Returns: Json
+      }
+      finalize_attachment_analysis: {
+        Args: {
+          p_attachment_id: string
+          p_claim_ts: string
+          p_extracted_data: Json
+          p_extracted_text: string
+        }
+        Returns: string
+      }
+      finalize_attachment_analysis_error: {
+        Args: {
+          p_attachment_id: string
+          p_claim_ts: string
+          p_extracted_data: Json
+          p_extracted_text: string
+        }
+        Returns: undefined
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
       get_next_pricing_run_number: {
@@ -5422,6 +5444,10 @@ export type Database = {
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
         Returns: string
+      }
+      release_attachment_claim: {
+        Args: { p_attachment_id: string; p_claim_ts: string }
+        Returns: undefined
       }
       replace_quote_request_lines: {
         Args: { p_case_id: string; p_lines: Json }
