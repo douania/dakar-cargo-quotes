@@ -18,6 +18,8 @@ interface ScopeInput {
   facts: Record<string, string | null>;
   /** Signal complémentaire — ne tranche jamais seul */
   latestClientEmailText?: string;
+  /** P2-C: Garde-fou contractuel — si false, freight_rate / air_tariff ne sont pas émis */
+  freightScope?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,8 +49,8 @@ export function derivePartnerRequestScope(input: ScopeInput): PartnerScopeItem[]
     !!facts["cargo.container_type"] || !!facts["cargo.container_count"];
   const text = latestClientEmailText ?? "";
 
-  // ── 1. Freight rate — always present if transport mode is known ──
-  if (isMaritime) {
+  // ── 1. Freight rate — only if freight is in contractual scope (P2-C guard) ──
+  if (isMaritime && input.freightScope !== false) {
     const items = [
       "Taux de fret maritime",
       "Transit time",
@@ -66,7 +68,7 @@ export function derivePartnerRequestScope(input: ScopeInput): PartnerScopeItem[]
       requiredItems: items,
       confidence: "high",
     });
-  } else if (isAir) {
+  } else if (isAir && input.freightScope !== false) {
     scope.push({
       purpose: "air_tariff",
       label: "Fret aérien",
