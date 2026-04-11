@@ -193,6 +193,7 @@ export default function CaseView() {
         .from("client_gap_requests" as any)
         .select("id, gap_key, status, sent_at, matched_fact_key, created_at")
         .eq("case_id", caseId!)
+        .in("status", ["drafted", "sent", "answered", "validated"] as string[])
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
