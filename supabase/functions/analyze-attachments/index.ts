@@ -91,6 +91,30 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+// --- P0 Option B: Documentary image MIME resolution helpers ---
+const DOC_IMAGE_EXTENSIONS: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  jfif: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+function getFileExtension(filename: string | null): string | null {
+  if (!filename) return null;
+  const idx = filename.lastIndexOf('.');
+  return idx >= 0 ? filename.substring(idx + 1).toLowerCase() : null;
+}
+
+function resolveDocumentImageMimeType(
+  contentType: string | null | undefined,
+  filename: string | null
+): string | null {
+  if (contentType?.startsWith('image/')) return contentType;
+  const ext = getFileExtension(filename);
+  return ext ? DOC_IMAGE_EXTENSIONS[ext] ?? null : null;
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -638,13 +662,14 @@ async function analyzeAttachmentInBackground(
                     attachment.filename?.toLowerCase().endsWith('.xlsx') ||
                     attachment.filename?.toLowerCase().endsWith('.xls');
     
-    const isImage = attachment.content_type?.startsWith('image/');
+    const resolvedImageMime = resolveDocumentImageMimeType(attachment.content_type, attachment.filename);
+    const isImage = !!resolvedImageMime;
     const isPdf = attachment.content_type === 'application/pdf';
     
     if (!isImage && !isPdf && !isExcel) {
       const { error: updateErr } = await supabase.from('email_attachments').update({ 
         is_analyzed: true,
-        extracted_data: { type: 'unsupported', content_type: attachment.content_type }
+        extracted_data: { type: 'unsupported', content_type: attachment.content_type, filename_extension: getFileExtension(attachment.filename) }
       }).eq('id', attachment.id).eq('is_analyzed', false);
       if (updateErr) console.warn('[analyze-attachments] Update failed (unsupported):', updateErr.message);
       return { success: true, filename: attachment.filename };
@@ -832,7 +857,7 @@ ${excelText}`;
       }
       base64 = btoa(base64);
       
-      const mimeType = attachment.content_type || 'image/jpeg';
+      const mimeType = resolvedImageMime || attachment.content_type || 'image/jpeg';
       
       // Voie B: AI reads native document for structured extraction
       const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -1067,7 +1092,7 @@ serve(async (req) => {
         /^Thumbs\.db$/i,  // Windows thumbnails
         /^\.DS_Store$/,   // Mac files
         /^~\$[^.]+\.docx?$/i,  // Word lock files
-        /^image00\d+\.(jpg|png|gif)$/i, // Outlook inline images
+        /^image00\d+\.(jpg|jpeg|jfif|png|gif|webp)$/i, // Outlook inline images
         /^cid:/i,         // Content-ID references
       ];
       
@@ -1231,7 +1256,8 @@ async function processAttachmentsLoop(
       try {
         console.log(`Analyzing: ${attachment.filename} (${attachment.content_type})`);
         
-        const isImage = attachment.content_type?.startsWith('image/');
+        const resolvedImageMime = resolveDocumentImageMimeType(attachment.content_type, attachment.filename);
+        const isImage = !!resolvedImageMime;
         const isPdf = attachment.content_type === 'application/pdf';
         const isExcel = attachment.content_type?.includes('spreadsheet') || 
                         attachment.content_type?.includes('excel') ||
@@ -1247,7 +1273,7 @@ async function processAttachmentsLoop(
             .update({ 
               is_analyzed: true,
               extracted_text: null,
-              extracted_data: { type: 'unsupported', content_type: attachment.content_type }
+              extracted_data: { type: 'unsupported', content_type: attachment.content_type, filename_extension: getFileExtension(attachment.filename) }
             })
             .eq('id', attachment.id)
             .eq('is_analyzed', false);
