@@ -164,13 +164,35 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     staleTime: 30_000,
   });
 
+  // P2-C: Read freight_scope from latest service_scope_v1 timeline event
+  const { data: freightScope } = useQuery({
+    queryKey: ["partner-suggestion-freight-scope", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("case_timeline_events")
+        .select("event_data")
+        .eq("case_id", caseId)
+        .eq("event_type", "service_scope_v1")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.event_data) return undefined;
+      const ed = data.event_data as Record<string, unknown>;
+      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
+      const fs = scope?.["freight_scope"];
+      return typeof fs === "boolean" ? fs : undefined;
+    },
+    staleTime: 60_000,
+  });
+
   // Build already-contacted set (normalized)
   const contactedNames = new Set(existingRequests.map((r) => norm(r.partner_name)));
 
-  // COCKPIT-11: Derive scope from facts (priority source)
+  // COCKPIT-11 + P2-C: Derive scope from facts with freight guard
   const scope = useMemo(
-    () => derivePartnerRequestScope({ facts: caseFacts }),
-    [caseFacts],
+    () => derivePartnerRequestScope({ facts: caseFacts, freightScope }),
+    [caseFacts, freightScope],
   );
   const scopePurposes = useMemo(
     () => new Set(scope.map((s) => s.purpose)),
@@ -202,7 +224,10 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
       role: c.default_role,
       notes: c.notes,
       serviceTypes: c.service_types,
-      purpose: derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes),
+      purpose: derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope),
+      outOfScope: freightScope === false && ["freight_rate", "air_tariff"].includes(
+        derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope),
+      ),
       alreadyContacted: contactedNames.has(norm(c.company_name)),
     }))
     // Sort: not-yet-contacted first
