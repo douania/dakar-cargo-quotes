@@ -217,25 +217,30 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
       // Fallback: all active suppliers/partners/agents
       return true;
     })
-    .map((c) => ({
-      name: c.company_name,
-      domain: c.domain_pattern,
-      email: c.contact_email,
-      role: c.default_role,
-      notes: c.notes,
-      serviceTypes: c.service_types,
-      purpose: derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope),
-      outOfScope: freightScope === false && ["freight_rate", "air_tariff"].includes(
-        derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope),
-      ),
-      alreadyContacted: contactedNames.has(norm(c.company_name)),
-    }))
-    // Sort: not-yet-contacted first
-    .sort((a, b) => (a.alreadyContacted === b.alreadyContacted ? 0 : a.alreadyContacted ? 1 : -1));
+    .map((c) => {
+      const purpose = derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope);
+      return {
+        name: c.company_name,
+        domain: c.domain_pattern,
+        email: c.contact_email,
+        role: c.default_role,
+        notes: c.notes,
+        serviceTypes: c.service_types,
+        purpose,
+        // P2-C: mark as out-of-scope if freight not in contractual perimeter and purpose ended up as general (was freight)
+        outOfScope: freightScope === false && purpose === "general",
+        alreadyContacted: contactedNames.has(norm(c.company_name)),
+      };
+    })
+    // Sort: out-of-scope last, then not-yet-contacted first
+    .sort((a, b) => {
+      if (a.outOfScope !== b.outOfScope) return a.outOfScope ? 1 : -1;
+      return a.alreadyContacted === b.alreadyContacted ? 0 : a.alreadyContacted ? 1 : -1;
+    });
 
   if (suggested.length === 0) return null;
 
-  const notContactedCount = suggested.filter((s) => !s.alreadyContacted).length;
+  const notContactedCount = suggested.filter((s) => !s.alreadyContacted && !s.outOfScope).length;
 
   return (
     <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
