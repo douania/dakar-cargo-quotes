@@ -3,7 +3,7 @@
 // + Modale taux de change GAINDE (exchange_rates)
 // ============================================================================
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
