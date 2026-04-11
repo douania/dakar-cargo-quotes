@@ -1,133 +1,115 @@
 
 
-# P2-D Lot 1 — Modèle dérivé de scope courant
+# P0 — Patch image documentaire `analyze-attachments` — Option B
 
-## Problème
+## Diagnostic confirmé sur le runtime réel
 
-Le cockpit n'avait pas de modèle intermédiaire centralisant l'interprétation du périmètre contractuel.
-Chaque composant dérivait sa propre réponse à "quels services sont dans le scope ?" :
-- PartnerSuggestionPanel lisait `service_scope_v1` via query locale
-- PartnerScopeCard lisait `service_scope_v1` via query locale identique
-- PricingLaunchPanel ne consultait pas le scope du tout
-- PricingCommWarnings faisait 3 HEAD queries redondantes avec useCockpitState
+Le gap est étroit et précis. Deux chemins vivants dans `analyze-attachments/index.ts` qualifient les images **uniquement par MIME** :
 
-Résultat : suggestions partenaires promouvaient le fret hors scope, PricingLaunchPanel affirmait
-"Toutes les décisions sont validées" sans vérification, 3 queries réseau dupliquées.
+| Chemin | Ligne | Code actuel |
+|---|---|---|
+| Background | 641 | `const isImage = attachment.content_type?.startsWith('image/')` |
+| Sync (loop) | 1234 | `const isImage = attachment.content_type?.startsWith('image/')` |
 
-## Architecture
+Si le MIME amont est `application/octet-stream`, `null`, ou un type générique, une image documentaire réelle (`.jfif`, `.jpg`, `.png`, `.webp`) tombe dans le bloc `unsupported` et ne sera jamais analysée.
 
-### `src/lib/scopeQualification.ts` — Helper pur
+Deuxième point : le `mimeType` envoyé à l'IA (lignes 835 et 1516) fait `attachment.content_type || 'image/jpeg'` — correct en fallback, mais le data URI devrait porter le MIME résolu proprement.
+
+Troisième point : le pattern Outlook inline local (ligne 1070) ne couvre pas `.jpeg`, `.jfif`, `.webp`.
+
+## Plan de patch — 1 seul fichier
+
+**Fichier** : `supabase/functions/analyze-attachments/index.ts`
+
+### Modification 1 — Helpers de résolution (après ligne ~92, zone utilitaires)
+
+Ajouter :
 
 ```typescript
-qualifyScope(input) → QualifiedScope { items, hasCriticalUnconfirmed }
+const DOC_IMAGE_EXTENSIONS: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  jfif: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+function getFileExtension(filename: string | null): string | null {
+  if (!filename) return null;
+  const idx = filename.lastIndexOf('.');
+  return idx >= 0 ? filename.substring(idx + 1).toLowerCase() : null;
+}
+
+function resolveDocumentImageMimeType(
+  contentType: string | null | undefined,
+  filename: string | null
+): string | null {
+  if (contentType?.startsWith('image/')) return contentType;
+  const ext = getFileExtension(filename);
+  return ext ? DOC_IMAGE_EXTENSIONS[ext] ?? null : null;
+}
 ```
 
-3 catégories strictes :
-- `confirmed` : scope === true ET facts structurants présents
-- `unconfirmed` : scope === true mais facts manquants, OU scope === null
-- `out_of_scope` : scope === false
+### Modification 2 — Chemin background (ligne 641)
 
-Pas de catégorie "optional" — le repo n'a aucun signal pour la distinguer de "confirmed".
+```
+Avant : const isImage = attachment.content_type?.startsWith('image/');
+Après : const resolvedImageMime = resolveDocumentImageMimeType(attachment.content_type, attachment.filename);
+        const isImage = !!resolvedImageMime;
+```
 
-### `src/hooks/useServiceScope.ts` — Hook léger
+Et ligne 835 :
+```
+Avant : const mimeType = attachment.content_type || 'image/jpeg';
+Après : const mimeType = resolvedImageMime || attachment.content_type || 'image/jpeg';
+```
 
-1 query React Query (staleTime 60s) lisant le dernier `service_scope_v1`.
-Remplace 2 queries dupliquées dans PartnerSuggestionPanel et PartnerScopeCard.
+### Modification 3 — Chemin sync/loop (ligne 1234)
 
-## Composants modifiés
+Même transformation :
+```
+Avant : const isImage = attachment.content_type?.startsWith('image/');
+Après : const resolvedImageMime = resolveDocumentImageMimeType(attachment.content_type, attachment.filename);
+        const isImage = !!resolvedImageMime;
+```
 
-### PartnerSuggestionPanel
-- Consomme `useServiceScope` (supprime query locale scope)
-- Consomme `useCockpitState` pour le gate de statut
-- Chaque suggestion croisée avec `qualifyScope()` :
-  - `confirmed` → CTA "Préremplir" actif, style normal
-  - `unconfirmed` → visible, badge "provisoire", PAS de CTA engageant
-  - `out_of_scope` → opacity-60, badge "hors scope", PAS de CTA, non compté
-- Gate de statut : si `statusAtLeast(PRICED_DRAFT)` ET 0 partner requests → panel masqué
-- Si post-pricing avec requests existantes → panel atténué (opacity-50), pas de CTA
+Et ligne 1516 :
+```
+Avant : const mimeType = attachment.content_type || 'image/jpeg';
+Après : const mimeType = resolvedImageMime || attachment.content_type || 'image/jpeg';
+```
 
-### PartnerScopeCard
-- Consomme `useServiceScope` (supprime query locale scope)
-- Blocs croisés avec `qualifyScope()` :
-  - `confirmed` → affichage normal
-  - `unconfirmed` → badge "non confirmé"
-  - `out_of_scope` → opacity-60, badge "hors périmètre"
+### Modification 4 — Enrichir `unsupported` avec `filename_extension`
 
-### PricingLaunchPanel
-- Consomme `useServiceScope` + `qualifyScope()`
-- Description conditionnelle :
-  - `hasCriticalUnconfirmed` → "Un pricing peut être lancé. Des services restent non confirmés dans le périmètre du dossier."
-  - Sinon → texte existant ("Toutes les décisions sont validées...")
-  - `isRerun` → texte existant inchangé
-- Informatif uniquement, pas de blocage
+Lignes 647 et 1250 : ajouter `filename_extension: getFileExtension(attachment.filename)` dans l'objet `extracted_data` du bloc unsupported, pour traçabilité.
 
-### PricingCommWarnings
-- 3 queries HEAD locales supprimées
-- Consomme `useCockpitState(caseId)` → `openPartnerRequests`, `pendingPartnerFacts`, `openClientGaps`
-- Rendu identique
+### Modification 5 — Élargir le pattern Outlook inline (ligne 1070)
 
-## Règles visuelles par type de surface
+```
+Avant : /^image00\d+\.(jpg|png|gif)$/i
+Après : /^image00\d+\.(jpg|jpeg|jfif|png|gif|webp)$/i
+```
 
-| Type de surface | `out_of_scope` | `unconfirmed` |
-|---|---|---|
-| Information (PartnerScopeCard) | Visible mais secondaire, badge "hors périmètre" | Badge "non confirmé" |
-| Promotion (PartnerSuggestionPanel) | opacity-60, badge "hors scope", pas de CTA, non compté | Visible, badge "provisoire", pas de CTA engageant |
-| Central (PricingLaunchPanel) | Non utilisé pour justifier/bloquer | `hasCriticalUnconfirmed` → description ajustée, pas de blocage |
+## Fichiers non touchés
+
+- `import-thread/index.ts` — filtrage inline amont inchangé
+- `sync-emails/index.ts` — filtrage inline amont inchangé
+- Schéma DB — aucune migration
+- Cockpit / pricing / docs — hors périmètre
 
 ## Blast radius
 
-- 2 nouveaux fichiers : `scopeQualification.ts`, `useServiceScope.ts`
-- 4 fichiers runtime modifiés
-- -5 queries réseau (2 scope + 3 HEAD)
+- 1 fichier edge function modifié
 - 0 migration DB
-- 0 edge function modifiée
-- 0 modification de useCockpitState
+- 0 nouveau endpoint
+- Helpers purs (pas d'effet de bord)
+- Le filtrage inline amont reste strictement inchangé
 
-## Lot 2 (implémenté)
+## Vérifications après patch
 
-- `useQualifiedScopeGate(caseId)` : hook léger partagé, lit `useServiceScope` (cache) + 7 fact keys exactes (1 query légère partagée), retourne `hasCriticalUnconfirmed`
-- NextActionBanner step 8 : si `hasCriticalUnconfirmed` → "Confirmer le périmètre du dossier" (amber) au lieu de "Lancer le pricing" (emerald)
-- ReadyActionsPanel step 8 : si `hasCriticalUnconfirmed` → priorité "later" au lieu de `getPriority()`, reason ajustée
-- Pas de query `quote_cases.status` dans le hook — le statut reste géré par chaque consommateur
-- `out_of_scope` et `scope_absent` restent strictement neutres
+1. Une PJ `.jfif` avec `content_type: application/octet-stream` → `isImage = true`, analysée par l'IA avec `data:image/jpeg;base64,...`
+2. Une PJ `.jpg` avec `content_type: image/jpeg` → comportement identique à avant
+3. Une PJ `.docx` avec MIME absent → toujours `unsupported` (pas dans `DOC_IMAGE_EXTENSIONS`)
+4. `image001.jfif` en inline → filtrée par le pattern élargi ligne 1070
+5. Le bloc `unsupported` porte `filename_extension` pour audit
 
-## Garde-fous respectés
-
-1. `useCockpitState` non élargi
-2. Aucune edge function modifiée
-3. Aucune migration DB
-4. Comportement conservatif : scope null → `unconfirmed` (pas de présomption)
-5. Gate de statut respecte la doctrine opérateur souverain (informatif, pas bloquant)
-6. Blast radius faible : 1 hook créé, 2 composants modifiés, 1 query facts légère partagée ajoutée
-
----
-
-# P0 n°3 — Resserrage préremplissage email partenaire
-
-## Problème
-
-Le template d'email partenaire (`buildPartnerEmailBody`) injectait des contenus non confirmés par le scope :
-- `Origin charges détaillés` et `Port surcharges / local charges` dans le noyau `freight_rate`/`freight_maritime`
-- Fallback automatique `Conditions d'empotage, si applicable` quand scope vide
-- Blocs scope sans confidence explicite promus par défaut (confidence absent = `"medium"`)
-
-## Correctifs appliqués
-
-1. **PURPOSE_INCLUDES resserré** : `freight_rate` et `freight_maritime` passent de 8 à 6 items. Origin charges et port surcharges retirés du noyau — inclus uniquement si le scope les confirme.
-2. **Fallback automatique supprimé** : plus de bloc "si applicable" injecté quand le scope est vide.
-3. **Confidence absent = `"low"`** : un bloc scope sans confidence explicite n'est plus promu dans le noyau principal.
-4. **Cohérence front/backend** : modifications identiques dans `src/lib/partnerEmailTemplate.ts` et `supabase/functions/_shared/partner-email-template.ts`.
-
-## Fichiers modifiés
-
-| Fichier | Modification |
-|---|---|
-| `src/lib/partnerEmailTemplate.ts` | Mods 1, 2, 3 |
-| `supabase/functions/_shared/partner-email-template.ts` | Mods 1, 2, 3 (miroir) |
-| `docs/MASTER_CONTEXT.md` | Trace P0-3 |
-| `.lovable/plan.md` | Section P0-3 |
-
-## Blast radius
-
-- 0 migration DB, 0 query ajoutée, 0 edge function modifiée (hors template partagé)
-- Backend (`send-external-quote-request`) ne passe toujours pas `scope` → conservateur par défaut (noyau freight pur uniquement)
