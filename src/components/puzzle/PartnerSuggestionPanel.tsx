@@ -45,6 +45,7 @@ function derivePurpose(
   role: string,
   notes: string | null,
   scopePurposes: Set<string>,
+  freightScope?: boolean | null,
 ): string {
   // Phase 11: try to match partner capabilities to detected scope
   if (scopePurposes.size > 0 && serviceTypes.length > 0) {
@@ -56,17 +57,18 @@ function derivePurpose(
 
   // Phase 2 fallback: service_types without scope context
   if (serviceTypes.length > 0) {
-    if (serviceTypes.includes("freight_maritime")) return "freight_rate";
-    if (serviceTypes.includes("freight_aerien")) return "air_tariff";
+    if (serviceTypes.includes("freight_maritime")) return freightScope === false ? "general" : "freight_rate";
+    if (serviceTypes.includes("freight_aerien")) return freightScope === false ? "general" : "air_tariff";
     if (serviceTypes.includes("origin_charges")) return "origin_charges";
     return serviceTypes[0];
   }
 
   // Phase 1 fallback: heuristic from notes/role
+  // P2-C: if freight is out of scope, fallback to "general" instead of "freight_rate"
   const n = (notes ?? "").toLowerCase();
-  if (n.includes("armateur")) return "freight_rate";
+  if (n.includes("armateur")) return freightScope === false ? "general" : "freight_rate";
   if (role === "agent") return "origin_charges";
-  return "freight_rate";
+  return freightScope === false ? "general" : "freight_rate";
 }
 
 const PURPOSE_LABELS: Record<string, string> = {
