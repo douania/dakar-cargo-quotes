@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.9
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C + P2-A + P2-B + P2-C + P2-D Lot 2
-Latest patch: P2-D Lot 2 — scope gate sur hiérarchie opératoire (useQualifiedScopeGate + NextActionBanner dépromotion launch_pricing + ReadyActionsPanel rétrogradation priorité)
+Version: 1.9.1
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C + P2-A + P2-B + P2-C + P2-D Lot 2 + P0-3
+Latest patch: P0 n°3 — resserrage préremplissage email partenaire (PURPOSE_INCLUDES freight resserré, fallback automatique supprimé, confidence absente = low)
 Date: 2026-04-11
 
 ---

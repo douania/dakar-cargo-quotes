@@ -189,11 +189,11 @@ interface ScopeBlock {
 }
 
 /**
- * COCKPIT-11C — scope-aware, hierarchized partner email generation.
- * @param scope  Optional detected scope items with confidence.
- *               high/medium blocks are promoted to the primary request block.
- *               low blocks stay in the secondary "si applicable" section.
- *               Absent confidence is treated as "medium" (backward compatible).
+ * COCKPIT-11C + P0-3 — scope-aware, hierarchized partner email generation.
+ * P0-3 rules:
+ *   - freight noyau resserré (6 items, pas d'origin charges / port surcharges implicites)
+ *   - absent confidence = "low" (pas de promotion par défaut)
+ *   - pas de fallback "si applicable" en absence de scope
  */
 export function buildPartnerEmailBody(
   facts: PartnerEmailFacts,
