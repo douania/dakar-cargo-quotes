@@ -1,8 +1,8 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.6
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C
-Latest patch: P1-C — alignement contrat timeline / outputs
-Date: 2026-04-10
+Version: 1.7
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C + P2-A
+Latest patch: P2-A — consolidation widgets secondaires partenaires
+Date: 2026-04-11
 
 ---
 

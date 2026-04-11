@@ -1,11 +1,11 @@
 /**
  * COCKPIT-9 Phase 1: Partner collection sufficiency verdict.
- * Read-only. Two queries only: requests + facts.
- * Verdicts: neutral / insufficient / in_progress / sufficient.
+ * P2-A: Migrated to consume useCockpitState (shared query, no internal fetch).
+ * Verdict logic delegated to computeCollectionVerdict in cockpitStatusConstants.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { useCockpitState } from '@/hooks/useCockpitState';
+import type { CollectionVerdict } from '@/lib/cockpitStatusConstants';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PackageSearch, CheckCircle2, AlertTriangle, XCircle, Minus } from 'lucide-react';
@@ -14,113 +14,25 @@ interface Props {
   caseId: string;
 }
 
-interface RequestRow {
-  id: string;
-  status: string;
-  partner_name: string;
-  is_selected: boolean;
-}
-
-interface FactRow {
-  request_id: string;
-  validation_status: string;
-}
-
-/**
- * Statuses that indicate a request has entered "response phase" or beyond.
- * A request is "exploitable" if it has one of these statuses AND has no
- * pending (proposed) facts — OR is already closed.
- */
-const RESPONSE_PHASE_STATUSES = new Set([
-  'response_received',
-  'response_analyzed',
-  'partially_validated',
-  'facts_validated',
-  'closed',
-]);
-
-type CollectionVerdict = 'neutral' | 'insufficient' | 'in_progress' | 'sufficient';
-
 export function PartnerCollectionReadinessCard({ caseId }: Props) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['partner-collection-readiness', caseId],
-    staleTime: 30_000,
-    enabled: !!caseId,
-    queryFn: async () => {
-      const [reqResult, factsResult] = await Promise.all([
-        supabase
-          .from('external_quote_requests')
-          .select('id, status, partner_name, is_selected')
-          .eq('case_id', caseId),
-        supabase
-          .from('external_quote_response_facts')
-          .select('request_id, validation_status')
-          .eq('case_id', caseId),
-      ]);
-
-      const requests = (reqResult.data ?? []) as unknown as RequestRow[];
-      const facts = (factsResult.data ?? []) as unknown as FactRow[];
-
-      const total = requests.length;
-      if (total === 0) {
-        return { verdict: 'neutral' as CollectionVerdict, total: 0, exploitable: 0, openCount: 0, pendingFacts: 0, summary: '' };
-      }
-
-      // Build per-request pending facts count
-      const pendingByRequest = new Map<string, number>();
-      let totalPending = 0;
-      for (const f of facts) {
-        if (f.validation_status === 'proposed') {
-          pendingByRequest.set(f.request_id, (pendingByRequest.get(f.request_id) ?? 0) + 1);
-          totalPending++;
-        }
-      }
-
-      let exploitable = 0;
-      let openCount = 0;
-
-      for (const r of requests) {
-        if (r.status === 'closed') {
-          exploitable++;
-          continue;
-        }
-
-        // Open request
-        openCount++;
-
-        if (RESPONSE_PHASE_STATUSES.has(r.status) && (pendingByRequest.get(r.id) ?? 0) === 0) {
-          exploitable++;
-        }
-      }
-
-      // Determine verdict (conservative)
-      let verdict: CollectionVerdict;
-      if (exploitable === 0) {
-        verdict = 'insufficient';
-      } else if (openCount > 0 || totalPending > 0) {
-        verdict = 'in_progress';
-      } else {
-        verdict = 'sufficient';
-      }
-
-      // Build summary
-      const parts: string[] = [];
-      parts.push(`${exploitable} exploitable${exploitable > 1 ? 's' : ''}`);
-      if (openCount > 0) parts.push(`${openCount} ouverte${openCount > 1 ? 's' : ''}`);
-      if (totalPending > 0) parts.push(`${totalPending} fait(s) à valider`);
-      const summary = parts.join(' · ');
-
-      // Find selected partner name
-      const selectedRequest = requests.find(r => r.is_selected);
-      const selectedPartnerName = selectedRequest?.partner_name ?? null;
-
-      return { verdict, total, exploitable, openCount, pendingFacts: totalPending, summary, selectedPartnerName };
-    },
-  });
+  const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
 
-  const { verdict, summary, selectedPartnerName } = data;
+  const {
+    collectionVerdict: verdict,
+    exploitablePartnerRequests: exploitable,
+    openPartnerRequests: openCount,
+    pendingPartnerFacts: totalPending,
+    selectedPartnerName,
+  } = data;
+
+  // Build summary string
+  const parts: string[] = [];
+  parts.push(`${exploitable} exploitable${exploitable > 1 ? 's' : ''}`);
+  if (openCount > 0) parts.push(`${openCount} ouverte${openCount > 1 ? 's' : ''}`);
+  if (totalPending > 0) parts.push(`${totalPending} fait(s) à valider`);
+  const summary = parts.join(' · ');
 
   const config: Record<CollectionVerdict, {
     icon: React.ReactNode;
