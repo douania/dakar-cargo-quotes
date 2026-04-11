@@ -66,8 +66,16 @@ Deno.serve(async (req: Request) => {
         .limit(1);
 
       if (tlCheckError) {
-        console.warn("[P1-B] Timeline check failed on idempotent branch:", tlCheckError.message);
-        return jsonResponse({ ok: true, idempotent: true, timeline_check_failed: true });
+        console.error("[P1-B] Timeline check failed on idempotent branch:", tlCheckError.message);
+        return jsonResponse(
+          {
+            ok: false,
+            error: "timeline_check_failed",
+            message: "Request already closed but timeline verification failed",
+            detail: tlCheckError.message,
+          },
+          500
+        );
       }
 
       if (existingTimeline && existingTimeline.length > 0) {
