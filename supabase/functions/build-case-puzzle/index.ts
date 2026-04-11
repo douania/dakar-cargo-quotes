@@ -1884,6 +1884,47 @@ Deno.serve(async (req) => {
       .select("id, email_id, filename, content_type, extracted_data, extracted_text, is_analyzed")
       .in("email_id", emailIds);
 
+    // ── STRUCTURAL_PATCH_ALLOWED: PJ-ANALYSIS-ON-PUZZLE ──
+    // Best-effort analysis of unanalyzed attachments before AI context build.
+    // Non-fatal: failures are logged, never block puzzle generation.
+    const unanalyzedAtts = (attachments || []).filter(a => !a.is_analyzed);
+    let reloadedAttachments = attachments;
+
+    if (unanalyzedAtts.length > 0) {
+      const MAX_INLINE_ANALYSIS = 5;
+      const toAnalyze = unanalyzedAtts.slice(0, MAX_INLINE_ANALYSIS);
+      console.log(`[PJ-ANALYSIS] ${unanalyzedAtts.length} PJ non analysée(s), traitement best-effort de ${toAnalyze.length}`);
+
+      for (const att of toAnalyze) {
+        try {
+          const analyzeResp = await fetch(
+            `${supabaseUrl}/functions/v1/analyze-attachments`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': authHeader,
+              },
+              body: JSON.stringify({ attachmentId: att.id, background: false }),
+            }
+          );
+          const result = await analyzeResp.json();
+          console.log(`[PJ-ANALYSIS] ${att.filename}: ${analyzeResp.ok ? 'ok' : 'failed'}`,
+            result?.analyzed ?? result?.error ?? '');
+        } catch (err) {
+          console.warn(`[PJ-ANALYSIS] ${att.filename}: erreur non fatale`, String(err));
+        }
+      }
+
+      // Reload attachments after analysis
+      const { data: refreshedAtts } = await serviceClient
+        .from("email_attachments")
+        .select("id, email_id, filename, content_type, extracted_data, extracted_text, is_analyzed")
+        .in("email_id", emailIds);
+      if (refreshedAtts) reloadedAttachments = refreshedAtts;
+    }
+    // ── END PJ-ANALYSIS-ON-PUZZLE ──
+
     // 6. Build context for AI extraction
     const threadContext = emails
       .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
@@ -1899,7 +1940,7 @@ Deno.serve(async (req) => {
       .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
       .join("\n\n---\n\n");
 
-    const attachmentContext = (attachments || [])
+    const attachmentContext = (reloadedAttachments || [])
       .filter((a) => a.extracted_text || a.extracted_data)
       .map((a) => `[Attachment: ${a.filename}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
       .join("\n\n");
@@ -1920,7 +1961,7 @@ Deno.serve(async (req) => {
       inboundThreadContext,
       fullAttachmentContext,
       emails,
-      attachments || [],
+      reloadedAttachments || [],
       lovableApiKey
     );
 
