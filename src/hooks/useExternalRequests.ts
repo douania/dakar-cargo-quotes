@@ -222,13 +222,20 @@ export function useExternalRequests(caseId: string | undefined) {
         body: { case_id: caseId, request_id: requestId },
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error === "pending_facts_remain"
-        ? data.message
-        : data.error);
+      if (data?.error) {
+        // Attach error code so onError can distinguish timeline_insert_failed
+        const err = new Error(data.error === "pending_facts_remain"
+          ? data.message
+          : data.error);
+        (err as any).code = data.error;
+        throw err;
+      }
       return data;
     },
     onSuccess: (data) => {
-      if (data?.idempotent) {
+      if (data?.timeline_repaired) {
+        toast.info("Demande déjà clôturée — trace timeline réparée");
+      } else if (data?.idempotent) {
         toast.info("Demande déjà clôturée");
       } else {
         toast.info("Demande clôturée");
@@ -236,7 +243,14 @@ export function useExternalRequests(caseId: string | undefined) {
       invalidateAll();
     },
     onError: (err: Error) => {
-      toast.error("Erreur: " + err.message);
+      const code = (err as any).code;
+      if (code === "timeline_insert_failed" || code === "timeline_repair_failed") {
+        // DB state may already be closed — refresh UI
+        invalidateAll();
+        toast.warning("Demande clôturée mais trace timeline incomplète");
+      } else {
+        toast.error("Erreur: " + err.message);
+      }
     },
   });
 

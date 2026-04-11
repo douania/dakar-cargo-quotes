@@ -53,9 +53,60 @@ Deno.serve(async (req: Request) => {
       return errorResponse("Request not found or case_id mismatch", 404);
     }
 
-    // 2. Idempotence: already closed
+    // 2. Idempotence: already closed — but check if timeline trace exists
     if (request.status === "closed") {
-      return jsonResponse({ ok: true, idempotent: true });
+      const expectedDedupeKey = `external_request_closed:${request_id}`;
+
+      const { data: existingTimeline, error: tlCheckError } = await serviceClient
+        .from("case_timeline_events")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("event_type", "manual_action")
+        .contains("event_data", { dedupe_key: expectedDedupeKey })
+        .limit(1);
+
+      if (tlCheckError) {
+        console.warn("[P1-B] Timeline check failed on idempotent branch:", tlCheckError.message);
+        return jsonResponse({ ok: true, idempotent: true, timeline_check_failed: true });
+      }
+
+      if (existingTimeline && existingTimeline.length > 0) {
+        return jsonResponse({ ok: true, idempotent: true });
+      }
+
+      // Timeline trace missing — attempt repair
+      const { error: repairError } = await serviceClient
+        .from("case_timeline_events")
+        .insert({
+          case_id,
+          event_type: "manual_action",
+          actor_type: "operator",
+          actor_user_id: auth.user.id,
+          new_value: `Demande partenaire clôturée: ${request.partner_name || request_id}`,
+          event_data: {
+            dedupe_key: expectedDedupeKey,
+            action_code: "PARTNER_REQUEST_CLOSED",
+            status: "done",
+            request_id,
+            partner_name: request.partner_name || null,
+            repaired: true,
+          },
+        });
+
+      if (repairError) {
+        console.error("[P1-B] Timeline repair failed:", repairError.message);
+        return jsonResponse(
+          {
+            ok: false,
+            error: "timeline_repair_failed",
+            message: "Request already closed but timeline trace could not be repaired",
+            detail: repairError.message,
+          },
+          500
+        );
+      }
+
+      return jsonResponse({ ok: true, idempotent: true, timeline_repaired: true });
     }
 
     // 3. Check for pending proposed facts
