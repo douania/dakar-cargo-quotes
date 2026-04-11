@@ -21,6 +21,28 @@ const CONFIDENCE_STYLE: Record<string, { label: string; className: string }> = {
 };
 
 export function PartnerScopeCard({ caseId, threadId }: Props) {
+  // P2-C: Read freight_scope from latest service_scope_v1 timeline event
+  const { data: freightScope } = useQuery({
+    queryKey: ["partner-scope-freight-scope", caseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("case_timeline_events")
+        .select("event_data")
+        .eq("case_id", caseId)
+        .eq("event_type", "service_scope_v1")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.event_data) return undefined;
+      const ed = data.event_data as Record<string, unknown>;
+      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
+      const fs = scope?.["freight_scope"];
+      return typeof fs === "boolean" ? fs : undefined;
+    },
+    staleTime: 60_000,
+  });
+
   // 1. Facts structured (primary source)
   const { data: factsMap = {} } = useQuery({
     queryKey: ["partner-scope-facts", caseId],

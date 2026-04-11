@@ -266,24 +266,31 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
           <div
             key={s.name}
             className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-              s.alreadyContacted
-                ? "bg-muted/50 text-muted-foreground border-muted"
-                : "bg-background border-border"
+              s.outOfScope
+                ? "bg-muted/30 text-muted-foreground border-muted opacity-60"
+                : s.alreadyContacted
+                  ? "bg-muted/50 text-muted-foreground border-muted"
+                  : "bg-background border-border"
             }`}
           >
-            {s.alreadyContacted && (
-              <CheckCircle2 className="h-3 w-3 text-green-600 dark:text-green-400 shrink-0" />
+            {s.alreadyContacted && !s.outOfScope && (
+              <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
             )}
-            <span className={s.alreadyContacted ? "line-through" : "font-medium"}>
+            <span className={s.alreadyContacted ? "line-through" : s.outOfScope ? "" : "font-medium"}>
               {s.name}
             </span>
+            {s.outOfScope && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                hors scope
+              </Badge>
+            )}
             {s.email && (
               <span title={s.email}><Mail className="h-3 w-3 text-muted-foreground shrink-0" /></span>
             )}
             <span className="text-muted-foreground">
               · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
             </span>
-            {!s.alreadyContacted && (
+            {!s.alreadyContacted && !s.outOfScope && (
               <Button
                 size="sm"
                 variant="ghost"
