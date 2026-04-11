@@ -1,28 +1,62 @@
 
 
-# P1-C — Alignement contrat timeline / outputs
+# P2-A — Consolidation widgets secondaires partenaires
 
 ## Problème
-Drift de schéma entre producteurs et lecteurs de `case_timeline_events` :
-- `event_data.kind` vs `event_data.output_type` (vestige jamais écrit)
-- Pas de contrat canonique documenté pour `output_generated` ni `manual_action`
+`PartnerRequestsSummary` et `PartnerCollectionReadinessCard` maintenaient chacun
+des requêtes Supabase indépendantes dupliquant largement les signaux déjà
+calculés par `useCockpitState`. Risque de drift croissant (constantes locales,
+compteurs divergents, logiques parallèles).
 
 ## Diagnostic confirmé
-- Tous les producteurs actifs écrivent déjà `kind` (output_generated) et `action_code` (manual_action)
-- `output_type` n'est écrit par **aucune** edge function
-- Un seul lecteur vestigial : `ReadyActionsPanel.tsx` L222 (`kind || output_type`)
-- `create-quotation-email-draft` manque de `dedupe_key` (watchlist, pas corrigé ici)
+- `PartnerRequestsSummary` : query propre sur `external_quote_requests` +
+  `external_quote_response_facts` (count head) — 100 % redondant
+- `PartnerCollectionReadinessCard` : query propre + set local
+  `RESPONSE_PHASE_STATUSES` incluant `closed` (drift vs constante partagée) +
+  calcul de verdict local
+- `CommunicationSummaryCard` / `PartnerRequestsDetailView` : besoins plus
+  détaillés → hors périmètre (P2-B)
 
 ## Correctif appliqué
-- Suppression du drift `output_type` dans `ReadyActionsPanel.tsx`
-- Contrat canonique documenté dans `docs/MASTER_CONTEXT.md` (section "Contrat canonique timeline")
-- Watchlist `TIMELINE-DEDUPE-1` ajoutée dans `docs/DEFERRED_BACKLOG.md`
-- `STATUS_REGISTRY.md` non modifié (contient uniquement des statuts FSM, pas des contrats d'events)
+
+### useCockpitState étendu (4 champs, 1 query ajustée)
+- `partner_name` ajouté au select `external_quote_requests`
+- Query facts : `count head` → `select request_id` filtré `proposed`
+  (permet groupage par request_id)
+- Nouveaux champs exposés :
+  - `sentConfirmedPartnerRequests`
+  - `selectedPartnerName`
+  - `exploitablePartnerRequests`
+  - `collectionVerdict`
+  - `pendingFactsByRequestId`
+
+### cockpitStatusConstants enrichi
+- Type `CollectionVerdict` exporté
+- Fonction pure `computeCollectionVerdict(requests, pendingFactsByRequestId)`
+  - `closed` traité comme exploitable terminal, PAS ajouté à `RESPONSE_PHASE_STATUSES`
+  - Sémantique explicite dans le code
+
+### PartnerRequestsSummary migré
+- Query interne supprimée
+- Consomme `useCockpitState` (React Query déduplique la clé)
+- Libellé "En phase réponse" (≡ `responsePhaseRequests`) au lieu de
+  l'ancien "Réponses reçues" pour refléter le calcul réel
+
+### PartnerCollectionReadinessCard migré
+- Query interne supprimée
+- Set local `RESPONSE_PHASE_STATUSES` supprimé (drift éliminé)
+- Consomme verdict + exploitable + selectedPartnerName de `useCockpitState`
+
+## Garde-fous respectés
+1. `RESPONSE_PHASE_STATUSES` non modifié — `closed` reste explicitement
+   traité dans `computeCollectionVerdict`, pas glissé dans le set
+2. Compteur renommé : "En phase réponse" reflète exactement
+   `responsePhaseRequests` (= demandes dont le status ∈ RESPONSE_PHASE_STATUSES)
 
 ## Blast radius
-- 1 ligne modifiée : `src/components/case/ReadyActionsPanel.tsx`
-- 1 section ajoutée : `docs/MASTER_CONTEXT.md`
-- 1 entrée ajoutée : `docs/DEFERRED_BACKLOG.md`
-- Aucune edge function modifiée (déjà alignées)
-- Aucune migration DB
-- P0-A/P0-B/P0-C/P1-A/P1-B non impactés
+- 0 edge function modifiée
+- 0 migration DB
+- 2 widgets simplifiés (queries locales supprimées)
+- 1 hook étendu (4 champs, 1 query ajustée)
+- 1 module constants enrichi (type + helper pur)
+- P0-A/P0-B/P0-C/P1-A/P1-B/P1-C non impactés
