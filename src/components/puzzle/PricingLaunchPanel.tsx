@@ -38,9 +38,8 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { useServiceScope } from '@/hooks/useServiceScope';
-import { qualifyScope } from '@/lib/scopeQualification';
-import { useMemo } from 'react';
+// P2-D Lot 2: brancher sur qualifyScope() quand les facts réels seront disponibles ici
+// Voir docs/DEFERRED_BACKLOG.md → P2-D-PRICING-SCOPE
 
 type PricingPrecheck = {
   code: "HS_CODE_REQUIRED" | "REGIME_REQUIRED_FOR_EXEMPTION" | "FREIGHT_REQUIRED_FOR_FOB" | "CARGO_VALUE_REQUIRED" | "SERVICE_PACKAGE_REQUIRED";
@@ -60,14 +59,6 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // P2-D: scope-aware description
-  const { data: serviceScope } = useServiceScope(caseId);
-  const scopeResult = useMemo(
-    () => qualifyScope({ serviceScope: serviceScope ?? null, facts: {}, caseStatus: "INTAKE" }),
-    [serviceScope],
-  );
-  const hasCriticalUnconfirmed = scopeResult.hasCriticalUnconfirmed;
 
   // Exchange rate modal state
   const [missingCurrency, setMissingCurrency] = useState<string | null>(null);
@@ -219,11 +210,9 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             <CardTitle className="text-base">{isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
           </div>
           <CardDescription>
-            {isRerun
+          {isRerun
               ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
-              : hasCriticalUnconfirmed
-                ? 'Un pricing peut être lancé. Des services restent non confirmés dans le périmètre du dossier.'
-                : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
+              : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
         </CardHeader>
         

@@ -10,9 +10,13 @@
 
 export type ScopeQualification = "confirmed" | "unconfirmed" | "out_of_scope";
 
+export type SignalStrength = "scope_confirmed" | "scope_absent";
+
 export interface QualifiedScopeItem {
   service: string;
   qualification: ScopeQualification;
+  /** Distinguishes scope===true (confirmed signal) from scope===null (no signal) */
+  signalStrength: SignalStrength;
   reason: string;
 }
 
@@ -59,15 +63,13 @@ interface ServiceDef {
   service: string;
   scopeKey: keyof NonNullable<QualifyScopeInput["serviceScope"]>;
   requiredFacts: string[];
-  /** If true, this service is normally expected on most dossiers */
-  critical: boolean;
 }
 
 const SERVICE_DEFS: ServiceDef[] = [
-  { service: "freight", scopeKey: "freightScope", requiredFacts: FREIGHT_FACTS, critical: true },
-  { service: "customs", scopeKey: "customsScope", requiredFacts: CUSTOMS_FACTS, critical: false },
-  { service: "transit", scopeKey: "transitScope", requiredFacts: TRANSIT_FACTS, critical: false },
-  { service: "document", scopeKey: "documentScope", requiredFacts: [], critical: false },
+  { service: "freight", scopeKey: "freightScope", requiredFacts: FREIGHT_FACTS },
+  { service: "customs", scopeKey: "customsScope", requiredFacts: CUSTOMS_FACTS },
+  { service: "transit", scopeKey: "transitScope", requiredFacts: TRANSIT_FACTS },
+  { service: "document", scopeKey: "documentScope", requiredFacts: [] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -85,6 +87,7 @@ export function qualifyScope(input: QualifyScopeInput): QualifiedScope {
       items.push({
         service: def.service,
         qualification: "out_of_scope",
+        signalStrength: "scope_confirmed",
         reason: `${def.service} explicitement hors périmètre`,
       });
       continue;
@@ -95,6 +98,7 @@ export function qualifyScope(input: QualifyScopeInput): QualifiedScope {
       items.push({
         service: def.service,
         qualification: hasFacts ? "confirmed" : "unconfirmed",
+        signalStrength: "scope_confirmed",
         reason: hasFacts
           ? `${def.service} confirmé (scope + facts)`
           : `${def.service} dans le scope mais facts insuffisants`,
@@ -102,16 +106,18 @@ export function qualifyScope(input: QualifyScopeInput): QualifiedScope {
       continue;
     }
 
-    // scopeValue === null → no signal
+    // scopeValue === null → no signal at all
     items.push({
       service: def.service,
       qualification: "unconfirmed",
+      signalStrength: "scope_absent",
       reason: `${def.service} : signal scope absent`,
     });
   }
 
+  // hasCriticalUnconfirmed: true only when scope explicitly says "yes" but facts are missing
   const hasCriticalUnconfirmed = items.some(
-    (i) => i.qualification === "unconfirmed" && SERVICE_DEFS.find((d) => d.service === i.service)?.critical,
+    (i) => i.qualification === "unconfirmed" && i.signalStrength === "scope_confirmed",
   );
 
   return { items, hasCriticalUnconfirmed };
