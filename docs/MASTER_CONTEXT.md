@@ -536,6 +536,38 @@ Le filtrage lot-level nécessiterait une extension du schéma quote_gaps (hors s
 
 ---
 
+## Exception contrôlée — P1-CGR-SYNC : Synchronisation client_gap_requests dans build-case-puzzle (2026-04-11)
+
+### Contexte
+
+Lorsque `build-case-puzzle` résout un `quote_gap` (parce qu'un fait valide existe désormais, ex: extrait d'une PJ),
+les `client_gap_requests` en statut `drafted` pour le même `gap_key` restaient actives dans l'UI.
+L'opérateur voyait des demandes de clarification client pour des informations déjà disponibles.
+
+### Patch autorisé
+
+Ajout de 4 appels `.update({ status: "cancelled" })` sur `client_gap_requests` aux sites de résolution de gap existants :
+
+1. **Orphan gaps closure** (~L3460) — résolution des gaps non requis pour le type détecté
+2. **resolveStalePolicyGap156** (~L3572) — résolution Phase 15.6 des gaps politiques stale
+3. **Required key resolution** (~L3715) — résolution quand un fait requis existe
+4. **Final sync** (~L3800) — résolution finale des phantom gaps avec fait valide
+
+### Justification
+
+1. **Corrige un bug visible** — clarifications "Brouillon" pour des données déjà extraites de PJ
+2. **Périmètre strictement localisé** — 4 ajouts identiques, aucune modification de logique existante
+3. **Idempotent** — `.eq("status", "drafted")` ne touche pas `sent`/`answered`/`validated`
+4. **Aucun refactor** — ajout pur post-résolution, même pattern aux 4 sites
+
+### Statut
+
+- Exception validée pour P1-CGR-SYNC uniquement
+- `build-case-puzzle` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
+
+---
+
 ## Exception contrôlée — Export Sénégal gap profile (2026-04-07)
 
 Edge function : build-case-puzzle (gap analysis + prompt extraction)

@@ -3463,6 +3463,14 @@ Deno.serve(async (req) => {
           .update({ status: "resolved", resolved_at: new Date().toISOString() })
           .eq("id", orphan.id);
 
+        // P1-CGR-SYNC: Cancel drafted client_gap_requests when gap resolved
+        await serviceClient
+          .from("client_gap_requests")
+          .update({ status: "cancelled" })
+          .eq("case_id", case_id)
+          .eq("gap_key", orphan.gap_key)
+          .eq("status", "drafted");
+
         await serviceClient.from("case_timeline_events").insert({
           case_id,
           event_type: "gap_resolved",
@@ -3573,6 +3581,14 @@ Deno.serve(async (req) => {
         .from("quote_gaps")
         .update({ status: "resolved", resolved_at: new Date().toISOString() })
         .eq("id", g.id);
+
+      // P1-CGR-SYNC: Cancel drafted client_gap_requests when gap resolved
+      await serviceClient
+        .from("client_gap_requests")
+        .update({ status: "cancelled" })
+        .eq("case_id", case_id)
+        .eq("gap_key", gap_key)
+        .eq("status", "drafted");
 
       await serviceClient.from("case_timeline_events").insert({
         case_id,
@@ -3721,6 +3737,14 @@ Deno.serve(async (req) => {
           })
           .eq("id", existingGap.id);
 
+        // P1-CGR-SYNC: Cancel drafted client_gap_requests when gap resolved
+        await serviceClient
+          .from("client_gap_requests")
+          .update({ status: "cancelled" })
+          .eq("case_id", case_id)
+          .eq("gap_key", requiredKey)
+          .eq("status", "drafted");
+
         await serviceClient.from("case_timeline_events").insert({
           case_id,
           event_type: "gap_resolved",
@@ -3806,6 +3830,15 @@ Deno.serve(async (req) => {
             console.error(`[FinalSync] Failed to resolve gap ${gap["id"]}:`, syncUpdateErr.message);
             continue;
           }
+
+          // P1-CGR-SYNC: Cancel drafted client_gap_requests when gap resolved
+          await serviceClient
+            .from("client_gap_requests")
+            .update({ status: "cancelled" })
+            .eq("case_id", case_id)
+            .eq("gap_key", gapKey)
+            .eq("status", "drafted");
+
           await serviceClient.from("case_timeline_events").insert({
             case_id,
             event_type: "gap_resolved",
