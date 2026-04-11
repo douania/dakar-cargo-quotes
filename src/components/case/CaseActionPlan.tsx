@@ -39,7 +39,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     totalPartnerRequests,
     pendingPartnerFacts,
     openClientGaps,
-    totalClientGaps,
+    activeClientGaps,
     draftPartnerRequests,
     unsentPartnerRequests,
     draftedClientGaps,
@@ -102,8 +102,8 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     });
   }
 
-  // 6. Envoyer les clarifications client
-  if (totalClientGaps > 0) {
+  // 6. Envoyer les clarifications client — only show if active (not cancelled/validated)
+  if (activeClientGaps > 0) {
     allSteps.push({
       id: "send-client-clarifications",
       label: "Envoyer les clarifications client",
@@ -112,8 +112,8 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     });
   }
 
-  // 7. Analyser les réponses client
-  if (totalClientGaps > 0) {
+  // 7. Analyser les réponses client — only show if active gaps remain
+  if (activeClientGaps > 0) {
     allSteps.push({
       id: "analyze-client-responses",
       label: "Analyser les réponses client",

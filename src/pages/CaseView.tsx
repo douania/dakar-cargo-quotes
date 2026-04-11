@@ -585,7 +585,11 @@ export default function CaseView() {
    return map;
   }, [events]);
 
-   // ── All drafts (visible even after action closed) ──
+   // ── All drafts — filter out client-gap drafts whose gaps are all resolved ──
+  const openGapKeySet = useMemo(() => {
+    return new Set((gaps ?? []).map((g: any) => g.gap_key));
+  }, [gaps]);
+
   const allDrafts = useMemo(() => {
     return (events ?? [])
       .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1")
@@ -597,11 +601,19 @@ export default function CaseView() {
         if (!subject || !body) return null;
         const sourceKey = (ed["source_action_dedupe_key"] as string) ?? "";
         const sourceLabel = sourceKey.includes("REQUEST_CLIENT_INFO_FOR_GAPS") ? "Client" : "Réponse";
-        return { id: e.id, draft: { subject, body }, createdAt: e.created_at, sourceLabel };
+        const requestedGapKeys = Array.isArray(ed["requested_gap_keys"])
+          ? (ed["requested_gap_keys"] as string[])
+          : [];
+        return { id: e.id, draft: { subject, body }, createdAt: e.created_at, sourceLabel, requestedGapKeys };
       })
       .filter(Boolean)
-      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string; sourceLabel: string }[];
-  }, [events]);
+      // Hide client-gap drafts when ALL their requested gaps are resolved (no longer open)
+      .filter(d => {
+        if (!d!.requestedGapKeys.length) return true; // non-client drafts always visible
+        return d!.requestedGapKeys.some(k => openGapKeySet.has(k));
+      })
+      .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string; sourceLabel: string; requestedGapKeys: string[] }[];
+  }, [events, openGapKeySet]);
 
   async function closeAction(dedupeKey: string) {
     if (!caseId) return;

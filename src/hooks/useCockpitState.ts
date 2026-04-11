@@ -42,6 +42,8 @@ export interface CockpitState {
 
   // Client gaps
   totalClientGaps: number;
+  /** Active client gap requests (drafted + sent + answered) — used for action plan visibility */
+  activeClientGaps: number;
   draftedClientGaps: number;
   openClientGaps: number; // drafted + sent + answered
 
@@ -114,6 +116,7 @@ export function useCockpitState(caseId: string | undefined) {
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
       const openClientGaps = clientGapsOpenRes.count ?? 0;
+      const activeClientGaps = openClientGaps; // drafted + sent + answered (same query)
       const totalClientGaps = clientGapsTotalRes.count ?? 0;
       const draftedClientGaps = clientGapsDraftedRes.count ?? 0;
 
@@ -215,6 +218,7 @@ export function useCockpitState(caseId: string | undefined) {
         pendingPartnerFacts,
         pendingFactsByRequestId,
         totalClientGaps,
+        activeClientGaps,
         draftedClientGaps,
         openClientGaps,
         hasSelectedVersion,
