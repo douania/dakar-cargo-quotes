@@ -7,6 +7,7 @@
 
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
+import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,10 +37,11 @@ interface ActionResult {
 /* ─── Component ─── */
 export function NextActionBanner({ caseId }: Props) {
   const { data, isLoading } = useCockpitState(caseId);
+  const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
   if (isLoading || !data) return null;
 
-  const result = computeAction(data);
+  const result = computeAction(data, hasCriticalUnconfirmed);
   if (!result) return null;
 
   const colorMap: Record<string, string> = {
