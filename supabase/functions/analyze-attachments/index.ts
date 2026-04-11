@@ -1539,7 +1539,7 @@ ${excelText.substring(0, 50000)}`;
             }
           }
           
-          const mimeType = attachment.content_type || 'image/jpeg';
+          const mimeType = resolvedImageMime || attachment.content_type || 'image/jpeg';
           
           const systemPrompt = `Tu es un assistant expert en analyse de documents commerciaux et logistiques. 
 Analyse l'image/document fourni et extrais toutes les informations pertinentes.
