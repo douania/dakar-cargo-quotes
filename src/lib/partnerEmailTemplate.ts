@@ -44,13 +44,13 @@ const PURPOSE_INTRO: Record<string, string> = {
 };
 
 const PURPOSE_INCLUDES: Record<string, string[]> = {
+  // P0-3: resserré — origin charges et port surcharges retirés du noyau freight.
+  // Ces items ne seront inclus que si le scope les confirme explicitement.
   freight_rate: [
     "Taux de fret maritime",
     "Transit time",
     "Vessel schedule disponible",
     "Free days / detention-demurrage",
-    "Origin charges détaillés (THC, manutention, documentation)",
-    "Port surcharges / local charges",
     "Surcharges éventuelles (BAF, CAF, etc.)",
     "Validité de l'offre",
   ],
@@ -70,13 +70,12 @@ const PURPOSE_INCLUDES: Record<string, string[]> = {
     "Poids taxable / base de calcul",
     "Validité de l'offre",
   ],
+  // P0-3: resserré — miroir de freight_rate
   freight_maritime: [
     "Taux de fret maritime",
     "Transit time",
     "Vessel schedule disponible",
     "Free days / detention-demurrage",
-    "Origin charges détaillés (THC, manutention, documentation)",
-    "Port surcharges / local charges",
     "Surcharges éventuelles (BAF, CAF, etc.)",
     "Validité de l'offre",
   ],
@@ -190,11 +189,11 @@ interface ScopeBlock {
 }
 
 /**
- * COCKPIT-11C — scope-aware, hierarchized partner email generation.
- * @param scope  Optional detected scope items with confidence.
- *               high/medium blocks are promoted to the primary request block.
- *               low blocks stay in the secondary "si applicable" section.
- *               Absent confidence is treated as "medium" (backward compatible).
+ * COCKPIT-11C + P0-3 — scope-aware, hierarchized partner email generation.
+ * P0-3 rules:
+ *   - freight noyau resserré (6 items, pas d'origin charges / port surcharges implicites)
+ *   - absent confidence = "low" (pas de promotion par défaut)
+ *   - pas de fallback "si applicable" en absence de scope
  */
 export function buildPartnerEmailBody(
   facts: PartnerEmailFacts,
@@ -279,7 +278,8 @@ export function buildPartnerEmailBody(
     const secondaryItems: string[] = [];
 
     for (const block of secondaryBlocks) {
-      const confidence = block.confidence ?? "medium"; // absent = medium
+      // P0-3: absent confidence = "low" — seuls les blocs explicitement high/medium sont promus
+      const confidence = block.confidence ?? "low";
       const isPromotable = confidence === "high" || confidence === "medium";
 
       if (isPromotable && isFreightPurpose && PROMOTION_LABELS[block.purpose]) {
@@ -326,20 +326,9 @@ export function buildPartnerEmailBody(
     }
   }
 
-  // --- COCKPIT-11C: Enriched fallback when scope is empty ---
-  if ((!scope || scope.length === 0) && isFreightPurpose) {
-    const fallbackItems = [
-      "Conditions d'empotage, si applicable",
-    ];
-    const newFallback = fallbackItems.filter((f) => !dedupSet.has(normalizeForDedup(f)));
-    if (newFallback.length > 0) {
-      lines.push("");
-      lines.push("Merci également de préciser, si applicable :");
-      for (const item of newFallback) {
-        lines.push(`- ${item}`);
-      }
-    }
-  }
+  // P0-3: Fallback automatique supprimé.
+  // En absence de scope, l'email ne contient que le bloc purpose principal.
+  // Pas de spéculation sur des services non confirmés.
 
   // --- Case reference ---
   if (caseRef) {

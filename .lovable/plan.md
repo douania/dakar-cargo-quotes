@@ -99,3 +99,35 @@ Remplace 2 queries dupliquées dans PartnerSuggestionPanel et PartnerScopeCard.
 4. Comportement conservatif : scope null → `unconfirmed` (pas de présomption)
 5. Gate de statut respecte la doctrine opérateur souverain (informatif, pas bloquant)
 6. Blast radius faible : 1 hook créé, 2 composants modifiés, 1 query facts légère partagée ajoutée
+
+---
+
+# P0 n°3 — Resserrage préremplissage email partenaire
+
+## Problème
+
+Le template d'email partenaire (`buildPartnerEmailBody`) injectait des contenus non confirmés par le scope :
+- `Origin charges détaillés` et `Port surcharges / local charges` dans le noyau `freight_rate`/`freight_maritime`
+- Fallback automatique `Conditions d'empotage, si applicable` quand scope vide
+- Blocs scope sans confidence explicite promus par défaut (confidence absent = `"medium"`)
+
+## Correctifs appliqués
+
+1. **PURPOSE_INCLUDES resserré** : `freight_rate` et `freight_maritime` passent de 8 à 6 items. Origin charges et port surcharges retirés du noyau — inclus uniquement si le scope les confirme.
+2. **Fallback automatique supprimé** : plus de bloc "si applicable" injecté quand le scope est vide.
+3. **Confidence absent = `"low"`** : un bloc scope sans confidence explicite n'est plus promu dans le noyau principal.
+4. **Cohérence front/backend** : modifications identiques dans `src/lib/partnerEmailTemplate.ts` et `supabase/functions/_shared/partner-email-template.ts`.
+
+## Fichiers modifiés
+
+| Fichier | Modification |
+|---|---|
+| `src/lib/partnerEmailTemplate.ts` | Mods 1, 2, 3 |
+| `supabase/functions/_shared/partner-email-template.ts` | Mods 1, 2, 3 (miroir) |
+| `docs/MASTER_CONTEXT.md` | Trace P0-3 |
+| `.lovable/plan.md` | Section P0-3 |
+
+## Blast radius
+
+- 0 migration DB, 0 query ajoutée, 0 edge function modifiée (hors template partagé)
+- Backend (`send-external-quote-request`) ne passe toujours pas `scope` → conservateur par défaut (noyau freight pur uniquement)
