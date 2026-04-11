@@ -490,6 +490,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## PJ-BODYSTRUCTURE-FALLBACK — Fallback BODYSTRUCTURE pour images dans import-thread
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PJ-BODYSTRUCTURE-FALLBACK |
+| **Catégorie** | pipeline/import |
+| **Statut** | `dormant` |
+| **Priorité** | P3 |
+| **Phase d'origine** | P0-3 |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | Preuve d'une PJ image manquée à l'import IMAP (pas seulement à l'analyse). Cas concret où le fallback BODYSTRUCTURE de `import-thread`/`sync-emails` ne détecte pas une extension image dans sa regex de secours. |
+| **Recommandation** | Élargir la regex BODYSTRUCTURE fallback dans `import-thread` et `sync-emails` pour couvrir `.jfif`, `.webp`, `.jpeg` en plus des formats actuels. Non traité car aucune preuve sur le runtime actuel que des PJ sont perdues à l'import (le problème observé était à l'analyse, pas à l'import). |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)

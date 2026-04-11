@@ -676,6 +676,42 @@ Résolution SH6 "candidat unique seulement" : exact match prioritaire, puis fall
 
 ---
 
+## Exception contrôlée — PJ-ANALYSIS-ON-PUZZLE sur build-case-puzzle (2026-04-11)
+
+Edge function : `build-case-puzzle/index.ts` (FROZEN)
+Justification : STRUCTURAL_PATCH_ALLOWED
+
+### Problème métier
+
+Les pièces jointes importées mais non analysées (`is_analyzed = false`) sont invisibles
+pour le puzzle IA. L'opérateur n'a pas de chemin naturel pour déclencher l'analyse
+depuis le cockpit dossier. Résultat : des informations documentaires du client
+(photos, documents scannés, JFIF) ne sont jamais intégrées aux facts du dossier.
+
+### Correctif
+
+Bloc local best-effort inséré entre le chargement des attachments et la construction
+du contexte IA. Pour chaque PJ non analysée (plafond prudent MAX_INLINE_ANALYSIS = 5),
+appel synchrone à `analyze-attachments` avec `background: false` et forwarding du
+`authHeader` utilisateur (requis par `requireUser` dans `analyze-attachments`).
+Rechargement des attachments depuis la DB avant construction du contexte.
+
+### Garanties
+
+- Non-bloquant : erreurs d'analyse loguées (`console.warn`), jamais fatales
+- Idempotent : `analyze-attachments` gère le claim atomique (`analysis_claimed_at`)
+- Traçable : logs `[PJ-ANALYSIS]` + commentaire `STRUCTURAL_PATCH_ALLOWED`
+- Localisé : ~35 lignes, entre deux blocs existants
+- Auth : forwarding `authHeader` (pas service role), cohérent avec `requireUser`
+
+### Statut
+
+- Exception validée pour PJ-ANALYSIS-ON-PUZZLE uniquement
+- `build-case-puzzle` reste FROZEN par défaut
+- Toute modification future nécessite une nouvelle justification explicite
+
+---
+
 ## Contrat canonique timeline — case_timeline_events (P1-C)
 
 ### output_generated
