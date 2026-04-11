@@ -461,6 +461,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## P2-D-LOT2 — Scope-driven dégradation NextActionBanner + ReadyActionsPanel
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | P2-D-LOT2 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `deferred` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | P2-D |
+| **Date** | 2026-04-11 |
+| **Déclencheur de réouverture** | Validation terrain du lot 1 P2-D (qualifyScope + useServiceScope) |
+| **Recommandation** | Consommer `qualifyScope()` dans NextActionBanner et ReadyActionsPanel pour dégrader la priorité "Lancer le pricing" de "now" à "later" si `hasCriticalUnconfirmed`. Ne pas bloquer, seulement dégrader. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)

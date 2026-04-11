@@ -1,7 +1,7 @@
 # MASTER CONTEXT — DAKAR CARGO QUOTES
-Version: 1.8
-Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C + P2-A + P2-B + P2-C
-Latest patch: P2-C — garde-fou scope contractuel sur suggestions partenaires (freightScope injecté, fallback "general" neutre, badge "hors scope")
+Version: 1.9
+Phase: EQ1.2 + CL1 + PAD + PAD-1 + PAD-ADMIN-UI + Magasinage DT + COCKPIT-5-P1 + SOURCE-GUARD + ORCH-SYNC-2 + PRICING-AUDIT-1 + CARRIER-PORT-TAX-1B-A + CLIENT-GAP-POLICY-FIX + P1-A + P1-B + P1-C + P2-A + P2-B + P2-C + P2-D
+Latest patch: P2-D Lot 1 — modèle dérivé de scope courant (qualifyScope helper + useServiceScope hook + gates de promotion sur PartnerSuggestionPanel/PartnerScopeCard/PricingLaunchPanel + migration PricingCommWarnings sur useCockpitState)
 Date: 2026-04-11
 
 ---
@@ -717,3 +717,33 @@ Règle : tout nouveau producteur de `manual_action` **doit** écrire `action_cod
 ### Compatibilité historique
 
 Les données historiques en base utilisent déjà `kind` / `action_code`. Aucune migration de données nécessaire.
+
+---
+
+## P2-D — Modèle dérivé de scope courant (2026-04-11)
+
+### Principe
+
+Helper pur `qualifyScope()` (`src/lib/scopeQualification.ts`) qui centralise l'interprétation du périmètre contractuel à partir du signal `service_scope_v1` et des facts structurés. 3 catégories strictes : `confirmed`, `unconfirmed`, `out_of_scope`. Pas de catégorie `optional`.
+
+Hook léger `useServiceScope()` (`src/hooks/useServiceScope.ts`) qui lit le dernier `service_scope_v1` une seule fois (remplace 2-3 queries dupliquées).
+
+### Lot 1 — Composants réalignés
+
+| Composant | Action | Règles de surface |
+|---|---|---|
+| `PartnerSuggestionPanel` | Consomme `useServiceScope` + `qualifyScope` + gate de statut | `confirmed` → CTA actif. `unconfirmed` → visible, badge "provisoire", pas de CTA. `out_of_scope` → opacity-60, badge "hors scope", pas de CTA. Post-pricing + 0 requests → masqué. |
+| `PartnerScopeCard` | Consomme `useServiceScope` + `qualifyScope` | `confirmed` → normal. `unconfirmed` → badge "non confirmé". `out_of_scope` → opacity-60, badge "hors périmètre". |
+| `PricingLaunchPanel` | Consomme `useServiceScope` + `qualifyScope` | Si `hasCriticalUnconfirmed` → "Des services restent non confirmés". Sinon → texte actuel. Informatif, pas bloquant. |
+| `PricingCommWarnings` | Migré sur `useCockpitState` | 3 queries HEAD redondantes supprimées, même rendu. |
+
+### Lot 2 — Différé (validation lot 1 requise)
+
+`NextActionBanner`, `ReadyActionsPanel` — dégrader la priorité "Lancer le pricing" si scope non confirmé.
+
+### Blast radius lot 1
+
+- 2 nouveaux fichiers (helper + hook)
+- 4 fichiers runtime modifiés
+- -5 queries réseau (2 scope dupliquées + 3 HEAD PricingCommWarnings)
+- 0 migration DB, 0 edge function, 0 modification useCockpitState

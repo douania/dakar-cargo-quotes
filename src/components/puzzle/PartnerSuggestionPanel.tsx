@@ -1,9 +1,11 @@
 /**
- * COCKPIT-5 Phase 1+2+11 — Suggestion prudente des partenaires à contacter.
- * Composant autonome avec ses propres queries.
- * Lecture seule + callback onPrefill pour préremplir le formulaire d'ExternalRequestsPanel.
+ * COCKPIT-5 Phase 1+2+11 + P2-D — Suggestion prudente des partenaires à contacter.
+ * P2-D: Consomme useServiceScope + qualifyScope pour les règles de promotion.
  *
- * COCKPIT-11: derivePurpose utilise le scope détecté comme source prioritaire.
+ * Règles de surface (promotion) :
+ *   confirmed    → CTA "Préremplir" actif, style normal
+ *   unconfirmed  → visible, badge "provisoire", PAS de CTA engageant
+ *   out_of_scope → opacity-60, badge "hors scope", PAS de CTA, non compté
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +16,10 @@ import { Users, CheckCircle2, ArrowRight, Mail } from "lucide-react";
 import { buildPartnerEmailBody } from "@/lib/partnerEmailTemplate";
 import { derivePartnerRequestScope, type PartnerScopeItem } from "@/lib/partnerRequestScope";
 import { buildFactMapWithSynthetics } from "@/lib/extractContainerSynthetics";
+import { useServiceScope } from "@/hooks/useServiceScope";
+import { qualifyScope, isServiceOutOfScope } from "@/lib/scopeQualification";
+import { statusAtLeast } from "@/lib/cockpitStatusConstants";
+import { useCockpitState } from "@/hooks/useCockpitState";
 
 interface Props {
   caseId: string;
@@ -21,7 +27,7 @@ interface Props {
   onPrefill: (partnerName: string, purpose: string, partnerEmail?: string, briefText?: string) => void;
 }
 
-/** Normalize for "already contacted" matching: trim + lowercase + collapse spaces */
+/** Normalize for "already contacted" matching */
 function norm(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -35,11 +41,14 @@ const SERVICE_TYPE_TO_SCOPE: Record<string, string> = {
   stuffing_port_cfs: "stuffing_port_cfs",
 };
 
-/**
- * COCKPIT-11: Derive purpose using detected scope as priority source.
- * 1. If scope is detected, find the best match between partner service_types and scope purposes
- * 2. Fallback to legacy heuristic (service_types → role/notes)
- */
+/** Map purpose → service for scope qualification lookup */
+const PURPOSE_TO_SERVICE: Record<string, string> = {
+  freight_rate: "freight",
+  air_tariff: "freight",
+  origin_charges: "customs",
+  general: "freight", // fallback check
+};
+
 function derivePurpose(
   serviceTypes: string[],
   role: string,
@@ -47,24 +56,18 @@ function derivePurpose(
   scopePurposes: Set<string>,
   freightScope?: boolean | null,
 ): string {
-  // Phase 11: try to match partner capabilities to detected scope
   if (scopePurposes.size > 0 && serviceTypes.length > 0) {
     for (const st of serviceTypes) {
       const mapped = SERVICE_TYPE_TO_SCOPE[st] ?? st;
       if (scopePurposes.has(mapped)) return mapped;
     }
   }
-
-  // Phase 2 fallback: service_types without scope context
   if (serviceTypes.length > 0) {
     if (serviceTypes.includes("freight_maritime")) return freightScope === false ? "general" : "freight_rate";
     if (serviceTypes.includes("freight_aerien")) return freightScope === false ? "general" : "air_tariff";
     if (serviceTypes.includes("origin_charges")) return "origin_charges";
     return serviceTypes[0];
   }
-
-  // Phase 1 fallback: heuristic from notes/role
-  // P2-C: if freight is out of scope, fallback to "general" instead of "freight_rate"
   const n = (notes ?? "").toLowerCase();
   if (n.includes("armateur")) return freightScope === false ? "general" : "freight_rate";
   if (role === "agent") return "origin_charges";
@@ -85,6 +88,11 @@ const PURPOSE_LABELS: Record<string, string> = {
 };
 
 export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
+  // P2-D: centralized service scope
+  const { data: serviceScope } = useServiceScope(caseId);
+  const { data: cockpitState } = useCockpitState(caseId);
+  const freightScope = serviceScope?.freightScope ?? undefined;
+
   // 0. Case facts for brief generation
   const { data: caseFacts = {} } = useQuery({
     queryKey: ["partner-brief-facts", caseId],
@@ -128,7 +136,7 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     staleTime: 30_000,
   });
 
-  // 2. Active partner contacts (Phase 2: includes contact_email, service_types)
+  // 2. Active partner contacts
   const { data: contacts = [] } = useQuery({
     queryKey: ["partner-suggestion-contacts"],
     queryFn: async () => {
@@ -164,32 +172,19 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     staleTime: 30_000,
   });
 
-  // P2-C: Read freight_scope from latest service_scope_v1 timeline event
-  const { data: freightScope } = useQuery({
-    queryKey: ["partner-suggestion-freight-scope", caseId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("case_timeline_events")
-        .select("event_data")
-        .eq("case_id", caseId)
-        .eq("event_type", "service_scope_v1")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.event_data) return undefined;
-      const ed = data.event_data as Record<string, unknown>;
-      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
-      const fs = scope?.["freight_scope"];
-      return typeof fs === "boolean" ? fs : undefined;
-    },
-    staleTime: 60_000,
-  });
-
-  // Build already-contacted set (normalized)
   const contactedNames = new Set(existingRequests.map((r) => norm(r.partner_name)));
 
-  // COCKPIT-11 + P2-C: Derive scope from facts with freight guard
+  // P2-D: Qualified scope
+  const qualifiedScope = useMemo(
+    () => qualifyScope({
+      serviceScope: serviceScope ?? null,
+      facts: caseFacts,
+      caseStatus: cockpitState?.status ?? "INTAKE",
+    }),
+    [serviceScope, caseFacts, cockpitState?.status],
+  );
+
+  // Derive partner request scope items
   const scope = useMemo(
     () => derivePartnerRequestScope({ facts: caseFacts, freightScope }),
     [caseFacts, freightScope],
@@ -199,6 +194,14 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
     [scope],
   );
 
+  // P2-D: Status gate — if priced and no existing requests, hide panel entirely
+  const status = cockpitState?.status ?? "INTAKE";
+  const totalPartnerRequests = cockpitState?.totalPartnerRequests ?? 0;
+  if (statusAtLeast(status, "PRICED_DRAFT") && totalPartnerRequests === 0) {
+    return null;
+  }
+  const isPostPricing = statusAtLeast(status, "PRICED_DRAFT");
+
   // Filter contacts by transport mode
   const transportMode = transportModeFact?.toLowerCase() ?? "";
   const isMaritime = transportMode.includes("marit") || transportMode.includes("sea") || transportMode.includes("mer");
@@ -206,19 +209,20 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
   const suggested = contacts
     .filter((c) => {
       if (isMaritime) {
-        // Phase 2: check service_types first
         if (c.service_types.length > 0) {
           return c.service_types.includes("freight_maritime") || c.service_types.includes("origin_charges");
         }
-        // Phase 1 fallback
         const n = (c.notes ?? "").toLowerCase();
         return n.includes("armateur") || c.default_role === "agent";
       }
-      // Fallback: all active suppliers/partners/agents
       return true;
     })
     .map((c) => {
       const purpose = derivePurpose(c.service_types, c.default_role, c.notes, scopePurposes, freightScope);
+      const relatedService = PURPOSE_TO_SERVICE[purpose] ?? "freight";
+      const serviceItem = qualifiedScope.items.find((i) => i.service === relatedService);
+      const qualification = serviceItem?.qualification ?? "unconfirmed";
+
       return {
         name: c.company_name,
         domain: c.domain_pattern,
@@ -227,23 +231,30 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
         notes: c.notes,
         serviceTypes: c.service_types,
         purpose,
-        // P2-C: mark as out-of-scope if freight not in contractual perimeter and purpose ended up as general (was freight)
-        outOfScope: freightScope === false && purpose === "general",
+        qualification,
+        outOfScope: qualification === "out_of_scope",
+        unconfirmed: qualification === "unconfirmed",
         alreadyContacted: contactedNames.has(norm(c.company_name)),
       };
     })
-    // Sort: out-of-scope last, then not-yet-contacted first
     .sort((a, b) => {
       if (a.outOfScope !== b.outOfScope) return a.outOfScope ? 1 : -1;
+      if (a.unconfirmed !== b.unconfirmed) return a.unconfirmed ? 1 : -1;
       return a.alreadyContacted === b.alreadyContacted ? 0 : a.alreadyContacted ? 1 : -1;
     });
 
   if (suggested.length === 0) return null;
 
-  const notContactedCount = suggested.filter((s) => !s.alreadyContacted && !s.outOfScope).length;
+  // Count only confirmed + not-yet-contacted for the "à contacter" badge
+  const notContactedCount = suggested.filter(
+    (s) => !s.alreadyContacted && !s.outOfScope && !s.unconfirmed,
+  ).length;
+
+  // P2-D: Can we show engaging CTAs?
+  const canPromote = !isPostPricing;
 
   return (
-    <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+    <div className={`border rounded-lg p-3 bg-muted/30 space-y-2 ${isPostPricing ? "opacity-50" : ""}`}>
       <div className="flex items-center gap-2">
         <Users className="h-4 w-4 text-muted-foreground" />
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -259,50 +270,66 @@ export function PartnerSuggestionPanel({ caseId, threadId, onPrefill }: Props) {
             Transport maritime
           </Badge>
         )}
+        {isPostPricing && (
+          <Badge variant="outline" className="text-[10px] border-muted-foreground/30">
+            Phase consolidation
+          </Badge>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {suggested.map((s) => (
-          <div
-            key={s.name}
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-              s.outOfScope
-                ? "bg-muted/30 text-muted-foreground border-muted opacity-60"
-                : s.alreadyContacted
-                  ? "bg-muted/50 text-muted-foreground border-muted"
-                  : "bg-background border-border"
-            }`}
-          >
-            {s.alreadyContacted && !s.outOfScope && (
-              <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            )}
-            <span className={s.alreadyContacted ? "line-through" : s.outOfScope ? "" : "font-medium"}>
-              {s.name}
-            </span>
-            {s.outOfScope && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
-                hors scope
-              </Badge>
-            )}
-            {s.email && (
-              <span title={s.email}><Mail className="h-3 w-3 text-muted-foreground shrink-0" /></span>
-            )}
-            <span className="text-muted-foreground">
-              · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
-            </span>
-            {!s.alreadyContacted && !s.outOfScope && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-5 px-1.5 text-[10px]"
-                onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined, buildPartnerEmailBody(caseFacts, s.name, s.purpose, undefined, scope))}
-              >
-                <ArrowRight className="h-3 w-3" />
-                Préremplir
-              </Button>
-            )}
-          </div>
-        ))}
+        {suggested.map((s) => {
+          const canShowCTA = canPromote && !s.alreadyContacted && !s.outOfScope && !s.unconfirmed;
+
+          return (
+            <div
+              key={s.name}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                s.outOfScope
+                  ? "bg-muted/30 text-muted-foreground border-muted opacity-60"
+                  : s.unconfirmed
+                    ? "bg-muted/20 text-muted-foreground border-muted/80"
+                    : s.alreadyContacted
+                      ? "bg-muted/50 text-muted-foreground border-muted"
+                      : "bg-background border-border"
+              }`}
+            >
+              {s.alreadyContacted && !s.outOfScope && (
+                <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              )}
+              <span className={s.alreadyContacted ? "line-through" : s.outOfScope ? "" : "font-medium"}>
+                {s.name}
+              </span>
+              {s.outOfScope && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                  hors scope
+                </Badge>
+              )}
+              {s.unconfirmed && !s.outOfScope && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                  provisoire
+                </Badge>
+              )}
+              {s.email && (
+                <span title={s.email}><Mail className="h-3 w-3 text-muted-foreground shrink-0" /></span>
+              )}
+              <span className="text-muted-foreground">
+                · {PURPOSE_LABELS[s.purpose] ?? s.purpose}
+              </span>
+              {canShowCTA && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-5 px-1.5 text-[10px]"
+                  onClick={() => onPrefill(s.name, s.purpose, s.email ?? undefined, buildPartnerEmailBody(caseFacts, s.name, s.purpose, undefined, scope))}
+                >
+                  <ArrowRight className="h-3 w-3" />
+                  Préremplir
+                </Button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
