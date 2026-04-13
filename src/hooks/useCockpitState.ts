@@ -64,11 +64,12 @@ export function useCockpitState(caseId: string | undefined) {
       const [
         caseRes,
         gapsRes,
+        allOpenGapsRes,
         reqRes,
         factsRes,
-        clientGapsOpenRes,
+        clientGapKeyRes,
+        clientGapDraftedKeyRes,
         clientGapsTotalRes,
-        clientGapsDraftedRes,
         versionsRes,
       ] = await Promise.all([
         supabase
@@ -82,31 +83,36 @@ export function useCockpitState(caseId: string | undefined) {
           .eq("case_id", caseId!)
           .eq("is_blocking", true)
           .eq("status", "open"),
+        // All open gaps (not just blocking) — needed for client gap intersection
+        supabase
+          .from("quote_gaps")
+          .select("gap_key")
+          .eq("case_id", caseId!)
+          .eq("status", "open"),
         supabase
           .from("external_quote_requests")
           .select("id, status, email_sent_at, is_selected, partner_name")
           .eq("case_id", caseId!),
-        // P2-A: select request_id rows instead of count head
-        // to allow per-request grouping for exploitability verdict
         supabase
           .from("external_quote_response_facts")
           .select("request_id")
           .eq("case_id", caseId!)
           .eq("validation_status", "proposed"),
+        // P1-CGR: fetch gap_key + status instead of count HEAD
         supabase
           .from("client_gap_requests")
-          .select("id", { count: "exact", head: true })
+          .select("gap_key, status")
           .eq("case_id", caseId!)
           .in("status", ["drafted", "sent", "answered"] as string[]),
         supabase
           .from("client_gap_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId!),
+          .select("gap_key")
+          .eq("case_id", caseId!)
+          .eq("status", "drafted"),
         supabase
           .from("client_gap_requests")
           .select("id", { count: "exact", head: true })
-          .eq("case_id", caseId!)
-          .eq("status", "drafted"),
+          .eq("case_id", caseId!),
         supabase
           .from("quotation_versions")
           .select("id, is_selected")
@@ -115,10 +121,18 @@ export function useCockpitState(caseId: string | undefined) {
 
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
-      const openClientGaps = clientGapsOpenRes.count ?? 0;
-      const activeClientGaps = openClientGaps; // drafted + sent + answered (same query)
       const totalClientGaps = clientGapsTotalRes.count ?? 0;
-      const draftedClientGaps = clientGapsDraftedRes.count ?? 0;
+
+      // P1-CGR-FINAL: intersection with open gaps for true "active" count
+      const openGapKeys = new Set(
+        (allOpenGapsRes.data ?? []).map((g: { gap_key: string }) => g.gap_key),
+      );
+      const clientGapRows = (clientGapKeyRes.data ?? []) as Array<{ gap_key: string; status: string }>;
+      const activeClientGapRows = clientGapRows.filter((r) => openGapKeys.has(r.gap_key));
+      const activeClientGaps = activeClientGapRows.length;
+      const openClientGaps = activeClientGaps; // aligned: active = gap still open
+      const draftedClientGapRows = (clientGapDraftedKeyRes.data ?? []) as Array<{ gap_key: string }>;
+      const draftedClientGaps = draftedClientGapRows.filter((r) => openGapKeys.has(r.gap_key)).length;
 
       // P2-A: build per-request pending facts map
       const factsRows = (factsRes.data ?? []) as Array<{ request_id: string }>;
