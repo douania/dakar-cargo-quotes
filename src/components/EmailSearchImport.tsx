@@ -137,6 +137,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       let totalExisting = 0;
       let totalAttachments = 0;
       let lastAnalysis: any = null;
+      const allImportedEmails: any[] = [];
 
       // P0-D: Iterate per selected thread to send the correct threadKey
       for (const thread of threads) {
@@ -167,6 +168,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           totalExisting += data.alreadyExisted || 0;
           totalAttachments += data.attachmentsProcessed || 0;
           if (data.analysis) lastAnalysis = data.analysis;
+          if (data.emails) allImportedEmails.push(...data.emails);
 
           remainingUids = data.remainingUids || [];
           if (!data.hasMore) break;
@@ -197,24 +199,42 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       
       toast.success(message || 'Import terminé');
       
-      // Auto-analyze if enabled
+      // P1-3: Targeted auto-analysis — only analyze attachments from imported emails
       if (autoAnalyze && totalAttachments > 0) {
         setAnalyzingAfterImport(true);
         toast.info('Lancement de l\'analyse des pièces jointes...');
         
         try {
-          const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke('analyze-attachments', {
-            body: { bulk: true, unanalyzedOnly: true }
-          });
-          
-          if (analyzeError) {
-            console.error('Auto-analyze error:', analyzeError);
-            toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
-          } else {
-            toast.success(`Analyse lancée pour ${analyzeData?.processed || 0} pièce(s) jointe(s)`);
+          // Collect email IDs from all imported emails across batches
+          const importedEmailIds = allImportedEmails
+            .filter((e: any) => e?.id)
+            .map((e: any) => e.id);
+
+          if (importedEmailIds.length > 0) {
+            // Fetch unanalyzed attachments for these specific emails
+            const { data: pendingAttachments } = await supabase
+              .from('email_attachments')
+              .select('id')
+              .in('email_id', importedEmailIds)
+              .eq('is_analyzed', false)
+              .not('storage_path', 'is', null);
+
+            if (pendingAttachments && pendingAttachments.length > 0) {
+              let analyzed = 0;
+              for (const att of pendingAttachments) {
+                const { error: attError } = await supabase.functions.invoke('analyze-attachments', {
+                  body: { attachmentId: att.id, background: false }
+                });
+                if (!attError) analyzed++;
+              }
+              toast.success(`${analyzed} pièce(s) jointe(s) analysée(s)`);
+            } else {
+              toast.info('Aucune pièce jointe à analyser');
+            }
           }
         } catch (error) {
           console.error('Auto-analyze error:', error);
+          toast.warning('L\'analyse automatique a échoué, vous pouvez relancer depuis l\'onglet Fils');
         }
         setAnalyzingAfterImport(false);
       }

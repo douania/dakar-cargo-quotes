@@ -33,7 +33,7 @@ interface EmailAttachmentsProps {
   emailId: string;
 }
 
-type AttachmentStatus = 'analyzed' | 'pending' | 'skipped';
+type AttachmentStatus = 'analyzed' | 'pending' | 'skipped' | 'unsupported' | 'error' | 'missing_file';
 
 interface AttachmentStatusInfo {
   status: AttachmentStatus;
@@ -41,11 +41,28 @@ interface AttachmentStatusInfo {
 }
 
 const getAttachmentStatus = (attachment: Attachment): AttachmentStatusInfo => {
-  // Check if extracted_text contains a skip reason (in brackets)
-  if (attachment.extracted_text?.startsWith('[')) {
+  // Missing file: no storage_path and not analyzed
+  if (!attachment.storage_path && !attachment.is_analyzed) {
+    const match = attachment.extracted_text?.match(/\[(.*?)\]/);
+    return { status: 'missing_file', reason: match ? match[1] : 'Fichier non disponible en storage' };
+  }
+  // Check if extracted_text contains a skip reason (in brackets) — but file is present
+  if (attachment.extracted_text?.startsWith('[') && !attachment.is_analyzed) {
     const match = attachment.extracted_text.match(/\[(.*?)\]/);
-    const reason = match ? match[1] : 'Non traité';
-    return { status: 'skipped', reason };
+    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
+  }
+  // Error terminal (analyzed but with error data)
+  if (attachment.is_analyzed && attachment.extracted_data?.type === 'error') {
+    return { status: 'error', reason: attachment.extracted_data?.message || 'Erreur d\'analyse' };
+  }
+  // Unsupported type
+  if (attachment.is_analyzed && attachment.extracted_data?.type === 'unsupported') {
+    return { status: 'unsupported', reason: attachment.extracted_data?.message || 'Format non supporté' };
+  }
+  // Skipped with bracket text and analyzed
+  if (attachment.extracted_text?.startsWith('[') && attachment.is_analyzed) {
+    const match = attachment.extracted_text.match(/\[(.*?)\]/);
+    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
   }
   if (attachment.is_analyzed) {
     return { status: 'analyzed', reason: null };
@@ -234,10 +251,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const statusCounts = attachments.reduce(
     (acc, attachment) => {
       const { status } = getAttachmentStatus(attachment);
-      acc[status]++;
+      acc[status] = (acc[status] || 0) + 1;
       return acc;
     },
-    { analyzed: 0, pending: 0, skipped: 0 }
+    { analyzed: 0, pending: 0, skipped: 0, unsupported: 0, error: 0, missing_file: 0 } as Record<AttachmentStatus, number>
   );
 
   const renderStatusBadge = (attachment: Attachment) => {
@@ -249,6 +266,60 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
           <CheckCircle className="h-3 w-3 mr-1 text-green-500" />
           Analysé
         </Badge>
+      );
+    }
+
+    if (status === 'error') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-destructive/50 bg-destructive/10">
+                <AlertTriangle className="h-3 w-3 mr-1 text-destructive" />
+                Erreur
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    if (status === 'unsupported') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-muted-foreground/50 bg-muted/50">
+                <File className="h-3 w-3 mr-1 text-muted-foreground" />
+                Non supporté
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    if (status === 'missing_file') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-destructive/50 bg-destructive/10">
+                <Download className="h-3 w-3 mr-1 text-destructive" />
+                Fichier manquant
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     }
 
@@ -280,17 +351,29 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
           <h4 className="text-sm font-medium text-muted-foreground">
             Pièces jointes ({attachments.length})
           </h4>
-          {statusCounts.skipped > 0 && (
+          {(statusCounts.skipped > 0 || statusCounts.missing_file > 0 || statusCounts.error > 0) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-xs py-0 px-1.5 border-amber-500/50 bg-amber-500/10 text-amber-600">
+                  <Badge variant="outline" className={`text-xs py-0 px-1.5 ${
+                    statusCounts.missing_file > 0 || statusCounts.error > 0
+                      ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-amber-500/50 bg-amber-500/10 text-amber-600'
+                  }`}>
                     <AlertTriangle className="h-3 w-3 mr-1" />
-                    {statusCounts.skipped} non traité{statusCounts.skipped > 1 ? 's' : ''}
+                    {statusCounts.missing_file > 0 && `${statusCounts.missing_file} manquant${statusCounts.missing_file > 1 ? 's' : ''}`}
+                    {statusCounts.missing_file > 0 && statusCounts.error > 0 && ' · '}
+                    {statusCounts.error > 0 && `${statusCounts.error} erreur${statusCounts.error > 1 ? 's' : ''}`}
+                    {(statusCounts.missing_file > 0 || statusCounts.error > 0) && statusCounts.skipped > 0 && ' · '}
+                    {statusCounts.skipped > 0 && `${statusCounts.skipped} non traité${statusCounts.skipped > 1 ? 's' : ''}`}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p className="text-sm">Fichiers trop volumineux ou images inline ignorées</p>
+                  <p className="text-sm">
+                    {statusCounts.missing_file > 0 && 'Fichiers non téléchargés (réparables). '}
+                    {statusCounts.error > 0 && 'Erreurs d\'analyse terminales. '}
+                    {statusCounts.skipped > 0 && 'Fichiers trop volumineux ou images inline ignorées.'}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -315,19 +398,24 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {attachments.map((attachment) => {
           const { status, reason } = getAttachmentStatus(attachment);
-          const isSkipped = status === 'skipped';
+          const hasWarning = status === 'skipped' || status === 'missing_file' || status === 'error';
+          const borderClass = status === 'missing_file' || status === 'error' 
+            ? 'border-destructive/30' 
+            : status === 'skipped' ? 'border-amber-500/30' : '';
           
           return (
             <Card 
               key={attachment.id} 
-              className={`bg-muted/50 ${isSkipped ? 'border-amber-500/30' : ''}`}
+              className={`bg-muted/50 ${borderClass}`}
             >
               <CardContent className="p-3">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     {getFileIcon(attachment.content_type, attachment.filename)}
-                    {isSkipped && (
-                      <AlertTriangle className="h-3 w-3 text-amber-500 absolute -bottom-1 -right-1" />
+                    {hasWarning && (
+                      <AlertTriangle className={`h-3 w-3 absolute -bottom-1 -right-1 ${
+                        status === 'missing_file' || status === 'error' ? 'text-destructive' : 'text-amber-500'
+                      }`} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -338,8 +426,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                       <span>{formatFileSize(attachment.size)}</span>
                       {renderStatusBadge(attachment)}
                     </div>
-                    {isSkipped && reason && (
-                      <p className="text-xs text-amber-600 mt-1 truncate" title={reason}>
+                    {hasWarning && reason && (
+                      <p className={`text-xs mt-1 truncate ${
+                        status === 'missing_file' || status === 'error' ? 'text-destructive' : 'text-amber-600'
+                      }`} title={reason}>
                         {reason}
                       </p>
                     )}
@@ -361,14 +451,14 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                         )}
                       </Button>
                     )}
-                    {isSkipped && (
+                    {status === 'missing_file' && (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button 
                               size="icon" 
                               variant="ghost" 
-                              className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-100"
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={() => forceDownloadAttachment(attachment.id)}
                               disabled={forceDownloading === attachment.id}
                               title="Forcer le téléchargement"
@@ -435,28 +525,36 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                 <DialogTitle className="flex items-center gap-2">
                   {getFileIcon(previewAttachment.content_type, previewAttachment.filename)}
                   {previewAttachment.filename}
-                  {getAttachmentStatus(previewAttachment).status === 'skipped' && (
-                    <Badge variant="outline" className="ml-2 text-xs border-amber-500/50 bg-amber-500/10">
-                      <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
-                      Non traité
+                  {['skipped', 'missing_file', 'error', 'unsupported'].includes(getAttachmentStatus(previewAttachment).status) && (
+                    <Badge variant="outline" className={`ml-2 text-xs ${
+                      getAttachmentStatus(previewAttachment).status === 'missing_file' || getAttachmentStatus(previewAttachment).status === 'error'
+                        ? 'border-destructive/50 bg-destructive/10' : 'border-amber-500/50 bg-amber-500/10'
+                    }`}>
+                      <AlertTriangle className={`h-3 w-3 mr-1 ${
+                        getAttachmentStatus(previewAttachment).status === 'missing_file' || getAttachmentStatus(previewAttachment).status === 'error'
+                          ? 'text-destructive' : 'text-amber-500'
+                      }`} />
+                      {getAttachmentStatus(previewAttachment).status === 'missing_file' ? 'Fichier manquant' :
+                       getAttachmentStatus(previewAttachment).status === 'error' ? 'Erreur' :
+                       getAttachmentStatus(previewAttachment).status === 'unsupported' ? 'Non supporté' : 'Non traité'}
                     </Badge>
                   )}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {/* Skipped reason alert with force download option */}
-                {getAttachmentStatus(previewAttachment).status === 'skipped' && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                {/* Status alert for problematic attachments */}
+                {getAttachmentStatus(previewAttachment).status === 'missing_file' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
+                      <p className="text-sm font-medium text-destructive">Fichier manquant en storage</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         {getAttachmentStatus(previewAttachment).reason}
                       </p>
                       <Button
                         size="sm"
                         variant="outline"
-                        className="mt-2 border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                        className="mt-2 border-destructive/50 text-destructive hover:bg-destructive/10"
                         onClick={() => forceDownloadAttachment(previewAttachment.id)}
                         disabled={forceDownloading === previewAttachment.id}
                       >
@@ -467,6 +565,28 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                         )}
                         Forcer le téléchargement
                       </Button>
+                    </div>
+                  </div>
+                )}
+                {getAttachmentStatus(previewAttachment).status === 'error' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-destructive">Erreur d'analyse</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {getAttachmentStatus(previewAttachment).reason}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {getAttachmentStatus(previewAttachment).status === 'skipped' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {getAttachmentStatus(previewAttachment).reason}
+                      </p>
                     </div>
                   </div>
                 )}

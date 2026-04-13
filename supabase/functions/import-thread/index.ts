@@ -1246,7 +1246,21 @@ async function processAttachment(
     
     if (uploadError) {
       console.error(`Failed to upload ${attachment.filename}:`, uploadError);
-      return null;
+      // P0-1: Persist attachment record even if upload failed — allows repair via force-download-attachment
+      const { data: fallbackRecord } = await supabase
+        .from('email_attachments')
+        .insert({
+          email_id: emailId,
+          filename: attachment.filename,
+          content_type: attachment.contentType,
+          size: attachment.size || content.length,
+          storage_path: null,
+          is_analyzed: false,
+          extracted_text: `[Upload storage échoué — réparable via force-download]`
+        })
+        .select()
+        .single();
+      return fallbackRecord ? { id: fallbackRecord.id, extractedText: '' } : null;
     }
     
     console.log(`Uploaded to storage: ${storagePath}`);
@@ -1379,16 +1393,24 @@ serve(async (req) => {
         }
         
         // Check if attachments need to be processed for this existing email
+        // P0-2: Per-filename partial re-import — only process missing attachments
         if (msg.attachments.length > 0) {
           const { data: existingAttachments } = await supabase
             .from('email_attachments')
-            .select('id')
+            .select('id, filename')
             .eq('email_id', emailId);
           
-          if (!existingAttachments || existingAttachments.length === 0) {
-            console.log(`Processing ${msg.attachments.length} missing attachment(s) for existing email ${emailId}`);
+          const existingFilenames = new Set(
+            (existingAttachments || []).map((a: any) => a.filename)
+          );
+          const missingAttachments = msg.attachments.filter(
+            (a: AttachmentInfo) => !existingFilenames.has(a.filename)
+          );
+
+          if (missingAttachments.length > 0) {
+            console.log(`Processing ${missingAttachments.length} missing attachment(s) for existing email ${emailId} (${existingFilenames.size} already present)`);
             
-            for (const attachment of msg.attachments) {
+            for (const attachment of missingAttachments) {
               console.log(`Calling processAttachment for: ${JSON.stringify(attachment)}`);
               try {
                 const result = await processAttachment(client, uid, attachment, emailId, supabase);
@@ -1403,7 +1425,7 @@ serve(async (req) => {
               }
             }
           } else {
-            console.log(`Email ${emailId} already has ${existingAttachments.length} attachment(s), skipping`);
+            console.log(`Email ${emailId}: all ${existingFilenames.size} attachment(s) already present, skipping`);
           }
         }
         

@@ -520,6 +520,21 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## ATT-ERROR-RETRY — Mécanisme de reset pour relancer l'analyse des PJ en erreur terminale
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | ATT-ERROR-RETRY |
+| **Catégorie** | Email pipeline / Attachments |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Stabilisation pipeline PJ (P0+P1) |
+| **Date** | 2026-04-13 |
+| **Déclencheur de réouverture** | Besoin opérateur de relancer l'analyse sur une PJ en erreur terminale (`is_analyzed = true`, `extracted_data.type = 'error'`). |
+| **Recommandation** | Créer un mécanisme de reset (`is_analyzed = false`, `analysis_claimed_at = null`) avant de re-appeler `analyze-attachments`. Sans ce reset, le pipeline claim/finalize ignore la PJ. Le bouton UI "Relancer l'analyse" pour `error` a été volontairement omis dans le Patch 4 pour cette raison. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
