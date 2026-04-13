@@ -1457,12 +1457,15 @@ export default function CaseView() {
 
                   if (noBlockingGaps) {
                     // PRICING-GUARD: check open communication loops before auto-pricing
-                    const [eqrOpenCheck, factsProposedCheck, clientGapsOpenCheck] = await Promise.all([
+                    const [eqrOpenCheck, factsProposedCheck, clientGapKeyRows] = await Promise.all([
                       supabase.from("external_quote_requests").select("id", { count: "exact", head: true }).eq("case_id", caseId).neq("status", "closed"),
                       supabase.from("external_quote_response_facts").select("id", { count: "exact", head: true }).eq("case_id", caseId).eq("validation_status", "proposed"),
-                      supabase.from("client_gap_requests" as any).select("id", { count: "exact", head: true }).eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
+                      supabase.from("client_gap_requests" as any).select("gap_key").eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
                     ]);
-                    const openCommCount = (eqrOpenCheck.count ?? 0) + (factsProposedCheck.count ?? 0) + (clientGapsOpenCheck.count ?? 0);
+                    // P1-CGR-FINAL: intersect with currently open gaps
+                    const currentOpenGapKeys = new Set((updatedGaps ?? []).map((g: any) => g.gap_key));
+                    const activeClientGapCount = ((clientGapKeyRows.data ?? []) as any[]).filter((r: any) => currentOpenGapKeys.has(r.gap_key)).length;
+                    const openCommCount = (eqrOpenCheck.count ?? 0) + (factsProposedCheck.count ?? 0) + activeClientGapCount;
                     if (openCommCount > 0) {
                       toast.info("Boucle communication en cours — pricing automatique reporté.");
                       setPricingRefreshToken(t => t + 1);
@@ -1632,20 +1635,23 @@ export default function CaseView() {
         })()}
 
         {/* Phase CL1: Client clarifications tracking — positioned right after gaps for visual continuity */}
-        {caseId && (clientGapRequests as any[]).length > 0 && (
+        {caseId && (() => {
+          const activeClientGapReqs = (clientGapRequests as any[]).filter((r: any) => openGapKeySet.has(r.gap_key));
+          if (activeClientGapReqs.length === 0) return null;
+          return (
           <Card className="mb-6 border-blue-200 bg-blue-50/30">
             <CardHeader className="py-3 px-4">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Mail className="h-4 w-4 text-blue-600" />
                 Clarifications client
                 <Badge variant="secondary" className="text-[10px] ml-1">
-                  {(clientGapRequests as any[]).length}
+                  {activeClientGapReqs.length}
                 </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="py-2 px-4">
               <div className="space-y-1.5">
-                {(clientGapRequests as any[]).map((req: any) => {
+                {activeClientGapReqs.map((req: any) => {
                   const statusConfig: Record<string, { label: string; icon: string; className: string }> = {
                     drafted: { label: "Brouillon", icon: "📝", className: "bg-muted text-muted-foreground" },
                     sent: { label: "Envoyée", icon: "📤", className: "bg-blue-100 text-blue-800" },
