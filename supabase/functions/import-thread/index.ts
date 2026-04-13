@@ -1430,23 +1430,32 @@ serve(async (req) => {
         if (msg.attachments.length > 0) {
           const { data: existingAttachments } = await supabase
             .from('email_attachments')
-            .select('id, filename')
+            .select('id, filename, storage_path')
             .eq('email_id', emailId);
           
-          const existingFilenames = new Set(
-            (existingAttachments || []).map((a: any) => a.filename)
+          const existingByFilename = new Map(
+            (existingAttachments || []).map((a: any) => [a.filename, a])
           );
           const missingAttachments = msg.attachments.filter(
-            (a: AttachmentInfo) => !existingFilenames.has(a.filename)
+            (a: AttachmentInfo) => {
+              const existing = existingByFilename.get(a.filename);
+              // Re-process if missing OR if previous attempt left a ghost record (no file in storage)
+              return !existing || existing.storage_path === null;
+            }
           );
 
           if (missingAttachments.length > 0) {
-            console.log(`Processing ${missingAttachments.length} missing attachment(s) for existing email ${emailId} (${existingFilenames.size} already present)`);
+            console.log(`Processing ${missingAttachments.length} missing/ghost attachment(s) for existing email ${emailId} (${existingByFilename.size} records in DB)`);
             
             for (const attachment of missingAttachments) {
+              const existing = existingByFilename.get(attachment.filename);
+              const existingId = existing?.storage_path === null ? existing.id : undefined;
+              if (existingId) {
+                console.log(`Ghost record detected for ${attachment.filename} (id: ${existingId}) — will update in-place`);
+              }
               console.log(`Calling processAttachment for: ${JSON.stringify(attachment)}`);
               try {
-                const result = await processAttachment(client, uid, attachment, emailId, supabase);
+                const result = await processAttachment(client, uid, attachment, emailId, supabase, existingId);
                 if (result) {
                   totalAttachments++;
                   if (result.extractedText) {
@@ -1458,7 +1467,7 @@ serve(async (req) => {
               }
             }
           } else {
-            console.log(`Email ${emailId}: all ${existingFilenames.size} attachment(s) already present, skipping`);
+            console.log(`Email ${emailId}: all ${existingByFilename.size} attachment(s) already present with storage_path, skipping`);
           }
         }
         
