@@ -358,7 +358,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
       )}
 
       {/* ── V2: Suggested Questions ── */}
-      {allQuestions.length > 0 && (
+      {visibleQuestions.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -368,7 +368,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <ul className="space-y-1.5">
-              {allQuestions.map((q, i) => (
+              {visibleQuestions.map((q, i) => (
                 <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
                   <span className="text-primary font-medium shrink-0">•</span>
                   {q}
@@ -380,7 +380,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
       )}
 
       {/* ── V2: Operator Guidance ── */}
-      {allGuidance.length > 0 && (
+      {visibleGuidance.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -390,7 +390,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <ul className="space-y-1.5">
-              {allGuidance.map((g, i) => (
+              {visibleGuidance.map((g, i) => (
                 <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
                   <span className="text-amber-500 font-medium shrink-0">→</span>
                   {g}
