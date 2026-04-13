@@ -16,7 +16,23 @@ interface TimelineEvent {
 
 interface CaseUnderstandingPanelProps {
   events: TimelineEvent[];
+  openGapKeys?: string[];
 }
+
+// ── Gap-key → domain-specific markers (conservative) ──
+const GAP_QUESTION_MARKERS: Record<string, string[]> = {
+  "cargo.weight_kg": ["poids", "weight", "tonnage", "kg"],
+  "cargo.pieces_count": ["colis", "palettes", "nombre de colis", "nombre de pièces"],
+  "cargo.volume_cbm": ["volume", "cbm", "cubage", "m³"],
+  "cargo.value": ["valeur de la marchandise", "valeur déclarée", "cargo value"],
+  "cargo.hs_code": ["code hs", "hs code", "nomenclature douanière", "code douanier"],
+  "cargo.description": ["désignation de la marchandise", "nature de la marchandise"],
+  "routing.origin_port": ["port de départ", "port d'origine", "port of loading"],
+  "routing.destination_port": ["port de destination", "port d'arrivée", "port of discharge"],
+  "routing.destination_city": ["ville de destination", "ville de livraison"],
+  "routing.transport_mode": ["mode de transport"],
+  "routing.incoterm": ["incoterm"],
+};
 
 // ── Scope indicator icon ──
 function ScopeIcon({ value }: { value: unknown }) {
@@ -64,7 +80,7 @@ const SCOPE_LABELS: Record<string, string> = {
   unknown: "Inconnu",
 };
 
-export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) {
+export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandingPanelProps) {
   // ── Existing: service_scope_v1 + case_reasoning_v1 ──
   const { scope, reasoning, analysisDate } = useMemo(() => {
     const scopeEvents = events
@@ -208,6 +224,31 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
     return Array.from(set);
   }, [intentV2, coherence]);
 
+  // ── Filter out suggestions for gaps that are resolved ──
+  const openGapSet = useMemo(() => new Set(openGapKeys ?? []), [openGapKeys]);
+
+  const isQuestionResolved = useMemo(() => {
+    return (text: string): boolean => {
+      const lower = text.toLowerCase();
+      const matchedGapKeys = Object.entries(GAP_QUESTION_MARKERS)
+        .filter(([, markers]) => markers.some(m => lower.includes(m)))
+        .map(([key]) => key);
+      // No markers match → keep (prudence)
+      if (matchedGapKeys.length === 0) return false;
+      // Multi-subject: hide only if ALL matched gaps are resolved
+      return matchedGapKeys.every(k => !openGapSet.has(k));
+    };
+  }, [openGapSet]);
+
+  const visibleQuestions = useMemo(
+    () => allQuestions.filter(q => !isQuestionResolved(q)),
+    [allQuestions, isQuestionResolved]
+  );
+  const visibleGuidance = useMemo(
+    () => allGuidance.filter(g => !isQuestionResolved(g)),
+    [allGuidance, isQuestionResolved]
+  );
+
   // Nothing to show at all
   const hasExistingScope = scope || reasoning;
   const hasV2Data = intentV2 || coherence;
@@ -317,7 +358,7 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
       )}
 
       {/* ── V2: Suggested Questions ── */}
-      {allQuestions.length > 0 && (
+      {visibleQuestions.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -327,7 +368,7 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <ul className="space-y-1.5">
-              {allQuestions.map((q, i) => (
+              {visibleQuestions.map((q, i) => (
                 <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
                   <span className="text-primary font-medium shrink-0">•</span>
                   {q}
@@ -339,7 +380,7 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
       )}
 
       {/* ── V2: Operator Guidance ── */}
-      {allGuidance.length > 0 && (
+      {visibleGuidance.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -349,7 +390,7 @@ export function CaseUnderstandingPanel({ events }: CaseUnderstandingPanelProps) 
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <ul className="space-y-1.5">
-              {allGuidance.map((g, i) => (
+              {visibleGuidance.map((g, i) => (
                 <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
                   <span className="text-amber-500 font-medium shrink-0">→</span>
                   {g}
