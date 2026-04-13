@@ -80,6 +80,7 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [forceDownloading, setForceDownloading] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -156,6 +157,34 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
       toast.error('Erreur lors de l\'analyse');
     }
     setAnalyzing(null);
+  };
+
+  const handleRetryAnalysis = async (attachmentId: string) => {
+    setRetryingId(attachmentId);
+    try {
+      const { data: resetId, error: resetError } = await supabase.rpc(
+        'reset_attachment_for_retry',
+        { p_attachment_id: attachmentId }
+      );
+
+      if (resetError) throw resetError;
+
+      if (!resetId) {
+        toast.error('Cette pièce jointe ne peut pas être relancée');
+        setRetryingId(null);
+        return;
+      }
+
+      // Reset succeeded — now re-trigger analysis
+      toast.info('Reset effectué, relance de l\'analyse…');
+      await analyzeAttachment(attachmentId);
+    } catch (error) {
+      console.error('Retry analysis error:', error);
+      toast.error('Erreur lors de la relance');
+    }
+    setRetryingId(null);
+    // Ensure UI refresh
+    loadAttachments();
   };
 
   const forceDownloadAttachment = async (attachmentId: string) => {
@@ -455,6 +484,31 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                           <Sparkles className="h-4 w-4" />
                         )}
                       </Button>
+                    )}
+                    {status === 'error' && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleRetryAnalysis(attachment.id)}
+                              disabled={retryingId === attachment.id}
+                              title="Relancer l'analyse"
+                            >
+                              {retryingId === attachment.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p className="text-sm">Relancer l'analyse (reset + re-analyze)</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                     {status === 'missing_file' && (
                       <TooltipProvider>

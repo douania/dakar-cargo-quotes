@@ -526,12 +526,12 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | ATT-ERROR-RETRY |
 | **Catégorie** | Email pipeline / Attachments |
-| **Statut** | `ouvert` |
+| **Statut** | `done` |
 | **Priorité** | Basse |
 | **Phase d'origine** | Stabilisation pipeline PJ (P0+P1) |
-| **Date** | 2026-04-13 |
-| **Déclencheur de réouverture** | Besoin opérateur de relancer l'analyse sur une PJ en erreur terminale (`is_analyzed = true`, `extracted_data.type = 'error'`). |
-| **Recommandation** | Créer un mécanisme de reset (`is_analyzed = false`, `analysis_claimed_at = null`) avant de re-appeler `analyze-attachments`. Sans ce reset, le pipeline claim/finalize ignore la PJ. Le bouton UI "Relancer l'analyse" pour `error` a été volontairement omis dans le Patch 4 pour cette raison. |
+| **Date clôture** | 2026-04-13 |
+| **Résolution** | RPC `reset_attachment_for_retry` (SECURITY DEFINER) remet la PJ en état vierge (`is_analyzed=false`, `analysis_claimed_at=null`, `extracted_text=null`, `extracted_data=null`) uniquement si `extracted_data->>'type' = 'error'`. Bouton "Relancer l'analyse" ajouté dans `EmailAttachments.tsx` pour statut `error` uniquement. `unsupported` et `skipped` restent non relançables. |
+| **Dette résiduelle pipeline PJ** | Observabilité des retries (compteur, historique), chemins parallèles d'analyse, et traçabilité enrichie des resets restent hors périmètre de ce lot. |
 
 ---
 
