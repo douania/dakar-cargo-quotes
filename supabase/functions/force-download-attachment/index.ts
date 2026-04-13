@@ -49,124 +49,223 @@ interface AttachmentInfo {
   size: number;
 }
 
-// Parse BODYSTRUCTURE to find attachments
-function parseBodyStructure(response: string): AttachmentInfo[] {
-  const attachments: AttachmentInfo[] = [];
+// Tokenizer for IMAP BODYSTRUCTURE (robust, from sync-emails)
+function tokenizeBodyStructure(structure: string): string[] {
+  const tokens: string[] = [];
+  let i = 0;
   
-  const structureMatch = response.match(/BODYSTRUCTURE\s+(\([\s\S]*?\))(?:\s*\)|\s*$)/i);
-  if (!structureMatch) return attachments;
-  
-  const structure = structureMatch[1];
-  
-  function parsePart(str: string, partPath: string, depth: number = 0): void {
-    // Prevent infinite recursion
-    if (depth > 20) return;
-    
-    const trimmed = str.trim();
-    
-    if (trimmed.startsWith('((')) {
-      // Skip the outer wrapper parenthesis
-      let parenDepth = 0;
-      let partStart = -1;
-      let subPartNum = 1;
-      
-      for (let i = 1; i < trimmed.length - 1; i++) {
-        if (trimmed[i] === '(') {
-          if (parenDepth === 0) partStart = i;
-          parenDepth++;
-        } else if (trimmed[i] === ')') {
-          parenDepth--;
-          if (parenDepth === 0 && partStart !== -1) {
-            const subPart = trimmed.substring(partStart, i + 1);
-            if (!subPart.match(/^\s*"[A-Z]+"/i)) {
-              const newPath = partPath ? `${partPath}.${subPartNum}` : String(subPartNum);
-              parsePart(subPart, newPath, depth + 1);
-              subPartNum++;
-            }
-            partStart = -1;
-          }
+  while (i < structure.length) {
+    const ch = structure[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if (ch === '(' || ch === ')') { tokens.push(ch); i++; continue; }
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < structure.length) {
+        if (structure[end] === '\\' && end + 1 < structure.length) { end += 2; continue; }
+        if (structure[end] === '"') break;
+        end++;
+      }
+      tokens.push(structure.substring(i + 1, end));
+      i = end + 1;
+      continue;
+    }
+    if (/[A-Za-z0-9]/.test(ch)) {
+      let end = i;
+      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) end++;
+      tokens.push(structure.substring(i, end));
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return tokens;
+}
+
+// Extract filename from BODYSTRUCTURE parameters
+function extractFilenameFromParams(tokens: string[], startIdx: number): string {
+  let filename = '';
+  for (let i = startIdx; i < Math.min(startIdx + 100, tokens.length); i++) {
+    const token = tokens[i]?.toLowerCase();
+    if (token === 'name' || token === 'filename') {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          filename = decodeHeader(val);
+          break;
         }
       }
-    } else if (trimmed.startsWith('(')) {
-      const content = trimmed.substring(1, trimmed.length - 1);
-      const tokens: string[] = [];
-      let current = '';
-      let inQuotes = false;
-      let parenDepth = 0;
-      
-      for (let i = 0; i < content.length; i++) {
-        const char = content[i];
-        if (char === '"' && content[i - 1] !== '\\') {
-          inQuotes = !inQuotes;
-          current += char;
-        } else if (char === '(' && !inQuotes) {
-          parenDepth++;
-          current += char;
-        } else if (char === ')' && !inQuotes) {
-          parenDepth--;
-          current += char;
-        } else if (char === ' ' && !inQuotes && parenDepth === 0) {
-          if (current.trim()) tokens.push(current.trim());
-          current = '';
-        } else {
-          current += char;
+      if (filename) break;
+    }
+    if (token && token.startsWith('filename*')) {
+      for (let j = i + 1; j < Math.min(i + 5, tokens.length); j++) {
+        const val = tokens[j];
+        if (val && val !== '(' && val !== ')' && val.toLowerCase() !== 'nil') {
+          const match = val.match(/(?:UTF-8''|utf-8'')?(.*)/i);
+          if (match) {
+            try { filename = decodeURIComponent(match[1] || val); }
+            catch { filename = match[1] || val; }
+          }
+          break;
         }
       }
-      if (current.trim()) tokens.push(current.trim());
-      
-      if (tokens.length >= 2) {
-        const type = tokens[0].replace(/"/g, '').toLowerCase();
-        const subtype = tokens[1].replace(/"/g, '').toLowerCase();
-        
-        if (type !== 'multipart') {
-          let filename = '';
-          let encoding = '7bit';
-          let size = 0;
-          
-          for (let i = 0; i < tokens.length; i++) {
-            const token = tokens[i];
-            if (token.startsWith('(') && token.includes('"name"')) {
-              const nameMatch = token.match(/"name"\s+"([^"]+)"/i);
-              if (nameMatch) filename = decodeHeader(nameMatch[1]);
-            }
-            if (token.startsWith('(') && token.includes('"filename"')) {
-              const fnMatch = token.match(/"filename"\s+"([^"]+)"/i);
-              if (fnMatch) filename = decodeHeader(fnMatch[1]);
-            }
-          }
-          
-          if (tokens.length > 5 && /^[a-z0-9-]+$/i.test(tokens[5].replace(/"/g, ''))) {
-            encoding = tokens[5].replace(/"/g, '').toLowerCase();
-          }
-          
-          for (const token of tokens) {
-            if (/^\d+$/.test(token)) {
-              size = parseInt(token);
-              break;
-            }
-          }
-          
-          const hasDisposition = tokens.some(t => 
-            t.toLowerCase().includes('attachment') || 
-            t.toLowerCase().includes('inline')
-          );
-          
-          if (filename || (hasDisposition && type !== 'text')) {
-            const partNum = partPath || '1';
-            attachments.push({
-              partNumber: partNum,
-              filename: filename || `attachment_${partNum}.${subtype}`,
-              contentType: `${type}/${subtype}`,
-              encoding,
-              size
-            });
-          }
-        }
-      }
+      if (filename) break;
     }
   }
+  return filename;
+}
+
+// Recursive MIME parser
+interface ParseContext { pos: number; }
+
+function parseMimePart(tokens: string[], ctx: ParseContext, path: string): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  if (ctx.pos >= tokens.length || tokens[ctx.pos] !== '(') return attachments;
+  ctx.pos++;
   
-  parsePart(structure, "");
+  if (tokens[ctx.pos] === '(') {
+    let subPartNum = 1;
+    while (ctx.pos < tokens.length && tokens[ctx.pos] === '(') {
+      const subPath = path ? `${path}.${subPartNum}` : String(subPartNum);
+      attachments.push(...parseMimePart(tokens, ctx, subPath));
+      subPartNum++;
+    }
+    let depth = 1;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+  } else {
+    const startPos = ctx.pos;
+    const type = tokens[ctx.pos++] || 'unknown';
+    const subtype = tokens[ctx.pos++] || 'unknown';
+    const contentType = `${type}/${subtype}`.toLowerCase();
+    
+    if (tokens[ctx.pos] === '(') {
+      let depth = 1; ctx.pos++;
+      while (ctx.pos < tokens.length && depth > 0) {
+        if (tokens[ctx.pos] === '(') depth++;
+        else if (tokens[ctx.pos] === ')') depth--;
+        ctx.pos++;
+      }
+    } else { ctx.pos++; }
+    
+    ctx.pos++; // id
+    ctx.pos++; // description
+    const encoding = (tokens[ctx.pos++] || 'base64').toLowerCase();
+    const sizeStr = tokens[ctx.pos++] || '0';
+    const size = parseInt(sizeStr, 10) || 0;
+    
+    let depth = 1;
+    const dispositionSearchStart = ctx.pos;
+    while (ctx.pos < tokens.length && depth > 0) {
+      if (tokens[ctx.pos] === '(') depth++;
+      else if (tokens[ctx.pos] === ')') depth--;
+      ctx.pos++;
+    }
+    
+    if (contentType !== 'text/plain' && contentType !== 'text/html') {
+      let filename = extractFilenameFromParams(tokens, startPos);
+      if (!filename) {
+        for (let i = dispositionSearchStart; i < ctx.pos; i++) {
+          const tok = tokens[i]?.toLowerCase();
+          if (tok === 'attachment' || tok === 'inline') {
+            filename = extractFilenameFromParams(tokens, i);
+            if (filename) break;
+          }
+        }
+      }
+      if (!filename) {
+        const extMap: Record<string, string> = {
+          'application/pdf': '.pdf',
+          'application/vnd.ms-excel': '.xls',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+          'application/msword': '.doc',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+        };
+        const ext = extMap[contentType] || '';
+        filename = `attachment_${path || '1'}${ext}`;
+      }
+      const partNumber = path || '1';
+      console.log(`[BODYSTRUCTURE] Found attachment: ${filename} at part ${partNumber} (${contentType}, ${size} bytes, ${encoding})`);
+      attachments.push({ partNumber, filename, contentType, encoding, size });
+    }
+  }
+  return attachments;
+}
+
+// Extract BODYSTRUCTURE using balanced parenthesis counting
+function extractBodyStructure(response: string): string {
+  const marker = 'BODYSTRUCTURE ';
+  const upperResponse = response.toUpperCase();
+  const start = upperResponse.indexOf(marker);
+  if (start === -1) return '';
+  let depth = 0;
+  let structureStart = start + marker.length;
+  let structureEnd = structureStart;
+  let started = false;
+  for (let i = structureStart; i < response.length; i++) {
+    if (response[i] === '(') { if (!started) started = true; depth++; }
+    if (response[i] === ')') {
+      depth--;
+      if (started && depth === 0) { structureEnd = i + 1; break; }
+    }
+  }
+  return response.substring(structureStart, structureEnd);
+}
+
+// Find part number by counting nested sections before position
+function findPartNumberByPosition(structure: string, position: number): string {
+  const before = structure.substring(0, position);
+  let depth = 0; let partNum = 0;
+  for (const char of before) {
+    if (char === '(') { depth++; if (depth === 2) partNum++; }
+    if (char === ')') depth--;
+  }
+  return String(partNum || 1);
+}
+
+// Parse BODYSTRUCTURE to find attachments with correct MIME part numbers
+function parseBodyStructure(response: string): AttachmentInfo[] {
+  console.log(`[BODYSTRUCTURE] Parsing response (${response.length} chars)`);
+  const structure = extractBodyStructure(response);
+  if (!structure || structure.length < 10) {
+    console.log("[BODYSTRUCTURE] No BODYSTRUCTURE match found in response");
+    return [];
+  }
+  console.log(`[BODYSTRUCTURE] Extracted structure (${structure.length} chars)`);
+  
+  const tokens = tokenizeBodyStructure(structure);
+  const ctx: ParseContext = { pos: 0 };
+  const attachments = parseMimePart(tokens, ctx, '');
+  
+  // Fallback: Search by file extension
+  const extensionPattern = /["']([^"']*\.(?:xlsx?|pdf|docx?|csv|zip|rar|pptx?))["']/gi;
+  let extMatch;
+  while ((extMatch = extensionPattern.exec(structure)) !== null) {
+    const filename = decodeHeader(extMatch[1]);
+    const lowerFilename = filename.toLowerCase();
+    if (attachments.some(a => a.filename === filename)) continue;
+    if (lowerFilename.startsWith('~') || lowerFilename.startsWith('image0') || lowerFilename.includes('signature')) continue;
+    
+    let contentType = 'application/octet-stream';
+    if (lowerFilename.endsWith('.pdf')) contentType = 'application/pdf';
+    else if (lowerFilename.endsWith('.xlsx')) contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (lowerFilename.endsWith('.xls')) contentType = 'application/vnd.ms-excel';
+    else if (lowerFilename.endsWith('.docx')) contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (lowerFilename.endsWith('.doc')) contentType = 'application/msword';
+    else if (lowerFilename.endsWith('.csv')) contentType = 'text/csv';
+    
+    const partNumber = findPartNumberByPosition(structure, extMatch.index);
+    console.log(`[BODYSTRUCTURE] Found attachment by extension: ${filename} -> part ${partNumber}`);
+    attachments.push({ partNumber, filename, contentType, encoding: 'base64', size: 0 });
+  }
+  
+  console.log(`[BODYSTRUCTURE] Total: ${attachments.length} attachment(s)`);
+  for (const att of attachments) {
+    console.log(`  - Part ${att.partNumber}: ${att.filename} (${att.contentType}, ${att.size} bytes)`);
+  }
   return attachments;
 }
 
