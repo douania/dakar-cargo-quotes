@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Download, Trash2, Loader2, FileText, Pencil } from "lucide-react";
+import { Plus, Download, Trash2, Loader2, FileText, Pencil, Mail } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import DocumentMetadataEditor from "./DocumentMetadataEditor";
 
@@ -73,6 +73,74 @@ function PivotRef({ meta }: { meta: any }) {
   return <span className="text-xs">{parts.join(" · ")}</span>;
 }
 
+interface EmailAttachmentRow {
+  id: string;
+  filename: string;
+  content_type: string | null;
+  size: number | null;
+  storage_path: string | null;
+  from_address: string;
+  sent_at: string | null;
+  subject: string | null;
+}
+
+function useEmailAttachmentsForCase(caseId: string) {
+  return useQuery({
+    queryKey: ["case-email-attachments", caseId],
+    queryFn: async (): Promise<EmailAttachmentRow[]> => {
+      // Step 1: get thread_id from quote_cases
+      const { data: caseData, error: caseErr } = await supabase
+        .from("quote_cases")
+        .select("thread_id")
+        .eq("id", caseId)
+        .single();
+      if (caseErr || !caseData?.thread_id) return [];
+
+      // Step 2: get emails in thread
+      const { data: emails, error: emailErr } = await supabase
+        .from("emails")
+        .select("id, from_address, sent_at, subject")
+        .eq("thread_ref", caseData.thread_id)
+        .order("sent_at", { ascending: true });
+      if (emailErr || !emails?.length) return [];
+
+      const emailIds = emails.map(e => e.id);
+      const emailMap = Object.fromEntries(emails.map(e => [e.id, e]));
+
+      // Step 3: get attachments with storage_path present (downloadable only)
+      const { data: attachments, error: attErr } = await supabase
+        .from("email_attachments")
+        .select("id, email_id, filename, content_type, size, storage_path")
+        .in("email_id", emailIds)
+        .not("storage_path", "is", null);
+      if (attErr || !attachments?.length) return [];
+
+      // Filter out inline/signatures (small images, common signature patterns)
+      return attachments
+        .filter(att => {
+          const name = att.filename?.toLowerCase() ?? "";
+          // Exclude common inline/signature images
+          if (/^(image\d*|logo|signature|banner|footer|spacer)\.(png|gif|jpg|jpeg|bmp)$/i.test(name)) return false;
+          if (att.size && att.size < 2048 && att.content_type?.startsWith("image/")) return false;
+          return true;
+        })
+        .map(att => {
+          const email = emailMap[att.email_id!];
+          return {
+            id: att.id,
+            filename: att.filename,
+            content_type: att.content_type,
+            size: att.size,
+            storage_path: att.storage_path,
+            from_address: email?.from_address ?? "—",
+            sent_at: email?.sent_at ?? null,
+            subject: email?.subject ?? null,
+          };
+        });
+    },
+  });
+}
+
 export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,7 +150,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState("");
 
-  // Left join: fetch documents then metadata separately
+  // Manual documents
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["case-documents", caseId],
     queryFn: async () => {
@@ -111,6 +179,9 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
       return map;
     },
   });
+
+  // Email attachments (light bridge)
+  const { data: emailAttachments = [], isLoading: isLoadingEmailAtt } = useEmailAttachmentsForCase(caseId);
 
   const uploadMutation = useMutation({
     mutationFn: async ({ file, documentType }: { file: File; documentType: string }) => {
@@ -191,7 +262,6 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           queryClient.invalidateQueries({ queryKey: ["case-gaps", caseId] }),
           queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
           queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] }),
-          // P1-A: unified cockpit state
           queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] }),
         ]);
         toast({ title: "Analyse terminée", description: "Le dossier a été réanalysé. Vérifiez l'onglet Faits." });
@@ -239,13 +309,31 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
     a.click();
   }
 
+  async function handleDownloadEmailAttachment(storagePath: string, fileName: string) {
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(storagePath, 3600);
+    if (error || !data?.signedUrl) {
+      toast({ title: "Erreur", description: "Impossible de générer le lien.", variant: "destructive" });
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = fileName;
+    a.click();
+  }
+
   function handleSubmit() {
     if (!selectedFile || !docType) return;
     uploadMutation.mutate({ file: selectedFile, documentType: docType });
   }
 
+  const allLoading = isLoading || isLoadingEmailAtt;
+  const hasNoDocs = documents.length === 0 && emailAttachments.length === 0;
+
   return (
     <>
+      {/* Manual documents section */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
@@ -302,13 +390,17 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           </Dialog>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {allLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : documents.length === 0 ? (
+          ) : documents.length === 0 && emailAttachments.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
               Aucun document attaché à ce dossier.
+            </p>
+          ) : documents.length === 0 ? (
+            <p className="text-muted-foreground text-center py-4 text-sm">
+              Aucun document manuel. Voir les pièces jointes email ci-dessous.
             </p>
           ) : (
             <Table>
@@ -380,6 +472,72 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Email attachments section (light bridge — read-only) */}
+      {!allLoading && emailAttachments.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Mail className="h-5 w-5" />
+              Pièces jointes email
+              <Badge variant="secondary" className="ml-2 text-[10px]">
+                {emailAttachments.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Nom du fichier</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Taille</TableHead>
+                  <TableHead>Expéditeur</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="w-16">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {emailAttachments.map((att) => (
+                  <TableRow key={att.id}>
+                    <TableCell>
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]" variant="outline">
+                        Email
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium max-w-[180px] truncate text-xs">
+                      {att.filename}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {att.content_type?.split("/").pop() ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-xs">{formatFileSize(att.size)}</TableCell>
+                    <TableCell className="text-xs max-w-[140px] truncate" title={att.from_address}>
+                      {att.from_address.split("@")[0]}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {att.sent_at ? new Date(att.sent_at).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {att.storage_path && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDownloadEmailAttachment(att.storage_path!, att.filename)}
+                          title="Télécharger"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {editingDocId && (
         <DocumentMetadataEditor
