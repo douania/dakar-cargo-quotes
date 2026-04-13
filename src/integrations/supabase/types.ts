@@ -5453,6 +5453,10 @@ export type Database = {
         Args: { p_case_id: string; p_lines: Json }
         Returns: number
       }
+      reset_attachment_for_retry: {
+        Args: { p_attachment_id: string }
+        Returns: string
+      }
       select_quotation_version: {
         Args: { p_case_id: string; p_version_id: string }
         Returns: undefined
