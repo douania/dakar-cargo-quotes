@@ -1188,7 +1188,8 @@ async function processAttachment(
   uid: number,
   attachment: AttachmentInfo,
   emailId: string,
-  supabase: any
+  supabase: any,
+  existingAttachmentId?: string
 ): Promise<{ id: string; extractedText: string } | null> {
   try {
     console.log(`Processing attachment: ${attachment.filename} (${attachment.contentType}, ~${attachment.size} bytes)`);
@@ -1197,20 +1198,30 @@ async function processAttachment(
     if (attachment.size > MAX_ATTACHMENT_SIZE) {
       console.log(`Skipping large attachment ${attachment.filename} (${(attachment.size / 1024 / 1024).toFixed(2)}MB > 5MB limit)`);
       
-      // Still create a record for the attachment but mark it as too large
-      const { data: attachmentRecord } = await supabase
-        .from('email_attachments')
-        .insert({
-          email_id: emailId,
-          filename: attachment.filename,
-          content_type: attachment.contentType,
-          size: attachment.size,
-          storage_path: null,
-          is_analyzed: false,
-          extracted_text: `[Pièce jointe trop volumineuse: ${(attachment.size / 1024 / 1024).toFixed(2)}MB - non traitée automatiquement]`
-        })
-        .select()
-        .single();
+      // Create or update a record for the attachment marked as too large
+      const oversizedPayload = {
+        email_id: emailId,
+        filename: attachment.filename,
+        content_type: attachment.contentType,
+        size: attachment.size,
+        storage_path: null,
+        is_analyzed: false,
+        extracted_text: `[Pièce jointe trop volumineuse: ${(attachment.size / 1024 / 1024).toFixed(2)}MB - non traitée automatiquement]`,
+        extracted_data: null,
+        analysis_claimed_at: null
+      };
+      const { data: attachmentRecord } = existingAttachmentId
+        ? await supabase
+            .from('email_attachments')
+            .update(oversizedPayload)
+            .eq('id', existingAttachmentId)
+            .select()
+            .single()
+        : await supabase
+            .from('email_attachments')
+            .insert(oversizedPayload)
+            .select()
+            .single();
       
       return attachmentRecord ? { id: attachmentRecord.id, extractedText: '' } : null;
     }
@@ -1247,37 +1258,59 @@ async function processAttachment(
     if (uploadError) {
       console.error(`Failed to upload ${attachment.filename}:`, uploadError);
       // P0-1: Persist attachment record even if upload failed — allows repair via force-download-attachment
-      const { data: fallbackRecord } = await supabase
-        .from('email_attachments')
-        .insert({
-          email_id: emailId,
-          filename: attachment.filename,
-          content_type: attachment.contentType,
-          size: attachment.size || content.length,
-          storage_path: null,
-          is_analyzed: false,
-          extracted_text: `[Upload storage échoué — réparable via force-download]`
-        })
-        .select()
-        .single();
+      const uploadFailPayload = {
+        email_id: emailId,
+        filename: attachment.filename,
+        content_type: attachment.contentType,
+        size: attachment.size || content.length,
+        storage_path: null,
+        is_analyzed: false,
+        extracted_text: `[Upload storage échoué — réparable via force-download]`,
+        extracted_data: null,
+        analysis_claimed_at: null
+      };
+      const { data: fallbackRecord } = existingAttachmentId
+        ? await supabase
+            .from('email_attachments')
+            .update(uploadFailPayload)
+            .eq('id', existingAttachmentId)
+            .select()
+            .single()
+        : await supabase
+            .from('email_attachments')
+            .insert(uploadFailPayload)
+            .select()
+            .single();
       return fallbackRecord ? { id: fallbackRecord.id, extractedText: '' } : null;
     }
     
     console.log(`Uploaded to storage: ${storagePath}`);
     
     // Insert attachment record
-    const { data: attachmentRecord, error: insertError } = await supabase
-      .from('email_attachments')
-      .insert({
-        email_id: emailId,
-        filename: attachment.filename,
-        content_type: attachment.contentType,
-        size: content.length,
-        storage_path: storagePath,
-        is_analyzed: false
-      })
-      .select()
-      .single();
+    // Insert new record or update existing ghost record (storage_path was null)
+    const successPayload = {
+      email_id: emailId,
+      filename: attachment.filename,
+      content_type: attachment.contentType,
+      size: content.length,
+      storage_path: storagePath,
+      is_analyzed: false,
+      extracted_text: null,
+      extracted_data: null,
+      analysis_claimed_at: null
+    };
+    const { data: attachmentRecord, error: insertError } = existingAttachmentId
+      ? await supabase
+          .from('email_attachments')
+          .update(successPayload)
+          .eq('id', existingAttachmentId)
+          .select()
+          .single()
+      : await supabase
+          .from('email_attachments')
+          .insert(successPayload)
+          .select()
+          .single();
     
     if (insertError) {
       console.error(`Failed to insert attachment record:`, insertError);
