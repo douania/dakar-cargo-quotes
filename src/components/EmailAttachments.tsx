@@ -41,32 +41,37 @@ interface AttachmentStatusInfo {
 }
 
 const getAttachmentStatus = (attachment: Attachment): AttachmentStatusInfo => {
-  // Missing file: no storage_path and not analyzed
-  if (!attachment.storage_path && !attachment.is_analyzed) {
-    const match = attachment.extracted_text?.match(/\[(.*?)\]/);
-    return { status: 'missing_file', reason: match ? match[1] : 'Fichier non disponible en storage' };
-  }
-  // Check if extracted_text contains a skip reason (in brackets) — but file is present
-  if (attachment.extracted_text?.startsWith('[') && !attachment.is_analyzed) {
+  // 1. Explicit skip/missing markers in extracted_text (bracket pattern) — MUST come first
+  if (attachment.extracted_text?.startsWith('[')) {
     const match = attachment.extracted_text.match(/\[(.*?)\]/);
-    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
+    const reason = match ? match[1] : 'Non traité';
+    // Patch 1 upload-failure traces → missing_file (repairable via force-download)
+    if (
+      reason.toLowerCase().includes('upload storage') ||
+      reason.toLowerCase().includes('force-download')
+    ) {
+      return { status: 'missing_file', reason };
+    }
+    // All other bracket markers (trop volumineuse, inline, ignored…) → skipped
+    return { status: 'skipped', reason };
   }
-  // Error terminal (analyzed but with error data)
+  // 2. Missing file without any marker
+  if (!attachment.storage_path && !attachment.is_analyzed) {
+    return { status: 'missing_file', reason: 'Fichier non disponible en storage' };
+  }
+  // 3. Error terminal (analyzed but with error data)
   if (attachment.is_analyzed && attachment.extracted_data?.type === 'error') {
     return { status: 'error', reason: attachment.extracted_data?.message || 'Erreur d\'analyse' };
   }
-  // Unsupported type
+  // 4. Unsupported type
   if (attachment.is_analyzed && attachment.extracted_data?.type === 'unsupported') {
     return { status: 'unsupported', reason: attachment.extracted_data?.message || 'Format non supporté' };
   }
-  // Skipped with bracket text and analyzed
-  if (attachment.extracted_text?.startsWith('[') && attachment.is_analyzed) {
-    const match = attachment.extracted_text.match(/\[(.*?)\]/);
-    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
-  }
+  // 5. Normal analyzed
   if (attachment.is_analyzed) {
     return { status: 'analyzed', reason: null };
   }
+  // 6. Pending
   return { status: 'pending', reason: null };
 };
 
