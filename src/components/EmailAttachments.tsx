@@ -33,7 +33,7 @@ interface EmailAttachmentsProps {
   emailId: string;
 }
 
-type AttachmentStatus = 'analyzed' | 'pending' | 'skipped';
+type AttachmentStatus = 'analyzed' | 'pending' | 'skipped' | 'unsupported' | 'error' | 'missing_file';
 
 interface AttachmentStatusInfo {
   status: AttachmentStatus;
@@ -41,11 +41,28 @@ interface AttachmentStatusInfo {
 }
 
 const getAttachmentStatus = (attachment: Attachment): AttachmentStatusInfo => {
-  // Check if extracted_text contains a skip reason (in brackets)
-  if (attachment.extracted_text?.startsWith('[')) {
+  // Missing file: no storage_path and not analyzed
+  if (!attachment.storage_path && !attachment.is_analyzed) {
+    const match = attachment.extracted_text?.match(/\[(.*?)\]/);
+    return { status: 'missing_file', reason: match ? match[1] : 'Fichier non disponible en storage' };
+  }
+  // Check if extracted_text contains a skip reason (in brackets) — but file is present
+  if (attachment.extracted_text?.startsWith('[') && !attachment.is_analyzed) {
     const match = attachment.extracted_text.match(/\[(.*?)\]/);
-    const reason = match ? match[1] : 'Non traité';
-    return { status: 'skipped', reason };
+    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
+  }
+  // Error terminal (analyzed but with error data)
+  if (attachment.is_analyzed && attachment.extracted_data?.type === 'error') {
+    return { status: 'error', reason: attachment.extracted_data?.message || 'Erreur d\'analyse' };
+  }
+  // Unsupported type
+  if (attachment.is_analyzed && attachment.extracted_data?.type === 'unsupported') {
+    return { status: 'unsupported', reason: attachment.extracted_data?.message || 'Format non supporté' };
+  }
+  // Skipped with bracket text and analyzed
+  if (attachment.extracted_text?.startsWith('[') && attachment.is_analyzed) {
+    const match = attachment.extracted_text.match(/\[(.*?)\]/);
+    return { status: 'skipped', reason: match ? match[1] : 'Non traité' };
   }
   if (attachment.is_analyzed) {
     return { status: 'analyzed', reason: null };

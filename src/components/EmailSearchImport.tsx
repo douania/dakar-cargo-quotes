@@ -137,6 +137,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       let totalExisting = 0;
       let totalAttachments = 0;
       let lastAnalysis: any = null;
+      const allImportedEmails: any[] = [];
 
       // P0-D: Iterate per selected thread to send the correct threadKey
       for (const thread of threads) {
@@ -167,6 +168,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
           totalExisting += data.alreadyExisted || 0;
           totalAttachments += data.attachmentsProcessed || 0;
           if (data.analysis) lastAnalysis = data.analysis;
+          if (data.emails) allImportedEmails.push(...data.emails);
 
           remainingUids = data.remainingUids || [];
           if (!data.hasMore) break;
