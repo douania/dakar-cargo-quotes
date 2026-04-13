@@ -351,17 +351,29 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
           <h4 className="text-sm font-medium text-muted-foreground">
             Pièces jointes ({attachments.length})
           </h4>
-          {statusCounts.skipped > 0 && (
+          {(statusCounts.skipped > 0 || statusCounts.missing_file > 0 || statusCounts.error > 0) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-xs py-0 px-1.5 border-amber-500/50 bg-amber-500/10 text-amber-600">
+                  <Badge variant="outline" className={`text-xs py-0 px-1.5 ${
+                    statusCounts.missing_file > 0 || statusCounts.error > 0
+                      ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-amber-500/50 bg-amber-500/10 text-amber-600'
+                  }`}>
                     <AlertTriangle className="h-3 w-3 mr-1" />
-                    {statusCounts.skipped} non traité{statusCounts.skipped > 1 ? 's' : ''}
+                    {statusCounts.missing_file > 0 && `${statusCounts.missing_file} manquant${statusCounts.missing_file > 1 ? 's' : ''}`}
+                    {statusCounts.missing_file > 0 && statusCounts.error > 0 && ' · '}
+                    {statusCounts.error > 0 && `${statusCounts.error} erreur${statusCounts.error > 1 ? 's' : ''}`}
+                    {(statusCounts.missing_file > 0 || statusCounts.error > 0) && statusCounts.skipped > 0 && ' · '}
+                    {statusCounts.skipped > 0 && `${statusCounts.skipped} non traité${statusCounts.skipped > 1 ? 's' : ''}`}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p className="text-sm">Fichiers trop volumineux ou images inline ignorées</p>
+                  <p className="text-sm">
+                    {statusCounts.missing_file > 0 && 'Fichiers non téléchargés (réparables). '}
+                    {statusCounts.error > 0 && 'Erreurs d\'analyse terminales. '}
+                    {statusCounts.skipped > 0 && 'Fichiers trop volumineux ou images inline ignorées.'}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -513,28 +525,36 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                 <DialogTitle className="flex items-center gap-2">
                   {getFileIcon(previewAttachment.content_type, previewAttachment.filename)}
                   {previewAttachment.filename}
-                  {getAttachmentStatus(previewAttachment).status === 'skipped' && (
-                    <Badge variant="outline" className="ml-2 text-xs border-amber-500/50 bg-amber-500/10">
-                      <AlertTriangle className="h-3 w-3 mr-1 text-amber-500" />
-                      Non traité
+                  {['skipped', 'missing_file', 'error', 'unsupported'].includes(getAttachmentStatus(previewAttachment).status) && (
+                    <Badge variant="outline" className={`ml-2 text-xs ${
+                      getAttachmentStatus(previewAttachment).status === 'missing_file' || getAttachmentStatus(previewAttachment).status === 'error'
+                        ? 'border-destructive/50 bg-destructive/10' : 'border-amber-500/50 bg-amber-500/10'
+                    }`}>
+                      <AlertTriangle className={`h-3 w-3 mr-1 ${
+                        getAttachmentStatus(previewAttachment).status === 'missing_file' || getAttachmentStatus(previewAttachment).status === 'error'
+                          ? 'text-destructive' : 'text-amber-500'
+                      }`} />
+                      {getAttachmentStatus(previewAttachment).status === 'missing_file' ? 'Fichier manquant' :
+                       getAttachmentStatus(previewAttachment).status === 'error' ? 'Erreur' :
+                       getAttachmentStatus(previewAttachment).status === 'unsupported' ? 'Non supporté' : 'Non traité'}
                     </Badge>
                   )}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {/* Skipped reason alert with force download option */}
-                {getAttachmentStatus(previewAttachment).status === 'skipped' && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                {/* Status alert for problematic attachments */}
+                {getAttachmentStatus(previewAttachment).status === 'missing_file' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
+                      <p className="text-sm font-medium text-destructive">Fichier manquant en storage</p>
                       <p className="text-sm text-muted-foreground mt-1">
                         {getAttachmentStatus(previewAttachment).reason}
                       </p>
                       <Button
                         size="sm"
                         variant="outline"
-                        className="mt-2 border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                        className="mt-2 border-destructive/50 text-destructive hover:bg-destructive/10"
                         onClick={() => forceDownloadAttachment(previewAttachment.id)}
                         disabled={forceDownloading === previewAttachment.id}
                       >
@@ -545,6 +565,28 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                         )}
                         Forcer le téléchargement
                       </Button>
+                    </div>
+                  </div>
+                )}
+                {getAttachmentStatus(previewAttachment).status === 'error' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-destructive">Erreur d'analyse</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {getAttachmentStatus(previewAttachment).reason}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {getAttachmentStatus(previewAttachment).status === 'skipped' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-600">Pièce jointe non traitée</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {getAttachmentStatus(previewAttachment).reason}
+                      </p>
                     </div>
                   </div>
                 )}
