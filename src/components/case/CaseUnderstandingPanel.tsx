@@ -16,7 +16,23 @@ interface TimelineEvent {
 
 interface CaseUnderstandingPanelProps {
   events: TimelineEvent[];
+  openGapKeys?: string[];
 }
+
+// ── Gap-key → domain-specific markers (conservative) ──
+const GAP_QUESTION_MARKERS: Record<string, string[]> = {
+  "cargo.weight_kg": ["poids", "weight", "tonnage", "kg"],
+  "cargo.pieces_count": ["colis", "palettes", "nombre de colis", "nombre de pièces"],
+  "cargo.volume_cbm": ["volume", "cbm", "cubage", "m³"],
+  "cargo.value": ["valeur de la marchandise", "valeur déclarée", "cargo value"],
+  "cargo.hs_code": ["code hs", "hs code", "nomenclature douanière", "code douanier"],
+  "cargo.description": ["désignation de la marchandise", "nature de la marchandise"],
+  "routing.origin_port": ["port de départ", "port d'origine", "port of loading"],
+  "routing.destination_port": ["port de destination", "port d'arrivée", "port of discharge"],
+  "routing.destination_city": ["ville de destination", "ville de livraison"],
+  "routing.transport_mode": ["mode de transport"],
+  "routing.incoterm": ["incoterm"],
+};
 
 // ── Scope indicator icon ──
 function ScopeIcon({ value }: { value: unknown }) {

@@ -1588,7 +1588,7 @@ export default function CaseView() {
               </div>
 
               {/* Phase 1: Service scope understanding panel */}
-              <CaseUnderstandingPanel events={events as any} />
+              <CaseUnderstandingPanel events={events as any} openGapKeys={Array.from(openGapKeySet)} />
               {/* Blocking gaps alert */}
               {blockingGaps.length > 0 && (
                 <Alert variant="destructive" className="mb-6">
