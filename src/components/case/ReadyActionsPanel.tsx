@@ -207,7 +207,11 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
       const status = caseRes.data?.status ?? "INTAKE";
       const gaps = gapsRes.data ?? [];
-      const clientGaps = (clientGapsRes.data ?? []) as any[];
+      const openGapKeys = new Set(gaps.map((g: any) => g.gap_key));
+      // P1-CGR-FINAL: only keep client gaps whose gap_key is still open
+      const clientGaps = ((clientGapsRes.data ?? []) as any[]).filter(
+        (r: any) => openGapKeys.has(r.gap_key),
+      );
       const requests = reqRes.data ?? [];
       const pendingFacts = factsRes.count ?? 0;
       const hasSelectedVersion = (versionsRes.data?.length ?? 0) > 0;

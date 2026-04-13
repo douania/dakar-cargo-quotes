@@ -269,12 +269,15 @@ export default function CaseView() {
     queryKey: ['pricing-provisional-check', caseId],
     staleTime: 30_000,
     queryFn: async () => {
-      const [eqr, facts, gaps] = await Promise.all([
+      const [eqr, facts, gapRows] = await Promise.all([
         supabase.from('external_quote_requests').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).neq('status', 'closed'),
         supabase.from('external_quote_response_facts').select('id', { count: 'exact', head: true }).eq('case_id', caseId!).eq('validation_status', 'proposed'),
-        supabase.from('client_gap_requests' as any).select('id', { count: 'exact', head: true }).eq('case_id', caseId!).in('status', ['drafted', 'sent', 'answered'] as string[]),
+        supabase.from('client_gap_requests' as any).select('gap_key').eq('case_id', caseId!).in('status', ['drafted', 'sent', 'answered'] as string[]),
       ]);
-      return (eqr.count ?? 0) + (facts.count ?? 0) + (gaps.count ?? 0);
+      // P1-CGR-FINAL: intersect with open gaps
+      const openKeys = new Set((gaps ?? []).map((g: any) => g.gap_key));
+      const activeGapCount = ((gapRows.data ?? []) as any[]).filter((r: any) => openKeys.has(r.gap_key)).length;
+      return (eqr.count ?? 0) + (facts.count ?? 0) + activeGapCount;
     },
     enabled: !!caseId && !!isPipelineVisible,
   });
