@@ -1676,7 +1676,8 @@ export default function CaseView() {
               </div>
             </CardContent>
           </Card>
-        )}
+          );
+        })()}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
