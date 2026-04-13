@@ -386,19 +386,24 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {attachments.map((attachment) => {
           const { status, reason } = getAttachmentStatus(attachment);
-          const isSkipped = status === 'skipped';
+          const hasWarning = status === 'skipped' || status === 'missing_file' || status === 'error';
+          const borderClass = status === 'missing_file' || status === 'error' 
+            ? 'border-destructive/30' 
+            : status === 'skipped' ? 'border-amber-500/30' : '';
           
           return (
             <Card 
               key={attachment.id} 
-              className={`bg-muted/50 ${isSkipped ? 'border-amber-500/30' : ''}`}
+              className={`bg-muted/50 ${borderClass}`}
             >
               <CardContent className="p-3">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     {getFileIcon(attachment.content_type, attachment.filename)}
-                    {isSkipped && (
-                      <AlertTriangle className="h-3 w-3 text-amber-500 absolute -bottom-1 -right-1" />
+                    {hasWarning && (
+                      <AlertTriangle className={`h-3 w-3 absolute -bottom-1 -right-1 ${
+                        status === 'missing_file' || status === 'error' ? 'text-destructive' : 'text-amber-500'
+                      }`} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -409,8 +414,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                       <span>{formatFileSize(attachment.size)}</span>
                       {renderStatusBadge(attachment)}
                     </div>
-                    {isSkipped && reason && (
-                      <p className="text-xs text-amber-600 mt-1 truncate" title={reason}>
+                    {hasWarning && reason && (
+                      <p className={`text-xs mt-1 truncate ${
+                        status === 'missing_file' || status === 'error' ? 'text-destructive' : 'text-amber-600'
+                      }`} title={reason}>
                         {reason}
                       </p>
                     )}
@@ -432,14 +439,14 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
                         )}
                       </Button>
                     )}
-                    {isSkipped && (
+                    {status === 'missing_file' && (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button 
                               size="icon" 
                               variant="ghost" 
-                              className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-100"
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={() => forceDownloadAttachment(attachment.id)}
                               disabled={forceDownloading === attachment.id}
                               title="Forcer le téléchargement"
