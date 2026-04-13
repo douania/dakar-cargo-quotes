@@ -251,10 +251,10 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
   const statusCounts = attachments.reduce(
     (acc, attachment) => {
       const { status } = getAttachmentStatus(attachment);
-      acc[status]++;
+      acc[status] = (acc[status] || 0) + 1;
       return acc;
     },
-    { analyzed: 0, pending: 0, skipped: 0 }
+    { analyzed: 0, pending: 0, skipped: 0, unsupported: 0, error: 0, missing_file: 0 } as Record<AttachmentStatus, number>
   );
 
   const renderStatusBadge = (attachment: Attachment) => {
@@ -266,6 +266,60 @@ export function EmailAttachments({ emailId }: EmailAttachmentsProps) {
           <CheckCircle className="h-3 w-3 mr-1 text-green-500" />
           Analysé
         </Badge>
+      );
+    }
+
+    if (status === 'error') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-destructive/50 bg-destructive/10">
+                <AlertTriangle className="h-3 w-3 mr-1 text-destructive" />
+                Erreur
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    if (status === 'unsupported') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-muted-foreground/50 bg-muted/50">
+                <File className="h-3 w-3 mr-1 text-muted-foreground" />
+                Non supporté
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    if (status === 'missing_file') {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs py-0 px-1 border-destructive/50 bg-destructive/10">
+                <Download className="h-3 w-3 mr-1 text-destructive" />
+                Fichier manquant
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <p className="text-sm">{reason}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       );
     }
 
