@@ -1446,14 +1446,21 @@ export default function CaseView() {
               // ── Auto-pricing si plus aucun gap bloquant (uniquement pour gaps bloquants) ──
               if (allowAutoPricing && caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING") {
                 try {
-                  const { data: updatedGaps } = await supabase
-                    .from("quote_gaps")
-                    .select("id")
-                    .eq("case_id", caseId)
-                    .eq("status", "open")
-                    .eq("is_blocking", true);
+                  const [{ data: updatedBlockingGaps }, { data: updatedOpenGaps }] = await Promise.all([
+                    supabase
+                      .from("quote_gaps")
+                      .select("id")
+                      .eq("case_id", caseId)
+                      .eq("status", "open")
+                      .eq("is_blocking", true),
+                    supabase
+                      .from("quote_gaps")
+                      .select("gap_key")
+                      .eq("case_id", caseId)
+                      .eq("status", "open"),
+                  ]);
 
-                  const noBlockingGaps = !updatedGaps || updatedGaps.length === 0;
+                  const noBlockingGaps = !updatedBlockingGaps || updatedBlockingGaps.length === 0;
 
                   if (noBlockingGaps) {
                     // PRICING-GUARD: check open communication loops before auto-pricing
@@ -1463,7 +1470,7 @@ export default function CaseView() {
                       supabase.from("client_gap_requests" as any).select("gap_key").eq("case_id", caseId).in("status", ["drafted", "sent", "answered"] as string[]),
                     ]);
                     // P1-CGR-FINAL: intersect with currently open gaps
-                    const currentOpenGapKeys = new Set((updatedGaps ?? []).map((g: any) => g.gap_key));
+                    const currentOpenGapKeys = new Set(((updatedOpenGaps ?? []) as Array<{ gap_key: string }>).map((g) => g.gap_key));
                     const activeClientGapCount = ((clientGapKeyRows.data ?? []) as any[]).filter((r: any) => currentOpenGapKeys.has(r.gap_key)).length;
                     const openCommCount = (eqrOpenCheck.count ?? 0) + (factsProposedCheck.count ?? 0) + activeClientGapCount;
                     if (openCommCount > 0) {
