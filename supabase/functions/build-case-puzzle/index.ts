@@ -397,6 +397,20 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   ],
 };
 
+// --- COMPOSITE-DOC-2: Document-type priority table for documents[] pre-pass ---
+const DOC_TYPE_PRIORITY: Record<string, string[]> = {
+  'transport.vessel':          ['bill_of_lading', 'transit_order'],
+  'transport.bl_number':       ['bill_of_lading', 'transit_order'],
+  'cargo.weight_kg':           ['packing_list', 'bill_of_lading', 'transit_order'],
+  'cargo.pieces_count':        ['packing_list', 'bill_of_lading', 'transit_order'],
+  'contacts.shipper':          ['bill_of_lading', 'commercial_invoice'],
+  'contacts.client_company':   ['commercial_invoice', 'transit_order'],
+  'cargo.value':               ['commercial_invoice', 'customs_financial_statement'],
+  'cargo.value_currency':      ['commercial_invoice', 'customs_financial_statement'],
+  'cargo.freight_cost':        ['commercial_invoice', 'customs_financial_statement'],
+  'cargo.freight_currency':    ['commercial_invoice', 'customs_financial_statement'],
+};
+
 // S4: Canonical set for human-entered sources (legacy + current)
 const MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input']);
 
