@@ -892,6 +892,16 @@ Analyse ce document et extrais les informations en JSON avec cette structure :
   ],
   "tariff_lines": [
     {"service": "nom", "amount": montant, "currency": "devise"}
+  ],
+  "documents": [
+    {
+      "doc_type": "transit_order|commercial_invoice|insurance_certificate|packing_list|bill_of_lading|dpi|customs_financial_statement|unknown",
+      "page_range": "ex: 1-2",
+      "confidence": "high|medium|low",
+      "extracted_info": {},
+      "tariff_lines": [],
+      "summary": "résumé court du sous-document"
+    }
   ]
 }
 
@@ -901,6 +911,15 @@ REGLES CRITIQUES :
 - Pour chaque ligne d'article, extrais le prix unitaire ET le total si visibles sur le document
 - Si un code HS est mentionné, associe-le à l'article correspondant
 - Ne jamais inventer de prix ou de codes HS non visibles
+
+DETECTION DE SOUS-DOCUMENTS (PDFs composites) :
+- Si le document contient plusieurs sous-documents distincts (facture commerciale, BL, DPI, packing list, certificat d'assurance, ordre de transit, règlement financier, etc.), identifie-les séparément dans le tableau "documents".
+- Chaque sous-document doit avoir : doc_type, page_range approximative, confidence, extracted_info avec les champs pertinents, tariff_lines si applicable, et un résumé court.
+- Types reconnus : transit_order, commercial_invoice, insurance_certificate, packing_list, bill_of_lading, dpi, customs_financial_statement, unknown.
+- Les champs racine (type, tariff_lines, articles, etc.) doivent toujours être remplis comme agrégation globale pour compatibilité.
+- REGLE DE NON-FUSION : si plusieurs sous-documents portent des valeurs concurrentes (ex: montants financiers différents), ne pas fusionner agressivement au niveau racine. Stocker la provenance détaillée dans chaque élément de "documents[]". Au niveau racine, privilégier la valeur la plus complète ou la plus fiable, et signaler l'ambiguïté dans "description" si nécessaire.
+- Si un seul document est détecté, "documents" peut contenir un seul élément ou être omis.
+
 - JSON valide uniquement, pas de texte avant ou après` },
             { role: 'user', content: [
               { type: 'text', text: `Analyse ce document logistique: ${attachment.filename}` },
@@ -1516,8 +1535,26 @@ Réponds en JSON avec cette structure:
     /* autres informations */
   },
   "text_content": "tout texte visible",
-  "confidence": 0.0-1.0
-}`;
+  "confidence": 0.0-1.0,
+  "documents": [
+    {
+      "doc_type": "transit_order|commercial_invoice|insurance_certificate|packing_list|bill_of_lading|dpi|customs_financial_statement|unknown",
+      "page_range": "ex: 1-2",
+      "confidence": "high|medium|low",
+      "extracted_info": {},
+      "tariff_lines": [],
+      "summary": "résumé court du sous-document"
+    }
+  ]
+}
+
+DETECTION DE SOUS-DOCUMENTS (PDFs composites) :
+- Si le document contient plusieurs sous-documents distincts (facture commerciale, BL, DPI, packing list, certificat d'assurance, ordre de transit, règlement financier, etc.), identifie-les séparément dans le tableau "documents".
+- Chaque sous-document doit avoir : doc_type, page_range approximative, confidence, extracted_info avec les champs pertinents, tariff_lines si applicable, et un résumé court.
+- Types reconnus : transit_order, commercial_invoice, insurance_certificate, packing_list, bill_of_lading, dpi, customs_financial_statement, unknown.
+- Les champs racine (type, tariff_lines, extracted_info, etc.) doivent toujours être remplis comme agrégation globale pour compatibilité.
+- REGLE DE NON-FUSION : si plusieurs sous-documents portent des valeurs concurrentes (ex: montants financiers différents), ne pas fusionner agressivement au niveau racine. Stocker la provenance détaillée dans chaque élément de "documents[]". Au niveau racine, privilégier la valeur la plus complète ou la plus fiable, et signaler l'ambiguïté dans "description" si nécessaire.
+- Si un seul document est détecté, "documents" peut contenir un seul élément ou être omis.`;
 
           console.log(`Sending ${attachment.filename} to AI for analysis...`);
           
