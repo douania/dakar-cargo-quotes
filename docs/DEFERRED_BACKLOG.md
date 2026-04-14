@@ -580,6 +580,51 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## COMPOSITE-DOC-3 — Affichage UI des sous-documents
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COMPOSITE-DOC-3 |
+| **Catégorie** | UI / Attachments |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | COMPOSITE-DOC-2 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Besoin opérateur de voir les sous-documents individuels d'un PDF composite dans l'UI. |
+| **Recommandation** | Ajouter un affichage des `documents[]` dans le panneau PJ du CaseView, avec type documentaire et page range. |
+
+---
+
+## FOB-FACT-KEY — Fact key canonique pour valeurs FOB
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | FOB-FACT-KEY |
+| **Catégorie** | Data model / Cargo values |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COMPOSITE-DOC-2 (micro-correction Bonus C) |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Dossier avec valeur FOB distincte de la valeur CIF/CAF et du fret. |
+| **Recommandation** | Décider d'une fact key canonique dédiée (`cargo.fob_value` ?) et l'intégrer dans le pipeline d'extraction. FOB ne doit pas être mappé vers `freightValue` (métierment faux). |
+
+---
+
+## COMPOSITE-DOC-TIMELINE — Traçabilité doc_type dans timeline events
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COMPOSITE-DOC-TIMELINE |
+| **Catégorie** | Traçabilité / Timeline |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | COMPOSITE-DOC-2 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Besoin d'audit ou de traçabilité fine sur la provenance documentaire des facts injectés. |
+| **Recommandation** | Enrichir `event_data` des timeline events avec le `doc_type` source lors de l'injection COMPOSITE-DOC-2. Retiré du lot initial par consigne CTO. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
