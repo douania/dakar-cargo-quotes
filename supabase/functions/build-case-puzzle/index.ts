@@ -339,6 +339,13 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'incoterm': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
   'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
   'devise': { factKey: 'cargo.value_currency', category: 'cargo', valueType: 'text' },
+  // Variantes de clés produites par analyze-attachments (COMPOSITE-DOC-1 / patch build-case-puzzle)
+  'total_weight_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'vessel_name': { factKey: 'transport.vessel', category: 'transport', valueType: 'text' },
+  'bl_number': { factKey: 'transport.bl_number', category: 'transport', valueType: 'text' },
+  'number_of_packages': { factKey: 'cargo.pieces_count', category: 'cargo', valueType: 'number' },
+  'customer_name': { factKey: 'contacts.client_company', category: 'contacts', valueType: 'text' },
+  'supplier_name': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
 };
 
 // --- M3.5.1: Assumption rules by flow type ---
