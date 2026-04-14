@@ -339,6 +339,13 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'incoterm': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
   'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
   'devise': { factKey: 'cargo.value_currency', category: 'cargo', valueType: 'text' },
+  // Variantes de clés produites par analyze-attachments (COMPOSITE-DOC-1 / patch build-case-puzzle)
+  'total_weight_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'vessel_name': { factKey: 'transport.vessel', category: 'transport', valueType: 'text' },
+  'bl_number': { factKey: 'transport.bl_number', category: 'transport', valueType: 'text' },
+  'number_of_packages': { factKey: 'cargo.pieces_count', category: 'cargo', valueType: 'number' },
+  'customer_name': { factKey: 'contacts.client_company', category: 'contacts', valueType: 'text' },
+  'supplier_name': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
 };
 
 // --- M3.5.1: Assumption rules by flow type ---
@@ -536,7 +543,13 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
     if (/Sous[- ]?total\s+HT/i.test(line)) {
       const v = parseAmount(lastMatch);
       if (v) { result.goodsValue = v; result.goodsSource = 'goods_from_sous_total'; }
+    } else if (/\b(?:CFR|CAF|CIF)\b/i.test(line) && !result.goodsValue) {
+      const v = parseAmount(lastMatch);
+      if (v) { result.goodsValue = v; result.goodsSource = 'goods_from_incoterm_value'; }
     } else if (/Transport\s+(?:Export|International)/i.test(line)) {
+      const v = parseAmount(lastMatch);
+      if (v) result.freightValue = v;
+    } else if (/\b(?:FRET|FREIGHT|FOB)\b/i.test(line) && !result.freightValue) {
       const v = parseAmount(lastMatch);
       if (v) result.freightValue = v;
     } else if (/(?:Montant|Total)\s+HT/i.test(line) && !result.totalValue) {
@@ -1453,7 +1466,129 @@ async function injectAttachmentFacts(
     }
   }
 
-  // --- Inject cargo.articles_detail if multiple items with values exist ---
+  // --- Patch B: Exploit attachment tariff_lines for cargo.value / cargo.freight_cost ---
+  for (const attachment of attachments) {
+    const tariffLines = (attachment.extracted_data as any)?.tariff_lines;
+    if (!Array.isArray(tariffLines) || tariffLines.length === 0) continue;
+
+    for (const tl of tariffLines) {
+      if (!tl || typeof tl !== 'object') continue;
+      const service = String(tl.service ?? tl.designation ?? '');
+      const rawAmount = tl.amount ?? tl.montant;
+      if (rawAmount == null) continue;
+
+      const amount = typeof rawAmount === 'number' ? rawAmount : parseRobustNumber(String(rawAmount));
+      if (amount == null || amount <= 0) continue;
+
+      const currency = String(tl.currency ?? tl.devise ?? '').trim() || null;
+
+      // CFR / CAF / CIF → cargo.value + cargo.value_currency
+      if (/\b(?:CFR|CAF|CIF)\b/i.test(service)) {
+        if (!injectedKeys.has('cargo.value')) {
+          const existingSource = factSourceMap.get('cargo.value');
+          if (!MANUAL_PROTECTED_SOURCES.has(existingSource ?? '') && existingSource !== 'attachment_extracted') {
+            const { error: rpcErr } = await serviceClient.rpc('supersede_fact', {
+              p_case_id: caseId,
+              p_fact_key: 'cargo.value',
+              p_fact_category: 'cargo',
+              p_value_text: null,
+              p_value_number: amount,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: 'attachment_extracted',
+              p_source_email_id: attachment.email_id || null,
+              p_source_attachment_id: attachment.id,
+              p_source_excerpt: `[${attachment.filename}] tariff_line: ${service} = ${amount}`,
+              p_confidence: 0.90,
+            });
+            if (!rpcErr) {
+              injectedKeys.add('cargo.value');
+              factSourceMap.set('cargo.value', 'attachment_extracted');
+              result.added++;
+              await serviceClient.from('case_timeline_events').insert({
+                case_id: caseId, event_type: 'fact_injected_from_attachment',
+                event_data: { fact_key: 'cargo.value', attachment_id: attachment.id, filename: attachment.filename, source_field: `tariff_line:${service}` },
+                actor_type: 'system',
+              });
+              // Inject currency only if amount was successfully injected
+              if (currency && !injectedKeys.has('cargo.value_currency')) {
+                const existCurr = factSourceMap.get('cargo.value_currency');
+                if (!MANUAL_PROTECTED_SOURCES.has(existCurr ?? '') && existCurr !== 'attachment_extracted') {
+                  await serviceClient.rpc('supersede_fact', {
+                    p_case_id: caseId, p_fact_key: 'cargo.value_currency', p_fact_category: 'cargo',
+                    p_value_text: currency, p_value_number: null, p_value_json: null, p_value_date: null,
+                    p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
+                    p_source_attachment_id: attachment.id,
+                    p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
+                    p_confidence: 0.90,
+                  });
+                  injectedKeys.add('cargo.value_currency');
+                  factSourceMap.set('cargo.value_currency', 'attachment_extracted');
+                  result.added++;
+                }
+              }
+            } else {
+              console.error(`[tariff_lines] Failed to inject cargo.value from ${attachment.filename}:`, rpcErr);
+            }
+          }
+        }
+      }
+
+      // Fret / Freight → cargo.freight_cost + cargo.freight_currency
+      if (/\b(?:FRET|FREIGHT)\b/i.test(service)) {
+        if (!injectedKeys.has('cargo.freight_cost')) {
+          const existingSource = factSourceMap.get('cargo.freight_cost');
+          if (!MANUAL_PROTECTED_SOURCES.has(existingSource ?? '') && existingSource !== 'attachment_extracted') {
+            const { error: rpcErr } = await serviceClient.rpc('supersede_fact', {
+              p_case_id: caseId,
+              p_fact_key: 'cargo.freight_cost',
+              p_fact_category: 'cargo',
+              p_value_text: null,
+              p_value_number: amount,
+              p_value_json: null,
+              p_value_date: null,
+              p_source_type: 'attachment_extracted',
+              p_source_email_id: attachment.email_id || null,
+              p_source_attachment_id: attachment.id,
+              p_source_excerpt: `[${attachment.filename}] tariff_line: ${service} = ${amount}`,
+              p_confidence: 0.90,
+            });
+            if (!rpcErr) {
+              injectedKeys.add('cargo.freight_cost');
+              factSourceMap.set('cargo.freight_cost', 'attachment_extracted');
+              result.added++;
+              await serviceClient.from('case_timeline_events').insert({
+                case_id: caseId, event_type: 'fact_injected_from_attachment',
+                event_data: { fact_key: 'cargo.freight_cost', attachment_id: attachment.id, filename: attachment.filename, source_field: `tariff_line:${service}` },
+                actor_type: 'system',
+              });
+              // Inject freight currency only if freight cost was successfully injected
+              if (currency && !injectedKeys.has('cargo.freight_currency')) {
+                const existCurr = factSourceMap.get('cargo.freight_currency');
+                if (!MANUAL_PROTECTED_SOURCES.has(existCurr ?? '') && existCurr !== 'attachment_extracted') {
+                  await serviceClient.rpc('supersede_fact', {
+                    p_case_id: caseId, p_fact_key: 'cargo.freight_currency', p_fact_category: 'cargo',
+                    p_value_text: currency, p_value_number: null, p_value_json: null, p_value_date: null,
+                    p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
+                    p_source_attachment_id: attachment.id,
+                    p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
+                    p_confidence: 0.90,
+                  });
+                  injectedKeys.add('cargo.freight_currency');
+                  factSourceMap.set('cargo.freight_currency', 'attachment_extracted');
+                  result.added++;
+                }
+              }
+            } else {
+              console.error(`[tariff_lines] Failed to inject cargo.freight_cost from ${attachment.filename}:`, rpcErr);
+            }
+          }
+        }
+      }
+    }
+  }
+
+
   try {
     for (const attachment of attachments) {
       const extractedInfo = (attachment.extracted_data as any)?.extracted_info || attachment.extracted_data;
