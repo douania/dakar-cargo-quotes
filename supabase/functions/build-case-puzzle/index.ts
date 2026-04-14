@@ -1342,6 +1342,107 @@ async function injectAttachmentFacts(
   // Track which fact_keys we've already injected in this pass (first occurrence wins)
   const injectedKeys = new Set<string>();
 
+  // --- COMPOSITE-DOC-2: Pre-pass on documents[] for prioritized fact extraction ---
+  for (const attachment of attachments) {
+    const documents = (attachment.extracted_data as any)?.documents;
+    if (!Array.isArray(documents) || documents.length === 0) continue;
+
+    for (const [targetFactKey, priorityList] of Object.entries(DOC_TYPE_PRIORITY)) {
+      if (injectedKeys.has(targetFactKey)) continue;
+      const existingSource = factSourceMap.get(targetFactKey);
+      if (MANUAL_PROTECTED_SOURCES.has(existingSource ?? '')) continue;
+      if (existingSource === 'attachment_extracted') continue;
+
+      // Walk priority list: first doc_type with a valid value wins
+      let bestValue: string | number | null = null;
+      let bestDocType: string | null = null;
+
+      for (const preferredDocType of priorityList) {
+        const doc = documents.find((d: any) => d?.doc_type === preferredDocType);
+        if (!doc) continue;
+
+        // Financial facts: scan tariff_lines inside the sub-document
+        if (['cargo.value', 'cargo.value_currency', 'cargo.freight_cost', 'cargo.freight_currency'].includes(targetFactKey)) {
+          const tls = Array.isArray(doc.tariff_lines) ? doc.tariff_lines : [];
+          for (const tl of tls) {
+            if (!tl || typeof tl !== 'object') continue;
+            const svc = String(tl.service ?? tl.designation ?? '');
+            const rawAmt = tl.amount ?? tl.montant;
+            const amt = rawAmt == null ? null : (typeof rawAmt === 'number' ? rawAmt : parseRobustNumber(String(rawAmt)));
+            const cur = String(tl.currency ?? tl.devise ?? '').trim() || null;
+
+            if (targetFactKey === 'cargo.value' && /\b(?:CFR|CAF|CIF)\b/i.test(svc) && amt != null && amt > 0) {
+              bestValue = amt; bestDocType = preferredDocType; break;
+            }
+            if (targetFactKey === 'cargo.value_currency' && /\b(?:CFR|CAF|CIF)\b/i.test(svc) && cur) {
+              bestValue = cur; bestDocType = preferredDocType; break;
+            }
+            if (targetFactKey === 'cargo.freight_cost' && /\b(?:FRET|FREIGHT)\b/i.test(svc) && amt != null && amt > 0) {
+              bestValue = amt; bestDocType = preferredDocType; break;
+            }
+            if (targetFactKey === 'cargo.freight_currency' && /\b(?:FRET|FREIGHT)\b/i.test(svc) && cur) {
+              bestValue = cur; bestDocType = preferredDocType; break;
+            }
+          }
+          if (bestValue != null) break;
+          continue;
+        }
+
+        // Non-financial facts: scan extracted_info via ATTACHMENT_FACT_MAPPING
+        const info = doc.extracted_info;
+        if (!info || typeof info !== 'object') continue;
+
+        for (const [rawKey, rawVal] of Object.entries(info)) {
+          if (rawVal == null || rawVal === '') continue;
+          const normKey = normalizeExtractedKey(rawKey);
+          const mapping = ATTACHMENT_FACT_MAPPING[normKey];
+          if (!mapping || mapping.factKey !== targetFactKey) continue;
+
+          if (mapping.valueType === 'number') {
+            const num = typeof rawVal === 'number' ? rawVal : parseRobustNumber(String(rawVal));
+            if (num != null && num > 0) { bestValue = num; bestDocType = preferredDocType; break; }
+          } else {
+            const txt = String(Array.isArray(rawVal) ? (rawVal as any[]).join(', ') : rawVal).trim();
+            if (txt) { bestValue = txt; bestDocType = preferredDocType; break; }
+          }
+        }
+        if (bestValue != null) break;
+      }
+
+      // Inject if we found a valid value
+      if (bestValue == null || bestDocType == null) continue;
+
+      const mapping = Object.values(ATTACHMENT_FACT_MAPPING).find(m => m.factKey === targetFactKey);
+      const category = mapping?.category ?? targetFactKey.split('.')[0];
+      const isNum = typeof bestValue === 'number';
+
+      const { error: rpcErr } = await serviceClient.rpc('supersede_fact', {
+        p_case_id: caseId,
+        p_fact_key: targetFactKey,
+        p_fact_category: category,
+        p_value_text: isNum ? null : String(bestValue),
+        p_value_number: isNum ? bestValue : null,
+        p_value_json: null,
+        p_value_date: null,
+        p_source_type: 'attachment_extracted',
+        p_source_email_id: attachment.email_id || null,
+        p_source_attachment_id: attachment.id,
+        p_source_excerpt: `[COMPOSITE-DOC-2][${bestDocType}][${attachment.filename}] ${targetFactKey}`,
+        p_confidence: 0.95,
+      });
+
+      if (!rpcErr) {
+        injectedKeys.add(targetFactKey);
+        factSourceMap.set(targetFactKey, 'attachment_extracted');
+        result.added++;
+        console.log(`[COMPOSITE-DOC-2] Injected ${targetFactKey} from ${bestDocType} in ${attachment.filename}`);
+      } else {
+        console.error(`[COMPOSITE-DOC-2] Failed ${targetFactKey} from ${bestDocType}:`, rpcErr);
+      }
+    }
+  }
+  // --- END COMPOSITE-DOC-2 pre-pass ---
+
   for (const attachment of attachments) {
     // Try both formats:
     // Format 1: extracted_data.extracted_info.* (packing lists, B/L)
