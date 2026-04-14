@@ -556,7 +556,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | COMPOSITE-DOC-3 |
 | **Catégorie** | UI / Case documents |
-| **Statut** | `ouvert` |
+| **Statut** | `done` — implémenté dans `AnalysisResultsDisplay.tsx` (section Collapsible avec doc_type/page_range/confidence/summary) |
 | **Priorité** | Moyenne |
 | **Phase d'origine** | COMPOSITE-DOC-1 |
 | **Date** | 2026-04-14 |
@@ -586,7 +586,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | COMPOSITE-DOC-3 |
 | **Catégorie** | UI / Attachments |
-| **Statut** | `ouvert` |
+| **Statut** | `done` — fusionné avec l'entrée COMPOSITE-DOC-3 ci-dessus |
 | **Priorité** | Basse |
 | **Phase d'origine** | COMPOSITE-DOC-2 |
 | **Date** | 2026-04-14 |

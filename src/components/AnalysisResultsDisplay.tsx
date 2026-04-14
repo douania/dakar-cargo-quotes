@@ -10,9 +10,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Download, FileSpreadsheet, Loader2, CheckCircle } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, CheckCircle, ChevronRight, FileStack } from 'lucide-react';
 
 interface TariffLine {
   service?: string;
@@ -75,11 +76,85 @@ const formatAmount = (amount: number | undefined, currency?: string): string => 
   return `${amount.toLocaleString('fr-FR')} ${currency || 'XOF'}`;
 };
 
+// --- Composite documents support (COMPOSITE-DOC-3) ---
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  'commercial_invoice': 'Facture commerciale',
+  'bill_of_lading': 'Connaissement (BL)',
+  'packing_list': 'Liste de colisage',
+  'transit_order': 'Ordre de transit',
+  'insurance_certificate': "Certificat d'assurance",
+  'dpi': 'DPI',
+  'customs_financial_statement': 'Règlement financier douanier',
+};
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'bg-green-100 text-green-800 border-green-300',
+  medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  low: 'bg-red-100 text-red-800 border-red-300',
+};
+
+interface SubDocument {
+  doc_type?: string;
+  page_range?: string;
+  confidence?: string;
+  summary?: string;
+  extracted_info?: Record<string, unknown>;
+  tariff_lines?: unknown[];
+}
+
+function CompositeDocumentsSection({ documents }: { documents: SubDocument[] }) {
+  return (
+    <div className="space-y-2 mb-4">
+      <div className="flex items-center gap-2">
+        <FileStack className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Sous-documents détectés</span>
+        <Badge variant="secondary" className="text-xs">{documents.length}</Badge>
+      </div>
+      <div className="space-y-1">
+        {documents.map((doc, idx) => (
+          <Collapsible key={idx}>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-left text-sm p-2 rounded-md hover:bg-muted/50 transition-colors group">
+              <ChevronRight className="h-3 w-3 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+              <span className="font-medium">
+                {DOC_TYPE_LABELS[doc.doc_type || ''] || doc.doc_type || 'Inconnu'}
+              </span>
+              {doc.page_range && (
+                <Badge variant="outline" className="text-xs">p. {doc.page_range}</Badge>
+              )}
+              {doc.confidence && (
+                <Badge variant="outline" className={`text-xs ${CONFIDENCE_COLORS[doc.confidence] || ''}`}>
+                  {doc.confidence}
+                </Badge>
+              )}
+              {doc.tariff_lines && doc.tariff_lines.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {doc.tariff_lines.length} ligne(s)
+                </Badge>
+              )}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pl-7 pb-2">
+              {doc.summary && (
+                <p className="text-xs text-muted-foreground mb-1">{doc.summary}</p>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- Main component ---
+
 export function AnalysisResultsDisplay({ extractedData, attachmentId }: AnalysisResultsDisplayProps) {
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState(false);
 
   const analysisType = getAnalysisType(extractedData);
+  const compositeDocuments = Array.isArray(extractedData?.documents) && extractedData.documents.length > 0
+    ? (extractedData.documents as SubDocument[])
+    : null;
   
   // Combine transport_rates and tariff_lines with destinations
   const allRates: TariffLine[] = [
@@ -155,6 +230,7 @@ export function AnalysisResultsDisplay({ extractedData, attachmentId }: Analysis
 
     return (
       <div className="space-y-4">
+        {compositeDocuments && <CompositeDocumentsSection documents={compositeDocuments} />}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-green-500" />
@@ -229,6 +305,7 @@ export function AnalysisResultsDisplay({ extractedData, attachmentId }: Analysis
 
     return (
       <div className="space-y-4">
+        {compositeDocuments && <CompositeDocumentsSection documents={compositeDocuments} />}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-green-500" />
@@ -289,6 +366,7 @@ export function AnalysisResultsDisplay({ extractedData, attachmentId }: Analysis
   // Generic JSON view for other types
   return (
     <div className="space-y-2">
+      {compositeDocuments && <CompositeDocumentsSection documents={compositeDocuments} />}
       <h5 className="text-sm font-medium">Données extraites</h5>
       {extractedData.document_type && (
         <Badge variant="outline" className="mb-2">{extractedData.document_type}</Badge>
