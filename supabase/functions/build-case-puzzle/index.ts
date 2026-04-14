@@ -543,7 +543,13 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
     if (/Sous[- ]?total\s+HT/i.test(line)) {
       const v = parseAmount(lastMatch);
       if (v) { result.goodsValue = v; result.goodsSource = 'goods_from_sous_total'; }
+    } else if (/\b(?:CFR|CAF|CIF)\b/i.test(line) && !result.goodsValue) {
+      const v = parseAmount(lastMatch);
+      if (v) { result.goodsValue = v; result.goodsSource = 'goods_from_incoterm_value'; }
     } else if (/Transport\s+(?:Export|International)/i.test(line)) {
+      const v = parseAmount(lastMatch);
+      if (v) result.freightValue = v;
+    } else if (/\b(?:FRET|FREIGHT|FOB)\b/i.test(line) && !result.freightValue) {
       const v = parseAmount(lastMatch);
       if (v) result.freightValue = v;
     } else if (/(?:Montant|Total)\s+HT/i.test(line) && !result.totalValue) {
