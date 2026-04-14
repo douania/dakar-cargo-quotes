@@ -535,6 +535,51 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## COMPOSITE-DOC-2 — Exploitation de documents[] dans build-case-puzzle
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COMPOSITE-DOC-2 |
+| **Catégorie** | Extraction / Puzzle pipeline |
+| **Statut** | `ouvert` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COMPOSITE-DOC-1 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Dès que COMPOSITE-DOC-1 est déployé et validé sur un PDF composite réel. |
+| **Recommandation** | Dans `build-case-puzzle`, exploiter `extracted_data.documents[]` pour un mapping différencié par `doc_type` : priorité de source par type documentaire (ex: `commercial_invoice` pour `cargo.value`, `bill_of_lading` pour `transport.bl_number`). Ne pas fusionner aveuglément les sous-documents. |
+
+---
+
+## COMPOSITE-DOC-3 — Affichage UI des sous-documents
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COMPOSITE-DOC-3 |
+| **Catégorie** | UI / Case documents |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COMPOSITE-DOC-1 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Quand COMPOSITE-DOC-2 est en place et que les sous-documents sont exploités dans les faits. |
+| **Recommandation** | Afficher dans `AnalysisResultsDisplay` et/ou `CaseDocumentsTab` les sous-documents détectés (`documents[]`) avec leur type, plage de pages, et résumé. Permettre à l'opérateur de voir la provenance des données extraites. |
+
+---
+
+## ATT-REANALYZE — Mécanisme de re-analyse pour PJ non-error
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | ATT-REANALYZE |
+| **Catégorie** | Attachment pipeline / Lifecycle |
+| **Statut** | `ouvert` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COMPOSITE-DOC-1 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Besoin de re-analyser une PJ déjà analysée (type ≠ error) avec un prompt enrichi. |
+| **Recommandation** | `reset_attachment_for_retry` est réservé aux PJ en statut `error`. Il faut un mécanisme propre (ex: RPC dédiée ou flag `force_reanalyze`) pour permettre la re-analyse d'une PJ déjà traitée sans contourner le runtime par manipulation manuelle du type. |
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
