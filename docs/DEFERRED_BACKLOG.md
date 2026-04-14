@@ -625,8 +625,56 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## Audit CTO consolidé — 2026-04-14
+
+> Cette section distingue strictement les constats prouvés par le repo, les constats issus du runtime/cloud externe, et les sujets restant à confirmer. Aucun point runtime externe ne doit être promu au rang de vérité repo sans preuve dans le dépôt.
+>
+> Tout correctif technique futur doit mettre à jour cette section au moment du patch.
+
+### A. Confirmé par le repo
+
+| ID | Sévérité | Statut | Preuve | Impact | Plus petit correctif sûr |
+|----|----------|--------|--------|--------|--------------------------|
+| AUTH-HIST-1 | critical | open | `quotation-engine/index.ts` L383-387 envoie `Bearer ${serviceKey}` à `suggest-historical-lines`. `suggest-historical-lines/index.ts` L110-120 valide via `anonClient.auth.getUser(token)` — un service role key n'est pas un JWT GoTrue → échec systématique. | Suggestions historiques mortes silencieusement. `quotation-engine` log des UPSTREAM_DB_ERROR 401. Fonctionnalité entière (recommandation de lignes tarifaires historiques) inopérante. | Fix dans `suggest-historical-lines` (non FROZEN) : accepter service role key comme auth alternative. |
+| OUTCOME-AUTH-1 | high | open | `close-commercial-outcome/index.ts` L87 : `userId = authResult.id`. Mais `_shared/auth.ts` L15-18 : `AuthResult = { user: { id }, token }` → `authResult.id` est `undefined`. Conséquence directe : `actor_user_id` est `null` dans timeline events `status_changed` (SENT→ACCEPTED/REJECTED), et dans tous les `logRuntimeEvent` de cette fonction. | Traçabilité opérateur perdue sur tous les outcomes commerciaux. Pas un stop-ship du pipeline canonique mais perte d'audit trail. | Changer L87 en `userId = authResult.user.id` (1 ligne). |
+| UI-ADMIN-1 | medium | deferred (= P2B) | `QuotationSheet.tsx` L1206 appelle `data-admin` action `create_knowledge`. `data-admin/index.ts` est protégé par `requireAdmin`. Un opérateur non-admin reçoit un 403. | Fonctionnalité apprentissage inaccessible aux non-admins depuis QuotationSheet. | Déplacer vers `data-query` ou endpoint dédié, ou maintenir admin-only (décision produit). Voir P2B. |
+| TIMELINE-DEDUPE-1 | low | open | `create-quotation-email-draft/index.ts` écrit `quotation_email_draft_v1` sans `dedupe_key`. | Doublons timeline possibles mais atténués par try/catch best-effort. | Ajouter `dedupe_key` (1 ligne). |
+| GENERATE-RESPONSE-LIVE | medium | watchlist | `emailService.ts` L105, L500 ; `Emails.tsx` L367 ; `QuotationSheet.tsx` L1366 — `generate-response` encore appelé depuis l'UI (fallback C1 + legacy paths). | Fonction legacy vivante, appelle `quotation-engine` (FROZEN). Pas morte. | Aucun correctif immédiat — legacy vivant par design. |
+
+### B. Confirmé par runtime/cloud externe (source : audit Lovable 2026-04-14)
+
+> Les constats ci-dessous proviennent d'observations runtime et requêtes DB live effectuées lors de l'audit. Ils ne sont pas prouvables par le seul dépôt de code.
+
+| ID | Sévérité | Source | Impact | Statut |
+|----|----------|--------|--------|--------|
+| OBS-HIST-1 | info | `runtime_events` : 126 erreurs AUTH_INVALID_JWT pour `suggest-historical-lines` | Confirme AUTH-HIST-1 en production réelle | lié à AUTH-HIST-1 |
+| ATTACH-OPS-1 | medium | DB live : 114/259 PJ non analysées (44%) | Facts potentiellement manquants sur dossiers anciens. PJ-ANALYSIS-ON-PUZZLE les traite progressivement au rebuild. | watchlist |
+| PRICING-RUNS-WATCH-1 | low | DB live : 30 pricing runs `failed`, 20 `blocked` sur 133 total | À surveiller — vérifier si récurrents ou ponctuels anciens | watchlist |
+| CONTACTS-DENY-1 | low | pg_policies live : DENY ALL sur table `contacts`. Aucun usage UI actif identifié lors de la revue repo. | Table dormante de facto. | dormant |
+| TENDER-POLICY-1 | low | pg_policies live : 2 policies SELECT identiques sur `tender_segments` | Doublon fonctionnel, pas d'impact | watchlist |
+
+### C. À confirmer
+
+| ID | Sujet | Ce qu'il faut vérifier |
+|----|-------|----------------------|
+| COMM-SCHEMA-1 | Drift repo ↔ schéma DB sur tables communication canoniques | Comparer les colonnes réellement présentes dans `external_quote_requests`, `client_gap_requests`, `external_quote_responses`, `external_quote_response_facts`, `partner_response_suggestions` avec ce que le code attend |
+| ARCHIVED-WRITER-1 | Statut ARCHIVED en DB (14 cas en ARCHIVED) mais aucun writer canonique actif | Vérifier si ces 14 cas ont été archivés par migration manuelle, script ponctuel, ou ancien code supprimé. L'origine n'est pas établie dans le runtime canonique actuel. |
+
+### D. Ordre exact recommandé des prochains lots
+
+1. **AUTH-HIST-1** — Fix auth `suggest-historical-lines` (critique, 1 fichier, ~15 lignes)
+2. **OUTCOME-AUTH-1** — Fix `close-commercial-outcome` L87 (haute, 1 ligne)
+3. **TIMELINE-DEDUPE-1** — Ajouter `dedupe_key` (basse, 1 ligne)
+4. Vérification COMM-SCHEMA-1 / ARCHIVED-WRITER-1
+5. Dette PJ anciennes (ATTACH-OPS-1)
+6. EXPORT-QE-FROZEN (déjà deferred)
+7. Dette secondaire (tender policy doublon, CaseView taille)
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)
+- **Audit CTO consolidé** : 2026-04-14 (repo + runtime/cloud externe)
 
 Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'auraient laissé aucune trace dans le code ou la documentation ne sont **pas** listés ici. Pour les capturer, fournir les résumés/prompts des anciens chats.

@@ -29,7 +29,7 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 | 12 | `HUMAN_REVIEW` | Revue humaine | Statut conservé à titre historique et de compatibilité documentaire. **Hors pipeline canonique actuel** : présent dans l'enum DB et supporté défensivement par `generate-quotation-version`, mais aucun writer canonique actif ne pousse vers ce statut depuis la suppression de `generate-case-outputs` en M26b. La revue humaine se fait implicitement lors de la création de version depuis `PRICED_DRAFT`. | ❌ aucun writer canonique actif (fonction historique supprimée en M26b) | dormant | CaseView, CaseCard |
 | 13 | `QUOTED_VERSIONED` | Versionné | Version de cotation générée | `generate-quotation-version` | active | CaseView, CaseCard |
 | 14 | `SENT` | Envoyé | Cotation envoyée au client | `send-quotation` | terminal | CaseView, CaseCard |
-| 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucune (dormant) | dormant | CaseView, CaseCard |
+| 15 | `ARCHIVED` | Archivé | Dossier clos (action manuelle future) | ❌ aucun writer canonique actif identifié dans le runtime actuel (dormant) | dormant | CaseView, CaseCard |
 | 16 | `ACCEPTED` | Accepté | Client a accepté le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
 | 17 | `REJECTED` | Refusé | Client a refusé le devis | `close-commercial-outcome` | terminal | CaseView, CaseCard |
 
@@ -87,7 +87,7 @@ L'enum DB `quote_case_status` contient 17 valeurs.
 
 ## 4. Open questions
 
-1. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`, mais jamais écrit par le runtime. Probablement prévu comme action manuelle future.
+1. **ARCHIVED** : présent dans l'enum DB et dans `FROZEN_STATUSES`. 14 cas en statut ARCHIVED dans la DB live. Aucun writer canonique actif identifié dans le runtime actuel. L'origine de ces cas historiques en base n'est pas établie ici.
 
 2. **Transitions croisées ACCEPTED ↔ REJECTED** : interdites par `close-commercial-outcome`. Si un opérateur se trompe, aucun mécanisme de correction n'est prévu dans le runtime actuel.
 
