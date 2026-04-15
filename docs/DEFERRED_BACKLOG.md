@@ -662,7 +662,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ### D. Ordre exact recommandé des prochains lots
 
-1. **AUTH-HIST-1** — Fix auth `suggest-historical-lines` (critique, 1 fichier, ~15 lignes)
+1. ~~**AUTH-HIST-1**~~ — ✅ Patched 2026-04-15 (dual-path auth déployé)
 2. **OUTCOME-AUTH-1** — Fix `close-commercial-outcome` L87 (haute, 1 ligne)
 3. **TIMELINE-DEDUPE-1** — Ajouter `dedupe_key` (basse, 1 ligne)
 4. Vérification COMM-SCHEMA-1 / ARCHIVED-WRITER-1
