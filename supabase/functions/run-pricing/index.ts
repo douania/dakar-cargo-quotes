@@ -1740,9 +1740,10 @@ Deno.serve(async (req) => {
           console.warn('[P5] Package enrichment failed, continuing:', p5Error);
         }
       }
+      } // end else (standard import/transit path)
 
       // ═══ isMaritime — hoisted for PAD-GAP-1 + terminal storage ═══
-      const isMaritime = !String(caseData.request_type || '').toUpperCase().includes('AIR');
+      const isMaritime = !isExportFlow && !String(caseData.request_type || '').toUpperCase().includes('AIR');
 
       // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
       // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
