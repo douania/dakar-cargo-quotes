@@ -368,6 +368,7 @@ Deno.serve(async (req: Request) => {
       actor_type: "user",
       event_data: {
         kind: "quotation_email_draft_v1",
+        dedupe_key: `quotation_email_draft_v1:${versionId}`,
         draft_id: newDraft.id,
         version_id: versionId,
         generation_mode: generationMode,
