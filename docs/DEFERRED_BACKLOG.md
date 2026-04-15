@@ -191,12 +191,15 @@ Dernière mise à jour : 2026-04-15
 |-------|--------|
 | **ID** | EXPORT-QE-FROZEN |
 | **Catégorie** | Moteur de pricing |
-| **Statut** | `deferred` |
-| **Priorité** | Moyenne |
+| **Statut** | `partially_resolved` |
+| **Priorité** | Basse (risque mitigé) |
 | **Phase d'origine** | Phase 15+ (export SENEGAL) |
 | **Date** | 2026-04-07 |
-| **Déclencheur de réouverture** | Quand quotation-engine sera dégelé ou qu'un client exige une cotation export sans lignes import parasites |
-| **Recommandation** | Le moteur FROZEN `quotation-engine` continue de produire des lignes honoraires génériques (fee_clearance, fee_follow_up, fee_file, fee_docs) car il opère en operationType=IMPORT. Le patch `run-pricing` corrige l'injection package lot-level et le scope P5, mais les lignes moteur FROZEN restent. Nécessite un dégel ciblé de quotation-engine pour supporter un operationType EXPORT. |
+| **Date de résolution partielle** | 2026-04-15 |
+| **Déclencheur de réouverture** | Si un nouveau package EXPORT_* nécessite des enrichments spécifiques (PAD, terminal storage) non couverts par price-service-lines |
+| **Résolution appliquée** | Guard export chirurgical dans `run-pricing` : les packages `EXPORT_*` bypass quotation-engine entièrement (mono-lot + multi-lot). Le pricing export s'appuie uniquement sur `price-service-lines` avec `scope: 'export'` et `pricing_context_override`. Aucune ligne import parasite ne peut être produite. Les enrichments PAD/terminal storage (import-oriented) sont naturellement skippés pour les flux export. |
+| **Dette résiduelle** | Le moteur `quotation-engine` reste FROZEN et structurellement import-oriented (`effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT'`). Un dégel ciblé sera nécessaire uniquement si les flux export requièrent des fonctionnalités du moteur non couvertes par `price-service-lines` (ex: calcul de droits de douane export, CAF recomposition). |
+| **Recommandation** | Aucune action immédiate. Le guard est suffisant pour le périmètre export actuel (EXPORT_SENEGAL). Réévaluer si un package EXPORT_DDP ou EXPORT_CIF apparaît. |
 
 ---
 
