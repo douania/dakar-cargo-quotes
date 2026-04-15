@@ -863,6 +863,23 @@ Deno.serve(async (req) => {
 
       for (const lc of lotChecks) {
         try {
+          // ═══ EXPORT GUARD (multi-lot): bypass quotation-engine for EXPORT_* packages ═══
+          const lotPkgKey = String(lc.servicePackage || '').trim().toUpperCase();
+          const isLotExportFlow = lotPkgKey.startsWith('EXPORT_');
+
+          let lotEngineResponse: any;
+
+          if (isLotExportFlow) {
+            console.log(`[EXPORT-GUARD] Lot ${lc.lot_index}: EXPORT package "${lotPkgKey}" detected — bypassing quotation-engine`);
+            // Synthetic response: proven minimal shape consumed by downstream
+            lotEngineResponse = {
+              lines: [],
+              totals: { honoraires: 0, debours: 0 },
+              currency: 'XOF',
+              duty_breakdown: [],
+              version: 'export-guard-v1',
+            };
+          } else {
           const engineParams = {
             finalDestination: lc.inputs.finalDestination,
             originPort: lc.inputs.originPort,
@@ -895,7 +912,8 @@ Deno.serve(async (req) => {
             throw new Error(`Lot ${lc.lot_index}: quotation-engine error: ${engineRes.status} - ${errorText}`);
           }
 
-          const lotEngineResponse = await engineRes.json();
+          lotEngineResponse = await engineRes.json();
+          } // end else (non-export)
           const lotLines = (lotEngineResponse.lines || lotEngineResponse.quotationLines || [])
             .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
 
