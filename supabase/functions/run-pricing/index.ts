@@ -928,7 +928,7 @@ Deno.serve(async (req) => {
           const engineRes = await fetch(engineUrl, {
             method: "POST",
             headers: { Authorization: authHeader, "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "generate", params: engineParams }),
+            body: JSON.stringify({ action: "generate", params: lotEngineParams }),
           });
 
           if (!engineRes.ok) {
