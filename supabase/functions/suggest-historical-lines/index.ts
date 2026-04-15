@@ -139,7 +139,7 @@ Deno.serve(async (req: Request) => {
   );
 
   try {
-    // 1. Auth
+    // 1. Auth — dual-path: service-role (internal) or user JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       await logRuntimeEvent(serviceClient, {
@@ -149,24 +149,41 @@ Deno.serve(async (req: Request) => {
       return respondError({ code: "AUTH_MISSING_JWT", message: "Authorization header missing or malformed", correlationId });
     }
 
-    const anonClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    if (claimsError || !claimsData?.claims) {
+    let userId: string | undefined;
+    let authMeta: JsonObject | undefined;
+
+    if (token === serviceRoleKey) {
+      // Internal service-role invocation (e.g. from quotation-engine)
+      // userId stays undefined — traceability via meta
+      authMeta = { auth_mode: "service_role", caller: "quotation-engine" };
       await logRuntimeEvent(serviceClient, {
-        correlationId, functionName: FN, status: "fatal_error",
-        errorCode: "AUTH_INVALID_JWT", httpStatus: 401, durationMs: Date.now() - t0,
+        correlationId, functionName: FN, op: "auth_service_role",
+        status: "ok", httpStatus: 200, durationMs: Date.now() - t0,
+        meta: authMeta,
       });
-      return respondError({ code: "AUTH_INVALID_JWT", message: "Invalid or expired JWT", correlationId });
-    }
+    } else {
+      // Standard user JWT path (unchanged)
+      const anonClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
 
-    const userId = claimsData.claims.sub as string;
+      const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+
+      if (claimsError || !claimsData?.claims) {
+        await logRuntimeEvent(serviceClient, {
+          correlationId, functionName: FN, status: "fatal_error",
+          errorCode: "AUTH_INVALID_JWT", httpStatus: 401, durationMs: Date.now() - t0,
+        });
+        return respondError({ code: "AUTH_INVALID_JWT", message: "Invalid or expired JWT", correlationId });
+      }
+
+      userId = claimsData.claims.sub as string;
+    }
 
     // 2. Parse & validate
     const input: RecommendationInput = await req.json();
