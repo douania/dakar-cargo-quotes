@@ -196,10 +196,12 @@ Dernière mise à jour : 2026-04-15
 | **Phase d'origine** | Phase 15+ (export SENEGAL) |
 | **Date** | 2026-04-07 |
 | **Date de résolution partielle** | 2026-04-15 |
-| **Déclencheur de réouverture** | Si un nouveau package EXPORT_* nécessite des enrichments spécifiques (PAD, terminal storage) non couverts par price-service-lines |
+| **Déclencheur de réouverture** | Si un nouveau package EXPORT_* nécessite des enrichments spécifiques (PAD, terminal storage) non couverts par price-service-lines, ou si la classification honoraires/debours doit évoluer |
 | **Résolution appliquée** | Guard export chirurgical dans `run-pricing` : les packages `EXPORT_*` bypass quotation-engine entièrement (mono-lot + multi-lot). Le pricing export s'appuie uniquement sur `price-service-lines` avec `scope: 'export'` et `pricing_context_override`. Aucune ligne import parasite ne peut être produite. Les enrichments PAD/terminal storage (import-oriented) sont naturellement skippés pour les flux export. |
-| **Dette résiduelle** | Le moteur `quotation-engine` reste FROZEN et structurellement import-oriented (`effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT'`). Un dégel ciblé sera nécessaire uniquement si les flux export requièrent des fonctionnalités du moteur non couvertes par `price-service-lines` (ex: calcul de droits de douane export, CAF recomposition). |
-| **Recommandation** | Aucune action immédiate. Le guard est suffisant pour le périmètre export actuel (EXPORT_SENEGAL). Réévaluer si un package EXPORT_DDP ou EXPORT_CIF apparaît. |
+| **Convention de classification (Option A — provisoire)** | `AGENCY` → honoraires SODATRA (soumis TVA 18%). Toutes les autres lignes export P5 (`PORT_CHARGES`, `THC_EXPORT`, `CUSTOMS_EXPORT`, `DOCUMENTATION_BL`, `VGM_WEIGHING`, `SEA_FREIGHT`) → opérationnel (non soumis TVA SODATRA). `debours = 0` (pas de droits & taxes de sortie en export sénégalais). Cette convention est minimale, locale au guard dans `run-pricing`, réversible et extensible. |
+| **Bugs runtime corrigés** | (1) Mono-lot : totaux recalculés après enrichissement P5 avec classification Option A. (2) Multi-lot : `lotEngineParams` déclaré avant if/else pour éviter ReferenceError. (3) Multi-lot : totaux lotés recalculés après enrichissement P5 export. (4) Multi-lot : `lotSourceMap` complété après ajout des lignes P5 export. |
+| **Dette résiduelle** | Le moteur `quotation-engine` reste FROZEN et structurellement import-oriented (`effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT'`). La classification Option A est une convention provisoire — à réévaluer si la sémantique métier export évolue (ex: si CUSTOMS_EXPORT devait être en honoraires, ou si un package EXPORT_DDP apparaît). |
+| **Recommandation** | Aucune action immédiate. Le guard + la classification Option A sont suffisants pour le périmètre export actuel (EXPORT_SENEGAL). Réévaluer si un package EXPORT_DDP ou EXPORT_CIF apparaît, ou si la distinction honoraires/opérationnel export doit être formalisée dans un modèle de données dédié. |
 
 ---
 
