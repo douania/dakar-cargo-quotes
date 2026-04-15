@@ -62,6 +62,28 @@ const SERVICE_PACKAGES: Record<string, string[]> = {
   LCL_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
 };
 
+// ═══ EXPORT-GUARD: Classification convention (Option A — provisoire) ═══
+// AGENCY = honoraires SODATRA (soumis TVA 18%)
+// Toutes les autres lignes export P5 = opérationnel (non soumis TVA SODATRA)
+// debours = 0 (pas de droits & taxes de sortie en export sénégalais)
+// Cette convention est minimale et réversible — à réévaluer si package EXPORT_DDP apparaît.
+const EXPORT_HONORAIRES_KEYS = new Set(['AGENCY']);
+
+function classifyExportTotals(lines: any[]): { honoraires: number; operationnel: number; debours: number } {
+  let honoraires = 0;
+  let operationnel = 0;
+  for (const line of lines) {
+    const amount = Number(line?.amount) || 0;
+    const category = String(line?.category || line?.canonical?.service_key || '').trim().toUpperCase();
+    if (EXPORT_HONORAIRES_KEYS.has(category)) {
+      honoraires += amount;
+    } else {
+      operationnel += amount;
+    }
+  }
+  return { honoraires, operationnel, debours: 0 };
+}
+
 // P5: Default units per service_key (aligned with service_quantity_rules)
 const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
   PICKUP_ORIGIN: 'forfait',
