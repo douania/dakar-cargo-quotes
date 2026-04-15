@@ -1207,13 +1207,27 @@ L'équipe SODATRA`;
         body: { action: 'create_knowledge', data: knowledgeEntries }
       });
       
-      if (error) throw error;
+      // P2B guard: detect 403 from invoke result before throwing
+      if (error) {
+        const status = (error as any)?.context?.status;
+        if (status === 403) {
+          toast.error('Action réservée aux administrateurs');
+          return;
+        }
+        throw error;
+      }
       if (!data?.success) throw new Error(data?.error || 'Erreur inconnue');
       
       toast.success(`${data.count} connaissance(s) enregistrée(s)`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error learning from quotation:', error);
-      toast.error('Erreur lors de l\'apprentissage');
+      // P2B fallback: catch 403 if surfaced differently (e.g. FunctionsHttpError)
+      const status = error?.context?.status ?? error?.status;
+      if (status === 403) {
+        toast.error('Action réservée aux administrateurs');
+      } else {
+        toast.error('Erreur lors de l\'apprentissage');
+      }
     } finally {
       setIsLearning(false);
     }
