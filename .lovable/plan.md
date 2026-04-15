@@ -1,30 +1,39 @@
 
 
-# Micro-correction — Retirer FOB de la branche freightValue
+# Plan — Micro-nettoyage commentaire auth `export-quotation-version-pdf`
 
-## Problème
+## Diagnostic confirmé
 
-Ligne 552 de `build-case-puzzle/index.ts` :
-```typescript
-} else if (/\b(?:FRET|FREIGHT|FOB)\b/i.test(line) && !result.freightValue) {
+**Commentaire fautif** — Lignes 369 et 372 :
+```
+L369: // --- Auth (verify_jwt=true guarantees JWT present) ---
+L372: // Unreachable with verify_jwt=true, but defensive
 ```
 
-FOB est regroupé avec FRET/FREIGHT et alimente `freightValue`, ce qui est métierment faux (FOB = valeur marchandise, pas du fret). Cela peut injecter une mauvaise valeur dans `cargo.freight_cost`.
+**Vérité réelle** :
+- `supabase/config.toml` : `verify_jwt = false`
+- Le header du fichier (L6) dit correctement : `verify_jwt = false (config.toml) — auth validated in-function via inline JWT check`
+- L'auth inline fonctionne réellement (check Authorization header + `getUser`) — le code est correct, seuls les commentaires L369 et L372 sont faux
 
-## Correction
+**Nature** : dette documentaire locale uniquement. Aucun changement fonctionnel nécessaire.
 
-Retirer `FOB` du regex à la ligne 552. Résultat :
+## Correctif
 
-```typescript
-} else if (/\b(?:FRET|FREIGHT)\b/i.test(line) && !result.freightValue) {
-```
+**Fichier** : `supabase/functions/export-quotation-version-pdf/index.ts`
 
-FOB n'est pas traité dans ce lot — une fact key canonique dédiée sera décidée dans un lot ultérieur.
+| Ligne | Avant | Après |
+|-------|-------|-------|
+| 369 | `// --- Auth (verify_jwt=true guarantees JWT present) ---` | `// --- Auth (verify_jwt=false in config.toml — inline JWT validation) ---` |
+| 372 | `// Unreachable with verify_jwt=true, but defensive` | `// Defensive: reject requests without Bearer token` |
 
-## Scope
+**Aucun code exécutable modifié.** Seuls deux commentaires sont reformulés.
 
-- **1 ligne modifiée** dans `supabase/functions/build-case-puzzle/index.ts` (ligne 552)
-- Pas de migration
-- Pas d'autre fichier touché
-- Redéploiement de la fonction après correction
+## Confirmations
+
+- Aucun comportement runtime modifié
+- Aucune migration
+- Aucun autre fichier touché
+- Aucun FROZEN touché
+- Aucune logique produit altérée
+- Pas de mise à jour `DEFERRED_BACKLOG.md` nécessaire (pas d'entrée dédiée à ce commentaire)
 
