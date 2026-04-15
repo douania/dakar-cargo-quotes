@@ -638,7 +638,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | AUTH-HIST-1 | critical | **patched** (deployed 2026-04-15) | `quotation-engine/index.ts` L383-387 envoie `Bearer ${serviceKey}` à `suggest-historical-lines`. `suggest-historical-lines/index.ts` L152-167 validait via `anonClient.auth.getClaims(token)` — un service role key n'est pas un JWT GoTrue → échec systématique. **Correctif** : dual-path auth ajouté dans `suggest-historical-lines`. Si token === service role key → accepté comme appel interne (userId null, traçabilité via meta `auth_mode: "service_role"`, `caller: "quotation-engine"`). Chemin JWT utilisateur inchangé. Aucun FROZEN touché. Clôture définitive après validation runtime. |
 | OUTCOME-AUTH-1 | high | **patched** (deployed 2026-04-15) | `close-commercial-outcome/index.ts` L87 : `userId = authResult.id` corrigé en `userId = authResult.user.id`. `_shared/auth.ts` L15-18 : `AuthResult = { user: { id }, token }` — l'accès direct `authResult.id` retournait `undefined`. **Correctif** : 1 ligne modifiée. Traçabilité opérateur restaurée sur tous les `logRuntimeEvent` et `actor_user_id` des timeline events `status_changed` (SENT→ACCEPTED/REJECTED). Aucun FROZEN touché, aucune migration, logique FSM/idempotence inchangée. |
 | UI-ADMIN-1 | medium | deferred (= P2B) | `QuotationSheet.tsx` L1206 appelle `data-admin` action `create_knowledge`. `data-admin/index.ts` est protégé par `requireAdmin`. Un opérateur non-admin reçoit un 403. | Fonctionnalité apprentissage inaccessible aux non-admins depuis QuotationSheet. | Déplacer vers `data-query` ou endpoint dédié, ou maintenir admin-only (décision produit). Voir P2B. |
-| TIMELINE-DEDUPE-1 | low | open | `create-quotation-email-draft/index.ts` écrit `quotation_email_draft_v1` sans `dedupe_key`. | Doublons timeline possibles mais atténués par try/catch best-effort. | Ajouter `dedupe_key` (1 ligne). |
+| TIMELINE-DEDUPE-1 | low | **patched** (deployed 2026-04-15) | `create-quotation-email-draft/index.ts` L370 : ajout `dedupe_key: quotation_email_draft_v1:${versionId}` dans `event_data`. Aligné sur le pattern canonique `{kind}:{id}` utilisé dans `generate-reply-draft`. Aucune migration, aucun FROZEN touché, try/catch best-effort inchangé. |
 | GENERATE-RESPONSE-LIVE | medium | watchlist | `emailService.ts` L105, L500 ; `Emails.tsx` L367 ; `QuotationSheet.tsx` L1366 — `generate-response` encore appelé depuis l'UI (fallback C1 + legacy paths). | Fonction legacy vivante, appelle `quotation-engine` (FROZEN). Pas morte. | Aucun correctif immédiat — legacy vivant par design. |
 
 ### B. Confirmé par runtime/cloud externe (source : audit Lovable 2026-04-14)
@@ -664,7 +664,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 1. ~~**AUTH-HIST-1**~~ — ✅ Patched 2026-04-15 (dual-path auth déployé)
 2. ~~**OUTCOME-AUTH-1**~~ — ✅ Patched 2026-04-15 (userId extraction corrigée)
-3. **TIMELINE-DEDUPE-1** — Ajouter `dedupe_key` (basse, 1 ligne)
+3. ~~**TIMELINE-DEDUPE-1**~~ — ✅ Patched 2026-04-15 (dedupe_key ajoutée)
 4. Vérification COMM-SCHEMA-1 / ARCHIVED-WRITER-1
 5. Dette PJ anciennes (ATTACH-OPS-1)
 6. EXPORT-QE-FROZEN (déjà deferred)
