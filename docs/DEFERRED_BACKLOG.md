@@ -652,20 +652,20 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | CONTACTS-DENY-1 | low | pg_policies live : DENY ALL sur table `contacts`. Aucun usage UI actif identifié lors de la revue repo. | Table dormante de facto. | dormant |
 | TENDER-POLICY-1 | low | pg_policies live : 2 policies SELECT identiques sur `tender_segments` | Doublon fonctionnel, pas d'impact | watchlist |
 
-### C. À confirmer
+### C. Clôturés par audit ciblé (2026-04-15)
 
-| ID | Sujet | Ce qu'il faut vérifier |
-|----|-------|----------------------|
-| COMM-SCHEMA-1 | Drift repo ↔ schéma DB sur tables communication canoniques | Comparer les colonnes réellement présentes dans `external_quote_requests`, `client_gap_requests`, `external_quote_responses`, `external_quote_response_facts`, `partner_response_suggestions` avec ce que le code attend |
-| ARCHIVED-WRITER-1 | Statut ARCHIVED en DB (14 cas en ARCHIVED) mais aucun writer canonique actif | Vérifier si ces 14 cas ont été archivés par migration manuelle, script ponctuel, ou ancien code supprimé. L'origine n'est pas établie dans le runtime canonique actuel. |
+| ID | Conclusion | Preuve | Statut |
+|----|-----------|--------|--------|
+| COMM-SCHEMA-1 | **Pas de drift repo ↔ DB réel** sur les 5 tables canoniques (`external_quote_requests`, `external_quote_responses`, `external_quote_response_facts`, `client_gap_requests`, `partner_response_suggestions`). Colonnes migrations = types générés = DB live. **Drift mineur local uniquement** : interface `ExternalRequest` dans `src/hooks/useExternalRequests.ts` manque `is_selected` et `selected_at` (pas de bug runtime — les composants consommateurs ont leurs propres types inline). Aucune migration manquante. | repo + DB live + types générés | **closed** (drift documentaire mineur, correction facultative) |
+| ARCHIVED-WRITER-1 | **Aucun writer canonique actif** identifié dans le runtime. Aucun chemin legacy actif écrivant ARCHIVED. 14 cas ARCHIVED en DB live : absence de timeline `status_changed` → ARCHIVED, 4 cas partagent un `updated_at` identique au ms (`2026-02-16 17:24:02.457612+00`) → batch UPDATE SQL direct (nettoyage pré-production, 2026-02-14/16). Statut protégé par `FROZEN_STATUSES` dans `build-case-puzzle` et `sync-emails`. | repo (recherche exhaustive) + DB live (14 cas, 0 timeline events) | **closed** (origine établie, pas de writer manquant) |
 
 ### D. Ordre exact recommandé des prochains lots
 
 1. ~~**AUTH-HIST-1**~~ — ✅ Patched 2026-04-15 (dual-path auth déployé)
 2. ~~**OUTCOME-AUTH-1**~~ — ✅ Patched 2026-04-15 (userId extraction corrigée)
 3. ~~**TIMELINE-DEDUPE-1**~~ — ✅ Patched 2026-04-15 (dedupe_key ajoutée)
-4. Vérification COMM-SCHEMA-1 / ARCHIVED-WRITER-1
-5. Dette PJ anciennes (ATTACH-OPS-1)
+4. ~~**COMM-SCHEMA-1 / ARCHIVED-WRITER-1**~~ — ✅ Closed 2026-04-15 (audit ciblé, aucun drift structurel, aucun writer manquant)
+5. **ATTACH-OPS-1** — Dette PJ anciennes (114/259 non analysées, 44%)
 6. EXPORT-QE-FROZEN (déjà deferred)
 7. Dette secondaire (tender policy doublon, CaseView taille)
 
