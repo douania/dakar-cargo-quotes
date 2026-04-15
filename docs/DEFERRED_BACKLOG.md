@@ -647,7 +647,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | ID | Sévérité | Source | Impact | Statut |
 |----|----------|--------|--------|--------|
 | OBS-HIST-1 | info | `runtime_events` : 126 erreurs AUTH_INVALID_JWT pour `suggest-historical-lines` | Confirmait AUTH-HIST-1 en production réelle. **Résolu** : le patch dual-path auth (2026-04-15) empêche les nouvelles occurrences. Les 126 erreurs historiques restent en base comme trace. | résolu (lié à AUTH-HIST-1 patched) |
-| ATTACH-OPS-1 | medium | DB live : 114/259 PJ non analysées (44%) | Facts potentiellement manquants sur dossiers anciens. PJ-ANALYSIS-ON-PUZZLE les traite progressivement au rebuild. | watchlist |
+| ATTACH-OPS-1 | medium | DB live : 114/259 PJ non analysées (44%) | **Clos (2026-04-15).** Audit ciblé : aucun bug pipeline actif. Stock dominé par images de signature email (68× `01d9a0c0.jpeg`, 11× `6503e584.png`, ~20 logos/icônes inline Outlook). 107/114 PJ sans `quote_case` (emails orphelins jamais convertis). PJ-ANALYSIS-ON-PUZZLE couvre les dossiers actifs au rebuild. Seules ~7 PJ métier (PDF/images) sur dossiers actifs restent non analysées. **Stratégie** : (1) batch marquage signatures `is_analyzed=true, extracted_data.type=signature_image` (opération ponctuelle), (2) analyse ciblée des ~7 PJ métier sur dossiers actifs, (3) filtre anti-signatures à l'import optionnel (lot futur, non urgent). | **closed** (dette opérationnelle historique, aucun bug actif) |
 | PRICING-RUNS-WATCH-1 | low | DB live : 30 pricing runs `failed`, 20 `blocked` sur 133 total | À surveiller — vérifier si récurrents ou ponctuels anciens | watchlist |
 | CONTACTS-DENY-1 | low | pg_policies live : DENY ALL sur table `contacts`. Aucun usage UI actif identifié lors de la revue repo. | Table dormante de facto. | dormant |
 | TENDER-POLICY-1 | low | pg_policies live : 2 policies SELECT identiques sur `tender_segments` | Doublon fonctionnel, pas d'impact | watchlist |
@@ -658,6 +658,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |----|-----------|--------|--------|
 | COMM-SCHEMA-1 | **Pas de drift repo ↔ DB réel** sur les 5 tables canoniques (`external_quote_requests`, `external_quote_responses`, `external_quote_response_facts`, `client_gap_requests`, `partner_response_suggestions`). Colonnes migrations = types générés = DB live. **Drift mineur local uniquement** : interface `ExternalRequest` dans `src/hooks/useExternalRequests.ts` manque `is_selected` et `selected_at` (pas de bug runtime — les composants consommateurs ont leurs propres types inline). Aucune migration manquante. | repo + DB live + types générés | **closed** (drift documentaire mineur, correction facultative) |
 | ARCHIVED-WRITER-1 | **Aucun writer canonique actif** identifié dans le runtime. Aucun chemin legacy actif écrivant ARCHIVED. 14 cas ARCHIVED en DB live : absence de timeline `status_changed` → ARCHIVED, 4 cas partagent un `updated_at` identique au ms (`2026-02-16 17:24:02.457612+00`) → batch UPDATE SQL direct (nettoyage pré-production, 2026-02-14/16). Statut protégé par `FROZEN_STATUSES` dans `build-case-puzzle` et `sync-emails`. | repo (recherche exhaustive) + DB live (14 cas, 0 timeline events) | **closed** (origine établie, pas de writer manquant) |
+| ATTACH-OPS-1 | **Aucun bug pipeline actif.** 114/259 PJ non analysées = dette historique. Ventilation : ~102 images de signature/logo inline (68× même JPEG signature Outlook, 11× même PNG logo, ~23 icônes/logos <200Ko), ~12 PJ potentiellement métier (3 PDF, 2 zip, 2 wmz, ~5 images). 107/114 appartiennent à des emails sans `quote_case`. 4 sans `storage_path`. Pipeline fonctionnel : `force-download-attachment` → `analyze-attachments` → claim atomique. PJ-ANALYSIS-ON-PUZZLE couvre les dossiers actifs au rebuild. Cause racine : `sync-emails`/`import-thread` enregistrent toutes les PJ MIME y compris images inline signature, sans filtre. | repo (pipeline code) + DB live (259 PJ, ventilation type/rattachement/ancienneté) | **closed** (dette opérationnelle historique, batch optionnel recommandé) |
 
 ### D. Ordre exact recommandé des prochains lots
 
@@ -665,7 +666,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 2. ~~**OUTCOME-AUTH-1**~~ — ✅ Patched 2026-04-15 (userId extraction corrigée)
 3. ~~**TIMELINE-DEDUPE-1**~~ — ✅ Patched 2026-04-15 (dedupe_key ajoutée)
 4. ~~**COMM-SCHEMA-1 / ARCHIVED-WRITER-1**~~ — ✅ Closed 2026-04-15 (audit ciblé, aucun drift structurel, aucun writer manquant)
-5. **ATTACH-OPS-1** — Dette PJ anciennes (114/259 non analysées, 44%)
+5. ~~**ATTACH-OPS-1**~~ — ✅ Closed 2026-04-15 (dette opérationnelle historique, aucun bug pipeline, batch optionnel)
 6. EXPORT-QE-FROZEN (déjà deferred)
 7. Dette secondaire (tender policy doublon, CaseView taille)
 
