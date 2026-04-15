@@ -954,14 +954,14 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Compute per-lot totals (same logic as mono-lot)
+          // Compute per-lot totals (same logic as mono-lot) — use let for export recalculation after P5
           const lotEngineTotals = lotEngineResponse.totals;
-          const lotHonorairesHt = lotEngineTotals?.honoraires ?? 0;
-          const lotDebours = lotEngineTotals?.debours ?? 0;
-          const lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
-          const lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
-          const lotTotalHt = lotHonorairesHt;
-          const lotTotalTtc = lotDebours + lotHonorairesTtc;
+          let lotHonorairesHt = lotEngineTotals?.honoraires ?? 0;
+          let lotDebours = lotEngineTotals?.debours ?? 0;
+          let lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
+          let lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
+          let lotTotalHt = lotHonorairesHt;
+          let lotTotalTtc = lotDebours + lotHonorairesTtc;
           const lotCurrency = lotEngineResponse.currency || "XOF";
 
           // Tag each line with lot_index and lot_label
@@ -1058,13 +1058,47 @@ Deno.serve(async (req) => {
             }
           }
 
+          // ═══ EXPORT-GUARD: Recalculate totals + sources after P5 enrichment for export lots ═══
+          if (isLotExportFlow && taggedLines.length > 0) {
+            const exportClassification = classifyExportTotals(taggedLines);
+            lotHonorairesHt = exportClassification.honoraires;
+            lotDebours = exportClassification.debours; // always 0 for export
+            lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
+            lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
+            lotTotalHt = lotHonorairesHt;
+            lotTotalTtc = lotDebours + lotHonorairesTtc;
+
+            // Update lotEngineResponse.totals so downstream engine_response is coherent
+            lotEngineResponse.totals = {
+              honoraires: lotHonorairesHt,
+              debours: lotDebours,
+              operationnel: exportClassification.operationnel,
+            };
+
+            // Complete lotSourceMap with P5 export line sources (Bug 4 fix)
+            for (const line of taggedLines) {
+              if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {
+                const key = `${line.source.type}_${line.source.reference}`;
+                if (!lotSourceMap.has(key)) {
+                  lotSourceMap.set(key, {
+                    type: line.source.type, reference: line.source.reference,
+                    table: line.source.table || line.source.type,
+                    confidence: line.source.confidence,
+                  });
+                }
+              }
+            }
+
+            console.log(`[EXPORT-GUARD] Lot ${lc.lot_index}: recalculated totals — honoraires=${lotHonorairesHt}, operationnel=${exportClassification.operationnel}, debours=0`);
+          }
+
           lotResults.push({
             lot_index: lc.lot_index,
             lot_label: lc.lot_label,
             lines: taggedLines,
             sources: Array.from(lotSourceMap.values()),
             totals: { ht: lotTotalHt, ttc: lotTotalTtc, currency: lotCurrency },
-            engine_request: engineParams,
+            engine_request: lotEngineParams,
             engine_response: lotEngineResponse,
           });
         } catch (lotEngineError: any) {
