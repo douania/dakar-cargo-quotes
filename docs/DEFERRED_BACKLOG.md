@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-14
+Dernière mise à jour : 2026-04-15
 
 ---
 
@@ -243,7 +243,7 @@ Cela inclut les décisions formulées comme :
 | B1-B | Isolation case_documents + storage bucket | sécurité | deferred | Moyenne | M23c | 2026-03-28 | Pré-audit B1-B complet (2026-03-28). 3 blocages structurels prouvés : (1) upload storage-first → policy storage par jointure DB impossible (CaseDocumentsTab.tsx L82-98, Intake.tsx L412-424), (2) delete DB-first → policy storage par jointure DB impossible (CaseDocumentsTab.tsx L176-180), (3) quote_cases en shared workspace → restreindre case_documents seul créerait une asymétrie produit (documents = pièces dossier partagé, ≠ email_drafts = artefact opérateur). Le problème est applicatif + produit, pas seulement RLS. Options évaluées : A (inverser flux applicatif), B (storage path-based), C (durcir DB SELECT only), D (statu quo documenté). Décision CTO : Option D retenue. | Ouverture multi-société, refonte flux upload/delete, ou incident réel de visibilité inter-opérateurs | Storage `case-documents`, RLS `case_documents`, `CaseDocumentsTab.tsx`, `Intake.tsx` | repo + chat B1 + pré-audit B1-B | Confirmé | Reconcevoir flux (Option A) si multi-société requis ; sinon statu quo justifié |
 | B2 | Données historiques `route_port = 'Dakar'` non corrigées rétroactivement | dette | legacy | Basse | M23b-fix | 2026-03 | Migration données risquée | Jamais (accepté) | `quotation_history` | chat M23b-fix | Confirmé | Garder dormant |
 | A1 | Fin commerciale post-SENT (ACCEPTED/REJECTED) | futur produit | closed | — | A1 | 2026-03-28 | Implémenté : migration enum, edge function `close-commercial-outcome` (FSM guard SENT-only, idempotence, cross-transition interdite, timeline status_changed), UI (labels, filtres, stepper, boutons outcome, bandeau), docs alignés. | — | Enum DB, FSM, CaseView, `close-commercial-outcome` | repo + chat A1 | Fermé | Aucune action requise |
-| A2 | Statut ARCHIVED jamais écrit par le runtime | dormant | dormant | Basse | M25 | 2026-03 | Action manuelle future prévue | Besoin d'archivage | Enum DB, CaseView | repo | Confirmé | Garder dormant |
+| A2 | Statut ARCHIVED jamais écrit par le runtime | dormant | **closed** | — | M25 | 2026-03 | **Clos (2026-04-15).** Audit ciblé ARCHIVED-WRITER-1 : aucun writer canonique actif dans le runtime. 14 cas ARCHIVED en DB live attribués à un UPDATE SQL direct (batch, 2026-02-14/16) — absence de timeline `status_changed` → ARCHIVED, timestamps partagés au ms. Statut protégé par FROZEN_STATUSES dans `build-case-puzzle` et `sync-emails`. UI le traite comme terminal. Aucun writer à créer sauf décision produit future. | Besoin d'un bouton "Archiver" opérateur (lot dédié) | Enum DB, CaseView | repo + DB live | Fermé | Aucune action requise |
 | A3 | Re-pricing après version (QUOTED_VERSIONED → re-priceable) | futur produit | deferred | Basse | M25 | 2026-03 | Choix produit assumé (irréversibilité) | Ticket produit dédié | `generate-quotation-version`, CaseView | repo | Confirmé | Garder tel quel |
 | A4 | Emails de cotation IA (corps enrichi au lieu de template statique) | futur produit | closed | — | A4 | 2026-03-27 | Implémenté : template déterministe enrichi, branche IA optionnelle avec fallback, garde post-IA ci-joint, traçabilité timeline. Réserve mineure : replace fragmentaire sur formulations IA (élégance rédactionnelle, pas de risque métier). | — | `create-quotation-email-draft` | repo + chat A4 | Fermé | Aucune action requise |
 | A5 | Persistance du rejet des suggestions dérivées | futur produit | dormant | Basse | M27 | 2026-03 | Acceptable avec 1 suggestion | ≥3 suggestions dérivées | CaseView, potentiellement table dédiée | repo | Confirmé | Garder dormant |
@@ -652,20 +652,20 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | CONTACTS-DENY-1 | low | pg_policies live : DENY ALL sur table `contacts`. Aucun usage UI actif identifié lors de la revue repo. | Table dormante de facto. | dormant |
 | TENDER-POLICY-1 | low | pg_policies live : 2 policies SELECT identiques sur `tender_segments` | Doublon fonctionnel, pas d'impact | watchlist |
 
-### C. À confirmer
+### C. Clôturés par audit ciblé (2026-04-15)
 
-| ID | Sujet | Ce qu'il faut vérifier |
-|----|-------|----------------------|
-| COMM-SCHEMA-1 | Drift repo ↔ schéma DB sur tables communication canoniques | Comparer les colonnes réellement présentes dans `external_quote_requests`, `client_gap_requests`, `external_quote_responses`, `external_quote_response_facts`, `partner_response_suggestions` avec ce que le code attend |
-| ARCHIVED-WRITER-1 | Statut ARCHIVED en DB (14 cas en ARCHIVED) mais aucun writer canonique actif | Vérifier si ces 14 cas ont été archivés par migration manuelle, script ponctuel, ou ancien code supprimé. L'origine n'est pas établie dans le runtime canonique actuel. |
+| ID | Conclusion | Preuve | Statut |
+|----|-----------|--------|--------|
+| COMM-SCHEMA-1 | **Pas de drift repo ↔ DB réel** sur les 5 tables canoniques (`external_quote_requests`, `external_quote_responses`, `external_quote_response_facts`, `client_gap_requests`, `partner_response_suggestions`). Colonnes migrations = types générés = DB live. **Drift mineur local uniquement** : interface `ExternalRequest` dans `src/hooks/useExternalRequests.ts` manque `is_selected` et `selected_at` (pas de bug runtime — les composants consommateurs ont leurs propres types inline). Aucune migration manquante. | repo + DB live + types générés | **closed** (drift documentaire mineur, correction facultative) |
+| ARCHIVED-WRITER-1 | **Aucun writer canonique actif** identifié dans le runtime. Aucun chemin legacy actif écrivant ARCHIVED. 14 cas ARCHIVED en DB live : absence de timeline `status_changed` → ARCHIVED, 4 cas partagent un `updated_at` identique au ms (`2026-02-16 17:24:02.457612+00`) → batch UPDATE SQL direct (nettoyage pré-production, 2026-02-14/16). Statut protégé par `FROZEN_STATUSES` dans `build-case-puzzle` et `sync-emails`. | repo (recherche exhaustive) + DB live (14 cas, 0 timeline events) | **closed** (origine établie, pas de writer manquant) |
 
 ### D. Ordre exact recommandé des prochains lots
 
 1. ~~**AUTH-HIST-1**~~ — ✅ Patched 2026-04-15 (dual-path auth déployé)
 2. ~~**OUTCOME-AUTH-1**~~ — ✅ Patched 2026-04-15 (userId extraction corrigée)
 3. ~~**TIMELINE-DEDUPE-1**~~ — ✅ Patched 2026-04-15 (dedupe_key ajoutée)
-4. Vérification COMM-SCHEMA-1 / ARCHIVED-WRITER-1
-5. Dette PJ anciennes (ATTACH-OPS-1)
+4. ~~**COMM-SCHEMA-1 / ARCHIVED-WRITER-1**~~ — ✅ Closed 2026-04-15 (audit ciblé, aucun drift structurel, aucun writer manquant)
+5. **ATTACH-OPS-1** — Dette PJ anciennes (114/259 non analysées, 44%)
 6. EXPORT-QE-FROZEN (déjà deferred)
 7. Dette secondaire (tender policy doublon, CaseView taille)
 
