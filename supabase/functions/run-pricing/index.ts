@@ -1651,6 +1651,15 @@ Deno.serve(async (req) => {
             }
             engineResponse.lines = exportLines;
 
+            // ═══ EXPORT-GUARD: Recalculate totals with Option A classification ═══
+            const exportClassification = classifyExportTotals(exportLines);
+            engineResponse.totals = {
+              honoraires: exportClassification.honoraires,
+              debours: exportClassification.debours, // always 0
+              operationnel: exportClassification.operationnel,
+            };
+            console.log(`[EXPORT-GUARD] Mono-lot: classification — honoraires=${exportClassification.honoraires}, operationnel=${exportClassification.operationnel}, debours=0`);
+
             // Build tariffSources from export lines
             const sourceMap = new Map<string, any>();
             for (const line of exportLines) {
