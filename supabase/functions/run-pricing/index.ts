@@ -890,9 +890,11 @@ Deno.serve(async (req) => {
           const isLotExportFlow = lotPkgKey.startsWith('EXPORT_');
 
           let lotEngineResponse: any;
+          let lotEngineParams: any = null;
 
           if (isLotExportFlow) {
             console.log(`[EXPORT-GUARD] Lot ${lc.lot_index}: EXPORT package "${lotPkgKey}" detected — bypassing quotation-engine`);
+            lotEngineParams = { mode: 'export-bypass', package: lotPkgKey };
             // Synthetic response: proven minimal shape consumed by downstream
             lotEngineResponse = {
               lines: [],
