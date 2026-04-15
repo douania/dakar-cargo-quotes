@@ -1508,7 +1508,113 @@ Deno.serve(async (req) => {
     let engineResponse: any;
     let tariffSources: any[] = [];
 
+    // ═══ EXPORT GUARD (mono-lot): bypass quotation-engine for EXPORT_* packages ═══
+    const isExportFlow = pkg.startsWith('EXPORT_');
+
     try {
+      if (isExportFlow) {
+        console.log(`[EXPORT-GUARD] Mono-lot: EXPORT package "${pkg}" detected — bypassing quotation-engine`);
+        // Synthetic response: proven minimal shape consumed by downstream (L2142-2163)
+        engineResponse = {
+          lines: [],
+          totals: { honoraires: 0, debours: 0 },
+          currency: 'XOF',
+          duty_breakdown: [],
+          version: 'export-guard-v1',
+        };
+        tariffSources = [];
+
+        // Export P5 enrichment: use ALL effective service keys (not just "missing")
+        // Reuses existing resolution logic: resolveEffectiveServiceKeys + readOverridesFromFacts
+        const exportPackageKey = (inputs.servicePackage || '').trim().toUpperCase();
+        if (exportPackageKey && SERVICE_PACKAGES[exportPackageKey]) {
+          const overrides = readOverridesFromFacts(facts || []);
+          const effectiveKeys = resolveEffectiveServiceKeys(exportPackageKey, overrides);
+
+          console.log(`[EXPORT-GUARD] Mono-lot: enriching ${effectiveKeys.length} export service keys via price-service-lines: ${effectiveKeys.join(', ')}`);
+
+          const serviceLineInputs = effectiveKeys.map(sk => ({
+            id: crypto.randomUUID(),
+            service: sk,
+            unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+            quantity: 1,
+            currency: 'XOF',
+          }));
+
+          // Build pricing_context_override with scope: 'export' (same shape as multi-lot L958-973)
+          const pricingCtxOverride: Record<string, unknown> = {
+            scope: 'export',
+            containers: Array.isArray(inputs.containers) ? inputs.containers : [],
+            container_type: inputs.containers?.[0]?.type || null,
+            container_count: Array.isArray(inputs.containers)
+              ? inputs.containers.reduce((s: number, c: any) => s + Number(c?.quantity ?? 1), 0)
+              : null,
+            weight_kg: inputs.cargoWeight || null,
+            caf_value: null,
+            destination_city: inputs.finalDestination || null,
+            destination_country: null,
+            origin_country: null,
+            origin_port: inputs.originPort || null,
+            client_code: null,
+            corridor: null,
+          };
+
+          const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+          const pslRes = await fetch(pslUrl, {
+            method: 'POST',
+            headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              case_id,
+              service_lines: serviceLineInputs,
+              pricing_context_override: pricingCtxOverride,
+            }),
+          });
+
+          const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
+
+          if (pslRes.ok) {
+            const pslData = await pslRes.json();
+            const pricedLines = pslData?.data?.priced_lines || [];
+            const exportLines: any[] = [];
+            for (const pl of pricedLines) {
+              const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+              const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+              exportLines.push(canonicalizeLine({
+                category: serviceKey,
+                label: label,
+                amount: pl.rate ?? 0,
+                currency: pl.currency || 'XOF',
+                type: 'service_package',
+                source: { type: pl.source || 'price-service-lines', reference: 'P5-export', confidence: pl.confidence ?? 0 },
+                quantity: pl.quantity_used ?? 1,
+                unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
+                explanation: pl.explanation || '',
+              }, { origin_layer: 'package_enrichment' }));
+            }
+            engineResponse.lines = exportLines;
+
+            // Build tariffSources from export lines
+            const sourceMap = new Map<string, any>();
+            for (const line of exportLines) {
+              if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {
+                const key = `${line.source.type}_${line.source.reference}`;
+                sourceMap.set(key, {
+                  type: line.source.type,
+                  reference: line.source.reference,
+                  table: line.source.table || line.source.type,
+                  confidence: line.source.confidence,
+                });
+              }
+            }
+            tariffSources = Array.from(sourceMap.values());
+
+            console.log(`[EXPORT-GUARD] Mono-lot: merged ${pricedLines.length} export priced service lines`);
+          } else {
+            console.warn(`[EXPORT-GUARD] Mono-lot: price-service-lines failed (${pslRes.status}), export pricing will have 0 lines`);
+          }
+        }
+      } else {
+      // ═══ Standard import/transit path (unchanged) ═══
       const engineParams = {
         finalDestination: inputs.finalDestination,
         originPort: inputs.originPort,
