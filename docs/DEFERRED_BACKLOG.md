@@ -431,18 +431,17 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
-## TIMELINE-DEDUPE-1 — quotation_email_draft_v1 sans dedupe_key
+## TIMELINE-DEDUPE-1 — quotation_email_draft_v1 sans dedupe_key ✅
 
 | Champ | Valeur |
 |-------|--------|
 | **ID** | TIMELINE-DEDUPE-1 |
 | **Catégorie** | Timeline contract / Idempotence |
-| **Statut** | `ouvert` |
+| **Statut** | `patched` (deployed 2026-04-15) |
 | **Priorité** | Basse |
 | **Phase d'origine** | P1-C |
 | **Date** | 2026-04-11 |
-| **Déclencheur de réouverture** | (1) Doublons observés en production pour `quotation_email_draft_v1`. (2) Besoin d'idempotence stricte sur la génération d'email de cotation. |
-| **Recommandation** | Ajouter un `dedupe_key` dans le `event_data` écrit par `create-quotation-email-draft` pour aligner avec le contrat canonique P1-C. Le fix est trivial (une ligne) mais non bloquant actuellement car l'écriture est en try/catch best-effort. |
+| **Clôture** | `dedupe_key: quotation_email_draft_v1:${versionId}` ajouté dans `create-quotation-email-draft/index.ts` L370. Aligné sur le pattern canonique `{kind}:{id}` de `generate-reply-draft`. Aucune migration, aucun FROZEN touché. |
 
 ---
 
