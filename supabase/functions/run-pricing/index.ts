@@ -904,7 +904,7 @@ Deno.serve(async (req) => {
               version: 'export-guard-v1',
             };
           } else {
-          const engineParams = {
+          lotEngineParams = {
             finalDestination: lc.inputs.finalDestination,
             originPort: lc.inputs.originPort,
             originAirport: lc.inputs.originAirport,
