@@ -1672,9 +1672,10 @@ Deno.serve(async (req) => {
       }
       tariffSources = Array.from(sourceMap.values());
 
-      // ═══ P5: Package service lines enrichment (mono-lot) ═══
+      // ═══ P5: Package service lines enrichment (mono-lot, import/transit only) ═══
+      // Export P5 is handled above in the EXPORT GUARD block
       const packageKey = (inputs.servicePackage || '').trim().toUpperCase();
-      if (packageKey && SERVICE_PACKAGES[packageKey]) {
+      if (!isExportFlow && packageKey && SERVICE_PACKAGES[packageKey]) {
         try {
           const overrides = readOverridesFromFacts(facts || []);
           const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
