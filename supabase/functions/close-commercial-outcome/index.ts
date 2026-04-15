@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
       });
       return authResult;
     }
-    userId = authResult.id;
+    userId = authResult.user.id;
 
     // 2. Parse & validate input
     const body = await req.json();
