@@ -409,20 +409,9 @@ Deno.serve(async (req: Request) => {
         const bodyLower = sanitized.toLowerCase();
         const hasQualMarker = qualMarkers.some(m => bodyLower.includes(m));
         if (!hasQualMarker) {
-          // AI lost the qualification — reinject reserve block
-          console.warn("[create-quotation-email-draft] AI lost qualification markers, reinjecting reserve block");
-          const reserveBlock = buildReserveBlock(qualification);
-          if (reserveBlock.length > 0) {
-            // Insert before closing "Cordialement"
-            const cordIdx = sanitized.lastIndexOf("Cordialement");
-            if (cordIdx > 0) {
-              const before = sanitized.substring(0, cordIdx).trimEnd();
-              const after = sanitized.substring(cordIdx);
-              sanitized = before + "\n\n" + reserveBlock.join("\n") + "\n\n" + after;
-            } else {
-              sanitized += "\n" + reserveBlock.join("\n");
-            }
-          }
+          console.warn("[create-quotation-email-draft] AI lost qualification markers, falling back to deterministic body");
+          sanitized = deterministicBody;
+          generationMode = "deterministic";
         }
       }
 
