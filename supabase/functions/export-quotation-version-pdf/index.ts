@@ -402,7 +402,8 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     thickness: 1, color: primary,
   });
   y -= 5;
-  const totalText = sanitize(`TOTAL HT: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
+  const totalLabel = getTotalLabel(qualification);
+  const totalText = sanitize(`${totalLabel}: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
   currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
   y -= sectionGap;
 
