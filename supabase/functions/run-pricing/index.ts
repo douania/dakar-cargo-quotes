@@ -768,7 +768,12 @@ Deno.serve(async (req) => {
       }
 
       // If ANY lot has blockers → block entire run
-      const blockedLots = lotChecks.filter(lc => lc.blockers.length > 0);
+      // Lot 4: If allow_provisional, lots where CARGO_VALUE_REQUIRED is the sole blocker are allowed through
+      const blockedLots = lotChecks.filter(lc => {
+        if (lc.blockers.length === 0) return false;
+        if (allow_provisional && lc.blockers.every(b => b === "CARGO_VALUE_REQUIRED")) return false;
+        return true;
+      });
       if (blockedLots.length > 0) {
         const { data: mlBlockedRunNumber } = await serviceClient
           .rpc("get_next_pricing_run_number", { p_case_id: case_id });
