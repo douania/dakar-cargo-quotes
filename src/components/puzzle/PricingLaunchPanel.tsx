@@ -1,11 +1,12 @@
 // ============================================================================
 // Phase 10.1 — UI GATE "Lancer le pricing"
 // + Modale taux de change GAINDE (exchange_rates)
+// + Lot 4: Pilote DDP provisoire borné
 // ============================================================================
 
 import { useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { Loader2, Calculator, Info, AlertTriangle } from 'lucide-react';
+import { Loader2, Calculator, Info, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   computeValidUntil,
@@ -53,12 +54,16 @@ interface PricingLaunchPanelProps {
   blockedByIntent?: string;
   pricingPrechecks?: PricingPrecheck[];
   isRerun?: boolean;
+  canProvisionalDdp?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false }: PricingLaunchPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Lot 4: Provisional DDP confirmation dialog
+  const [provisionalConfirmOpen, setProvisionalConfirmOpen] = useState(false);
 
   // Exchange rate modal state
   const [missingCurrency, setMissingCurrency] = useState<string | null>(null);
@@ -68,13 +73,13 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
   const [ratePeriod, setRatePeriod] = useState<ValidityPeriod>('weekly');
   const [rateDayOfWeek, setRateDayOfWeek] = useState(3);
 
-  const handleLaunchPricing = async () => {
+  const handleLaunchPricing = async (allowProvisional = false) => {
     setIsLoading(true);
     setError(null);
     
     try {
       const { data, error: fnError } = await supabase.functions.invoke('run-pricing', {
-        body: { case_id: caseId }
+        body: { case_id: caseId, ...(allowProvisional ? { allow_provisional: true } : {}) }
       });
       
       if (fnError) {
@@ -116,6 +121,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             setError(data.message || 'Un taux de change valide est requis avant de lancer le pricing.');
           }
           setConfirmOpen(false);
+          setProvisionalConfirmOpen(false);
           onComplete?.();
           return;
         }
@@ -124,12 +130,15 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         setError(blockerMsg);
         toast.error(blockerMsg);
         setConfirmOpen(false);
+        setProvisionalConfirmOpen(false);
         onComplete?.();
         return;
       }
       
-      toast.success(`Pricing lancé - ${data?.lines_count ?? 0} lignes calculées`);
+      const qualifier = allowProvisional ? ' (provisoire)' : '';
+      toast.success(`Pricing lancé${qualifier} - ${data?.lines_count ?? 0} lignes calculées`);
       setConfirmOpen(false);
+      setProvisionalConfirmOpen(false);
       onComplete?.();
       
     } catch (err: any) {
@@ -148,6 +157,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           setError('Un taux de change valide est requis, devise non identifiée.');
         }
         setConfirmOpen(false);
+        setProvisionalConfirmOpen(false);
         setIsLoading(false);
         return;
       }
@@ -272,10 +282,32 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               </>
             )}
           </Button>
+
+          {/* Lot 4: Bouton provisoire DDP — visible uniquement si CARGO_VALUE_REQUIRED est le seul blocker */}
+          {canProvisionalDdp && !blockedByIntent && (
+            <Button
+              onClick={() => setProvisionalConfirmOpen(true)}
+              disabled={isLoading}
+              className="w-full gap-2 border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+              variant="outline"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Calcul en cours...
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="h-4 w-4" />
+                  Générer un devis provisoire (hors droits &amp; taxes)
+                </>
+              )}
+            </Button>
+          )}
         </CardContent>
       </Card>
 
-      {/* Confirmation dialog */}
+      {/* Confirmation dialog — firm pricing */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -300,7 +332,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isLoading}>Annuler</AlertDialogCancel>
             <AlertDialogAction 
-              onClick={handleLaunchPricing}
+              onClick={() => handleLaunchPricing(false)}
               disabled={isLoading}
             >
               {isLoading ? (
@@ -310,6 +342,49 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
                 </>
               ) : (
                 'Confirmer'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Lot 4: Confirmation dialog — provisional DDP */}
+      <AlertDialog open={provisionalConfirmOpen} onOpenChange={setProvisionalConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Générer un devis provisoire ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>Ce devis sera qualifié <strong>provisoire</strong> car la valeur marchandise n'est pas encore disponible.</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li>Les frais fixes seront calculés normalement</li>
+                  <li>Les droits et taxes seront <strong>exclus</strong> du calcul</li>
+                  <li>Une réserve structurée sera ajoutée au devis</li>
+                </ul>
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-300 rounded-lg mt-3 dark:bg-amber-950/30 dark:border-amber-600">
+                  <ShieldAlert className="h-4 w-4 text-amber-600 mt-0.5" />
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Le total du devis ne comprendra pas les droits et taxes. 
+                    Ceux-ci seront à confirmer après réception de la valeur marchandise.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => handleLaunchPricing(true)}
+              disabled={isLoading}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Calcul...
+                </>
+              ) : (
+                'Confirmer le devis provisoire'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

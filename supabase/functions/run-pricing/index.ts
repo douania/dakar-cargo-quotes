@@ -477,7 +477,9 @@ Deno.serve(async (req) => {
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
-    const { case_id }: RunPricingRequest = await req.json();
+    const body = await req.json();
+    const case_id: string = body.case_id;
+    const allow_provisional: boolean = body.allow_provisional === true;
 
     if (!case_id) {
       return new Response(
@@ -766,7 +768,12 @@ Deno.serve(async (req) => {
       }
 
       // If ANY lot has blockers → block entire run
-      const blockedLots = lotChecks.filter(lc => lc.blockers.length > 0);
+      // Lot 4: If allow_provisional, lots where CARGO_VALUE_REQUIRED is the sole blocker are allowed through
+      const blockedLots = lotChecks.filter(lc => {
+        if (lc.blockers.length === 0) return false;
+        if (allow_provisional && lc.blockers.every(b => b === "CARGO_VALUE_REQUIRED")) return false;
+        return true;
+      });
       if (blockedLots.length > 0) {
         const { data: mlBlockedRunNumber } = await serviceClient
           .rpc("get_next_pricing_run_number", { p_case_id: case_id });
@@ -1467,45 +1474,56 @@ Deno.serve(async (req) => {
     // 8c. Coherence check — Cargo Value for DDP (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
       if (!inputs.cargoValue || inputs.cargoValue <= 0) {
-        console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.value", scopeWantsDuties, incoterm, pkg });
+        // ═══ LOT 4: PROVISIONAL-DDP-GUARD ═══
+        // If allow_provisional is true and CARGO_VALUE_REQUIRED is the only remaining issue,
+        // bypass the blocker and produce a provisional run (no customs engine, no fake data).
+        if (allow_provisional) {
+          console.log(`[PROVISIONAL-DDP-GUARD] Mono-lot: allow_provisional=true, bypassing cargo.value blocker for case ${case_id}`);
+          // Continue to step 9+ but in provisional mode — handled below after run creation
+        } else {
+          console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.value", scopeWantsDuties, incoterm, pkg });
 
-        const { data: cvBlockerRunNumber } = await serviceClient
-          .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+          const { data: cvBlockerRunNumber } = await serviceClient
+            .rpc('get_next_pricing_run_number', { p_case_id: case_id });
 
-        const cvBlockerMessage = "DDP : Valeur marchandise (cargo.value) requise pour calculer droits et taxes.";
+          const cvBlockerMessage = "DDP : Valeur marchandise (cargo.value) requise pour calculer droits et taxes.";
 
-        await serviceClient
-          .from("pricing_runs")
-          .insert({
-            case_id,
-            run_number: cvBlockerRunNumber || 1,
-            inputs_json: { cargoValue: inputs.cargoValue, scope: { servicePackage: pkg, incoterm: incotermEarly } },
-            facts_snapshot: factsSnapshot,
-            status: "blocked",
-            error_message: cvBlockerMessage,
-            outputs_json: { pricing_blockers: ["CARGO_VALUE_REQUIRED"], message: cvBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties }, coherence_drift: true },
-            started_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
-            duration_ms: Date.now() - startTime,
-            created_by: userId,
-          });
+          await serviceClient
+            .from("pricing_runs")
+            .insert({
+              case_id,
+              run_number: cvBlockerRunNumber || 1,
+              inputs_json: { cargoValue: inputs.cargoValue, scope: { servicePackage: pkg, incoterm: incotermEarly } },
+              facts_snapshot: factsSnapshot,
+              status: "blocked",
+              error_message: cvBlockerMessage,
+              outputs_json: { pricing_blockers: ["CARGO_VALUE_REQUIRED"], message: cvBlockerMessage, scope: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties }, coherence_drift: true },
+              started_at: new Date().toISOString(),
+              completed_at: new Date().toISOString(),
+              duration_ms: Date.now() - startTime,
+              created_by: userId,
+            });
 
-        if (!isFinalized) {
-          await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "cargo_value_blocker");
+          if (!isFinalized) {
+            await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "cargo_value_blocker");
+          }
+
+          return new Response(
+            JSON.stringify({
+              pricing_blockers: ["CARGO_VALUE_REQUIRED"],
+              message: cvBlockerMessage,
+              run_number: cvBlockerRunNumber || 1,
+              scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
-
-        return new Response(
-          JSON.stringify({
-            pricing_blockers: ["CARGO_VALUE_REQUIRED"],
-            message: cvBlockerMessage,
-            run_number: cvBlockerRunNumber || 1,
-            scope_debug: { servicePackage: pkg, incoterm: incotermEarly, scopeWantsDuties },
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
       }
     }
     // If !scopeWantsDuties → skip cargo value coherence check
+
+    // ═══ LOT 4: Detect provisional mode for downstream handling ═══
+    const isProvisionalDdp = allow_provisional && scopeWantsDuties && (!inputs.cargoValue || inputs.cargoValue <= 0);
 
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
@@ -1570,7 +1588,102 @@ Deno.serve(async (req) => {
     const isExportFlow = pkg.startsWith('EXPORT_');
 
     try {
-      if (isExportFlow) {
+      if (isProvisionalDdp) {
+        // ═══ PROVISIONAL-DDP-GUARD (mono-lot): bypass quotation-engine, produce firm-only lines + reserve ═══
+        console.log(`[PROVISIONAL-DDP-GUARD] Mono-lot: DDP without cargo.value — bypassing customs engine for case ${case_id}`);
+        engineResponse = {
+          lines: [],
+          totals: { honoraires: 0, debours: 0 },
+          currency: 'XOF',
+          duty_breakdown: [],
+          version: 'provisional-ddp-guard-v1',
+        };
+        tariffSources = [];
+
+        // Enrich non-customs services via price-service-lines
+        const CUSTOMS_SERVICE_KEYS = new Set(['CUSTOMS_DAKAR', 'CUSTOMS_EXPORT', 'CUSTOMS_BAMAKO']);
+        const provisionalPackageKey = (inputs.servicePackage || '').trim().toUpperCase();
+        if (provisionalPackageKey && SERVICE_PACKAGES[provisionalPackageKey]) {
+          const overrides = readOverridesFromFacts(facts || []);
+          const effectiveKeys = resolveEffectiveServiceKeys(provisionalPackageKey, overrides);
+          const firmKeys = effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k));
+
+          console.log(`[PROVISIONAL-DDP-GUARD] Enriching ${firmKeys.length} firm service keys (excluded customs: ${effectiveKeys.filter(k => CUSTOMS_SERVICE_KEYS.has(k)).join(', ')})`);
+
+          if (firmKeys.length > 0) {
+            const serviceLineInputs = firmKeys.map(sk => ({
+              id: crypto.randomUUID(),
+              service: sk,
+              unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+              quantity: 1,
+              currency: 'XOF',
+            }));
+
+            const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+            const pslRes = await fetch(pslUrl, {
+              method: 'POST',
+              headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
+            });
+
+            const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
+
+            if (pslRes.ok) {
+              const pslData = await pslRes.json();
+              const pricedLines = pslData?.data?.priced_lines || [];
+              const firmLines: any[] = [];
+              for (const pl of pricedLines) {
+                const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                firmLines.push(canonicalizeLine({
+                  category: serviceKey,
+                  label: label,
+                  amount: pl.rate ?? 0,
+                  currency: pl.currency || 'XOF',
+                  type: 'service_package',
+                  source: { type: pl.source || 'price-service-lines', reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
+                  quantity: pl.quantity_used ?? 1,
+                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
+                  explanation: pl.explanation || '',
+                }, { origin_layer: 'package_enrichment' }));
+              }
+              engineResponse.lines = firmLines;
+              console.log(`[PROVISIONAL-DDP-GUARD] Merged ${firmLines.length} firm service lines`);
+            } else {
+              console.warn(`[PROVISIONAL-DDP-GUARD] price-service-lines failed (${pslRes.status})`);
+            }
+          }
+        }
+
+        // Add explicit reserve line (non-monetary, amount=0, not included in totals)
+        engineResponse.lines.push({
+          category: 'CUSTOMS_RESERVE',
+          label: 'Droits et taxes à confirmer après réception de la valeur marchandise',
+          amount: 0,
+          currency: 'XOF',
+          type: 'provisional_reserve',
+          source: { type: 'PROVISIONAL_RESERVE', reference: 'LOT4_DDP_PILOT', confidence: 0 },
+          quantity: 1,
+          unit: 'forfait',
+          explanation: 'Réserve structurée — cargo.value absente, droits et taxes exclus du total',
+        });
+
+        // Compute totals from firm lines only (exclude reserve)
+        let provHonoraires = 0;
+        let provOperationnel = 0;
+        for (const line of engineResponse.lines) {
+          if (line.type === 'provisional_reserve') continue;
+          const amount = Number(line?.amount) || 0;
+          const cat = String(line?.category || '').trim().toUpperCase();
+          if (EXPORT_HONORAIRES_KEYS.has(cat)) {
+            provHonoraires += amount;
+          } else {
+            provOperationnel += amount;
+          }
+        }
+        engineResponse.totals = { honoraires: provHonoraires, debours: 0, operationnel: provOperationnel };
+
+      } else if (isExportFlow) {
         console.log(`[EXPORT-GUARD] Mono-lot: EXPORT package "${pkg}" detected — bypassing quotation-engine`);
         // Synthetic response: proven minimal shape consumed by downstream (L2142-2163)
         engineResponse = {
@@ -2368,6 +2481,15 @@ ${JSON.stringify(refPayload)}`;
       },
     };
 
+    // ═══ LOT 4: Inject quoteQualification for provisional DDP runs ═══
+    if (isProvisionalDdp) {
+      (outputsJson as any).quoteQualification = {
+        level: "provisional",
+        reasons: [{ code: "MISSING_CARGO_VALUE", message: "Droits et taxes à confirmer après réception de la valeur marchandise" }],
+        firmTotalPolicy: "excludes_reserved_items",
+      };
+    }
+
     const durationMs = Date.now() - startTime;
 
     // 13. Update pricing_run with results
@@ -2423,6 +2545,7 @@ ${JSON.stringify(refPayload)}`;
         total_ht: totalHt,
         lines_count: tariffLines.length,
         duration_ms: durationMs,
+        ...(isProvisionalDdp ? { provisional_mode: true } : {}),
       },
       related_pricing_run_id: pricingRun.id,
       actor_type: "system",

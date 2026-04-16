@@ -293,12 +293,14 @@ Deno.serve(async (req) => {
         created_at: now,
         pricing_run_id: pricingRun.id,
         pricing_run_number: pricingRun.run_number,
-        // Quote qualification — canonical fallback (Lot 2: all existing versions default to firm)
-        quoteQualification: {
-          level: "firm",
-          reasons: [],
-          firmTotalPolicy: "all_included",
-        },
+        // Lot 4: Read quoteQualification from pricing run outputs (provisional DDP support)
+        quoteQualification: (
+          pricingRun.outputs_json?.quoteQualification
+          && typeof pricingRun.outputs_json.quoteQualification === 'object'
+          && ["firm", "provisional", "partial"].includes(pricingRun.outputs_json.quoteQualification.level)
+        )
+          ? pricingRun.outputs_json.quoteQualification
+          : { level: "firm", reasons: [], firmTotalPolicy: "all_included" },
       },
       inputs: {
         origin: inputs.origin || factsSnapshot.origin || null,
