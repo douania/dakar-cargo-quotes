@@ -232,7 +232,43 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   currentPage.drawText(sanitize(`Date: ${formatDate(snapshot.meta?.created_at || new Date().toISOString())}`), {
     x: margin, y, size: 10, font, color: gray,
   });
-  y -= sectionGap;
+  y -= lineHeight;
+
+  // === QUALIFICATION BLOCK (Lot 3B) ===
+  const qualification = resolveQuoteQualification(snapshot);
+  const amberColor = rgb(0.85, 0.55, 0.0);
+  const qualGray = rgb(0.45, 0.45, 0.55);
+
+  if (qualification.level === "provisional") {
+    ensureSpace(lineHeight * 3 + 10);
+    currentPage.drawRectangle({
+      x: margin, y: y - lineHeight * 2 - 5, width: PAGE_W - 2 * margin, height: lineHeight * 2 + 10,
+      color: rgb(1, 0.97, 0.88), // light amber bg
+    });
+    currentPage.drawText('DEVIS PROVISOIRE', { x: margin + 5, y, size: 11, font: fontBold, color: amberColor });
+    y -= lineHeight;
+    currentPage.drawText('Certaines composantes restent sous reserve :', { x: margin + 5, y, size: 9, font, color: amberColor });
+    y -= lineHeight;
+    const reasonTexts = qualification.reasons.slice(0, 3).map(
+      (r: { code: string; message: string }) => REASON_LABELS[r.code] || r.message || r.code
+    );
+    currentPage.drawText(sanitize(reasonTexts.join(' / ')), { x: margin + 10, y, size: 8, font, color: amberColor });
+    y -= sectionGap;
+  } else if (qualification.level === "partial") {
+    ensureSpace(lineHeight * 2 + 10);
+    currentPage.drawRectangle({
+      x: margin, y: y - lineHeight - 5, width: PAGE_W - 2 * margin, height: lineHeight + 10,
+      color: rgb(0.93, 0.93, 0.96), // light slate bg
+    });
+    currentPage.drawText('OFFRE PARTIELLE', { x: margin + 5, y, size: 11, font: fontBold, color: qualGray });
+    y -= lineHeight;
+    currentPage.drawText('Le montant couvre uniquement le perimetre explicitement chiffre.', { x: margin + 5, y, size: 9, font, color: qualGray });
+    y -= sectionGap;
+  } else {
+    // firm — discreet label
+    currentPage.drawText('Qualification : Devis ferme', { x: margin, y, size: 8, font, color: gray });
+    y -= sectionGap;
+  }
 
   // === CLIENT ===
   currentPage.drawLine({
