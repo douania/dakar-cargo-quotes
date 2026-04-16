@@ -13,6 +13,8 @@ Dernière mise à jour : 2026-04-10
 
 L'enum DB `quote_case_status` contient 17 valeurs.
 
+> **Note** : Les statuts ci-dessous décrivent le workflow opératoire du dossier. La fermeté commerciale du devis (`firm` / `provisional` / `partial`) est une qualification séparée portée par le snapshot de `quotation_versions` (`snapshot.meta.quoteQualification`), pas par `quote_cases.status`. Aucun nouveau statut FSM n'est ajouté pour cette distinction. Voir `docs/MASTER_CONTEXT.md` § Quote qualification model.
+
 | # | Statut | Label FR | Définition métier | Fonction(s) autorisées à l'écrire | Classification | Écran(s) principaux |
 |---|--------|----------|-------------------|-----------------------------------|----------------|---------------------|
 | 1 | `INTAKE` | Réception | Dossier créé manuellement (sans email) | `ensure-quote-case` | active | CaseView, CaseCard |
@@ -119,3 +121,4 @@ Cette sémantique est cohérente avec la décision fondamentale **"Pas d'auto-se
 | M6.1 | 2026-03-25 | Cockpit canonique : CaseView désigné comme surface principale opérateur. QuotationSheet réduit à surface secondaire email-first/legacy. Panels workflow dupliqués (Decision, Pricing, Version, Send) retirés de QuotationSheet quand un quote_case existe. Dashboard ne redirige plus silencieusement vers QuotationSheet. Colonne "Écran(s) principaux" réalignée sur CaseView. |
 | M6.2 | 2026-03-25 | HUMAN_REVIEW déclassé du chemin canonique. Reclassifié de `waiting` à `dormant`. Chemin canonique explicité : `PRICED_DRAFT` → `QUOTED_VERSIONED` → `SENT`. La revue humaine est implicite dans l'action de création de version. Transition 11 (`generate-case-outputs`) marquée dormante. (Fonction supprimée en M26b.) |
 | M19b | 2026-03-25 | Audit FSM transversal. CHECK constraint `case_timeline_events.event_type` alignée avec le runtime : 6 event_types manquants ajoutés (`new_email_received`, `quotation_version_created`, `decision_committed`, `all_decisions_complete`, `pricing_unlocked`, `pricing_blocked`). Traçabilité restaurée pour les événements futurs. Aucune edge function modifiée. |
+| QQM-1 | 2026-04-16 | Note de clarification : les statuts FSM décrivent le workflow dossier. La fermeté commerciale du devis (firm/provisional/partial) est une qualification séparée portée par `quotation_versions.snapshot.meta.quoteQualification`. Aucun nouveau statut FSM ajouté. |

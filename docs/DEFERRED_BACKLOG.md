@@ -677,6 +677,34 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
+## QUOTE-QUALIFICATION-MODEL — Modèle canonique de qualification commerciale du devis
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | QUOTE-QUALIFICATION-MODEL |
+| **Catégorie** | Contrat produit / Pricing output |
+| **Statut** | `in_progress` |
+| **Priorité** | Haute |
+| **Phase d'origine** | QQM-1 |
+| **Date** | 2026-04-16 |
+| **Déclencheur de réouverture** | Chaque lot terminé déclenche le suivant |
+| **Recommandation** | Modèle à 3 niveaux (firm/provisional/partial) porté par le snapshot de version, pas par le statut FSM. |
+
+### Décision produit
+
+La qualification commerciale du devis est distincte du statut FSM dossier (`quote_cases.status`). Elle est portée par `quotation_versions.snapshot.meta.quoteQualification`.
+
+### Ordre des lots
+
+1. **Lot 1 — Documentation canonique** : définitions, reason codes, distinction qualification/statut FSM → `in_progress`
+2. **Lot 2 — Version snapshot** : `generate-quotation-version` enrichit `snapshot.meta.quoteQualification` avec fallback `firm` → `in_progress`
+3. **Lot 3 — Wording surfaces** : PDF, email draft, QuotationVersionCard affichent la qualification et les réserves → `planned`
+4. **Lot 4 — Pilote DDP** : assouplir le blocage `cargo.value` pour DDP en utilisant `provisional` + `MISSING_CARGO_VALUE` → `planned`
+
+**Garde-fou** : No relaxation of DDP hard blocker before version/PDF wording is ready (Lot 3 requis avant Lot 4).
+
+---
+
 Cet inventaire couvre les sources suivantes :
 - **Repo** : `MASTER_CONTEXT.md`, `STATUS_REGISTRY.md`, `SECURITY_CONTRACT.md`, `PHASE_15_NOTES.md`, `DECISIONS.md`, `AUDIT_METIER_P0_PROTOCOL.md`, `.lovable/plan.md`, code runtime
 - **Chats** : phases M18d → M27b (session de stabilisation complète)

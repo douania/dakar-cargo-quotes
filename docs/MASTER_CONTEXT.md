@@ -816,3 +816,46 @@ Hook léger `useServiceScope()` (`src/hooks/useServiceScope.ts`) qui lit le dern
 - 4 fichiers runtime modifiés
 - -5 queries réseau (2 scope dupliquées + 3 HEAD PricingCommWarnings)
 - 0 migration DB, 0 edge function, 0 modification useCockpitState
+
+---
+
+## Quote qualification model (commercial)
+
+La qualification commerciale du devis est **distincte** du statut FSM du dossier (`quote_cases.status`).
+
+- **`quote_cases.status`** décrit l'état d'avancement opératoire du dossier (workflow)
+- **Quote qualification** décrit la fermeté commerciale de la version/devis envoyée au client
+
+> **Règle fondamentale** : `quote_cases.status ≠ quote qualification`. La qualification est portée par le snapshot de la version (`quotation_versions.snapshot.meta.quoteQualification`), pas par `quote_cases.status`. Un dossier en statut `QUOTED_VERSIONED` peut avoir une version `firm`, `provisional` ou `partial`.
+
+### Niveaux de qualification
+
+| Niveau | Définition |
+|--------|-----------|
+| `firm` | Tous les éléments de coût inclus dans le total ferme sont résolus et ne portent pas de réserve critique ouverte. Le devis est engageant commercialement. |
+| `provisional` | Au moins un élément de coût est estimé ou en attente de confirmation. Le devis est informatif, avec réserves explicites. Le périmètre demandé est couvert, mais certains postes portent une réserve intelligible (ex : DDP sans valeur marchandise mais avec réserve customs formulée). |
+| `partial` | Le devis couvre volontairement un sous-périmètre du besoin, ou bien un ou plusieurs postes in-scope ne peuvent pas être présentés même sous forme de réserve intelligible. |
+
+### Reservation reason codes (whitelist initiale)
+
+| Code | Signification |
+|------|--------------|
+| `MISSING_CARGO_VALUE` | Valeur marchandise absente (impact CAF/customs) |
+| `MISSING_HS_CODE` | Code HS non résolu (impact droits/taxes) |
+| `PAD_CATEGORY_UNRESOLVED` | Catégorie marchandise PAD non déterminée |
+| `PARTNER_COST_PENDING` | Coût partenaire en attente de réponse |
+| `RATE_PENDING_CONFIRMATION` | Tarif marqué "À confirmer" |
+
+### Structure snapshot
+
+La qualification est stockée dans `quotation_versions.snapshot.meta.quoteQualification` :
+
+```typescript
+quoteQualification: {
+  level: "firm" | "provisional" | "partial";
+  reasons: Array<{ code: string; message: string; field?: string }>;
+  firmTotalPolicy: "all_included" | "excludes_reserved_items";
+}
+```
+
+**Fallback par défaut** (backward-compatible) : `level = "firm"`, `reasons = []`, `firmTotalPolicy = "all_included"`.
