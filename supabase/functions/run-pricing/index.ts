@@ -2476,6 +2476,15 @@ ${JSON.stringify(refPayload)}`;
       },
     };
 
+    // ═══ LOT 4: Inject quoteQualification for provisional DDP runs ═══
+    if (isProvisionalDdp) {
+      (outputsJson as any).quoteQualification = {
+        level: "provisional",
+        reasons: [{ code: "MISSING_CARGO_VALUE", message: "Droits et taxes à confirmer après réception de la valeur marchandise" }],
+        firmTotalPolicy: "excludes_reserved_items",
+      };
+    }
+
     const durationMs = Date.now() - startTime;
 
     // 13. Update pricing_run with results
