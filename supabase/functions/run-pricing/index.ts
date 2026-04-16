@@ -477,7 +477,9 @@ Deno.serve(async (req) => {
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // 2. Parse request
-    const { case_id }: RunPricingRequest = await req.json();
+    const body = await req.json();
+    const case_id: string = body.case_id;
+    const allow_provisional: boolean = body.allow_provisional === true;
 
     if (!case_id) {
       return new Response(
