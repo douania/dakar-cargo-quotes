@@ -1908,8 +1908,8 @@ export default function CaseView() {
           }
 
           // Lot 4: canProvisionalDdp — true only if CARGO_VALUE_REQUIRED is the sole blocker
-          const canProvisionalDdp = scopeWantsDuties
-            && prechecks.length > 0
+          // prechecks is empty for multi-lot, so canProvisionalDdp will be false (correct)
+          const canProvisionalDdp = prechecks.length > 0
             && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
 
           return (
