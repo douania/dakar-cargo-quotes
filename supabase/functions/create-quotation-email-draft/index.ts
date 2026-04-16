@@ -187,6 +187,8 @@ async function tryAiEnrichment(contextPack: Record<string, unknown>): Promise<st
 Rédige un email commercial professionnel en français pour accompagner un devis de transit.
 Utilise UNIQUEMENT les données fournies dans le contexte. Ne jamais inventer de chiffres, délais, ou promesses commerciales.
 Le ton doit être professionnel, courtois et commercial.
+IMPORTANT: Si le champ quote_qualification.level vaut "provisional", le mail DOIT contenir le mot "provisoire" et mentionner les réserves.
+Si le champ quote_qualification.level vaut "partial", le mail DOIT contenir le mot "partielle" et préciser que le montant est partiel.
 Retourne un JSON strict : { "body_text": "..." }
 Le body_text doit commencer par une salutation et finir par "Cordialement,\\nL'équipe SODATRA".`;
 
