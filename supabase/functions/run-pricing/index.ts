@@ -1583,7 +1583,102 @@ Deno.serve(async (req) => {
     const isExportFlow = pkg.startsWith('EXPORT_');
 
     try {
-      if (isExportFlow) {
+      if (isProvisionalDdp) {
+        // ═══ PROVISIONAL-DDP-GUARD (mono-lot): bypass quotation-engine, produce firm-only lines + reserve ═══
+        console.log(`[PROVISIONAL-DDP-GUARD] Mono-lot: DDP without cargo.value — bypassing customs engine for case ${case_id}`);
+        engineResponse = {
+          lines: [],
+          totals: { honoraires: 0, debours: 0 },
+          currency: 'XOF',
+          duty_breakdown: [],
+          version: 'provisional-ddp-guard-v1',
+        };
+        tariffSources = [];
+
+        // Enrich non-customs services via price-service-lines
+        const CUSTOMS_SERVICE_KEYS = new Set(['CUSTOMS_DAKAR', 'CUSTOMS_EXPORT', 'CUSTOMS_BAMAKO']);
+        const provisionalPackageKey = (inputs.servicePackage || '').trim().toUpperCase();
+        if (provisionalPackageKey && SERVICE_PACKAGES[provisionalPackageKey]) {
+          const overrides = readOverridesFromFacts(facts || []);
+          const effectiveKeys = resolveEffectiveServiceKeys(provisionalPackageKey, overrides);
+          const firmKeys = effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k));
+
+          console.log(`[PROVISIONAL-DDP-GUARD] Enriching ${firmKeys.length} firm service keys (excluded customs: ${effectiveKeys.filter(k => CUSTOMS_SERVICE_KEYS.has(k)).join(', ')})`);
+
+          if (firmKeys.length > 0) {
+            const serviceLineInputs = firmKeys.map(sk => ({
+              id: crypto.randomUUID(),
+              service: sk,
+              unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
+              quantity: 1,
+              currency: 'XOF',
+            }));
+
+            const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
+            const pslRes = await fetch(pslUrl, {
+              method: 'POST',
+              headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
+            });
+
+            const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
+
+            if (pslRes.ok) {
+              const pslData = await pslRes.json();
+              const pricedLines = pslData?.data?.priced_lines || [];
+              const firmLines: any[] = [];
+              for (const pl of pricedLines) {
+                const serviceKey = idToServiceKey.get(pl.id) || pl.id;
+                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                firmLines.push(canonicalizeLine({
+                  category: serviceKey,
+                  label: label,
+                  amount: pl.rate ?? 0,
+                  currency: pl.currency || 'XOF',
+                  type: 'service_package',
+                  source: { type: pl.source || 'price-service-lines', reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
+                  quantity: pl.quantity_used ?? 1,
+                  unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
+                  explanation: pl.explanation || '',
+                }, { origin_layer: 'package_enrichment' }));
+              }
+              engineResponse.lines = firmLines;
+              console.log(`[PROVISIONAL-DDP-GUARD] Merged ${firmLines.length} firm service lines`);
+            } else {
+              console.warn(`[PROVISIONAL-DDP-GUARD] price-service-lines failed (${pslRes.status})`);
+            }
+          }
+        }
+
+        // Add explicit reserve line (non-monetary, amount=0, not included in totals)
+        engineResponse.lines.push({
+          category: 'CUSTOMS_RESERVE',
+          label: 'Droits et taxes à confirmer après réception de la valeur marchandise',
+          amount: 0,
+          currency: 'XOF',
+          type: 'provisional_reserve',
+          source: { type: 'PROVISIONAL_RESERVE', reference: 'LOT4_DDP_PILOT', confidence: 0 },
+          quantity: 1,
+          unit: 'forfait',
+          explanation: 'Réserve structurée — cargo.value absente, droits et taxes exclus du total',
+        });
+
+        // Compute totals from firm lines only (exclude reserve)
+        let provHonoraires = 0;
+        let provOperationnel = 0;
+        for (const line of engineResponse.lines) {
+          if (line.type === 'provisional_reserve') continue;
+          const amount = Number(line?.amount) || 0;
+          const cat = String(line?.category || '').trim().toUpperCase();
+          if (EXPORT_HONORAIRES_KEYS.has(cat)) {
+            provHonoraires += amount;
+          } else {
+            provOperationnel += amount;
+          }
+        }
+        engineResponse.totals = { honoraires: provHonoraires, debours: 0, operationnel: provOperationnel };
+
+      } else if (isExportFlow) {
         console.log(`[EXPORT-GUARD] Mono-lot: EXPORT package "${pkg}" detected — bypassing quotation-engine`);
         // Synthetic response: proven minimal shape consumed by downstream (L2142-2163)
         engineResponse = {
