@@ -1,4 +1,5 @@
 
+
 # Micro-correction — Retirer FOB de la branche freightValue
 
 ## Problème
@@ -26,3 +27,4 @@ FOB n'est pas traité dans ce lot — une fact key canonique dédiée sera déci
 - Pas de migration
 - Pas d'autre fichier touché
 - Redéploiement de la fonction après correction
+
