@@ -1,13 +1,17 @@
 /**
- * Phase 12: QuotationVersionCard
- * Displays existing quotation versions with selection and PDF export
+ * Phase 12 + Lot 3A: QuotationVersionCard
+ * Displays existing quotation versions with selection, PDF export,
+ * and commercial qualification badge (firm / provisional / partial).
  * 
  * CTO Rules:
  * - Read-only display of quotation_versions
  * - Human selects active version via explicit action
  * - PDF export writes to quotation_documents with traceability
+ * - PATCH BONUS: Sélection atomique via RPC select_quotation_version
  * 
- * PATCH BONUS: Sélection atomique via RPC select_quotation_version
+ * Lot 3A: Badge qualification + fallback historique
+ * - Si snapshot.meta.quoteQualification existe → source de vérité
+ * - Sinon fallback via raw_lines[].source.type === "TO_CONFIRM"
  */
 
 import { useState } from 'react';
@@ -15,12 +19,64 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Check, FileDown, Loader2, Clock, FileText, ExternalLink } from 'lucide-react';
+import { Check, FileDown, Loader2, Clock, FileText, ExternalLink, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { usePricingResultData, QuotationVersion } from '@/hooks/usePricingResultData';
+
+// ── Qualification types & helpers ────────────────────────────────────────────
+
+interface QuoteQualification {
+  level: "firm" | "provisional" | "partial";
+  reasons: Array<{ code: string; message: string; field?: string }>;
+  firmTotalPolicy: "all_included" | "excludes_reserved_items";
+}
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: "Valeur marchandise en attente",
+  MISSING_HS_CODE: "Code HS a confirmer",
+  PAD_CATEGORY_UNRESOLVED: "Categorie PAD a confirmer",
+  PARTNER_COST_PENDING: "Cout partenaire en attente",
+  RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
+};
+
+/**
+ * Resolve qualification from snapshot with historical fallback.
+ * Rule 1: use snapshot.meta.quoteQualification if present and valid.
+ * Rule 2: fallback — scan raw_lines for source.type === "TO_CONFIRM".
+ */
+// deno-lint-ignore no-explicit-any
+function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  // Rule 1: explicit qualification
+  const meta = snapshot?.meta;
+  if (
+    meta?.quoteQualification &&
+    typeof meta.quoteQualification.level === "string" &&
+    ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
+  ) {
+    return meta.quoteQualification as QuoteQualification;
+  }
+
+  // Rule 2: historical fallback via raw_lines
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  const hasToConfirm = rawLines.some(
+    (line: any) => line?.source?.type === "TO_CONFIRM"
+  );
+
+  if (hasToConfirm) {
+    return {
+      level: "provisional",
+      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent à confirmer" }],
+      firmTotalPolicy: "excludes_reserved_items",
+    };
+  }
+
+  return { level: "firm", reasons: [], firmTotalPolicy: "all_included" };
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
 
 interface QuotationVersionCardProps {
   caseId: string;
@@ -33,23 +89,16 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
 
-  // Don't render if no versions exist
-  if (versions.length === 0) {
-    return null;
-  }
+  if (versions.length === 0) return null;
 
-  // PATCH BONUS: Sélection atomique via RPC
   const handleSelectVersion = async (versionId: string) => {
     setSelectingId(versionId);
     try {
-      // Utiliser la RPC atomique pour sélection
       const { error: rpcError } = await supabase.rpc('select_quotation_version', {
         p_version_id: versionId,
         p_case_id: caseId,
       });
-
       if (rpcError) throw rpcError;
-
       toast.success('Version sélectionnée');
       await refetchVersions();
     } catch (err) {
@@ -66,13 +115,10 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
       const { data, error } = await supabase.functions.invoke('export-quotation-version-pdf', {
         body: { version_id: version.id }
       });
-
       if (error) throw error;
-
       if (data?.success && data?.url) {
         setDownloadUrls(prev => ({ ...prev, [version.id]: data.url }));
         window.open(data.url, '_blank');
-        
         toast.success(`PDF v${version.version_number} généré`, {
           description: 'PDF exporté. Vous pouvez maintenant finaliser la revue du brouillon avant marquage comme envoyé.',
         });
@@ -103,7 +149,6 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
         </Badge>
       );
     }
-    
     switch (status) {
       case 'draft':
         return <Badge variant="secondary">Draft</Badge>;
@@ -114,6 +159,45 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const getQualificationBadge = (qualification: QuoteQualification) => {
+    switch (qualification.level) {
+      case 'firm':
+        return (
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
+            <ShieldCheck className="h-3 w-3 mr-1" />
+            Ferme
+          </Badge>
+        );
+      case 'provisional':
+        return (
+          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800">
+            <ShieldAlert className="h-3 w-3 mr-1" />
+            Provisoire
+          </Badge>
+        );
+      case 'partial':
+        return (
+          <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Partiel
+          </Badge>
+        );
+    }
+  };
+
+  /** Short reserve summary: first reason + "+N" if more */
+  const getReserveSummary = (qualification: QuoteQualification) => {
+    if (qualification.reasons.length === 0) return null;
+    const first = qualification.reasons[0];
+    const label = REASON_LABELS[first.code] || first.message || first.code;
+    const remaining = qualification.reasons.length - 1;
+    return (
+      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+        ⚠ {label}{remaining > 0 ? ` (+${remaining} autre${remaining > 1 ? 's' : ''})` : ''}
+      </p>
+    );
   };
 
   return (
@@ -137,6 +221,7 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
               const currency = snapshot?.totals?.currency || 'XOF';
               const linesCount = snapshot?.lines?.length || 0;
               const hasDownloadUrl = !!downloadUrls[version.id];
+              const qualification = resolveQuoteQualification(snapshot);
 
               return (
                 <div 
@@ -149,9 +234,10 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="font-semibold">Version v{version.version_number}</span>
                         {getStatusBadge(version.status, version.is_selected)}
+                        {getQualificationBadge(qualification)}
                       </div>
                       
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -167,10 +253,11 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
                           {formatAmount(totalHt)} {currency}
                         </p>
                       )}
+
+                      {getReserveSummary(qualification)}
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      {/* Select button (if not already selected and not locked) */}
                       {!version.is_selected && !isLocked && (
                         <Button
                           variant="outline"
@@ -188,7 +275,6 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
                         </Button>
                       )}
 
-                      {/* PDF Export button */}
                       {hasDownloadUrl ? (
                         <Button
                           variant="outline"

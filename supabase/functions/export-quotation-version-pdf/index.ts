@@ -70,6 +70,55 @@ async function sha256(data: Uint8Array): Promise<string> {
 }
 
 // ============================================================================
+// QUALIFICATION HELPERS (Lot 3B — historical fallback)
+// ============================================================================
+
+interface QuoteQualification {
+  level: "firm" | "provisional" | "partial";
+  reasons: Array<{ code: string; message: string; field?: string }>;
+  firmTotalPolicy: "all_included" | "excludes_reserved_items";
+}
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: "Valeur marchandise en attente",
+  MISSING_HS_CODE: "Code HS a confirmer",
+  PAD_CATEGORY_UNRESOLVED: "Categorie PAD a confirmer",
+  PARTNER_COST_PENDING: "Cout partenaire en attente",
+  RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
+};
+
+// deno-lint-ignore no-explicit-any
+function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  const meta = snapshot?.meta;
+  if (
+    meta?.quoteQualification &&
+    typeof meta.quoteQualification.level === "string" &&
+    ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
+  ) {
+    return meta.quoteQualification as QuoteQualification;
+  }
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  // deno-lint-ignore no-explicit-any
+  const hasToConfirm = rawLines.some((line: any) => line?.source?.type === "TO_CONFIRM");
+  if (hasToConfirm) {
+    return {
+      level: "provisional",
+      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent a confirmer" }],
+      firmTotalPolicy: "excludes_reserved_items",
+    };
+  }
+  return { level: "firm", reasons: [], firmTotalPolicy: "all_included" };
+}
+
+function getTotalLabel(q: QuoteQualification): string {
+  if (q.level === "firm") return "TOTAL HT";
+  if (q.level === "partial") return "TOTAL HT PARTIEL";
+  // provisional
+  if (q.firmTotalPolicy === "excludes_reserved_items") return "TOTAL HT FERME (hors elements en reserve)";
+  return "TOTAL HT (sous reserve)";
+}
+
+// ============================================================================
 // PDF GENERATION (pure projection from snapshot)
 // ============================================================================
 
