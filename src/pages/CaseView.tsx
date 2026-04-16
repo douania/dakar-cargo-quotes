@@ -1907,6 +1907,11 @@ export default function CaseView() {
             }
           }
 
+          // Lot 4: canProvisionalDdp — true only if CARGO_VALUE_REQUIRED is the sole blocker
+          const canProvisionalDdp = scopeWantsDuties
+            && prechecks.length > 0
+            && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
+
           return (
             <div className="mb-6" id="section-pricing">
               <PartnerCollectionReadinessCard caseId={caseId!} />
@@ -1931,6 +1936,7 @@ export default function CaseView() {
                   return undefined;
                 })()}
                 pricingPrechecks={prechecks}
+                canProvisionalDdp={canProvisionalDdp}
               />
               {/* PRICING-GUARD: Communication warnings — queried locally */}
               <PricingCommWarnings caseId={caseId!} />
