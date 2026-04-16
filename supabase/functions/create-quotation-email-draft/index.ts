@@ -357,10 +357,16 @@ Deno.serve(async (req: Request) => {
 
   const lotCount = lotSummaryLines.length;
 
-  // --- Subject (always deterministic) ---
+  // --- Resolve qualification (Lot 3C) ---
+  const qualification = resolveQuoteQualification(snapshot);
+
+  // --- Subject (qualification-aware) ---
+  const qualSubjectWord = qualification.level === "provisional" ? "devis provisoire"
+    : qualification.level === "partial" ? "offre partielle"
+    : "devis";
   const subject = isMultiLot
-    ? `Votre devis SODATRA - version v${version.version_number} (${lotCount} lots)`
-    : `Votre devis SODATRA - version v${version.version_number}`;
+    ? `Votre ${qualSubjectWord} SODATRA - version v${version.version_number} (${lotCount} lots)`
+    : `Votre ${qualSubjectWord} SODATRA - version v${version.version_number}`;
 
   // --- PDF detection via serviceClient (RLS owner-only on quotation_documents) ---
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
@@ -377,13 +383,13 @@ Deno.serve(async (req: Request) => {
 
   const hasPdf = !!pdfDoc;
 
-  // --- Body text generation (A4.1 deterministic + A4.2 optional AI) ---
-  const deterministicBody = buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf);
+  // --- Body text generation (A4.1 deterministic + A4.2 optional AI + Lot 3C qualification) ---
+  const deterministicBody = buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf, qualification);
   let finalBody = deterministicBody;
   let generationMode: "ai" | "deterministic" = "deterministic";
 
   if (useAiEnrichment) {
-    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf);
+    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {
       let sanitized = aiBody;
@@ -394,6 +400,32 @@ Deno.serve(async (req: Request) => {
           .replace(/en pièce[s]? jointe[s]?/gi, "séparément")
           .replace(/vous trouverez joint/gi, "vous sera transmis séparément");
       }
+
+      // Lot 3C — Post-AI qualification guard:
+      // If qualification ≠ firm, the AI body MUST contain qualification markers.
+      // If not, reinject a deterministic reserve block to guarantee coherence.
+      if (qualification.level !== "firm") {
+        const qualMarkers = ["provisoire", "partiel", "partielle", "réserve", "sous réserve", "confirmer"];
+        const bodyLower = sanitized.toLowerCase();
+        const hasQualMarker = qualMarkers.some(m => bodyLower.includes(m));
+        if (!hasQualMarker) {
+          // AI lost the qualification — reinject reserve block
+          console.warn("[create-quotation-email-draft] AI lost qualification markers, reinjecting reserve block");
+          const reserveBlock = buildReserveBlock(qualification);
+          if (reserveBlock.length > 0) {
+            // Insert before closing "Cordialement"
+            const cordIdx = sanitized.lastIndexOf("Cordialement");
+            if (cordIdx > 0) {
+              const before = sanitized.substring(0, cordIdx).trimEnd();
+              const after = sanitized.substring(cordIdx);
+              sanitized = before + "\n\n" + reserveBlock.join("\n") + "\n\n" + after;
+            } else {
+              sanitized += "\n" + reserveBlock.join("\n");
+            }
+          }
+        }
+      }
+
       finalBody = sanitized;
       generationMode = "ai";
     } else {
