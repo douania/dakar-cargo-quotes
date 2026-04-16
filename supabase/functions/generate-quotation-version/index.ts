@@ -52,6 +52,15 @@ interface VersionSnapshot {
     created_at: string;
     pricing_run_id: string;
     pricing_run_number: number;
+    quoteQualification: {
+      level: "firm" | "provisional" | "partial";
+      reasons: Array<{
+        code: string;
+        message: string;
+        field?: string;
+      }>;
+      firmTotalPolicy: "all_included" | "excludes_reserved_items";
+    };
   };
   inputs: {
     origin: string | null;
