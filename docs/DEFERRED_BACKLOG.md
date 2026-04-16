@@ -696,8 +696,8 @@ La qualification commerciale du devis est distincte du statut FSM dossier (`quot
 
 ### Ordre des lots
 
-1. **Lot 1 — Documentation canonique** : définitions, reason codes, distinction qualification/statut FSM → `in_progress`
-2. **Lot 2 — Version snapshot** : `generate-quotation-version` enrichit `snapshot.meta.quoteQualification` avec fallback `firm` → `in_progress`
+1. **Lot 1 — Documentation canonique** : définitions, reason codes, distinction qualification/statut FSM → `done` (2026-04-16)
+2. **Lot 2 — Version snapshot** : `generate-quotation-version` enrichit `snapshot.meta.quoteQualification` avec fallback `firm` → `done` (2026-04-16)
 3. **Lot 3 — Wording surfaces** : PDF, email draft, QuotationVersionCard affichent la qualification et les réserves → `planned`
 4. **Lot 4 — Pilote DDP** : assouplir le blocage `cargo.value` pour DDP en utilisant `provisional` + `MISSING_CARGO_VALUE` → `planned`
 
