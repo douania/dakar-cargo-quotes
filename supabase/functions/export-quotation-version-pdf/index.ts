@@ -366,10 +366,10 @@ Deno.serve(async (req) => {
   let userId: string | undefined;
 
   try {
-    // --- Auth (verify_jwt=false in config.toml — inline JWT validation) ---
+    // --- Auth (verify_jwt=true guarantees JWT present) ---
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      // Defensive: reject requests without Bearer token
+      // Unreachable with verify_jwt=true, but defensive
       return respondError({ code: 'AUTH_INVALID_JWT', message: 'Unauthorized', correlationId });
     }
 
