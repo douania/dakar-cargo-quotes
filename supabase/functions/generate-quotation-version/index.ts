@@ -52,6 +52,15 @@ interface VersionSnapshot {
     created_at: string;
     pricing_run_id: string;
     pricing_run_number: number;
+    quoteQualification: {
+      level: "firm" | "provisional" | "partial";
+      reasons: Array<{
+        code: string;
+        message: string;
+        field?: string;
+      }>;
+      firmTotalPolicy: "all_included" | "excludes_reserved_items";
+    };
   };
   inputs: {
     origin: string | null;
@@ -284,6 +293,12 @@ Deno.serve(async (req) => {
         created_at: now,
         pricing_run_id: pricingRun.id,
         pricing_run_number: pricingRun.run_number,
+        // Quote qualification — canonical fallback (Lot 2: all existing versions default to firm)
+        quoteQualification: {
+          level: "firm",
+          reasons: [],
+          firmTotalPolicy: "all_included",
+        },
       },
       inputs: {
         origin: inputs.origin || factsSnapshot.origin || null,
