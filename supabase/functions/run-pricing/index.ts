@@ -2540,6 +2540,7 @@ ${JSON.stringify(refPayload)}`;
         total_ht: totalHt,
         lines_count: tariffLines.length,
         duration_ms: durationMs,
+        ...(isProvisionalDdp ? { provisional_mode: true } : {}),
       },
       related_pricing_run_id: pricingRun.id,
       actor_type: "system",
