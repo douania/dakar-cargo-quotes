@@ -70,6 +70,55 @@ async function sha256(data: Uint8Array): Promise<string> {
 }
 
 // ============================================================================
+// QUALIFICATION HELPERS (Lot 3B — historical fallback)
+// ============================================================================
+
+interface QuoteQualification {
+  level: "firm" | "provisional" | "partial";
+  reasons: Array<{ code: string; message: string; field?: string }>;
+  firmTotalPolicy: "all_included" | "excludes_reserved_items";
+}
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: "Valeur marchandise en attente",
+  MISSING_HS_CODE: "Code HS a confirmer",
+  PAD_CATEGORY_UNRESOLVED: "Categorie PAD a confirmer",
+  PARTNER_COST_PENDING: "Cout partenaire en attente",
+  RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
+};
+
+// deno-lint-ignore no-explicit-any
+function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  const meta = snapshot?.meta;
+  if (
+    meta?.quoteQualification &&
+    typeof meta.quoteQualification.level === "string" &&
+    ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
+  ) {
+    return meta.quoteQualification as QuoteQualification;
+  }
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  // deno-lint-ignore no-explicit-any
+  const hasToConfirm = rawLines.some((line: any) => line?.source?.type === "TO_CONFIRM");
+  if (hasToConfirm) {
+    return {
+      level: "provisional",
+      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent a confirmer" }],
+      firmTotalPolicy: "excludes_reserved_items",
+    };
+  }
+  return { level: "firm", reasons: [], firmTotalPolicy: "all_included" };
+}
+
+function getTotalLabel(q: QuoteQualification): string {
+  if (q.level === "firm") return "TOTAL HT";
+  if (q.level === "partial") return "TOTAL HT PARTIEL";
+  // provisional
+  if (q.firmTotalPolicy === "excludes_reserved_items") return "TOTAL HT FERME (hors elements en reserve)";
+  return "TOTAL HT (sous reserve)";
+}
+
+// ============================================================================
 // PDF GENERATION (pure projection from snapshot)
 // ============================================================================
 
@@ -183,7 +232,43 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   currentPage.drawText(sanitize(`Date: ${formatDate(snapshot.meta?.created_at || new Date().toISOString())}`), {
     x: margin, y, size: 10, font, color: gray,
   });
-  y -= sectionGap;
+  y -= lineHeight;
+
+  // === QUALIFICATION BLOCK (Lot 3B) ===
+  const qualification = resolveQuoteQualification(snapshot);
+  const amberColor = rgb(0.85, 0.55, 0.0);
+  const qualGray = rgb(0.45, 0.45, 0.55);
+
+  if (qualification.level === "provisional") {
+    ensureSpace(lineHeight * 3 + 10);
+    currentPage.drawRectangle({
+      x: margin, y: y - lineHeight * 2 - 5, width: PAGE_W - 2 * margin, height: lineHeight * 2 + 10,
+      color: rgb(1, 0.97, 0.88), // light amber bg
+    });
+    currentPage.drawText('DEVIS PROVISOIRE', { x: margin + 5, y, size: 11, font: fontBold, color: amberColor });
+    y -= lineHeight;
+    currentPage.drawText('Certaines composantes restent sous reserve :', { x: margin + 5, y, size: 9, font, color: amberColor });
+    y -= lineHeight;
+    const reasonTexts = qualification.reasons.slice(0, 3).map(
+      (r: { code: string; message: string }) => REASON_LABELS[r.code] || r.message || r.code
+    );
+    currentPage.drawText(sanitize(reasonTexts.join(' / ')), { x: margin + 10, y, size: 8, font, color: amberColor });
+    y -= sectionGap;
+  } else if (qualification.level === "partial") {
+    ensureSpace(lineHeight * 2 + 10);
+    currentPage.drawRectangle({
+      x: margin, y: y - lineHeight - 5, width: PAGE_W - 2 * margin, height: lineHeight + 10,
+      color: rgb(0.93, 0.93, 0.96), // light slate bg
+    });
+    currentPage.drawText('OFFRE PARTIELLE', { x: margin + 5, y, size: 11, font: fontBold, color: qualGray });
+    y -= lineHeight;
+    currentPage.drawText('Le montant couvre uniquement le perimetre explicitement chiffre.', { x: margin + 5, y, size: 9, font, color: qualGray });
+    y -= sectionGap;
+  } else {
+    // firm — discreet label
+    currentPage.drawText('Qualification : Devis ferme', { x: margin, y, size: 8, font, color: gray });
+    y -= sectionGap;
+  }
 
   // === CLIENT ===
   currentPage.drawLine({
@@ -317,7 +402,8 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     thickness: 1, color: primary,
   });
   y -= 5;
-  const totalText = sanitize(`TOTAL HT: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
+  const totalLabel = getTotalLabel(qualification);
+  const totalText = sanitize(`${totalLabel}: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
   currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
   y -= sectionGap;
 

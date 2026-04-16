@@ -16,14 +16,65 @@ import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
+// ── Qualification types & helpers (Lot 3C — historical fallback) ─────────────
+
+interface QuoteQualification {
+  level: "firm" | "provisional" | "partial";
+  reasons: Array<{ code: string; message: string; field?: string }>;
+  firmTotalPolicy: "all_included" | "excludes_reserved_items";
+}
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: "Valeur marchandise en attente",
+  MISSING_HS_CODE: "Code HS à confirmer",
+  PAD_CATEGORY_UNRESOLVED: "Catégorie PAD à confirmer",
+  PARTNER_COST_PENDING: "Coût partenaire en attente",
+  RATE_PENDING_CONFIRMATION: "Certains tarifs restent à confirmer",
+};
+
+// deno-lint-ignore no-explicit-any
+function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  const meta = snapshot?.meta;
+  if (
+    meta?.quoteQualification &&
+    typeof meta.quoteQualification.level === "string" &&
+    ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
+  ) {
+    return meta.quoteQualification as QuoteQualification;
+  }
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  // deno-lint-ignore no-explicit-any
+  const hasToConfirm = rawLines.some((line: any) => line?.source?.type === "TO_CONFIRM");
+  if (hasToConfirm) {
+    return {
+      level: "provisional",
+      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent à confirmer" }],
+      firmTotalPolicy: "excludes_reserved_items",
+    };
+  }
+  return { level: "firm", reasons: [], firmTotalPolicy: "all_included" };
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatAmountFR(amount: number): string {
   return new Intl.NumberFormat('fr-FR').format(amount);
 }
 
+function buildReserveBlock(qualification: QuoteQualification): string[] {
+  if (qualification.reasons.length === 0) return [];
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("Éléments sous réserve :");
+  for (const r of qualification.reasons.slice(0, 5)) {
+    const label = REASON_LABELS[r.code] || r.message || r.code;
+    lines.push(`  - ${label}`);
+  }
+  return lines;
+}
+
 // deno-lint-ignore no-explicit-any
-function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean): string {
+function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   const inputsBlock = snapshot?.inputs as Record<string, unknown> | undefined;
   const totalsBlock = snapshot?.totals as Record<string, unknown> | undefined;
@@ -41,33 +92,53 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
   parts.push(company ? `Bonjour ${company},` : "Bonjour,");
   parts.push("");
 
+  // Qualification-dependent wording
+  const qualWord = qualification.level === "provisional" ? "devis provisoire"
+    : qualification.level === "partial" ? "offre partielle"
+    : "devis";
+
   // Attachment wording
   if (hasPdf) {
-    parts.push(`Veuillez trouver ci-joint notre devis SODATRA, version v${versionNumber}.`);
+    parts.push(`Veuillez trouver ci-joint notre ${qualWord} SODATRA, version v${versionNumber}.`);
   } else {
-    parts.push(`Nous avons le plaisir de vous adresser notre devis SODATRA, version v${versionNumber}.`);
+    parts.push(`Nous avons le plaisir de vous adresser notre ${qualWord} SODATRA, version v${versionNumber}.`);
     parts.push("Le document PDF vous sera transmis séparément.");
   }
 
   // Route + incoterm
   if (origin && destination) {
     const routeLine = incoterm
-      ? `Ce devis concerne votre expédition ${origin} → ${destination} (${incoterm}).`
-      : `Ce devis concerne votre expédition ${origin} → ${destination}.`;
+      ? `Ce ${qualWord} concerne votre expédition ${origin} → ${destination} (${incoterm}).`
+      : `Ce ${qualWord} concerne votre expédition ${origin} → ${destination}.`;
     parts.push("");
     parts.push(routeLine);
   }
 
-  // Total HT
+  // Total HT with qualification-aware label
   if (totalHt !== null) {
     parts.push("");
-    parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency}.`);
+    if (qualification.level === "firm") {
+      parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency}.`);
+    } else if (qualification.level === "provisional") {
+      if (qualification.firmTotalPolicy === "excludes_reserved_items") {
+        parts.push(`Montant total HT ferme : ${formatAmountFR(totalHt)} ${currency} (hors éléments en réserve).`);
+      } else {
+        parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency} (sous réserve).`);
+      }
+    } else {
+      // partial
+      parts.push(`Montant total HT partiel : ${formatAmountFR(totalHt)} ${currency}.`);
+      parts.push("Ce montant couvre uniquement les prestations actuellement chiffrables.");
+    }
   }
+
+  // Reserve block
+  parts.push(...buildReserveBlock(qualification));
 
   // Multi-lot summary
   if (isMultiLot && lotSummaryLines.length > 0) {
     parts.push("");
-    parts.push(`Ce devis couvre ${lotSummaryLines.length} lots :`);
+    parts.push(`Ce ${qualWord} couvre ${lotSummaryLines.length} lots :`);
     parts.push(...lotSummaryLines);
   }
 
@@ -83,7 +154,7 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
 }
 
 // deno-lint-ignore no-explicit-any
-function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean): Record<string, unknown> {
+function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean, qualification: QuoteQualification): Record<string, unknown> {
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   const inputsBlock = snapshot?.inputs as Record<string, unknown> | undefined;
   const totalsBlock = snapshot?.totals as Record<string, unknown> | undefined;
@@ -99,6 +170,11 @@ function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber:
     lot_count: lotCount,
     is_multi_lot: isMultiLot,
     has_pdf: hasPdf,
+    quote_qualification: {
+      level: qualification.level,
+      reasons: qualification.reasons.map(r => REASON_LABELS[r.code] || r.message || r.code),
+      firm_total_policy: qualification.firmTotalPolicy,
+    },
   };
 }
 
@@ -111,6 +187,8 @@ async function tryAiEnrichment(contextPack: Record<string, unknown>): Promise<st
 Rédige un email commercial professionnel en français pour accompagner un devis de transit.
 Utilise UNIQUEMENT les données fournies dans le contexte. Ne jamais inventer de chiffres, délais, ou promesses commerciales.
 Le ton doit être professionnel, courtois et commercial.
+IMPORTANT: Si le champ quote_qualification.level vaut "provisional", le mail DOIT contenir le mot "provisoire" et mentionner les réserves.
+Si le champ quote_qualification.level vaut "partial", le mail DOIT contenir le mot "partielle" et préciser que le montant est partiel.
 Retourne un JSON strict : { "body_text": "..." }
 Le body_text doit commencer par une salutation et finir par "Cordialement,\\nL'équipe SODATRA".`;
 
@@ -279,10 +357,16 @@ Deno.serve(async (req: Request) => {
 
   const lotCount = lotSummaryLines.length;
 
-  // --- Subject (always deterministic) ---
+  // --- Resolve qualification (Lot 3C) ---
+  const qualification = resolveQuoteQualification(snapshot);
+
+  // --- Subject (qualification-aware) ---
+  const qualSubjectWord = qualification.level === "provisional" ? "devis provisoire"
+    : qualification.level === "partial" ? "offre partielle"
+    : "devis";
   const subject = isMultiLot
-    ? `Votre devis SODATRA - version v${version.version_number} (${lotCount} lots)`
-    : `Votre devis SODATRA - version v${version.version_number}`;
+    ? `Votre ${qualSubjectWord} SODATRA - version v${version.version_number} (${lotCount} lots)`
+    : `Votre ${qualSubjectWord} SODATRA - version v${version.version_number}`;
 
   // --- PDF detection via serviceClient (RLS owner-only on quotation_documents) ---
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
@@ -299,13 +383,13 @@ Deno.serve(async (req: Request) => {
 
   const hasPdf = !!pdfDoc;
 
-  // --- Body text generation (A4.1 deterministic + A4.2 optional AI) ---
-  const deterministicBody = buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf);
+  // --- Body text generation (A4.1 deterministic + A4.2 optional AI + Lot 3C qualification) ---
+  const deterministicBody = buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf, qualification);
   let finalBody = deterministicBody;
   let generationMode: "ai" | "deterministic" = "deterministic";
 
   if (useAiEnrichment) {
-    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf);
+    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {
       let sanitized = aiBody;
@@ -316,6 +400,32 @@ Deno.serve(async (req: Request) => {
           .replace(/en pièce[s]? jointe[s]?/gi, "séparément")
           .replace(/vous trouverez joint/gi, "vous sera transmis séparément");
       }
+
+      // Lot 3C — Post-AI qualification guard:
+      // If qualification ≠ firm, the AI body MUST contain qualification markers.
+      // If not, reinject a deterministic reserve block to guarantee coherence.
+      if (qualification.level !== "firm") {
+        const qualMarkers = ["provisoire", "partiel", "partielle", "réserve", "sous réserve", "confirmer"];
+        const bodyLower = sanitized.toLowerCase();
+        const hasQualMarker = qualMarkers.some(m => bodyLower.includes(m));
+        if (!hasQualMarker) {
+          // AI lost the qualification — reinject reserve block
+          console.warn("[create-quotation-email-draft] AI lost qualification markers, reinjecting reserve block");
+          const reserveBlock = buildReserveBlock(qualification);
+          if (reserveBlock.length > 0) {
+            // Insert before closing "Cordialement"
+            const cordIdx = sanitized.lastIndexOf("Cordialement");
+            if (cordIdx > 0) {
+              const before = sanitized.substring(0, cordIdx).trimEnd();
+              const after = sanitized.substring(cordIdx);
+              sanitized = before + "\n\n" + reserveBlock.join("\n") + "\n\n" + after;
+            } else {
+              sanitized += "\n" + reserveBlock.join("\n");
+            }
+          }
+        }
+      }
+
       finalBody = sanitized;
       generationMode = "ai";
     } else {
