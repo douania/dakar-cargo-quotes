@@ -154,7 +154,7 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
 }
 
 // deno-lint-ignore no-explicit-any
-function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean): Record<string, unknown> {
+function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean, qualification: QuoteQualification): Record<string, unknown> {
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   const inputsBlock = snapshot?.inputs as Record<string, unknown> | undefined;
   const totalsBlock = snapshot?.totals as Record<string, unknown> | undefined;
@@ -170,6 +170,11 @@ function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber:
     lot_count: lotCount,
     is_multi_lot: isMultiLot,
     has_pdf: hasPdf,
+    quote_qualification: {
+      level: qualification.level,
+      reasons: qualification.reasons.map(r => REASON_LABELS[r.code] || r.message || r.code),
+      firm_total_policy: qualification.firmTotalPolicy,
+    },
   };
 }
 
