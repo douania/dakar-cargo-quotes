@@ -547,12 +547,18 @@ Deno.serve(async (req) => {
       "QUOTED_VERSIONED",
       "SENT",
     ];
-    if (!pricingAllowedStatuses.includes(caseData.status)) {
+    // Lot 4.1 — provisional DDP path: allow upstream statuses ONLY when
+    // allow_provisional=true. The PROVISIONAL-DDP-GUARD (mono-lot, scopeWantsDuties,
+    // CARGO_VALUE_REQUIRED only) further restricts execution downstream.
+    const provisionalUpstreamStatuses = ["NEED_INFO", "FACTS_PARTIAL"];
+    const statusAllowedForProvisional =
+      allow_provisional && provisionalUpstreamStatuses.includes(caseData.status);
+    if (!pricingAllowedStatuses.includes(caseData.status) && !statusAllowedForProvisional) {
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: "Case not ready for pricing",
           current_status: caseData.status,
-          allowed_statuses: pricingAllowedStatuses
+          allowed_statuses: [...pricingAllowedStatuses, ...provisionalUpstreamStatuses.map(s => `${s} (provisional only)`)],
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
