@@ -580,15 +580,23 @@ Deno.serve(async (req) => {
     const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
     const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
 
-    // 4a. Hard guard — ALL blocking gaps must be resolved (unified, no exclusions)
-    const { count: blockingGapsCount } = await serviceClient
+    // 4a. Hard guard — ALL blocking gaps must be resolved
+    // Lot 4.1 exception: if allow_provisional=true and the ONLY open blocking gap is cargo.value,
+    // bypass this guard. The downstream PROVISIONAL-DDP-GUARD remains the final gatekeeper.
+    const { data: blockingGapsRows } = await serviceClient
       .from("quote_gaps")
-      .select("*", { count: "exact", head: true })
+      .select("gap_key")
       .eq("case_id", case_id)
       .eq("is_blocking", true)
       .eq("status", "open");
 
-    if (blockingGapsCount && blockingGapsCount > 0) {
+    const blockingGapsCount = blockingGapsRows?.length ?? 0;
+    const provisionalBypass =
+      allow_provisional === true &&
+      blockingGapsCount > 0 &&
+      blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value");
+
+    if (blockingGapsCount > 0 && !provisionalBypass) {
       return new Response(
         JSON.stringify({ 
           error: "Blocking gaps still open",
