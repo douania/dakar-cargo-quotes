@@ -1841,10 +1841,13 @@ export default function CaseView() {
           </Card>
         )}
 
-        {/* Pricing Launch Panel — visible for pricing-eligible statuses */}
-        {['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status) && (() => {
+        {/* Pricing Launch Panel — visible for pricing-eligible statuses
+            Lot 4.1: also visible upstream when canProvisionalDdp === true,
+            so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
+        {(() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
           // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
+          // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
           const prechecks: PricingPrecheck[] = [];
 
           if (!isMultiLot) {
@@ -1911,6 +1914,15 @@ export default function CaseView() {
           // prechecks is empty for multi-lot, so canProvisionalDdp will be false (correct)
           const canProvisionalDdp = prechecks.length > 0
             && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
+
+          // Lot 4.1: élargissement du gate — montage si statut pricing-éligible
+          // OU si le seul blocker est CARGO_VALUE_REQUIRED (provisoire DDP autorisé en amont).
+          // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
+          const showPricingPanel =
+            ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
+            || canProvisionalDdp;
+
+          if (!showPricingPanel) return null;
 
           return (
             <div className="mb-6" id="section-pricing">
