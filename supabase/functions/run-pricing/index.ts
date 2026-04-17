@@ -768,10 +768,10 @@ Deno.serve(async (req) => {
       }
 
       // If ANY lot has blockers → block entire run
-      // Lot 4: If allow_provisional, lots where CARGO_VALUE_REQUIRED is the sole blocker are allowed through
+      // Lot 4 micro-fix: multi-lot provisional DDP is NOT supported (no per-lot PROVISIONAL-DDP-GUARD).
+      // allow_provisional has no effect in multi-lot mode — pre-Lot 4 behavior preserved.
       const blockedLots = lotChecks.filter(lc => {
         if (lc.blockers.length === 0) return false;
-        if (allow_provisional && lc.blockers.every(b => b === "CARGO_VALUE_REQUIRED")) return false;
         return true;
       });
       if (blockedLots.length > 0) {
