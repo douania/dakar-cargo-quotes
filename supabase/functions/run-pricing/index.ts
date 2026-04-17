@@ -60,6 +60,9 @@ const SERVICE_PACKAGES: Record<string, string[]> = {
   DAP_PROJECT_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
   AIR_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT', 'AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  // Package-DDP micro-lot: alias service-identique des variantes DAP.
+  AIR_IMPORT_DDP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  LCL_IMPORT_DDP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
 };
 
 // ═══ EXPORT-GUARD: Classification convention (Option A — provisoire) ═══
@@ -2827,9 +2830,19 @@ function resolveServicePackageForLot(requestTypeHint: string, incoterm: string, 
   const rt = String(requestTypeHint || "").trim().toUpperCase();
   const ic = String(incoterm || "").trim().toUpperCase();
   const isOrigin = ["EXW", "FCA", "FAS"].includes(ic);
+  const isDDP = ic === "DDP";
 
-  if (rt === "SEA_LCL_IMPORT") return isOrigin ? "LCL_IMPORT_EXW" : "LCL_IMPORT_DAP";
-  if (rt === "AIR_LCL_IMPORT" || rt === "AIR_IMPORT") return isOrigin ? "AIR_IMPORT_EXW" : "AIR_IMPORT_DAP";
+  // Package-DDP micro-lot: 3-branch resolution (EXW / DDP / DAP) for AIR & LCL imports.
+  if (rt === "SEA_LCL_IMPORT") {
+    if (isOrigin) return "LCL_IMPORT_EXW";
+    if (isDDP) return "LCL_IMPORT_DDP";
+    return "LCL_IMPORT_DAP";
+  }
+  if (rt === "AIR_LCL_IMPORT" || rt === "AIR_IMPORT") {
+    if (isOrigin) return "AIR_IMPORT_EXW";
+    if (isDDP) return "AIR_IMPORT_DDP";
+    return "AIR_IMPORT_DAP";
+  }
   if (rt === "SEA_FCL_IMPORT" || rt === "IMPORT_PROJECT_DAP") return isOrigin ? "DAP_PROJECT_IMPORT_EXW" : "DAP_PROJECT_IMPORT";
 
   return undefined;

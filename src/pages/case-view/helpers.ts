@@ -71,6 +71,13 @@ const PACKAGE_COMPATIBLE_EXTRAS: Record<string, Set<string>> = {
   LCL_IMPORT_EXW: new Set([
     'SURVEY', 'PORT_CHARGES', 'STUFFING_CFS',
   ]),
+  // Package-DDP micro-lot: extras miroir des variantes DAP.
+  AIR_IMPORT_DDP: new Set([
+    'SURVEY', 'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT',
+  ]),
+  LCL_IMPORT_DDP: new Set([
+    'SURVEY', 'PORT_CHARGES', 'SEA_FREIGHT',
+  ]),
 };
 
 /**
