@@ -1,30 +1,29 @@
 
 
-# Micro-correction — Retirer FOB de la branche freightValue
+## Diagnostic
 
-## Problème
+L'erreur 400 vient d'un **désalignement entre le code source et la version déployée** de l'edge function `run-pricing`.
 
-Ligne 552 de `build-case-puzzle/index.ts` :
-```typescript
-} else if (/\b(?:FRET|FREIGHT|FOB)\b/i.test(line) && !result.freightValue) {
-```
+**Preuves** :
+- Le code local (`supabase/functions/run-pricing/index.ts` ligne 553-561) contient bien la logique Lot 4.1 backend : `NEED_INFO` et `FACTS_PARTIAL` sont autorisés si `allow_provisional=true`, et le message d'erreur formate `(provisional only)`.
+- La réponse réelle du serveur retourne `"allowed_statuses":["READY_TO_PRICE","ACK_READY_FOR_PRICING","PRICED_DRAFT","HUMAN_REVIEW","QUOTED_VERSIONED","SENT"]` — **sans le suffixe `(provisional only)`** et **sans `NEED_INFO`/`FACTS_PARTIAL`**.
 
-FOB est regroupé avec FRET/FREIGHT et alimente `freightValue`, ce qui est métierment faux (FOB = valeur marchandise, pas du fret). Cela peut injecter une mauvaise valeur dans `cargo.freight_cost`.
+Donc la version exécutée est l'ancienne, antérieure au patch backend Lot 4.1.
 
-## Correction
+## Cause
 
-Retirer `FOB` du regex à la ligne 552. Résultat :
+Lovable Cloud déploie automatiquement les edge functions en arrière-plan, mais il y a un délai. Les logs montrent un boot à `1776423808` (~1s après l'erreur), donc le redéploiement était probablement en cours au moment du clic. La requête a frappé l'ancienne version juste avant.
 
-```typescript
-} else if (/\b(?:FRET|FREIGHT)\b/i.test(line) && !result.freightValue) {
-```
+## Action proposée
 
-FOB n'est pas traité dans ce lot — une fact key canonique dédiée sera décidée dans un lot ultérieur.
+**Forcer un redéploiement explicite** de la fonction `run-pricing` pour garantir que la version correcte est en ligne, puis re-tester l'opération provisoire DDP sur le dossier `737c9b08...`.
 
-## Scope
+Étapes (en mode default) :
+1. Déployer `run-pricing` via `supabase--deploy_edge_functions`.
+2. Vérifier le déploiement via les logs de boot.
+3. Optionnel : tester via `supabase--curl_edge_functions` un POST `{ case_id, allow_provisional: true }` pour confirmer que la réponse n'est plus 400.
 
-- **1 ligne modifiée** dans `supabase/functions/build-case-puzzle/index.ts` (ligne 552)
-- Pas de migration
-- Pas d'autre fichier touché
-- Redéploiement de la fonction après correction
+## Aucun changement de code requis
+
+Le code est correct. Aucun fichier ne doit être modifié.
 
