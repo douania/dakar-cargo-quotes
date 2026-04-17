@@ -395,6 +395,16 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
     { key: 'service.package', value: 'LCL_IMPORT_EXW', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
+  // Package-DDP micro-lot: variantes DDP (alias service-identiques des DAP).
+  // La différence DAP/DDP reste portée par routing.incoterm + blockers DDP + logique customs.
+  AIR_IMPORT_DDP: [
+    { key: 'service.package', value: 'AIR_IMPORT_DDP', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
+  SEA_LCL_IMPORT_DDP: [
+    { key: 'service.package', value: 'LCL_IMPORT_DDP', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
 };
 
 // --- COMPOSITE-DOC-2: Document-type priority table for documents[] pre-pass ---
@@ -1143,6 +1153,9 @@ async function applyAssumptionRules(
   if (ORIGIN_INCOTERMS_P3.has(p3aIncoterm) && ASSUMPTION_RULES[`${flowType}_EXW`]) {
     console.log(`[P3a] Incoterm ${p3aIncoterm} detected — switching ${flowType} → ${flowType}_EXW`);
     flowType = `${flowType}_EXW`;
+  } else if (p3aIncoterm === 'DDP' && ASSUMPTION_RULES[`${flowType}_DDP`]) {
+    console.log(`[Package-DDP] Incoterm DDP detected — switching ${flowType} → ${flowType}_DDP`);
+    flowType = `${flowType}_DDP`;
   }
 
   // FLOW-FIX-1: Port inference for maritime imports to Senegal

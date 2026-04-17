@@ -2,7 +2,52 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-15
+Dernière mise à jour : 2026-04-17
+
+---
+
+## DEF-PKG-DDP-01 — Étendre packages DDP aux autres flows
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | DEF-PKG-DDP-01 |
+| **Catégorie** | Service packages / Incoterm-aware resolution |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Micro-lot Package-DDP (2026-04-17) |
+| **Date** | 2026-04-17 |
+| **Déclencheur de réouverture** | Demande métier confirmée pour des dossiers DDP en `SEA_FCL_IMPORT`, `BREAKBULK_PROJECT` ou `IMPORT_PROJECT_DAP`. |
+| **Recommandation** | Le micro-lot couvre uniquement `AIR_IMPORT`, `AIR_LCL_IMPORT` et `SEA_LCL_IMPORT`. Les autres flows resteront résolus en `_DAP` même sous incoterm DDP, par sécurité. À étendre uniquement sur déclencheur métier explicite. |
+
+---
+
+## DEF-PKG-DDP-02 — Différenciation services réelle DAP vs DDP
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | DEF-PKG-DDP-02 |
+| **Catégorie** | Service packages / Customs decomposition |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Micro-lot Package-DDP (2026-04-17) |
+| **Date** | 2026-04-17 |
+| **Déclencheur de réouverture** | Besoin de décomposition customs au niveau package (ex: ligne dédiée droits/taxes incluse uniquement en DDP). |
+| **Recommandation** | Aujourd'hui `_DDP` est strictement alias service-identique de `_DAP`. La sémantique DDP est portée par `routing.incoterm`, les blockers DDP et la logique customs/provisoire. Si un jour le pricing doit refléter la différence au niveau lignes de service, créer un vrai contenu différencié pour `AIR_IMPORT_DDP` / `LCL_IMPORT_DDP`. |
+
+---
+
+## DEF-PKG-DDP-03 — Backfill rétroactif des dossiers DDP historiques
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | DEF-PKG-DDP-03 |
+| **Catégorie** | Data backfill / Cohérence historique |
+| **Statut** | `ouvert` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Micro-lot Package-DDP (2026-04-17) |
+| **Date** | 2026-04-17 |
+| **Déclencheur de réouverture** | Besoin opérationnel de cohérence sur l'historique (reporting, audit métier, requêtes package-aware). |
+| **Recommandation** | Aucun backfill automatique. Les dossiers DDP historiques conservent leur `service.package = AIR_IMPORT_DAP` figé. La correction s'applique uniquement aux nouveaux dossiers et aux rebuilds explicites via `build-case-puzzle`. À envisager un script de migration ciblée seulement si justifié par un besoin opérationnel. |
 
 ---
 
