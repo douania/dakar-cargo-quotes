@@ -1322,14 +1322,48 @@ Deno.serve(async (req) => {
             conversion_used: computed.conversion_used,
           });
         } else {
-          pricedLines.push({
-            id: line.id, rate: null, currency, source: "no_match",
-            confidence: 0, explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
-            quantity_used: computed.quantity_used,
-            unit_used: computed.unit_used,
-            rule_id: computed.rule_id,
-            conversion_used: computed.conversion_used,
-          });
+          // ═══ Lot 1: Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
+          // Whitelist stricte des services export susceptibles d'être placeholders.
+          // Règle métier:
+          //   - source: "TO_CONFIRM" UNIQUEMENT si scope=export ET serviceKey ∈ whitelist
+          //   - rate reste null (run-pricing fera ?? 0 pour amount final)
+          //   - missing[] est conservé (TO_CONFIRM ≠ résolu)
+          //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
+          const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set([
+            "THC_EXPORT",
+            "DOCUMENTATION_BL",
+            "VGM_WEIGHING",
+            "STUFFING_FACTORY",
+            "STUFFING_CFS",
+            "EMPTY_REPO",
+            "PORT_CHARGES",
+            "CUSTOMS_EXPORT",
+            "SEA_FREIGHT",
+          ]);
+          const isExportPlaceholder =
+            pricingCtx.scope === "export" &&
+            EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
+
+          if (isExportPlaceholder) {
+            pricedLines.push({
+              id: line.id, rate: null, currency, source: "TO_CONFIRM",
+              confidence: 0,
+              explanation: `Tarif export à confirmer : aucune grille tarifaire trouvée pour ${serviceKey}`,
+              quantity_used: computed.quantity_used,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+          } else {
+            pricedLines.push({
+              id: line.id, rate: null, currency, source: "no_match",
+              confidence: 0, explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
+              quantity_used: computed.quantity_used,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+          }
           missing.push(serviceKey);
         }
       }
