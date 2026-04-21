@@ -53,6 +53,34 @@ const CURRENCY_ALIASES: Record<string, string> = {
 };
 const VALID_CURRENCIES = new Set(["XOF", "USD", "EUR"]);
 
+// ═══ Lot 1 / Lot 1-B : services export susceptibles d'être placeholders ═══
+// Whitelist stricte. Hissée au niveau module pour être lisible par :
+//   - bloc catalogue (Lot 1-B : détecte placeholder catalogue 0 XOF "Tarif à confirmer")
+//   - bloc fallback no_match (Lot 1 : produit signal TO_CONFIRM)
+const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set<string>([
+  "THC_EXPORT",
+  "DOCUMENTATION_BL",
+  "VGM_WEIGHING",
+  "STUFFING_FACTORY",
+  "STUFFING_CFS",
+  "EMPTY_REPO",
+  "PORT_CHARGES",
+  "CUSTOMS_EXPORT",
+  "SEA_FREIGHT",
+]);
+
+// Lot 1-B : détection d'un libellé "Tarif à confirmer" (signal placeholder catalogue)
+// Normalisation diacritiques + casse + espaces. Match exact sur "tarif a confirmer"
+// pour éviter tout faux positif (les vraies entrées catalogue ont une description métier).
+function isTarifAConfirmer(value?: string | null): boolean {
+  const normalized = (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return normalized === "tarif a confirmer";
+}
+
 function normalizeCurrency(raw: string): string | null {
   const upper = (raw || "").toUpperCase().trim();
   const mapped = CURRENCY_ALIASES[upper] || upper;
@@ -1209,7 +1237,19 @@ Deno.serve(async (req) => {
         ? (computed.quantity_used != null && computed.quantity_used > 0)
         : true;
 
-      if (catalogueEntry && scopeOk && priceOk && qtyOk) {
+      // ═══ Lot 1-B : détection placeholder catalogue export ═══
+      // Une entrée catalogue FIXED à 0 XOF avec description "Tarif à confirmer"
+      // n'est pas un forfait gratuit volontaire : c'est un placeholder explicite.
+      // On la fait tomber dans la branche fallback Lot 1 (TO_CONFIRM).
+      // Conditions strictes cumulées (toute défaillance → comportement catalogue inchangé).
+      const isCatalogPlaceholder =
+        pricingCtx.scope === "export" &&
+        EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey) &&
+        catalogueEntry?.pricing_mode === "FIXED" &&
+        catalogueEntry?.base_price === 0 &&
+        isTarifAConfirmer(catalogueEntry?.description);
+
+      if (catalogueEntry && scopeOk && priceOk && qtyOk && !isCatalogPlaceholder) {
         // Calculate lineTotal based on pricing_mode
         let lineTotal = 0;
         if (catalogueEntry.pricing_mode === "UNIT_RATE") {
@@ -1322,27 +1362,18 @@ Deno.serve(async (req) => {
             conversion_used: computed.conversion_used,
           });
         } else {
-          // ═══ Lot 1: Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
-          // Whitelist stricte des services export susceptibles d'être placeholders.
-          // Règle métier:
+          // ═══ Lot 1 : Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
+          // Règle métier (whitelist EXPORT_PLACEHOLDER_SERVICE_KEYS définie au niveau module) :
           //   - source: "TO_CONFIRM" UNIQUEMENT si scope=export ET serviceKey ∈ whitelist
           //   - rate reste null (run-pricing fera ?? 0 pour amount final)
           //   - missing[] est conservé (TO_CONFIRM ≠ résolu)
           //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
-          const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set([
-            "THC_EXPORT",
-            "DOCUMENTATION_BL",
-            "VGM_WEIGHING",
-            "STUFFING_FACTORY",
-            "STUFFING_CFS",
-            "EMPTY_REPO",
-            "PORT_CHARGES",
-            "CUSTOMS_EXPORT",
-            "SEA_FREIGHT",
-          ]);
+          // Lot 1-B : alimenté également depuis le bloc catalogue via isCatalogPlaceholder
+          //   (entrées FIXED 0 XOF avec description "Tarif à confirmer").
           const isExportPlaceholder =
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
+
 
           if (isExportPlaceholder) {
             pricedLines.push({
