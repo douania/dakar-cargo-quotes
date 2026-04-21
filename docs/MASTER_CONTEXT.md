@@ -859,3 +859,11 @@ quoteQualification: {
 ```
 
 **Fallback par défaut** (backward-compatible) : `level = "firm"`, `reasons = []`, `firmTotalPolicy = "all_included"`.
+
+### Garanties d'intégrité (Lot 3D — 2026-04-21)
+
+- **Writer snapshot** (`generate-quotation-version`) : un snapshot ne peut jamais être stocké `firm` si `tariff_lines` contient `source.type === "TO_CONFIRM"`. Helper pur `qqm-resolver.ts` applique l'upgrade automatique → `provisional` + `RATE_PENDING_CONFIRMATION` + `firmTotalPolicy: "excludes_reserved_items"`.
+- **Lecture historique** (PDF export, email draft, `QuotationVersionCard`) : garde miroir appliquée à la lecture pour upgrader les versions historiques persistées en `firm` avant Lot 3D-1.
+- **Preview pricing** (`PricingResultPanel`) : qualification dérivée live de `pricingRun.outputs_json.quoteQualification` + `tariff_lines`. Badge legacy `isProvisional` (PRICING-GUARD) renommé "Communication en cours" pour distinguer la sémantique de qualification commerciale du flag de communication en cours.
+- **Détection TO_CONFIRM** : supporte `source: "TO_CONFIRM"` (legacy string) ET `source: { type: "TO_CONFIRM" }` (format actuel).
+- **Dette tracée** : `QQM-FACTORIZE` (deferred, P3) — factoriser la table de décision si un nouveau reason code ou une nouvelle surface consomme la qualification.

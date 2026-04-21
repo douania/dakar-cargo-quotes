@@ -52,6 +52,40 @@
 
 ---
 
+## Lot 3D — QQM harmonisation TO_CONFIRM : ✅ closed (2026-04-21)
+
+Sous-lot du backlog `QUOTE-QUALIFICATION-MODEL` (qui reste `in_progress` car Lot 4 DDP reste `planned`).
+
+### Sous-lot 3D-1 — Backend snapshot writer
+- Fichiers : `supabase/functions/generate-quotation-version/qqm-resolver.ts` (nouveau, helper pur isolé sans dépendance Deno/Supabase) + `supabase/functions/generate-quotation-version/index.ts` (intégration `resolveSnapshotQualification`)
+- Test : `supabase/functions/_tests/qqm_lot3d_snapshot_resolver.test.ts` (9/9 PASS)
+- Garantie : un snapshot ne peut jamais être stocké `firm` si `tariff_lines` contient TO_CONFIRM → upgrade `provisional` + `RATE_PENDING_CONFIRMATION` + `firmTotalPolicy: "excludes_reserved_items"`
+
+### Sous-lot 3D-2 — Garde lecture historique (3 helpers consommateurs)
+- `supabase/functions/export-quotation-version-pdf/index.ts`
+- `supabase/functions/create-quotation-email-draft/index.ts`
+- `src/components/puzzle/QuotationVersionCard.tsx`
+- Garde miroir appliquée à la lecture pour upgrader les versions persistées `firm` avant Lot 3D-1 (validée par diff réel, pas par les tests Deno de 3D-1 qui couvrent uniquement le writer)
+
+### Sous-lot 3D-3 — Preview pricing
+- Fichier unique : `src/components/puzzle/PricingResultPanel.tsx`
+- Helper local `resolveQualificationFromRun` lit `outputs_json.quoteQualification` + `tariff_lines`
+- Badges `Ferme` / `Provisoire` / `Partiel` ajoutés ; badge legacy `isProvisional` renommé "Communication en cours" (sémantique PRICING-GUARD distincte de QQM)
+- Bandeau étendu : `provisional` sans TO_CONFIRM (cas DDP `MISSING_CARGO_VALUE`) affiche désormais la reason principale ; carte "✓ Tout confirmé" remplacée par "⚠ Sous réserve" si `qualification.level !== 'firm'`
+
+### Détection TO_CONFIRM uniforme
+Les 5 surfaces (writer + 3 consumers historiques + preview pricing) supportent `source: "TO_CONFIRM"` (legacy string) ET `source: { type: "TO_CONFIRM" }` (format actuel).
+
+### Hors périmètre Lot 3D
+- Aucun FROZEN modifié
+- Aucune migration DB
+- Aucun `STATUS_REGISTRY` (QQM = qualification commerciale, pas statut FSM dossier)
+- Aucun `supabase/config.toml`
+- Aucun pricing recalculé
+- Dette `QQM-FACTORIZE` documentée en `deferred` (P3) dans `docs/DEFERRED_BACKLOG.md`
+
+---
+
 ## Statut Lot 0
 **Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
 
@@ -62,6 +96,7 @@
 - **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
 - **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
 - **Lot 2 — auth cleanup `getClaims` → `requireUser`** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur ; `suggest-historical-lines` reste explicitement exclu — dual-path)
+- **Lot 3D — QQM harmonisation TO_CONFIRM** : ✅ livré et clôturé (sous-lots 3D-1/2/3 ; non rouvrable sans nouveau déclencheur ; dette `QQM-FACTORIZE` différée en P3 ; backlog parent `QUOTE-QUALIFICATION-MODEL` reste `in_progress` jusqu'à Lot 4 DDP)
 - **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
 - Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
-- Prochaine étape : à définir (aucun lot ouvert)
+- Prochaine étape : Lot 4 QQM (pilote DDP `provisional` + `MISSING_CARGO_VALUE`) reste `planned` dans `DEFERRED_BACKLOG.md` — à ouvrir uniquement sur déclencheur produit explicite

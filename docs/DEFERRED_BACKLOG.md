@@ -813,10 +813,51 @@ La qualification commerciale du devis est distincte du statut FSM dossier (`quot
 
 1. **Lot 1 — Documentation canonique** : définitions, reason codes, distinction qualification/statut FSM → `done` (2026-04-16)
 2. **Lot 2 — Version snapshot** : `generate-quotation-version` enrichit `snapshot.meta.quoteQualification` avec fallback `firm` → `done` (2026-04-16)
-3. **Lot 3 — Wording surfaces** : PDF, email draft, QuotationVersionCard affichent la qualification et les réserves → `planned`
+3. **Lot 3 — Wording surfaces & harmonisation TO_CONFIRM** : PDF, email draft, QuotationVersionCard, PricingResultPanel affichent la qualification et les réserves ; garantie d'intégrité writer + lecture historique → `done` (2026-04-21)
+   - **Sous-lot 3D-1** — Backend snapshot writer : helper pur `qqm-resolver.ts` + intégration `generate-quotation-version/index.ts`. Un snapshot ne peut plus être stocké `firm` si `tariff_lines` contient `TO_CONFIRM`. Test Deno `qqm_lot3d_snapshot_resolver.test.ts` (9/9 PASS) → `closed` (2026-04-21)
+   - **Sous-lot 3D-2** — Garde lecture historique sur 3 helpers consommateurs : `export-quotation-version-pdf/index.ts`, `create-quotation-email-draft/index.ts`, `src/components/puzzle/QuotationVersionCard.tsx`. Upgrade `firm` → `provisional` à la lecture pour les versions persistées avant 3D-1 → `closed` (2026-04-21)
+   - **Sous-lot 3D-3** — Preview pricing : `src/components/puzzle/PricingResultPanel.tsx`. Helper local `resolveQualificationFromRun`, badges `Ferme` / `Provisoire` / `Partiel`, badge legacy `isProvisional` renommé "Communication en cours", bandeau étendu pour `provisional` sans TO_CONFIRM (DDP `MISSING_CARGO_VALUE`) → `closed` (2026-04-21)
+   - **Détection TO_CONFIRM** : supporte `source: "TO_CONFIRM"` (legacy string) ET `source: { type: "TO_CONFIRM" }` (format actuel) sur les 5 surfaces.
+   - **Risque corrigé** : un devis avec ligne TO_CONFIRM ne peut plus être stocké ni rendu `firm` sur writer, lecture historique (PDF/email/UI) ou preview pricing.
+   - **Hors périmètre 3D** : aucun FROZEN modifié, aucune migration DB, aucun `STATUS_REGISTRY` (QQM = qualification commerciale, pas statut FSM dossier), aucun pricing recalculé.
 4. **Lot 4 — Pilote DDP** : assouplir le blocage `cargo.value` pour DDP en utilisant `provisional` + `MISSING_CARGO_VALUE` → `planned`
 
-**Garde-fou** : No relaxation of DDP hard blocker before version/PDF wording is ready (Lot 3 requis avant Lot 4).
+**Garde-fou** : No relaxation of DDP hard blocker before version/PDF wording is ready (Lot 3 requis avant Lot 4 → satisfait 2026-04-21).
+
+---
+
+## QQM-FACTORIZE — Factorisation différée des helpers de qualification QQM
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | QQM-FACTORIZE |
+| **Catégorie** | Dette technique / Refactor |
+| **Statut** | `deferred` |
+| **Priorité** | P3 (basse) |
+| **Phase d'origine** | Lot 3D (2026-04-21) |
+| **Date** | 2026-04-21 |
+| **Déclencheur de réouverture** | Ajout d'un nouveau reason code QQM **OU** ajout d'une nouvelle surface qui consomme la qualification commerciale |
+| **Recommandation** | Factoriser ou centraliser la table de décision QQM dans un helper partagé si un nouveau reason code ou une nouvelle surface de rendu est ajoutée. Maintenir la duplication actuelle tant que les 5 implémentations restent stables. |
+
+### Contexte
+
+Lot 3D a délibérément accepté la duplication de la table de décision QQM sur 5 implémentations :
+
+1. **Backend writer canonique** : `supabase/functions/generate-quotation-version/qqm-resolver.ts` (Deno, helper pur testé)
+2. **Consumer PDF** : `supabase/functions/export-quotation-version-pdf/index.ts` (garde lecture historique)
+3. **Consumer email draft** : `supabase/functions/create-quotation-email-draft/index.ts` (garde lecture historique)
+4. **Consumer UI version card** : `src/components/puzzle/QuotationVersionCard.tsx` (garde lecture historique)
+5. **Consumer UI preview pricing** : `src/components/puzzle/PricingResultPanel.tsx` (résolution live depuis `outputs_json` + `tariff_lines`)
+
+### Justification de la duplication actuelle
+
+- Refactor cross-runtime (Deno edge functions / React frontend / `_shared`) coûteux.
+- Les 5 implémentations partagent la même table de décision validée par les tests Deno de 3D-1 + diff réel de 3D-2/3D-3.
+- ROI insuffisant tant qu'aucune évolution fonctionnelle n'est prévue.
+
+### Réserve non-bloquante observée
+
+`PricingResultPanel.tsx` : le compteur `toConfirmCount` et le highlight de lignes lisent encore uniquement `l.source?.type === 'TO_CONFIRM'` (pas la string legacy). Compatible cas courant (format actuel = objet). À traiter dans le micro-lot factorize si déclenché, pas en réouverture isolée.
 
 ---
 
