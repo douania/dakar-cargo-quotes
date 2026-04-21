@@ -14,6 +14,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -182,51 +183,23 @@ Deno.serve(async (req: Request) => {
   );
 
   try {
-    // 2. Auth — validate JWT via getClaims()
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    // 2. Auth — Lot 2: migrated from inline getClaims to requireUser helper.
+    // Trade-off observabilité accepté (S1.2): tous les échecs auth loggés AUTH_INVALID_JWT.
+    const auth = await requireUser(req);
+    if (auth instanceof Response) {
       await logRuntimeEvent(serviceClient, {
         correlationId,
         functionName: "find-similar-quotations",
-        status: "fatal_error",
-        errorCode: "AUTH_MISSING_JWT",
-        httpStatus: 401,
-        durationMs: Date.now() - t0,
-      });
-      return respondError({
-        code: "AUTH_MISSING_JWT",
-        message: "Authorization header missing or malformed",
-        correlationId,
-      });
-    }
-
-    const anonClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } =
-      await anonClient.auth.getClaims(token);
-
-    if (claimsError || !claimsData?.claims) {
-      await logRuntimeEvent(serviceClient, {
-        correlationId,
-        functionName: "find-similar-quotations",
+        op: "auth",
         status: "fatal_error",
         errorCode: "AUTH_INVALID_JWT",
         httpStatus: 401,
         durationMs: Date.now() - t0,
       });
-      return respondError({
-        code: "AUTH_INVALID_JWT",
-        message: "Invalid or expired JWT",
-        correlationId,
-      });
+      return auth;
     }
 
-    const userId = claimsData.claims.sub as string;
+    const userId = auth.user.id;
 
     // 3. Parse body
     const input: SimilarityInput = await req.json();
