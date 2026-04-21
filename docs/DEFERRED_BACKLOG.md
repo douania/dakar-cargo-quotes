@@ -2,7 +2,24 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-17
+Dernière mise à jour : 2026-04-21
+
+---
+
+## SEC-001 — Git hygiene : `.env` non protégé par `.gitignore`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | SEC-001 |
+| **Catégorie** | Security / Git hygiene |
+| **Statut** | `ouvert` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 0 sécurisé (2026-04-21) |
+| **Date** | 2026-04-21 |
+| **Problème** | `.env` est présent dans le ZIP/repo snapshot et `.gitignore` ne protège pas encore `.env`. |
+| **Blocage** | `.gitignore` est read-only côté Lovable, correction manuelle requise hors Lovable (édition GitHub directe ou commit local). |
+| **Condition de clôture** | (1) `.gitignore` contient `.env`, `.env.local`, `.env.*.local` ; (2) `git ls-files .env` retourne vide ; (3) si `.env` a été poussé sur un remote public ou partagé, les clés concernées ont été rotatées. |
+| **Recommandation** | Ne jamais lire, afficher, copier ou commiter le contenu de `.env`. Action manuelle hors Lovable, puis vérification `git status --ignored` et `git ls-files .env`. |
 
 ---
 

@@ -1,29 +1,29 @@
+# Plan courant
 
+## Lot 0 sécurisé — runtime accepté partiellement (3/4)
 
-## Diagnostic
+### Lot 0-A : runtime appliqué ✅
+- `supabase/config.toml` : 3 entrées ajoutées (`backfill-case-documents`, `healthz`, `upsert-exchange-rate`)
+- `src/pages/CaseView.tsx` : `QUOTED_VERSIONED` ajouté au guard principal auto-pricing
+- `supabase/functions/generate-response/index.ts` : `created_by: userId` ajouté à l'insert `email_drafts`
 
-L'erreur 400 vient d'un **désalignement entre le code source et la version déployée** de l'edge function `run-pricing`.
+### SEC-001 : Git hygiene manuelle ouverte ❌ (hors Lovable)
+- `.gitignore` ne contient toujours pas `.env`
+- Correction impossible côté Lovable (fichier read-only)
+- Inscrit dans `docs/DEFERRED_BACKLOG.md` sous **SEC-001**
+- Action requise hors Lovable : édition GitHub directe ou commit local
 
-**Preuves** :
-- Le code local (`supabase/functions/run-pricing/index.ts` ligne 553-561) contient bien la logique Lot 4.1 backend : `NEED_INFO` et `FACTS_PARTIAL` sont autorisés si `allow_provisional=true`, et le message d'erreur formate `(provisional only)`.
-- La réponse réelle du serveur retourne `"allowed_statuses":["READY_TO_PRICE","ACK_READY_FOR_PRICING","PRICED_DRAFT","HUMAN_REVIEW","QUOTED_VERSIONED","SENT"]` — **sans le suffixe `(provisional only)`** et **sans `NEED_INFO`/`FACTS_PARTIAL`**.
+**Conditions de clôture SEC-001** :
+1. `.gitignore` contient `.env`, `.env.local`, `.env.*.local`
+2. `git ls-files .env` retourne vide
+3. Si `.env` a été poussé : rotation des clés effectuée
 
-Donc la version exécutée est l'ancienne, antérieure au patch backend Lot 4.1.
+---
 
-## Cause
+## Statut Lot 0
+**Non clôturé** : runtime 3/4 validé, sécurité Git ouverte (SEC-001).
 
-Lovable Cloud déploie automatiquement les edge functions en arrière-plan, mais il y a un délai. Les logs montrent un boot à `1776423808` (~1s après l'erreur), donc le redéploiement était probablement en cours au moment du clic. La requête a frappé l'ancienne version juste avant.
-
-## Action proposée
-
-**Forcer un redéploiement explicite** de la fonction `run-pricing` pour garantir que la version correcte est en ligne, puis re-tester l'opération provisoire DDP sur le dossier `737c9b08...`.
-
-Étapes (en mode default) :
-1. Déployer `run-pricing` via `supabase--deploy_edge_functions`.
-2. Vérifier le déploiement via les logs de boot.
-3. Optionnel : tester via `supabase--curl_edge_functions` un POST `{ case_id, allow_provisional: true }` pour confirmer que la réponse n'est plus 400.
-
-## Aucun changement de code requis
-
-Le code est correct. Aucun fichier ne doit être modifié.
-
+## Garde-fous
+- Aucune autre action runtime à exécuter
+- Ne pas ouvrir **Lot 1 — TO_CONFIRM export 0 XOF** tant que SEC-001 n'est pas traité ou explicitement accepté comme risque temporaire
+- Ne pas créer de "Lot 0-B" Lovable : la correction est manuelle hors plateforme
