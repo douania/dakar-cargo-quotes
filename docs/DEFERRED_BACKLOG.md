@@ -12,14 +12,15 @@ Dernière mise à jour : 2026-04-21
 |-------|--------|
 | **ID** | SEC-001 |
 | **Catégorie** | Security / Git hygiene |
-| **Statut** | `ouvert` |
+| **Statut** | `closed_pending_rotation_review` |
 | **Priorité** | P1 |
 | **Phase d'origine** | Lot 0 sécurisé (2026-04-21) |
-| **Date** | 2026-04-21 |
-| **Problème** | `.env` est présent dans le ZIP/repo snapshot et `.gitignore` ne protège pas encore `.env`. |
-| **Blocage** | `.gitignore` est read-only côté Lovable, correction manuelle requise hors Lovable (édition GitHub directe ou commit local). |
-| **Condition de clôture** | (1) `.gitignore` contient `.env`, `.env.local`, `.env.*.local` ; (2) `git ls-files .env` retourne vide ; (3) si `.env` a été poussé sur un remote public ou partagé, les clés concernées ont été rotatées. |
-| **Recommandation** | Ne jamais lire, afficher, copier ou commiter le contenu de `.env`. Action manuelle hors Lovable, puis vérification `git status --ignored` et `git ls-files .env`. |
+| **Date d'ouverture** | 2026-04-21 |
+| **Date de résolution snapshot** | 2026-04-21 |
+| **État vérifié (snapshot ZIP courant)** | (1) `.gitignore` contient désormais `.env`, `.env.local`, `.env.*.local` (corrigé hors Lovable) ; (2) `.env` n'est plus présent dans le snapshot ZIP/repo courant ; (3) Correctifs runtime Lot 0 (`supabase/config.toml`, `src/pages/CaseView.tsx`, `supabase/functions/generate-response/index.ts`) appliqués et validés. |
+| **Note de prudence** | `.env` ayant pu être visible dans l'historique Git public, un audit historique reste requis : `git log --all --full-history -- .env`. Si une clé sensible (service_role Supabase, secrets API tiers, mot de passe SMTP) a été exposée par un commit antérieur → **rotation immédiate obligatoire**. Si seul l'anon key Supabase + URL publique étaient présents → risque faible, rotation optionnelle. |
+| **Condition de clôture définitive** | Audit historique Git effectué + rotation des clés sensibles exposées (le cas échéant) **OU** justification documentée d'absence de secret sensible dans l'historique. Tant que cette condition n'est pas remplie, le statut reste `closed_pending_rotation_review`. |
+| **Recommandation** | Ne jamais lire, afficher, copier ou recréer `.env` depuis Lovable. L'audit historique et la rotation conditionnelle s'effectuent hors plateforme. |
 
 ---
 
