@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-21
+Dernière mise à jour : 2026-04-21 (Lot 1-B clôturé)
 
 ---
 
@@ -20,7 +20,7 @@ Dernière mise à jour : 2026-04-21
 | **Garanties** | (1) `missing_quantity` non converti ; (2) `rate: null` préservé dans `price-service-lines` ; (3) Lignes restent dans `missing[]` (Option A — TO_CONFIRM ≠ résolu) ; (4) Audit DB préservé via `normalizeSourceForAudit` (TO_CONFIRM → no_match côté audit uniquement) ; (5) Runtime conserve `"TO_CONFIRM"` jusqu'au cockpit/PDF/email. |
 | **Fichier impacté** | `supabase/functions/price-service-lines/index.ts` uniquement |
 | **Hors périmètre** | Aucun fichier FROZEN modifié, aucune migration DB, aucun changement de montant, aucun changement PDF/email/version. |
-| **Note non-bloquante** | La constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` est définie dans le bloc `else` (recréation à chaque passage). Comportement métier correct, optimisation stylistique différée — à revoir si refactor global de `price-service-lines`. Non rouvrant. |
+| **Note non-bloquante** | Dette stylistique levée en Lot 1-B : la constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` a été hissée au niveau module et est désormais accessible aux blocs catalogue et fallback. |
 
 ---
 
