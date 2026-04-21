@@ -42,33 +42,92 @@ const REASON_LABELS: Record<string, string> = {
   RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
 };
 
+const RATE_PENDING_REASON = {
+  code: "RATE_PENDING_CONFIRMATION",
+  message: "Certains tarifs restent à confirmer",
+};
+
+function hasToConfirmRawLines(snapshot: any): boolean {
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  return rawLines.some((line: any) => {
+    const src = line?.source;
+    if (typeof src === "string") return src === "TO_CONFIRM";
+    if (src && typeof src === "object") return src.type === "TO_CONFIRM";
+    return false;
+  });
+}
+
+function mergeReasonIfMissing(
+  reasons: QuoteQualification["reasons"] | undefined,
+  reason: QuoteQualification["reasons"][number],
+): QuoteQualification["reasons"] {
+  const list = Array.isArray(reasons) ? [...reasons] : [];
+  if (list.some((r) => r?.code === reason.code)) return list;
+  list.push(reason);
+  return list;
+}
+
 /**
- * Resolve qualification from snapshot with historical fallback.
+ * Resolve qualification from snapshot with historical fallback + Lot 3D-2 legacy guard.
  * Rule 1: use snapshot.meta.quoteQualification if present and valid.
+ * Rule 1b (Lot 3D-2): if level === "firm" but raw_lines contains TO_CONFIRM → upgrade to provisional.
+ *                     For partial/provisional, merge RATE_PENDING_CONFIRMATION if TO_CONFIRM present.
  * Rule 2: fallback — scan raw_lines for source.type === "TO_CONFIRM".
  */
-// deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
-  // Rule 1: explicit qualification
   const meta = snapshot?.meta;
+  const hasToConfirm = hasToConfirmRawLines(snapshot);
+
   if (
     meta?.quoteQualification &&
     typeof meta.quoteQualification.level === "string" &&
     ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
   ) {
-    return meta.quoteQualification as QuoteQualification;
+    const incoming = meta.quoteQualification as QuoteQualification;
+
+    // Lot 3D-2 garde : firm + TO_CONFIRM → upgrade provisional
+    if (incoming.level === "firm" && hasToConfirm) {
+      return {
+        level: "provisional",
+        reasons: mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON),
+        firmTotalPolicy: "excludes_reserved_items",
+      };
+    }
+
+    if (incoming.level === "provisional") {
+      return {
+        level: "provisional",
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: hasToConfirm
+          ? "excludes_reserved_items"
+          : (incoming.firmTotalPolicy === "excludes_reserved_items"
+              ? "excludes_reserved_items"
+              : "all_included"),
+      };
+    }
+
+    if (incoming.level === "partial") {
+      return {
+        level: "partial",
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: incoming.firmTotalPolicy === "excludes_reserved_items"
+          ? "excludes_reserved_items"
+          : "all_included",
+      };
+    }
+
+    return incoming;
   }
 
-  // Rule 2: historical fallback via raw_lines
-  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
-  const hasToConfirm = rawLines.some(
-    (line: any) => line?.source?.type === "TO_CONFIRM"
-  );
-
+  // Rule 2: meta absent/invalide → fallback raw_lines
   if (hasToConfirm) {
     return {
       level: "provisional",
-      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent à confirmer" }],
+      reasons: [RATE_PENDING_REASON],
       firmTotalPolicy: "excludes_reserved_items",
     };
   }

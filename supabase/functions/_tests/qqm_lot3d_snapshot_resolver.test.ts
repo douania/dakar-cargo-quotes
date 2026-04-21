@@ -1,9 +1,13 @@
 /**
- * Lot 3D-1 — Tests du résolveur QQM snapshot.
+ * Lot 3D-1 — Tests du résolveur QQM snapshot (backend writer).
  *
- * Pure function imported directly from generate-quotation-version/index.ts.
- * Note: importing index.ts charge `Deno.serve(...)` mais ne l'exécute pas tant
- * qu'aucune requête n'arrive — sûr pour les tests unitaires sur le helper.
+ * Helper pur importé depuis generate-quotation-version/qqm-resolver.ts
+ * (module isolé sans Deno.serve ni dépendance Supabase, sûr pour tests unitaires).
+ *
+ * Note Lot 3D-2 : ces tests couvrent uniquement le writer snapshot. La garde
+ * legacy "firm + raw_lines TO_CONFIRM → provisional" appliquée dans les
+ * helpers consommateurs (export-quotation-version-pdf, create-quotation-email-draft,
+ * QuotationVersionCard) est validée par diff réel des 3 fichiers, pas par ce test.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { resolveSnapshotQualification } from "../generate-quotation-version/qqm-resolver.ts";
