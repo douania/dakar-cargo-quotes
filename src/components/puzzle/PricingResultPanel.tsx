@@ -17,14 +17,120 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { DutyBreakdownTable } from './DutyBreakdownTable';
 import { LineProvenanceBadges } from './LineProvenanceBadges';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { usePricingResultData } from '@/hooks/usePricingResultData';
+import { usePricingResultData, type PricingRun } from '@/hooks/usePricingResultData';
+
+// ── Lot 3D-3: Local QQM resolver for pricing preview ─────────────────────────
+// Mirrors the decision table from supabase/functions/generate-quotation-version/qqm-resolver.ts
+// (Lot 3D-1) and the consumer helpers in PDF/email/VersionCard (Lot 3D-2).
+// Read-only preview — does not mutate pricing data, does not write snapshots.
+
+interface QQMReason { code: string; message: string; field?: string }
+interface QQMQualification {
+  level: 'firm' | 'provisional' | 'partial';
+  reasons: QQMReason[];
+  firmTotalPolicy: 'all_included' | 'excludes_reserved_items';
+}
+
+const RATE_PENDING_REASON: QQMReason = {
+  code: 'RATE_PENDING_CONFIRMATION',
+  message: 'Certains tarifs restent à confirmer',
+};
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: 'Valeur marchandise en attente',
+  MISSING_HS_CODE: 'Code HS à confirmer',
+  PAD_CATEGORY_UNRESOLVED: 'Catégorie PAD à confirmer',
+  PARTNER_COST_PENDING: 'Coût partenaire en attente',
+  RATE_PENDING_CONFIRMATION: 'Certains tarifs restent à confirmer',
+};
+
+function hasToConfirmTariffLines(tariffLines: any[] | null | undefined): boolean {
+  if (!Array.isArray(tariffLines)) return false;
+  return tariffLines.some((line: any) => {
+    const src = line?.source;
+    if (typeof src === 'string') return src === 'TO_CONFIRM';
+    if (src && typeof src === 'object') return src.type === 'TO_CONFIRM';
+    return false;
+  });
+}
+
+function mergeReasonIfMissing(reasons: QQMReason[] | undefined, reason: QQMReason): QQMReason[] {
+  const list = Array.isArray(reasons) ? [...reasons] : [];
+  if (list.some((r) => r?.code === reason.code)) return list;
+  list.push(reason);
+  return list;
+}
+
+function resolveQualificationFromRun(pricingRun: PricingRun | null): QQMQualification {
+  if (!pricingRun) return { level: 'firm', reasons: [], firmTotalPolicy: 'all_included' };
+
+  const meta = (pricingRun.outputs_json as any)?.quoteQualification;
+  const tariffLines = pricingRun.tariff_lines;
+  const hasToConfirm = hasToConfirmTariffLines(tariffLines);
+
+  if (
+    meta &&
+    typeof meta.level === 'string' &&
+    ['firm', 'provisional', 'partial'].includes(meta.level)
+  ) {
+    const incoming = meta as QQMQualification;
+
+    // Garde Lot 3D-2 : firm + TO_CONFIRM → upgrade provisional
+    if (incoming.level === 'firm' && hasToConfirm) {
+      return {
+        level: 'provisional',
+        reasons: mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON),
+        firmTotalPolicy: 'excludes_reserved_items',
+      };
+    }
+
+    if (incoming.level === 'provisional') {
+      return {
+        level: 'provisional',
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: hasToConfirm
+          ? 'excludes_reserved_items'
+          : (incoming.firmTotalPolicy === 'excludes_reserved_items'
+              ? 'excludes_reserved_items'
+              : 'all_included'),
+      };
+    }
+
+    if (incoming.level === 'partial') {
+      return {
+        level: 'partial',
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: incoming.firmTotalPolicy === 'excludes_reserved_items'
+          ? 'excludes_reserved_items'
+          : 'all_included',
+      };
+    }
+
+    return incoming;
+  }
+
+  // meta absent/invalide → fallback tariff_lines
+  if (hasToConfirm) {
+    return {
+      level: 'provisional',
+      reasons: [RATE_PENDING_REASON],
+      firmTotalPolicy: 'excludes_reserved_items',
+    };
+  }
+
+  return { level: 'firm', reasons: [], firmTotalPolicy: 'all_included' };
+}
 
 interface PricingResultPanelProps {
   caseId: string;
