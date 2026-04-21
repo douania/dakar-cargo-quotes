@@ -6,6 +6,40 @@ Dernière mise à jour : 2026-04-21
 
 ---
 
+## Lot 1 — TO_CONFIRM export 0 XOF
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT-1-TO-CONFIRM-EXPORT |
+| **Catégorie** | Pricing / Export signal |
+| **Statut** | `closed` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 1 (2026-04-21) |
+| **Date de clôture** | 2026-04-21 |
+| **Périmètre livré** | Marquage `source.type === "TO_CONFIRM"` pour services export placeholder à 0 XOF. Whitelist : `THC_EXPORT`, `DOCUMENTATION_BL`, `VGM_WEIGHING`, `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PORT_CHARGES`, `CUSTOMS_EXPORT`, `SEA_FREIGHT`. Déclenchement uniquement sur `pricingCtx.scope === "export"` + `no_match` + serviceKey whitelist. |
+| **Garanties** | (1) `missing_quantity` non converti ; (2) `rate: null` préservé dans `price-service-lines` ; (3) Lignes restent dans `missing[]` (Option A — TO_CONFIRM ≠ résolu) ; (4) Audit DB préservé via `normalizeSourceForAudit` (TO_CONFIRM → no_match côté audit uniquement) ; (5) Runtime conserve `"TO_CONFIRM"` jusqu'au cockpit/PDF/email. |
+| **Fichier impacté** | `supabase/functions/price-service-lines/index.ts` uniquement |
+| **Hors périmètre** | Aucun fichier FROZEN modifié, aucune migration DB, aucun changement de montant, aucun changement PDF/email/version. |
+| **Note non-bloquante** | La constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` est définie dans le bloc `else` (recréation à chaque passage). Comportement métier correct, optimisation stylistique différée — à revoir si refactor global de `price-service-lines`. Non rouvrant. |
+
+---
+
+## Lot 1-A — Préservation `humanExplanation` TO_CONFIRM
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT-1A-HUMAN-EXPLANATION-TO-CONFIRM |
+| **Catégorie** | Pricing / Operator UX |
+| **Statut** | `closed` |
+| **Priorité** | P2 |
+| **Phase d'origine** | Lot 1-A (2026-04-21) |
+| **Date de clôture** | 2026-04-21 |
+| **Périmètre livré** | Court-circuit explicite dans `humanExplanation(pl)` pour préserver l'explication métier `"Tarif export à confirmer..."` au lieu d'un fallback trompeur de type `"Grille tarifaire : 0 FCFA"`. |
+| **Fichier impacté** | `supabase/functions/price-service-lines/index.ts` uniquement |
+| **Hors périmètre** | Aucun fichier FROZEN modifié, aucune migration DB, aucun changement de montant, aucun changement PDF/email/version, aucune modification de `normalizeSourceForAudit` ni de `missing[]`. |
+
+---
+
 ## SEC-001 — Git hygiene : `.env` non protégé par `.gitignore`
 
 | Champ | Valeur |
