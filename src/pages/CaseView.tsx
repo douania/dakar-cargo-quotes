@@ -1444,7 +1444,7 @@ export default function CaseView() {
               await handleRefresh();
 
               // ── Auto-pricing si plus aucun gap bloquant (uniquement pour gaps bloquants) ──
-              if (allowAutoPricing && caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING") {
+              if (allowAutoPricing && caseId && !isLocked && caseData?.status !== "SENT" && caseData?.status !== "ARCHIVED" && caseData?.status !== "PRICING_RUNNING" && caseData?.status !== "QUOTED_VERSIONED") {
                 try {
                   const [{ data: updatedBlockingGaps }, { data: updatedOpenGaps }] = await Promise.all([
                     supabase

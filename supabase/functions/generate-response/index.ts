@@ -2815,7 +2815,8 @@ RAPPELS CRITIQUES:
         subject: parsedResponse.subject || `Re: ${emailSubject}`,
         body_text: fullBodyText,
         status: 'draft',
-        ai_generated: true
+        ai_generated: true,
+        created_by: userId
       })
       .select()
       .single();
