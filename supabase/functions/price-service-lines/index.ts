@@ -1322,14 +1322,48 @@ Deno.serve(async (req) => {
             conversion_used: computed.conversion_used,
           });
         } else {
-          pricedLines.push({
-            id: line.id, rate: null, currency, source: "no_match",
-            confidence: 0, explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
-            quantity_used: computed.quantity_used,
-            unit_used: computed.unit_used,
-            rule_id: computed.rule_id,
-            conversion_used: computed.conversion_used,
-          });
+          // ═══ Lot 1: Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
+          // Whitelist stricte des services export susceptibles d'être placeholders.
+          // Règle métier:
+          //   - source: "TO_CONFIRM" UNIQUEMENT si scope=export ET serviceKey ∈ whitelist
+          //   - rate reste null (run-pricing fera ?? 0 pour amount final)
+          //   - missing[] est conservé (TO_CONFIRM ≠ résolu)
+          //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
+          const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set([
+            "THC_EXPORT",
+            "DOCUMENTATION_BL",
+            "VGM_WEIGHING",
+            "STUFFING_FACTORY",
+            "STUFFING_CFS",
+            "EMPTY_REPO",
+            "PORT_CHARGES",
+            "CUSTOMS_EXPORT",
+            "SEA_FREIGHT",
+          ]);
+          const isExportPlaceholder =
+            pricingCtx.scope === "export" &&
+            EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
+
+          if (isExportPlaceholder) {
+            pricedLines.push({
+              id: line.id, rate: null, currency, source: "TO_CONFIRM",
+              confidence: 0,
+              explanation: `Tarif export à confirmer : aucune grille tarifaire trouvée pour ${serviceKey}`,
+              quantity_used: computed.quantity_used,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+          } else {
+            pricedLines.push({
+              id: line.id, rate: null, currency, source: "no_match",
+              confidence: 0, explanation: `No rate card found for ${serviceKey} (scope=${pricingCtx.scope}, unit=${lineUnit})`,
+              quantity_used: computed.quantity_used,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+          }
           missing.push(serviceKey);
         }
       }
@@ -1337,6 +1371,12 @@ Deno.serve(async (req) => {
 
     // ═══ Normalise source for CHECK constraint ═══
     function normalizeSourceForAudit(source: string): string {
+      // Lot 1: TO_CONFIRM est un signal runtime uniquement (lu par cockpit/PDF/email
+      // via line.source.type === "TO_CONFIRM"). La contrainte CHECK de
+      // quote_service_pricing.source ne le connaît pas → mapping vers "no_match"
+      // pour l'audit DB seulement. La valeur runtime renvoyée à run-pricing reste
+      // intacte ("TO_CONFIRM") car elle transite par pricedLines, pas par cette fn.
+      if (source === "TO_CONFIRM") return "no_match";
       if (source.startsWith("port_tariffs")) return "port_tariffs";
       if (source.startsWith("rate_card")) return "internal";
       // Strip "+modifiers" suffix for CHECK constraint
