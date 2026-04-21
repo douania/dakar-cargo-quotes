@@ -40,6 +40,24 @@ Dernière mise à jour : 2026-04-21 (Lot 1-B clôturé)
 
 ---
 
+## Lot 1-B — Catalogue 0 XOF export placeholders
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT-1B-CATALOGUE-PLACEHOLDER-EXPORT |
+| **Catégorie** | Pricing / Export signal |
+| **Statut** | `closed` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 1-B (2026-04-21) |
+| **Date de clôture** | 2026-04-21 |
+| **Périmètre livré** | Les entrées catalogue export `FIXED` à 0 XOF avec description normalisée `"tarif a confirmer"` ne sortent plus en `catalogue_sodatra` / confidence 0.95. Elles bypassent volontairement le catalogue et continuent vers les resolvers aval (transport rate, rate card, port tariff fallback) ; elles tombent en `TO_CONFIRM` (logique Lot 1) uniquement si aucun tarif réel n'est trouvé. |
+| **Conditions strictes** | (1) `pricingCtx.scope === "export"` ; (2) `serviceKey ∈ EXPORT_PLACEHOLDER_SERVICE_KEYS` ; (3) `catalogueEntry.pricing_mode === "FIXED"` ; (4) `catalogueEntry.base_price === 0` ; (5) description normalisée (NFD + lowercase + trim) === `"tarif a confirmer"`. |
+| **Garanties** | (1) `rate: null` préservé ; (2) `missing[]` conservé ; (3) `missing_quantity` inchangé ; (4) `CUSTOMS_EXPORT` à 300 000 XOF inchangé (non placeholder) ; (5) Imports inchangés ; (6) Aucun fichier FROZEN ; (7) Aucune migration DB ; (8) `normalizeSourceForAudit("TO_CONFIRM") → "no_match"` inchangé ; (9) `humanExplanation` Lot 1-A préservé. |
+| **Fichier impacté** | `supabase/functions/price-service-lines/index.ts` uniquement (constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` hissée au niveau module + helper `isTarifAConfirmer` + garde `isCatalogPlaceholder`). |
+| **Hors périmètre** | Aucun fichier FROZEN modifié, aucune migration DB, aucun PDF/email/version, aucun import. |
+
+---
+
 ## SEC-001 — Git hygiene : `.env` non protégé par `.gitignore`
 
 | Champ | Valeur |

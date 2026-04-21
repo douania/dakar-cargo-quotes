@@ -30,6 +30,14 @@
 - Fichier impacté : `supabase/functions/price-service-lines/index.ts`
 - Court-circuit explicite dans `humanExplanation(pl)` préservant `"Tarif export à confirmer..."`
 
+## Lot 1-B — Catalogue 0 XOF export placeholders : ✅ closed (2026-04-21)
+- Fichier impacté : `supabase/functions/price-service-lines/index.ts` uniquement
+- Constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` hissée au niveau module (lève la dette stylistique notée en Lot 1)
+- Helper `isTarifAConfirmer(value)` (normalisation NFD + lowercase + trim)
+- Garde `isCatalogPlaceholder` dans le bloc catalogue : 5 conditions strictes (scope export + whitelist + FIXED + base_price=0 + description normalisée `"tarif a confirmer"`)
+- Lignes interceptées bypassent `catalogue_sodatra` et tombent dans la branche TO_CONFIRM existante du Lot 1 si aucun resolver aval ne fournit de tarif réel
+- `CUSTOMS_EXPORT` à 300 000 XOF non affecté ; imports non affectés ; aucun FROZEN ; aucune migration DB
+
 ---
 
 ## Statut Lot 0
@@ -40,5 +48,7 @@
 - Aucune autre action runtime à exécuter dans ce lot
 - **Lot 1 — TO_CONFIRM export 0 XOF** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
 - **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
+- **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
 - **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
 - Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
+- Prochaine étape disponible : **Lot 2 — auth cleanup ciblé**
