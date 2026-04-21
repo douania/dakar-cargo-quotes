@@ -369,10 +369,20 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                   )}
                 </div>
               </>
-            ) : (
+            ) : qualification.level === 'firm' ? (
               <>
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">✓</p>
                 <p className="text-xs text-muted-foreground">Tout confirmé</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">⚠</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Sous réserve</p>
+                {primaryReasonLabel && (
+                  <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 truncate max-w-[140px] mx-auto mt-0.5">
+                    {primaryReasonLabel}
+                  </p>
+                )}
               </>
             )}
           </div>
