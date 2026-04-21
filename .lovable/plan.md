@@ -20,11 +20,25 @@
 
 ---
 
+## Lot 1 — TO_CONFIRM export 0 XOF : ✅ closed (2026-04-21)
+- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
+- Marquage `source: "TO_CONFIRM"` pour services export placeholder (whitelist : `THC_EXPORT`, `DOCUMENTATION_BL`, `VGM_WEIGHING`, `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PORT_CHARGES`, `CUSTOMS_EXPORT`, `SEA_FREIGHT`)
+- `rate: null` conservé, lignes maintenues dans `missing[]`, `missing_quantity` non converti
+- `normalizeSourceForAudit` mappe TO_CONFIRM → no_match côté audit DB uniquement
+
+## Lot 1-A — humanExplanation TO_CONFIRM : ✅ closed (2026-04-21)
+- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
+- Court-circuit explicite dans `humanExplanation(pl)` préservant `"Tarif export à confirmer..."`
+
+---
+
 ## Statut Lot 0
 **Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
 
 ## Garde-fous
 - Ne pas modifier `.gitignore` ni `.env` côté Lovable (gérés hors plateforme)
 - Aucune autre action runtime à exécuter dans ce lot
-- **Lot 1 — TO_CONFIRM export 0 XOF** : 🔓 rouvrable sur validation opérateur explicite
+- **Lot 1 — TO_CONFIRM export 0 XOF** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
+- **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
+- **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
 - Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
