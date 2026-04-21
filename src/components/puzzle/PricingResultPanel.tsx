@@ -17,14 +17,120 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Lock, Info, Package, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { DutyBreakdownTable } from './DutyBreakdownTable';
 import { LineProvenanceBadges } from './LineProvenanceBadges';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { usePricingResultData } from '@/hooks/usePricingResultData';
+import { usePricingResultData, type PricingRun } from '@/hooks/usePricingResultData';
+
+// ── Lot 3D-3: Local QQM resolver for pricing preview ─────────────────────────
+// Mirrors the decision table from supabase/functions/generate-quotation-version/qqm-resolver.ts
+// (Lot 3D-1) and the consumer helpers in PDF/email/VersionCard (Lot 3D-2).
+// Read-only preview — does not mutate pricing data, does not write snapshots.
+
+interface QQMReason { code: string; message: string; field?: string }
+interface QQMQualification {
+  level: 'firm' | 'provisional' | 'partial';
+  reasons: QQMReason[];
+  firmTotalPolicy: 'all_included' | 'excludes_reserved_items';
+}
+
+const RATE_PENDING_REASON: QQMReason = {
+  code: 'RATE_PENDING_CONFIRMATION',
+  message: 'Certains tarifs restent à confirmer',
+};
+
+const REASON_LABELS: Record<string, string> = {
+  MISSING_CARGO_VALUE: 'Valeur marchandise en attente',
+  MISSING_HS_CODE: 'Code HS à confirmer',
+  PAD_CATEGORY_UNRESOLVED: 'Catégorie PAD à confirmer',
+  PARTNER_COST_PENDING: 'Coût partenaire en attente',
+  RATE_PENDING_CONFIRMATION: 'Certains tarifs restent à confirmer',
+};
+
+function hasToConfirmTariffLines(tariffLines: any[] | null | undefined): boolean {
+  if (!Array.isArray(tariffLines)) return false;
+  return tariffLines.some((line: any) => {
+    const src = line?.source;
+    if (typeof src === 'string') return src === 'TO_CONFIRM';
+    if (src && typeof src === 'object') return src.type === 'TO_CONFIRM';
+    return false;
+  });
+}
+
+function mergeReasonIfMissing(reasons: QQMReason[] | undefined, reason: QQMReason): QQMReason[] {
+  const list = Array.isArray(reasons) ? [...reasons] : [];
+  if (list.some((r) => r?.code === reason.code)) return list;
+  list.push(reason);
+  return list;
+}
+
+function resolveQualificationFromRun(pricingRun: PricingRun | null): QQMQualification {
+  if (!pricingRun) return { level: 'firm', reasons: [], firmTotalPolicy: 'all_included' };
+
+  const meta = (pricingRun.outputs_json as any)?.quoteQualification;
+  const tariffLines = pricingRun.tariff_lines;
+  const hasToConfirm = hasToConfirmTariffLines(tariffLines);
+
+  if (
+    meta &&
+    typeof meta.level === 'string' &&
+    ['firm', 'provisional', 'partial'].includes(meta.level)
+  ) {
+    const incoming = meta as QQMQualification;
+
+    // Garde Lot 3D-2 : firm + TO_CONFIRM → upgrade provisional
+    if (incoming.level === 'firm' && hasToConfirm) {
+      return {
+        level: 'provisional',
+        reasons: mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON),
+        firmTotalPolicy: 'excludes_reserved_items',
+      };
+    }
+
+    if (incoming.level === 'provisional') {
+      return {
+        level: 'provisional',
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: hasToConfirm
+          ? 'excludes_reserved_items'
+          : (incoming.firmTotalPolicy === 'excludes_reserved_items'
+              ? 'excludes_reserved_items'
+              : 'all_included'),
+      };
+    }
+
+    if (incoming.level === 'partial') {
+      return {
+        level: 'partial',
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: incoming.firmTotalPolicy === 'excludes_reserved_items'
+          ? 'excludes_reserved_items'
+          : 'all_included',
+      };
+    }
+
+    return incoming;
+  }
+
+  // meta absent/invalide → fallback tariff_lines
+  if (hasToConfirm) {
+    return {
+      level: 'provisional',
+      reasons: [RATE_PENDING_REASON],
+      firmTotalPolicy: 'excludes_reserved_items',
+    };
+  }
+
+  return { level: 'firm', reasons: [], firmTotalPolicy: 'all_included' };
+}
 
 interface PricingResultPanelProps {
   caseId: string;
@@ -74,6 +180,14 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
     ? Math.max(...versions.map(v => v.version_number)) + 1
     : 1;
 
+  // Lot 3D-3: QQM commercial qualification (preview only)
+  const qualification = resolveQualificationFromRun(pricingRun);
+  const primaryReason = qualification.reasons[0];
+  const primaryReasonLabel = primaryReason
+    ? (REASON_LABELS[primaryReason.code] || primaryReason.message || primaryReason.code)
+    : null;
+  const extraReasonsCount = qualification.reasons.length > 1 ? qualification.reasons.length - 1 : 0;
+
   const handleCreateVersion = async () => {
     setIsCreating(true);
     try {
@@ -121,9 +235,27 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
             Succès
           </Badge>
-          {isProvisional && (
-            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Ce pricing a été calculé alors que certaines communications sont encore en cours.">
+          {qualification.level === 'firm' && (
+            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" title="Devis ferme : tous les éléments sont confirmés.">
+              <ShieldCheck className="h-3 w-3 mr-1" />
+              Ferme
+            </Badge>
+          )}
+          {qualification.level === 'provisional' && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" title={primaryReasonLabel ? `Provisoire — ${primaryReasonLabel}` : 'Devis provisoire : éléments à confirmer.'}>
+              <ShieldAlert className="h-3 w-3 mr-1" />
               Provisoire
+            </Badge>
+          )}
+          {qualification.level === 'partial' && (
+            <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600" title="Offre partielle : certains éléments sont réservés.">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Partiel
+            </Badge>
+          )}
+          {isProvisional && (
+            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Pricing calculé alors que des communications partenaires/clients sont encore en cours.">
+              Communication en cours
             </Badge>
           )}
         </div>
@@ -237,10 +369,20 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                   )}
                 </div>
               </>
-            ) : (
+            ) : qualification.level === 'firm' ? (
               <>
                 <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">✓</p>
                 <p className="text-xs text-muted-foreground">Tout confirmé</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">⚠</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Sous réserve</p>
+                {primaryReasonLabel && (
+                  <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 truncate max-w-[140px] mx-auto mt-0.5">
+                    {primaryReasonLabel}
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -250,15 +392,33 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
           </div>
         </div>
 
-        {/* Provisional total warning */}
-        {toConfirmCount > 0 && (
+        {/* Provisional / partial total warning (Lot 3D-3) */}
+        {toConfirmCount > 0 ? (
           <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <p className="text-xs text-amber-700 dark:text-amber-300">
               <span className="font-medium">Total provisoire</span> — {toConfirmCount} poste{toConfirmCount > 1 ? 's' : ''} en attente de confirmation
             </p>
           </div>
-        )}
+        ) : qualification.level === 'provisional' ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <ShieldAlert className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              <span className="font-medium">Devis provisoire</span>
+              {primaryReasonLabel ? <> — {primaryReasonLabel}</> : null}
+              {extraReasonsCount > 0 ? <> (+{extraReasonsCount} autre{extraReasonsCount > 1 ? 's' : ''})</> : null}
+            </p>
+          </div>
+        ) : qualification.level === 'partial' ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-300 dark:border-slate-600 rounded-lg">
+            <AlertTriangle className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300 shrink-0" />
+            <p className="text-xs text-slate-700 dark:text-slate-300">
+              <span className="font-medium">Offre partielle</span> — éléments réservés exclus du total
+              {primaryReasonLabel ? <> · {primaryReasonLabel}</> : null}
+              {extraReasonsCount > 0 ? <> (+{extraReasonsCount} autre{extraReasonsCount > 1 ? 's' : ''})</> : null}
+            </p>
+          </div>
+        ) : null}
 
         {/* Tariff Sources */}
         {tariffSources.length > 0 && (
