@@ -1,44 +1,47 @@
-# Plan courant
 
-## Lot 0 sécurisé — clôturé sur périmètre Lovable ✅
 
-### Lot 0-A : runtime appliqué ✅
-- `supabase/config.toml` : 3 entrées ajoutées (`backfill-case-documents`, `healthz`, `upsert-exchange-rate`)
-- `src/pages/CaseView.tsx` : `QUOTED_VERSIONED` ajouté au guard principal auto-pricing
-- `supabase/functions/generate-response/index.ts` : `created_by: userId` ajouté à l'insert `email_drafts`
+## Micro-lot documentaire Lot 1-B — Synchronisation docs
 
-### SEC-001 : Git hygiene — `closed_pending_rotation_review` ✅ (snapshot courant)
-- `.gitignore` contient désormais `.env`, `.env.local`, `.env.*.local` (corrigé hors Lovable)
-- `.env` n'est plus présent dans le snapshot ZIP/repo courant
-- Statut : `closed_pending_rotation_review` côté snapshot Lovable
+### Contexte
+Lot 1-B code est validé CTO (ZIP 2026-04-21T173511.970). Reste à synchroniser la documentation de suivi avec l'état réel du code (notamment : la note "constante définie dans le bloc else" du Lot 1 n'est plus exacte, la constante est désormais hissée au niveau module).
 
-**Reste hors Lovable (condition de clôture définitive)** :
-1. Audit historique Git : `git log --all --full-history -- .env`
-2. Si une clé sensible a été exposée par un commit antérieur (service_role Supabase, secrets API tiers, SMTP) → rotation immédiate obligatoire
-3. Si seul anon key + URL publique exposés → risque faible, rotation optionnelle
-4. Documenter le résultat de l'audit pour passer à `closed`
+### Périmètre strict (2 fichiers documentaires uniquement)
 
----
+**1. `docs/DEFERRED_BACKLOG.md` — édition ciblée**
 
-## Lot 1 — TO_CONFIRM export 0 XOF : ✅ closed (2026-04-21)
-- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
-- Marquage `source: "TO_CONFIRM"` pour services export placeholder (whitelist : `THC_EXPORT`, `DOCUMENTATION_BL`, `VGM_WEIGHING`, `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PORT_CHARGES`, `CUSTOMS_EXPORT`, `SEA_FREIGHT`)
-- `rate: null` conservé, lignes maintenues dans `missing[]`, `missing_quantity` non converti
-- `normalizeSourceForAudit` mappe TO_CONFIRM → no_match côté audit DB uniquement
+- **Ajout d'une sous-entrée Lot 1-B** :
+  - Statut : `closed`
+  - Date : 2026-04-21
+  - Objet : Les entrées catalogue export `FIXED` à 0 XOF avec description normalisée `"tarif a confirmer"` ne sortent plus en `catalogue_sodatra` / confidence 0.95. Elles bypassent le catalogue et continuent vers les resolvers aval (transport rate, rate card, port tariff fallback) ; elles tombent en `TO_CONFIRM` uniquement si aucun tarif réel n'est trouvé.
+  - Fichier impacté : `supabase/functions/price-service-lines/index.ts` uniquement
+  - Garanties : scope export, whitelist `EXPORT_PLACEHOLDER_SERVICE_KEYS`, `pricing_mode === "FIXED"`, `base_price === 0`, description normalisée `"tarif a confirmer"`, `missing[]` conservé, `rate: null`, aucun FROZEN, aucune migration
 
-## Lot 1-A — humanExplanation TO_CONFIRM : ✅ closed (2026-04-21)
-- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
-- Court-circuit explicite dans `humanExplanation(pl)` préservant `"Tarif export à confirmer..."`
+- **Correction de la note non-bloquante Lot 1** :
+  - Supprimer / remplacer la note disant que `EXPORT_PLACEHOLDER_SERVICE_KEYS` est définie dans le bloc `else`
+  - Remplacer par : « Dette stylistique levée en Lot 1-B : la constante a été hissée au niveau module. »
 
----
+**2. `.lovable/plan.md` — mise à jour ciblée**
 
-## Statut Lot 0
-**Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
+- Ajouter / marquer **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ `closed` (2026-04-21)
+- Conserver intégralement les sections **Lot 0**, **Lot 1**, **Lot 1-A** déjà présentes
+- Conserver **SEC-001** : `closed_pending_rotation_review` (inchangé)
+- Mettre à jour les garde-fous :
+  - Ajouter : « Lot 1-B livré et clôturé (non rouvrable sans nouveau déclencheur métier) »
+- Ne pas ouvrir de nouveau lot
 
-## Garde-fous
-- Ne pas modifier `.gitignore` ni `.env` côté Lovable (gérés hors plateforme)
-- Aucune autre action runtime à exécuter dans ce lot
-- **Lot 1 — TO_CONFIRM export 0 XOF** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
-- **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
-- **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
-- Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
+### Contraintes respectées
+
+- ✅ Aucun fichier runtime (pas de `src/`, pas de `supabase/functions/`)
+- ✅ Pas de modification `.gitignore` ni `.env`
+- ✅ Aucune migration DB
+- ✅ Édition ciblée, sections existantes (Lot 0 / SEC-001 / Lot 1 / Lot 1-A) préservées
+- ✅ Aucun nouveau lot ouvert
+
+### Livrable post-exécution
+
+- Diff réel des 2 fichiers documentaires
+- Confirmation : aucun fichier runtime modifié
+- Confirmation : `.lovable/plan.md` mis à jour de façon ciblée
+- Confirmation : DEFERRED_BACKLOG enregistre Lot 1-B en `closed` et la note Lot 1 est corrigée
+- Prochaine étape disponible : **Lot 2 — auth cleanup ciblé**
+
