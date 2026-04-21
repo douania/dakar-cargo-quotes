@@ -392,15 +392,33 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
           </div>
         </div>
 
-        {/* Provisional total warning */}
-        {toConfirmCount > 0 && (
+        {/* Provisional / partial total warning (Lot 3D-3) */}
+        {toConfirmCount > 0 ? (
           <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
             <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <p className="text-xs text-amber-700 dark:text-amber-300">
               <span className="font-medium">Total provisoire</span> — {toConfirmCount} poste{toConfirmCount > 1 ? 's' : ''} en attente de confirmation
             </p>
           </div>
-        )}
+        ) : qualification.level === 'provisional' ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <ShieldAlert className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              <span className="font-medium">Devis provisoire</span>
+              {primaryReasonLabel ? <> — {primaryReasonLabel}</> : null}
+              {extraReasonsCount > 0 ? <> (+{extraReasonsCount} autre{extraReasonsCount > 1 ? 's' : ''})</> : null}
+            </p>
+          </div>
+        ) : qualification.level === 'partial' ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-100/70 dark:bg-slate-800/40 border border-slate-300 dark:border-slate-600 rounded-lg">
+            <AlertTriangle className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300 shrink-0" />
+            <p className="text-xs text-slate-700 dark:text-slate-300">
+              <span className="font-medium">Offre partielle</span> — éléments réservés exclus du total
+              {primaryReasonLabel ? <> · {primaryReasonLabel}</> : null}
+              {extraReasonsCount > 0 ? <> (+{extraReasonsCount} autre{extraReasonsCount > 1 ? 's' : ''})</> : null}
+            </p>
+          </div>
+        ) : null}
 
         {/* Tariff Sources */}
         {tariffSources.length > 0 && (
