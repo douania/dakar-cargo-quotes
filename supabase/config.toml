@@ -217,3 +217,12 @@ verify_jwt = false
 
 [functions.close-external-quote-request]
 verify_jwt = false
+
+[functions.backfill-case-documents]
+verify_jwt = false
+
+[functions.healthz]
+verify_jwt = false
+
+[functions.upsert-exchange-rate]
+verify_jwt = false
