@@ -40,6 +40,18 @@
 
 ---
 
+## Lot 2 — Auth cleanup ciblé `getClaims` → `requireUser` : ✅ closed (2026-04-21)
+- Fichiers impactés (2) :
+  - `supabase/functions/find-similar-quotations/index.ts`
+  - `supabase/functions/import-historical-quotation/index.ts`
+- Migration : suppression du bloc inline (header check + anon client + `getClaims`) → remplacement par `requireUser(req)` + post-check `logRuntimeEvent` (`AUTH_INVALID_JWT`)
+- `import-historical-quotation` : `serviceClient` hissé avant `requireUser` pour permettre logging des échecs auth ; docstring corrigée (`requireUser` au lieu de `getClaims()`)
+- Trade-off observabilité S1.2 accepté : tous les échecs auth loggés `AUTH_INVALID_JWT` (perte distinction `AUTH_MISSING_JWT`)
+- **Exclu** : `suggest-historical-lines` — dual-path service-role intentionnel (`AUTH-HIST-1`, patché 2026-04-15), seul fichier conservant un appel réel à `getClaims(`
+- Aucun FROZEN modifié ; `supabase/config.toml` inchangé ; aucune migration DB ; aucun changement UI/métier
+
+---
+
 ## Statut Lot 0
 **Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
 
@@ -49,6 +61,7 @@
 - **Lot 1 — TO_CONFIRM export 0 XOF** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
 - **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
 - **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
+- **Lot 2 — auth cleanup `getClaims` → `requireUser`** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur ; `suggest-historical-lines` reste explicitement exclu — dual-path)
 - **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
 - Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
-- Prochaine étape disponible : **Lot 2 — auth cleanup ciblé**
+- Prochaine étape : à définir (aucun lot ouvert)
