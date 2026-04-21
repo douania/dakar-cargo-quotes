@@ -87,23 +87,92 @@ const REASON_LABELS: Record<string, string> = {
   RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
 };
 
+const RATE_PENDING_REASON = {
+  code: "RATE_PENDING_CONFIRMATION",
+  message: "Certains tarifs restent a confirmer",
+};
+
+// deno-lint-ignore no-explicit-any
+function hasToConfirmRawLines(snapshot: any): boolean {
+  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
+  // deno-lint-ignore no-explicit-any
+  return rawLines.some((line: any) => {
+    const src = line?.source;
+    if (typeof src === "string") return src === "TO_CONFIRM";
+    if (src && typeof src === "object") return src.type === "TO_CONFIRM";
+    return false;
+  });
+}
+
+function mergeReasonIfMissing(
+  reasons: QuoteQualification["reasons"] | undefined,
+  reason: QuoteQualification["reasons"][number],
+): QuoteQualification["reasons"] {
+  const list = Array.isArray(reasons) ? [...reasons] : [];
+  if (list.some((r) => r?.code === reason.code)) return list;
+  list.push(reason);
+  return list;
+}
+
+/**
+ * Lot 3D-2 — Garde legacy.
+ * Si meta.quoteQualification.level === "firm" mais raw_lines contient TO_CONFIRM,
+ * on upgrade en provisional pour couvrir les versions historiques persistees avant Lot 3D-1.
+ * partial / provisional preserves : merge RATE_PENDING_CONFIRMATION si TO_CONFIRM present.
+ */
 // deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
   const meta = snapshot?.meta;
+  const hasToConfirm = hasToConfirmRawLines(snapshot);
+
   if (
     meta?.quoteQualification &&
     typeof meta.quoteQualification.level === "string" &&
     ["firm", "provisional", "partial"].includes(meta.quoteQualification.level)
   ) {
-    return meta.quoteQualification as QuoteQualification;
+    const incoming = meta.quoteQualification as QuoteQualification;
+
+    if (incoming.level === "firm" && hasToConfirm) {
+      return {
+        level: "provisional",
+        reasons: mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON),
+        firmTotalPolicy: "excludes_reserved_items",
+      };
+    }
+
+    if (incoming.level === "provisional") {
+      return {
+        level: "provisional",
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: hasToConfirm
+          ? "excludes_reserved_items"
+          : (incoming.firmTotalPolicy === "excludes_reserved_items"
+              ? "excludes_reserved_items"
+              : "all_included"),
+      };
+    }
+
+    if (incoming.level === "partial") {
+      return {
+        level: "partial",
+        reasons: hasToConfirm
+          ? mergeReasonIfMissing(incoming.reasons, RATE_PENDING_REASON)
+          : (Array.isArray(incoming.reasons) ? incoming.reasons : []),
+        firmTotalPolicy: incoming.firmTotalPolicy === "excludes_reserved_items"
+          ? "excludes_reserved_items"
+          : "all_included",
+      };
+    }
+
+    return incoming;
   }
-  const rawLines = Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : [];
-  // deno-lint-ignore no-explicit-any
-  const hasToConfirm = rawLines.some((line: any) => line?.source?.type === "TO_CONFIRM");
+
   if (hasToConfirm) {
     return {
       level: "provisional",
-      reasons: [{ code: "RATE_PENDING_CONFIRMATION", message: "Certains tarifs restent a confirmer" }],
+      reasons: [RATE_PENDING_REASON],
       firmTotalPolicy: "excludes_reserved_items",
     };
   }
