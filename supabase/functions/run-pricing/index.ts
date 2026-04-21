@@ -1679,7 +1679,9 @@ Deno.serve(async (req) => {
           amount: 0,
           currency: 'XOF',
           type: 'provisional_reserve',
-          source: { type: 'PROVISIONAL_RESERVE', reference: 'LOT4_DDP_PILOT', confidence: 0 },
+          // Lot 4-A: aligned source.type on canonical TO_CONFIRM signal so QQM guards
+          // (Lot 3D) and PDF renderer detect this reserve as "À confirmer", never "0 FCFA".
+          source: { type: 'TO_CONFIRM', reference: 'LOT4_DDP_CARGO_VALUE_MISSING', confidence: 0 },
           quantity: 1,
           unit: 'forfait',
           explanation: 'Réserve structurée — cargo.value absente, droits et taxes exclus du total',

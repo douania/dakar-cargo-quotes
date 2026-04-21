@@ -265,11 +265,23 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     const serviceText = sanitize((line.service_code || '').substring(0, 15));
     const descText = sanitize((line.description || '').substring(0, 25));
     const amount = line.amount || 0;
+    // Lot 4-A: detect "À confirmer" / reserve lines and never render "0 FCFA" for them.
+    // Covers canonical TO_CONFIRM (Lot 3D) + provisional_reserve / CUSTOMS_RESERVE (Lot 4 DDP guard).
+    const srcType = typeof line?.source === 'string' ? line.source : line?.source?.type;
+    const isToConfirm =
+      srcType === 'TO_CONFIRM' ||
+      line?.type === 'provisional_reserve' ||
+      String(line?.category || '').toUpperCase() === 'CUSTOMS_RESERVE';
     currentPage.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
     currentPage.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
     currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
-    currentPage.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
-    currentPage.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
+    if (isToConfirm) {
+      currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });
+      currentPage.drawText(sanitize('À confirmer'), { x: colAmount, y, size: 9, font, color: gray });
+    } else {
+      currentPage.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
+      currentPage.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
+    }
     y -= lineHeight;
   }
 
