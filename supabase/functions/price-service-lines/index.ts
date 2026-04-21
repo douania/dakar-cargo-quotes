@@ -1396,6 +1396,10 @@ Deno.serve(async (req) => {
       const src = pl.source.replace(/\+modifiers$/, "");
       const rate = pl.rate ?? 0;
 
+      // Lot 1-A: préserver l'explication TO_CONFIRM (avant tout fallback technique)
+      if (src === "TO_CONFIRM") {
+        return pl.explanation || "Tarif export à confirmer";
+      }
       if (src === "business_rule") {
         // Already human-readable (e.g. "EMPTY_RETURN: Obligation contractuelle...")
         return pl.explanation;
