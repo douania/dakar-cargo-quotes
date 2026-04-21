@@ -4,12 +4,14 @@
  * Inserts a complete historical quotation (quotation + lines + metadata)
  * via the atomic RPC `insert_historical_quotation_atomic`.
  * 
- * Security: verify_jwt = false in config.toml, JWT validated in code via getClaims().
+ * Security: verify_jwt = false in config.toml, JWT validated via requireUser helper.
  * Runtime Contract: correlationId, respondOk/respondError, logRuntimeEvent.
+ * Lot 2: migrated from inline getClaims to requireUser helper.
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
+import { requireUser } from "../_shared/auth.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -28,44 +30,15 @@ Deno.serve(async (req) => {
   const correlationId = getCorrelationId(req);
   const startMs = Date.now();
 
-  // --- AUTH: validate JWT via getClaims() ---
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    const duration = Date.now() - startMs;
-    const serviceClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-    await logRuntimeEvent(serviceClient, {
-      correlationId,
-      functionName: FUNCTION_NAME,
-      op: "auth",
-      status: "fatal_error",
-      errorCode: "AUTH_MISSING_JWT",
-      httpStatus: 401,
-      durationMs: duration,
-    });
-    return respondError({
-      code: "AUTH_MISSING_JWT",
-      message: "Authorization header missing or malformed",
-      correlationId,
-    });
-  }
-
+  // --- Service client (avant auth pour permettre logging) ---
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Validate JWT
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
-  const token = authHeader.replace("Bearer ", "");
-  const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
-  if (claimsError || !claimsData?.claims) {
-    const duration = Date.now() - startMs;
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+  // --- AUTH: validate JWT via requireUser helper (Lot 2) ---
+  // Trade-off observabilité accepté (S1.2): tous les échecs auth loggés AUTH_INVALID_JWT.
+  const auth = await requireUser(req);
+  if (auth instanceof Response) {
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: FUNCTION_NAME,
@@ -73,17 +46,12 @@ Deno.serve(async (req) => {
       status: "fatal_error",
       errorCode: "AUTH_INVALID_JWT",
       httpStatus: 401,
-      durationMs: duration,
+      durationMs: Date.now() - startMs,
     });
-    return respondError({
-      code: "AUTH_INVALID_JWT",
-      message: "Invalid or expired JWT",
-      correlationId,
-    });
+    return auth;
   }
 
-  const userId = claimsData.claims.sub as string;
-  const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+  const userId = auth.user.id;
 
   try {
     // --- PARSE BODY ---
