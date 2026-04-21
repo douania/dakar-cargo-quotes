@@ -6,7 +6,7 @@
  * qu'aucune requête n'arrive — sûr pour les tests unitaires sur le helper.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveSnapshotQualification } from "../generate-quotation-version/index.ts";
+import { resolveSnapshotQualification } from "../generate-quotation-version/qqm-resolver.ts";
 
 const toConfirmLine = { service_code: "THC_EXPORT", source: { type: "TO_CONFIRM" } };
 const okLine = { service_code: "SEA_FREIGHT", source: { type: "catalogue_sodatra" } };
