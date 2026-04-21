@@ -1237,7 +1237,19 @@ Deno.serve(async (req) => {
         ? (computed.quantity_used != null && computed.quantity_used > 0)
         : true;
 
-      if (catalogueEntry && scopeOk && priceOk && qtyOk) {
+      // ═══ Lot 1-B : détection placeholder catalogue export ═══
+      // Une entrée catalogue FIXED à 0 XOF avec description "Tarif à confirmer"
+      // n'est pas un forfait gratuit volontaire : c'est un placeholder explicite.
+      // On la fait tomber dans la branche fallback Lot 1 (TO_CONFIRM).
+      // Conditions strictes cumulées (toute défaillance → comportement catalogue inchangé).
+      const isCatalogPlaceholder =
+        pricingCtx.scope === "export" &&
+        EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey) &&
+        catalogueEntry?.pricing_mode === "FIXED" &&
+        catalogueEntry?.base_price === 0 &&
+        isTarifAConfirmer(catalogueEntry?.description);
+
+      if (catalogueEntry && scopeOk && priceOk && qtyOk && !isCatalogPlaceholder) {
         // Calculate lineTotal based on pricing_mode
         let lineTotal = 0;
         if (catalogueEntry.pricing_mode === "UNIT_RATE") {
