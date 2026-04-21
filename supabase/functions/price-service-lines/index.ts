@@ -53,6 +53,34 @@ const CURRENCY_ALIASES: Record<string, string> = {
 };
 const VALID_CURRENCIES = new Set(["XOF", "USD", "EUR"]);
 
+// ═══ Lot 1 / Lot 1-B : services export susceptibles d'être placeholders ═══
+// Whitelist stricte. Hissée au niveau module pour être lisible par :
+//   - bloc catalogue (Lot 1-B : détecte placeholder catalogue 0 XOF "Tarif à confirmer")
+//   - bloc fallback no_match (Lot 1 : produit signal TO_CONFIRM)
+const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set<string>([
+  "THC_EXPORT",
+  "DOCUMENTATION_BL",
+  "VGM_WEIGHING",
+  "STUFFING_FACTORY",
+  "STUFFING_CFS",
+  "EMPTY_REPO",
+  "PORT_CHARGES",
+  "CUSTOMS_EXPORT",
+  "SEA_FREIGHT",
+]);
+
+// Lot 1-B : détection d'un libellé "Tarif à confirmer" (signal placeholder catalogue)
+// Normalisation diacritiques + casse + espaces. Match exact sur "tarif a confirmer"
+// pour éviter tout faux positif (les vraies entrées catalogue ont une description métier).
+function isTarifAConfirmer(value?: string | null): boolean {
+  const normalized = (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return normalized === "tarif a confirmer";
+}
+
 function normalizeCurrency(raw: string): string | null {
   const upper = (raw || "").toUpperCase().trim();
   const mapped = CURRENCY_ALIASES[upper] || upper;
