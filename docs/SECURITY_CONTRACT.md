@@ -139,3 +139,6 @@ Note: `generate-quotation-version` logs all auth failures as `AUTH_INVALID_JWT` 
 | `mark-client-gap-request-sent` | Added to classification as user_auth (requireUser). CL1 marks client_gap_requests as sent. | 2026-04 |
 | `confirm-external-request-sent` | Added as user_auth (requireUser). P0-C: confirms partner request actual send, sets `email_sent_at`. Preconditions: `status=sent`, `email_draft_id` present. Idempotent. | 2026-04 |
 | `close-external-quote-request` | Added as user_auth (requireUser). P1-B: backendised partner request closure. Preconditions: no `proposed` facts remaining (409 if any). No status whitelist — any non-closed status allowed. Idempotent if already closed. Timeline: NON-SILENT (failure → 500). | 2026-04 |
+| `find-similar-quotations` | **Lot 2** — Migrated from inline `getClaims` to `requireUser` + post-check log. Trade-off observabilité accepté (S1.2): échecs auth loggés `AUTH_INVALID_JWT`. | 2026-04-21 |
+| `import-historical-quotation` | **Lot 2** — Migrated from inline `getClaims` to `requireUser` + post-check log. `serviceClient` créé avant `requireUser` pour permettre logging des échecs auth. Docstring corrigée. | 2026-04-21 |
+| — | **Lot 2 closed.** Seul `suggest-historical-lines` conserve un appel `getClaims(` réel : dual-path service-role intentionnel et documenté (`AUTH-HIST-1`). | 2026-04-21 |
