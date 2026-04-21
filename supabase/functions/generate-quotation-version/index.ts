@@ -376,14 +376,13 @@ Deno.serve(async (req) => {
         created_at: now,
         pricing_run_id: pricingRun.id,
         pricing_run_number: pricingRun.run_number,
-        // Lot 4: Read quoteQualification from pricing run outputs (provisional DDP support)
-        quoteQualification: (
-          pricingRun.outputs_json?.quoteQualification
-          && typeof pricingRun.outputs_json.quoteQualification === 'object'
-          && ["firm", "provisional", "partial"].includes(pricingRun.outputs_json.quoteQualification.level)
-        )
-          ? pricingRun.outputs_json.quoteQualification
-          : { level: "firm", reasons: [], firmTotalPolicy: "all_included" },
+        // Lot 3D-1: QQM source de vérité snapshot.
+        // Empêche `firm` si tariff_lines contient TO_CONFIRM.
+        // Préserve partial/provisional venant de run-pricing (DDP MISSING_CARGO_VALUE Lot 4).
+        quoteQualification: resolveSnapshotQualification(
+          pricingRun.outputs_json?.quoteQualification,
+          tariffLines,
+        ),
       },
       inputs: {
         origin: inputs.origin || factsSnapshot.origin || null,
