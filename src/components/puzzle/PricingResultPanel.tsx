@@ -235,9 +235,27 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
             Succès
           </Badge>
-          {isProvisional && (
-            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Ce pricing a été calculé alors que certaines communications sont encore en cours.">
+          {qualification.level === 'firm' && (
+            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" title="Devis ferme : tous les éléments sont confirmés.">
+              <ShieldCheck className="h-3 w-3 mr-1" />
+              Ferme
+            </Badge>
+          )}
+          {qualification.level === 'provisional' && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" title={primaryReasonLabel ? `Provisoire — ${primaryReasonLabel}` : 'Devis provisoire : éléments à confirmer.'}>
+              <ShieldAlert className="h-3 w-3 mr-1" />
               Provisoire
+            </Badge>
+          )}
+          {qualification.level === 'partial' && (
+            <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600" title="Offre partielle : certains éléments sont réservés.">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Partiel
+            </Badge>
+          )}
+          {isProvisional && (
+            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Pricing calculé alors que des communications partenaires/clients sont encore en cours.">
+              Communication en cours
             </Badge>
           )}
         </div>
