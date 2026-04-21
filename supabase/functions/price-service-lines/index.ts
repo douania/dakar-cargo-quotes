@@ -1371,6 +1371,12 @@ Deno.serve(async (req) => {
 
     // ═══ Normalise source for CHECK constraint ═══
     function normalizeSourceForAudit(source: string): string {
+      // Lot 1: TO_CONFIRM est un signal runtime uniquement (lu par cockpit/PDF/email
+      // via line.source.type === "TO_CONFIRM"). La contrainte CHECK de
+      // quote_service_pricing.source ne le connaît pas → mapping vers "no_match"
+      // pour l'audit DB seulement. La valeur runtime renvoyée à run-pricing reste
+      // intacte ("TO_CONFIRM") car elle transite par pricedLines, pas par cette fn.
+      if (source === "TO_CONFIRM") return "no_match";
       if (source.startsWith("port_tariffs")) return "port_tariffs";
       if (source.startsWith("rate_card")) return "internal";
       // Strip "+modifiers" suffix for CHECK constraint
