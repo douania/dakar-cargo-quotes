@@ -180,6 +180,14 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
     ? Math.max(...versions.map(v => v.version_number)) + 1
     : 1;
 
+  // Lot 3D-3: QQM commercial qualification (preview only)
+  const qualification = resolveQualificationFromRun(pricingRun);
+  const primaryReason = qualification.reasons[0];
+  const primaryReasonLabel = primaryReason
+    ? (REASON_LABELS[primaryReason.code] || primaryReason.message || primaryReason.code)
+    : null;
+  const extraReasonsCount = qualification.reasons.length > 1 ? qualification.reasons.length - 1 : 0;
+
   const handleCreateVersion = async () => {
     setIsCreating(true);
     try {
