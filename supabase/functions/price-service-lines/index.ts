@@ -1362,27 +1362,18 @@ Deno.serve(async (req) => {
             conversion_used: computed.conversion_used,
           });
         } else {
-          // ═══ Lot 1: Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
-          // Whitelist stricte des services export susceptibles d'être placeholders.
-          // Règle métier:
+          // ═══ Lot 1 : Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
+          // Règle métier (whitelist EXPORT_PLACEHOLDER_SERVICE_KEYS définie au niveau module) :
           //   - source: "TO_CONFIRM" UNIQUEMENT si scope=export ET serviceKey ∈ whitelist
           //   - rate reste null (run-pricing fera ?? 0 pour amount final)
           //   - missing[] est conservé (TO_CONFIRM ≠ résolu)
           //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
-          const EXPORT_PLACEHOLDER_SERVICE_KEYS = new Set([
-            "THC_EXPORT",
-            "DOCUMENTATION_BL",
-            "VGM_WEIGHING",
-            "STUFFING_FACTORY",
-            "STUFFING_CFS",
-            "EMPTY_REPO",
-            "PORT_CHARGES",
-            "CUSTOMS_EXPORT",
-            "SEA_FREIGHT",
-          ]);
+          // Lot 1-B : alimenté également depuis le bloc catalogue via isCatalogPlaceholder
+          //   (entrées FIXED 0 XOF avec description "Tarif à confirmer").
           const isExportPlaceholder =
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
+
 
           if (isExportPlaceholder) {
             pricedLines.push({
