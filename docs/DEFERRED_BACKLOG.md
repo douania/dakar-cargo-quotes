@@ -2,7 +2,26 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-22 (Lot 4-A mono-lot DDP clôturé)
+Dernière mise à jour : 2026-04-22 (TARIFF-COLLECTION-CAMPAIGN ouverte ; Lot 4-A mono-lot DDP clôturé)
+
+---
+
+## TARIFF-COLLECTION-CAMPAIGN — Campagne de collecte tarifaire SODATRA
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-COLLECTION-CAMPAIGN |
+| **Catégorie** | Documentation / Tariff governance |
+| **Statut** | `in_progress` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Post-Lot 4-A (2026-04-22) |
+| **Date d'ouverture** | 2026-04-22 |
+| **Objectif** | Préparer la collecte tarifaire SODATRA via grilles documentaires Markdown **avant toute injection en base**. Distinguer "valeur existante en base" de "validation SODATRA". |
+| **Périmètre livré** | 11 fichiers `docs/tariff-collection/` : `TARIF_MASTER_INDEX.md`, `TARIF_AIR_IMPORT_DDP.md`, `TARIF_AIR_IMPORT_DAP.md`, `TARIF_SEA_LCL_IMPORT_DDP.md`, `TARIF_SEA_LCL_IMPORT_DAP.md`, `TARIF_EXPORT_SENEGAL.md`, `TARIF_TRANSPORT_ROUTIER.md`, `TARIF_FRAIS_COMPAGNIES_MARITIMES.md`, `TARIF_PORT_TERMINAL.md`, `TARIF_AEROPORT.md`, `TARIF_PARTENAIRES.md`. Colonnes communes : 26 champs incluant `Valeur existante en base`, `Validation SODATRA`, `Table cible future`, `Priorité`, `Impact si non renseigné`. Inventaire base read-only (snapshot 2026-04-22) intégré au master index. |
+| **Garanties** | (1) Aucun runtime modifié ; (2) aucune migration DB ; (3) aucun tarif inventé ; (4) aucun changement UI / edge function / STATUS_REGISTRY / `.env` / `.gitignore` ; (5) respect mémoires `exact-official-tariffs-only`, `opaque-pricing-strategy`, `operator-in-the-loop-categorization-policy`, `pad-nomenclature-alignment-v2`, `outbound-email-governance-centralized-sender`. |
+| **Lot futur** | `TARIFF-INGESTION-CAMPAIGN` (P1) — injection runtime des valeurs validées par SODATRA. À ouvrir uniquement quand les grilles sont remplies, relues et signées par l'équipe métier. |
+| **Déclencheur de réouverture** | Grilles remplies, relues et validées par SODATRA → ouverture de `TARIFF-INGESTION-CAMPAIGN`. |
+| **Recommandation** | Conversion optionnelle Markdown → Word/PDF (réunion) ou Excel/Google Sheet (saisie opérationnelle) à la main du métier. La conversion automatique n'est pas dans le périmètre de ce lot. |
 
 ---
 
