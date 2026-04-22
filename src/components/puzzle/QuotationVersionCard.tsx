@@ -311,12 +311,17 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
                         {getQualificationBadge(qualification)}
                       </div>
                       
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           {format(new Date(version.created_at), "d MMM yyyy HH:mm", { locale: fr })}
                         </span>
                         <span>{linesCount} lignes</span>
+                        {snapshot?.meta?.pricing_run_number !== undefined && snapshot?.meta?.pricing_run_number !== null && (
+                          <Badge variant="outline" className="text-xs font-normal">
+                            Source : Pricing Run #{snapshot.meta.pricing_run_number}
+                          </Badge>
+                        )}
                       </div>
 
                       {totalHt !== undefined && (
