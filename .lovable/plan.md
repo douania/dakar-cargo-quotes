@@ -86,6 +86,36 @@ Les 5 surfaces (writer + 3 consumers historiques + preview pricing) supportent `
 
 ---
 
+## Lot 4-A — DDP mono-lot provisional : ✅ closed (2026-04-22)
+
+Mono-lot DDP du backlog `QUOTE-QUALIFICATION-MODEL` (parent désormais clôturable côté DDP mono-lot ; multi-lot DDP reste hors scope tant que non déclenché).
+
+### Sous-lots livrés
+- **Lot 4-A** : DDP mono-lot sans `cargo.value` autorisé en `provisional` ; ligne `CUSTOMS_RESERVE` typée `TO_CONFIRM` ; total ferme exclut éléments en réserve.
+- **Lot 4-A-ter** : rendu PDF/email "À confirmer" sur la ligne droits/taxes (plus de "0 FCFA").
+- **Lot 4-A-quinquies** : sync UI — `QuotationVersionCard` recharge auto après création version via `PricingResultPanel` (lift state up `versionRefreshToken` dans `CaseView`).
+
+### Validation PDF v2 (2026-04-22)
+- Badge `[v2]` ✅
+- Bandeau `DEVIS PROVISOIRE` ✅
+- Reason `MISSING_CARGO_VALUE` + `RATE_PENDING_CONFIRMATION` affichées ✅
+- Ligne droits/taxes = `À confirmer` (pas `0 FCFA`) ✅
+- `TOTAL HT FERME (hors éléments en réserve) = 200 000 XOF` ✅
+
+### Réserves tracées (non bloquantes)
+- `SNAPSHOT-V1-LOT4-LEGACY` (P3, historical_note) : v1 antérieures non réécrites — décision d'immutabilité.
+- `LOT4A-LINE12-ZERO` (P3, ouvert) : lignes `LINE_1` / `LINE_2` à 0 dans PDF v2, hors périmètre droits/taxes DDP, à auditer séparément.
+
+### Hors périmètre Lot 4-A
+- Aucun fichier FROZEN modifié
+- Aucune migration DB
+- Aucun changement edge function `run-pricing` / `quotation-engine` / `qqm-resolver`
+- Aucun snapshot historique réécrit
+- Aucun `STATUS_REGISTRY` modifié
+- Aucun `.env` / `.gitignore`
+
+---
+
 ## Statut Lot 0
 **Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
 
@@ -96,7 +126,8 @@ Les 5 surfaces (writer + 3 consumers historiques + preview pricing) supportent `
 - **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
 - **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
 - **Lot 2 — auth cleanup `getClaims` → `requireUser`** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur ; `suggest-historical-lines` reste explicitement exclu — dual-path)
-- **Lot 3D — QQM harmonisation TO_CONFIRM** : ✅ livré et clôturé (sous-lots 3D-1/2/3 ; non rouvrable sans nouveau déclencheur ; dette `QQM-FACTORIZE` différée en P3 ; backlog parent `QUOTE-QUALIFICATION-MODEL` reste `in_progress` jusqu'à Lot 4 DDP)
+- **Lot 3D — QQM harmonisation TO_CONFIRM** : ✅ livré et clôturé (sous-lots 3D-1/2/3 ; non rouvrable sans nouveau déclencheur ; dette `QQM-FACTORIZE` différée en P3)
+- **Lot 4-A — DDP mono-lot provisional droits/taxes à confirmer** : ✅ livré et clôturé (sous-lots 4-A / 4-A-ter / 4-A-quinquies ; PDF v2 validé visuellement ; non rouvrable sans nouveau déclencheur ; réserves `SNAPSHOT-V1-LOT4-LEGACY` et `LOT4A-LINE12-ZERO` tracées en P3)
 - **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
 - Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
-- Prochaine étape : Lot 4 QQM (pilote DDP `provisional` + `MISSING_CARGO_VALUE`) reste `planned` dans `DEFERRED_BACKLOG.md` — à ouvrir uniquement sur déclencheur produit explicite
+- Prochaine étape : Lot 4 multi-lot DDP reste `planned` (à ouvrir uniquement sur déclencheur produit explicite)

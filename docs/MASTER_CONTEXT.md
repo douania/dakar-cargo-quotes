@@ -867,3 +867,11 @@ quoteQualification: {
 - **Preview pricing** (`PricingResultPanel`) : qualification dérivée live de `pricingRun.outputs_json.quoteQualification` + `tariff_lines`. Badge legacy `isProvisional` (PRICING-GUARD) renommé "Communication en cours" pour distinguer la sémantique de qualification commerciale du flag de communication en cours.
 - **Détection TO_CONFIRM** : supporte `source: "TO_CONFIRM"` (legacy string) ET `source: { type: "TO_CONFIRM" }` (format actuel).
 - **Dette tracée** : `QQM-FACTORIZE` (deferred, P3) — factoriser la table de décision si un nouveau reason code ou une nouvelle surface consomme la qualification.
+
+### Garanties d'intégrité (Lot 4-A — 2026-04-22)
+
+- **DDP mono-lot sans `cargo.value`** : autorisé en devis `provisional` (plus de blocage dur). La ligne droits/taxes est matérialisée par `CUSTOMS_RESERVE` typée `source.type === "TO_CONFIRM"` ; le PDF/email rend "À confirmer" (jamais "0 FCFA").
+- **Total ferme** : `firmTotalPolicy: "excludes_reserved_items"` — les éléments en réserve sont exclus du total HT ferme affiché au client.
+- **Snapshots v1 historiques** : non réécrits (immutabilité respectée). Toute correction passe par création d'une nouvelle version. Voir `SNAPSHOT-V1-LOT4-LEGACY` dans `DEFERRED_BACKLOG.md`.
+- **Synchronisation UI (Lot 4-A-quinquies)** : `QuotationVersionCard` se recharge automatiquement après création d'une nouvelle version dans `PricingResultPanel` via lift state up `versionRefreshToken` au niveau `CaseView` (sans `window.location.reload()`).
+- **Réserve non bloquante tracée** : `LOT4A-LINE12-ZERO` (P3) — lignes `LINE_1` / `LINE_2` à 0 dans le PDF v2, hors périmètre droits/taxes DDP.
