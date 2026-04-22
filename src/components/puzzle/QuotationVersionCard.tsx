@@ -171,18 +171,30 @@ export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVers
   const handleExportPdf = async (version: QuotationVersion) => {
     setExportingId(version.id);
     try {
-      const { data, error } = await supabase.functions.invoke('export-quotation-version-pdf', {
+      const { data: response, error } = await supabase.functions.invoke('export-quotation-version-pdf', {
         body: { version_id: version.id }
       });
       if (error) throw error;
-      if (data?.success && data?.url) {
-        setDownloadUrls(prev => ({ ...prev, [version.id]: data.url }));
-        window.open(data.url, '_blank');
+
+      // Contrat runtime Phase 14-15 : { ok, data, correlation_id }
+      // Compat ancien format : { success, url }
+      const payload = response?.ok === true ? response.data : response;
+      const url = payload?.url;
+
+      if (url) {
+        setDownloadUrls(prev => ({ ...prev, [version.id]: url }));
+        window.open(url, '_blank');
         toast.success(`PDF v${version.version_number} généré`, {
           description: 'PDF exporté. Vous pouvez maintenant finaliser la revue du brouillon avant marquage comme envoyé.',
         });
       } else {
-        throw new Error(data?.error || 'Échec de génération');
+        const message =
+          response?.error?.message ||
+          response?.error ||
+          payload?.error?.message ||
+          payload?.error ||
+          'Échec de génération';
+        throw new Error(typeof message === 'string' ? message : 'Échec de génération');
       }
     } catch (err) {
       console.error('Export PDF error:', err);
