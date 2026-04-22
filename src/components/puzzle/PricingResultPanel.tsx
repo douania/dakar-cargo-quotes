@@ -137,9 +137,10 @@ interface PricingResultPanelProps {
   isLocked?: boolean;
   refreshToken?: number;
   isProvisional?: boolean;
+  onVersionCreated?: () => void;
 }
 
-export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isProvisional = false }: PricingResultPanelProps) {
+export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isProvisional = false, onVersionCreated }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const [isCreating, setIsCreating] = useState(false);
   const [linesExpanded, setLinesExpanded] = useState(false);
@@ -205,6 +206,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
       });
       setConfirmOpen(false);
       await refetchVersions();
+      onVersionCreated?.();
     } catch (err) {
       console.error('Create version error:', err);
       toast.error('Erreur lors de la création de version', {

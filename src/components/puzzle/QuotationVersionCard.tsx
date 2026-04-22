@@ -140,10 +140,11 @@ function resolveQuoteQualification(snapshot: any): QuoteQualification {
 interface QuotationVersionCardProps {
   caseId: string;
   isLocked?: boolean;
+  refreshToken?: number;
 }
 
-export function QuotationVersionCard({ caseId, isLocked = false }: QuotationVersionCardProps) {
-  const { versions, refetchVersions } = usePricingResultData(caseId);
+export function QuotationVersionCard({ caseId, isLocked = false, refreshToken }: QuotationVersionCardProps) {
+  const { versions, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
