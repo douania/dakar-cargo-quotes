@@ -191,11 +191,16 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
   const handleCreateVersion = async () => {
     setIsCreating(true);
     try {
+      // Lot 4-A-quater: pinner explicitement le pricing_run_id pour éviter
+      // toute ambiguïté entre run visible / version créée / PDF rouvert.
       const { data, error } = await supabase.functions.invoke('generate-quotation-version', {
-        body: { case_id: caseId }
+        body: {
+          case_id: caseId,
+          pricing_run_id: pricingRun.id,
+        }
       });
       if (error) throw error;
-      toast.success(`Version v${data.version_number} créée`, {
+      toast.success(`Version v${data.version_number} créée depuis Pricing Run #${pricingRun.run_number}`, {
         description: `${data.lines_count} lignes • ${new Intl.NumberFormat('fr-FR').format(data.total_ht)} ${data.currency}`,
       });
       setConfirmOpen(false);
