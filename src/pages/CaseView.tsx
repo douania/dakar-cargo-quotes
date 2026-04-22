@@ -100,6 +100,7 @@ export default function CaseView() {
   const [askingClientForGaps, setAskingClientForGaps] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
   const [pricingRefreshToken, setPricingRefreshToken] = useState(0);
+  const [versionRefreshToken, setVersionRefreshToken] = useState(0);
   const navigate = useNavigate();
 
   // ── Fetch quote_cases ──
@@ -2015,14 +2016,20 @@ export default function CaseView() {
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
-            <PricingResultPanel caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={pricingRefreshToken} isProvisional={pricingIsProvisional} />
+            <PricingResultPanel
+              caseId={caseId!}
+              isLocked={!!isPostSentLocked}
+              refreshToken={pricingRefreshToken}
+              isProvisional={pricingIsProvisional}
+              onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
+            />
           </div>
         )}
 
         {/* Phase 12: Quotation versions */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-version">
-            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} />
+            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
           </div>
         )}
 
