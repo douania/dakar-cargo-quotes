@@ -86,6 +86,46 @@ Les 5 surfaces (writer + 3 consumers historiques + preview pricing) supportent `
 
 ---
 
+## TARIFF-COLLECTION-CAMPAIGN — Grilles de collecte tarifaire : 🟡 in_progress (2026-04-22)
+
+Chantier purement documentaire ouvert après clôture Lot 4-A.
+
+### Livrables (11 fichiers `docs/tariff-collection/`)
+- `TARIF_MASTER_INDEX.md` — index général + inventaire base read-only + légendes statuts
+- `TARIF_AIR_IMPORT_DDP.md` — package `AIR_IMPORT_DDP` (P0)
+- `TARIF_AIR_IMPORT_DAP.md` — packages `AIR_IMPORT_DAP` + `AIR_IMPORT_EXW` (P0)
+- `TARIF_SEA_LCL_IMPORT_DDP.md` — package `LCL_IMPORT_DDP` (P0)
+- `TARIF_SEA_LCL_IMPORT_DAP.md` — packages `LCL_IMPORT_DAP` + `DAP_PROJECT_IMPORT` + variantes EXW (P0)
+- `TARIF_EXPORT_SENEGAL.md` — whitelist Lot 1 + `CUSTOMS_EXPORT` 300k (P0)
+- `TARIF_TRANSPORT_ROUTIER.md` — `local_transport_rates` + Mali + frontières (P1)
+- `TARIF_FRAIS_COMPAGNIES_MARITIMES.md` — `carrier_billing_templates` + demurrage (P0)
+- `TARIF_PORT_TERMINAL.md` — PAD T01–T14 + Dakar Terminal + DTHC (P0)
+- `TARIF_AEROPORT.md` — `AIR_HANDLING` + `AIR_FREIGHT` (P1)
+- `TARIF_PARTENAIRES.md` — RFQ partenaires + workflow cockpit (P1)
+
+### Schéma colonnes (26 champs)
+Famille / Service key / Libellé / Mode / Sens / Incoterm / Unité / Quantité / Tarif HT XOF / **Valeur existante en base** / **Validation SODATRA** / Devise / TVA / Min / Max / Base de calcul / Conditions / Exemple / Source / Fournisseur / Date validité / Statut / **Priorité** / **Impact si non renseigné** / **Table cible future** / Commentaire SODATRA.
+
+### Distinctions clés introduites
+- `Valeur existante en base` ≠ `Validation SODATRA` (à valider / validé / à corriger / à supprimer)
+- `Table cible future` (préparation de l'ingestion runtime sans risque de cible erronée)
+- `Statut` : confirmé / à confirmer / à renseigner / non applicable
+- `Priorité` : P0 (devis impossible) / P1 (fiabilité) / P2 (amélioration)
+
+### Hors périmètre
+- Aucun runtime modifié
+- Aucune migration DB
+- Aucun changement edge function / UI / hook / types
+- Aucun STATUS_REGISTRY
+- Aucun `.env` / `.gitignore`
+- Aucun tarif inventé
+- Conversion Markdown → Word/PDF/Excel laissée au métier
+
+### Déclencheur de clôture
+Grilles remplies, relues et validées par SODATRA → ouverture du futur lot `TARIFF-INGESTION-CAMPAIGN` (runtime).
+
+---
+
 ## Lot 4-A — DDP mono-lot provisional : ✅ closed (2026-04-22)
 
 Mono-lot DDP du backlog `QUOTE-QUALIFICATION-MODEL` (parent désormais clôturable côté DDP mono-lot ; multi-lot DDP reste hors scope tant que non déclenché).
