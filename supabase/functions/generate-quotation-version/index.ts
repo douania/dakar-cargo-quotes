@@ -85,6 +85,11 @@ interface VersionSnapshot {
     unit_price: number;
     amount: number;
     currency: string;
+    // Lot 4-A-ter: preserve TO_CONFIRM metadata for PDF rendering
+    source?: unknown;
+    type?: string | null;
+    category?: string | null;
+    label?: string | null;
   }>;
   totals: {
     total_ht: number;
