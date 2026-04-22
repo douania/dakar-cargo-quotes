@@ -2,7 +2,60 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-21 (Lot 1-B clôturé)
+Dernière mise à jour : 2026-04-22 (Lot 4-A mono-lot DDP clôturé)
+
+---
+
+## Lot 4-A — DDP mono-lot provisional droits/taxes à confirmer
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT-4A-DDP-MONOLOT-PROVISIONAL |
+| **Catégorie** | QQM / Pricing DDP / Snapshot integrity |
+| **Statut** | `closed` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 4-A + 4-A-ter + 4-A-quinquies (2026-04-22) |
+| **Date de clôture** | 2026-04-22 |
+| **Périmètre livré** | (1) Un dossier DDP mono-lot sans `cargo.value` est désormais autorisé en devis **provisoire** (et plus en blocage dur). (2) Les droits/taxes sont matérialisés par une ligne dédiée `CUSTOMS_RESERVE` marquée `source.type === "TO_CONFIRM"` avec rendu PDF/email "À confirmer" (jamais "0 FCFA"). (3) Le total ferme exclut les éléments en réserve (`firmTotalPolicy: "excludes_reserved_items"`) et la version est qualifiée `provisional` avec reason `MISSING_CARGO_VALUE`. (4) Lot 4-A-quinquies : synchronisation UI — `QuotationVersionCard` se recharge automatiquement après création d'une nouvelle version via `PricingResultPanel`, sans rechargement de page (lift state up via `versionRefreshToken` au niveau `CaseView`). |
+| **Validation PDF v2** | Capture validée 2026-04-22 : (a) badge `[v2]` visible ; (b) bandeau `DEVIS PROVISOIRE` ; (c) reason `Valeur marchandise en attente / Certains tarifs restent à confirmer` affichée ; (d) ligne droits/taxes = `À confirmer` (pas `0 FCFA`) ; (e) `TOTAL HT FERME (hors éléments en réserve) = 200 000 XOF`. |
+| **Garanties** | (1) Snapshots historiques v1 (créés avant Lot 4-A-ter) **non réécrits** — voir `SNAPSHOT-V1-LOT4-LEGACY` ; (2) Aucun changement de calcul pricing ; (3) Aucune modification edge function `run-pricing` / `quotation-engine` ; (4) Aucune migration DB ; (5) Synchronisation UI sans `window.location.reload()` (refresh React local et traçable). |
+| **Fichiers impactés (UI Lot 4-A-quinquies)** | `src/pages/CaseView.tsx`, `src/components/puzzle/PricingResultPanel.tsx`, `src/components/puzzle/QuotationVersionCard.tsx`. |
+| **Hors périmètre** | Aucun fichier FROZEN modifié, aucune migration DB, aucun STATUS_REGISTRY, aucun `.env` / `.gitignore`. |
+
+---
+
+## SNAPSHOT-V1-LOT4-LEGACY — Snapshots v1 antérieurs au Lot 4-A-ter
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | SNAPSHOT-V1-LOT4-LEGACY |
+| **Catégorie** | Snapshot integrity / Historical data |
+| **Statut** | `historical_note` (dette acceptée) |
+| **Priorité** | P3 |
+| **Phase d'origine** | Lot 4-A (2026-04-22) |
+| **Date** | 2026-04-22 |
+| **Constat** | Les versions `v1` créées avant l'application des patchs Lot 4-A / 4-A-ter conservent un rendu PDF ambigu (ligne droits/taxes pouvant apparaître à 0 ou sans réserve explicite) car leur snapshot a été figé avant l'introduction de la ligne `CUSTOMS_RESERVE` typée `TO_CONFIRM`. |
+| **Décision** | **Ne pas réécrire les snapshots historiques** (principe d'immutabilité des snapshots respecté). Toute correction passe par la création d'une **nouvelle version** (v2, v3, …) qui hérite automatiquement des règles QQM en vigueur. |
+| **Déclencheur de réouverture** | Demande métier explicite de back-correction d'un snapshot v1 historique pour un dossier client spécifique (à traiter au cas par cas, jamais en batch). |
+| **Recommandation** | Documenter côté opérateur la consigne : "régénérer une nouvelle version" plutôt que tenter de corriger v1. |
+
+---
+
+## LOT4A-LINE12-ZERO — Lignes LINE_1 / LINE_2 affichées à 0 dans PDF v2
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT4A-LINE12-ZERO |
+| **Catégorie** | PDF rendering / Pricing audit |
+| **Statut** | `ouvert` (réserve non bloquante) |
+| **Priorité** | P3 |
+| **Phase d'origine** | Lot 4-A clôture (2026-04-22) |
+| **Date** | 2026-04-22 |
+| **Constat** | Sur le PDF v2 validé, les lignes `LINE_1` et `LINE_2` affichent encore un montant à `0`. Ces lignes **ne concernent pas** les droits/taxes DDP (qui sont correctement qualifiées `À confirmer` via `CUSTOMS_RESERVE`). |
+| **Hypothèses** | Lignes correspondant potentiellement à : (a) services réellement gratuits (zero-rated légitime), (b) `no_match` non capté par la whitelist Lot 1, ou (c) placeholders catalogue résiduels hors scope export Lot 1-B. |
+| **Hors périmètre Lot 4-A** | Le risque critique DDP "droits/taxes à 0" est corrigé. Cette réserve concerne d'autres typologies de lignes et fera l'objet d'un audit séparé si nécessaire. |
+| **Déclencheur de réouverture** | Retour terrain opérateur ou client signalant une ambiguïté sur ces lignes spécifiques. |
+| **Recommandation** | Audit ciblé sur le snapshot v2 réel (case_id du dossier de validation Lot 4-A) pour qualifier la nature de `LINE_1` / `LINE_2` : zero-rated légitime, no_match, ou placeholder. Décider ensuite d'étendre la whitelist `TO_CONFIRM` ou de masquer ces lignes en PDF. |
 
 ---
 
