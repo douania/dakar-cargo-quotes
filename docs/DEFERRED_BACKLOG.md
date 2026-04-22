@@ -21,7 +21,8 @@ Dernière mise à jour : 2026-04-22 (TARIFF-COLLECTION-CAMPAIGN ouverte ; Lot 4-
 | **Garanties** | (1) Aucun runtime modifié ; (2) aucune migration DB ; (3) aucun tarif inventé ; (4) aucun changement UI / edge function / STATUS_REGISTRY / `.env` / `.gitignore` ; (5) respect mémoires `exact-official-tariffs-only`, `opaque-pricing-strategy`, `operator-in-the-loop-categorization-policy`, `pad-nomenclature-alignment-v2`, `outbound-email-governance-centralized-sender`. |
 | **Lot futur** | `TARIFF-INGESTION-CAMPAIGN` (P1) — injection runtime des valeurs validées par SODATRA. À ouvrir uniquement quand les grilles sont remplies, relues et signées par l'équipe métier. |
 | **Déclencheur de réouverture** | Grilles remplies, relues et validées par SODATRA → ouverture de `TARIFF-INGESTION-CAMPAIGN`. |
-| **Recommandation** | Conversion optionnelle Markdown → Word/PDF (réunion) ou Excel/Google Sheet (saisie opérationnelle) à la main du métier. La conversion automatique n'est pas dans le périmètre de ce lot. |
+| **Recommandation** | Conversion optionnelle Markdown → Word/PDF (réunion) ou Excel/Google Sheet (saisie opérationnelle) à la main du métier. |
+| **Version Excel livrée** | 2026-04-22 — `/mnt/documents/SODATRA_TARIFF_COLLECTION.xlsx` (12 onglets : Instructions + 11 grilles ; freeze panes + autofilter + mise en forme conditionnelle des statuts ; aucune valeur inventée — copie fidèle 1:1 des Markdown sources qui restent la source de vérité). |
 
 ---
 

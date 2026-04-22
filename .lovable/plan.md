@@ -124,6 +124,13 @@ Famille / Service key / Libellé / Mode / Sens / Incoterm / Unité / Quantité /
 ### Déclencheur de clôture
 Grilles remplies, relues et validées par SODATRA → ouverture du futur lot `TARIFF-INGESTION-CAMPAIGN` (runtime).
 
+### Sous-lot Excel consolidé — ✅ livré (2026-04-22)
+- Livrable : `/mnt/documents/SODATRA_TARIFF_COLLECTION.xlsx` (artefact utilisateur, hors repo).
+- 12 onglets : `Instructions` + 11 grilles (`MASTER_INDEX`, `AIR_IMPORT_DDP`, `AIR_IMPORT_DAP`, `SEA_LCL_IMPORT_DDP`, `SEA_LCL_IMPORT_DAP`, `EXPORT_SENEGAL`, `TRANSPORT_ROUTIER`, `FRAIS_COMPAGNIES_MARIT`, `PORT_TERMINAL`, `AEROPORT`, `PARTENAIRES`).
+- Mise en forme : freeze panes ligne d'en-tête, autofilter par onglet, largeurs adaptatives, mise en forme conditionnelle des statuts (`Validation SODATRA` + `Statut`) en jaune/orange/vert/rouge/gris.
+- Garanties : copie fidèle 1:1 des Markdown sources (aucune valeur tarifaire inventée), aucun runtime modifié, aucune migration DB, aucun fichier `src/` ou `supabase/` touché.
+- QA : vérification openpyxl post-génération (12 onglets ✓, freeze panes ✓, autofilter ✓ sur les 11 grilles).
+
 ---
 
 ## Lot 4-A — DDP mono-lot provisional : ✅ closed (2026-04-22)
