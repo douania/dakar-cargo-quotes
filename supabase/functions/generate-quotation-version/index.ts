@@ -322,14 +322,22 @@ Deno.serve(async (req) => {
         company: factsSnapshot.client_company || inputs.client_company || null,
       },
       raw_lines: tariffLines,
-      lines: tariffLines.map((line: any, idx: number) => ({
-        service_code: line.service_code || line.charge_code || `LINE_${idx + 1}`,
-        description: line.description || line.charge_name || null,
-        quantity: line.quantity || 1,
-        unit_price: line.unit_price || line.rate || 0,
-        amount: line.amount || line.total || 0,
-        currency: line.currency || "XOF",
-      })),
+      lines: tariffLines.map((line: any, idx: number) => {
+        const serviceCode = line.service_code || line.charge_code || `LINE_${idx + 1}`;
+        return {
+          service_code: serviceCode,
+          description: line.description || line.charge_name || line.label || line.category || serviceCode,
+          quantity: line.quantity || 1,
+          unit_price: line.unit_price || line.rate || 0,
+          amount: line.amount || line.total || 0,
+          currency: line.currency || "XOF",
+          // Lot 4-A-ter: preserve metadata so PDF drawLine() can detect TO_CONFIRM/reserve lines
+          source: line.source ?? null,
+          type: line.type ?? null,
+          category: line.category ?? null,
+          label: line.label ?? null,
+        };
+      }),
       totals: {
         total_ht: pricingRun.total_ht || 0,
         total_ttc: pricingRun.total_ttc || pricingRun.total_ht || 0,
