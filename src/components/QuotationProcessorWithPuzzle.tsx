@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, forwardRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -59,13 +59,13 @@ interface Props {
   onComplete: () => void;
 }
 
-export function QuotationProcessorWithPuzzle({ 
-  open, 
-  onOpenChange, 
-  result, 
+export const QuotationProcessorWithPuzzle = forwardRef<HTMLDivElement, Props>(({
+  open,
+  onOpenChange,
+  result,
   isLoading,
-  onComplete 
-}: Props) {
+  onComplete
+}: Props, ref) => {
   const navigate = useNavigate();
   const [editedBody, setEditedBody] = useState('');
   const [copied, setCopied] = useState(false);
@@ -415,7 +415,7 @@ ${JSON.stringify(result.extractedData, null, 2)}
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+      <DialogContent ref={ref} className="max-w-6xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
@@ -851,4 +851,6 @@ ${JSON.stringify(result.extractedData, null, 2)}
       </DialogContent>
     </Dialog>
   );
-}
+});
+
+QuotationProcessorWithPuzzle.displayName = 'QuotationProcessorWithPuzzle';
