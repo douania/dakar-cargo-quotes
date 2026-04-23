@@ -52,7 +52,7 @@ interface Props {
   onImportComplete: () => void;
 }
 
-export function EmailSearchImport({ configId, onImportComplete }: Props) {
+export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, onImportComplete }, ref) => {
   const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'subject' | 'from' | 'text'>('subject');
   const [query, setQuery] = useState('');
@@ -309,7 +309,7 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={ref}>
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
@@ -538,4 +538,6 @@ export function EmailSearchImport({ configId, onImportComplete }: Props) {
       />
     </div>
   );
-}
+});
+
+EmailSearchImport.displayName = 'EmailSearchImport';
