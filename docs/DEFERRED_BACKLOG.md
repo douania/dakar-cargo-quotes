@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-22 (TARIFF-COLLECTION-CAMPAIGN ouverte ; Lot 4-A mono-lot DDP clôturé)
+Dernière mise à jour : 2026-04-23 (campagne anti-duplication v2 ouverte ; TARIFF-COLLECTION-CAMPAIGN toujours `in_progress`)
 
 ---
 
@@ -23,8 +23,40 @@ Dernière mise à jour : 2026-04-22 (TARIFF-COLLECTION-CAMPAIGN ouverte ; Lot 4-
 | **Déclencheur de réouverture** | Grilles remplies, relues et validées par SODATRA → ouverture de `TARIFF-INGESTION-CAMPAIGN`. |
 | **Recommandation** | Conversion optionnelle Markdown → Word/PDF (réunion) ou Excel/Google Sheet (saisie opérationnelle) à la main du métier. |
 | **Version Excel livrée** | 2026-04-22 — `/mnt/documents/SODATRA_TARIFF_COLLECTION.xlsx` (12 onglets : Instructions + 11 grilles ; freeze panes + autofilter + mise en forme conditionnelle des statuts ; aucune valeur inventée — copie fidèle 1:1 des Markdown sources qui restent la source de vérité). |
+| **Sous-lot anti-duplication v2 (2026-04-23)** | Stratégie minimale 3 blocs livrée sans réécriture des 11 grilles. **Bloc A** : 10 CSV figés exportés vers `/mnt/documents/SODATRA_VALIDATION_*.csv` (port_tariffs 98, carrier_billing_templates 59, pricing_customs_tiers 12, tax_rates 8, border_clearing_rates 6, destination_terminal_rates 10, demurrage_rates 35, demurrage_tiers 35, mali_transport_zones 17, service_quantity_rules 23). **Bloc B** : `docs/tariff-collection/VALIDATION_RATE_CARDS_AND_CATALOGUE.md` couvre `pricing_rate_cards` (35 lignes : 1 anomalie critique `TRUCKING import value=0/status=active` + 34 `to_confirm`) et `pricing_service_catalogue` (5 confirmés + 6 placeholders export à 0 XOF gérés par `EXPORT_PLACEHOLDER_SERVICE_KEYS` Lot 1-B). **Bloc C** : 4 services collectés via grilles existantes (`TARIF_AEROPORT.md` pour AIR_FREIGHT/AIR_HANDLING ; `TARIF_PARTENAIRES.md` pour PICKUP_ORIGIN/PRE_CARRIAGE). **Hors blocs** : `local_transport_rates` (91 lignes, couverture hétérogène) reporté en sous-lot dédié de `TARIFF-INGESTION-CAMPAIGN`. **Surcharges BAF/CAF/GRI** confirmées P2 (cf. ID `TARIFF-SURCHARGES-BAF-CAF-GRI` ci-dessous). Garde-fous : aucun fichier `src/`, `supabase/`, migration, `STATUS_REGISTRY`, `.env`, `.gitignore` modifié ; aucune des 11 grilles `TARIF_*.md` modifiée ; aucune nouvelle source de vérité parallèle. |
+| **Déclencheur de réouverture v2** | Retour SODATRA sur les 10 CSV Bloc A + arbitrage Bloc B (anomalie `TRUCKING` + 34 lignes `to_confirm` + 6 placeholders export) + collecte Bloc C → ouverture de `TARIFF-INGESTION-CAMPAIGN`. |
 
 ---
+
+## TARIFF-SURCHARGES-BAF-CAF-GRI — Surcharges saisonnières compagnies maritimes
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-SURCHARGES-BAF-CAF-GRI |
+| **Catégorie** | Tariff governance / Carrier surcharges |
+| **Statut** | `deferred` |
+| **Priorité** | P2 |
+| **Phase d'origine** | TARIFF-COLLECTION-CAMPAIGN — sous-lot anti-duplication v2 (2026-04-23) |
+| **Constat** | Les surcharges saisonnières compagnies maritimes (BAF, CAF, GRI, PSS, etc.) ne sont pas modélisées en base ni dans les grilles de collecte. |
+| **Décision** | Reporté en P2. Aucun impact bloquant identifié sur les flux DAP/DDP/EXW couverts par le runtime actuel. |
+| **Déclencheur de réouverture** | Réclamation client / partenaire sur surcharge appliquée hors devis, OU décision SODATRA d'industrialiser ces surcharges. |
+| **Recommandation** | Modéliser dans une table dédiée `carrier_surcharges` avec dimension temporelle (effective_from/to) plutôt que dans `carrier_billing_templates`. |
+
+---
+
+## TARIFF-LOCAL-TRANSPORT-RATES-AUDIT — Audit ciblé `local_transport_rates`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-LOCAL-TRANSPORT-RATES-AUDIT |
+| **Catégorie** | Tariff governance / Transport |
+| **Statut** | `deferred` |
+| **Priorité** | P2 |
+| **Phase d'origine** | TARIFF-COLLECTION-CAMPAIGN — sous-lot anti-duplication v2 (2026-04-23) |
+| **Constat** | Table `local_transport_rates` (91 lignes) à couverture hétérogène : ni assez stable pour validation ponctuelle Bloc A, ni anomalie ciblée pour Bloc B. Recouvrement potentiel avec lignes `TRUCKING` de `pricing_rate_cards`. |
+| **Décision** | Sous-lot dédié reporté à `TARIFF-INGESTION-CAMPAIGN`, traité **après** retour SODATRA sur Blocs A et B. |
+| **Déclencheur de réouverture** | Validation Blocs A/B par SODATRA → ouverture sous-lot `local_transport_rates` (audit doublons + harmonisation avec `pricing_rate_cards.TRUCKING`). |
+| **Recommandation** | Avant industrialisation, croiser avec `pricing_rate_cards` pour décider d'une source unique (probable choix : `local_transport_rates` plus granulaire géographiquement). |
 
 ## Lot 4-A — DDP mono-lot provisional droits/taxes à confirmer
 
