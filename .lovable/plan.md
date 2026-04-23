@@ -131,6 +131,40 @@ Grilles remplies, relues et validées par SODATRA → ouverture du futur lot `TA
 - Garanties : copie fidèle 1:1 des Markdown sources (aucune valeur tarifaire inventée), aucun runtime modifié, aucune migration DB, aucun fichier `src/` ou `supabase/` touché.
 - QA : vérification openpyxl post-génération (12 onglets ✓, freeze panes ✓, autofilter ✓ sur les 11 grilles).
 
+### Sous-lot anti-duplication v2 — ✅ livré (2026-04-23)
+
+Stratégie minimale 3 blocs **sans réécriture** des 11 grilles `TARIF_*.md` ni création de nouvelle source de vérité parallèle.
+
+**Bloc A — Validation ponctuelle (10 CSV figés)**
+Tables stables, déjà seedées et déjà consommées par le runtime. Export read-only vers `/mnt/documents/SODATRA_VALIDATION_*.csv` avec 2 colonnes ajoutées (`validation_sodatra`, `commentaire_sodatra`) :
+- `port_tariffs` (98), `carrier_billing_templates` (59), `pricing_customs_tiers` (12), `tax_rates` (8), `border_clearing_rates` (6), `destination_terminal_rates` (10), `demurrage_rates` (35), `demurrage_tiers` (35), `mali_transport_zones` (17), `service_quantity_rules` (23).
+
+**Bloc B — Validation / correction ciblée**
+Fichier : `docs/tariff-collection/VALIDATION_RATE_CARDS_AND_CATALOGUE.md` (nouveau).
+- `pricing_rate_cards` (35) : 1 anomalie critique `TRUCKING import value=0/status=active` + 34 lignes `to_confirm` à arbitrer par bloc (AGENCY, BORDER/CUSTOMS, DTHC, EMPTY_RETURN, TRUCKING, PORT/DIVERS).
+- `pricing_service_catalogue` (11) : 5 confirmés à valider + 6 placeholders export à 0 XOF déjà gérés en logique TO_CONFIRM par `EXPORT_PLACEHOLDER_SERVICE_KEYS` (Lot 1-B, runtime intentionnel).
+
+**Bloc C — Vrais trous à collecter de zéro**
+Aucune nouvelle grille. Collecte via les fichiers existants :
+- `AIR_FREIGHT`, `AIR_HANDLING` → `TARIF_AEROPORT.md`
+- `PICKUP_ORIGIN`, `PRE_CARRIAGE` → `TARIF_PARTENAIRES.md`
+- Surcharges `BAF/CAF/GRI` → différé P2 (nouveau ID `TARIFF-SURCHARGES-BAF-CAF-GRI` dans `DEFERRED_BACKLOG.md`).
+
+**Hors blocs** : `local_transport_rates` (91 lignes, couverture hétérogène) → sous-lot dédié reporté `TARIFF-LOCAL-TRANSPORT-RATES-AUDIT` (P2, dans `DEFERRED_BACKLOG.md`).
+
+**Garde-fous appliqués (vérifiés post-livraison)**
+- ❌ 0 fichier `src/` modifié
+- ❌ 0 fichier `supabase/` modifié (functions, config, migrations)
+- ❌ 0 migration DB
+- ❌ 0 réécriture des 11 grilles `TARIF_*.md`
+- ❌ 0 modification `STATUS_REGISTRY`, `.env`, `.gitignore`
+- ❌ 0 nouvelle source de vérité parallèle (la matrice runtime `SERVICE_PACKAGES` dans `src/features/quotation/constants.ts` reste l'unique référence package → services)
+- ❌ 0 tarif inventé
+- ✅ 4 fichiers documentaires patchés : `docs/tariff-collection/VALIDATION_RATE_CARDS_AND_CATALOGUE.md` (nouveau), `docs/tariff-collection/TARIF_MASTER_INDEX.md`, `docs/DEFERRED_BACKLOG.md`, `.lovable/plan.md`
+- ✅ 10 CSV générés dans `/mnt/documents/`
+
+**Déclencheur de clôture définitive** : signature SODATRA des 10 CSV + validation Bloc B → ouverture `TARIFF-INGESTION-CAMPAIGN`.
+
 ---
 
 ## Lot 4-A — DDP mono-lot provisional : ✅ closed (2026-04-22)
