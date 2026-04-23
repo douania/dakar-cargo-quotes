@@ -2,8 +2,22 @@
 
 **Statut** : `in_progress` (campagne documentaire)
 **Date d'ouverture** : 2026-04-22
+**Dernière mise à jour** : 2026-04-23 (campagne anti-duplication v2)
 **Périmètre** : grilles de collecte tarifaire pour validation SODATRA **avant toute injection en base**.
 **Aucun runtime, aucune migration, aucun tarif inventé.**
+
+---
+
+## ⚠️ Lecture prioritaire — Campagne anti-duplication v2 (2026-04-23)
+
+Pas de trou structurel majeur sur les familles déjà modélisées, mais des trous de couverture métier subsistent. Stratégie minimale en 3 blocs :
+
+- **Bloc A — Validation ponctuelle (10 CSV figés)** : tables stables, déjà seedées et déjà consommées par le runtime. Voir `/mnt/documents/SODATRA_VALIDATION_*.csv` (10 fichiers : `port_tariffs`, `carrier_billing_templates`, `pricing_customs_tiers`, `tax_rates`, `border_clearing_rates`, `destination_terminal_rates`, `demurrage_rates`, `demurrage_tiers`, `mali_transport_zones`, `service_quantity_rules`).
+- **Bloc B — Validation / correction ciblée** : `pricing_rate_cards` + `pricing_service_catalogue`. Voir [`VALIDATION_RATE_CARDS_AND_CATALOGUE.md`](./VALIDATION_RATE_CARDS_AND_CATALOGUE.md).
+- **Bloc C — Vrais trous à collecter de zéro** : `AIR_FREIGHT`, `AIR_HANDLING` (→ `TARIF_AEROPORT.md`), `PICKUP_ORIGIN`, `PRE_CARRIAGE` (→ `TARIF_PARTENAIRES.md`). Surcharges `BAF/CAF/GRI` reportées P2 dans `docs/DEFERRED_BACKLOG.md`.
+- **Hors blocs** : `local_transport_rates` (91 lignes, couverture hétérogène) — sous-lot dédié reporté dans `TARIFF-INGESTION-CAMPAIGN`.
+
+**Garde-fous v2** : aucun runtime, aucune migration, aucune duplication package → services, aucune nouvelle source de vérité parallèle, aucune réécriture des 11 grilles `TARIF_*.md`.
 
 ---
 
