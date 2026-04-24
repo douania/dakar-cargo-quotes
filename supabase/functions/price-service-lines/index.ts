@@ -622,6 +622,7 @@ async function findPortTariffFallback(
   const today = new Date().toISOString().split("T")[0];
   const operationType = ctx.scope === "export" ? "Export" : "Import";
 
+  // [Lot 1 — Provenance whitelist] DPW THC : sources officielles uniquement.
   const { data, error } = await serviceClient
     .from("port_tariffs")
     .select("*")
@@ -629,6 +630,7 @@ async function findPortTariffFallback(
     .ilike("category", "%THC%")
     .eq("is_active", true)
     .eq("operation_type", operationType)
+    .in("evidence_level", ["official", "validated_internal"])
     .lte("effective_date", today)
     .order("effective_date", { ascending: false })
     .limit(5);

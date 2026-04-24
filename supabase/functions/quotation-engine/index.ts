@@ -963,10 +963,13 @@ async function fetchOfficialTariffs(
     cargoType?: string;
   }
 ): Promise<any[]> {
+  // [Lot 1 — Provenance whitelist] Ne consommer que les tarifs officiels
+  // ou validés en interne. Voir docs/MASTER_CONTEXT.md §gouvernance tarifaire.
   let query = supabase
     .from('port_tariffs')
     .select('*')
-    .eq('is_active', true);
+    .eq('is_active', true)
+    .in('evidence_level', ['official', 'validated_internal']);
   
   if (params.providers && params.providers.length > 0) {
     query = query.in('provider', params.providers);
@@ -993,11 +996,13 @@ async function fetchCarrierCharges(
   carrier?: string,
   operationType: 'IMPORT' | 'EXPORT' | 'TRANSIT' = 'IMPORT'
 ): Promise<any[]> {
+  // [Lot 1 — Provenance whitelist] Idem port_tariffs.
   let query = supabase
     .from('carrier_billing_templates')
     .select('*')
     .eq('is_active', true)
-    .eq('operation_type', operationType);
+    .eq('operation_type', operationType)
+    .in('evidence_level', ['official', 'validated_internal']);
   
   if (carrier) {
     // Fetch both specific carrier and GENERIC templates
