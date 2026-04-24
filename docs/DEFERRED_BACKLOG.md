@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1.1 clôturé : migration tracée + smoke tests dynamiques OK ; 11 NULL résolus ; Lot 2 dégelé)
+Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1.1-bis clôturé : 4 lignes Taleb_Quote_2024 rétrogradées en `observed`, replay corrigé pour ne promouvoir que `source_document='pdf_redevances_portuaires_2006'`. Comptes finaux port_tariffs : official=60, validated_internal=19, observed=12, to_confirm=7. Lot 2 débloqué.)
 
 ---
 
