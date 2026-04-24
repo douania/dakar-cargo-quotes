@@ -76,6 +76,7 @@ export type Database = {
           currency: string | null
           default_amount: number | null
           effective_date: string | null
+          evidence_level: string | null
           id: string
           invoice_sequence: number | null
           invoice_type: string | null
@@ -98,6 +99,7 @@ export type Database = {
           currency?: string | null
           default_amount?: number | null
           effective_date?: string | null
+          evidence_level?: string | null
           id?: string
           invoice_sequence?: number | null
           invoice_type?: string | null
@@ -120,6 +122,7 @@ export type Database = {
           currency?: string | null
           default_amount?: number | null
           effective_date?: string | null
+          evidence_level?: string | null
           id?: string
           invoice_sequence?: number | null
           invoice_type?: string | null
@@ -2415,6 +2418,7 @@ export type Database = {
           container_type: string
           created_at: string | null
           destination: string
+          evidence_level: string | null
           id: string
           is_active: boolean | null
           notes: string | null
@@ -2434,6 +2438,7 @@ export type Database = {
           container_type: string
           created_at?: string | null
           destination: string
+          evidence_level?: string | null
           id?: string
           is_active?: boolean | null
           notes?: string | null
@@ -2453,6 +2458,7 @@ export type Database = {
           container_type?: string
           created_at?: string | null
           destination?: string
+          evidence_level?: string | null
           id?: string
           is_active?: boolean | null
           notes?: string | null
