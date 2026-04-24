@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1 exécuté ; ouverture PORT-TARIFFS-NATURE-SPLIT, TARIFF-PROVENANCE-LOT2-AKSA, TARIFF-PROVENANCE-LOT3-SODATRA-SERVICES, VALIDATED-INTERNAL-SUBLEVELS-SPLIT)
+Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1.1 clôturé : migration tracée + smoke tests dynamiques OK ; 11 NULL résolus ; Lot 2 dégelé)
 
 ---
 
