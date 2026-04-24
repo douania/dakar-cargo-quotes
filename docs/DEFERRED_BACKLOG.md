@@ -2,7 +2,69 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-23 (campagne anti-duplication v2 ouverte ; TARIFF-COLLECTION-CAMPAIGN toujours `in_progress`)
+Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1 exécuté ; ouverture PORT-TARIFFS-NATURE-SPLIT, TARIFF-PROVENANCE-LOT2-AKSA, TARIFF-PROVENANCE-LOT3-SODATRA-SERVICES, VALIDATED-INTERNAL-SUBLEVELS-SPLIT)
+
+---
+
+## PORT-TARIFFS-NATURE-SPLIT — Séparation conceptuelle des natures dans `port_tariffs`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PORT-TARIFFS-NATURE-SPLIT |
+| **Catégorie** | Tariff governance / Schema |
+| **Statut** | `deferred` |
+| **Priorité** | P2 |
+| **Phase d'origine** | TARIFF-PROVENANCE Lot 1 (2026-04-24) |
+| **Constat** | La table `port_tariffs` héberge plusieurs natures métier distinctes : autorité portuaire (PAD), opérateur terminal (DPW), charges compagnies maritimes (Hapag), valeurs indicatives. Le Lot 1 a traité la **provenance** via `evidence_level`, pas la **nature**. La table reste hétérogène par construction. |
+| **Recommandation** | Différer une refonte structurelle jusqu'à stabilisation des Lots 2 et 3. La gouvernance de provenance suffit à protéger le runtime. |
+| **Déclencheur de réouverture** | Si un nouveau cas métier (ex: terminal alternatif, multi-port) rend l'hétérogénéité bloquante. |
+
+---
+
+## TARIFF-PROVENANCE-LOT2-AKSA — Isolation Aksa Energy & validation transport Sénégal
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-PROVENANCE-LOT2-AKSA |
+| **Catégorie** | Tariff governance / Client overrides |
+| **Statut** | `ready` |
+| **Priorité** | P0 commercial |
+| **Phase d'origine** | TARIFF-PROVENANCE Lot 1 (2026-04-24) |
+| **Constat** | Sur 91 lignes actives `local_transport_rates`, 81 sont spécifiques au client Aksa Energy (`evidence_level='client_override'`). Tant qu'elles vivent dans la table commune, elles sont matchables pour n'importe quel dossier. **Risque P0 commercial réel.** Les 10 lignes restantes (`TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`) sont en `to_confirm` (candidates à officialisation, sous réserve de croisement avec `TARIF_TRANSPORT_ROUTIER.md`). |
+| **Plan d'exécution** | (1) Sous-audit `pricing_client_overrides` : compatibilité colonnes, RLS, lecture déjà active runtime. (2) Décision documentée : réutiliser / étendre / créer si extension impossible. (3) Migration data : déplacer les 81 lignes Aksa vers la table cible avec rattachement `client_id`. (4) Filtre runtime : `price-service-lines` L878 + `quotation-engine` L1697 → `local_transport_rates` ne sert plus que `evidence_level='official'` ; overrides client lus séparément avec match `case.client_id`. (5) Croisement des 10 lignes restantes avec `TARIF_TRANSPORT_ROUTIER.md` → promotion `to_confirm` → `official` ligne par ligne. |
+| **Déclencheur de réouverture** | Validation CTO Lot 2 + audit `pricing_client_overrides` complété. |
+
+---
+
+## TARIFF-PROVENANCE-LOT3-SODATRA-SERVICES — Refonte modèle services SODATRA
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TARIFF-PROVENANCE-LOT3-SODATRA-SERVICES |
+| **Catégorie** | Tariff governance / Service modeling |
+| **Statut** | `deferred` |
+| **Priorité** | P2 (post-stabilisation Lots 1+2) |
+| **Phase d'origine** | TARIFF-PROVENANCE Lot 1 (2026-04-24) |
+| **Constat** | `pricing_service_catalogue` (11 lignes) modélise tous les services SODATRA en `pricing_mode=FIXED` sans dimensions métier (scope import/export/transit, freight_scope FCL/LCL/AIR, volume, régime douanier). Contournement actuel : `AGENCY` vs `AGENCY_TRANSIT` comme codes séparés. Frontière `pricing_service_catalogue` ↔ `pricing_rate_cards` floue. |
+| **Qualification** | **Refonte métier**, pas extension technique. Impacte la frontière catalogue/rate cards, les packages (`EXPORT_SENEGAL`...), `service_quantity_rules`, et `price-service-lines`. |
+| **Plan d'exécution** | (1) Atelier SODATRA : définition dimensions métier réelles. (2) Spec frontière catalogue ↔ rate cards. (3) Spec impact packages + règles de quantité. (4) Migration schéma + data progressive validée par SODATRA. (5) Refacto `price-service-lines`. |
+| **Préconditions** | Lots 1 et 2 stabilisés. Signature SODATRA des dimensions cibles. |
+| **Déclencheur de réouverture** | Atelier SODATRA planifié. |
+
+---
+
+## VALIDATED-INTERNAL-SUBLEVELS-SPLIT — Scinder `validated_internal` en deux sous-niveaux
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | VALIDATED-INTERNAL-SUBLEVELS-SPLIT |
+| **Catégorie** | Tariff governance / Provenance taxonomy |
+| **Statut** | `deferred` |
+| **Priorité** | P3 |
+| **Phase d'origine** | TARIFF-PROVENANCE Lot 1 (2026-04-24) |
+| **Constat** | Le niveau `validated_internal` recouvre deux réalités : (1) document fournisseur fiable (Hapag/CMA/ONE PDF) ; (2) validation interne SODATRA signée. Sous-cas volontairement non scindés au Lot 1 pour limiter le périmètre. |
+| **Recommandation** | Évaluer le besoin métier après retour d'usage Lot 1. Si scission décidée : mise à jour CHECK constraint + reseed + pas d'impact runtime (les deux restent dans la whitelist). |
+| **Déclencheur de réouverture** | Demande métier explicite ou cas d'audit nécessitant la distinction. |
 
 ---
 

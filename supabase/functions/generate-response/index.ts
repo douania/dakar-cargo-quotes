@@ -1379,10 +1379,13 @@ serve(async (req) => {
     console.log("Generating expert response for:", emailSubject);
 
     // ============ FETCH OFFICIAL PORT TARIFFS (PRIMARY SOURCE) ============
+    // [Lot 1 — Provenance whitelist] Ne pas exposer à l'IA des tarifs observés
+    // ou historiques au même rang qu'un tarif officiel.
     const { data: portTariffs } = await supabase
       .from('port_tariffs')
       .select('*')
       .eq('is_active', true)
+      .in('evidence_level', ['official', 'validated_internal'])
       .order('provider')
       .order('operation_type');
 
@@ -1411,10 +1414,12 @@ serve(async (req) => {
     }
 
     // ============ FETCH CARRIER BILLING TEMPLATES ============
+    // [Lot 1 — Provenance whitelist] Idem.
     const { data: carrierTemplates } = await supabase
       .from('carrier_billing_templates')
       .select('*')
       .eq('is_active', true)
+      .in('evidence_level', ['official', 'validated_internal'])
       .order('carrier')
       .order('invoice_sequence')
       .order('charge_code');
