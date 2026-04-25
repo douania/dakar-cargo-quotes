@@ -511,6 +511,12 @@ interface LocalTransportRate {
   validity_end: string | null;
   provider: string | null;
   cargo_category: string | null;
+  // Lot 2A : scoping client. NULL = générique (utilisable pour tous, sous réserve d'evidence_level).
+  // Non-NULL = client-spécifique (utilisable UNIQUEMENT si pricingCtx.client_code matche exactement).
+  // Champ optionnel défensif : si la colonne n'existe pas encore en base, undefined → traité comme NULL.
+  client_code?: string | null;
+  // Lot 2A : evidence_level (to_confirm = barème non validé → ne doit pas servir comme tarif).
+  evidence_level?: string | null;
 }
 
 function findLocalTransportRate(
