@@ -2,7 +2,23 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-24 (TARIFF-PROVENANCE Lot 1.1-bis clôturé : 4 lignes Taleb_Quote_2024 rétrogradées en `observed`, replay corrigé pour ne promouvoir que `source_document='pdf_redevances_portuaires_2006'`. Comptes finaux port_tariffs : official=60, validated_internal=19, observed=12, to_confirm=7. Lot 2 débloqué.)
+Dernière mise à jour : 2026-04-25 (LOT2-SMOKE-RUNTIME-EXEC ouvert : scripts G6–G9 verrouillés id-safe transactionnels, exécution runtime déléguée à l'utilisateur — voir entrée dédiée).
+
+---
+
+## LOT2-SMOKE-RUNTIME-EXEC — Exécution runtime des smoke tests G6–G9
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT2-SMOKE-RUNTIME-EXEC |
+| **Catégorie** | Validation runtime / Smoke tests |
+| **Statut** | `pending_user_execution` |
+| **Priorité** | P0 (clôture Lot 2) |
+| **Phase d'origine** | TARIFF-PROVENANCE Lot 2 (2026-04-25) |
+| **Constat** | Le sandbox de l'agent ne peut ni invoquer `run-pricing` (HTTP 401, pas de service-role), ni exécuter des scripts SQL transactionnels (méta-commandes `\set`/`\echo`, `BEGIN/COMMIT`, `ON_ERROR_STOP`) via les tools backend disponibles. Le CTO a explicitement refusé toute transcription en SQL pur non transactionnel (perte de la restauration atomique et du rollback en cas d'échec). |
+| **Garde-fous techniques en place** | Scripts `scripts/lot2_smoke/03..04` réécrits id-safe : assertions `1 / CASE WHEN ... THEN 1 ELSE 0 END` (division par zéro réelle), `BOOL_AND(...)` au lieu de `MAX(uuid)`, transaction `BEGIN/COMMIT` + `ON_ERROR_STOP`, suppression strictement filtrée par `source_excerpt`, restauration par `baseline_fact_id` strict double-vérifié. |
+| **Plan d'exécution** | (1) L'utilisateur exécute la séquence §7 du `LOT_2_REPORT.md` via vrai client `psql` ou SQL editor backend. (2) UUID `baseline_fact_id` à coller en dur dans le script 04 entre étapes 5 et 7. (3) Transmission de la sortie de `05_validate_results.sql` à l'agent. (4) L'agent finalise les verdicts G6–G9 dans `LOT_2_REPORT.md`. |
+| **Déclencheur de réouverture / clôture** | Réception de la sortie du harness §05 → finalisation verdicts → clôture du Lot 2. |
 
 ---
 
