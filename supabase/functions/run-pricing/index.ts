@@ -947,7 +947,12 @@ Deno.serve(async (req) => {
             regimeCode: lc.inputs.regimeCode || undefined,
             freightAmount: lc.inputs.freightCost,
             freightCurrency: lc.inputs.freightCurrency,
+            // Lot 1.2: propagation client.code (passe-plat, consommé en Lot 2)
+            clientCode: resolveClientCode(globalFacts || []),
           };
+
+          // Lot 1.2: preuve de propagation (smoke G1.2-A/B)
+          console.log(`[LOT1.2][multi-lot ${lc.lot_index}] engineParams.clientCode=${JSON.stringify(lotEngineParams.clientCode)}`);
 
           const engineRes = await fetch(engineUrl, {
             method: "POST",
