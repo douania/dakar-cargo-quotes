@@ -2636,6 +2636,19 @@ async function rollbackToPreviousStatus(
   }
 }
 
+// ═══ Lot 1.2 — Résolution défensive du client.code depuis quote_facts ═══
+// Lecture stricte du fact canonique. Aucune heuristique (pas de fallback
+// depuis clientCompany ou clientEmail). Retourne null si absent ou vide.
+function resolveClientCode(facts: any[]): string | null {
+  if (!Array.isArray(facts)) return null;
+  const f = facts.find((x: any) => x?.fact_key === 'client.code');
+  if (!f) return null;
+  const raw = f.value_text;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 function buildPricingInputs(facts: any[]): PricingInputs {
   const inputs: PricingInputs = {};
 
