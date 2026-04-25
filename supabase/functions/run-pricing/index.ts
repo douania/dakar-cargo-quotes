@@ -1034,7 +1034,7 @@ Deno.serve(async (req) => {
                   destination_country: null,
                   origin_country: null,
                   origin_port: lc.inputs.originPort || null,
-                  client_code: null,
+                  client_code: resolveClientCode(globalFacts || []), // Lot 1.2: propagation depuis quote_facts
                   corridor: null,
                 };
 
