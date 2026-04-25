@@ -1,214 +1,194 @@
-# Plan courant
+# Plan — Réécriture id-safe G8 (transactionnelle, sans DO $$ avec variables psql)
 
-## Lot 0 sécurisé — clôturé sur périmètre Lovable ✅
+## Objectif
 
-### Lot 0-A : runtime appliqué ✅
-- `supabase/config.toml` : 3 entrées ajoutées (`backfill-case-documents`, `healthz`, `upsert-exchange-rate`)
-- `src/pages/CaseView.tsx` : `QUOTED_VERSIONED` ajouté au guard principal auto-pricing
-- `supabase/functions/generate-response/index.ts` : `created_by: userId` ajouté à l'insert `email_drafts`
+Corriger uniquement le script 04 G8 selon votre dernière directive : éviter les blocs `DO $$ ... $$` qui consomment des variables psql `:'baseline_fact_id'` (substitution non fiable en dollar-quoted), passer en transactionnel `BEGIN/COMMIT` avec `\set ON_ERROR_STOP on`, et exprimer les assertions en SQL pur via `CASE WHEN ... THEN 1 ELSE 1/0 END`.
 
-### SEC-001 : Git hygiene — `closed_pending_rotation_review` ✅ (snapshot courant)
-- `.gitignore` contient désormais `.env`, `.env.local`, `.env.*.local` (corrigé hors Lovable)
-- `.env` n'est plus présent dans le snapshot ZIP/repo courant
-- Statut : `closed_pending_rotation_review` côté snapshot Lovable
+Le script 03 reste validé. Les scripts 01, 02, 05 restent inchangés.
 
-**Reste hors Lovable (condition de clôture définitive)** :
-1. Audit historique Git : `git log --all --full-history -- .env`
-2. Si une clé sensible a été exposée par un commit antérieur (service_role Supabase, secrets API tiers, SMTP) → rotation immédiate obligatoire
-3. Si seul anon key + URL publique exposés → risque faible, rotation optionnelle
-4. Documenter le résultat de l'audit pour passer à `closed`
+Garanties statiques mesurées 2026-04-25 :
+- baseline `29b96eec` / `routing.destination_city` = `aa764a42-e3dc-46e5-839a-5831a890aa69` → `Kolda` → `is_current=true` (1 ligne unique).
 
 ---
 
-## Lot 1 — TO_CONFIRM export 0 XOF : ✅ closed (2026-04-21)
-- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
-- Marquage `source: "TO_CONFIRM"` pour services export placeholder (whitelist : `THC_EXPORT`, `DOCUMENTATION_BL`, `VGM_WEIGHING`, `STUFFING_FACTORY`, `STUFFING_CFS`, `EMPTY_REPO`, `PORT_CHARGES`, `CUSTOMS_EXPORT`, `SEA_FREIGHT`)
-- `rate: null` conservé, lignes maintenues dans `missing[]`, `missing_quantity` non converti
-- `normalizeSourceForAudit` mappe TO_CONFIRM → no_match côté audit DB uniquement
+## Fichier 1 — `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql`
 
-## Lot 1-A — humanExplanation TO_CONFIRM : ✅ closed (2026-04-21)
-- Fichier impacté : `supabase/functions/price-service-lines/index.ts`
-- Court-circuit explicite dans `humanExplanation(pl)` préservant `"Tarif export à confirmer..."`
+```sql
+-- ═══════════════════════════════════════════════════════════════════════
+-- Lot 2 — G8 : Injection temporaire routing.destination_city='VELINGARA'
+-- Cible : case 29b96eec-2b85-489f-937e-0da8190c9787
+-- Stratégie id-safe : capture + AFFICHAGE du baseline_fact_id à coller
+-- manuellement dans le script 04. Aucune table temporaire.
+-- ═══════════════════════════════════════════════════════════════════════
 
-## Lot 1-B — Catalogue 0 XOF export placeholders : ✅ closed (2026-04-21)
-- Fichier impacté : `supabase/functions/price-service-lines/index.ts` uniquement
-- Constante `EXPORT_PLACEHOLDER_SERVICE_KEYS` hissée au niveau module (lève la dette stylistique notée en Lot 1)
-- Helper `isTarifAConfirmer(value)` (normalisation NFD + lowercase + trim)
-- Garde `isCatalogPlaceholder` dans le bloc catalogue : 5 conditions strictes (scope export + whitelist + FIXED + base_price=0 + description normalisée `"tarif a confirmer"`)
-- Lignes interceptées bypassent `catalogue_sodatra` et tombent dans la branche TO_CONFIRM existante du Lot 1 si aucun resolver aval ne fournit de tarif réel
-- `CUSTOMS_EXPORT` à 300 000 XOF non affecté ; imports non affectés ; aucun FROZEN ; aucune migration DB
+\set ON_ERROR_STOP on
 
----
+\echo ''
+\echo '── ÉTAPE 1 : baseline_fact_id (À NOTER pour le script 04) ──'
+SELECT
+  id            AS baseline_fact_id,
+  value_text    AS baseline_value,
+  is_current,
+  created_at    AS baseline_created_at,
+  source_type   AS baseline_source_type
+FROM quote_facts
+WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
+  AND fact_key   = 'routing.destination_city'
+  AND is_current = true;
 
-## Lot 2 — Auth cleanup ciblé `getClaims` → `requireUser` : ✅ closed (2026-04-21)
-- Fichiers impactés (2) :
-  - `supabase/functions/find-similar-quotations/index.ts`
-  - `supabase/functions/import-historical-quotation/index.ts`
-- Migration : suppression du bloc inline (header check + anon client + `getClaims`) → remplacement par `requireUser(req)` + post-check `logRuntimeEvent` (`AUTH_INVALID_JWT`)
-- `import-historical-quotation` : `serviceClient` hissé avant `requireUser` pour permettre logging des échecs auth ; docstring corrigée (`requireUser` au lieu de `getClaims()`)
-- Trade-off observabilité S1.2 accepté : tous les échecs auth loggés `AUTH_INVALID_JWT` (perte distinction `AUTH_MISSING_JWT`)
-- **Exclu** : `suggest-historical-lines` — dual-path service-role intentionnel (`AUTH-HIST-1`, patché 2026-04-15), seul fichier conservant un appel réel à `getClaims(`
-- Aucun FROZEN modifié ; `supabase/config.toml` inchangé ; aucune migration DB ; aucun changement UI/métier
+\echo ''
+\echo '── ÉTAPE 2 : ASSERT baseline conforme (1 ligne, Kolda) ──'
+WITH baseline AS (
+  SELECT id, value_text
+  FROM quote_facts
+  WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
+    AND fact_key   = 'routing.destination_city'
+    AND is_current = true
+)
+SELECT
+  CASE
+    WHEN COUNT(*) = 1 AND MAX(value_text) = 'Kolda' THEN 1
+    ELSE 1 / 0
+  END AS assert_baseline_ok
+FROM baseline;
 
----
+\echo ''
+\echo '── ÉTAPE 3 : injection VELINGARA (marquée smoke test) ──'
+SELECT public.supersede_fact(
+  p_case_id        => '29b96eec-2b85-489f-937e-0da8190c9787'::uuid,
+  p_fact_key       => 'routing.destination_city',
+  p_fact_category  => 'routing',
+  p_value_text     => 'VELINGARA',
+  p_source_type    => 'manual_input',
+  p_source_excerpt => '[LOT2-G8 SMOKE TEST INJECTION - to be reverted]',
+  p_confidence     => 1.0
+) AS injected_fact_id;
 
-## Lot 3D — QQM harmonisation TO_CONFIRM : ✅ closed (2026-04-21)
-
-Sous-lot du backlog `QUOTE-QUALIFICATION-MODEL` (qui reste `in_progress` car Lot 4 DDP reste `planned`).
-
-### Sous-lot 3D-1 — Backend snapshot writer
-- Fichiers : `supabase/functions/generate-quotation-version/qqm-resolver.ts` (nouveau, helper pur isolé sans dépendance Deno/Supabase) + `supabase/functions/generate-quotation-version/index.ts` (intégration `resolveSnapshotQualification`)
-- Test : `supabase/functions/_tests/qqm_lot3d_snapshot_resolver.test.ts` (9/9 PASS)
-- Garantie : un snapshot ne peut jamais être stocké `firm` si `tariff_lines` contient TO_CONFIRM → upgrade `provisional` + `RATE_PENDING_CONFIRMATION` + `firmTotalPolicy: "excludes_reserved_items"`
-
-### Sous-lot 3D-2 — Garde lecture historique (3 helpers consommateurs)
-- `supabase/functions/export-quotation-version-pdf/index.ts`
-- `supabase/functions/create-quotation-email-draft/index.ts`
-- `src/components/puzzle/QuotationVersionCard.tsx`
-- Garde miroir appliquée à la lecture pour upgrader les versions persistées `firm` avant Lot 3D-1 (validée par diff réel, pas par les tests Deno de 3D-1 qui couvrent uniquement le writer)
-
-### Sous-lot 3D-3 — Preview pricing
-- Fichier unique : `src/components/puzzle/PricingResultPanel.tsx`
-- Helper local `resolveQualificationFromRun` lit `outputs_json.quoteQualification` + `tariff_lines`
-- Badges `Ferme` / `Provisoire` / `Partiel` ajoutés ; badge legacy `isProvisional` renommé "Communication en cours" (sémantique PRICING-GUARD distincte de QQM)
-- Bandeau étendu : `provisional` sans TO_CONFIRM (cas DDP `MISSING_CARGO_VALUE`) affiche désormais la reason principale ; carte "✓ Tout confirmé" remplacée par "⚠ Sous réserve" si `qualification.level !== 'firm'`
-
-### Détection TO_CONFIRM uniforme
-Les 5 surfaces (writer + 3 consumers historiques + preview pricing) supportent `source: "TO_CONFIRM"` (legacy string) ET `source: { type: "TO_CONFIRM" }` (format actuel).
-
-### Hors périmètre Lot 3D
-- Aucun FROZEN modifié
-- Aucune migration DB
-- Aucun `STATUS_REGISTRY` (QQM = qualification commerciale, pas statut FSM dossier)
-- Aucun `supabase/config.toml`
-- Aucun pricing recalculé
-- Dette `QQM-FACTORIZE` documentée en `deferred` (P3) dans `docs/DEFERRED_BACKLOG.md`
-
----
-
-## TARIFF-COLLECTION-CAMPAIGN — Grilles de collecte tarifaire : 🟡 in_progress (2026-04-22)
-
-Chantier purement documentaire ouvert après clôture Lot 4-A.
-
-### Livrables (11 fichiers `docs/tariff-collection/`)
-- `TARIF_MASTER_INDEX.md` — index général + inventaire base read-only + légendes statuts
-- `TARIF_AIR_IMPORT_DDP.md` — package `AIR_IMPORT_DDP` (P0)
-- `TARIF_AIR_IMPORT_DAP.md` — packages `AIR_IMPORT_DAP` + `AIR_IMPORT_EXW` (P0)
-- `TARIF_SEA_LCL_IMPORT_DDP.md` — package `LCL_IMPORT_DDP` (P0)
-- `TARIF_SEA_LCL_IMPORT_DAP.md` — packages `LCL_IMPORT_DAP` + `DAP_PROJECT_IMPORT` + variantes EXW (P0)
-- `TARIF_EXPORT_SENEGAL.md` — whitelist Lot 1 + `CUSTOMS_EXPORT` 300k (P0)
-- `TARIF_TRANSPORT_ROUTIER.md` — `local_transport_rates` + Mali + frontières (P1)
-- `TARIF_FRAIS_COMPAGNIES_MARITIMES.md` — `carrier_billing_templates` + demurrage (P0)
-- `TARIF_PORT_TERMINAL.md` — PAD T01–T14 + Dakar Terminal + DTHC (P0)
-- `TARIF_AEROPORT.md` — `AIR_HANDLING` + `AIR_FREIGHT` (P1)
-- `TARIF_PARTENAIRES.md` — RFQ partenaires + workflow cockpit (P1)
-
-### Schéma colonnes (26 champs)
-Famille / Service key / Libellé / Mode / Sens / Incoterm / Unité / Quantité / Tarif HT XOF / **Valeur existante en base** / **Validation SODATRA** / Devise / TVA / Min / Max / Base de calcul / Conditions / Exemple / Source / Fournisseur / Date validité / Statut / **Priorité** / **Impact si non renseigné** / **Table cible future** / Commentaire SODATRA.
-
-### Distinctions clés introduites
-- `Valeur existante en base` ≠ `Validation SODATRA` (à valider / validé / à corriger / à supprimer)
-- `Table cible future` (préparation de l'ingestion runtime sans risque de cible erronée)
-- `Statut` : confirmé / à confirmer / à renseigner / non applicable
-- `Priorité` : P0 (devis impossible) / P1 (fiabilité) / P2 (amélioration)
-
-### Hors périmètre
-- Aucun runtime modifié
-- Aucune migration DB
-- Aucun changement edge function / UI / hook / types
-- Aucun STATUS_REGISTRY
-- Aucun `.env` / `.gitignore`
-- Aucun tarif inventé
-- Conversion Markdown → Word/PDF/Excel laissée au métier
-
-### Déclencheur de clôture
-Grilles remplies, relues et validées par SODATRA → ouverture du futur lot `TARIFF-INGESTION-CAMPAIGN` (runtime).
-
-### Sous-lot Excel consolidé — ✅ livré (2026-04-22)
-- Livrable : `/mnt/documents/SODATRA_TARIFF_COLLECTION.xlsx` (artefact utilisateur, hors repo).
-- 12 onglets : `Instructions` + 11 grilles (`MASTER_INDEX`, `AIR_IMPORT_DDP`, `AIR_IMPORT_DAP`, `SEA_LCL_IMPORT_DDP`, `SEA_LCL_IMPORT_DAP`, `EXPORT_SENEGAL`, `TRANSPORT_ROUTIER`, `FRAIS_COMPAGNIES_MARIT`, `PORT_TERMINAL`, `AEROPORT`, `PARTENAIRES`).
-- Mise en forme : freeze panes ligne d'en-tête, autofilter par onglet, largeurs adaptatives, mise en forme conditionnelle des statuts (`Validation SODATRA` + `Statut`) en jaune/orange/vert/rouge/gris.
-- Garanties : copie fidèle 1:1 des Markdown sources (aucune valeur tarifaire inventée), aucun runtime modifié, aucune migration DB, aucun fichier `src/` ou `supabase/` touché.
-- QA : vérification openpyxl post-génération (12 onglets ✓, freeze panes ✓, autofilter ✓ sur les 11 grilles).
-
-### Sous-lot anti-duplication v2 — ✅ livré (2026-04-23)
-
-Stratégie minimale 3 blocs **sans réécriture** des 11 grilles `TARIF_*.md` ni création de nouvelle source de vérité parallèle.
-
-**Bloc A — Validation ponctuelle (10 CSV figés)**
-Tables stables, déjà seedées et déjà consommées par le runtime. Export read-only vers `/mnt/documents/SODATRA_VALIDATION_*.csv` avec 2 colonnes ajoutées (`validation_sodatra`, `commentaire_sodatra`) :
-- `port_tariffs` (98), `carrier_billing_templates` (59), `pricing_customs_tiers` (12), `tax_rates` (8), `border_clearing_rates` (6), `destination_terminal_rates` (10), `demurrage_rates` (35), `demurrage_tiers` (35), `mali_transport_zones` (17), `service_quantity_rules` (23).
-
-**Bloc B — Validation / correction ciblée**
-Fichier : `docs/tariff-collection/VALIDATION_RATE_CARDS_AND_CATALOGUE.md` (nouveau).
-- `pricing_rate_cards` (35) : 1 anomalie critique `TRUCKING import value=0/status=active` + 34 lignes `to_confirm` à arbitrer par bloc (AGENCY, BORDER/CUSTOMS, DTHC, EMPTY_RETURN, TRUCKING, PORT/DIVERS).
-- `pricing_service_catalogue` (11) : 5 confirmés à valider + 6 placeholders export à 0 XOF déjà gérés en logique TO_CONFIRM par `EXPORT_PLACEHOLDER_SERVICE_KEYS` (Lot 1-B, runtime intentionnel).
-
-**Bloc C — Vrais trous à collecter de zéro**
-Aucune nouvelle grille. Collecte via les fichiers existants :
-- `AIR_FREIGHT`, `AIR_HANDLING` → `TARIF_AEROPORT.md`
-- `PICKUP_ORIGIN`, `PRE_CARRIAGE` → `TARIF_PARTENAIRES.md`
-- Surcharges `BAF/CAF/GRI` → différé P2 (nouveau ID `TARIFF-SURCHARGES-BAF-CAF-GRI` dans `DEFERRED_BACKLOG.md`).
-
-**Hors blocs** : `local_transport_rates` (91 lignes, couverture hétérogène) → sous-lot dédié reporté `TARIFF-LOCAL-TRANSPORT-RATES-AUDIT` (P2, dans `DEFERRED_BACKLOG.md`).
-
-**Garde-fous appliqués (vérifiés post-livraison)**
-- ❌ 0 fichier `src/` modifié
-- ❌ 0 fichier `supabase/` modifié (functions, config, migrations)
-- ❌ 0 migration DB
-- ❌ 0 réécriture des 11 grilles `TARIF_*.md`
-- ❌ 0 modification `STATUS_REGISTRY`, `.env`, `.gitignore`
-- ❌ 0 nouvelle source de vérité parallèle (la matrice runtime `SERVICE_PACKAGES` dans `src/features/quotation/constants.ts` reste l'unique référence package → services)
-- ❌ 0 tarif inventé
-- ✅ 4 fichiers documentaires patchés : `docs/tariff-collection/VALIDATION_RATE_CARDS_AND_CATALOGUE.md` (nouveau), `docs/tariff-collection/TARIF_MASTER_INDEX.md`, `docs/DEFERRED_BACKLOG.md`, `.lovable/plan.md`
-- ✅ 10 CSV générés dans `/mnt/documents/`
-
-**Déclencheur de clôture définitive** : signature SODATRA des 10 CSV + validation Bloc B → ouverture `TARIFF-INGESTION-CAMPAIGN`.
+\echo ''
+\echo '── ÉTAPE 4 : preuve post-injection (lecture seule) ──'
+SELECT id, value_text, is_current, source_excerpt
+FROM quote_facts
+WHERE case_id   = '29b96eec-2b85-489f-937e-0da8190c9787'
+  AND fact_key  = 'routing.destination_city'
+ORDER BY created_at DESC
+LIMIT 5;
+-- ATTENDU : VELINGARA is_current=true, Kolda (baseline) is_current=false.
+```
 
 ---
 
-## Lot 4-A — DDP mono-lot provisional : ✅ closed (2026-04-22)
+## Fichier 2 — `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql`
 
-Mono-lot DDP du backlog `QUOTE-QUALIFICATION-MODEL` (parent désormais clôturable côté DDP mono-lot ; multi-lot DDP reste hors scope tant que non déclenché).
+```sql
+-- ═══════════════════════════════════════════════════════════════════════
+-- Lot 2 — G8 : Restauration id-safe transactionnelle (sans DO $$)
+--
+-- ⚠️ AVANT EXÉCUTION : remplacer le placeholder ci-dessous par l'UUID
+--    affiché par le script 03 à l'étape 1 (champ baseline_fact_id).
+-- ═══════════════════════════════════════════════════════════════════════
 
-### Sous-lots livrés
-- **Lot 4-A** : DDP mono-lot sans `cargo.value` autorisé en `provisional` ; ligne `CUSTOMS_RESERVE` typée `TO_CONFIRM` ; total ferme exclut éléments en réserve.
-- **Lot 4-A-ter** : rendu PDF/email "À confirmer" sur la ligne droits/taxes (plus de "0 FCFA").
-- **Lot 4-A-quinquies** : sync UI — `QuotationVersionCard` recharge auto après création version via `PricingResultPanel` (lift state up `versionRefreshToken` dans `CaseView`).
+\set ON_ERROR_STOP on
 
-### Validation PDF v2 (2026-04-22)
-- Badge `[v2]` ✅
-- Bandeau `DEVIS PROVISOIRE` ✅
-- Reason `MISSING_CARGO_VALUE` + `RATE_PENDING_CONFIRMATION` affichées ✅
-- Ligne droits/taxes = `À confirmer` (pas `0 FCFA`) ✅
-- `TOTAL HT FERME (hors éléments en réserve) = 200 000 XOF` ✅
+-- ╔═══════════════════════════════════════════════════════════════════╗
+-- ║  COLLER ICI l'UUID baseline_fact_id capturé par le script 03      ║
+-- ╚═══════════════════════════════════════════════════════════════════╝
+\set baseline_fact_id '<<<PASTE_BASELINE_FACT_ID_HERE>>>'
 
-### Réserves tracées (non bloquantes)
-- `SNAPSHOT-V1-LOT4-LEGACY` (P3, historical_note) : v1 antérieures non réécrites — décision d'immutabilité.
-- `LOT4A-LINE12-ZERO` (P3, ouvert) : lignes `LINE_1` / `LINE_2` à 0 dans PDF v2, hors périmètre droits/taxes DDP, à auditer séparément.
+BEGIN;
 
-### Hors périmètre Lot 4-A
-- Aucun fichier FROZEN modifié
-- Aucune migration DB
-- Aucun changement edge function `run-pricing` / `quotation-engine` / `qqm-resolver`
-- Aucun snapshot historique réécrit
-- Aucun `STATUS_REGISTRY` modifié
-- Aucun `.env` / `.gitignore`
+-- ── ÉTAPE 0 : ASSERT — placeholder remplacé et UUID syntaxiquement valide
+--    Le cast ::uuid échoue si le placeholder n'a pas été remplacé.
+SELECT :'baseline_fact_id'::uuid AS baseline_fact_id_parsed;
+
+-- ── ÉTAPE 1 : ASSERT — l'ID existe et appartient au bon (case, fact, valeur)
+WITH baseline AS (
+  SELECT id, case_id, fact_key, value_text
+  FROM quote_facts
+  WHERE id = :'baseline_fact_id'::uuid
+)
+SELECT
+  CASE
+    WHEN COUNT(*) = 1
+     AND MAX(case_id)    = '29b96eec-2b85-489f-937e-0da8190c9787'::uuid
+     AND MAX(fact_key)   = 'routing.destination_city'
+     AND MAX(value_text) = 'Kolda'
+    THEN 1
+    ELSE 1 / 0
+  END AS assert_baseline_id_ok
+FROM baseline;
+
+-- ── ÉTAPE 2 : suppression EXCLUSIVE de la ligne smoke test
+--    (triple filtre : case_id + fact_key + source_excerpt marqueur unique)
+DELETE FROM quote_facts
+WHERE case_id        = '29b96eec-2b85-489f-937e-0da8190c9787'
+  AND fact_key       = 'routing.destination_city'
+  AND source_excerpt = '[LOT2-G8 SMOKE TEST INJECTION - to be reverted]';
+
+-- ── ÉTAPE 3 : réactivation EXCLUSIVE par id strict (double sécurité)
+UPDATE quote_facts
+SET is_current = true,
+    updated_at = now()
+WHERE id        = :'baseline_fact_id'::uuid
+  AND case_id   = '29b96eec-2b85-489f-937e-0da8190c9787'
+  AND fact_key  = 'routing.destination_city';
+
+-- ── ÉTAPE 4 : ASSERT final (1 ligne courante = Kolda, et = baseline_fact_id)
+WITH current_fact AS (
+  SELECT id, value_text
+  FROM quote_facts
+  WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
+    AND fact_key   = 'routing.destination_city'
+    AND is_current = true
+)
+SELECT
+  CASE
+    WHEN COUNT(*) = 1
+     AND MAX(id)         = :'baseline_fact_id'::uuid
+     AND MAX(value_text) = 'Kolda'
+    THEN 1
+    ELSE 1 / 0
+  END AS assert_restore_ok
+FROM current_fact;
+
+-- ── ÉTAPE 5 : preuve restauration
+SELECT id, value_text, is_current
+FROM quote_facts
+WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
+  AND fact_key   = 'routing.destination_city'
+  AND is_current = true;
+
+COMMIT;
+```
 
 ---
 
-## Statut Lot 0
-**Clôturé sur périmètre Lovable** : runtime 4/4 validé, SEC-001 en `closed_pending_rotation_review` (audit historique + rotation conditionnelle restent à faire hors plateforme).
+## Garanties
 
-## Garde-fous
-- Ne pas modifier `.gitignore` ni `.env` côté Lovable (gérés hors plateforme)
-- Aucune autre action runtime à exécuter dans ce lot
-- **Lot 1 — TO_CONFIRM export 0 XOF** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
-- **Lot 1-A — humanExplanation TO_CONFIRM** : ✅ livré et clôturé
-- **Lot 1-B — Catalogue 0 XOF export placeholders** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur métier)
-- **Lot 2 — auth cleanup `getClaims` → `requireUser`** : ✅ livré et clôturé (non rouvrable sans nouveau déclencheur ; `suggest-historical-lines` reste explicitement exclu — dual-path)
-- **Lot 3D — QQM harmonisation TO_CONFIRM** : ✅ livré et clôturé (sous-lots 3D-1/2/3 ; non rouvrable sans nouveau déclencheur ; dette `QQM-FACTORIZE` différée en P3)
-- **Lot 4-A — DDP mono-lot provisional droits/taxes à confirmer** : ✅ livré et clôturé (sous-lots 4-A / 4-A-ter / 4-A-quinquies ; PDF v2 validé visuellement ; non rouvrable sans nouveau déclencheur ; réserves `SNAPSHOT-V1-LOT4-LEGACY` et `LOT4A-LINE12-ZERO` tracées en P3)
-- **SEC-001** : conserver `closed_pending_rotation_review` tant que l'audit historique Git + rotation conditionnelle ne sont pas effectués hors Lovable
-- Ne pas créer de "Lot 0-B" Lovable : la finalisation SEC-001 est manuelle hors plateforme
-- Prochaine étape : Lot 4 multi-lot DDP reste `planned` (à ouvrir uniquement sur déclencheur produit explicite)
+| Risque | Mitigation |
+|--------|------------|
+| Suppression d'un vrai fact métier | Triple filtre case_id + fact_key + source_excerpt marqueur unique |
+| Restauration d'une mauvaise version | Réactivation par id strict, double-vérifié case_id + fact_key |
+| Baseline incorrecte avant injection | Assertion SQL `1/0` en script 03 |
+| Placeholder oublié | `:'baseline_fact_id'::uuid` échoue → `ON_ERROR_STOP` → rollback BEGIN |
+| UUID mal collé (autre case/fact/valeur) | Assertion SQL bloquante avant DELETE/UPDATE |
+| Substitution psql dans DO $$ | Évitée — uniquement dans SQL standard |
+| Échec partiel | `BEGIN/COMMIT` + `ON_ERROR_STOP on` → rollback global |
+| Heuristique created_at pour décision | Aucune (uniquement pour affichage de preuve en script 03) |
+
+## Fichiers modifiés
+
+- `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql` (réécriture complète + `ON_ERROR_STOP`)
+- `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql` (réécriture complète, transactionnel sans `DO $$`)
+
+## Fichiers non touchés
+
+- `scripts/lot2_smoke/01_inject_aksa_g6.sql`
+- `scripts/lot2_smoke/02_restore_aksa_g6.sql`
+- `scripts/lot2_smoke/05_validate_results.sql`
+- Aucun code applicatif, aucune migration, aucune edge function.
+
+## Étapes d'exécution post-validation
+
+1. Application des deux fichiers (mode build).
+2. Vous lancez la séquence des 10 étapes du `LOT_2_REPORT.md §7`.
+3. Je finalise les verdicts G6–G9 dans `LOT_2_REPORT.md` à partir de la sortie de `05_validate_results.sql`.
