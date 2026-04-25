@@ -1838,8 +1838,12 @@ Deno.serve(async (req) => {
         regimeCode: inputs.regimeCode || undefined,
         freightAmount: inputs.freightCost,
         freightCurrency: inputs.freightCurrency,
-        
+        // Lot 1.2: propagation client.code (passe-plat, consommé en Lot 2)
+        clientCode: resolveClientCode(facts || []),
       };
+
+      // Lot 1.2: preuve de propagation (smoke G1.2-A/B)
+      console.log(`[LOT1.2][mono-lot] engineParams.clientCode=${JSON.stringify(engineParams.clientCode)}`);
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
       const engineRes = await fetch(engineUrl, {
