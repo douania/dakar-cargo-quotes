@@ -2500,6 +2500,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'generate': {
         const request = params as QuotationRequest;
+        // Lot 1.2: preuve de réception clientCode (passe-plat, non consommé en Lot 1.2)
+        console.log(`[LOT1.2][quotation-engine] received clientCode=${JSON.stringify(request.clientCode)}`);
         const earlyWarnings: string[] = [];
         
         // Validation minimale
