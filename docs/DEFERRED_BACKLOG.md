@@ -12,7 +12,7 @@ Dernière mise à jour : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écran 
 |-------|--------|
 | **ID** | INFRA-PUBLISH-VITE-ENV-001 |
 | **Catégorie** | Infrastructure / Build / Publish Lovable |
-| **Statut** | `mitigation_appliquee_cause_racine_a_confirmer` |
+| **Statut** | `diagnostic_confirme_escalade_support_requise` (2026-04-25, voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` — H4 confirmée côté publish, H2 réfutée, H3 indéterminée par curl) |
 | **Priorité** | P0 si récurrent, sinon P2 |
 | **Phase d'origine** | Hors phase — incident production 2026-04-25 |
 | **Constat runtime** | Le site publié `https://dakotation-pro.lovable.app` affiche un écran noir total sur toutes les routes. Console : `Error: supabaseUrl is required.` au top-level de `createClient()` dans `src/integrations/supabase/client.ts`. `curl` + `grep` sur le bundle servi confirment que l'URL Supabase n'est pas embarquée. React ne monte jamais → écran noir global, pas spécifique à `/case/...`. |
