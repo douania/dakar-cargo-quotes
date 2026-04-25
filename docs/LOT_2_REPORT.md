@@ -12,15 +12,19 @@
 L'agent ne peut pas, depuis le sandbox actuel :
 - invoquer `run-pricing` directement : la fonction renvoie **HTTP 401 "Invalid token"** avec la clé anon (la nouvelle API signing-keys rejette les tokens legacy non authentifiés malgré `verify_jwt = false`) ;
 - accéder au `SUPABASE_SERVICE_ROLE_KEY` (non exposé dans l'environnement sandbox) ;
-- invoquer l'edge function via `pg_net` (extension non installée).
+- invoquer l'edge function via `pg_net` (extension non installée) ;
+- exécuter les scripts SQL transactionnels (`BEGIN/COMMIT` + `\set ON_ERROR_STOP on` + méta-commandes psql `\set baseline_fact_id`) : les tools backend disponibles ne maintiennent pas de session psql persistante. Une transcription en SQL pur dégraderait la transactionnalité (perte de `BEGIN/COMMIT`, `ON_ERROR_STOP`, restauration atomique, rollback en cas d'échec) — **explicitement refusée par le CTO le 2026-04-25**.
 
-**Conséquence :** les 4 runs runtime doivent être déclenchés **par l'utilisateur** depuis le cockpit (bouton "Lancer le pricing"), dans l'ordre indiqué au §3, **après exécution préalable des injections SQL** documentées au §3.
+**Conséquence :** les 4 runs runtime + les scripts SQL d'injection/restauration doivent être déclenchés **par l'utilisateur** :
+- les SQL d'injection/restauration via un **vrai client psql** ou via le **SQL editor du backend** (avec UUID `baseline_fact_id` collé en dur dans le script 04) ;
+- les runs `run-pricing` depuis le cockpit (bouton "Lancer le pricing") ;
+- ordre strict défini au §7.
 
 L'agent fournit :
-1. les scripts SQL d'injection / restauration (`scripts/lot2_smoke/01..04`) ;
+1. les scripts SQL d'injection / restauration (`scripts/lot2_smoke/01..04`), id-safe transactionnels, assertions verrouillées en `1 / CASE WHEN ... THEN 1 ELSE 0 END` (division par zéro réelle si l'assertion échoue → `ON_ERROR_STOP` rollback effectif) ;
 2. le harness de validation (`scripts/lot2_smoke/05_validate_results.sql`) qui extrait les preuves attendues directement depuis `pricing_runs.tariff_lines`.
 
-**Ce rapport sera complété (verdicts PASS/FAIL) dès que les runs auront été déclenchés et le harness exécuté.**
+**Ce rapport sera complété (verdicts PASS/FAIL) dès que les runs auront été déclenchés et la sortie du harness §05 transmise à l'agent.**
 
 ---
 
