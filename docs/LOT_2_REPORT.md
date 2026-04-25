@@ -152,8 +152,13 @@ psql -f scripts/lot2_smoke/05_validate_results.sql > docs/lot2_smoke_evidence.tx
 3. Exécuter `scripts/lot2_smoke/02_restore_aksa_g6.sql` **immédiatement**
 4. Cockpit → case `29b96eec-…` → "Lancer le pricing" (G7)
 5. Exécuter `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql`
+   → **noter la valeur `baseline_fact_id` affichée à l'étape 1**
 6. Cockpit → case `29b96eec-…` → "Lancer le pricing" (G8)
-7. Exécuter `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql`
+7. Ouvrir `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql`,
+   remplacer `<<<PASTE_BASELINE_FACT_ID_HERE>>>` par la valeur notée à l'étape 5,
+   puis exécuter le script (transaction unique `BEGIN/COMMIT` + `ON_ERROR_STOP`)
 8. Cockpit → case `01c3fbbc-…` → "Lancer le pricing" (G9)
 9. Exécuter `scripts/lot2_smoke/05_validate_results.sql`
 10. Renvoyer la sortie à l'agent → l'agent finalise les verdicts dans ce rapport.
+
+**Garde-fou impératif :** le script 04 doit être exécuté **dans une seule transaction** (vrai client psql ou SQL editor backend supportant `BEGIN/COMMIT` + assertions bloquantes). Aucune exécution par morceaux n'est autorisée — décision CTO 2026-04-25.
