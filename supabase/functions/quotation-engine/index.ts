@@ -534,6 +534,10 @@ interface QuotationRequest {
   
   // Client info
   clientCompany?: string;
+  // Lot 1.2 — code client propagé depuis quote_facts (passe-plat).
+  // Sera consommé en Lot 2 pour l'isolation des tarifs client-spécifiques
+  // (ex. transport Aksa) au point d'injection L1701.
+  clientCode?: string;
   
   // Services demandés
   includeCustomsClearance?: boolean;
