@@ -534,6 +534,10 @@ interface QuotationRequest {
   
   // Client info
   clientCompany?: string;
+  // Lot 1.2 — code client propagé depuis quote_facts (passe-plat).
+  // Sera consommé en Lot 2 pour l'isolation des tarifs client-spécifiques
+  // (ex. transport Aksa) au point d'injection L1701.
+  clientCode?: string;
   
   // Services demandés
   includeCustomsClearance?: boolean;
@@ -2496,6 +2500,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'generate': {
         const request = params as QuotationRequest;
+        // Lot 1.2: preuve de réception clientCode (passe-plat, non consommé en Lot 1.2)
+        console.log(`[LOT1.2][quotation-engine] received clientCode=${JSON.stringify(request.clientCode)}`);
         const earlyWarnings: string[] = [];
         
         // Validation minimale

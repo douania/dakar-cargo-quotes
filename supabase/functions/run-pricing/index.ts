@@ -947,7 +947,12 @@ Deno.serve(async (req) => {
             regimeCode: lc.inputs.regimeCode || undefined,
             freightAmount: lc.inputs.freightCost,
             freightCurrency: lc.inputs.freightCurrency,
+            // Lot 1.2: propagation client.code (passe-plat, consommé en Lot 2)
+            clientCode: resolveClientCode(globalFacts || []),
           };
+
+          // Lot 1.2: preuve de propagation (smoke G1.2-A/B)
+          console.log(`[LOT1.2][multi-lot ${lc.lot_index}] engineParams.clientCode=${JSON.stringify(lotEngineParams.clientCode)}`);
 
           const engineRes = await fetch(engineUrl, {
             method: "POST",
@@ -1034,7 +1039,7 @@ Deno.serve(async (req) => {
                   destination_country: null,
                   origin_country: null,
                   origin_port: lc.inputs.originPort || null,
-                  client_code: null,
+                  client_code: resolveClientCode(globalFacts || []), // Lot 1.2: propagation depuis quote_facts
                   corridor: null,
                 };
 
@@ -1745,7 +1750,7 @@ Deno.serve(async (req) => {
             destination_country: null,
             origin_country: null,
             origin_port: inputs.originPort || null,
-            client_code: null,
+            client_code: resolveClientCode(facts || []), // Lot 1.2: propagation depuis quote_facts
             corridor: null,
           };
 
@@ -1833,8 +1838,12 @@ Deno.serve(async (req) => {
         regimeCode: inputs.regimeCode || undefined,
         freightAmount: inputs.freightCost,
         freightCurrency: inputs.freightCurrency,
-        
+        // Lot 1.2: propagation client.code (passe-plat, consommé en Lot 2)
+        clientCode: resolveClientCode(facts || []),
       };
+
+      // Lot 1.2: preuve de propagation (smoke G1.2-A/B)
+      console.log(`[LOT1.2][mono-lot] engineParams.clientCode=${JSON.stringify(engineParams.clientCode)}`);
 
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
       const engineRes = await fetch(engineUrl, {
@@ -2634,6 +2643,19 @@ async function rollbackToPreviousStatus(
   } catch (rollbackError) {
     console.error(`Failed to rollback case ${caseId}:`, rollbackError);
   }
+}
+
+// ═══ Lot 1.2 — Résolution défensive du client.code depuis quote_facts ═══
+// Lecture stricte du fact canonique. Aucune heuristique (pas de fallback
+// depuis clientCompany ou clientEmail). Retourne null si absent ou vide.
+function resolveClientCode(facts: any[]): string | null {
+  if (!Array.isArray(facts)) return null;
+  const f = facts.find((x: any) => x?.fact_key === 'client.code');
+  if (!f) return null;
+  const raw = f.value_text;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function buildPricingInputs(facts: any[]): PricingInputs {
