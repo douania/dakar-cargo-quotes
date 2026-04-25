@@ -1034,3 +1034,13 @@ Cet inventaire couvre les sources suivantes :
 - **Audit CTO consolidé** : 2026-04-14 (repo + runtime/cloud externe)
 
 Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'auraient laissé aucune trace dans le code ou la documentation ne sont **pas** listés ici. Pour les capturer, fournir les résumés/prompts des anciens chats.
+
+---
+
+## LOT12-COVERAGE — Couverture smoke tests Lot 1.2 incomplète
+
+| ID | Catégorie | Statut | Priorité | Phase d'origine | Date | Déclencheur de réouverture | Recommandation |
+|----|-----------|--------|----------|----------------|------|---------------------------|----------------|
+| LOT12-COVERAGE-A | Smoke multi-lot non-export | `deferred` | basse | Lot 1.2 (G1.2) | 2026-04-25 | Apparition d'un pricing_run multi-lot non-export en base | Rejouer un smoke test ciblé sur la branche `[LOT1.2][multi-lot N]` côté `run-pricing` |
+| LOT12-COVERAGE-B | Symétrie log branche export | `deferred` | basse | Lot 1.2 (G1.2-D) | 2026-04-25 | Lot 2 ou audit de la branche export | Ajouter un log `[LOT1.2][export-direct]` côté `run-pricing/index.ts:1042` pour symétriser la preuve avec la branche non-export |
+| LOT12-D-DRIFT | Dérive non-régression export `76c9819c…` | `deferred` | moyenne | Lot 1.2 (G1.2-D) | 2026-04-25 | Avant Lot 2 ou en parallèle | Investiguer la dérive 750k→1M XOF / 60→35 lignes entre 2026-04-07 et 2026-04-25 sur `EXPORT_SENEGAL` (cause probable : clôture Lot 1 Taleb_Quote / port_tariffs). Hors-périmètre Lot 1.2 (`client_code` reste `null`). |
