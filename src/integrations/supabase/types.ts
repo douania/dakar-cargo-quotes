@@ -2415,6 +2415,7 @@ export type Database = {
       local_transport_rates: {
         Row: {
           cargo_category: string | null
+          client_code: string | null
           container_type: string
           created_at: string | null
           destination: string
@@ -2435,6 +2436,7 @@ export type Database = {
         }
         Insert: {
           cargo_category?: string | null
+          client_code?: string | null
           container_type: string
           created_at?: string | null
           destination: string
@@ -2455,6 +2457,7 @@ export type Database = {
         }
         Update: {
           cargo_category?: string | null
+          client_code?: string | null
           container_type?: string
           created_at?: string | null
           destination?: string
