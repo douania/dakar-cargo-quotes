@@ -2,7 +2,27 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-25 (LOT2-SMOKE-RUNTIME-EXEC ouvert : scripts G6–G9 verrouillés id-safe transactionnels, exécution runtime déléguée à l'utilisateur — voir entrée dédiée).
+Dernière mise à jour : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écran noir production observé sur le bundle publié — variables `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` absentes du bundle servi. Mitigation fail-fast appliquée via `src/integrations/supabase/guard.ts`. Cause racine à confirmer parmi H1–H4 après republish — voir entrée dédiée).
+
+---
+
+## INFRA-PUBLISH-VITE-ENV-001 — Écran noir production : variables Supabase absentes du bundle publié
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | INFRA-PUBLISH-VITE-ENV-001 |
+| **Catégorie** | Infrastructure / Build / Publish Lovable |
+| **Statut** | `mitigation_appliquee_cause_racine_a_confirmer` |
+| **Priorité** | P0 si récurrent, sinon P2 |
+| **Phase d'origine** | Hors phase — incident production 2026-04-25 |
+| **Constat runtime** | Le site publié `https://dakotation-pro.lovable.app` affiche un écran noir total sur toutes les routes. Console : `Error: supabaseUrl is required.` au top-level de `createClient()` dans `src/integrations/supabase/client.ts`. `curl` + `grep` sur le bundle servi confirment que l'URL Supabase n'est pas embarquée. React ne monte jamais → écran noir global, pas spécifique à `/case/...`. |
+| **Observation complémentaire** | La preview Lovable a aussi présenté l'écran noir, qui s'est "réveillée" après envoi d'un message dans le chat. Cela élargit l'hypothèse au-delà du seul build publish. |
+| **Hypothèses cause racine (à discriminer)** | (H1) Variables `VITE_*` non injectées au build publish. (H2) Bundle stale / non reconstruit après publication antérieure. (H3) Lifecycle preview Lovable : variables réinjectées seulement après interaction chat. (H4) Cache CDN / asset / infra Lovable. |
+| **Mitigation appliquée** | Nouveau fichier `src/integrations/supabase/guard.ts` importé en première ligne de `src/main.tsx`. Vérifie au boot la présence de `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`. Si absentes : panneau d'erreur lisible (DOM APIs, sans React, sans `innerHTML`) + `console.error` + `throw`. Si présentes : no-op pur. Transforme un écran noir opaque en signal exploitable. |
+| **Fichiers interdits respectés** | `src/integrations/supabase/client.ts`, `src/integrations/supabase/types.ts`, `.env`, `supabase/config.toml` — tous non touchés. Aucune migration, edge function, RLS. Aucun hardcoding de clé. |
+| **Plan de discrimination post-republish** | (1) Vérifier que le hash du bundle change (sinon : H2/H4). (2) `curl` + `grep snjewofqxfsdmaszapux` sur le nouveau bundle (présent → H1 réfutée ; absent → H1 confirmée). (3) Test navigateur sur `/`, `/login`, `/case/03ccf66d-...`. (4) Si guard s'affiche : H1 confirmée → ticket support Lovable. (5) Si écran noir persiste sans guard : problème JS/asset/routing en amont. (6) Si preview redevient noire sans interaction chat : H3 confirmée. |
+| **Déclencheur de réouverture / clôture** | Clôture après application de la grille de discrimination ci-dessus et identification formelle de la cause racine. Réouverture à toute récurrence d'écran noir post-publish. |
+| **Garde-fou gouvernance** | Ne pas clôturer sur la seule base "vars absentes du publish". Si H1 ou H3 confirmée → escalade support Lovable, pas de workaround côté code (jamais de hardcoding des clés Supabase dans le bundle). |
 
 ---
 
