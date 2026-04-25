@@ -1,194 +1,104 @@
-# Plan — Réécriture id-safe G8 (transactionnelle, sans DO $$ avec variables psql)
 
-## Objectif
+# Plan révisé — Diagnostic infra injection variables VITE_*
+## Périmètre : lecture seule sur le runtime + écriture documentaire uniquement
 
-Corriger uniquement le script 04 G8 selon votre dernière directive : éviter les blocs `DO $$ ... $$` qui consomment des variables psql `:'baseline_fact_id'` (substitution non fiable en dollar-quoted), passer en transactionnel `BEGIN/COMMIT` avec `\set ON_ERROR_STOP on`, et exprimer les assertions en SQL pur via `CASE WHEN ... THEN 1 ELSE 1/0 END`.
+## Contexte verrouillé
 
-Le script 03 reste validé. Les scripts 01, 02, 05 restent inchangés.
+- Le guard `src/integrations/supabase/guard.ts` s'affiche correctement sur le site publié et la preview → bundle frontend bien chargé.
+- `.env` sandbox contient `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` avec les noms exacts attendus par `client.ts`.
+- Code applicatif correct. Problème = injection des variables `VITE_*` dans le build Lovable (publish ET/OU preview froide).
+- Hash bundle précédent connu : `index-IZ9GpTvG.js`.
+- Entrée backlog existante `INFRA-PUBLISH-VITE-ENV-001`, statut actuel `mitigation_appliquee_cause_racine_a_confirmer`.
 
-Garanties statiques mesurées 2026-04-25 :
-- baseline `29b96eec` / `routing.destination_city` = `aa764a42-e3dc-46e5-839a-5831a890aa69` → `Kolda` → `is_current=true` (1 ligne unique).
+## Périmètre des modifications autorisées
 
----
+**Zéro modification applicative.**
 
-## Fichier 1 — `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql`
+Écritures autorisées **uniquement** :
+1. Création de `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md`.
+2. Mise à jour **chirurgicale** de l'entrée `INFRA-PUBLISH-VITE-ENV-001` dans `docs/DEFERRED_BACKLOG.md` (statut + lien d'évidence uniquement).
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════
--- Lot 2 — G8 : Injection temporaire routing.destination_city='VELINGARA'
--- Cible : case 29b96eec-2b85-489f-937e-0da8190c9787
--- Stratégie id-safe : capture + AFFICHAGE du baseline_fact_id à coller
--- manuellement dans le script 04. Aucune table temporaire.
--- ═══════════════════════════════════════════════════════════════════════
+Interdits explicites :
+- pas de modification de `src/`
+- pas de modification de `supabase/`
+- pas de modification de `.env`
+- pas de modification de `client.ts`, `types.ts`, `config.toml`
+- aucune migration
+- aucune edge function
+- aucun changement RLS
+- aucun hardcoding de clés
+- pas de réécriture/reformatage globale du backlog
 
-\set ON_ERROR_STOP on
+## Étapes
 
-\echo ''
-\echo '── ÉTAPE 1 : baseline_fact_id (À NOTER pour le script 04) ──'
-SELECT
-  id            AS baseline_fact_id,
-  value_text    AS baseline_value,
-  is_current,
-  created_at    AS baseline_created_at,
-  source_type   AS baseline_source_type
-FROM quote_facts
-WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
-  AND fact_key   = 'routing.destination_city'
-  AND is_current = true;
+### 1. Capturer le bundle publish
 
-\echo ''
-\echo '── ÉTAPE 2 : ASSERT baseline conforme (1 ligne, Kolda) ──'
-WITH baseline AS (
-  SELECT id, value_text
-  FROM quote_facts
-  WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
-    AND fact_key   = 'routing.destination_city'
-    AND is_current = true
-)
-SELECT
-  CASE
-    WHEN COUNT(*) = 1 AND MAX(value_text) = 'Kolda' THEN 1
-    ELSE 1 / 0
-  END AS assert_baseline_ok
-FROM baseline;
-
-\echo ''
-\echo '── ÉTAPE 3 : injection VELINGARA (marquée smoke test) ──'
-SELECT public.supersede_fact(
-  p_case_id        => '29b96eec-2b85-489f-937e-0da8190c9787'::uuid,
-  p_fact_key       => 'routing.destination_city',
-  p_fact_category  => 'routing',
-  p_value_text     => 'VELINGARA',
-  p_source_type    => 'manual_input',
-  p_source_excerpt => '[LOT2-G8 SMOKE TEST INJECTION - to be reverted]',
-  p_confidence     => 1.0
-) AS injected_fact_id;
-
-\echo ''
-\echo '── ÉTAPE 4 : preuve post-injection (lecture seule) ──'
-SELECT id, value_text, is_current, source_excerpt
-FROM quote_facts
-WHERE case_id   = '29b96eec-2b85-489f-937e-0da8190c9787'
-  AND fact_key  = 'routing.destination_city'
-ORDER BY created_at DESC
-LIMIT 5;
--- ATTENDU : VELINGARA is_current=true, Kolda (baseline) is_current=false.
+```bash
+curl -s https://dakotation-pro.lovable.app/ -o /tmp/index_publish.html
+PUB_BUNDLE=$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/index_publish.html | head -1)
+curl -sI https://dakotation-pro.lovable.app/ > /tmp/headers_publish_root.txt
+curl -sI "https://dakotation-pro.lovable.app${PUB_BUNDLE}" > /tmp/headers_publish_bundle.txt
+curl -s "https://dakotation-pro.lovable.app${PUB_BUNDLE}" -o /tmp/bundle_publish.js
 ```
 
----
+### 2. Capturer le bundle preview
 
-## Fichier 2 — `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql`
-
-```sql
--- ═══════════════════════════════════════════════════════════════════════
--- Lot 2 — G8 : Restauration id-safe transactionnelle (sans DO $$)
---
--- ⚠️ AVANT EXÉCUTION : remplacer le placeholder ci-dessous par l'UUID
---    affiché par le script 03 à l'étape 1 (champ baseline_fact_id).
--- ═══════════════════════════════════════════════════════════════════════
-
-\set ON_ERROR_STOP on
-
--- ╔═══════════════════════════════════════════════════════════════════╗
--- ║  COLLER ICI l'UUID baseline_fact_id capturé par le script 03      ║
--- ╚═══════════════════════════════════════════════════════════════════╝
-\set baseline_fact_id '<<<PASTE_BASELINE_FACT_ID_HERE>>>'
-
-BEGIN;
-
--- ── ÉTAPE 0 : ASSERT — placeholder remplacé et UUID syntaxiquement valide
---    Le cast ::uuid échoue si le placeholder n'a pas été remplacé.
-SELECT :'baseline_fact_id'::uuid AS baseline_fact_id_parsed;
-
--- ── ÉTAPE 1 : ASSERT — l'ID existe et appartient au bon (case, fact, valeur)
-WITH baseline AS (
-  SELECT id, case_id, fact_key, value_text
-  FROM quote_facts
-  WHERE id = :'baseline_fact_id'::uuid
-)
-SELECT
-  CASE
-    WHEN COUNT(*) = 1
-     AND MAX(case_id)    = '29b96eec-2b85-489f-937e-0da8190c9787'::uuid
-     AND MAX(fact_key)   = 'routing.destination_city'
-     AND MAX(value_text) = 'Kolda'
-    THEN 1
-    ELSE 1 / 0
-  END AS assert_baseline_id_ok
-FROM baseline;
-
--- ── ÉTAPE 2 : suppression EXCLUSIVE de la ligne smoke test
---    (triple filtre : case_id + fact_key + source_excerpt marqueur unique)
-DELETE FROM quote_facts
-WHERE case_id        = '29b96eec-2b85-489f-937e-0da8190c9787'
-  AND fact_key       = 'routing.destination_city'
-  AND source_excerpt = '[LOT2-G8 SMOKE TEST INJECTION - to be reverted]';
-
--- ── ÉTAPE 3 : réactivation EXCLUSIVE par id strict (double sécurité)
-UPDATE quote_facts
-SET is_current = true,
-    updated_at = now()
-WHERE id        = :'baseline_fact_id'::uuid
-  AND case_id   = '29b96eec-2b85-489f-937e-0da8190c9787'
-  AND fact_key  = 'routing.destination_city';
-
--- ── ÉTAPE 4 : ASSERT final (1 ligne courante = Kolda, et = baseline_fact_id)
-WITH current_fact AS (
-  SELECT id, value_text
-  FROM quote_facts
-  WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
-    AND fact_key   = 'routing.destination_city'
-    AND is_current = true
-)
-SELECT
-  CASE
-    WHEN COUNT(*) = 1
-     AND MAX(id)         = :'baseline_fact_id'::uuid
-     AND MAX(value_text) = 'Kolda'
-    THEN 1
-    ELSE 1 / 0
-  END AS assert_restore_ok
-FROM current_fact;
-
--- ── ÉTAPE 5 : preuve restauration
-SELECT id, value_text, is_current
-FROM quote_facts
-WHERE case_id    = '29b96eec-2b85-489f-937e-0da8190c9787'
-  AND fact_key   = 'routing.destination_city'
-  AND is_current = true;
-
-COMMIT;
+```bash
+PREVIEW=https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app
+curl -s ${PREVIEW}/ -o /tmp/index_preview.html
+PRE_BUNDLE=$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/index_preview.html | head -1)
+curl -s "${PREVIEW}${PRE_BUNDLE}" -o /tmp/bundle_preview.js
 ```
 
----
+### 3. Métriques d'évidence (publish + preview)
+
+Pour chaque bundle :
+- chemin exact (`/assets/index-XXXXXXX.js`)
+- taille en octets
+- comparaison avec hash précédent connu `index-IZ9GpTvG.js` → changé / inchangé
+- `grep -c 'snjewofqxfsdmaszapux'`
+- `grep -c 'VITE_SUPABASE_URL'` (vérifie si le nom littéral subsiste, indicateur d'absence d'inlining)
+- `grep -oE 'https://[a-z0-9]+\.supabase\.co' | sort -u`
+- en-têtes cache : `cache-control`, `age`, `etag`, `cf-cache-status`, `x-served-by`, etc.
+
+### 4. Production de `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md`
+
+Contenu obligatoire :
+- date/heure UTC de capture
+- URL publish testée
+- URL preview testée
+- ancien bundle connu : `index-IZ9GpTvG.js`
+- bundle publish actuel + taille + verdict (changé/inchangé)
+- bundle preview actuel + taille + verdict (changé/inchangé)
+- compteur grep `snjewofqxfsdmaszapux` (publish + preview)
+- compteur grep `VITE_SUPABASE_URL` (publish + preview)
+- URLs `*.supabase.co` détectées (publish + preview)
+- en-têtes cache/CDN pertinents (publish + preview)
+- verdict explicite parmi :
+  - **H1** : publish KO / preview OK → bug pipeline publish
+  - **H2** : publish KO + bundle inchangé vs ancien → cache CDN servant ancien bundle
+  - **H4** : publish KO + bundle changé sans variables injectées → injection cassée au build neuf
+  - **Preview** : injection preview KO ou OK
+- mention explicite : **H3 lifecycle ne peut pas être conclue par curl seul** ; nécessite reproduction navigateur avant/après interaction chat Lovable, hors périmètre de ce diagnostic.
+- message support Lovable prêt à copier-coller (avec hash, URL, compteurs).
+
+### 5. Mise à jour chirurgicale de `docs/DEFERRED_BACKLOG.md`
+
+Sur l'entrée existante `INFRA-PUBLISH-VITE-ENV-001` uniquement :
+- remplacer la valeur du champ statut par `diagnostic_confirme_escalade_support_requise` **si** les preuves confirment l'absence (sinon statut nuancé reflétant l'observation réelle).
+- ajouter une ligne référence : `evidence: docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md`.
+- ne pas toucher au reste de l'entrée, ne pas reformater le fichier, ne pas réordonner les entrées, ne pas modifier l'en-tête.
+
+## Livrables finaux
+
+1. **Diff réel** des deux fichiers documentaires (création audit + édition ciblée backlog), uniquement.
+2. **Contenu intégral** de `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md`.
+3. **Verdict explicite** H1 / H2 / H4 + état preview, avec note H3 hors périmètre curl.
+4. **Message support Lovable** prêt à copier-coller.
 
 ## Garanties
 
-| Risque | Mitigation |
-|--------|------------|
-| Suppression d'un vrai fact métier | Triple filtre case_id + fact_key + source_excerpt marqueur unique |
-| Restauration d'une mauvaise version | Réactivation par id strict, double-vérifié case_id + fact_key |
-| Baseline incorrecte avant injection | Assertion SQL `1/0` en script 03 |
-| Placeholder oublié | `:'baseline_fact_id'::uuid` échoue → `ON_ERROR_STOP` → rollback BEGIN |
-| UUID mal collé (autre case/fact/valeur) | Assertion SQL bloquante avant DELETE/UPDATE |
-| Substitution psql dans DO $$ | Évitée — uniquement dans SQL standard |
-| Échec partiel | `BEGIN/COMMIT` + `ON_ERROR_STOP on` → rollback global |
-| Heuristique created_at pour décision | Aucune (uniquement pour affichage de preuve en script 03) |
-
-## Fichiers modifiés
-
-- `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql` (réécriture complète + `ON_ERROR_STOP`)
-- `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql` (réécriture complète, transactionnel sans `DO $$`)
-
-## Fichiers non touchés
-
-- `scripts/lot2_smoke/01_inject_aksa_g6.sql`
-- `scripts/lot2_smoke/02_restore_aksa_g6.sql`
-- `scripts/lot2_smoke/05_validate_results.sql`
-- Aucun code applicatif, aucune migration, aucune edge function.
-
-## Étapes d'exécution post-validation
-
-1. Application des deux fichiers (mode build).
-2. Vous lancez la séquence des 10 étapes du `LOT_2_REPORT.md §7`.
-3. Je finalise les verdicts G6–G9 dans `LOT_2_REPORT.md` à partir de la sortie de `05_validate_results.sql`.
+- Aucun fichier sous `src/`, `supabase/`, `.env`, `client.ts`, `types.ts`, `config.toml` n'est lu ni écrit en modification.
+- Aucune dépendance ajoutée.
+- Aucune migration, aucune edge function, aucun changement RLS.
+- Si une étape exige une lecture supplémentaire de fichier applicatif, elle reste strictement en lecture.
