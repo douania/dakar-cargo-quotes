@@ -860,6 +860,8 @@ Deno.serve(async (req) => {
     if (pricing_context_override) {
       pricingCtx = { ...pricingCtx, ...pricing_context_override };
     }
+    // Lot 1.2: preuve de réception clientCode dans le contexte effectif (post-merge override)
+    console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
     const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([
