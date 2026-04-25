@@ -1413,12 +1413,34 @@ Deno.serve(async (req) => {
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
 
+          // ═══ Lot 2C : TRUCKING/ON_CARRIAGE non-Aksa sans tarif validé → TO_CONFIRM ═══
+          // Conditions cumulatives :
+          //   - serviceKey ∈ {TRUCKING, ON_CARRIAGE}
+          //   - mode SEA conteneurisé (pas AIR, pas LCL)
+          //   - aucun tarif servi en amont (transportFallback = null), soit parce que :
+          //       * le client n'a pas de barème dédié et les génériques sont en `to_confirm`
+          //       * la destination n'est couverte par aucune ligne validée
+          // Réutilise STRICTEMENT la structure source="TO_CONFIRM" du Lot 1 (rien de nouveau).
+          const isTransportNoTariff =
+            (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE") &&
+            !isAirMode && !isLCL;
 
           if (isExportPlaceholder) {
             pricedLines.push({
               id: line.id, rate: null, currency, source: "TO_CONFIRM",
               confidence: 0,
               explanation: `Tarif export à confirmer : aucune grille tarifaire trouvée pour ${serviceKey}`,
+              quantity_used: computed.quantity_used,
+              unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: computed.conversion_used,
+            });
+          } else if (isTransportNoTariff) {
+            const ctxClientCode = (pricingCtx as { client_code?: string | null }).client_code ?? null;
+            pricedLines.push({
+              id: line.id, rate: null, currency, source: "TO_CONFIRM",
+              confidence: 0,
+              explanation: `Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCode ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
               quantity_used: computed.quantity_used,
               unit_used: computed.unit_used,
               rule_id: computed.rule_id,
