@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écran noir production observé sur le bundle publié — variables `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` absentes du bundle servi. Mitigation fail-fast appliquée via `src/integrations/supabase/guard.ts`. Cause racine à confirmer parmi H1–H4 après republish — voir entrée dédiée).
+Dernière mise à jour : 2026-04-27 (INFRA-PUBLISH-VITE-ENV-001 périmètre élargi : `VITE_*` absentes du bundle publish confirmé 2026-04-25 par grep, et absentes au runtime preview directe hors iframe confirmé 2026-04-27 par affichage du guard `Configuration manquante` en navigation privée Edge InPrivate sans extension. INFRA-PREVIEW-AUTH-FETCH-001 ouvert puis INVALIDÉ comme ticket autonome / cause principale même journée — symptôme englobé par INFRA-PUBLISH-VITE-ENV-001. EDGE-BUILD-DENO-DEPS-001 distinct et corrigé via `supabase/functions/deno.json`.)
+
+Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écran noir production observé sur le bundle publié — variables `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` absentes du bundle servi. Mitigation fail-fast appliquée via `src/integrations/supabase/guard.ts`. Cause racine à confirmer parmi H1–H4 après republish — voir entrée dédiée).
 
 ---
 
@@ -12,17 +14,33 @@ Dernière mise à jour : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écran 
 |-------|--------|
 | **ID** | INFRA-PUBLISH-VITE-ENV-001 |
 | **Catégorie** | Infrastructure / Build / Publish Lovable |
-| **Statut** | `diagnostic_confirme_escalade_support_requise` (2026-04-25, voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` — H4 confirmée côté publish, H2 réfutée, H3 indéterminée par curl) |
+| **Statut** | `diagnostic_confirme_perimetre_elargi_escalade_support_requise` (publish 2026-04-25 — voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` — H4 confirmée côté publish, H2 réfutée, H3 indéterminée par curl ; preview directe hors iframe 2026-04-27 — voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md` § 3 — guard `Configuration manquante` affiché en navigation privée Edge InPrivate sans extension, runtime preview directe confirmé KO) |
 | **Priorité** | P0 si récurrent, sinon P2 |
 | **Phase d'origine** | Hors phase — incident production 2026-04-25 |
-| **Constat runtime** | Le site publié `https://dakotation-pro.lovable.app` affiche un écran noir total sur toutes les routes. Console : `Error: supabaseUrl is required.` au top-level de `createClient()` dans `src/integrations/supabase/client.ts`. `curl` + `grep` sur le bundle servi confirment que l'URL Supabase n'est pas embarquée. React ne monte jamais → écran noir global, pas spécifique à `/case/...`. |
+| **Constat runtime** | (1) Publish 2026-04-25 — site publié `https://dakotation-pro.lovable.app` : écran noir total sur toutes les routes, `Error: supabaseUrl is required.` au top-level de `createClient()` dans `src/integrations/supabase/client.ts`, `curl` + `grep` sur le bundle servi confirment que l'URL Supabase n'est pas embarquée → `VITE_*` **absentes du bundle publish confirmé par grep**. React ne monte jamais. (2) Preview directe hors iframe 2026-04-27 — `https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app` ouverte directement (hors iframe Lovable Editor) en Edge InPrivate sans extension : guard `Configuration manquante` affiché listant `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`, React ne monte pas, aucune requête Supabase Auth émise → `VITE_*` **absentes au runtime preview directe confirmé par le guard** (capture du bundle preview non réalisée par grep, l'évidence preview reste runtime). Le périmètre n'est plus limité au build publish : la preview directe hors iframe est aussi affectée. |
 | **Observation complémentaire** | La preview Lovable a aussi présenté l'écran noir, qui s'est "réveillée" après envoi d'un message dans le chat. Cela élargit l'hypothèse au-delà du seul build publish. |
 | **Hypothèses cause racine (à discriminer)** | (H1) Variables `VITE_*` non injectées au build publish. (H2) Bundle stale / non reconstruit après publication antérieure. (H3) Lifecycle preview Lovable : variables réinjectées seulement après interaction chat. (H4) Cache CDN / asset / infra Lovable. |
 | **Mitigation appliquée** | Nouveau fichier `src/integrations/supabase/guard.ts` importé en première ligne de `src/main.tsx`. Vérifie au boot la présence de `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`. Si absentes : panneau d'erreur lisible (DOM APIs, sans React, sans `innerHTML`) + `console.error` + `throw`. Si présentes : no-op pur. Transforme un écran noir opaque en signal exploitable. |
 | **Fichiers interdits respectés** | `src/integrations/supabase/client.ts`, `src/integrations/supabase/types.ts`, `.env`, `supabase/config.toml` — tous non touchés. Aucune migration, edge function, RLS. Aucun hardcoding de clé. |
-| **Plan de discrimination post-republish** | (1) Vérifier que le hash du bundle change (sinon : H2/H4). (2) `curl` + `grep snjewofqxfsdmaszapux` sur le nouveau bundle (présent → H1 réfutée ; absent → H1 confirmée). (3) Test navigateur sur `/`, `/login`, `/case/03ccf66d-...`. (4) Si guard s'affiche : H1 confirmée → ticket support Lovable. (5) Si écran noir persiste sans guard : problème JS/asset/routing en amont. (6) Si preview redevient noire sans interaction chat : H3 confirmée. |
+| **Plan de discrimination post-republish** | (1) Vérifier que le hash du bundle change (sinon : H2/H4). (2) `curl` + `grep snjewofqxfsdmaszapux` sur le nouveau bundle (présent → injection OK ; absent → injection KO). (3) Test navigateur sur `/`, `/login`, `/case/03ccf66d-...`. (4) Si guard s'affiche : injection `VITE_*` défaillante au runtime ; discriminer ensuite H1/H4 selon hash bundle et grep (H4 si bundle neuf + Vite a tourné mais variables non exposées au build, H1 si pipeline publish ne transmet pas les variables au build). (5) Si écran noir persiste sans guard : problème JS/asset/routing en amont. (6) Si preview redevient noire sans interaction chat : H3 confirmée. (7) Test preview directe hors iframe en navigation privée : si guard affiché → injection `VITE_*` défaillante côté preview Lovable elle-même, pas seulement publish (constat 2026-04-27 confirme ce cas). |
 | **Déclencheur de réouverture / clôture** | Clôture après application de la grille de discrimination ci-dessus et identification formelle de la cause racine. Réouverture à toute récurrence d'écran noir post-publish. |
 | **Garde-fou gouvernance** | Ne pas clôturer sur la seule base "vars absentes du publish". Si H1 ou H3 confirmée → escalade support Lovable, pas de workaround côté code (jamais de hardcoding des clés Supabase dans le bundle). |
+
+---
+
+## INFRA-PREVIEW-AUTH-FETCH-001 — Failed to fetch sur Supabase Auth depuis la preview Lovable
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | INFRA-PREVIEW-AUTH-FETCH-001 |
+| **Catégorie** | Infrastructure / Preview Lovable |
+| **Statut** | **INVALIDE comme ticket autonome / cause principale** (2026-04-27) — voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md`. |
+| **Hypothèse initiale (invalidée comme cause principale)** | Diagnostic antérieur supposait que `/login` montait dans la preview directe, que React montait, que le guard ne `throw` pas et que les `VITE_*` étaient présentes, et que le problème restant était un `TypeError: Failed to fetch` sur Supabase Auth depuis la preview Lovable. |
+| **Évidence d'invalidation** | Test 2026-04-27 hors iframe, Edge InPrivate, sans extension, URL preview directe : guard `Configuration manquante` affiché listant `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`, React ne monte pas, aucune requête Supabase Auth émise. |
+| **Nuance (ce qui n'est pas affirmé)** | L'erreur `Failed to fetch` capturée précédemment dans le runtime iframe Lovable Editor (`*.lovableproject.com`) **n'est pas niée** : elle a pu exister réellement dans ce contexte iframe où les `VITE_*` peuvent être injectées différemment. Elle est simplement **non représentative** de la preview directe hors iframe, qui est bloquée bien plus tôt par le guard. |
+| **Symptôme réel englobé par** | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe). Pas un incident réseau distinct. |
+| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` ci-dessus. |
+| **Garde-fou de réouverture** | Pas de réouverture en tant qu'incident réseau autonome. Toute récurrence `Failed to fetch` côté preview directe ne doit être investiguée comme problème réseau qu'**après** confirmation par grep capture preview authentifiée que les `VITE_*` sont bien présentes dans le bundle preview. |
 
 ---
 
