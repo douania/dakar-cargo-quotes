@@ -28,6 +28,22 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 
 ---
 
+## INFRA-PREVIEW-AUTH-FETCH-001 — Failed to fetch sur Supabase Auth depuis la preview Lovable
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | INFRA-PREVIEW-AUTH-FETCH-001 |
+| **Catégorie** | Infrastructure / Preview Lovable |
+| **Statut** | **INVALIDE comme ticket autonome / cause principale** (2026-04-27) — voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md`. |
+| **Hypothèse initiale (invalidée comme cause principale)** | Diagnostic antérieur supposait que `/login` montait dans la preview directe, que React montait, que le guard ne `throw` pas et que les `VITE_*` étaient présentes, et que le problème restant était un `TypeError: Failed to fetch` sur Supabase Auth depuis la preview Lovable. |
+| **Évidence d'invalidation** | Test 2026-04-27 hors iframe, Edge InPrivate, sans extension, URL preview directe : guard `Configuration manquante` affiché listant `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`, React ne monte pas, aucune requête Supabase Auth émise. |
+| **Nuance (ce qui n'est pas affirmé)** | L'erreur `Failed to fetch` capturée précédemment dans le runtime iframe Lovable Editor (`*.lovableproject.com`) **n'est pas niée** : elle a pu exister réellement dans ce contexte iframe où les `VITE_*` peuvent être injectées différemment. Elle est simplement **non représentative** de la preview directe hors iframe, qui est bloquée bien plus tôt par le guard. |
+| **Symptôme réel englobé par** | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe). Pas un incident réseau distinct. |
+| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` ci-dessus. |
+| **Garde-fou de réouverture** | Pas de réouverture en tant qu'incident réseau autonome. Toute récurrence `Failed to fetch` côté preview directe ne doit être investiguée comme problème réseau qu'**après** confirmation par grep capture preview authentifiée que les `VITE_*` sont bien présentes dans le bundle preview. |
+
+---
+
 ## LOT2-SMOKE-RUNTIME-EXEC — Exécution runtime des smoke tests G6–G9
 
 | Champ | Valeur |
