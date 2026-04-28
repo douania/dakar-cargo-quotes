@@ -22,7 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-# Local env (never commit)
-.env
+
+# Lovable Cloud requires the root .env file to be versioned so VITE_*
+# values are injected into Preview/Publish builds. Root .env must contain
+# ONLY public VITE_* frontend values (VITE_SUPABASE_URL,
+# VITE_SUPABASE_PUBLISHABLE_KEY, VITE_SUPABASE_PROJECT_ID).
+# Never put backend secrets in .env.
+# See docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md § 8
 .env.local
 .env.*.local
