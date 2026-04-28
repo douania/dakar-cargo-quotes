@@ -176,3 +176,95 @@ Merci.
 - Aucun fichier sous `src/`, `supabase/`, `.env`, `client.ts`, `types.ts`, `config.toml` n'a été modifié dans ce diagnostic.
 - Aucune migration, edge function, RLS, ni hardcoding de clé.
 - Seules deux écritures documentaires : ce fichier d'évidence + mise à jour chirurgicale de l'entrée `INFRA-PUBLISH-VITE-ENV-001` dans `docs/DEFERRED_BACKLOG.md` (statut + lien d'évidence uniquement).
+
+## 8. Résolution — Cause racine identifiée et correctif (2026-04-28)
+
+### 8.1 Cause racine confirmée par le support Lovable
+
+Réponse du support Lovable (Sam, AI Support Agent, 2026-04-28) :
+
+> The issue you're experiencing is typically caused by an external coding tool
+> adding the `.env` file to your project's `.gitignore`. When `.env` is in
+> `.gitignore`, the environment variables are excluded from the project, which
+> is why they're not being injected into the Preview and Publish builds.
+
+Mécanisme spécifique à Lovable Cloud (différent d'un CI/CD classique type
+Vercel/Netlify) : `.env` est un fichier réel versionné dans le repo Lovable
+(et synchronisé GitHub). Vite l'inline au build-time (`import.meta.env.*`).
+Si `.gitignore` exclut `.env`, le fichier disparaît du repo lors de la
+synchronisation, donc le build Preview/Publish s'exécute sans `VITE_*`,
+donc Vite substitue à `undefined` / chaîne vide.
+
+État `.gitignore` constaté avant correctif (lignes 25-28) :
+
+```
+# Local env (never commit)
+.env
+.env.local
+.env.*.local
+```
+
+Origine probable : ajout par un outil externe (linter de sécurité, template
+boilerplate, agent tiers) appliquant la règle générique « ne jamais committer
+de `.env` », règle valide partout sauf dans le modèle Lovable Cloud.
+
+### 8.2 Correctif requis
+
+Garde sécurité préalable (non négociable) : `.env` ne peut être versionné que
+s'il contient **exclusivement** les 3 variables publiques frontend :
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_PROJECT_ID`
+
+Interdits absolus dans `.env` : `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`,
+`LOVABLE_API_KEY`, `FIRECRAWL_API_KEY`, `ADMIN_EMAIL_ALLOWLIST`,
+`SUPABASE_JWKS`, et toute clé non préfixée `VITE_`. Ces secrets restent dans
+le coffre-fort secrets de Lovable Cloud (côté plateforme, jamais dans le repo).
+
+Actions :
+
+1. **`.gitignore` (lignes 25-28)** — retrait de la ligne `.env`, conservation
+   explicite de `.env.local` et `.env.*.local` (overrides locaux dev),
+   ajout d'un commentaire d'avertissement pour prévenir une rechute par un
+   outil externe.
+2. **`.env.example`** — création à la racine, valeurs vides, sert de
+   référence documentaire pour tout futur clone du repo.
+3. **`docs/DEFERRED_BACKLOG.md`** — entrée `INFRA-PUBLISH-VITE-ENV-001`
+   passée à `resolu_correctif_applique_attente_verification_preview_et_publish`.
+4. **`docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md`** — déjà marqué INVALIDE
+   le 2026-04-27, état conservé (pas de re-modification).
+
+### 8.3 Limite d'exécution rencontrée
+
+Le sandbox Lovable de l'agent IA refuse en écriture le fichier `.gitignore`
+(`code--line_replace` retourne « read-only »). Le patch `.gitignore` doit
+donc être appliqué **manuellement par l'opérateur** depuis l'éditeur Lovable
+ou via commit GitHub direct, en respectant le contenu cible défini en 8.2.
+La création de `.env.example` a été effectuée par l'agent (autorisée).
+
+### 8.4 Vérification post-correctif (procédure obligatoire)
+
+Après application manuelle du patch `.gitignore` :
+
+1. **Audit `.env` côté repo Lovable/GitHub** (avant tout build) :
+   - vérifier que `.env` est bien présent à la racine du repo ;
+   - lire son contenu ligne par ligne ;
+   - confirmer qu'il contient uniquement les 3 variables `VITE_*` listées en 8.2 ;
+   - **si une variable non `VITE_*` ou un secret backend est présent : STOP
+     immédiat, ne pas committer `.env`, retirer le secret, le déplacer dans
+     le coffre-fort secrets Lovable Cloud, puis recommencer.**
+2. Recharger la Preview Lovable → le panneau « Configuration manquante » doit
+   disparaître, React doit monter, `/login` doit s'afficher.
+3. Capturer le nouveau bundle Preview (URL `id-preview--*.lovable.app`) et
+   vérifier `grep -c 'snjewofqxfsdmaszapux'` ≥ 1 dans le bundle.
+4. Republier le projet, refaire la même vérification sur l'URL publiée.
+5. Si le guard persiste : ne pas toucher au code applicatif. Vérifier d'abord
+   que `.env` est bien tracké dans le repo Lovable et que la plateforme a
+   rebuildé sur le dernier commit.
+
+### 8.5 Crédit
+
+Diagnostic causal : **support Lovable (Sam, AI Support Agent, 2026-04-28)**.
+Validation sécurité (garde « VITE_* publics uniquement ») : opérateur projet
+Dakar Cargo Quotes.
