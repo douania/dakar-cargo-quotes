@@ -113,3 +113,39 @@ bundle.
   `VITE_*` sont bien présentes dans ce bundle (grep capture preview
   authentifiée requise).
 - Suit la résolution de `INFRA-PUBLISH-VITE-ENV-001`.
+
+## 8. Clôture — Incident réel identifié et résolu (2026-05-01)
+
+### 8.1 Contexte
+
+Le diagnostic du 2026-04-27 (sections 2–7 ci-dessus) avait correctement identifié
+que la preview directe hors iframe était bloquée par le guard `VITE_*` avant toute
+requête Auth. L'erreur `Failed to fetch` observée dans l'iframe Lovable Editor n'était
+pas représentative de la preview directe. Ce diagnostic reste valide pour cette période.
+
+### 8.2 Incident réel survenu ultérieurement
+
+Le 2026-05-01, après correction du `.gitignore` (`.env` n'est plus exclu du repo,
+les `VITE_*` sont désormais injectées dans le bundle preview), un vrai `Failed to fetch`
+au login a été observé. Ce symptôme était cette fois **distinct** du problème `VITE_*` :
+React montait, le guard ne `throw` pas, le formulaire de login s'affichait, mais l'appel
+à l'API Auth échouait avec `TypeError: Failed to fetch`.
+
+### 8.3 Cause réelle confirmée par Lovable Support
+
+Le backend Lovable Cloud était **unhealthy** :
+- HTTP 521 (Web server is down) sur les endpoints backend.
+- Refus de connexion DB.
+- Cause : infrastructure backend, pas le code applicatif.
+
+Lovable a redémarré la base de données. Le login fonctionne depuis.
+
+### 8.4 Verdict final
+
+| Élément | Verdict |
+|---------|---------|
+| Cause du `Failed to fetch` au login (2026-05-01) | Backend Lovable Cloud unhealthy / HTTP 521 / refus DB |
+| Résolution | Redémarrage DB côté Lovable |
+| Correctif applicatif requis | **Aucun** |
+| Statut | **CLOS** |
+| Garde-fou | Si récurrence `Failed to fetch` avec `VITE_*` présentes dans le bundle → vérifier d'abord l'état du backend Lovable Cloud avant d'investiguer le code |
