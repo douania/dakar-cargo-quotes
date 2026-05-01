@@ -1,8 +1,13 @@
 # INFRA-PREVIEW-AUTH-FETCH-001 — Failed to fetch sur Supabase Auth depuis la preview Lovable
 
-> Audit de clôture. Diagnostic invalidé comme ticket autonome / cause principale.
-> Le symptôme réel observé en preview directe hors iframe est englobé par
-> `INFRA-PUBLISH-VITE-ENV-001` (variables `VITE_*` indisponibles au runtime).
+> **Statut final : CLOS — résolu par redémarrage backend Lovable Cloud (2026-05-01).**
+>
+> Historique en deux temps :
+> - A. 2026-04-27 : diagnostic initial invalidé comme cause principale (preview directe
+>   bloquée par le guard `VITE_*` avant toute requête Auth).
+> - B. 2026-05-01 : incident réel `Failed to fetch` au login confirmé par Lovable Support
+>   comme provenant d'un backend Lovable Cloud unhealthy (HTTP 521 / refus DB).
+>   Résolu par redémarrage DB côté Lovable. Login fonctionne.
 
 ## 1. Métadonnées
 
