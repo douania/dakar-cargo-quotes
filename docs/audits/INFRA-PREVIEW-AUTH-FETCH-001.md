@@ -15,9 +15,13 @@
 |-------|--------|
 | ID | INFRA-PREVIEW-AUTH-FETCH-001 |
 | Catégorie | Infrastructure / Preview Lovable |
-| Statut | **INVALIDE comme ticket autonome / cause principale** (2026-04-27) |
-| Date d'invalidation | 2026-04-27 |
-| Ticket englobant | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe) |
+| Statut initial (2026-04-27) | INVALIDE comme ticket autonome / cause principale |
+| **Statut final (2026-05-01)** | **CLOS — résolu par redémarrage backend Lovable Cloud** |
+| Date d'invalidation initiale | 2026-04-27 |
+| Date de clôture | 2026-05-01 |
+| Ticket englobant (phase A) | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe) |
+| Cause réelle (phase B) | Backend Lovable Cloud unhealthy / HTTP 521 / refus de connexion DB |
+| Résolution | Redémarrage DB côté Lovable — login fonctionne |
 
 ## 2. Hypothèse initiale (invalidée comme cause principale)
 
