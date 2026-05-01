@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
+Dernière mise à jour : 2026-05-01 — INFRA-PREVIEW-AUTH-FETCH-001 **CLOS** : cause réelle = backend Lovable Cloud unhealthy (HTTP 521 / refus DB), résolu par redémarrage DB Lovable ; login fonctionne. INFRA-PUBLISH-VITE-ENV-001 : `.gitignore` corrigé (`.env` non exclu), preview login OK ; republish et vérification bundle publish encore à effectuer. EDGE-BUILD-DENO-DEPS-001 reste corrigé via `supabase/functions/deno.json`.
+
+Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
 Mise à jour antérieure : 2026-04-27 (INFRA-PUBLISH-VITE-ENV-001 périmètre élargi : `VITE_*` absentes du bundle publish confirmé 2026-04-25 par grep, et absentes au runtime preview directe hors iframe confirmé 2026-04-27 par affichage du guard `Configuration manquante` en navigation privée Edge InPrivate sans extension. INFRA-PREVIEW-AUTH-FETCH-001 ouvert puis INVALIDÉ comme ticket autonome / cause principale même journée — symptôme englobé par INFRA-PUBLISH-VITE-ENV-001. EDGE-BUILD-DENO-DEPS-001 distinct et corrigé via `supabase/functions/deno.json`.)
 
@@ -16,7 +18,7 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 |-------|--------|
 | **ID** | INFRA-PUBLISH-VITE-ENV-001 |
 | **Catégorie** | Infrastructure / Build / Publish Lovable |
-| **Statut** | `cause_racine_identifiee_correctif_documente_application_manuelle_gitignore_requise` (2026-04-28 — cause racine confirmée par le support Lovable : `.env` ajouté à `.gitignore` par un outil externe → `.env` non versionné dans le repo Lovable/GitHub → variables `VITE_*` indisponibles au build Preview/Publish → Vite substitue à `undefined` / chaîne vide. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8 pour le détail du correctif et la procédure de vérification post-patch.) |
+| **Statut** | `correctif_applique_preview_login_ok_post_publish_en_attente` (2026-05-01 — `.gitignore` corrigé : `.env` n'est plus exclu. Preview login OK confirmé 2026-05-01. La correction `.env` / `.gitignore` semble suffisante pour la preview. **Vérification restante** : republish puis contrôle du bundle publié avec `grep -c 'snjewofqxfsdmaszapux'` et vérification absence du guard « Configuration manquante ». Ne pas marquer « publish résolu » sans cette vérification.) |
 | **Cause racine confirmée** | `.env` listé à la ligne 26 du `.gitignore` (ajout par outil externe). Dans le modèle Lovable Cloud, `.env` est un fichier **versionné** dans le repo (différent d'un CI/CD type Vercel/Netlify) ; Vite l'inline au build-time. L'exclure du repo casse l'injection. Source : support Lovable (Sam, AI Support Agent, 2026-04-28). |
 | **Correctif** | (1) Patch chirurgical `.gitignore` : retrait de la ligne `.env`, conservation de `.env.local` et `.env.*.local`, ajout commentaire d'avertissement. (2) Création `.env.example` à la racine (3 vars `VITE_*`, valeurs vides). (3) Garde sécurité non négociable : `.env` versionné **uniquement** s'il contient `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` — aucun secret backend (`SUPABASE_SERVICE_ROLE_KEY`, `LOVABLE_API_KEY`, etc.) ne doit s'y trouver. **Action manuelle opérateur requise** : le sandbox agent refuse `.gitignore` en écriture ; le patch doit être appliqué via éditeur Lovable ou commit GitHub direct. |
 | **Priorité** | P0 si récurrent, sinon P2 |
@@ -38,13 +40,13 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 |-------|--------|
 | **ID** | INFRA-PREVIEW-AUTH-FETCH-001 |
 | **Catégorie** | Infrastructure / Preview Lovable |
-| **Statut** | **INVALIDE comme ticket autonome / cause principale** (2026-04-27) — voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md`. |
-| **Hypothèse initiale (invalidée comme cause principale)** | Diagnostic antérieur supposait que `/login` montait dans la preview directe, que React montait, que le guard ne `throw` pas et que les `VITE_*` étaient présentes, et que le problème restant était un `TypeError: Failed to fetch` sur Supabase Auth depuis la preview Lovable. |
-| **Évidence d'invalidation** | Test 2026-04-27 hors iframe, Edge InPrivate, sans extension, URL preview directe : guard `Configuration manquante` affiché listant `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`, React ne monte pas, aucune requête Supabase Auth émise. |
-| **Nuance (ce qui n'est pas affirmé)** | L'erreur `Failed to fetch` capturée précédemment dans le runtime iframe Lovable Editor (`*.lovableproject.com`) **n'est pas niée** : elle a pu exister réellement dans ce contexte iframe où les `VITE_*` peuvent être injectées différemment. Elle est simplement **non représentative** de la preview directe hors iframe, qui est bloquée bien plus tôt par le guard. |
-| **Symptôme réel englobé par** | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe). Pas un incident réseau distinct. |
-| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` ci-dessus. |
-| **Garde-fou de réouverture** | Pas de réouverture en tant qu'incident réseau autonome. Toute récurrence `Failed to fetch` côté preview directe ne doit être investiguée comme problème réseau qu'**après** confirmation par grep capture preview authentifiée que les `VITE_*` sont bien présentes dans le bundle preview. |
+| **Statut** | **CLOS — résolu par redémarrage backend Lovable Cloud** (2026-05-01). Voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md` § 8. |
+| **Phase A (2026-04-27)** | Diagnostic initial invalidé comme cause principale : preview directe hors iframe bloquée par le guard `VITE_*` avant toute requête Auth. L'erreur `Failed to fetch` observée dans l'iframe Lovable Editor n'était pas représentative. |
+| **Phase B (2026-05-01)** | Après correction `.gitignore` (`.env` non exclu), un vrai `Failed to fetch` au login a été observé avec `VITE_*` présentes. Cause réelle confirmée par Lovable Support : backend Lovable Cloud unhealthy (HTTP 521 / refus de connexion DB). Résolu par redémarrage DB côté Lovable. Login fonctionne. |
+| **Cause réelle finale** | Backend Lovable Cloud unhealthy / HTTP 521 / refus DB |
+| **Correctif applicatif requis** | Aucun |
+| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` pour le volet `.env` / `.gitignore` (distinct). |
+| **Garde-fou** | Si récurrence `Failed to fetch` avec `VITE_*` présentes dans le bundle → vérifier d'abord l'état du backend Lovable Cloud avant d'investiguer le code. |
 
 ---
 
