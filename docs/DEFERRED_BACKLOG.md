@@ -40,13 +40,13 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 |-------|--------|
 | **ID** | INFRA-PREVIEW-AUTH-FETCH-001 |
 | **Catégorie** | Infrastructure / Preview Lovable |
-| **Statut** | **INVALIDE comme ticket autonome / cause principale** (2026-04-27) — voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md`. |
-| **Hypothèse initiale (invalidée comme cause principale)** | Diagnostic antérieur supposait que `/login` montait dans la preview directe, que React montait, que le guard ne `throw` pas et que les `VITE_*` étaient présentes, et que le problème restant était un `TypeError: Failed to fetch` sur Supabase Auth depuis la preview Lovable. |
-| **Évidence d'invalidation** | Test 2026-04-27 hors iframe, Edge InPrivate, sans extension, URL preview directe : guard `Configuration manquante` affiché listant `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`, React ne monte pas, aucune requête Supabase Auth émise. |
-| **Nuance (ce qui n'est pas affirmé)** | L'erreur `Failed to fetch` capturée précédemment dans le runtime iframe Lovable Editor (`*.lovableproject.com`) **n'est pas niée** : elle a pu exister réellement dans ce contexte iframe où les `VITE_*` peuvent être injectées différemment. Elle est simplement **non représentative** de la preview directe hors iframe, qui est bloquée bien plus tôt par le guard. |
-| **Symptôme réel englobé par** | `INFRA-PUBLISH-VITE-ENV-001` (périmètre élargi publish + preview directe hors iframe). Pas un incident réseau distinct. |
-| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` ci-dessus. |
-| **Garde-fou de réouverture** | Pas de réouverture en tant qu'incident réseau autonome. Toute récurrence `Failed to fetch` côté preview directe ne doit être investiguée comme problème réseau qu'**après** confirmation par grep capture preview authentifiée que les `VITE_*` sont bien présentes dans le bundle preview. |
+| **Statut** | **CLOS — résolu par redémarrage backend Lovable Cloud** (2026-05-01). Voir `docs/audits/INFRA-PREVIEW-AUTH-FETCH-001.md` § 8. |
+| **Phase A (2026-04-27)** | Diagnostic initial invalidé comme cause principale : preview directe hors iframe bloquée par le guard `VITE_*` avant toute requête Auth. L'erreur `Failed to fetch` observée dans l'iframe Lovable Editor n'était pas représentative. |
+| **Phase B (2026-05-01)** | Après correction `.gitignore` (`.env` non exclu), un vrai `Failed to fetch` au login a été observé avec `VITE_*` présentes. Cause réelle confirmée par Lovable Support : backend Lovable Cloud unhealthy (HTTP 521 / refus de connexion DB). Résolu par redémarrage DB côté Lovable. Login fonctionne. |
+| **Cause réelle finale** | Backend Lovable Cloud unhealthy / HTTP 521 / refus DB |
+| **Correctif applicatif requis** | Aucun |
+| **Renvoi** | Voir `INFRA-PUBLISH-VITE-ENV-001` pour le volet `.env` / `.gitignore` (distinct). |
+| **Garde-fou** | Si récurrence `Failed to fetch` avec `VITE_*` présentes dans le bundle → vérifier d'abord l'état du backend Lovable Cloud avant d'investiguer le code. |
 
 ---
 
