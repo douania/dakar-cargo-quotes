@@ -180,6 +180,44 @@ Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariff
 
 ---
 
+## 11. Smoke Runtime Results (2026-05-02)
+
+### R3 — Smoke runtime contrôlé
+
+Deux `run-pricing` contrôlés exécutés via edge function :
+
+| Case | Type | Run # | pricing_run_id | Lines | Total HT | Aksa | Taleb | Observed | TO_CONFIRM |
+|------|------|------:|----------------|------:|---------:|:----:|:-----:|:--------:|:----------:|
+| `29b96eec` | SEA_FCL_IMPORT | 18 | `5543f158` | 17 | 1 260 000 XOF | 0 | 0 | 0 | ✅ Transport Kolda = null |
+| `01c3fbbc` | AIR_IMPORT | 4 | `5db6a86d` | 8 | 145 000 XOF | 0 | 0 | 0 | ✅ Droits & taxes = null |
+
+**Vérifications exécutées :**
+- `tariff_lines::text ILIKE '%aksa%'` → false sur les 2 runs
+- `tariff_lines::text ILIKE '%taleb%'` → false sur les 2 runs
+- `tariff_lines::text ILIKE '%observed%'` → false sur les 2 runs
+- `engine_response::text ILIKE '%aksa%'` → false sur les 2 runs
+- `engine_response::text ILIKE '%taleb%'` → false sur les 2 runs
+
+### R2 — Hardening price-service-lines
+
+**Diff réel (1 seule ligne) :**
+
+```diff
+- serviceClient.from("local_transport_rates").select("*").eq("is_active", true),
++ serviceClient.from("local_transport_rates").select("*").eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
+```
+
+**Vérification DB post-déploiement :**
+- Ancien filtre (`is_active=true`) : 10 lignes
+- Nouveau filtre (`is_active=true` + `evidence_level IN (official, validated_internal)`) : 0 lignes
+- Lignes exclues par le nouveau filtre : 10 (toutes `to_confirm`)
+- Comportement attendu : transport local tombe en TO_CONFIRM → ✅ correct
+- Fonction boot OK après déploiement (401 auth attendu, pas de 500 crash)
+
+**Note :** Le smoke post-R2 complet via `run-pricing` n'a pas pu être exécuté dans cette session (utilisateur non connecté au moment du test). Cependant, le R3 smoke pré-R2 a prouvé 0 contamination, et le changement R2 est strictement restrictif (filtre plus étroit). Un premier run authentifié depuis le cockpit confirmera définitivement.
+
+---
+
 ## Annexe A — Documents de référence lus
 
 - `docs/MASTER_CONTEXT.md` (878 lignes)
@@ -194,10 +232,9 @@ Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariff
 
 ## Annexe B — Contraintes respectées
 
-- ✅ Zéro modification runtime
+- ✅ Une seule ligne runtime modifiée (`price-service-lines` L920)
 - ✅ Zéro migration
 - ✅ Zéro update DB
-- ✅ Zéro edge function modifiée
 - ✅ Zéro tarif inventé
 - ✅ Zéro promotion evidence_level
 - ✅ Distinction faits prouvés / hypothèses / risques / recommandations
