@@ -32,7 +32,7 @@ Sources actives en base (`is_active = true`) mais **filtrées par le runtime** v
 | Table | Lignes | evidence_level | Statut runtime | Action recommandée |
 |-------|-------:|----------------|---------------|-------------------|
 | `pricing_rate_cards` (to_confirm) | 35 | `to_confirm` (colonne `status`) | **Filtré** par `.eq("status", "active")` dans price-service-lines — 0 ligne servie | Nettoyer / documenter — en attente validation SODATRA (voir `VALIDATION_RATE_CARDS_AND_CATALOGUE.md`) |
-| `local_transport_rates` (to_confirm) | 10 | `to_confirm` | **Filtré** par `.in('evidence_level', ['official', 'validated_internal'])` dans quotation-engine — non servi | En attente document officiel transport Sénégal |
+| `local_transport_rates` (to_confirm) | 10 | `to_confirm` | **Filtré** par `.in('evidence_level', ['official', 'validated_internal'])` dans `quotation-engine` L1709 **ET** `price-service-lines` L920 (R2 appliqué 2026-05-02) — non servi | En attente document officiel transport Sénégal |
 | `port_tariffs` (observed) | 12 | `observed` | **Filtré** par evidence_level dans quotation-engine, price-service-lines, generate-response — non consommé par ces fonctions | À nettoyer / documenter |
 | `port_tariffs` (to_confirm) | 7 | `to_confirm` | **Filtré** par evidence_level — non consommé par les fonctions principales | À nettoyer / documenter |
 | `carrier_billing_templates` (observed) | 10 | `observed` | **Filtré** par evidence_level — non consommé par les fonctions principales | À nettoyer / documenter |

@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO conditionnel**. Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1–R4 ajoutés. LOT3-B-PAD fermé : match impossible prouvé. LOT3-A-VALIDATION clos analytique. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
+Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé**. R3 smoke runtime passé (2 runs contrôlés, 0 contamination). R2 hardening appliqué et déployé (`price-service-lines` L920 filtré par `evidence_level`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé : match impossible prouvé. LOT3-A-VALIDATION clos analytique. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
@@ -1185,15 +1185,13 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
 | **Catégorie** | Runtime / Edge Function / Data Governance |
-| **Statut** | `à_faire` |
-| **Priorité** | P2 |
+| **Statut** | `closed_applied_and_verified` (2026-05-02) |
+| **Priorité** | P2 — **CLOS** |
 | **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
 | **Date** | 2026-05-02 |
-| **Constat** | `price-service-lines` L920 charge `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. Le guard L629 rejette `evidence_level='to_confirm'`, mais laisserait passer `observed` ou `historical_only` si de futures lignes étaient ajoutées comme `is_active=true`. |
-| **Impact** | Risque runtime actuel nul sous les filtres existants (aucune ligne observed/historical_only active). Risque théorique si nouvelles lignes ajoutées. |
-| **Action** | Micro-lot LOCAL-TRANSPORT-RUNTIME-HARDENING : ajouter `.in('evidence_level', ['official','validated_internal'])` à la requête L920 pour aligner avec `quotation-engine` L1709. |
-| **Déclencheur** | Avant d'ajouter de nouvelles lignes `local_transport_rates`. |
-| **Recommandation** | Traiter avant tout nouveau paramétrage transport. |
+| **Constat initial** | `price-service-lines` L920 chargeait `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. |
+| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. Fonction boot OK (401 auth attendu, pas de 500). Vérification DB : le nouveau filtre retourne 0 lignes (les 10 actives sont toutes `to_confirm`), confirmant que le transport tombe correctement en TO_CONFIRM. R3 smoke pré-R2 sur `29b96eec` run #18 (`5543f158`) et `01c3fbbc` run #4 (`5db6a86d`) : 0 contamination, TO_CONFIRM visibles. |
+| **Alignement** | `price-service-lines` L920 est maintenant aligné avec `quotation-engine` L1709. Les deux fonctions filtrent `local_transport_rates` par `evidence_level IN ('official','validated_internal')`. |
 
 ---
 
@@ -1203,15 +1201,13 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | R3-SMOKE-RUNTIME-POST-LOT3 |
 | **Catégorie** | Validation runtime / Smoke tests |
-| **Statut** | `à_faire` |
-| **Priorité** | P0 |
+| **Statut** | `closed_smoke_passed` (2026-05-02) |
+| **Priorité** | P0 — **CLOS** |
 | **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
 | **Date** | 2026-05-02 |
-| **Constat** | Aucun smoke runtime contrôlé post-LOT3 exécuté dans ce protocole d'audit. Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb), mais n'ont pas été déclenchés comme smoke tests formels. |
-| **Impact** | Moyen — les filtres sont vérifiés par requête DB et inspection code, mais aucun run-pricing complet contrôlé n'a été lancé dans le cadre de l'audit. |
-| **Action** | Relancer un `run-pricing` sur au moins 2 dossiers (1 SEA_FCL `29b96eec`, 1 AIR `01c3fbbc`) depuis le cockpit. Vérifier que les lignes TO_CONFIRM apparaissent et qu'aucune référence Taleb/Aksa ne sort. |
-| **Déclencheur** | Condition obligatoire du GO conditionnel avant injection de nouvelles données tarifaires. |
-| **Recommandation** | Exécuter en priorité avant tout nouveau paramétrage. |
+| **Exécution** | Deux `run-pricing` contrôlés lancés via edge function le 2026-05-02 : (1) SEA_FCL `29b96eec` → run #18, 17 lignes, 1 260 000 XOF HT, pricing_run_id `5543f158`. (2) AIR `01c3fbbc` → run #4, 8 lignes, 145 000 XOF HT, pricing_run_id `5db6a86d`. |
+| **Résultats** | ✅ 0 contamination Aksa (grep tariff_lines + engine_response). ✅ 0 contamination Taleb. ✅ 0 référence `observed`. ✅ Transport Kolda → montant null (TO_CONFIRM correct). ✅ DPW THC → montants officiels servis. ✅ Totaux cohérents. |
+| **Condition GO** | La condition obligatoire du GO conditionnel est satisfaite. Le paramétrage tarifaire peut continuer. |
 
 ---
 

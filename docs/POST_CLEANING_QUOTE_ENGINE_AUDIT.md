@@ -1,10 +1,10 @@
 # POST-CLEANING-QUOTE-ENGINE-AUDIT
 
 **Date :** 2026-05-02  
-**Type :** audit lecture seule — aucune modification runtime  
+**Type :** audit lecture seule + smoke runtime contrôlé + hardening R2  
 **Périmètre :** validation globale post-nettoyages LOT2 + LOT3-A  
-**Statut :** validé comme audit analytique post-nettoyage  
-**Verdict :** GO conditionnel pour continuer le paramétrage tarifaire
+**Statut :** validé — R3 smoke passé, R2 appliqué et déployé  
+**Verdict :** **GO confirmé** pour continuer le paramétrage tarifaire
 
 ---
 
@@ -147,21 +147,21 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|--------|-------------|--------|------------|
 | R1 | **Runs historiques persistés avec données Taleb** (ex: `240167ed` run #4, 16 refs Taleb) | Certain (données en base) | Faible — visible uniquement si l'opérateur consulte un ancien run sans relancer | Les quotation_versions générées à partir de ces runs contiennent les anciennes lignes. Un re-run post-LOT3 les corrigerait. |
-| R2 | **price-service-lines L920 charge local_transport_rates sans filtre evidence_level au niveau DB** | P3 (aucune ligne observed/historical_only active aujourd'hui) | Risque runtime actuel nul sous les filtres existants, risque si nouvelles lignes ajoutées | Renforcer le filtre DB avec `.in('evidence_level', ['official','validated_internal'])` avant d'ajouter de nouvelles lignes (micro-lot LOCAL-TRANSPORT-RUNTIME-HARDENING) |
-| R3 | **Aucun smoke runtime contrôlé post-LOT3 exécuté dans ce protocole d'audit** | Certain | Moyen — les filtres sont vérifiés par requête DB et inspection code, mais aucun run-pricing complet contrôlé n'a été lancé dans le cadre de cet audit. Deux runs post-LOT3 existent et montrent 0 contamination, mais n'ont pas été déclenchés comme smoke tests formels. | L'opérateur devrait relancer un run sur `29b96eec` ou `01c3fbbc` pour confirmer en conditions contrôlées. |
+| R2 | ~~price-service-lines L920 sans filtre evidence_level~~ | **CLOS** | **Appliqué** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02. Aligné avec `quotation-engine` L1709. | N/A |
+| R3 | ~~Aucun smoke runtime contrôlé~~ | **CLOS** | **Passé** — 2 runs contrôlés : `29b96eec` run #18 (SEA_FCL, 17 lignes, 1.26M XOF, 0 contamination) + `01c3fbbc` run #4 (AIR, 8 lignes, 145K XOF, 0 contamination). | N/A |
 | R4 | **demurrage_rates sans colonne evidence_level** | Certain (par design) | Faible — les 26 actives sont de carriers considérés vérifiés (documents fournisseur identifiés) | Ajouter evidence_level si nouvelles sources non vérifiées arrivent |
 
 ---
 
 ## 9. Recommandations CTO
 
-1. **P0 — Smoke runtime contrôlé** : relancer un `run-pricing` sur au moins 2 dossiers (1 SEA_FCL, 1 AIR) depuis le cockpit, dans le cadre d'un protocole de test formel. Vérifier que les lignes TO_CONFIRM apparaissent et qu'aucune référence Taleb/Aksa ne sort.
+1. ~~**P0 — Smoke runtime contrôlé**~~ : **FAIT** — R3 clos, 2 runs contrôlés passés.
 
 2. **P1 — Transport local** : obtenir le document officiel transport Sénégal (LOT2-REV-C). Sans lui, tout transport local reste TO_CONFIRM.
 
 3. **P1 — Rate cards SODATRA** : faire signer `VALIDATION_RATE_CARDS_AND_CATALOGUE.md` par l'équipe métier. 35 lignes de services sont bloquées en attente.
 
-4. **P2 — Renforcer price-service-lines L920** : ajouter `.in('evidence_level', ['official','validated_internal'])` à la requête `local_transport_rates` dans `price-service-lines` pour aligner avec `quotation-engine` et éliminer le risque R2. Micro-lot : LOCAL-TRANSPORT-RUNTIME-HARDENING.
+4. ~~**P2 — Renforcer price-service-lines L920**~~ : **FAIT** — R2 clos, filtre DB `evidence_level` appliqué et déployé.
 
 5. **P3 — Nettoyage historique** : identifier les `quotation_versions` générées à partir de runs contaminés (pré-LOT3) et les marquer comme obsolètes, ou simplement documenter que tout re-run les corrigera.
 
@@ -169,14 +169,52 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 
 ## 10. Go / No-Go pour continuer le paramétrage tarifaire
 
-**Verdict : GO conditionnel**
+**Verdict : GO confirmé**
 
-Le système est suffisamment protégé pour continuer le paramétrage tarifaire. Les conditions sont :
+Les deux conditions préalables sont satisfaites :
 
-- **Condition obligatoire** : exécuter au moins 1 smoke runtime contrôlé (recommandation #1) avant d'injecter de nouvelles données tarifaires.
-- **Condition recommandée** : appliquer le renforcement P2 sur `price-service-lines` L920 avant d'ajouter de nouvelles lignes `local_transport_rates`.
+- ✅ **Condition obligatoire (R3)** : smoke runtime contrôlé passé — 2 runs, 0 contamination, TO_CONFIRM visibles.
+- ✅ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué à `price-service-lines` L920, aligné avec `quotation-engine` L1709.
 
-Le paramétrage peut commencer sur les familles déjà sécurisées (port_tariffs, carrier_billing_templates, demurrage) sans risque sous les filtres existants. L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
+Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariffs, carrier_billing_templates, demurrage). L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
+
+---
+
+## 11. Smoke Runtime Results (2026-05-02)
+
+### R3 — Smoke runtime contrôlé
+
+Deux `run-pricing` contrôlés exécutés via edge function :
+
+| Case | Type | Run # | pricing_run_id | Lines | Total HT | Aksa | Taleb | Observed | TO_CONFIRM |
+|------|------|------:|----------------|------:|---------:|:----:|:-----:|:--------:|:----------:|
+| `29b96eec` | SEA_FCL_IMPORT | 18 | `5543f158` | 17 | 1 260 000 XOF | 0 | 0 | 0 | ✅ Transport Kolda = null |
+| `01c3fbbc` | AIR_IMPORT | 4 | `5db6a86d` | 8 | 145 000 XOF | 0 | 0 | 0 | ✅ Droits & taxes = null |
+
+**Vérifications exécutées :**
+- `tariff_lines::text ILIKE '%aksa%'` → false sur les 2 runs
+- `tariff_lines::text ILIKE '%taleb%'` → false sur les 2 runs
+- `tariff_lines::text ILIKE '%observed%'` → false sur les 2 runs
+- `engine_response::text ILIKE '%aksa%'` → false sur les 2 runs
+- `engine_response::text ILIKE '%taleb%'` → false sur les 2 runs
+
+### R2 — Hardening price-service-lines
+
+**Diff réel (1 seule ligne) :**
+
+```diff
+- serviceClient.from("local_transport_rates").select("*").eq("is_active", true),
++ serviceClient.from("local_transport_rates").select("*").eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
+```
+
+**Vérification DB post-déploiement :**
+- Ancien filtre (`is_active=true`) : 10 lignes
+- Nouveau filtre (`is_active=true` + `evidence_level IN (official, validated_internal)`) : 0 lignes
+- Lignes exclues par le nouveau filtre : 10 (toutes `to_confirm`)
+- Comportement attendu : transport local tombe en TO_CONFIRM → ✅ correct
+- Fonction boot OK après déploiement (401 auth attendu, pas de 500 crash)
+
+**Note :** Le smoke post-R2 complet via `run-pricing` n'a pas pu être exécuté dans cette session (utilisateur non connecté au moment du test). Cependant, le R3 smoke pré-R2 a prouvé 0 contamination, et le changement R2 est strictement restrictif (filtre plus étroit). Un premier run authentifié depuis le cockpit confirmera définitivement.
 
 ---
 
@@ -194,10 +232,9 @@ Le paramétrage peut commencer sur les familles déjà sécurisées (port_tariff
 
 ## Annexe B — Contraintes respectées
 
-- ✅ Zéro modification runtime
+- ✅ Une seule ligne runtime modifiée (`price-service-lines` L920)
 - ✅ Zéro migration
 - ✅ Zéro update DB
-- ✅ Zéro edge function modifiée
 - ✅ Zéro tarif inventé
 - ✅ Zéro promotion evidence_level
 - ✅ Distinction faits prouvés / hypothèses / risques / recommandations
