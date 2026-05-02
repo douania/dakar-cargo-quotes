@@ -3,8 +3,8 @@
 **Date :** 2026-05-02  
 **Type :** audit lecture seule + smoke runtime contrôlé + hardening R2  
 **Périmètre :** validation globale post-nettoyages LOT2 + LOT3-A  
-**Statut :** validé — R3 smoke passé, R2 appliqué et déployé  
-**Verdict :** **GO confirmé** pour continuer le paramétrage tarifaire
+**Statut :** validé — R3 smoke passé, R2 appliqué et déployé, en attente smoke authentifié  
+**Verdict :** **GO conditionnel maintenu jusqu'au premier run authentifié post-R2**
 
 ---
 
@@ -147,7 +147,7 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|--------|-------------|--------|------------|
 | R1 | **Runs historiques persistés avec données Taleb** (ex: `240167ed` run #4, 16 refs Taleb) | Certain (données en base) | Faible — visible uniquement si l'opérateur consulte un ancien run sans relancer | Les quotation_versions générées à partir de ces runs contiennent les anciennes lignes. Un re-run post-LOT3 les corrigerait. |
-| R2 | ~~price-service-lines L920 sans filtre evidence_level~~ | **CLOS** | **Appliqué** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02. Aligné avec `quotation-engine` L1709. | N/A |
+| R2 | **price-service-lines L920 filtre evidence_level** | Appliqué et déployé | **En attente smoke authentifié post-déploiement** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02, vérifié analytiquement (DB: 0 lignes retournées). Non encore confirmé par run-pricing authentifié. | Premier run-pricing authentifié post-R2 |
 | R3 | ~~Aucun smoke runtime contrôlé~~ | **CLOS** | **Passé** — 2 runs contrôlés : `29b96eec` run #18 (SEA_FCL, 17 lignes, 1.26M XOF, 0 contamination) + `01c3fbbc` run #4 (AIR, 8 lignes, 145K XOF, 0 contamination). | N/A |
 | R4 | **demurrage_rates sans colonne evidence_level** | Certain (par design) | Faible — les 26 actives sont de carriers considérés vérifiés (documents fournisseur identifiés) | Ajouter evidence_level si nouvelles sources non vérifiées arrivent |
 
@@ -169,14 +169,12 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 
 ## 10. Go / No-Go pour continuer le paramétrage tarifaire
 
-**Verdict : GO confirmé**
-
-Les deux conditions préalables sont satisfaites :
+**Verdict : GO conditionnel maintenu jusqu'au premier run authentifié post-R2**
 
 - ✅ **Condition obligatoire (R3)** : smoke runtime contrôlé passé — 2 runs, 0 contamination, TO_CONFIRM visibles.
-- ✅ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué à `price-service-lines` L920, aligné avec `quotation-engine` L1709.
+- ⏳ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué et déployé à `price-service-lines` L920, vérifié analytiquement (DB retourne 0 lignes). En attente de confirmation par premier `run-pricing` authentifié post-déploiement.
 
-Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariffs, carrier_billing_templates, demurrage). L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
+Le paramétrage peut continuer sur les familles déjà sécurisées (port_tariffs, carrier_billing_templates, demurrage) sous les filtres existants. La clôture définitive de R2 et le passage en GO confirmé nécessitent un run authentifié post-R2. L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
 
 ---
 
