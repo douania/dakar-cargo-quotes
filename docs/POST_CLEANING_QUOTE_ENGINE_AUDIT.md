@@ -155,13 +155,13 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 
 ## 9. Recommandations CTO
 
-1. **P0 — Smoke runtime contrôlé** : relancer un `run-pricing` sur au moins 2 dossiers (1 SEA_FCL, 1 AIR) depuis le cockpit, dans le cadre d'un protocole de test formel. Vérifier que les lignes TO_CONFIRM apparaissent et qu'aucune référence Taleb/Aksa ne sort.
+1. ~~**P0 — Smoke runtime contrôlé**~~ : **FAIT** — R3 clos, 2 runs contrôlés passés.
 
 2. **P1 — Transport local** : obtenir le document officiel transport Sénégal (LOT2-REV-C). Sans lui, tout transport local reste TO_CONFIRM.
 
 3. **P1 — Rate cards SODATRA** : faire signer `VALIDATION_RATE_CARDS_AND_CATALOGUE.md` par l'équipe métier. 35 lignes de services sont bloquées en attente.
 
-4. **P2 — Renforcer price-service-lines L920** : ajouter `.in('evidence_level', ['official','validated_internal'])` à la requête `local_transport_rates` dans `price-service-lines` pour aligner avec `quotation-engine` et éliminer le risque R2. Micro-lot : LOCAL-TRANSPORT-RUNTIME-HARDENING.
+4. ~~**P2 — Renforcer price-service-lines L920**~~ : **FAIT** — R2 clos, filtre DB `evidence_level` appliqué et déployé.
 
 5. **P3 — Nettoyage historique** : identifier les `quotation_versions` générées à partir de runs contaminés (pré-LOT3) et les marquer comme obsolètes, ou simplement documenter que tout re-run les corrigera.
 
