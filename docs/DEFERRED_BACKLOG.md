@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-01 — INFRA-PREVIEW-AUTH-FETCH-001 **CLOS** : cause réelle = backend Lovable Cloud unhealthy (HTTP 521 / refus DB), résolu par redémarrage DB Lovable ; login fonctionne. INFRA-PUBLISH-VITE-ENV-001 : `.gitignore` corrigé (`.env` non exclu), preview login OK ; republish et vérification bundle publish encore à effectuer. EDGE-BUILD-DENO-DEPS-001 reste corrigé via `supabase/functions/deno.json`.
+Dernière mise à jour : 2026-05-02 — **LOT2-REV-A EXÉCUTÉ** : 81 lignes Aksa quarantinées (`is_active=false`, `evidence_level='historical_only'`). Smoke tests G7 et G9 PASS, anti-fuite Aksa globale PASS. G6-REV non exécutable (blocking gap `pad_category` pré-existant). Anciens G6/G8 Aksa **abandonnés**. LOT2-REV-B (audit transport officiel SN) et LOT2-REV-C (ingestion officielle) créés. INFRA-PREVIEW-AUTH-FETCH-001 CLOS. INFRA-PUBLISH-VITE-ENV-001 : post-publish en attente.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
