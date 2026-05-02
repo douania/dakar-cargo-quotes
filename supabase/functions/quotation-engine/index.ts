@@ -2058,10 +2058,12 @@ async function generateQuotationLines(
       const bestMatch = demurrageData.find(d => detectedCarrier && d.carrier.toUpperCase().includes(detectedCarrier)) || demurrageData[0];
       
       // ===== TIERS RESOLUTION: tiers réels d'abord, fallback legacy ensuite =====
+      // [LOT3-A] Provenance filter: exclude observed/to_confirm tiers (e.g. 2 MSC invoice tiers).
       const { data: tiersRows } = await supabase
         .from('demurrage_tiers')
         .select('tier_order, day_from, day_to, rate_per_day, currency, evidence_level, source_document')
         .eq('demurrage_rate_id', bestMatch.id)
+        .in('evidence_level', ['official', 'validated_internal'])
         .order('tier_order', { ascending: true });
 
       const tiers = tiersRows || [];
