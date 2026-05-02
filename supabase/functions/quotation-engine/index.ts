@@ -1706,6 +1706,7 @@ async function generateQuotationLines(
             .from('local_transport_rates')
             .select('*')
             .eq('is_active', true)
+            .in('evidence_level', ['official', 'validated_internal'])
             .ilike('destination', `%${searchTerm}%`);
 
           if (mappedContainerType) {
