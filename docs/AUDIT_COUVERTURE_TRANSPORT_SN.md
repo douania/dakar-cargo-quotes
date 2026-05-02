@@ -1,9 +1,10 @@
 # Audit couverture transport local — Sénégal
 
-**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A)  
-**Source :** `local_transport_rates` (snapshot post-quarantaine Aksa)  
+**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A + correctif bypass LOT2-REV-B+C)  
+**Source :** `local_transport_rates` (snapshot post-correctif bypass)  
 **Total lignes actives :** 10 (81 Aksa quarantinées → `is_active=false`, `evidence_level='historical_only'`)  
-**Total lignes inactives (quarantaine) :** 81
+**Total lignes inactives (quarantaine) :** 81  
+**Bypass corrigé :** 2026-05-02 — filtre `.in('evidence_level', ['official', 'validated_internal'])` ajouté dans `quotation-engine/index.ts`. Les 10 lignes `to_confirm` ne sont plus servies par le moteur.
 
 ---
 
@@ -12,7 +13,11 @@
 | client_code   | evidence_level    | is_active | lignes | usage |
 |---------------|-------------------|-----------|-------:|-------|
 | `AKSA_ENERGY` | `historical_only` | `false` | 81 | **QUARANTINÉ** — ancienne cotation ponctuelle, non consommable par le moteur (LOT2-REV-A 2026-05-02) |
-| `NULL` (générique) | `to_confirm` | `true` | 10 | Servi par le resolver mais `evidence_level` non filtré (à corriger LOT2-REV-C) |
+| `NULL` (générique) | `to_confirm` | `true` | 10 | **FILTRÉ** — reste en base mais **non servi** par le moteur depuis LOT2-REV-B+C (2026-05-02). Le filtre `evidence_level ∈ (official, validated_internal)` exclut `to_confirm`. Fallback `TO_CONFIRM` s'applique. |
+
+### Document source
+
+Le fichier physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` référencé comme `source_document` des 10 lignes génériques **n'a pas été retrouvé** dans le stockage projet ni dans les pièces jointes. Aucune promotion `to_confirm → official` n'est possible sans ce document. **Statut : `audit_complete_document_non_retrouve`.**
 
 ---
 
