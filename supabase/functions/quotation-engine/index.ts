@@ -1727,8 +1727,8 @@ async function generateQuotationLines(
               containerType: container.type,
               source: {
                 type: 'OFFICIAL',
-                reference: rate.source_document || 'Grille transport local',
-                confidence: 0.95
+                reference: rate.source_document || 'Grille transport local validée',
+                confidence: rate.evidence_level === 'official' ? 0.95 : 0.85
               },
               isEditable: true
             });
