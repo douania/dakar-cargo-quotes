@@ -147,8 +147,8 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|--------|-------------|--------|------------|
 | R1 | **Runs historiques persistés avec données Taleb** (ex: `240167ed` run #4, 16 refs Taleb) | Certain (données en base) | Faible — visible uniquement si l'opérateur consulte un ancien run sans relancer | Les quotation_versions générées à partir de ces runs contiennent les anciennes lignes. Un re-run post-LOT3 les corrigerait. |
-| R2 | **price-service-lines L920 charge local_transport_rates sans filtre evidence_level au niveau DB** | P3 (aucune ligne observed/historical_only active aujourd'hui) | Risque runtime actuel nul sous les filtres existants, risque si nouvelles lignes ajoutées | Renforcer le filtre DB avec `.in('evidence_level', ['official','validated_internal'])` avant d'ajouter de nouvelles lignes (micro-lot LOCAL-TRANSPORT-RUNTIME-HARDENING) |
-| R3 | **Aucun smoke runtime contrôlé post-LOT3 exécuté dans ce protocole d'audit** | Certain | Moyen — les filtres sont vérifiés par requête DB et inspection code, mais aucun run-pricing complet contrôlé n'a été lancé dans le cadre de cet audit. Deux runs post-LOT3 existent et montrent 0 contamination, mais n'ont pas été déclenchés comme smoke tests formels. | L'opérateur devrait relancer un run sur `29b96eec` ou `01c3fbbc` pour confirmer en conditions contrôlées. |
+| R2 | ~~price-service-lines L920 sans filtre evidence_level~~ | **CLOS** | **Appliqué** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02. Aligné avec `quotation-engine` L1709. | N/A |
+| R3 | ~~Aucun smoke runtime contrôlé~~ | **CLOS** | **Passé** — 2 runs contrôlés : `29b96eec` run #18 (SEA_FCL, 17 lignes, 1.26M XOF, 0 contamination) + `01c3fbbc` run #4 (AIR, 8 lignes, 145K XOF, 0 contamination). | N/A |
 | R4 | **demurrage_rates sans colonne evidence_level** | Certain (par design) | Faible — les 26 actives sont de carriers considérés vérifiés (documents fournisseur identifiés) | Ajouter evidence_level si nouvelles sources non vérifiées arrivent |
 
 ---
