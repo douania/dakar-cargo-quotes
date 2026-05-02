@@ -1,10 +1,10 @@
 # POST-CLEANING-QUOTE-ENGINE-AUDIT
 
 **Date :** 2026-05-02  
-**Type :** audit lecture seule — aucune modification runtime  
+**Type :** audit lecture seule + smoke runtime contrôlé + hardening R2  
 **Périmètre :** validation globale post-nettoyages LOT2 + LOT3-A  
-**Statut :** validé comme audit analytique post-nettoyage  
-**Verdict :** GO conditionnel pour continuer le paramétrage tarifaire
+**Statut :** validé — R3 smoke passé, R2 appliqué et déployé  
+**Verdict :** **GO confirmé** pour continuer le paramétrage tarifaire
 
 ---
 
