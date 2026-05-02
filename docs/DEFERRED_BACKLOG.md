@@ -1134,12 +1134,14 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | LOT2-REV-B |
 | **Catégorie** | Pricing / Data Governance |
-| **Statut** | `à_faire` |
+| **Statut** | `audit_complete_document_non_retrouve_verdict_cto` (2026-05-02) |
 | **Priorité** | P2 |
 | **Phase d'origine** | Lot 2 révisé |
 | **Date** | 2026-05-02 |
-| **Objectif** | Retrouver et auditer le document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`. Vérifier s'il couvre plus que les 5 destinations actuellement en base. Comparer document vs base. Lister les lignes manquantes. |
-| **Déclencheur** | Disponibilité du fichier officiel complet. |
+| **Objectif** | Retrouver et auditer le document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`. |
+| **Résultat audit** | Document introuvable dans Lovable Cloud Storage (3 buckets), `email_attachments`, et repo projet. Existe uniquement comme référence textuelle dans `local_transport_rates.source_document`. |
+| **Verdict CTO** | Aucune promotion `to_confirm → official`. Les 10 lignes restent `evidence_level = 'to_confirm'`. Moteur en mode prudent (`TO_CONFIRM`). |
+| **Déclencheur de réouverture** | L'opérateur fournit le document officiel (PDF, Excel, scan, photo claire, ou grille validée SODATRA). |
 | **Recommandation** | Ne promouvoir aucune ligne sans preuve documentaire. |
 
 ---
