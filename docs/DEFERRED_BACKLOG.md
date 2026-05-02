@@ -1201,15 +1201,13 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | R3-SMOKE-RUNTIME-POST-LOT3 |
 | **Catégorie** | Validation runtime / Smoke tests |
-| **Statut** | `à_faire` |
-| **Priorité** | P0 |
+| **Statut** | `closed_smoke_passed` (2026-05-02) |
+| **Priorité** | P0 — **CLOS** |
 | **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
 | **Date** | 2026-05-02 |
-| **Constat** | Aucun smoke runtime contrôlé post-LOT3 exécuté dans ce protocole d'audit. Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb), mais n'ont pas été déclenchés comme smoke tests formels. |
-| **Impact** | Moyen — les filtres sont vérifiés par requête DB et inspection code, mais aucun run-pricing complet contrôlé n'a été lancé dans le cadre de l'audit. |
-| **Action** | Relancer un `run-pricing` sur au moins 2 dossiers (1 SEA_FCL `29b96eec`, 1 AIR `01c3fbbc`) depuis le cockpit. Vérifier que les lignes TO_CONFIRM apparaissent et qu'aucune référence Taleb/Aksa ne sort. |
-| **Déclencheur** | Condition obligatoire du GO conditionnel avant injection de nouvelles données tarifaires. |
-| **Recommandation** | Exécuter en priorité avant tout nouveau paramétrage. |
+| **Exécution** | Deux `run-pricing` contrôlés lancés via edge function le 2026-05-02 : (1) SEA_FCL `29b96eec` → run #18, 17 lignes, 1 260 000 XOF HT, pricing_run_id `5543f158`. (2) AIR `01c3fbbc` → run #4, 8 lignes, 145 000 XOF HT, pricing_run_id `5db6a86d`. |
+| **Résultats** | ✅ 0 contamination Aksa (grep tariff_lines + engine_response). ✅ 0 contamination Taleb. ✅ 0 référence `observed`. ✅ Transport Kolda → montant null (TO_CONFIRM correct). ✅ DPW THC → montants officiels servis. ✅ Totaux cohérents. |
+| **Condition GO** | La condition obligatoire du GO conditionnel est satisfaite. Le paramétrage tarifaire peut continuer. |
 
 ---
 
