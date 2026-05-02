@@ -295,3 +295,37 @@ Procédure validée :
 - **Mali transit** : les frais terminaux (SDV_KATI, MALI_SHIPPER_COUNCIL) et frontière (KIDIRA_DIBOLI) ne seront plus servis automatiquement. Le moteur produira un `TO_CONFIRM` fallback. L'opérateur doit fournir les barèmes officiels Mali pour restaurer ces lignes.
 - **Demurrage COSCO/Evergreen/ONE** : fallback sur les données carriers vérifiés (CMA CGM, Hapag-Lloyd, Maersk) ou `TO_CONFIRM`.
 - **Rate cards** : aucune rate card n'est servie (0 active). Le moteur utilise les autres sources (port_tariffs, catalogue, transport rates).
+
+### 10.6 LOT3-A-VALIDATION — Clôture analytique (2026-05-02)
+
+**Statut** : ✅ clos analytique  
+**Type de validation** : analytique (requêtes DB, comptage, vérification filtres). **Aucun smoke runtime** : aucun `run-pricing` post-déploiement n'a été lancé.
+
+**Conclusion** (formulation CTO) :
+
+> Les sources P0 identifiées dans LOT3-0 et traitées par LOT3-A ne peuvent plus sortir automatiquement en cotation client.
+
+**Ce que cette conclusion couvre :**
+- Les 62 lignes P0 identifiées dans LOT3-0 (pricing_rate_cards, destination_terminal_rates, border_clearing_rates, demurrage_rates non vérifiées, demurrage_tiers observed)
+- Les filtres runtime ajoutés dans `price-service-lines` et `quotation-engine`
+- Les quarantaines data (`is_active=false`)
+
+**Ce que cette conclusion ne couvre PAS :**
+- Tables non auditées dans LOT3-0 (ex: futures tables, chemins edge non testés)
+- Futurs cas métier non encore rencontrés
+- Garantie absolue sur toutes les sources possibles — seules les sources P0 identifiées sont neutralisées
+
+**Gaps métier créés par LOT3-A (intentionnels) :**
+- Terminaux Mali (SDV_KATI, MALI_SHIPPER_COUNCIL) → `TO_CONFIRM`
+- Frontière KIDIRA_DIBOLI → `TO_CONFIRM`
+- Demurrage COSCO / Evergreen / ONE → `TO_CONFIRM` ou fallback carriers vérifiés
+- Rate cards internes (35 lignes) → exclues par filtre `status=active`
+- MSC demurrage tiers `observed` (2 lignes) → exclues par filtre `evidence_level`
+
+**Statuts consolidés :**
+
+| Lot | Statut |
+|-----|--------|
+| LOT3-0 | ✅ Clos — diagnostic runtime complet |
+| LOT3-A | ✅ Clos — quarantaine P0 minimale exécutée |
+| LOT3-A-VALIDATION | ✅ Clos analytique — validation par requêtes DB, pas smoke runtime |
