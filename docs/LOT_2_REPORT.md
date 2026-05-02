@@ -1,7 +1,8 @@
-# Lot 2 — Rapport révisé (LOT2-REV-A)
+# Lot 2 — Rapport révisé (LOT2-REV-A + LOT2-REV-B+C)
 
 **Date d'exécution originale :** 2026-04-25  
 **Date de révision :** 2026-05-02  
+**Statut global :** ✅ **LOT2-REV-A CLOS** — Quarantaine Aksa exécutée, smoke tests validés. **LOT2-REV-B+C** — Bypass transport corrigé, audit documentaire complété.  
 **Statut global :** ✅ **LOT2-REV-A CLOS** — Quarantaine Aksa exécutée, smoke tests validés  
 **Anciens tests G6/G8 :** ❌ **ABANDONNÉS** (décision CTO 2026-05-02 — Aksa = cotation ponctuelle historique, pas tarif client réutilisable)  
 **Code Lot 2 :** ✅ déployé (migration + price-service-lines)  
@@ -173,8 +174,66 @@ Les 3 lignes TRUCKING sur `29b96eec` proviennent des lignes génériques `to_con
 
 ---
 
-## 7. Prochaine étape
+## 7. LOT2-REV-B+C — Correctif bypass transport (2026-05-02)
 
-1. **LOT2-REV-B** : Audit du document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` — vérifier couverture destinations et container types
-2. **LOT2-REV-C** : Ingestion officielle + renforcement resolver (`evidence_level` whitelist)
-3. **G6-REV** : ré-exécutable après résolution du blocking gap `pad_category` sur `03ccf66d`
+### Problème découvert
+
+Le moteur `quotation-engine/index.ts` (L1705-1710) interrogeait `local_transport_rates` avec uniquement `.eq('is_active', true)` sans filtrer par `evidence_level`. Les 10 lignes génériques `to_confirm` étaient donc servies avec `source.type: 'OFFICIAL'` et `confidence: 0.95` — **incohérent avec la politique de provenance**.
+
+### Correctif appliqué
+
+**Edit A** (L1709) : ajout `.in('evidence_level', ['official', 'validated_internal'])` à la requête transport.
+
+**Edit B** (L1728-1732) : mapping source mis à jour :
+```
+source: {
+  type: 'OFFICIAL',
+  reference: rate.source_document || 'Grille transport local validée',
+  confidence: rate.evidence_level === 'official' ? 0.95 : 0.85
+}
+```
+
+### Effet
+
+- Les 10 lignes `to_confirm` ne matchent plus → fallback `TO_CONFIRM` s'applique (amount: null, confidence: 0).
+- Les 81 lignes Aksa étaient déjà `is_active=false` → inchangé.
+- **Aucune ligne transport n'est servie automatiquement** tant qu'on n'a pas de vraie ligne `official` ou `validated_internal`.
+
+### LOT2-REV-B — Audit documentaire
+
+**Statut : `audit_complete_document_non_retrouve`**
+
+- Le fichier physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` référencé comme `source_document` des 10 lignes génériques n'a pas été retrouvé.
+- Aucune promotion `to_confirm → official` n'est possible sans ce document.
+- Les 10 lignes restent intactes en base (`is_active=true`, `evidence_level=to_confirm`) mais ne sont plus consommées.
+
+### LOT2-REV-C — Ingestion officielle (à faire)
+
+**Statut : `a_faire` — pending official transport document**
+
+Procédure validée :
+1. L'opérateur fournit le document officiel transport Sénégal (PDF/Excel).
+2. Extraction des lignes tarifaires.
+3. Comparaison avec les 10 lignes existantes.
+4. Promotion uniquement des lignes prouvées (`to_confirm → official`).
+5. Insertion des lignes manquantes avec source documentaire.
+6. Smoke test post-ingestion.
+
+### Garde-fous LOT2-REV-B+C
+
+- ✅ Aucun fichier `src/` modifié
+- ✅ Aucune migration de schéma
+- ✅ Aucune modification `.env`
+- ✅ Aucune modification RLS
+- ✅ Aucune modification PAD / magasinage / carrier
+- ✅ Aucune promotion `to_confirm → official`
+- ✅ Aucun `sodatra_grid` introduit
+- ✅ Aucun tarif inventé
+- ✅ Seule edge function modifiée : `quotation-engine` (2 edits chirurgicaux)
+
+---
+
+## 8. Prochaine étape
+
+1. **LOT2-REV-C** : Ingestion officielle — en attente du document transport Sénégal
+2. **G6-REV** : ré-exécutable après résolution du blocking gap `pad_category` sur `03ccf66d`
