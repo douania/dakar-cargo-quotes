@@ -902,9 +902,12 @@ Deno.serve(async (req) => {
     const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
+      // [LOT3-A] Provenance filter: only consume rate cards with status='active'.
+      // Lines with status='to_confirm' (35 as of LOT3-A preflight) must not be served.
       serviceClient
         .from("pricing_rate_cards")
         .select("*")
+        .eq("status", "active")
         .or("effective_from.is.null,effective_from.lte." + new Date().toISOString().split("T")[0])
         .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]),
       serviceClient.from("pricing_service_catalogue").select("*").eq("active", true),
