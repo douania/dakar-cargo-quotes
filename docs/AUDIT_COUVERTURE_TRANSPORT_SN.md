@@ -1,10 +1,18 @@
 # Audit couverture transport local — Sénégal
 
-**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A + correctif bypass LOT2-REV-B+C)  
+**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A + correctif bypass LOT2-REV-B+C + verdict CTO localisation)  
 **Source :** `local_transport_rates` (snapshot post-correctif bypass)  
 **Total lignes actives :** 10 (81 Aksa quarantinées → `is_active=false`, `evidence_level='historical_only'`)  
 **Total lignes inactives (quarantaine) :** 81  
 **Bypass corrigé :** 2026-05-02 — filtre `.in('evidence_level', ['official', 'validated_internal'])` ajouté dans `quotation-engine/index.ts`. Les 10 lignes `to_confirm` ne sont plus servies par le moteur.
+
+### Verdict CTO — Localisation document (2026-05-02)
+
+Le document physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` a été recherché exhaustivement dans : Lovable Cloud Storage (buckets `documents`, `case-documents`, `quotation-attachments`), `email_attachments`, et le repo projet. **Résultat : introuvable.** Le fichier existe uniquement comme référence textuelle dans `local_transport_rates.source_document`.
+
+**Décision CTO :** aucune promotion `to_confirm → official`. Les 10 lignes restent `evidence_level = 'to_confirm'`. Le moteur sert `TO_CONFIRM` pour tout transport non prouvé. Cette décision est définitive jusqu'à réception du document officiel (PDF, Excel, scan, photo claire, ou grille validée SODATRA).
+
+**Prochaine action :** l'opérateur fournit le document → extraction → comparaison → promotion des seules lignes prouvées → insertion manquantes → smoke tests (LOT2-REV-C).
 
 ---
 
