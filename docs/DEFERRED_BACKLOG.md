@@ -1185,15 +1185,13 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
 | **Catégorie** | Runtime / Edge Function / Data Governance |
-| **Statut** | `à_faire` |
-| **Priorité** | P2 |
+| **Statut** | `closed_applied_and_verified` (2026-05-02) |
+| **Priorité** | P2 — **CLOS** |
 | **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
 | **Date** | 2026-05-02 |
-| **Constat** | `price-service-lines` L920 charge `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. Le guard L629 rejette `evidence_level='to_confirm'`, mais laisserait passer `observed` ou `historical_only` si de futures lignes étaient ajoutées comme `is_active=true`. |
-| **Impact** | Risque runtime actuel nul sous les filtres existants (aucune ligne observed/historical_only active). Risque théorique si nouvelles lignes ajoutées. |
-| **Action** | Micro-lot LOCAL-TRANSPORT-RUNTIME-HARDENING : ajouter `.in('evidence_level', ['official','validated_internal'])` à la requête L920 pour aligner avec `quotation-engine` L1709. |
-| **Déclencheur** | Avant d'ajouter de nouvelles lignes `local_transport_rates`. |
-| **Recommandation** | Traiter avant tout nouveau paramétrage transport. |
+| **Constat initial** | `price-service-lines` L920 chargeait `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. |
+| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. Fonction boot OK (401 auth attendu, pas de 500). Vérification DB : le nouveau filtre retourne 0 lignes (les 10 actives sont toutes `to_confirm`), confirmant que le transport tombe correctement en TO_CONFIRM. R3 smoke pré-R2 sur `29b96eec` run #18 (`5543f158`) et `01c3fbbc` run #4 (`5db6a86d`) : 0 contamination, TO_CONFIRM visibles. |
+| **Alignement** | `price-service-lines` L920 est maintenant aligné avec `quotation-engine` L1709. Les deux fonctions filtrent `local_transport_rates` par `evidence_level IN ('official','validated_internal')`. |
 
 ---
 
