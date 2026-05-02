@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO conditionnel maintenu jusqu'au premier run authentifié post-R2**. R3 smoke runtime passé (2 runs contrôlés, 0 contamination). R2 hardening appliqué et déployé, en attente de smoke authentifié post-déploiement. Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé : match impossible prouvé. LOT3-A-VALIDATION clos analytique. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
+Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé**. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
@@ -1185,14 +1185,14 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
 | **Catégorie** | Runtime / Edge Function / Data Governance |
-| **Statut** | `applied_deployed_pending_authenticated_smoke` |
-| **Priorité** | P2 — en attente smoke authentifié |
+| **Statut** | `closed_applied_and_verified` (2026-05-02) |
+| **Priorité** | P2 — **CLOS** |
 | **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
 | **Date** | 2026-05-02 |
 | **Constat initial** | `price-service-lines` L920 chargeait `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. |
-| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. Fonction boot OK (401 auth attendu, pas de 500). Vérification DB : le nouveau filtre retourne 0 lignes (les 10 actives sont toutes `to_confirm`), confirmant que le transport tombe correctement en TO_CONFIRM. |
+| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. |
+| **Vérification post-déploiement** | Deux runs authentifiés post-R2 : run #19 (`8ca8c2d3`) et run #20 (`465bf868`). Résultat : status success, 17 lignes, 1 260 000 XOF HT, 0 Aksa, 0 Taleb, 0 observed, TO_CONFIRM transport Kolda visible, aucune régression. |
 | **Alignement** | `price-service-lines` L920 est maintenant aligné avec `quotation-engine` L1709. Les deux fonctions filtrent `local_transport_rates` par `evidence_level IN ('official','validated_internal')`. |
-| **Déclencheur de clôture** | Premier `run-pricing` authentifié post-R2 confirmant : HTTP 200, 0 contamination Aksa/Taleb/observed, TO_CONFIRM visible si tarif manquant, pas de régression sur total HT. |
 
 ---
 

@@ -3,8 +3,8 @@
 **Date :** 2026-05-02  
 **Type :** audit lecture seule + smoke runtime contrôlé + hardening R2  
 **Périmètre :** validation globale post-nettoyages LOT2 + LOT3-A  
-**Statut :** validé — R3 smoke passé, R2 appliqué et déployé, en attente smoke authentifié  
-**Verdict :** **GO conditionnel maintenu jusqu'au premier run authentifié post-R2**
+**Statut :** validé — R3 smoke passé, R2 appliqué, déployé et vérifié par runs authentifiés  
+**Verdict :** **GO confirmé** pour continuer le paramétrage tarifaire
 
 ---
 
@@ -147,7 +147,7 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|--------|-------------|--------|------------|
 | R1 | **Runs historiques persistés avec données Taleb** (ex: `240167ed` run #4, 16 refs Taleb) | Certain (données en base) | Faible — visible uniquement si l'opérateur consulte un ancien run sans relancer | Les quotation_versions générées à partir de ces runs contiennent les anciennes lignes. Un re-run post-LOT3 les corrigerait. |
-| R2 | **price-service-lines L920 filtre evidence_level** | Appliqué et déployé | **En attente smoke authentifié post-déploiement** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02, vérifié analytiquement (DB: 0 lignes retournées). Non encore confirmé par run-pricing authentifié. | Premier run-pricing authentifié post-R2 |
+| R2 | ~~price-service-lines L920 sans filtre evidence_level~~ | **CLOS** | **Appliqué et vérifié** — `.in('evidence_level', ['official','validated_internal'])` ajouté à L920, déployé 2026-05-02. Vérifié par runs authentifiés #19 (`8ca8c2d3`) et #20 (`465bf868`) : 0 contamination, TO_CONFIRM visible, total stable. | N/A |
 | R3 | ~~Aucun smoke runtime contrôlé~~ | **CLOS** | **Passé** — 2 runs contrôlés : `29b96eec` run #18 (SEA_FCL, 17 lignes, 1.26M XOF, 0 contamination) + `01c3fbbc` run #4 (AIR, 8 lignes, 145K XOF, 0 contamination). | N/A |
 | R4 | **demurrage_rates sans colonne evidence_level** | Certain (par design) | Faible — les 26 actives sont de carriers considérés vérifiés (documents fournisseur identifiés) | Ajouter evidence_level si nouvelles sources non vérifiées arrivent |
 
@@ -169,12 +169,14 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 
 ## 10. Go / No-Go pour continuer le paramétrage tarifaire
 
-**Verdict : GO conditionnel maintenu jusqu'au premier run authentifié post-R2**
+**Verdict : GO confirmé**
+
+Les deux conditions préalables sont satisfaites :
 
 - ✅ **Condition obligatoire (R3)** : smoke runtime contrôlé passé — 2 runs, 0 contamination, TO_CONFIRM visibles.
-- ⏳ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué et déployé à `price-service-lines` L920, vérifié analytiquement (DB retourne 0 lignes). En attente de confirmation par premier `run-pricing` authentifié post-déploiement.
+- ✅ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué à `price-service-lines` L920, déployé et vérifié par 2 runs authentifiés post-déploiement (#19, #20). 0 contamination, TO_CONFIRM visible, total stable.
 
-Le paramétrage peut continuer sur les familles déjà sécurisées (port_tariffs, carrier_billing_templates, demurrage) sous les filtres existants. La clôture définitive de R2 et le passage en GO confirmé nécessitent un run authentifié post-R2. L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
+Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariffs, carrier_billing_templates, demurrage). L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
 
 ---
 
@@ -212,7 +214,7 @@ Deux `run-pricing` contrôlés exécutés via edge function :
 - Comportement attendu : transport local tombe en TO_CONFIRM → ✅ correct
 - Fonction boot OK après déploiement (401 auth attendu, pas de 500 crash)
 
-**Note :** Le smoke post-R2 complet via `run-pricing` n'a pas pu être exécuté dans cette session (utilisateur non connecté au moment du test). Cependant, le R3 smoke pré-R2 a prouvé 0 contamination, et le changement R2 est strictement restrictif (filtre plus étroit). Un premier run authentifié depuis le cockpit confirmera définitivement.
+**Vérification post-R2 authentifiée (2026-05-02 22:37 UTC) :** L'opérateur a lancé `run-pricing` depuis le cockpit après déploiement R2. Runs #19 (`8ca8c2d3`) et #20 (`465bf868`) : status success, 17 lignes, 1 260 000 XOF HT, 0 Aksa, 0 Taleb, 0 observed, TO_CONFIRM transport Kolda visible. R2 confirmé : `closed_applied_and_verified`.
 
 ---
 
