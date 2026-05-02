@@ -169,14 +169,14 @@ Le système est **nettement plus fiable** après LOT2/LOT3-A. Les sources non v�
 
 ## 10. Go / No-Go pour continuer le paramétrage tarifaire
 
-**Verdict : GO conditionnel**
+**Verdict : GO confirmé**
 
-Le système est suffisamment protégé pour continuer le paramétrage tarifaire. Les conditions sont :
+Les deux conditions préalables sont satisfaites :
 
-- **Condition obligatoire** : exécuter au moins 1 smoke runtime contrôlé (recommandation #1) avant d'injecter de nouvelles données tarifaires.
-- **Condition recommandée** : appliquer le renforcement P2 sur `price-service-lines` L920 avant d'ajouter de nouvelles lignes `local_transport_rates`.
+- ✅ **Condition obligatoire (R3)** : smoke runtime contrôlé passé — 2 runs, 0 contamination, TO_CONFIRM visibles.
+- ✅ **Condition recommandée (R2)** : filtre DB `evidence_level` appliqué à `price-service-lines` L920, aligné avec `quotation-engine` L1709.
 
-Le paramétrage peut commencer sur les familles déjà sécurisées (port_tariffs, carrier_billing_templates, demurrage) sans risque sous les filtres existants. L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
+Le paramétrage peut continuer sur toutes les familles sécurisées (port_tariffs, carrier_billing_templates, demurrage). L'injection de nouvelles lignes `local_transport_rates` ou `pricing_rate_cards` nécessite les validations SODATRA pendantes.
 
 ---
 
