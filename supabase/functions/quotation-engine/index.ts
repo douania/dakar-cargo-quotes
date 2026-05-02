@@ -1706,6 +1706,7 @@ async function generateQuotationLines(
             .from('local_transport_rates')
             .select('*')
             .eq('is_active', true)
+            .in('evidence_level', ['official', 'validated_internal'])
             .ilike('destination', `%${searchTerm}%`);
 
           if (mappedContainerType) {
@@ -1726,8 +1727,8 @@ async function generateQuotationLines(
               containerType: container.type,
               source: {
                 type: 'OFFICIAL',
-                reference: rate.source_document || 'Grille transport local',
-                confidence: 0.95
+                reference: rate.source_document || 'Grille transport local validée',
+                confidence: rate.evidence_level === 'official' ? 0.95 : 0.85
               },
               isEditable: true
             });

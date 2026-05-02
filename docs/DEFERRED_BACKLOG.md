@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **INFRA-PUBLISH-VITE-ENV-001** : statut mis à jour → `preview_ok_publish_non_testable_projet_non_publie`. Preview fonctionne (login SODATRA OK), publish volontairement non testé (application non publiée). Diagnostic publish reporté jusqu'à décision de republier. LOT2-REV-A EXÉCUTÉ (rappel) : 81 lignes Aksa quarantinées. INFRA-PREVIEW-AUTH-FETCH-001 CLOS.
+Dernière mise à jour : 2026-05-02 — **LOT2-REV-B+C** : bypass transport corrigé dans `quotation-engine/index.ts` — filtre `.in('evidence_level', ['official', 'validated_internal'])` ajouté, les lignes `to_confirm` ne sont plus servies comme OFFICIAL. LOT2-REV-B = `audit_complete_document_non_retrouve` (document source physique introuvable). LOT2-REV-C = `a_faire` (pending official transport document). INFRA-PUBLISH-VITE-ENV-001 inchangé (`preview_ok_publish_non_testable_projet_non_publie`). LOT2-REV-A rappel : 81 lignes Aksa quarantinées. INFRA-PREVIEW-AUTH-FETCH-001 CLOS.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
@@ -87,12 +87,14 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 |-------|--------|
 | **ID** | TARIFF-PROVENANCE-LOT2-AKSA |
 | **Catégorie** | Tariff governance / Client overrides |
-| **Statut** | `ready` |
-| **Priorité** | P0 commercial |
+| **Statut** | `lot2_rev_a_clos_rev_b_audit_complete` — 81 lignes Aksa quarantinées (REV-A). Bypass transport corrigé : filtre `evidence_level ∈ (official, validated_internal)` ajouté (REV-B+C). 10 lignes génériques `to_confirm` restent en base mais ne sont plus servies par le moteur. Document source physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` non retrouvé. |
+| **Priorité** | P1 (en attente document officiel transport Sénégal) |
 | **Phase d'origine** | TARIFF-PROVENANCE Lot 1 (2026-04-24) |
-| **Constat** | Sur 91 lignes actives `local_transport_rates`, 81 sont spécifiques au client Aksa Energy (`evidence_level='client_override'`). Tant qu'elles vivent dans la table commune, elles sont matchables pour n'importe quel dossier. **Risque P0 commercial réel.** Les 10 lignes restantes (`TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`) sont en `to_confirm` (candidates à officialisation, sous réserve de croisement avec `TARIF_TRANSPORT_ROUTIER.md`). |
-| **Plan d'exécution** | (1) Sous-audit `pricing_client_overrides` : compatibilité colonnes, RLS, lecture déjà active runtime. (2) Décision documentée : réutiliser / étendre / créer si extension impossible. (3) Migration data : déplacer les 81 lignes Aksa vers la table cible avec rattachement `client_id`. (4) Filtre runtime : `price-service-lines` L878 + `quotation-engine` L1697 → `local_transport_rates` ne sert plus que `evidence_level='official'` ; overrides client lus séparément avec match `case.client_id`. (5) Croisement des 10 lignes restantes avec `TARIF_TRANSPORT_ROUTIER.md` → promotion `to_confirm` → `official` ligne par ligne. |
-| **Déclencheur de réouverture** | Validation CTO Lot 2 + audit `pricing_client_overrides` complété. |
+| **Constat** | Sur 91 lignes actives initiales `local_transport_rates`, 81 Aksa quarantinées (`is_active=false`, `evidence_level='historical_only'`), 10 génériques restent `to_confirm` mais filtrées par le moteur. Aucune ligne transport `official` ou `validated_internal` n'existe en base → tout transport local tombe en fallback `TO_CONFIRM`. |
+| **LOT2-REV-B** | `audit_complete_document_non_retrouve` — Aucune promotion possible sans le document source. |
+| **LOT2-REV-C** | `a_faire` — Ingestion officielle + activation uniquement après réception du document PDF/Excel. Procédure : (1) fournir document, (2) extraire lignes, (3) comparer avec 10 existantes, (4) promouvoir uniquement les prouvées, (5) smoke test post-ingestion. |
+| **Correctif runtime** | `quotation-engine/index.ts` L1709 : `.in('evidence_level', ['official', 'validated_internal'])` ajouté le 2026-05-02. Source mapping mis à jour (confidence 0.95/0.85 selon evidence_level). |
+| **Déclencheur de réouverture** | Réception du document officiel transport Sénégal par l'opérateur → ouverture LOT2-REV-C. |
 
 ---
 
