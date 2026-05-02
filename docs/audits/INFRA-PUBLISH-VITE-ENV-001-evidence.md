@@ -268,3 +268,44 @@ Après application manuelle du patch `.gitignore` :
 Diagnostic causal : **support Lovable (Sam, AI Support Agent, 2026-04-28)**.
 Validation sécurité (garde « VITE_* publics uniquement ») : opérateur projet
 Dakar Cargo Quotes.
+
+---
+
+## 9. Pause diagnostic publish — 2026-05-02
+
+### 9.1 Constats
+
+| Test | Résultat |
+|------|----------|
+| `published_url` via API Lovable | `null` — projet **non publié** |
+| `curl -sIL dakotation-pro.lovable.app` | **HTTP 404** — ancien domaine inexistant |
+| Preview (browser sandbox) | ✅ Login SODATRA affiché, guard ne se déclenche pas |
+
+### 9.2 Décision opérateur
+
+L'opérateur a décidé de **ne pas publier l'application pour le moment**. En conséquence :
+
+- Le diagnostic publish est **suspendu** (pas de bundle publish à inspecter).
+- Aucun changement infra, `.env`, `src/`, `supabase/` ne doit être effectué.
+- Les hypothèses H1, H2, H4 restent **non testables** tant que le projet n'est pas republié.
+- H3 reste **hors périmètre curl**.
+
+### 9.3 Statut
+
+`preview_ok_publish_non_testable_projet_non_publie`
+
+### 9.4 Prochaine action
+
+Relancer le diagnostic publish **uniquement** si l'opérateur décide de republier. Procédure :
+
+1. Republier depuis Lovable (bouton Publish)
+2. Noter le nouveau domaine publié
+3. `curl -sL --compressed "https://<domaine>.lovable.app/" -o /tmp/index_publish.html`
+4. Extraire le bundle : `grep -oE '(/?assets/index-[A-Za-z0-9_.-]+\.js)' /tmp/index_publish.html`
+5. `grep -c 'snjewofqxfsdmaszapux'` sur le bundle → présent = OK, absent = escalade
+6. `sha256sum` du bundle pour preuve
+
+### 9.5 Fichiers modifiés dans cette mise à jour
+
+- `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` (ce fichier — ajout section 9)
+- `docs/DEFERRED_BACKLOG.md` (statut INFRA-PUBLISH-VITE-ENV-001 uniquement)
