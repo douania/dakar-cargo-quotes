@@ -1,8 +1,9 @@
 # Audit couverture transport local — Sénégal
 
-**Date :** 2026-04-25  
-**Source :** `local_transport_rates` (snapshot post-migration Lot 2A)  
-**Total lignes actives :** 91
+**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A)  
+**Source :** `local_transport_rates` (snapshot post-quarantaine Aksa)  
+**Total lignes actives :** 10 (81 Aksa quarantinées → `is_active=false`, `evidence_level='historical_only'`)  
+**Total lignes inactives (quarantaine) :** 81
 
 ---
 
