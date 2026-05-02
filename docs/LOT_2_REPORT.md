@@ -201,11 +201,11 @@ source: {
 
 ### LOT2-REV-B — Audit documentaire
 
-**Statut : `audit_complete_document_non_retrouve`**
+**Statut : `audit_complete_document_non_retrouve` — verdict CTO 2026-05-02**
 
-- Le fichier physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` référencé comme `source_document` des 10 lignes génériques n'a pas été retrouvé.
-- Aucune promotion `to_confirm → official` n'est possible sans ce document.
-- Les 10 lignes restent intactes en base (`is_active=true`, `evidence_level=to_confirm`) mais ne sont plus consommées.
+- Le fichier physique `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` référencé comme `source_document` des 10 lignes génériques n'a pas été retrouvé dans Lovable Cloud Storage, `email_attachments`, ni le repo projet.
+- **Verdict CTO** : aucune promotion `to_confirm → official`. Les 10 lignes restent `evidence_level = 'to_confirm'`, `is_active = true`, mais non consommées par le moteur.
+- Prochaine action : l'opérateur fournit le document officiel (PDF/Excel/scan/grille SODATRA) → LOT2-REV-C.
 
 ### LOT2-REV-C — Ingestion officielle (à faire)
 
@@ -235,5 +235,15 @@ Procédure validée :
 
 ## 8. Prochaine étape
 
-1. **LOT2-REV-C** : Ingestion officielle — en attente du document transport Sénégal
+1. **LOT2-REV-C** : Ingestion officielle — **en attente du document officiel transport Sénégal** (PDF, Excel, scan, photo claire, ou grille validée SODATRA). Verdict CTO 2026-05-02 : aucune promotion possible sans preuve documentaire.
 2. **G6-REV** : ré-exécutable après résolution du blocking gap `pad_category` sur `03ccf66d`
+
+## 9. État transport au 2026-05-02 — Synthèse
+
+| Composant | État |
+|-----------|------|
+| Aksa (81 lignes) | ✅ Quarantinées (`is_active=false`, `evidence_level='historical_only'`) |
+| Génériques (10 lignes) | ✅ `to_confirm`, non servies par le moteur (filtre `evidence_level`) |
+| Moteur transport | ✅ Mode prudent — `TO_CONFIRM` pour tout transport non prouvé |
+| Document source | ❌ Introuvable — référence textuelle uniquement |
+| Promotion `official` | ❌ Bloquée — décision CTO jusqu'à réception document |

@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **LOT2-REV-B+C** : bypass transport corrigé dans `quotation-engine/index.ts` — filtre `.in('evidence_level', ['official', 'validated_internal'])` ajouté, les lignes `to_confirm` ne sont plus servies comme OFFICIAL. LOT2-REV-B = `audit_complete_document_non_retrouve` (document source physique introuvable). LOT2-REV-C = `a_faire` (pending official transport document). INFRA-PUBLISH-VITE-ENV-001 inchangé (`preview_ok_publish_non_testable_projet_non_publie`). LOT2-REV-A rappel : 81 lignes Aksa quarantinées. INFRA-PREVIEW-AUTH-FETCH-001 CLOS.
+Dernière mise à jour : 2026-05-02 — **Verdict CTO localisation transport** : document `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` introuvable dans Lovable Cloud / Storage / repo. Aucune promotion `to_confirm → official`. Les 10 lignes restent `evidence_level = 'to_confirm'`. LOT2-REV-B = `audit_complete_document_non_retrouve_verdict_cto`. LOT2-REV-C = `a_faire` (pending official transport document fourni par l'opérateur). LOT2-REV-A : 81 lignes Aksa quarantinées. Bypass transport corrigé. INFRA-PUBLISH-VITE-ENV-001 inchangé. INFRA-PREVIEW-AUTH-FETCH-001 CLOS.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
@@ -1134,12 +1134,14 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | LOT2-REV-B |
 | **Catégorie** | Pricing / Data Governance |
-| **Statut** | `à_faire` |
+| **Statut** | `audit_complete_document_non_retrouve_verdict_cto` (2026-05-02) |
 | **Priorité** | P2 |
 | **Phase d'origine** | Lot 2 révisé |
 | **Date** | 2026-05-02 |
-| **Objectif** | Retrouver et auditer le document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`. Vérifier s'il couvre plus que les 5 destinations actuellement en base. Comparer document vs base. Lister les lignes manquantes. |
-| **Déclencheur** | Disponibilité du fichier officiel complet. |
+| **Objectif** | Retrouver et auditer le document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`. |
+| **Résultat audit** | Document introuvable dans Lovable Cloud Storage (3 buckets), `email_attachments`, et repo projet. Existe uniquement comme référence textuelle dans `local_transport_rates.source_document`. |
+| **Verdict CTO** | Aucune promotion `to_confirm → official`. Les 10 lignes restent `evidence_level = 'to_confirm'`. Moteur en mode prudent (`TO_CONFIRM`). |
+| **Déclencheur de réouverture** | L'opérateur fournit le document officiel (PDF, Excel, scan, photo claire, ou grille validée SODATRA). |
 | **Recommandation** | Ne promouvoir aucune ligne sans preuve documentaire. |
 
 ---
