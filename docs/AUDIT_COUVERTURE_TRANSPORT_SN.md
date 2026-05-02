@@ -7,12 +7,12 @@
 
 ---
 
-## 1. Synthèse par client_code × evidence_level
+## 1. Synthèse par client_code × evidence_level (post-quarantaine)
 
-| client_code   | evidence_level    | lignes | usage |
-|---------------|-------------------|-------:|-------|
-| `AKSA_ENERGY` | `client_override` | 81 | servi uniquement si `pricingCtx.client_code = 'AKSA_ENERGY'` |
-| `NULL` (générique) | `to_confirm` | 10 | **JAMAIS servi comme tarif** (resolver skip → fallback `TO_CONFIRM`) |
+| client_code   | evidence_level    | is_active | lignes | usage |
+|---------------|-------------------|-----------|-------:|-------|
+| `AKSA_ENERGY` | `historical_only` | `false` | 81 | **QUARANTINÉ** — ancienne cotation ponctuelle, non consommable par le moteur (LOT2-REV-A 2026-05-02) |
+| `NULL` (générique) | `to_confirm` | `true` | 10 | Servi par le resolver mais `evidence_level` non filtré (à corriger LOT2-REV-C) |
 
 ---
 
