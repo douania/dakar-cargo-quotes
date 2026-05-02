@@ -38,11 +38,22 @@ Sources actives en base (`is_active = true`) mais **filtrées par le runtime** v
 | `carrier_billing_templates` (to_confirm, active) | 6 | `to_confirm` | **Filtré** par evidence_level — non consommé par les fonctions principales | À nettoyer / documenter |
 | `demurrage_tiers` (observed) | 2 | `observed` | **Filtré** par evidence_level dans quotation-engine — non servi | Obtenir grilles MSC officielles ou supprimer |
 
-### ⚠️ Point d'attention — `run-pricing` PAD alias
+### ✅ LOT3-B-PAD — Résolu : match impossible prouvé (aucun risque runtime)
 
-La fonction `run-pricing` accède à `port_tariffs` pour résoudre les alias PAD (droits de passage) avec uniquement `.eq('is_active', true)` **sans filtre `evidence_level`**. Actuellement, **4 lignes PAD `observed`** (provider=PAD) sont actives et potentiellement consommables par ce chemin. Les 19 lignes PAD `official` dominent, mais les 4 `observed` pourraient être servies si elles correspondent à une catégorie PAD non couverte par les officielles.
+L'audit ciblé LOT3-B-PAD (2026-05-02) a prouvé que les **4 lignes PAD `observed`** actives (source Taleb_Quote_2024) **ne peuvent pas être consommées** par le pipeline actuel.
 
-**Action recommandée** : vérifier si les 4 lignes PAD `observed` couvrent des catégories non présentes dans les 19 `official`. Si oui, ajouter un filtre `evidence_level` dans `run-pricing` ou les désactiver. À traiter en LOT3-B potentiel.
+**Raison** : `run-pricing` filtre strictement via `.eq('category', 'DROIT_PASSAGE')` et `.eq('operation_type', 'IMPORT')`. Or les 4 lignes Taleb ont `category = PORT_TAX / REDEVANCE_VARIABLE` et `operation_type = TRANSIT` — elles sont exclues par la logique métier hardcodée, indépendamment de `evidence_level`.
+
+| id (short) | category | classification | operation_type | amount | Statut |
+|------------|----------|----------------|----------------|--------|--------|
+| 307be606 | PORT_TAX | Conteneur léger <15t | TRANSIT | 11 308 | **Orpheline** — match impossible |
+| 6c14adfe | PORT_TAX | Conteneur standard 15-25t | TRANSIT | 16 962 | **Orpheline** — match impossible |
+| e4bb1b4d | REDEVANCE_VARIABLE | Standard 20 pieds | TRANSIT | 9 183 | **Orpheline** — match impossible |
+| 6cddfb14 | REDEVANCE_VARIABLE | Standard 40 pieds | TRANSIT | 18 366 | **Orpheline** — match impossible |
+
+Aucune autre edge function ne requête `PORT_TAX`, `REDEVANCE_VARIABLE` ou `TRANSIT` dans `port_tariffs` (vérifié par grep).
+
+**Option P3 (non prioritaire)** : désactiver ces 4 lignes pour hygiène de base. Risque runtime = zéro.
 
 ---
 
@@ -66,7 +77,7 @@ La fonction `run-pricing` accède à `port_tariffs` pour résoudre les alias PAD
 | PORT-TARIFFS-NATURE-SPLIT | Séparation natures `port_tariffs` | P2 | Multi-port ou terminal alternatif |
 | LOT2-SMOKE-RUNTIME-EXEC | Smoke tests G6-G9 runtime | P0 (clôture Lot 2) | Exécution par opérateur via psql |
 | LOT3-B (potentiel) | Audit `port_tariffs` observed/to_confirm + `carrier_billing_templates` observed/to_confirm | P1 | Décision CTO post-synthèse |
-| LOT3-B-PAD | Filtre `evidence_level` manquant dans `run-pricing` pour PAD alias (4 lignes `observed` potentiellement consommables) | P1 | À traiter avec LOT3-B |
+| LOT3-B-PAD | ~~Filtre `evidence_level` manquant dans `run-pricing` pour PAD alias~~ — **FERMÉ** : match impossible prouvé (category/operation_type hardcodés excluent les 4 lignes Taleb). Option P3 : désactivation hygiène. | closed | Aucun — risque nul |
 | TRANSPORT-GRILLE-GENERIQUE | Grille SODATRA générique transport local Sénégal | P2 | Décision métier |
 | RATE-CARDS-SODATRA | Validation/activation rate cards internes (35 lignes) | P1 | Retour SODATRA sur `VALIDATION_RATE_CARDS_AND_CATALOGUE.md` |
 
@@ -88,5 +99,5 @@ La fonction `run-pricing` accède à `port_tariffs` pour résoudre les alias PAD
 
 1. **Validation analytique uniquement** — aucun `run-pricing` post-déploiement n'a été lancé. Les comptages sont issus de SELECT réels post-LOT3-A.
 2. **Formulation prudente** — le système est nettement plus fiable, pas "parfait". Les sources P0 identifiées sont neutralisées ; d'autres sources ou chemins edge non encore testés pourraient exister.
-3. **Point découvert** — `run-pricing` accède à `port_tariffs` PAD sans filtre `evidence_level` (4 lignes `observed` potentiellement consommables). À traiter en priorité P1.
+3. **LOT3-B-PAD résolu** — `run-pricing` accède à `port_tariffs` PAD sans filtre `evidence_level`, mais les 4 lignes `observed` (Taleb) ont `category=PORT_TAX/REDEVANCE_VARIABLE` et `operation_type=TRANSIT`, donc **match impossible** avec les filtres hardcodés `DROIT_PASSAGE` + `IMPORT`. Aucun risque runtime. Option P3 : désactivation hygiène.
 4. **`demurrage_rates`** — cette table n'a pas de colonne `evidence_level`. Les 26 lignes actives sont issues de carriers considérés vérifiés (CMA CGM, Hapag-Lloyd, Maersk, MSC). Les 9 non vérifiées ont été désactivées par LOT3-A.
