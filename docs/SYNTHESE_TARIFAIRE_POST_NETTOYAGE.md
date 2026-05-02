@@ -2,8 +2,9 @@
 
 **Date :** 2026-05-02  
 **Contexte :** après exécution de LOT2-REV-A/B/C (transport local) et LOT3-A (quarantaine P0 minimale).  
-**Type de validation :** analytique (SELECT réels post-LOT3-A). Aucun `run-pricing` post-déploiement lancé.  
-**Périmètre :** les sources P0 identifiées dans LOT3-0 et traitées par LOT3-A ne peuvent plus sortir automatiquement en cotation client. Cette conclusion est limitée aux sources P0 identifiées ; elle ne constitue pas une garantie absolue sur toutes les futures sources.
+**Type de validation :** analytique (SELECT réels post-LOT3-A). Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb). Cependant, aucun smoke runtime contrôlé n'a été déclenché spécifiquement dans le cadre de l'audit.  
+**Périmètre :** les sources P0 identifiées dans LOT3-0 et traitées par LOT3-A ne peuvent plus sortir automatiquement en cotation client. Cette conclusion est limitée aux sources P0 identifiées ; elle ne constitue pas une garantie absolue sur toutes les futures sources.  
+**Audit complet :** voir `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md` — verdict GO conditionnel, risques R1–R4 documentés dans `docs/DEFERRED_BACKLOG.md`.
 
 ---
 
