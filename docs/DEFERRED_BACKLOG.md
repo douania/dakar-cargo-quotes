@@ -1104,3 +1104,54 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | LOT12-COVERAGE-A | Smoke multi-lot non-export | `deferred` | basse | Lot 1.2 (G1.2) | 2026-04-25 | Apparition d'un pricing_run multi-lot non-export en base | Rejouer un smoke test ciblé sur la branche `[LOT1.2][multi-lot N]` côté `run-pricing` |
 | LOT12-COVERAGE-B | Symétrie log branche export | `deferred` | basse | Lot 1.2 (G1.2-D) | 2026-04-25 | Lot 2 ou audit de la branche export | Ajouter un log `[LOT1.2][export-direct]` côté `run-pricing/index.ts:1042` pour symétriser la preuve avec la branche non-export |
 | LOT12-D-DRIFT | Dérive non-régression export `76c9819c…` | `deferred` | moyenne | Lot 1.2 (G1.2-D) | 2026-04-25 | Avant Lot 2 ou en parallèle | Investiguer la dérive 750k→1M XOF / 60→35 lignes entre 2026-04-07 et 2026-04-25 sur `EXPORT_SENEGAL` (cause probable : clôture Lot 1 Taleb_Quote / port_tariffs). Hors-périmètre Lot 1.2 (`client_code` reste `null`). |
+
+---
+
+## LOT2-REV-A — Quarantaine Aksa Energy (CLOS)
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT2-REV-A |
+| **Catégorie** | Pricing / Data Governance |
+| **Statut** | **CLOS — exécuté 2026-05-02** |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 2 révisé |
+| **Date** | 2026-05-02 |
+| **Action** | 81 lignes `AKSA_ENERGY` mises en quarantaine : `is_active=false`, `evidence_level='historical_only'`, note de quarantaine idempotente. Aucune suppression physique. |
+| **Preflight** | 6 contrôles SELECT passés (avec `IS DISTINCT FROM`). |
+| **Post-migration** | 0 Aksa active, 81 quarantinées, 10 génériques intactes. |
+| **Smoke tests** | G7 PASS (0 fuite Aksa), G9 PASS (non-régression aérien), anti-fuite globale PASS. G6-REV non exécutable (blocking gap `pad_category` pré-existant sur `03ccf66d`). |
+| **Tests abandonnés** | G6 ancien (injection Aksa), G8 ancien (injection Velingara) — plus pertinents. |
+| **Décision CTO** | Les 81 lignes Aksa proviennent d'une cotation ponctuelle historique, pas d'un tarif client contractuel. Elles ne doivent plus alimenter le moteur de pricing. |
+
+---
+
+## LOT2-REV-B — Audit transport officiel Sénégal
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT2-REV-B |
+| **Catégorie** | Pricing / Data Governance |
+| **Statut** | `à_faire` |
+| **Priorité** | P2 |
+| **Phase d'origine** | Lot 2 révisé |
+| **Date** | 2026-05-02 |
+| **Objectif** | Retrouver et auditer le document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`. Vérifier s'il couvre plus que les 5 destinations actuellement en base. Comparer document vs base. Lister les lignes manquantes. |
+| **Déclencheur** | Disponibilité du fichier officiel complet. |
+| **Recommandation** | Ne promouvoir aucune ligne sans preuve documentaire. |
+
+---
+
+## LOT2-REV-C — Ingestion officielle transport Sénégal
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT2-REV-C |
+| **Catégorie** | Pricing / Data Governance |
+| **Statut** | `à_faire` — dépend de LOT2-REV-B |
+| **Priorité** | P2 |
+| **Phase d'origine** | Lot 2 révisé |
+| **Date** | 2026-05-02 |
+| **Objectif** | Insérer / activer uniquement les lignes prouvées par document officiel ou validation SODATRA. `evidence_level='official'` ou `'sodatra_grid'`. |
+| **Déclencheur** | Clôture LOT2-REV-B avec mapping complet destinations × container types. |
+| **Recommandation** | Migration data traçable. Aucun tarif inventé. |
