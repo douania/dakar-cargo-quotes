@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **LOT3-B-PAD fermé** : match impossible prouvé (les 4 lignes PAD `observed` Taleb ont `category=PORT_TAX/REDEVANCE_VARIABLE` + `operation_type=TRANSIT`, exclus par les filtres hardcodés `DROIT_PASSAGE` + `IMPORT` de `run-pricing`). Aucun risque runtime. Option P3 désactivation hygiène conservée. LOT3-A-VALIDATION clos analytique. Les sources P0 identifiées dans LOT3-0 et traitées par LOT3-A ne peuvent plus sortir automatiquement en cotation client (validation analytique, pas smoke runtime). LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
+Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO conditionnel**. Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1–R4 ajoutés. LOT3-B-PAD fermé : match impossible prouvé. LOT3-A-VALIDATION clos analytique. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
@@ -1159,3 +1159,73 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Objectif** | Insérer / activer uniquement les lignes prouvées par document officiel ou validation SODATRA. `evidence_level='official'` ou `'sodatra_grid'`. |
 | **Déclencheur** | Clôture LOT2-REV-B avec mapping complet destinations × container types. |
 | **Recommandation** | Migration data traçable. Aucun tarif inventé. |
+
+---
+
+## R1-HISTORICAL-CONTAMINATED-RUNS — Runs historiques persistés avec données Taleb
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R1-HISTORICAL-CONTAMINATED-RUNS |
+| **Catégorie** | Data Hygiene / Pricing History |
+| **Statut** | `documented_low_priority` |
+| **Priorité** | P3 |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Constat** | Le run `128110e1` (case `240167ed`, pré-LOT3) contient 16 références Taleb dans ses lignes persistées. Les quotation_versions générées à partir de ces runs contiennent les anciennes lignes. |
+| **Impact** | Faible — visible uniquement si l'opérateur consulte un ancien run sans relancer. Un re-run post-LOT3 produirait 0 contamination. |
+| **Déclencheur de réouverture** | Si un opérateur génère un PDF ou email depuis un ancien run contaminé sans relancer le pricing. |
+| **Recommandation** | Identifier les quotation_versions générées à partir de runs contaminés (pré-LOT3) et les marquer comme obsolètes, ou documenter que tout re-run les corrigera. |
+
+---
+
+## R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER — Renforcement filtre evidence_level dans price-service-lines
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
+| **Catégorie** | Runtime / Edge Function / Data Governance |
+| **Statut** | `à_faire` |
+| **Priorité** | P2 |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Constat** | `price-service-lines` L920 charge `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. Le guard L629 rejette `evidence_level='to_confirm'`, mais laisserait passer `observed` ou `historical_only` si de futures lignes étaient ajoutées comme `is_active=true`. |
+| **Impact** | Risque runtime actuel nul sous les filtres existants (aucune ligne observed/historical_only active). Risque théorique si nouvelles lignes ajoutées. |
+| **Action** | Micro-lot LOCAL-TRANSPORT-RUNTIME-HARDENING : ajouter `.in('evidence_level', ['official','validated_internal'])` à la requête L920 pour aligner avec `quotation-engine` L1709. |
+| **Déclencheur** | Avant d'ajouter de nouvelles lignes `local_transport_rates`. |
+| **Recommandation** | Traiter avant tout nouveau paramétrage transport. |
+
+---
+
+## R3-SMOKE-RUNTIME-POST-LOT3 — Smoke runtime contrôlé post-LOT3
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R3-SMOKE-RUNTIME-POST-LOT3 |
+| **Catégorie** | Validation runtime / Smoke tests |
+| **Statut** | `à_faire` |
+| **Priorité** | P0 |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Constat** | Aucun smoke runtime contrôlé post-LOT3 exécuté dans ce protocole d'audit. Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb), mais n'ont pas été déclenchés comme smoke tests formels. |
+| **Impact** | Moyen — les filtres sont vérifiés par requête DB et inspection code, mais aucun run-pricing complet contrôlé n'a été lancé dans le cadre de l'audit. |
+| **Action** | Relancer un `run-pricing` sur au moins 2 dossiers (1 SEA_FCL `29b96eec`, 1 AIR `01c3fbbc`) depuis le cockpit. Vérifier que les lignes TO_CONFIRM apparaissent et qu'aucune référence Taleb/Aksa ne sort. |
+| **Déclencheur** | Condition obligatoire du GO conditionnel avant injection de nouvelles données tarifaires. |
+| **Recommandation** | Exécuter en priorité avant tout nouveau paramétrage. |
+
+---
+
+## R4-DEMURRAGE-EVIDENCE-LEVEL-MISSING — Absence de colonne evidence_level sur demurrage_rates
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R4-DEMURRAGE-EVIDENCE-LEVEL-MISSING |
+| **Catégorie** | Data Governance / Schema |
+| **Statut** | `documented_low_priority` |
+| **Priorité** | P3 |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Constat** | La table `demurrage_rates` n'a pas de colonne `evidence_level`. Les 26 lignes actives sont de carriers considérés vérifiés (documents fournisseur identifiés : CMA CGM:7, Hapag-Lloyd:7, Maersk:7, MSC:5). Les 9 non vérifiées ont été désactivées par LOT3-A. |
+| **Impact** | Faible — les 26 actives sont de sources considérées vérifiées. Risque si de nouvelles sources non vérifiées sont ajoutées sans gouvernance. |
+| **Déclencheur de réouverture** | Si de nouvelles lignes demurrage de sources non vérifiées doivent être ajoutées. |
+| **Recommandation** | Ajouter `evidence_level` à `demurrage_rates` si nouvelles sources non vérifiées arrivent. Ne pas traiter immédiatement. |
