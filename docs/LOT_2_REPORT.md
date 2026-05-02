@@ -1,9 +1,11 @@
-# Lot 2 — Rapport Smoke G6 / G7 / G8 / G9
+# Lot 2 — Rapport révisé (LOT2-REV-A)
 
-**Date d'exécution :** 2026-04-25  
-**Statut global :** ⏸ **EXÉCUTION RUNTIME EN ATTENTE** (blocage technique sandbox — voir §0)  
+**Date d'exécution originale :** 2026-04-25  
+**Date de révision :** 2026-05-02  
+**Statut global :** ✅ **LOT2-REV-A CLOS** — Quarantaine Aksa exécutée, smoke tests validés  
+**Anciens tests G6/G8 :** ❌ **ABANDONNÉS** (décision CTO 2026-05-02 — Aksa = cotation ponctuelle historique, pas tarif client réutilisable)  
 **Code Lot 2 :** ✅ déployé (migration + price-service-lines)  
-**Harness de preuve :** ✅ prêt (`scripts/lot2_smoke/`)
+**Harness de preuve :** ✅ prêt (`scripts/lot2_smoke/`) — anciens scripts conservés pour audit, non réexécutables
 
 ---
 
