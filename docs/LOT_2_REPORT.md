@@ -247,3 +247,51 @@ Procédure validée :
 | Moteur transport | ✅ Mode prudent — `TO_CONFIRM` pour tout transport non prouvé |
 | Document source | ❌ Introuvable — référence textuelle uniquement |
 | Promotion `official` | ❌ Bloquée — décision CTO jusqu'à réception document |
+
+---
+
+## 10. LOT3-A — Quarantaine P0 minimale (2026-05-02)
+
+**Contexte** : LOT3-0 (vérification runtime complète) a révélé 62 lignes P0 non officielles consommées par le moteur.
+
+### 10.1 Corrections runtime
+
+| Fonction | Table | Filtre ajouté | Lignes exclues |
+|----------|-------|---------------|----------------|
+| `price-service-lines` | `pricing_rate_cards` | `.eq("status", "active")` | 35 (toutes `to_confirm`) |
+| `quotation-engine` | `demurrage_tiers` | `.in("evidence_level", ["official", "validated_internal"])` | 2 (`observed`, facture MSC) |
+
+### 10.2 Quarantaine data (`is_active=false`)
+
+| Table | Lignes | Source | IDs préflight vérifiés |
+|-------|--------|--------|----------------------|
+| `destination_terminal_rates` | 10 | `Taleb_Tiakabougou_Quote_2024` | ✅ 10/10 |
+| `border_clearing_rates` | 6 | `Taleb_Tiakabougou_Quote_2024` | ✅ 6/6 |
+| `demurrage_rates` | 9 | COSCO/Evergreen/ONE "non vérifié Sénégal" | ✅ 9/9 |
+
+### 10.3 Non modifié (conforme aux garde-fous)
+
+- `pricing_rate_cards` : aucun UPDATE data (filtre runtime seul)
+- `pricing_service_catalogue` : non touchée
+- `pricing_customs_tiers` : non touchée
+- `port_tariffs` : déjà filtré
+- `carrier_billing_templates` : déjà filtré
+- `local_transport_rates` : déjà filtré (LOT2)
+- `tax_rates` : barèmes UEMOA officiels
+
+### 10.4 Vérification post-exécution
+
+| Check | Résultat |
+|-------|----------|
+| `pricing_rate_cards` active count | **0** (35 `to_confirm` exclues par filtre) |
+| `destination_terminal_rates` Taleb active | **0** (10 désactivées) |
+| `border_clearing_rates` Taleb active | **0** (6 désactivées) |
+| `demurrage_rates` non vérifiées active | **0** (9 désactivées) |
+| `demurrage_tiers` observed | 2 existent, **exclues par filtre runtime** |
+| Edge functions déployées | ✅ `price-service-lines` + `quotation-engine` |
+
+### 10.5 Impact opérationnel
+
+- **Mali transit** : les frais terminaux (SDV_KATI, MALI_SHIPPER_COUNCIL) et frontière (KIDIRA_DIBOLI) ne seront plus servis automatiquement. Le moteur produira un `TO_CONFIRM` fallback. L'opérateur doit fournir les barèmes officiels Mali pour restaurer ces lignes.
+- **Demurrage COSCO/Evergreen/ONE** : fallback sur les données carriers vérifiés (CMA CGM, Hapag-Lloyd, Maersk) ou `TO_CONFIRM`.
+- **Rate cards** : aucune rate card n'est servie (0 active). Le moteur utilise les autres sources (port_tariffs, catalogue, transport rates).
