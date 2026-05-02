@@ -1,17 +1,18 @@
 # Audit couverture transport local — Sénégal
 
-**Date :** 2026-04-25  
-**Source :** `local_transport_rates` (snapshot post-migration Lot 2A)  
-**Total lignes actives :** 91
+**Date :** 2026-04-25 (initial) / 2026-05-02 (post-quarantaine LOT2-REV-A)  
+**Source :** `local_transport_rates` (snapshot post-quarantaine Aksa)  
+**Total lignes actives :** 10 (81 Aksa quarantinées → `is_active=false`, `evidence_level='historical_only'`)  
+**Total lignes inactives (quarantaine) :** 81
 
 ---
 
-## 1. Synthèse par client_code × evidence_level
+## 1. Synthèse par client_code × evidence_level (post-quarantaine)
 
-| client_code   | evidence_level    | lignes | usage |
-|---------------|-------------------|-------:|-------|
-| `AKSA_ENERGY` | `client_override` | 81 | servi uniquement si `pricingCtx.client_code = 'AKSA_ENERGY'` |
-| `NULL` (générique) | `to_confirm` | 10 | **JAMAIS servi comme tarif** (resolver skip → fallback `TO_CONFIRM`) |
+| client_code   | evidence_level    | is_active | lignes | usage |
+|---------------|-------------------|-----------|-------:|-------|
+| `AKSA_ENERGY` | `historical_only` | `false` | 81 | **QUARANTINÉ** — ancienne cotation ponctuelle, non consommable par le moteur (LOT2-REV-A 2026-05-02) |
+| `NULL` (générique) | `to_confirm` | `true` | 10 | Servi par le resolver mais `evidence_level` non filtré (à corriger LOT2-REV-C) |
 
 ---
 
