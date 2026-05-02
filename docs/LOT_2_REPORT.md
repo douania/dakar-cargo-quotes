@@ -124,43 +124,57 @@ psql -f scripts/lot2_smoke/05_validate_results.sql > docs/lot2_smoke_evidence.tx
 
 ---
 
-## 5. Verdicts (à compléter après runtime)
+## 5. Verdicts LOT2-REV-A (2026-05-02)
+
+### Quarantaine Aksa
+
+| Contrôle | Attendu | Résultat |
+|----------|---------|----------|
+| Lignes Aksa totales | 81 | ✅ 81 |
+| Source doc Aksa | 81 | ✅ 81 |
+| Aksa + source ≠ xlsx | 0 | ✅ 0 |
+| Non-Aksa + source Aksa | 0 | ✅ 0 |
+| Génériques to_confirm | 10/10 | ✅ 10/10 |
+| Colonne `notes` existe | oui | ✅ oui |
+| Post: Aksa actives | 0 | ✅ 0 |
+| Post: Aksa quarantinées | 81 | ✅ 81 |
+| Post: Génériques intactes | 10 | ✅ 10 |
+
+### Smoke tests
 
 | Test | Verdict | Preuve | Notes |
 |------|--------:|--------|-------|
-| G6   | ⏸ PENDING | — | en attente d'exécution runtime |
-| G7   | ⏸ PENDING | — | en attente d'exécution runtime |
-| G8   | ⏸ PENDING | — | en attente d'exécution runtime |
-| G9   | ⏸ PENDING | — | en attente d'exécution runtime |
+| G6 ancien | ❌ ABANDONNÉ | — | Décision CTO 2026-05-02 : injection Aksa plus pertinente |
+| G6-REV | ⚠️ NON EXÉCUTABLE | blocking gap `pad_category` ouvert sur `03ccf66d` | Pas une régression — gap pré-existant |
+| G7 | ✅ PASS | run #17, pricing_run `46cd9ded` | 0 fuite Aksa, 3 lignes TRUCKING depuis `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` |
+| G8 ancien | ❌ ABANDONNÉ | — | Décision CTO 2026-05-02 : injection Velingara plus pertinente |
+| G9 | ✅ PASS | run #3, pricing_run `73a912ba` | 0 fuite Aksa, 1 ligne TRUCKING placeholder `amount=0` `missing_quantity` (pré-existant) |
 
-**Anti-fuite Aksa global** (requête finale du harness) : ⏸ PENDING.
+**Anti-fuite Aksa globale** : ✅ **PASS** — 0 référence "aksa" dans les runs post-quarantaine (`46cd9ded`, `73a912ba`).
 
----
+### Observation G7 — lignes génériques servies
 
-## 6. Garde-fous respectés (statiques, vérifiés)
-
-- ✅ `run-pricing/index.ts` non modifié dans le Lot 2 (vérifié `git diff`)
-- ✅ Aucune promotion de `to_confirm → official` (resolver renvoie `null` strict)
-- ✅ Aucun fallback Aksa pour non-Aksa (filtre `clientFiltered` strict, ligne 569-579 de `price-service-lines/index.ts`)
-- ✅ Réutilisation de la structure `source: "TO_CONFIRM"` du Lot 1 (lignes 1430, 1441)
-- ✅ Audit séparé : `docs/AUDIT_COUVERTURE_TRANSPORT_SN.md` (à produire en parallèle)
+Les 3 lignes TRUCKING sur `29b96eec` proviennent des lignes génériques `to_confirm` (source `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS`). Le resolver les sert avec `source_type=OFFICIAL` malgré `evidence_level=to_confirm` en base. Ce comportement est **hors périmètre LOT2-REV-A** (quarantaine Aksa uniquement). Le renforcement du resolver pour filtrer par `evidence_level` relève de **LOT2-REV-C**.
 
 ---
 
-## 7. Prochaine action attendue de l'utilisateur
+## 6. Garde-fous respectés
 
-1. Exécuter `scripts/lot2_smoke/01_inject_aksa_g6.sql`
-2. Cockpit → case `03ccf66d-…` → "Lancer le pricing"
-3. Exécuter `scripts/lot2_smoke/02_restore_aksa_g6.sql` **immédiatement**
-4. Cockpit → case `29b96eec-…` → "Lancer le pricing" (G7)
-5. Exécuter `scripts/lot2_smoke/03_inject_g8_dest_velingara.sql`
-   → **noter la valeur `baseline_fact_id` affichée à l'étape 1**
-6. Cockpit → case `29b96eec-…` → "Lancer le pricing" (G8)
-7. Ouvrir `scripts/lot2_smoke/04_restore_g8_dest_kolda.sql`,
-   remplacer `<<<PASTE_BASELINE_FACT_ID_HERE>>>` par la valeur notée à l'étape 5,
-   puis exécuter le script (transaction unique `BEGIN/COMMIT` + `ON_ERROR_STOP`)
-8. Cockpit → case `01c3fbbc-…` → "Lancer le pricing" (G9)
-9. Exécuter `scripts/lot2_smoke/05_validate_results.sql`
-10. Renvoyer la sortie à l'agent → l'agent finalise les verdicts dans ce rapport.
+- ✅ `run-pricing/index.ts` non modifié
+- ✅ `price-service-lines/index.ts` non modifié
+- ✅ Aucun fichier `src/` modifié
+- ✅ Aucune migration de schéma
+- ✅ Aucune edge function modifiée
+- ✅ Aucune promotion de `to_confirm → official`
+- ✅ Aucun fallback Aksa pour non-Aksa
+- ✅ Aucun tarif inventé
+- ✅ Aucune modification PAD / magasinage / carrier
+- ✅ Les 10 lignes génériques restent intactes (`is_active=true`, `evidence_level=to_confirm`, `client_code IS NULL`)
 
-**Garde-fou impératif :** le script 04 doit être exécuté **dans une seule transaction** (vrai client psql ou SQL editor backend supportant `BEGIN/COMMIT` + assertions bloquantes). Aucune exécution par morceaux n'est autorisée — décision CTO 2026-04-25.
+---
+
+## 7. Prochaine étape
+
+1. **LOT2-REV-B** : Audit du document officiel `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` — vérifier couverture destinations et container types
+2. **LOT2-REV-C** : Ingestion officielle + renforcement resolver (`evidence_level` whitelist)
+3. **G6-REV** : ré-exécutable après résolution du blocking gap `pad_category` sur `03ccf66d`
