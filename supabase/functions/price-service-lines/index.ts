@@ -917,7 +917,7 @@ Deno.serve(async (req) => {
       // Phase PRICING V3.2: Load client overrides
       serviceClient.from("pricing_client_overrides").select("*").eq("active", true),
       // Phase V4.1: Preload local transport rates (avoid N+1 queries)
-      serviceClient.from("local_transport_rates").select("*").eq("is_active", true),
+      serviceClient.from("local_transport_rates").select("*").eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
     ]);
 
     // Phase PRICING V2: Customs tiers array
