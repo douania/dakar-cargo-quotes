@@ -330,8 +330,24 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       });
     }
 
-    // 3 — Open client gaps (sent, awaiting answer)
-    const sentClientGaps = clientGaps.filter((r: any) => r.status === "sent" || r.status === "answered");
+    // 3a — Answered client gaps (response received, needs processing)
+    const answeredClientGaps = clientGaps.filter((r: any) => r.status === "answered");
+    if (answeredClientGaps.length > 0 && result.length < 4) {
+      result.push({
+        type: "client",
+        actionKey: "open_client_gap",
+        priority: result.length === 0 ? "now" : getPriority(),
+        title: `${answeredClientGaps.length} réponse(s) client à traiter`,
+        reason: "Réponse client détectée — validation requise",
+        status: "to_execute",
+        nextStep: "Analyser la réponse puis valider les faits utiles",
+        icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+        color: "emerald",
+      });
+    }
+
+    // 3b — Sent client gaps (still waiting for answer)
+    const sentClientGaps = clientGaps.filter((r: any) => r.status === "sent");
     if (sentClientGaps.length > 0 && result.length < 4) {
       result.push({
         type: "client",

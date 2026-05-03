@@ -6,11 +6,17 @@
  * 12 étapes max, décomposant les boucles partenaire et client.
  */
 
+import { useState } from "react";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { statusAtLeast, statusAbove } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, AlertCircle, ListChecks } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { CheckCircle2, Circle, AlertCircle, ListChecks, ChevronDown } from "lucide-react";
 
 type StepStatus = "done" | "current" | "pending" | "blocked" | "skipped";
 type StepGroup = "communication" | "consolidation";
@@ -28,6 +34,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
+  const [open, setOpen] = useState(false);
   const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
@@ -43,6 +50,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     draftPartnerRequests,
     unsentPartnerRequests,
     draftedClientGaps,
+    answeredClientGaps = 0,
     hasSelectedVersion,
     hasPdf,
     hasDraftEmail,
@@ -118,6 +126,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "analyze-client-responses",
       label: "Analyser les réponses client",
       status: openClientGaps === 0 ? "done" : "pending",
+      note: answeredClientGaps > 0
+        ? `${answeredClientGaps} réponse${answeredClientGaps > 1 ? 's' : ''} client à analyser`
+        : undefined,
       group: "communication",
     });
   }
@@ -194,88 +205,100 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   return (
     <Card className="border-border/50">
       <CardContent className="py-3 px-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <ListChecks className="h-4 w-4" />
-            Plan d'actions
-          </div>
-          <Badge
-            className={
-              doneCount === totalCount
-                ? "bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/15"
-                : "bg-muted text-muted-foreground border-border hover:bg-muted"
-            }
-            variant="secondary"
-          >
-            {doneCount}/{totalCount} étapes
-          </Badge>
-        </div>
-
-        {/* COCKPIT-6: Operational counters */}
-        {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0) && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {draftPartnerRequests > 0 && (
-              <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
-                {draftPartnerRequests} à préparer
-              </Badge>
-            )}
-            {unsentPartnerRequests > 0 && (
-              <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 bg-orange-50">
-                {unsentPartnerRequests} envois à confirmer
-              </Badge>
-            )}
-            {pendingPartnerFacts > 0 && (
-              <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 bg-blue-50">
-                {pendingPartnerFacts} faits à valider
-              </Badge>
-            )}
-            {draftedClientGaps > 0 && (
-              <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 bg-purple-50">
-                {draftedClientGaps} clarifications à envoyer
-              </Badge>
-            )}
-            {blockingGapsCount > 0 && (
-              <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
-                {blockingGapsCount} gaps bloquants
-              </Badge>
-            )}
-          </div>
-        )}
-
-        {(["communication", "consolidation"] as const).map((group) => {
-          const groupSteps = steps.filter((s) => s.group === group);
-          if (groupSteps.length === 0) return null;
-          return (
-            <div key={group} className="space-y-1">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/60 pt-1.5 pb-0.5">
-                {group === "communication" ? "Communication" : "Consolidation commerciale"}
+        <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleTrigger className="w-full">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <ListChecks className="h-4 w-4" />
+                Plan d'actions
+                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
               </div>
-              {groupSteps.map((step) => (
-                <div key={step.id}>
-                  <div
-                    className={`flex items-center gap-2 py-0.5 text-xs ${
-                      step.status === "done"
-                        ? "text-muted-foreground line-through"
-                        : step.status === "current"
-                        ? "text-foreground font-medium"
-                        : step.status === "blocked"
-                        ? "text-amber-700 font-medium"
-                        : "text-muted-foreground/60"
-                    }`}
-                  >
-                    {iconForStatus(step.status)}
-                    <span>{step.label}</span>
-                  </div>
-                  {step.note && step.status !== "done" && (
-                    <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
-                      {step.note}
-                    </div>
-                  )}
-                </div>
-              ))}
+              <Badge
+                className={
+                  doneCount === totalCount
+                    ? "bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/15"
+                    : "bg-muted text-muted-foreground border-border hover:bg-muted"
+                }
+                variant="secondary"
+              >
+                {doneCount}/{totalCount} étapes
+              </Badge>
             </div>
-          );
-        })}
+          </CollapsibleTrigger>
+
+          {/* COCKPIT-6: Operational counters — always visible */}
+          {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0 || answeredClientGaps > 0) && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {draftPartnerRequests > 0 && (
+                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
+                  {draftPartnerRequests} à préparer
+                </Badge>
+              )}
+              {unsentPartnerRequests > 0 && (
+                <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 bg-orange-50">
+                  {unsentPartnerRequests} envois à confirmer
+                </Badge>
+              )}
+              {pendingPartnerFacts > 0 && (
+                <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 bg-blue-50">
+                  {pendingPartnerFacts} faits à valider
+                </Badge>
+              )}
+              {draftedClientGaps > 0 && (
+                <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 bg-purple-50">
+                  {draftedClientGaps} clarifications à envoyer
+                </Badge>
+              )}
+              {blockingGapsCount > 0 && (
+                <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
+                  {blockingGapsCount} gaps bloquants
+                </Badge>
+              )}
+              {answeredClientGaps > 0 && (
+                <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700 bg-emerald-50">
+                  {answeredClientGaps} réponse{answeredClientGaps > 1 ? 's' : ''} client à traiter
+                </Badge>
+              )}
+            </div>
+          )}
+
+          <CollapsibleContent>
+            {(["communication", "consolidation"] as const).map((group) => {
+              const groupSteps = steps.filter((s) => s.group === group);
+              if (groupSteps.length === 0) return null;
+              return (
+                <div key={group} className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground/60 pt-1.5 pb-0.5">
+                    {group === "communication" ? "Communication" : "Consolidation commerciale"}
+                  </div>
+                  {groupSteps.map((step) => (
+                    <div key={step.id}>
+                      <div
+                        className={`flex items-center gap-2 py-0.5 text-xs ${
+                          step.status === "done"
+                            ? "text-muted-foreground line-through"
+                            : step.status === "current"
+                            ? "text-foreground font-medium"
+                            : step.status === "blocked"
+                            ? "text-amber-700 font-medium"
+                            : "text-muted-foreground/60"
+                        }`}
+                      >
+                        {iconForStatus(step.status)}
+                        <span>{step.label}</span>
+                      </div>
+                      {step.note && step.status !== "done" && (
+                        <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
+                          {step.note}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   );

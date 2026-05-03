@@ -49,8 +49,9 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
 
   if (!cockpit) return null;
 
-  const { openPartnerRequests, pendingPartnerFacts: pendingFactsCount, openClientGaps: openGapsCount } = cockpit;
+  const { openPartnerRequests, pendingPartnerFacts: pendingFactsCount, openClientGaps: openGapsCount, answeredClientGaps = 0 } = cockpit;
   const rows = previewRows ?? [];
+  const nonAnsweredClientGaps = Math.max(0, openGapsCount - answeredClientGaps);
   const totalWarnings = openPartnerRequests + pendingFactsCount + openGapsCount;
   const isComplete = totalWarnings === 0;
 
@@ -106,11 +107,20 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
               </div>
             )}
 
-            {openGapsCount > 0 && (
+            {answeredClientGaps > 0 && (
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span>
+                  <span className="font-medium text-foreground">{answeredClientGaps}</span> réponse{answeredClientGaps > 1 ? 's' : ''} client reçue{answeredClientGaps > 1 ? 's' : ''} à traiter
+                </span>
+              </div>
+            )}
+
+            {nonAnsweredClientGaps > 0 && (
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                 <span>
-                  <span className="font-medium text-foreground">{openGapsCount}</span> clarification{openGapsCount > 1 ? 's' : ''} client non clôturée{openGapsCount > 1 ? 's' : ''}
+                  <span className="font-medium text-foreground">{nonAnsweredClientGaps}</span> clarification{nonAnsweredClientGaps > 1 ? 's' : ''} client en attente
                 </span>
               </div>
             )}
