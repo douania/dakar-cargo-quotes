@@ -268,11 +268,14 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                 value={formData.partner_name}
                 onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
               />
-              <Input
-                placeholder="Email (optionnel)"
-                value={formData.partner_email}
-                onChange={(e) => setFormData({ ...formData, partner_email: e.target.value })}
-              />
+              <div>
+                <Input
+                  placeholder="Email partenaire"
+                  value={formData.partner_email}
+                  onChange={(e) => setFormData({ ...formData, partner_email: e.target.value })}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5 ml-1">Requis avant envoi et analyse de réponse</p>
+              </div>
             </div>
             <Select
               value={formData.purpose}
