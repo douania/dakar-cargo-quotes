@@ -88,6 +88,9 @@ interface EmailAttachmentRow {
 }
 
 function AnalysisBadge({ att }: { att: EmailAttachmentRow }) {
+  if (!att.storage_path) {
+    return <Badge variant="outline" className="text-[10px] bg-orange-100 text-orange-800 border-orange-300">Non téléchargée</Badge>;
+  }
   if (att.extracted_data?.type === "error") {
     return <Badge variant="destructive" className="text-[10px]">Erreur</Badge>;
   }
@@ -126,12 +129,11 @@ function useEmailAttachmentsForCase(caseId: string) {
       const emailIds = emails.map(e => e.id);
       const emailMap = Object.fromEntries(emails.map(e => [e.id, e]));
 
-      // Step 3: get attachments with storage_path present (downloadable only)
+      // Step 3: get all attachments (including those not yet downloaded to storage)
       const { data: attachments, error: attErr } = await supabase
         .from("email_attachments")
         .select("id, email_id, filename, content_type, size, storage_path, is_analyzed, extracted_data")
-        .in("email_id", emailIds)
-        .not("storage_path", "is", null);
+        .in("email_id", emailIds);
       if (attErr || !attachments?.length) return [];
 
       // Filter out inline/signatures (small images, common signature patterns)
