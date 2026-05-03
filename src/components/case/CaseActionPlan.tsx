@@ -43,6 +43,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
     draftPartnerRequests,
     unsentPartnerRequests,
     draftedClientGaps,
+    answeredClientGaps = 0,
     hasSelectedVersion,
     hasPdf,
     hasDraftEmail,
