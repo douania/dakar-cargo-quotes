@@ -198,7 +198,7 @@ serve(async (req: Request) => {
       // 5. Score each request
       const created: Array<{ request_id: string; email_id: string; score: number; confidence: string }> = [];
 
-      for (const req of openRequests) {
+      for (const req of validRequests) {
         const result = scoreEmails(req, threadEmails, usedEmailIds);
         if (!result || !result.bestEmailId) continue;
 
@@ -233,7 +233,7 @@ serve(async (req: Request) => {
         });
       }
 
-      return jsonResponse({ suggestions: created, total_scanned: openRequests.length });
+      return jsonResponse({ suggestions: created, total_scanned: validRequests.length });
     }
 
     // ---------- CONFIRM ----------
