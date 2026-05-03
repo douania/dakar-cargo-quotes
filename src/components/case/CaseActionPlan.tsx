@@ -6,11 +6,17 @@
  * 12 étapes max, décomposant les boucles partenaire et client.
  */
 
+import { useState } from "react";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { statusAtLeast, statusAbove } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, AlertCircle, ListChecks } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { CheckCircle2, Circle, AlertCircle, ListChecks, ChevronDown } from "lucide-react";
 
 type StepStatus = "done" | "current" | "pending" | "blocked" | "skipped";
 type StepGroup = "communication" | "consolidation";
