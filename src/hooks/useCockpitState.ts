@@ -45,6 +45,7 @@ export interface CockpitState {
   /** Active client gap requests (drafted + sent + answered) — used for action plan visibility */
   activeClientGaps: number;
   draftedClientGaps: number;
+  answeredClientGaps: number;
   openClientGaps: number; // drafted + sent + answered
 
   // Version pipeline
@@ -133,6 +134,7 @@ export function useCockpitState(caseId: string | undefined) {
       const openClientGaps = activeClientGaps; // aligned: active = gap still open
       const draftedClientGapRows = (clientGapDraftedKeyRes.data ?? []) as Array<{ gap_key: string }>;
       const draftedClientGaps = draftedClientGapRows.filter((r) => openGapKeys.has(r.gap_key)).length;
+      const answeredClientGaps = activeClientGapRows.filter((r) => r.status === "answered").length;
 
       // P2-A: build per-request pending facts map
       const factsRows = (factsRes.data ?? []) as Array<{ request_id: string }>;
@@ -234,6 +236,7 @@ export function useCockpitState(caseId: string | undefined) {
         totalClientGaps,
         activeClientGaps,
         draftedClientGaps,
+        answeredClientGaps,
         openClientGaps,
         hasSelectedVersion,
         selectedVersionId,
