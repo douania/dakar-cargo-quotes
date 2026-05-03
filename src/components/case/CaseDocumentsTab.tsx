@@ -91,10 +91,13 @@ function AnalysisBadge({ att }: { att: EmailAttachmentRow }) {
   if (!att.storage_path) {
     return <Badge variant="outline" className="text-[10px] bg-orange-100 text-orange-800 border-orange-300">Non téléchargée</Badge>;
   }
-  if (att.extracted_data?.type === "error") {
+  const extractedType = typeof att.extracted_data?.type === "string"
+    ? att.extracted_data.type.toLowerCase()
+    : "";
+  if (extractedType.includes("error")) {
     return <Badge variant="destructive" className="text-[10px]">Erreur</Badge>;
   }
-  if (att.extracted_data?.type === "unsupported") {
+  if (extractedType === "unsupported") {
     return <Badge variant="secondary" className="text-[10px]">Non supporté</Badge>;
   }
   if (att.is_analyzed === false) {
@@ -524,11 +527,16 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
               </TableHeader>
               <TableBody>
                 {emailAttachments.map((att) => {
-                  const canRetry = att.storage_path && (
-                    att.is_analyzed === false ||
-                    att.extracted_data?.type === "error" ||
-                    att.is_analyzed === null
-                  );
+                  const extractedType = typeof att.extracted_data?.type === "string"
+                    ? att.extracted_data.type.toLowerCase()
+                    : "";
+                  const canRetry =
+                    Boolean(att.storage_path) &&
+                    (
+                      att.is_analyzed === false ||
+                      extractedType.includes("error") ||
+                      att.is_analyzed === null
+                    );
                   return (
                     <TableRow key={att.id}>
                       <TableCell>
