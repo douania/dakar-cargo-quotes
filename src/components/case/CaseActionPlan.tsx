@@ -216,7 +216,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
         </div>
 
         {/* COCKPIT-6: Operational counters */}
-        {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0) && (
+        {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0 || answeredClientGaps > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {draftPartnerRequests > 0 && (
               <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
