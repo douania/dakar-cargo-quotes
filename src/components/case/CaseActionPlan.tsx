@@ -119,6 +119,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
       id: "analyze-client-responses",
       label: "Analyser les réponses client",
       status: openClientGaps === 0 ? "done" : "pending",
+      note: answeredClientGaps > 0
+        ? `${answeredClientGaps} réponse${answeredClientGaps > 1 ? 's' : ''} client à analyser`
+        : undefined,
       group: "communication",
     });
   }
