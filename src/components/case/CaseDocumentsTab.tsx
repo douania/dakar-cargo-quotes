@@ -514,46 +514,78 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                   <TableHead>Nom du fichier</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Taille</TableHead>
+                  <TableHead>Analyse</TableHead>
                   <TableHead>Expéditeur</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead className="w-16">Action</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {emailAttachments.map((att) => (
-                  <TableRow key={att.id}>
-                    <TableCell>
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]" variant="outline">
-                        Email
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium max-w-[180px] truncate text-xs">
-                      {att.filename}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {att.content_type?.split("/").pop() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs">{formatFileSize(att.size)}</TableCell>
-                    <TableCell className="text-xs max-w-[140px] truncate" title={att.from_address}>
-                      {att.from_address.split("@")[0]}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {att.sent_at ? new Date(att.sent_at).toLocaleDateString() : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {att.storage_path && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownloadEmailAttachment(att.storage_path!, att.filename)}
-                          title="Télécharger"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {emailAttachments.map((att) => {
+                  const canRetry = att.storage_path && (
+                    att.is_analyzed === false ||
+                    att.extracted_data?.type === "error" ||
+                    att.is_analyzed === null
+                  );
+                  return (
+                    <TableRow key={att.id}>
+                      <TableCell>
+                        <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]" variant="outline">
+                          Email
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[180px] truncate text-xs">
+                        {att.filename}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {att.content_type?.split("/").pop() ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">{formatFileSize(att.size)}</TableCell>
+                      <TableCell><AnalysisBadge att={att} /></TableCell>
+                      <TableCell className="text-xs max-w-[140px] truncate" title={att.from_address}>
+                        {att.from_address.split("@")[0]}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {att.sent_at ? new Date(att.sent_at).toLocaleDateString() : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          {att.storage_path && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDownloadEmailAttachment(att.storage_path!, att.filename)}
+                              title="Télécharger"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canRetry && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Relancer l'analyse"
+                              onClick={async () => {
+                                try {
+                                  const { error } = await supabase.functions.invoke("analyze-attachments", {
+                                    body: { attachmentId: att.id, mode: "start" },
+                                  });
+                                  if (error) throw error;
+                                  toastFn({ title: "Analyse relancée", description: att.filename });
+                                  queryClient.invalidateQueries({ queryKey: ["case-email-attachments", caseId] });
+                                } catch (e: any) {
+                                  toastFn({ title: "Erreur", description: e.message, variant: "destructive" });
+                                }
+                              }}
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
