@@ -243,6 +243,11 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                 {blockingGapsCount} gaps bloquants
               </Badge>
             )}
+            {answeredClientGaps > 0 && (
+              <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700 bg-emerald-50">
+                {answeredClientGaps} réponse{answeredClientGaps > 1 ? 's' : ''} client à traiter
+              </Badge>
+            )}
           </div>
         )}
 
