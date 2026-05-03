@@ -34,6 +34,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
+  const [open, setOpen] = useState(false);
   const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
