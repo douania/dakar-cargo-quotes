@@ -49,8 +49,9 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
 
   if (!cockpit) return null;
 
-  const { openPartnerRequests, pendingPartnerFacts: pendingFactsCount, openClientGaps: openGapsCount } = cockpit;
+  const { openPartnerRequests, pendingPartnerFacts: pendingFactsCount, openClientGaps: openGapsCount, answeredClientGaps = 0 } = cockpit;
   const rows = previewRows ?? [];
+  const nonAnsweredClientGaps = Math.max(0, openGapsCount - answeredClientGaps);
   const totalWarnings = openPartnerRequests + pendingFactsCount + openGapsCount;
   const isComplete = totalWarnings === 0;
 
