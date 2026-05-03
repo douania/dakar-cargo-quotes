@@ -153,6 +153,16 @@ serve(async (req: Request) => {
         return jsonResponse({ suggestions: [], message: "No open requests" });
       }
 
+      // P0-PARTNER-GUARD: exclude requests without partner_email
+      const validRequests = openRequests.filter((r) => r.partner_email?.trim());
+      const skippedMissingEmail = openRequests.length - validRequests.length;
+      if (skippedMissingEmail > 0) {
+        console.log(`[auto-match-partner-responses] skipped ${skippedMissingEmail} request(s) without partner_email`);
+      }
+      if (validRequests.length === 0) {
+        return jsonResponse({ suggestions: [], message: "No open requests with partner_email" });
+      }
+
       // 2. Load thread emails
       const { data: threadEmails, error: emailErr } = await serviceClient
         .from("emails")
@@ -188,7 +198,7 @@ serve(async (req: Request) => {
       // 5. Score each request
       const created: Array<{ request_id: string; email_id: string; score: number; confidence: string }> = [];
 
-      for (const req of openRequests) {
+      for (const req of validRequests) {
         const result = scoreEmails(req, threadEmails, usedEmailIds);
         if (!result || !result.bestEmailId) continue;
 
@@ -223,7 +233,7 @@ serve(async (req: Request) => {
         });
       }
 
-      return jsonResponse({ suggestions: created, total_scanned: openRequests.length });
+      return jsonResponse({ suggestions: created, total_scanned: validRequests.length });
     }
 
     // ---------- CONFIRM ----------

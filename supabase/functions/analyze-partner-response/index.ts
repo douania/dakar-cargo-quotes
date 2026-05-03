@@ -99,6 +99,11 @@ serve(async (req: Request) => {
 
     if (reqErr || !extReq) return errorResponse("External request not found", 404);
 
+    // P0-PARTNER-GUARD: reject analysis if partner_email is missing
+    if (!extReq.partner_email?.trim()) {
+      return errorResponse("partner_email is required before analyzing a partner response", 422);
+    }
+
     // 2. Load email (P0-1: include thread_ref)
     const { data: email, error: emailErr } = await userClient
       .from("emails")
@@ -122,14 +127,12 @@ serve(async (req: Request) => {
       return errorResponse("Email does not belong to this case's thread", 403);
     }
 
-    // P0-1: Sender validation guard (strict equality, skip if partner_email not set)
-    if (extReq.partner_email) {
-      const normalizedSender = normalizeEmail(email.from_address);
-      const normalizedPartner = normalizeEmail(extReq.partner_email);
-      if (normalizedSender !== normalizedPartner) {
-        console.warn(`[analyze-partner-response] Sender mismatch: from=${normalizedSender} vs partner=${normalizedPartner}`);
-        return errorResponse("Email sender does not match partner", 403);
-      }
+    // P0-1: Sender validation guard (strict equality)
+    const normalizedSender = normalizeEmail(email.from_address);
+    const normalizedPartner = normalizeEmail(extReq.partner_email);
+    if (normalizedSender !== normalizedPartner) {
+      console.warn(`[analyze-partner-response] Sender mismatch: from=${normalizedSender} vs partner=${normalizedPartner}`);
+      return errorResponse("Email sender does not match partner", 403);
     }
 
     // 3. Idempotence: ON CONFLICT returns nothing, then we fetch existing

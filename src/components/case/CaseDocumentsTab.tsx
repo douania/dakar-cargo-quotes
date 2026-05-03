@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast as toastFn } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Download, Trash2, Loader2, FileText, Pencil, Mail } from "lucide-react";
+import { Plus, Download, Trash2, Loader2, FileText, Pencil, Mail, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import DocumentMetadataEditor from "./DocumentMetadataEditor";
 
@@ -82,6 +83,24 @@ interface EmailAttachmentRow {
   from_address: string;
   sent_at: string | null;
   subject: string | null;
+  is_analyzed: boolean | null;
+  extracted_data: any | null;
+}
+
+function AnalysisBadge({ att }: { att: EmailAttachmentRow }) {
+  if (att.extracted_data?.type === "error") {
+    return <Badge variant="destructive" className="text-[10px]">Erreur</Badge>;
+  }
+  if (att.extracted_data?.type === "unsupported") {
+    return <Badge variant="secondary" className="text-[10px]">Non supporté</Badge>;
+  }
+  if (att.is_analyzed === false) {
+    return <Badge variant="outline" className="text-[10px] bg-yellow-100 text-yellow-800 border-yellow-300">À analyser</Badge>;
+  }
+  if (att.is_analyzed === true) {
+    return <Badge variant="outline" className="text-[10px] bg-green-100 text-green-800 border-green-300">Analysée</Badge>;
+  }
+  return <Badge variant="secondary" className="text-[10px]">Inconnu</Badge>;
 }
 
 function useEmailAttachmentsForCase(caseId: string) {
@@ -110,7 +129,7 @@ function useEmailAttachmentsForCase(caseId: string) {
       // Step 3: get attachments with storage_path present (downloadable only)
       const { data: attachments, error: attErr } = await supabase
         .from("email_attachments")
-        .select("id, email_id, filename, content_type, size, storage_path")
+        .select("id, email_id, filename, content_type, size, storage_path, is_analyzed, extracted_data")
         .in("email_id", emailIds)
         .not("storage_path", "is", null);
       if (attErr || !attachments?.length) return [];
@@ -135,6 +154,8 @@ function useEmailAttachmentsForCase(caseId: string) {
             from_address: email?.from_address ?? "—",
             sent_at: email?.sent_at ?? null,
             subject: email?.subject ?? null,
+            is_analyzed: att.is_analyzed ?? null,
+            extracted_data: att.extracted_data ?? null,
           };
         });
     },
@@ -493,46 +514,78 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                   <TableHead>Nom du fichier</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Taille</TableHead>
+                  <TableHead>Analyse</TableHead>
                   <TableHead>Expéditeur</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead className="w-16">Action</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {emailAttachments.map((att) => (
-                  <TableRow key={att.id}>
-                    <TableCell>
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]" variant="outline">
-                        Email
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium max-w-[180px] truncate text-xs">
-                      {att.filename}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {att.content_type?.split("/").pop() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs">{formatFileSize(att.size)}</TableCell>
-                    <TableCell className="text-xs max-w-[140px] truncate" title={att.from_address}>
-                      {att.from_address.split("@")[0]}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {att.sent_at ? new Date(att.sent_at).toLocaleDateString() : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {att.storage_path && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownloadEmailAttachment(att.storage_path!, att.filename)}
-                          title="Télécharger"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {emailAttachments.map((att) => {
+                  const canRetry = att.storage_path && (
+                    att.is_analyzed === false ||
+                    att.extracted_data?.type === "error" ||
+                    att.is_analyzed === null
+                  );
+                  return (
+                    <TableRow key={att.id}>
+                      <TableCell>
+                        <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]" variant="outline">
+                          Email
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[180px] truncate text-xs">
+                        {att.filename}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {att.content_type?.split("/").pop() ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">{formatFileSize(att.size)}</TableCell>
+                      <TableCell><AnalysisBadge att={att} /></TableCell>
+                      <TableCell className="text-xs max-w-[140px] truncate" title={att.from_address}>
+                        {att.from_address.split("@")[0]}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {att.sent_at ? new Date(att.sent_at).toLocaleDateString() : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          {att.storage_path && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDownloadEmailAttachment(att.storage_path!, att.filename)}
+                              title="Télécharger"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canRetry && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Relancer l'analyse"
+                              onClick={async () => {
+                                try {
+                                  const { error } = await supabase.functions.invoke("analyze-attachments", {
+                                    body: { attachmentId: att.id, mode: "start" },
+                                  });
+                                  if (error) throw error;
+                                  toastFn({ title: "Analyse relancée", description: att.filename });
+                                  queryClient.invalidateQueries({ queryKey: ["case-email-attachments", caseId] });
+                                } catch (e: any) {
+                                  toastFn({ title: "Erreur", description: e.message, variant: "destructive" });
+                                }
+                              }}
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
