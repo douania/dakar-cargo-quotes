@@ -3,6 +3,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { isOperatorCompanyName } from "../_shared/operator-identity.ts";
 import { requireUser } from "../_shared/auth.ts";
 
 // P2-1: Extended mapping fact_key → fact_category for supersede_fact RPC
