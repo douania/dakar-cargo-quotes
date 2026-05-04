@@ -1057,6 +1057,55 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
         });
         })()}
       </CardContent>
+
+      {/* P1-FACT-CONFIRM-CRITICAL: Confirmation dialog for pricing-critical facts */}
+      <AlertDialog
+        open={criticalFactToValidate !== null}
+        onOpenChange={(open) => { if (!open) setCriticalFactToValidate(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la validation d'un fait critique</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">Ce fait peut modifier le pricing et déclencher une nouvelle cotation.</span>
+              {criticalFactToValidate && (
+                <span className="block space-y-1 mt-2 text-sm">
+                  <span className="block"><strong>Clé :</strong> <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">{criticalFactToValidate.fact_key}</code></span>
+                  <span className="block"><strong>Valeur :</strong>{" "}
+                    {criticalFactToValidate.proposed_value_number != null
+                      ? `${criticalFactToValidate.proposed_value_number}${criticalFactToValidate.currency ? ` ${criticalFactToValidate.currency}` : ""}`
+                      : criticalFactToValidate.proposed_value_text || "—"}
+                  </span>
+                  {criticalFactToValidate.confidence != null && (
+                    <span className="block"><strong>Confiance :</strong> {Math.round(criticalFactToValidate.confidence * 100)}%</span>
+                  )}
+                  {criticalFactToValidate.source_excerpt && (
+                    <span className="block"><strong>Source :</strong> <em className="text-muted-foreground">{criticalFactToValidate.source_excerpt.slice(0, 120)}{criticalFactToValidate.source_excerpt.length > 120 ? "…" : ""}</em></span>
+                  )}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!criticalFactToValidate) return;
+                const fact = criticalFactToValidate;
+                setCriticalFactToValidate(null);
+                setValidatingFactId(fact.id);
+                try {
+                  await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
+                } finally {
+                  setValidatingFactId(null);
+                }
+              }}
+            >
+              Confirmer la validation
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
