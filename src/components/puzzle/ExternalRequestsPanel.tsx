@@ -1008,6 +1008,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                       variant="ghost"
                                       className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
                                       onClick={async () => {
+                                        if (PRICING_CRITICAL_KEYS.has(fact.fact_key)) {
+                                          setCriticalFactToValidate(fact);
+                                          return;
+                                        }
                                         setValidatingFactId(fact.id);
                                         try {
                                           await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
