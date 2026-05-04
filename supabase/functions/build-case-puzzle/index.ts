@@ -4556,7 +4556,13 @@ CRITICAL RULES:
    - NEVER extract these from outbound quotation emails sent BY the freight forwarder (SODATRA, @sodatra.sn, @sodatra.com)
    - If a monetary amount appears in an email FROM the freight forwarder, it is a PROPOSED PRICE, not a cargo fact
    - This rule applies to all monetary facts in the cargo.* namespace (cargo.value, cargo.freight_cost, etc.)
-   - When in doubt about a price source, do NOT extract it as a cargo fact`;
+    - When in doubt about a price source, do NOT extract it as a cargo fact
+10. OPERATOR IDENTITY (CRITICAL):
+   - SODATRA, SODATRA Transit, SODATRA Shipping & Logistics and variants are the operator/freight forwarder, not the client.
+   - Never extract them as contacts.client_company.
+   - If SODATRA appears in the subject, recipient, signature, or body, treat it as operator/recipient context.
+   - The external sender company is usually the client only if identifiable from signature, email domain, or explicit company name.
+   - If the true client company is not explicit, leave contacts.client_company empty rather than guessing.`;
 
   const userPrompt = `Extract facts from this email thread:
 
