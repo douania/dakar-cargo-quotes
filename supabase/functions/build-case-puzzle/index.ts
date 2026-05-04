@@ -45,6 +45,35 @@ const SENSITIVE_MONETARY_FACTS = new Set([
   'cargo.value_currency',
 ]);
 
+// --- CLIENT-COMPANY-GUARD: Prevent SODATRA from being extracted as client ---
+const SODATRA_CLIENT_COMPANY_BLOCKLIST = [
+  "sodatra",
+  "sodatra transit",
+  "sodatra transit logistique",
+  "sodatra transit logistique et immobilier",
+  "sodatra shipping",
+  "sodatra shipping & logistics",
+  "sodatra shipping and logistics",
+];
+
+function normalizeCompanyName(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isSodatraCompanyName(value: unknown): boolean {
+  const normalized = normalizeCompanyName(value);
+  if (!normalized) return false;
+  return SODATRA_CLIENT_COMPANY_BLOCKLIST.some((blocked) => {
+    const b = normalizeCompanyName(blocked);
+    return normalized === b || normalized.includes(b);
+  });
+}
+
 // Internal document types that should not be scanned for cargo facts
 const INTERNAL_DOC_TYPES = new Set([
   'quotation_draft', 'quotation_sent', 'internal_note',
