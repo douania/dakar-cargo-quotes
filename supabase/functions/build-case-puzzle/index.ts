@@ -2351,6 +2351,13 @@ Deno.serve(async (req) => {
 
     for (const fact of guardedFacts) {
       try {
+        // --- CLIENT-COMPANY-GUARD: reject SODATRA as contacts.client_company ---
+        if (fact.key === "contacts.client_company" && isSodatraCompanyName(fact.value)) {
+          console.log(`[client-company-guard] rejected "${fact.value}" as contacts.client_company`);
+          factsSkipped++;
+          continue;
+        }
+
         // --- HS Code guard: validate against hs_codes table before injection ---
         if (fact.key === "cargo.hs_code") {
           const rawHs = String(fact.value);
