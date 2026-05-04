@@ -1265,3 +1265,20 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Impact** | Faible — les 26 actives sont de sources considérées vérifiées. Risque si de nouvelles sources non vérifiées sont ajoutées sans gouvernance. |
 | **Déclencheur de réouverture** | Si de nouvelles lignes demurrage de sources non vérifiées doivent être ajoutées. |
 | **Recommandation** | Ajouter `evidence_level` à `demurrage_rates` si nouvelles sources non vérifiées arrivent. Ne pas traiter immédiatement. |
+
+---
+
+### MULTI-TENANT-OPERATOR-CONFIG
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | MULTI-TENANT-OPERATOR-CONFIG |
+| **Catégorie** | Architecture / Multi-société |
+| **Statut** | `deferred` |
+| **Priorité** | P2 |
+| **Phase d'origine** | P1-OPERATOR-CLIENT-COMPANY-GUARD-LATERAL (2026-05-04) |
+| **Date** | 2026-05-04 |
+| **Constat** | Les constantes `OPERATOR_DOMAINS` et `OPERATOR_COMPANY_NAME_BLOCKLIST` dans `_shared/operator-identity.ts` sont statiques (SODATRA uniquement). Si l'application doit supporter plusieurs sociétés opératrices, ces valeurs doivent provenir d'une configuration dynamique par workspace/opérateur. |
+| **Impact** | Faible tant que mono-opérateur. Bloquant si déploiement multi-société. |
+| **Déclencheur de réouverture** | Décision de supporter un second opérateur ou un déploiement multi-tenant. |
+| **Recommandation** | Créer une table `operator_config` avec : `operator_company_name`, `operator_aliases`, `operator_domains`, `operator_email_addresses`. Remplacer les constantes statiques par des lookups dynamiques. Éventuellement ajouter `sender_role` sur emails et `actor_origin` sur quote_facts. |
