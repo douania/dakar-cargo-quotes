@@ -12,6 +12,7 @@ import { getThreadEmailSignals } from "@/features/external-requests/utils/getThr
 import { getThreadContextSummary } from "@/features/external-requests/utils/getThreadContextSummary";
 import { getThreadInteractionSignals } from "@/features/external-requests/utils/getThreadInteractionSignals";
 import { getThreadConsolidationGroups } from "@/features/external-requests/utils/getThreadConsolidationGroups";
+import { PRICING_CRITICAL_KEYS } from "@/features/external-requests/constants";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
