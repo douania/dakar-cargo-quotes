@@ -5,6 +5,7 @@ import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { isOperatorCompanyName } from "../_shared/operator-identity.ts";
 
 const SYSTEM_PROMPT = `Tu es un analyste de réponses clients pour un transitaire logistique (Dakar).
 Analyse l'email de réponse du client et retourne un JSON strict avec ces champs :
