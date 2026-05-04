@@ -3,6 +3,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
+import { isOperatorCompanyName } from "../_shared/operator-identity.ts";
 import { requireUser } from "../_shared/auth.ts";
 
 // P2-1: Extended mapping fact_key → fact_category for supersede_fact RPC
@@ -89,7 +90,19 @@ serve(async (req: Request) => {
     const userId = auth.user.id;
     let injectedFactId: string | null = null;
 
-    if (action === "validate") {
+    // Operator-as-client guard: redirect validate → reject if operator company
+    const operatorAsClientBlocked =
+      action === "validate" &&
+      fact.fact_key === "contacts.client_company" &&
+      isOperatorCompanyName(fact.proposed_value_text ?? String(fact.proposed_value_number ?? ""));
+
+    if (operatorAsClientBlocked) {
+      console.log(`[operator-client-company-guard] partner fact auto-rejected: ${fact.proposed_value_text}`);
+    }
+
+    const effectiveAction = operatorAsClientBlocked ? "reject" : action;
+
+    if (effectiveAction === "validate") {
       const category = inferCategory(fact.fact_key);
 
       // P0-3: Exact-match replay guard — check if identical fact already exists in quote_facts
@@ -209,24 +222,25 @@ serve(async (req: Request) => {
     }
 
     // 5. Timeline event — NON-CRITICAL: log only
-    const actionCode = action === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
-    const dedupeKey = `partner_fact_${action}:${fact_id}`;
+    const actionCode = effectiveAction === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
+    const dedupeKey = `partner_fact_${effectiveAction}:${fact_id}`;
     const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({
       case_id: fact.case_id,
       event_type: "manual_action",
       actor_type: "operator",
       actor_user_id: userId,
-      new_value: `${action === "validate" ? "Validé" : "Rejeté"}: ${fact.fact_key}`,
+      new_value: `${effectiveAction === "validate" ? "Validé" : "Rejeté"}: ${fact.fact_key}`,
       event_data: {
         dedupe_key: dedupeKey,
         action_code: actionCode,
         status: "done",
-        action,
+        action: effectiveAction,
         fact_id,
         fact_key: fact.fact_key,
         request_id: fact.request_id,
         new_request_status: newRequestStatus,
         injected_fact_id: injectedFactId,
+        ...(operatorAsClientBlocked ? { reason: "OPERATOR_AS_CLIENT_BLOCKED" } : {}),
       },
     });
 
@@ -257,9 +271,10 @@ serve(async (req: Request) => {
 
     return jsonResponse({
       ok: true,
-      action,
+      action: effectiveAction,
       fact_id,
       new_request_status: newRequestStatus,
+      ...(operatorAsClientBlocked ? { skipped: true, reason: "OPERATOR_AS_CLIENT_BLOCKED" } : {}),
     });
   } catch (err) {
     console.error("[validate-partner-fact] Unexpected error:", (err as Error).message);
