@@ -12,6 +12,7 @@ import { getThreadEmailSignals } from "@/features/external-requests/utils/getThr
 import { getThreadContextSummary } from "@/features/external-requests/utils/getThreadContextSummary";
 import { getThreadInteractionSignals } from "@/features/external-requests/utils/getThreadInteractionSignals";
 import { getThreadConsolidationGroups } from "@/features/external-requests/utils/getThreadConsolidationGroups";
+import { PRICING_CRITICAL_KEYS } from "@/features/external-requests/constants";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +22,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   AlertCircle,
   Send,
@@ -131,6 +142,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [validatingFactId, setValidatingFactId] = useState<string | null>(null);
+  const [criticalFactToValidate, setCriticalFactToValidate] = useState<ExternalResponseFact | null>(null);
   const [formData, setFormData] = useState({
     partner_name: "",
     partner_email: "",
@@ -996,6 +1008,10 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                       variant="ghost"
                                       className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
                                       onClick={async () => {
+                                        if (PRICING_CRITICAL_KEYS.has(fact.fact_key)) {
+                                          setCriticalFactToValidate(fact);
+                                          return;
+                                        }
                                         setValidatingFactId(fact.id);
                                         try {
                                           await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
@@ -1041,6 +1057,55 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
         });
         })()}
       </CardContent>
+
+      {/* P1-FACT-CONFIRM-CRITICAL: Confirmation dialog for pricing-critical facts */}
+      <AlertDialog
+        open={criticalFactToValidate !== null}
+        onOpenChange={(open) => { if (!open) setCriticalFactToValidate(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la validation d'un fait critique</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">Ce fait peut modifier le pricing et déclencher une nouvelle cotation.</span>
+              {criticalFactToValidate && (
+                <span className="block space-y-1 mt-2 text-sm">
+                  <span className="block"><strong>Clé :</strong> <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">{criticalFactToValidate.fact_key}</code></span>
+                  <span className="block"><strong>Valeur :</strong>{" "}
+                    {criticalFactToValidate.proposed_value_number != null
+                      ? `${criticalFactToValidate.proposed_value_number}${criticalFactToValidate.currency ? ` ${criticalFactToValidate.currency}` : ""}`
+                      : criticalFactToValidate.proposed_value_text || "—"}
+                  </span>
+                  {criticalFactToValidate.confidence != null && (
+                    <span className="block"><strong>Confiance :</strong> {Math.round(criticalFactToValidate.confidence * 100)}%</span>
+                  )}
+                  {criticalFactToValidate.source_excerpt && (
+                    <span className="block"><strong>Source :</strong> <em className="text-muted-foreground">{criticalFactToValidate.source_excerpt.slice(0, 120)}{criticalFactToValidate.source_excerpt.length > 120 ? "…" : ""}</em></span>
+                  )}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!criticalFactToValidate) return;
+                const fact = criticalFactToValidate;
+                setCriticalFactToValidate(null);
+                setValidatingFactId(fact.id);
+                try {
+                  await validateFactAndRerun.mutateAsync({ factId: fact.id, factKey: fact.fact_key });
+                } finally {
+                  setValidatingFactId(null);
+                }
+              }}
+            >
+              Confirmer la validation
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
