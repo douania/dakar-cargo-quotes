@@ -2,7 +2,46 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-02 — **POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé**. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
+Dernière mise à jour : 2026-05-04 — **Phase UX Communication stabilisée : 3 lots clos, 3 lots code-validé en vérification terrain différée, 7 lots explicitement reportés.** Voir § Rapport de stabilisation ci-dessous.
+
+Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
+
+---
+
+## Rapport de stabilisation — Phase UX Communication — 2026-05-04
+
+### Lots clos
+
+| Lot | Statut |
+|-----|--------|
+| P0-PJ-VIS A/B/C | Clos |
+| P0-PARTNER-GUARD | Clos |
+| P1-COCKPIT-DEDUP-B | Clos + vérifié terrain |
+
+### Lots code-validé, vérification terrain différée
+
+| Lot | Condition de vérification terrain |
+|-----|----------------------------------|
+| P1-VIS-ANSWER | Apparition d'une `client_gap_request` `status="answered"` |
+| P1-CLOSE-GUARD-UI | Apparition d'un `external_quote_response_fact` `validation_status="proposed"` |
+| P1-FACT-CONFIRM-CRITICAL | Apparition d'un fact proposed avec `fact_key ∈ PRICING_CRITICAL_KEYS` |
+
+### Lots explicitement reportés
+
+| Lot | Motif |
+|-----|-------|
+| COM-1A / SMTP réel | Changement produit plus lourd, contraire à la doctrine actuelle zéro auto-send |
+| Relances automatiques | Dépend de règles métier à définir : due_at, délais, jours ouvrés/calendaires |
+| Comparaison multi-offres | P2, utile mais non prioritaire après stabilisation UX |
+| Refonte dashboard communication | Trop large, préférer micro-lots progressifs |
+| PJ-RETRY généralisé | Nécessite une logique force_reanalyze, à éviter maintenant |
+| PARTNER-DUE | Requiert décision métier sur les délais partenaires |
+| CLIENT-MATCH | À auditer séparément avant toute modification d'analyze-reply-event |
+
+### Conclusion
+
+La phase UX Communication est stabilisée côté code pour les lots traités. Les vérifications terrain différées ne doivent pas être forcées par création de données artificielles. Elles seront réalisées uniquement lors de l'apparition naturelle de données réelles.
+
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
 
