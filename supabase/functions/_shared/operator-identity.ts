@@ -52,5 +52,9 @@ export function isOperatorEmail(email: string): boolean {
 export function isOperatorCompanyName(value: unknown): boolean {
   const normalized = normalizeCompanyName(value);
   if (!normalized) return false;
-  return OPERATOR_COMPANY_NAME_BLOCKLIST.includes(normalized);
+
+  return OPERATOR_COMPANY_NAME_BLOCKLIST.some((blocked) => {
+    const b = normalizeCompanyName(blocked);
+    return normalized === b || normalized.includes(b);
+  });
 }
