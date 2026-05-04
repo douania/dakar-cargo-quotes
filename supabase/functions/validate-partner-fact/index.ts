@@ -222,24 +222,25 @@ serve(async (req: Request) => {
     }
 
     // 5. Timeline event — NON-CRITICAL: log only
-    const actionCode = action === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
-    const dedupeKey = `partner_fact_${action}:${fact_id}`;
+    const actionCode = effectiveAction === "validate" ? "PARTNER_FACT_VALIDATED" : "PARTNER_FACT_REJECTED";
+    const dedupeKey = `partner_fact_${effectiveAction}:${fact_id}`;
     const { error: timelineErr } = await serviceClient.from("case_timeline_events").insert({
       case_id: fact.case_id,
       event_type: "manual_action",
       actor_type: "operator",
       actor_user_id: userId,
-      new_value: `${action === "validate" ? "Validé" : "Rejeté"}: ${fact.fact_key}`,
+      new_value: `${effectiveAction === "validate" ? "Validé" : "Rejeté"}: ${fact.fact_key}`,
       event_data: {
         dedupe_key: dedupeKey,
         action_code: actionCode,
         status: "done",
-        action,
+        action: effectiveAction,
         fact_id,
         fact_key: fact.fact_key,
         request_id: fact.request_id,
         new_request_status: newRequestStatus,
         injected_fact_id: injectedFactId,
+        ...(operatorAsClientBlocked ? { reason: "OPERATOR_AS_CLIENT_BLOCKED" } : {}),
       },
     });
 
