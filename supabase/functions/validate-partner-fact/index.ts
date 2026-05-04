@@ -90,7 +90,19 @@ serve(async (req: Request) => {
     const userId = auth.user.id;
     let injectedFactId: string | null = null;
 
-    if (action === "validate") {
+    // Operator-as-client guard: redirect validate → reject if operator company
+    const operatorAsClientBlocked =
+      action === "validate" &&
+      fact.fact_key === "contacts.client_company" &&
+      isOperatorCompanyName(fact.proposed_value_text ?? String(fact.proposed_value_number ?? ""));
+
+    if (operatorAsClientBlocked) {
+      console.log(`[operator-client-company-guard] partner fact auto-rejected: ${fact.proposed_value_text}`);
+    }
+
+    const effectiveAction = operatorAsClientBlocked ? "reject" : action;
+
+    if (effectiveAction === "validate") {
       const category = inferCategory(fact.fact_key);
 
       // P0-3: Exact-match replay guard — check if identical fact already exists in quote_facts
