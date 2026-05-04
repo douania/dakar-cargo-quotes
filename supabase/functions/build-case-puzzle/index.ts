@@ -1505,6 +1505,13 @@ async function injectAttachmentFacts(
       const mapping = ATTACHMENT_FACT_MAPPING[normalizedKey];
       if (!mapping) continue;
 
+      // --- CLIENT-COMPANY-GUARD: reject SODATRA in attachment flow ---
+      if (mapping.factKey === "contacts.client_company" && isSodatraCompanyName(rawValue)) {
+        console.log(`[client-company-guard] rejected attachment value "${rawValue}" as contacts.client_company`);
+        result.skipped++;
+        continue;
+      }
+
       // First occurrence wins for same fact_key
       if (injectedKeys.has(mapping.factKey)) continue;
 
