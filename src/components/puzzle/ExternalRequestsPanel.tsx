@@ -846,17 +846,34 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                         </div>
                       );
                     })()}
-                    {req.status !== "closed" && req.status !== "facts_validated" && (
-                      <Button
-                        size="sm"
-                        variant={closeLoop.state === "ready_to_close" ? "outline" : "ghost"}
-                        className={closeLoop.state === "ready_to_close" ? "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/30" : ""}
-                        onClick={(e) => { e.stopPropagation(); closeRequest.mutate(req.id); }}
-                      >
-                        <X className="h-3 w-3 mr-1" />
-                        Clôturer
-                      </Button>
-                    )}
+                    {req.status !== "closed" && req.status !== "facts_validated" && (() => {
+                      const hasProposedFacts = proposedFacts.length > 0;
+                      return (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Button
+                                  size="sm"
+                                  variant={closeLoop.state === "ready_to_close" ? "outline" : "ghost"}
+                                  className={closeLoop.state === "ready_to_close" ? "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/30" : ""}
+                                  disabled={hasProposedFacts || closeRequest.isPending}
+                                  onClick={(e) => { e.stopPropagation(); closeRequest.mutate(req.id); }}
+                                >
+                                  <X className="h-3 w-3 mr-1" />
+                                  Clôturer
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            {hasProposedFacts && (
+                              <TooltipContent>
+                                Validez ou rejetez les {proposedFacts.length} fait(s) proposé(s) avant de clôturer cette demande.
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        </TooltipProvider>
+                      );
+                    })()}
                   </div>
 
                   {/* Close-loop status */}
