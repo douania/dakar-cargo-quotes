@@ -1451,6 +1451,12 @@ async function injectAttachmentFacts(
         if (bestValue != null) break;
       }
 
+      // --- CLIENT-COMPANY-GUARD: reject SODATRA in composite-doc flow ---
+      if (targetFactKey === "contacts.client_company" && bestValue != null && isSodatraCompanyName(bestValue)) {
+        console.log(`[client-company-guard] rejected composite-doc value "${bestValue}" as contacts.client_company`);
+        continue;
+      }
+
       // Inject if we found a valid value
       if (bestValue == null || bestDocType == null) continue;
 
