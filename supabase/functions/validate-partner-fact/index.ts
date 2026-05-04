@@ -271,9 +271,10 @@ serve(async (req: Request) => {
 
     return jsonResponse({
       ok: true,
-      action,
+      action: effectiveAction,
       fact_id,
       new_request_status: newRequestStatus,
+      ...(operatorAsClientBlocked ? { skipped: true, reason: "OPERATOR_AS_CLIENT_BLOCKED" } : {}),
     });
   } catch (err) {
     console.error("[validate-partner-fact] Unexpected error:", (err as Error).message);
