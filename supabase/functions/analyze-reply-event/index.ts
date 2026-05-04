@@ -154,7 +154,14 @@ serve(async (req: Request) => {
         value_json: (typeof f["value_json"] === "object" && f["value_json"] !== null) ? f["value_json"] : null,
         confidence: typeof f["confidence"] === "number" ? Math.max(0, Math.min(1, f["confidence"])) : 0.5,
         rationale: typeof f["rationale"] === "string" ? f["rationale"] : "",
-      }));
+      }))
+      .filter((pf) => {
+        if (pf.fact_key === "contacts.client_company" && isOperatorCompanyName(pf.value_text)) {
+          console.log(`[operator-client-company-guard] reply proposal filtered: ${pf.value_text}`);
+          return false;
+        }
+        return true;
+      });
 
     const open_questions = Array.isArray(parsed["open_questions"])
       ? (parsed["open_questions"] as unknown[]).filter((q): q is string => typeof q === "string")
