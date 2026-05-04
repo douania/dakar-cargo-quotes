@@ -14,6 +14,7 @@ import { getThreadInteractionSignals } from "@/features/external-requests/utils/
 import { getThreadConsolidationGroups } from "@/features/external-requests/utils/getThreadConsolidationGroups";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
