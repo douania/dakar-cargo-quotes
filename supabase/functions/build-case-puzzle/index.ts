@@ -45,6 +45,35 @@ const SENSITIVE_MONETARY_FACTS = new Set([
   'cargo.value_currency',
 ]);
 
+// --- CLIENT-COMPANY-GUARD: Prevent SODATRA from being extracted as client ---
+const SODATRA_CLIENT_COMPANY_BLOCKLIST = [
+  "sodatra",
+  "sodatra transit",
+  "sodatra transit logistique",
+  "sodatra transit logistique et immobilier",
+  "sodatra shipping",
+  "sodatra shipping & logistics",
+  "sodatra shipping and logistics",
+];
+
+function normalizeCompanyName(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isSodatraCompanyName(value: unknown): boolean {
+  const normalized = normalizeCompanyName(value);
+  if (!normalized) return false;
+  return SODATRA_CLIENT_COMPANY_BLOCKLIST.some((blocked) => {
+    const b = normalizeCompanyName(blocked);
+    return normalized === b || normalized.includes(b);
+  });
+}
+
 // Internal document types that should not be scanned for cargo facts
 const INTERNAL_DOC_TYPES = new Set([
   'quotation_draft', 'quotation_sent', 'internal_note',
@@ -1422,6 +1451,12 @@ async function injectAttachmentFacts(
         if (bestValue != null) break;
       }
 
+      // --- CLIENT-COMPANY-GUARD: reject SODATRA in composite-doc flow ---
+      if (targetFactKey === "contacts.client_company" && bestValue != null && isSodatraCompanyName(bestValue)) {
+        console.log(`[client-company-guard] rejected composite-doc value "${bestValue}" as contacts.client_company`);
+        continue;
+      }
+
       // Inject if we found a valid value
       if (bestValue == null || bestDocType == null) continue;
 
@@ -1469,6 +1504,13 @@ async function injectAttachmentFacts(
       const normalizedKey = normalizeExtractedKey(rawKey);
       const mapping = ATTACHMENT_FACT_MAPPING[normalizedKey];
       if (!mapping) continue;
+
+      // --- CLIENT-COMPANY-GUARD: reject SODATRA in attachment flow ---
+      if (mapping.factKey === "contacts.client_company" && isSodatraCompanyName(rawValue)) {
+        console.log(`[client-company-guard] rejected attachment value "${rawValue}" as contacts.client_company`);
+        result.skipped++;
+        continue;
+      }
 
       // First occurrence wins for same fact_key
       if (injectedKeys.has(mapping.factKey)) continue;
@@ -2322,6 +2364,13 @@ Deno.serve(async (req) => {
 
     for (const fact of guardedFacts) {
       try {
+        // --- CLIENT-COMPANY-GUARD: reject SODATRA as contacts.client_company ---
+        if (fact.key === "contacts.client_company" && isSodatraCompanyName(fact.value)) {
+          console.log(`[client-company-guard] rejected "${fact.value}" as contacts.client_company`);
+          factsSkipped++;
+          continue;
+        }
+
         // --- HS Code guard: validate against hs_codes table before injection ---
         if (fact.key === "cargo.hs_code") {
           const rawHs = String(fact.value);
@@ -4507,7 +4556,13 @@ CRITICAL RULES:
    - NEVER extract these from outbound quotation emails sent BY the freight forwarder (SODATRA, @sodatra.sn, @sodatra.com)
    - If a monetary amount appears in an email FROM the freight forwarder, it is a PROPOSED PRICE, not a cargo fact
    - This rule applies to all monetary facts in the cargo.* namespace (cargo.value, cargo.freight_cost, etc.)
-   - When in doubt about a price source, do NOT extract it as a cargo fact`;
+    - When in doubt about a price source, do NOT extract it as a cargo fact
+10. OPERATOR IDENTITY (CRITICAL):
+   - SODATRA, SODATRA Transit, SODATRA Shipping & Logistics and variants are the operator/freight forwarder, not the client.
+   - Never extract them as contacts.client_company.
+   - If SODATRA appears in the subject, recipient, signature, or body, treat it as operator/recipient context.
+   - The external sender company is usually the client only if identifiable from signature, email domain, or explicit company name.
+   - If the true client company is not explicit, leave contacts.client_company empty rather than guessing.`;
 
   const userPrompt = `Extract facts from this email thread:
 
