@@ -1,0 +1,313 @@
+raw_designation,normalized_term,pad_category,source_section,source_page,status,commodity_category_present,tariff_confirmed_by_smoke_test,injection_note
+CRUSTACES NDA,crustaces nda,P01,2.3.1,9,new,True,False,Catégorie P01 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+THONIDES,thonides,P02,2.3.1,9,new,True,False,Catégorie P02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CRABES,crabes,P03,2.3.1,9,new,True,False,Catégorie P03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CREVETTES DE FONDS,crevettes de fonds,P03,2.3.1,9,new,True,False,Catégorie P03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"MOLLUSQUES, ROUGETS, POISSONS PLATS",mollusques rougets poissons plats,P03,2.3.1,9,new,True,False,Catégorie P03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"SARDINELLES, CHINCHARD, MAQUEREAU",sardinelles chinchard maquereau,P04,2.3.1,9,new,True,False,Catégorie P04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS DE PECHE NDA,produits de peche nda,P05,2.3.1,9,new,True,False,Catégorie P05 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+APPAREILS SCIENTIFIQUES ET MATERIEL DE LABORATOIRE,appareils scientifiques et materiel de laboratoire,T01,2.3.3,23,new,True,True,OK — catégorie confirmée par smoke test
+APPAREILS SCIENTIFIQUES ET MATERIELS DE LABORATOIRE,appareils scientifiques et materiels de laboratoire,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+ARMRURERIE,armrurerie,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+ARMURERIE,armurerie,T01,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+"AUTRE TABAC, CIGARETTES, CIGARES, ET FILTRES",autre tabac cigarettes cigares et filtres,T01,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+BIJOUTERIE SAUF BIJOUTERIE FANTAISIE,bijouterie sauf bijouterie fantaisie,T01,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+BOISSONS ALCOOLISEES SAUF VIN <= 13°,boissons alcoolisees sauf vin 13,T01,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+CINEMA/ FILM ET APPAREIL,cinema film et appareil,T01,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CONTENANT AUCUN PRODUIT DE CAT.,contenant aucun produit de cat,T01,2.3.3,29,new,True,True,OK — catégorie confirmée par smoke test
+CONTENEURS DE GROUPAGE IMPORT DE DIVERSES,conteneurs de groupage import de diverses,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"ELECTROPHONES, CHAINES HI-FI",electrophones chaines hifi,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+EXPLOISIFS,exploisifs,T01,2.3.2,20,new,True,True,OK — catégorie confirmée par smoke test
+HORLOGERIE,horlogerie,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+INSTRUMENTS DE MESURE,instruments de mesure,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+INSTRUMENTS DE MUSIQUE,instruments de musique,T01,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+MACHINE A CALCULER,machine a calculer,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+MACHINES A CALCULER,machines a calculer,T01,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+"MAGNETOPHONES, MAGNETOSCOPES, TV",magnetophones magnetoscopes tv,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+"MAT. INFORMATIQUE, ORDINATEURS",mat informatique ordinateurs,T01,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+MATERIEL DE PHOTOCOPIEUSE ET DE REPROGRAPHIE,materiel de photocopieuse et de reprographie,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"MATERIEL PHOTOGRAPHIQUE, APPAREILS PHOTOS ET PELLICULES",materiel photographique appareils photos et pellicules,T01,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+"MATERIELS INFORMATIQUES, ORDINATEURS",materiels informatiques ordinateurs,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"MATERIELS PHOTOGRAPHIQUES, APPAREILS PHOTOS ET PELLICULES",materiels photographiques appareils photos et pellicules,T01,2.3.3,23,new,True,True,OK — catégorie confirmée par smoke test
+"MOBILIERS, AMEUBLEMENT",mobiliers ameublement,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+MONNAIE ET BILLETS DE BANQUE,monnaie et billets de banque,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+MUNITIONS NDA,munitions nda,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"MUNITIONS POUR CHASSE ET SPORT NDA, PYROTECHNIE, EXPLOISIFS",munitions pour chasse et sport nda pyrotechnie exploisifs,T01,2.3.3,23,new,True,True,OK — catégorie confirmée par smoke test
+"OPTIQUE, LUNETTERIE, ARTICLES POUR FUMEURS",optique lunetterie articles pour fumeurs,T01,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"PERLES, PIERRES PRECIEUX",perles pierres precieux,T01,2.3.2,20,new,True,True,OK — catégorie confirmée par smoke test
+RADIO EMETTEUR ET APARAILS METEO,radio emetteur et aparails meteo,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+RADIO EMETTEUR ET APPAREILS METEO,radio emetteur et appareils meteo,T01,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+TABAC EN FEUILLE (MAT 1 ére),tabac en feuille mat 1 ere,T01,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+TABAC EN FEUILLE (MAT 1ére),tabac en feuille mat 1ere,T01,2.3.2,22,new,True,True,OK — catégorie confirmée par smoke test
+TELEPHONE ET ACCESSOIRES,telephone et accessoires,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+TELEVISIONS ET ACCESSOIRES,televisions et accessoires,T01,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+VIN ET BOISSONS ALCOOLISEES > 13°,vin et boissons alcoolisees 13,T01,2.3.3,23,new,True,True,OK — catégorie confirmée par smoke test
+VINS < = 13° NDA,vins 13 nda,T01,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+VINS ET BOISSONS ALCOOLISEES >13°,vins et boissons alcoolisees 13,T01,2.3.2,22,new,True,True,OK — catégorie confirmée par smoke test
+ANIMAUX VIVANTS,animaux vivants,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+APPAREIL ELECTRO-MENAGERS ET CLIMATISEURS,appareil electromenagers et climatiseurs,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+APPAREILS ELECTRO-MENAGERS ET CLIMATISEURS,appareils electromenagers et climatiseurs,T02,2.3.2,16,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+APPAREILS MENAGERS NON ELECTRIQUES,appareils menagers non electriques,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ARTICLES MAT. PECHE & CHASSE,articles mat peche chasse,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ARTICLES METALLIQUES NDA,articles metalliques nda,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+AVITAILLEMENTS HOTEL,avitaillements hotel,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"BAGAGES, EFFETS PERSONNELS",bagages effets personnels,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BANANES,bananes,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BEURRE FROAMGE ET AUTRES PRODUITS LAITIERS NDA,beurre froamge et autres produits laitiers nda,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BEURRE FROMAGE ET AUTRES PRODUITS LAITIERS NDA,beurre fromage et autres produits laitiers nda,T02,2.3.3,24,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BICYCLETTES ET ACCESSOIRES,bicyclettes et accessoires,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOISSONS ACOOLISEES SAUF < = 13°,boissons acoolisees sauf 13,T02,2.3.3,24,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOISSONS ACOOLISEES SAUF < = 13° NDA,boissons acoolisees sauf 13 nda,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOISSONS ACOOLISEES SAUF VIN < = 13° NDA,boissons acoolisees sauf vin 13 nda,T02,2.3.2,17,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"BONNERIE, MERCERIE",bonnerie mercerie,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CABLES ELECTRONIQUES,cables electroniques,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CACAO, CHOCOLAT, CHICOREE",cacao chocolat chicoree,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CAFE, NESCAFE",cafe nescafe,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CHAUSSURES,chaussures,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+COLAS,colas,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CONDIMENT, EPICE, AROMES NATURELS OU ARTIFICIELS NDA",condiment epice aromes naturels ou artificiels nda,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CONDIMENTS, EPICE, AROMES NATURELS OU ARTIFICIELS NDA",condiments epice aromes naturels ou artificiels nda,T02,2.3.2,17,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONFITURE,confiture,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONSERVES DE FRUITS,conserves de fruits,T02,2.3.1,10,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONSERVES DE LEGUMES,conserves de legumes,T02,2.3.1,10,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONSERVES DE POISSON CRUSTACES ET MOLLUSQUES NDA,conserves de poisson crustaces et mollusques nda,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CONSERVES DE VIANDE, ET CHARCUTERIE",conserves de viande et charcuterie,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+COUTELLERIE,coutellerie,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"COUVERTURE, LINGERIE",couverture lingerie,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"DROGUERIE, PRODUITS D’ENTRETIEN",droguerie produits dentretien,T02,2.3.2,18,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"DROGUERIES, PRODUITS D’ENTRETIEN",drogueries produits dentretien,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+EFFETS DE TOILETTE,effets de toilette,T02,2.3.2,18,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ELEMENTS DE CONSTRUCTION FINIS ET CONSTRUCTIONS EN METAL,elements de construction finis et constructions en metal,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"EXTINCTEURS, BOUTEILLES DE GAZ (vides ou pleines)",extincteurs bouteilles de gaz vides ou pleines,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+LEGUMES FRAIS NDA,legumes frais nda,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"LIVRES, JOURNAUX, IMPRIMES",livres journaux imprimes,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MACHINES OUTILS,machines outils,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MAROQUINERIE,maroquinerie,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATERIEL DE PHOTOCOPIE ET DE REPROGRAPHIE,materiel de photocopie et de reprographie,T02,2.3.2,19,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATERIELS ELECTRIQUES ET APPAREIL ECLAIRAGE,materiels electriques et appareil eclairage,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATERIELS INDUSTRIEL NDA,materiels industriel nda,T02,2.3.3,24,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATERIELS INDUSTRIELS NDA,materiels industriels nda,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+METAL,metal,T02,2.3.2,18,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MIROITERIE,miroiterie,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MOTEURS ELCETRIQUES ET A EXPLOSION,moteurs elcetriques et a explosion,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MOTOCYCLES SAUF SCOOOTER,motocycles sauf scoooter,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"OBJET ART, COLLECTION",objet art collection,T02,2.3.2,20,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ORANGES,oranges,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+OUTILS A MAIN,outils a main,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PAPETERIE, ET MATERIELS, FOURNITURE DE BUREAU",papeterie et materiels fourniture de bureau,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PAPETERIRE, MATERIELS FOURNITURE DE BUREAU",papeterire materiels fourniture de bureau,T02,2.3.3,24,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PAPETERIRE, MATERIELS FOURNITURES DE BUREAU",papeterire materiels fournitures de bureau,T02,2.3.2,20,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PARFUMERIE, TEINTURE CAPILAIRE",parfumerie teinture capilaire,T02,2.3.2,20,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PARFUMERIE, TEINTURE CAPILLAIRE",parfumerie teinture capillaire,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PATE ET PREPARATION ALIMENTAIRES A BASE DE PATE,pate et preparation alimentaires a base de pate,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PEINTURE, COLORANTS INDUSTRIELS RESINE POUR PEINTURE",peinture colorants industriels resine pour peinture,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PIECES DETACHEES DE MACHINES ET APPAREILS,pieces detachees de machines et appareils,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PIECES DETACHEES DE VEHICULES ET DE MATERIEL DE TRANSPORT,pieces detachees de vehicules et de materiel de transport,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PLATS CUISINES,plats cuisines,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PLOMBERIE, ROBINETTERIE",plomberie robinetterie,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PNEUMATIQUES,pneumatiques,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+POMMES,pommes,T02,2.3.1,8,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PREPARATIONS ALIMENTAIRES NDA,preparations alimentaires nda,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS COSMETIQUES,produits cosmetiques,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS DE TOILETTE NDA,produits de toilette nda,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS METALLURGIQUES NON FERREUX,produits metallurgiques non ferreux,T02,2.3.1,11,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"QUINCAILLERIE, BOULONNERIE, VISSERIE",quincaillerie boulonnerie visserie,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"QUINCALLERIE, BOULONNERIE, VISSERIE",quincallerie boulonnerie visserie,T02,2.3.2,21,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SACS ET COLIS POSTAUX,sacs et colis postaux,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SCOOTERS,scooters,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SEL NDA,sel nda,T02,2.3.1,11,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SIMILI- CUIRS,simili cuirs,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+TEINTURE NDA,teinture nda,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+TEINTURES NDA,teintures nda,T02,2.3.2,22,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"TEXTILE, HABILLEMENT, LINGE DE MAISON NDA",textile habillement linge de maison nda,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+THE,the,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"TISSUS, ETOFFES",tissus etoffes,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+USTENSILES DE MENAGE,ustensiles de menage,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+USTENSILS DE MENAGE,ustensils de menage,T02,2.3.2,22,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VAISSELLES, VERRERIE DE TABLE",vaisselles verrerie de table,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VEHICULES ROULIER < 1,5 T",vehicules roulier 15 t,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VEHICULES ROULIER > 2,5 T",vehicules roulier 25 t,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VERNIS, DILUANT, SOLVANT, COLORANT",vernis diluant solvant colorant,T02,2.3.1,13,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+VERRE A VITRE ET AUTRE VERRE PLAT,verre a vitre et autre verre plat,T02,2.3.1,14,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+VETEMENTS NEUFS,vetements neufs,T02,2.3.1,15,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+VIANDE FRAICHE OU CONGELEE,viande fraiche ou congelee,T02,2.3.1,9,new,True,False,Catégorie T02 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ACIDE GRAS,acide gras,T03,2.3.1,13,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONSERVE DE THON ET PICHARDS,conserve de thon et pichards,T03,2.3.1,9,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CONSERVES DE THON ET PICHARDS,conserves de thon et pichards,T03,2.3.2,17,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CUIRS ET PEAUX BRUTES,cuirs et peaux brutes,T03,2.3.1,8,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+CUIRS ET PEAUX BRUTS,cuirs et peaux bruts,T03,2.3.3,25,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+FARINE LACTEE,farine lactee,T03,2.3.1,9,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+FARINES LACTEE,farines lactee,T03,2.3.2,18,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+GLUCERINE BRUTE,glucerine brute,T03,2.3.2,19,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"GLUCOSE C6, H12 06 ET AUTRES",glucose c6 h12 06 et autres,T03,2.3.1,9,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+GLYCERINE BRUTE,glycerine brute,T03,2.3.1,13,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+HUILES BRUTES VEGETALES OU ANIMALES POUR LA SAVONNERIRE,huiles brutes vegetales ou animales pour la savonnerire,T03,2.3.1,8,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+HUILES COMESTIBLES EN VRAC NDA,huiles comestibles en vrac nda,T03,2.3.1,10,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATIERE PLASTIQUE BRUTE NDA,matiere plastique brute nda,T03,2.3.1,13,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATIERES PLASTIQUES BRUTES NDA,matieres plastiques brutes nda,T03,2.3.2,20,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS BRUTS D’ORIGINE ANIMALE ET VEGETALE NDA,produits bruts dorigine animale et vegetale nda,T03,2.3.2,21,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+PRODUITS BRUTS D’ORIGINE VEGETAL ET VEGETALE NDA,produits bruts dorigine vegetal et vegetale nda,T03,2.3.1,8,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SAVONNERIRE,savonnerire,T03,2.3.2,19,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SOUDE CAUSTIQUE,soude caustique,T03,2.3.1,13,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SOUFFRE NDA,souffre nda,T03,2.3.1,11,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SOUFRE NDA,soufre nda,T03,2.3.2,21,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SUCRE BRUT ET GRANULE DE SUCRE,sucre brut et granule de sucre,T03,2.3.1,9,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SUCRE RAFFINE EN MORCEUAX OU EN POUDRE,sucre raffine en morceuax ou en poudre,T03,2.3.1,9,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+SUIF,suif,T03,2.3.1,8,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+TALL- OIL,tall oil,T03,2.3.1,13,new,True,False,Catégorie T03 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"BOIS DEBITES, SCIAGES, TRAVERSES",bois debites sciages traverses,T04,2.3.1,8,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOIS EN GRUMES,bois en grumes,T04,2.3.1,8,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"BOIS TRAVAILLES, CONTRE PLAQUES, PLAQUAGES",bois travailles contre plaques plaquages,T04,2.3.1,8,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOISSONS NON ALCOOLISEES,boissons non alcoolisees,T04,2.3.2,17,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+BOISSONS NON ALCOOLISEES NDA,boissons non alcoolisees nda,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"CONFISERIE, BONBONS ET SUCRERIES NDA",confiserie bonbons et sucreries nda,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+EAU MINERALE ET NATURELLE,eau minerale et naturelle,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ENGRAIS NATURELS,engrais naturels,T04,2.3.1,12,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ENGRAIS NDA,engrais nda,T04,2.3.1,12,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+FRIPPERIES ET VETEMENTS USAGERS,fripperies et vetements usagers,T04,2.3.1,15,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+GLACES ET SOBRETS,glaces et sobrets,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+GLACES ET SORBETS,glaces et sorbets,T04,2.3.3,26,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"JUS DE FRUIT, CONCENTRE DE JUS",jus de fruit concentre de jus,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+JUS DE FRUIT ET NATURELLE,jus de fruit et naturelle,T04,2.3.2,19,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+LAIT EN POUDRE,lait en poudre,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MIEL,miel,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+OIGNONS COMESTIBLES,oignons comestibles,T04,2.3.1,8,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+POISSONS SALES SECHES,poissons sales seches,T04,2.3.1,9,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+POMME DE TERRE ET SEMENCE DE POMME DE TERRE,pomme de terre et semence de pomme de terre,T04,2.3.2,21,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"PORDUITS PHARMACEUTIQUES, MEDICAMENTS",porduits pharmaceutiques medicaments,T04,2.3.1,13,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+POTASSE NDA,potasse nda,T04,2.3.1,12,new,True,False,Catégorie T04 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+ACIDE PHOSPHORIQUE ICS,acide phosphorique ics,T05,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+BLE (WHEAT ANGLAIS),ble wheat anglais,T05,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+CÉRÉALES NDA (2),cereales nda 2,T05,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CÉRÉALES NDA(2),cereales nda2,T05,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+CIMENT,ciment,T05,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+ENGRAIS ICS,engrais ics,T05,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+"HOUBLON, GRUAUX, MALT",houblon gruaux malt,T05,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+MAIS ET FARINE DE MAIS,mais et farine de mais,T05,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+"MIL, SORGO",mil sorgo,T05,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+PLATRE EN SAC,platre en sac,T05,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+POTASSE ICS,potasse ics,T05,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+PRODUITS ICS NDA,produits ics nda,T05,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+SOUFFRE ICS,souffre ics,T05,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+SOUFRE ICS,soufre ics,T05,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+"ALIMENT DE BETAIL, SON ET TOURTERAUX NDA",aliment de betail son et tourteraux nda,T07,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+AMIANTE,amiante,T07,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+ARACHIDES DECORTIQUEES,arachides decortiquees,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+ARGILE ET CRAIE EN POUDRE,argile et craie en poudre,T07,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+AUTRES MATIERES TEXTILES NDA,autres matieres textiles nda,T07,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+CHARBON,charbon,T07,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CHARBON DE TERRE,charbon de terre,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+CHAUX ETEINTE,chaux eteinte,T07,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+CHIFFONS ET DECHETS DE TEXTILES,chiffons et dechets de textiles,T07,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+CLINKER,clinker,T07,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+COKE,coke,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+COTON EGRENE EN BALLE OU BIG BAG,coton egrene en balle ou big bag,T07,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+FARINE DE BLE,farine de ble,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+FARINE DE POISSON,farine de poisson,T07,2.3.2,18,new,True,True,OK — catégorie confirmée par smoke test
+GRAINES DE TOURNESOL ET GRAINES OLEAGINEUX NDA,graines de tournesol et graines oleagineux nda,T07,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+GRAINES ET SEMENCES NDA (sauf semences de pom.de terres),graines et semences nda sauf semences de pomde terres,T07,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+GRAINES ET SEMENCES NDA (sauf semences de pomme de terres),graines et semences nda sauf semences de pomme de terres,T07,2.3.3,27,new,True,True,OK — catégorie confirmée par smoke test
+GRAINES ET SEMENCES NDA (sauf semences de pommes de terres),graines et semences nda sauf semences de pommes de terres,T07,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+GYPSE,gypse,T07,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+MELASSE DE CANNE,melasse de canne,T07,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+MINERAIS BRUTS,minerais bruts,T07,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+OLEAGINEUX NDA,oleagineux nda,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+"SABLE, PIERRES DE CONSTRUCTION",sable pierres de construction,T07,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+"SABLE, PIERRES DE CONSTRUCTIONS",sable pierres de constructions,T07,2.3.3,27,new,True,True,OK — catégorie confirmée par smoke test
+SEMOULE ET AUTRES FARINE DE CERALES NDA,semoule et autres farine de cerales nda,T07,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+SEMOULE ET AUTRES FARINES DE CERALES NDA,semoule et autres farines de cerales nda,T07,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+TERRES REFRACRTAIRE,terres refracrtaire,T07,2.3.3,27,new,True,True,OK — catégorie confirmée par smoke test
+TERRES REFRACRTAIRES,terres refracrtaires,T07,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+"AVION, HELICOPTERE, EMBARCATION",avion helicoptere embarcation,T09,2.3.1,14,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MATERIEL DE CHANTIER,materiel de chantier,T09,2.3.1,15,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+TRACTEURS AGRICOLES,tracteurs agricoles,T09,2.3.1,14,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+VEHICULE ET MATERIEL DE TRANSPORT NDA,vehicule et materiel de transport nda,T09,2.3.1,14,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+VEHICULES DE CHANTIER ET VEHICULES INDUSTRIELS,vehicules de chantier et vehicules industriels,T09,2.3.1,14,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VEHICULES ROULIER DE 1,5 A 2,5 T",vehicules roulier de 15 a 25 t,T09,2.3.1,14,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"VEHICULES ROUTIER DE 1,5 A 2,5 T",vehicules routier de 15 a 25 t,T09,2.3.2,22,new,True,False,Catégorie T09 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+A BETON,a beton,T12,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+ACIDE NDA,acide nda,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+ACIDE PHOSPHORIQUE NDA,acide phosphorique nda,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+ALCCOL INDUSTRIEL,alccol industriel,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+AMIDON,amidon,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+ARTICLES DE MANUFACTURES NDA,articles de manufactures nda,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+ARTICLES DE PUBLICITE SAUF PAPIER IMPRIME,articles de publicite sauf papier imprime,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+ARTICLES EN MATIERES PLASTIQUES NDA,articles en matieres plastiques nda,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+ARTICLES EN MATIERES PLASTIQUES NENDA,articles en matieres plastiques nenda,T12,2.3.3,28,new,True,True,OK — catégorie confirmée par smoke test
+AUTRES PRODUITS MINERAUX,autres produits mineraux,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+AUTRES PRODUITS MINERAUX NDA,autres produits mineraux nda,T12,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+BETON,beton,T12,2.3.2,22,new,True,True,OK — catégorie confirmée par smoke test
+BEURRE DE KARITE,beurre de karite,T12,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+BEURRES DE KARITE,beurres de karite,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+BEURRES VEGETALES ET MARGARINES,beurres vegetales et margarines,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+BEURRES VEGETAUX ET MARGARINES,beurres vegetaux et margarines,T12,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+BIJOUTERIE FANTAISIE (SANS PIERRES NI METAUX PRECIEUX),bijouterie fantaisie sans pierres ni metaux precieux,T12,2.3.2,16,new,True,True,OK — catégorie confirmée par smoke test
+BISCUITS,biscuits,T12,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+BLEU D’OUTRE MER,bleu doutre mer,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+BOUCHONS ET CAPSULES,bouchons et capsules,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+BRIQUES REFRACTAIRES,briques refractaires,T12,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+CAOUTCHOUC NATUREL,caoutchouc naturel,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+CAOUTCHOUC PLAQUE OU ROULEAUX,caoutchouc plaque ou rouleaux,T12,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CAOUTCHOUC PLAQUES OU ROULEAUX,caoutchouc plaques ou rouleaux,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+CARTONNAGE EN ROULEAU OU EN PLAQUE,cartonnage en rouleau ou en plaque,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+CARTONNAGE EN ROULEAU OU NE PLAQUE,cartonnage en rouleau ou ne plaque,T12,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CHAUFFE EAU ET MATERIELS DE CHAUFFAGE,chauffe eau et materiels de chauffage,T12,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CHAUFFE EEAU ET MATERIELS DE CHAUFFAGE,chauffe eeau et materiels de chauffage,T12,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+CHAUX VIVE,chaux vive,T12,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+CHLORURE DE POTASSIUM,chlorure de potassium,T12,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+"CIRE, CIRAGE",cire cirage,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+COFFRE – FORT,coffre fort,T12,2.3.2,17,new,True,True,OK — catégorie confirmée par smoke test
+CORDES CORDAGES FICELLES,cordes cordages ficelles,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+CUIRS ET PEAUX TRAVAILLEES SAUF MAROQUINERIE,cuirs et peaux travaillees sauf maroquinerie,T12,2.3.2,18,new,True,True,OK — catégorie confirmée par smoke test
+CUIRS ET PEAUX TRAVAILLES SAUF MAROQUINERIE,cuirs et peaux travailles sauf maroquinerie,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+EMBALLAGES VIDES EN CARTON,emballages vides en carton,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+FERREUX NDA,ferreux nda,T12,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+FILS ET MATIERES TEXTILES NATURELLES OU ARTIFICIELLES NDA,fils et matieres textiles naturelles ou artificielles nda,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+FRUITS FRAIS NDA,fruits frais nda,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+FRUITS SECS,fruits secs,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+GOMMES VEGETAL,gommes vegetal,T12,2.3.2,19,new,True,True,OK — catégorie confirmée par smoke test
+GOMMES VEGETALES,gommes vegetales,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+HEXANE,hexane,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+HUILES COMESTIBLES EMBALLEES NDA,huiles comestibles emballees nda,T12,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+HUILES DE GRAISSAGE ET AUTRES HUILES INDUSTRIELLES NDA,huiles de graissage et autres huiles industrielles nda,T12,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+HUILES DE GRAISSAGE ET AUTRESHUILES INDUSTRIELLES NDA,huiles de graissage et autreshuiles industrielles nda,T12,2.3.3,28,new,True,True,OK — catégorie confirmée par smoke test
+"INSECTICIDES, PESTICIDES",insecticides pesticides,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+LEGUMES SECS,legumes secs,T12,2.3.1,8,new,True,True,OK — catégorie confirmée par smoke test
+LEVURES,levures,T12,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+MACHINES AGRICOLES,machines agricoles,T12,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+MATERIAUX DE CONSTRUCTION ET CARRELAGE NDA,materiaux de construction et carrelage nda,T12,2.3.1,12,new,True,True,OK — catégorie confirmée par smoke test
+"MATERIEL SANITAIRE EN FAIENCE, PORCELAINE",materiel sanitaire en faience porcelaine,T12,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+MATIERES CHIMIQUES NDA,matieres chimiques nda,T12,2.3.3,28,new,True,True,OK — catégorie confirmée par smoke test
+MATIRES CHIMIQUES NDA,matires chimiques nda,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+NDA,nda,T12,2.3.2,22,new,True,True,OK — catégorie confirmée par smoke test
+NEUTRAL SOLVANT,neutral solvant,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+PAPIER BITUME,papier bitume,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+PAPIER ET PAPIER KRAFT EN BOBINES > 1T,papier et papier kraft en bobines 1t,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+PAPIER ET PAPIER KRAFT EN BOBINNES > 1T,papier et papier kraft en bobinnes 1t,T12,2.3.2,20,new,True,True,OK — catégorie confirmée par smoke test
+PARAFFINE,paraffine,T12,2.3.2,20,new,True,True,OK — catégorie confirmée par smoke test
+PARAFINE,parafine,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+PRODUIT CHIMIQUE DE BASE NDA,produit chimique de base nda,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+PRODUITS CHIMIQUES DE BASE NDA,produits chimiques de base nda,T12,2.3.3,29,new,True,True,OK — catégorie confirmée par smoke test
+QUINOUELIBA,quinoueliba,T12,2.3.1,9,new,True,True,OK — catégorie confirmée par smoke test
+QUINQUELIBA,quinqueliba,T12,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+"RECIPIENT VIDE EN VERRE, EN BOIS OU EN FER NDA",recipient vide en verre en bois ou en fer nda,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+RESINE SYNTHETIQUE,resine synthetique,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+REVETEMENT DE SOL (CARRELAGE) NDA,revetement de sol carrelage nda,T12,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+SACS EN JUT OU EN FIBRES VEGETALES,sacs en jut ou en fibres vegetales,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+SACS EN JUTE OU EN FIBRES VEGETALES,sacs en jute ou en fibres vegetales,T12,2.3.2,21,new,True,True,OK — catégorie confirmée par smoke test
+SACS EN JUTE OU EN FIBRES VEGETALS,sacs en jute ou en fibres vegetals,T12,2.3.3,29,new,True,True,OK — catégorie confirmée par smoke test
+SACS EN PROPYLENE,sacs en propylene,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+SAVONS ORDINAIRES,savons ordinaires,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+SOLVESSO,solvesso,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+TALC,talc,T12,2.3.1,11,new,True,True,OK — catégorie confirmée par smoke test
+"TOLES ET PRODUITS LAMINES, FIL DE FER, RAILS, PROFILES ET FER A BETON",toles et produits lamines fil de fer rails profiles et fer a beton,T12,2.3.3,29,new,True,True,OK — catégorie confirmée par smoke test
+TOLUENE,toluene,T12,2.3.1,13,new,True,True,OK — catégorie confirmée par smoke test
+TRANSACTIONS SPECIALES NDA,transactions speciales nda,T12,2.3.1,15,new,True,True,OK — catégorie confirmée par smoke test
+"TUBES, TUYAUX ET POTEAUX METALLIQUES ET PRODUITS FERREUX NDA",tubes tuyaux et poteaux metalliques et produits ferreux nda,T12,2.3.3,29,new,True,True,OK — catégorie confirmée par smoke test
+TUYEAUX EN PVC,tuyeaux en pvc,T12,2.3.2,22,new,True,True,OK — catégorie confirmée par smoke test
+ŒUVRES ET OBJETS D’ART,uvres et objets dart,T12,2.3.2,20,new,True,True,OK — catégorie confirmée par smoke test
+"VERRE, PRODUITS CERAMIQUES NDA",verre produits ceramiques nda,T12,2.3.1,14,new,True,True,OK — catégorie confirmée par smoke test
+WHITE SPIRIT,white spirit,T12,2.3.1,10,new,True,True,OK — catégorie confirmée par smoke test
+CONTENEURS DE GROUPAGE IMPORT DE DIVERSES MARCHANDISES NE,conteneurs de groupage import de diverses marchandises ne,T13,2.3.3,29,new,True,False,Catégorie T13 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+MARCHANDISES NE CONTENANT AUCUN P¨RODUIT DE CAT. T01,marchandises ne contenant aucun produit de cat t01,T13,2.3.1,15,new,True,False,Catégorie T13 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB
+"FIL MACHINE, BOBINE DE TOLES, FEUILLARD, FER BLANC",fil machine bobine de toles feuillard fer blanc,T14,2.3.1,11,new,True,False,Catégorie T14 présente dans commodity_categories mais tarif PAD non confirmé par smoke test — à vérifier en DB

@@ -1,0 +1,171 @@
+{
+  "audit_date": "2026-05-06",
+  "phase": "PAD-NOM-1",
+  "source_csv": "PAD_2006_NOMENCLATURE_EXTRACT_REVIEW.csv",
+  "total_input_rows": 345,
+  "results": {
+    "injectable": 312,
+    "excluded_total": 33,
+    "excluded_conflict": 4,
+    "excluded_already_exists": 1,
+    "excluded_missing_category": 28
+  },
+  "injectable_by_category": {
+    "P01": {
+      "count": 1,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "P02": {
+      "count": 1,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "P03": {
+      "count": 3,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "P04": {
+      "count": 1,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "P05": {
+      "count": 1,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T01": {
+      "count": 38,
+      "tariff_confirmed_by_smoke_test": true
+    },
+    "T02": {
+      "count": 87,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T03": {
+      "count": 24,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T04": {
+      "count": 21,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T05": {
+      "count": 14,
+      "tariff_confirmed_by_smoke_test": true
+    },
+    "T07": {
+      "count": 28,
+      "tariff_confirmed_by_smoke_test": true
+    },
+    "T09": {
+      "count": 7,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T12": {
+      "count": 83,
+      "tariff_confirmed_by_smoke_test": true
+    },
+    "T13": {
+      "count": 2,
+      "tariff_confirmed_by_smoke_test": false
+    },
+    "T14": {
+      "count": 1,
+      "tariff_confirmed_by_smoke_test": false
+    }
+  },
+  "schema_audit": {
+    "pad_designation_aliases": {
+      "columns_required": [
+        "bl_term (NOT NULL)",
+        "normalized_term (NOT NULL)",
+        "commodity_category_id (NOT NULL, FK → commodity_categories.id)",
+        "pad_category (NOT NULL)",
+        "is_validated (default false)",
+        "source_type (CHECK: seed|operator_correction|ai_suggestion_validated)",
+        "source_reference (nullable)"
+      ],
+      "unique_constraint": "UNIQUE (normalized_term, commodity_category_id)",
+      "unique_constraint_note": "La contrainte unique est sur (normalized_term, commodity_category_id), PAS sur (normalized_term, pad_category). Cela signifie que le même normalized_term peut exister plusieurs fois si les commodity_category_id sont différents. run-pricing détecte les collisions via pad_category (dénormalisé).",
+      "source_type_check": "Valeurs autorisées: seed, operator_correction, ai_suggestion_validated",
+      "source_type_recommendation": "Utiliser 'seed' pour l'injection PAD-NOM-2. Ne pas créer 'official_nomenclature' sans migration."
+    },
+    "commodity_categories": {
+      "categories_present": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T07",
+        "T09",
+        "T12",
+        "T13",
+        "T14"
+      ],
+      "categories_absent": [
+        "T06",
+        "T08",
+        "T10",
+        "T11"
+      ],
+      "absent_note": "T06, T08, T10, T11 absentes du référentiel applicatif actuel (MASTER_CONTEXT Phase PAD-ADMIN-UI). Ne pas créer sans besoin métier avéré."
+    },
+    "run_pricing_dependency": {
+      "uses_pad_category": true,
+      "uses_commodity_category_id": false,
+      "explanation": "run-pricing sélectionne pad_category, bl_term, commodity_category_id mais ne consomme que pad_category pour le lookup port_tariffs. commodity_category_id est sélectionné mais non utilisé dans la logique runtime. Il est requis par la contrainte FK de la table, pas par le moteur.",
+      "collision_detection": "Basée sur pad_category (dénormalisé), pas sur commodity_category_id"
+    },
+    "port_tariffs_pad": {
+      "categories_confirmed_by_smoke_test": [
+        "T01",
+        "T05",
+        "T07",
+        "T12"
+      ],
+      "categories_unconfirmed": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "T02",
+        "T03",
+        "T04",
+        "T09",
+        "T13",
+        "T14"
+      ],
+      "unconfirmed_note": "Ces catégories sont présentes dans commodity_categories mais leur tarif PAD DROIT_PASSAGE n'a pas été confirmé par smoke test. Vérifier en DB avant injection : SELECT classification FROM port_tariffs WHERE provider='PAD' AND category='DROIT_PASSAGE' AND operation_type='IMPORT' AND is_active=true;",
+      "tariffs_inserted_via": "UI admin (Phase 3 PAD) — pas de migration SQL retrouvée"
+    }
+  },
+  "injection_rules": {
+    "injectable_if": [
+      "status = 'new'",
+      "normalized_term NOT in collision_terms",
+      "normalized_term NOT already in pad_designation_aliases",
+      "pad_category IN commodity_categories (T06/T08/T10/T11 exclus)"
+    ],
+    "excluded_if": [
+      "status = 'conflict'",
+      "status = 'already_exists'",
+      "normalized_term → multiple pad_categories (même si status incorrect)",
+      "pad_category NOT IN commodity_categories"
+    ]
+  },
+  "injection_blocked": true,
+  "injection_reason": "PAD-NOM-1 = audit uniquement. Injection après validation PAD-NOM-2.",
+  "pre_injection_checklist": [
+    "1. Vérifier en DB : SELECT classification FROM port_tariffs WHERE provider='PAD' AND category='DROIT_PASSAGE' AND operation_type='IMPORT' AND is_active=true",
+    "2. Vérifier en DB : SELECT pad_category, COUNT(*) FROM commodity_categories WHERE pad_category IS NOT NULL GROUP BY pad_category ORDER BY pad_category",
+    "3. Vérifier en DB : SELECT COUNT(*) FROM pad_designation_aliases WHERE is_validated=true",
+    "4. Valider manuellement les conflits 'alcool industriel' et 'sport'",
+    "5. Décider si T06/T08/T10/T11 doivent être créées avant injection",
+    "6. Confirmer que source_type='seed' est acceptable pour l'injection officielle"
+  ]
+}
