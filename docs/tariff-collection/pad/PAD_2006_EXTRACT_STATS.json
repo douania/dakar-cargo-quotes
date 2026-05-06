@@ -1,0 +1,217 @@
+{
+  "extraction_date": "2026-05-06",
+  "source_document": "REDEVANCES_PORTUAIRES_2006.pdf",
+  "sections_extracted": [
+    "2.3.1",
+    "2.3.2",
+    "2.3.3"
+  ],
+  "totals": {
+    "raw_entries_231": 252,
+    "raw_entries_232": 270,
+    "raw_entries_233": 265,
+    "raw_total": 787,
+    "after_deduplication": 345,
+    "conflict_terms": 2
+  },
+  "status_breakdown": {
+    "new": 340,
+    "already_exists": 1,
+    "conflict": 4,
+    "needs_review": 0
+  },
+  "coverage_by_category": {
+    "P01": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    },
+    "P02": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    },
+    "P03": {
+      "new": 3,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 3
+    },
+    "P04": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    },
+    "P05": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    },
+    "T01": {
+      "new": 38,
+      "already_exists": 0,
+      "conflict": 1,
+      "total": 39
+    },
+    "T02": {
+      "new": 87,
+      "already_exists": 0,
+      "conflict": 1,
+      "total": 88
+    },
+    "T03": {
+      "new": 24,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 24
+    },
+    "T04": {
+      "new": 21,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 21
+    },
+    "T05": {
+      "new": 14,
+      "already_exists": 1,
+      "conflict": 0,
+      "total": 15
+    },
+    "T06": {
+      "new": 8,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 8
+    },
+    "T07": {
+      "new": 28,
+      "already_exists": 0,
+      "conflict": 1,
+      "total": 29
+    },
+    "T08": {
+      "new": 7,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 7
+    },
+    "T09": {
+      "new": 7,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 7
+    },
+    "T10": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    },
+    "T11": {
+      "new": 12,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 12
+    },
+    "T12": {
+      "new": 83,
+      "already_exists": 0,
+      "conflict": 1,
+      "total": 84
+    },
+    "T13": {
+      "new": 2,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 2
+    },
+    "T14": {
+      "new": 1,
+      "already_exists": 0,
+      "conflict": 0,
+      "total": 1
+    }
+  },
+  "geomembranes_analysis": {
+    "exact_alias_found": false,
+    "exact_matches": [],
+    "close_candidates": [
+      {
+        "raw_designation": "MATIERE PLASTIQUE BRUTE NDA",
+        "pad_category": "T03"
+      },
+      {
+        "raw_designation": "MATIERES PLASTIQUES BRUTES NDA",
+        "pad_category": "T03"
+      },
+      {
+        "raw_designation": "ARTICLES EN MATIERES PLASTIQUES NDA",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "ARTICLES EN MATIERES PLASTIQUES NENDA",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "CAOUTCHOUC NATUREL",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "CAOUTCHOUC PLAQUE OU ROULEAUX",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "CAOUTCHOUC PLAQUES OU ROULEAUX",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "RESINE SYNTHETIQUE",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "REVETEMENT DE SOL (CARRELAGE) NDA",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "TUBES, TUYAUX ET POTEAUX METALLIQUES ET PRODUITS FERREUX NDA",
+        "pad_category": "T12"
+      },
+      {
+        "raw_designation": "TUYEAUX EN PVC",
+        "pad_category": "T12"
+      }
+    ],
+    "recommendation": "Aucun alias exact 'geomembrane/geomembranes' dans la nomenclature officielle PAD 2006. Candidats proches identifiés : MATIERES PLASTIQUES BRUTES NDA (T03), ARTICLES EN MATIERES PLASTIQUES NDA (T12), REVETEMENT DE SOL (CARRELAGE) NDA (T12), TUYEAUX EN PVC (T12), CAOUTCHOUC PLAQUE OU ROULEAUX (T12), RESINE SYNTHETIQUE (T12). Hypothèse conservatrice : T12 (membrane plastique finie) ou T03 (matière brute). Statut : estimé — à confirmer. Moteur PAD-R1 requis pour résolution automatique."
+  },
+  "schema_audit": {
+    "pad_designation_aliases_columns": [
+      "id",
+      "bl_term",
+      "normalized_term",
+      "commodity_category_id (NOT NULL FK)",
+      "pad_category",
+      "is_validated",
+      "validated_by",
+      "validated_at",
+      "source_type (CHECK: seed|operator_correction|ai_suggestion_validated)",
+      "source_reference",
+      "created_at",
+      "updated_at"
+    ],
+    "unique_constraint": "idx_pda_normalized_category ON (normalized_term, commodity_category_id)",
+    "missing_for_official_injection": [
+      "source_type 'official_nomenclature' absent du CHECK — utiliser 'seed' ou modifier la contrainte",
+      "source_document absent — stocker dans source_reference",
+      "source_page absent — stocker dans source_reference",
+      "commodity_category_id NOT NULL — chaque ligne doit avoir un UUID valide dans commodity_categories"
+    ],
+    "run_pricing_uses": "pad_category (texte dénormalisé) + commodity_category_id (source de vérité FK)",
+    "create_categories_required": "Vérifier si T01–T14/P01–P05 existent dans commodity_categories avant injection. Ne pas créer automatiquement sans audit de schéma (PAD-NOM-1)."
+  },
+  "injection_blocked": true,
+  "injection_reason": "PAD-NOM-0 = lecture seule. Injection après validation (PAD-NOM-2)."
+}
