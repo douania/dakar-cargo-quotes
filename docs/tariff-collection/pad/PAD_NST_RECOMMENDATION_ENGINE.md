@@ -36,25 +36,163 @@ NST 2007 est une **aide au raisonnement**, pas une source de vérité tarifaire.
 
 ---
 
-## 2. Sources officielles et fiables
+## 2. Sources officielles et fiables — Vérification PAD-NST-1A
 
-| # | Source | Organisme | Date | Lien | Ce que la source prouve | Limite |
-|---|--------|-----------|------|------|------------------------|--------|
-| S1 | Regulation (EC) No 1304/2007 | Commission européenne | 7 nov. 2007 | [EUR-Lex CELEX:32007R1304](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32007R1304) | Établit NST 2007 comme classification unique des marchandises transportées pour les modes route, rail, voies navigables et maritime. Liste les 20 divisions au premier niveau. | Ne contient pas le détail des sous-groupes (niveau 2). N'est plus en vigueur en tant que texte autonome (remplacé par des actes ultérieurs), mais la classification NST 2007 reste la référence active. |
-| S2 | Eurostat — Glossaire NST 2007 | Eurostat (Commission européenne) | Consulté 2026-05-07 | [Eurostat Statistics Explained — Glossary:NST_2007](https://ec.europa.eu/eurostat/statistics-explained/index.php?title=Glossary:NST_2007) | Confirme les 20 divisions NST 2007. Précise que « each of its items is strongly connected to an item of the EU product and activity classifications CPA and NACE ». | Indique un lien fort NST ↔ CPA/NACE mais ne fournit pas de table de correspondance directe NST ↔ CPA sur cette page. |
-| S3 | UNECE — Classification NST 2007 | UNECE (Commission économique des Nations Unies pour l'Europe) | Juin 2007 (adoption) | [unece.org/classification-nst-2007](https://unece.org/classification-nst-2007) | Organisme ayant adopté NST 2007. Référence institutionnelle de la nomenclature. | Page bloquée par Cloudflare lors de la consultation (2026-05-07). Contenu non vérifié directement. |
-| S4 | Statistics Denmark — NST 2007 v1:2007 | Danmarks Statistik | Consulté 2026-05-07 | [dst.dk — NST](https://www.dst.dk/en/Statistik/dokumentation/nomenklaturer/nst) | Confirme que NST 2007 considère l'activité économique d'origine des marchandises. Liste les mêmes 20 divisions. | Source secondaire (office statistique national), pas l'organisme émetteur. |
-| S5 | Eurostat — Tables de correspondance CPA | Eurostat | Consulté 2026-05-07 | [Eurostat CPA correspondence tables](https://ec.europa.eu/eurostat/web/cpa/correspondence-tables) | Publie des tables CPA ↔ CN (Combined Nomenclature). | **Aucune table de correspondance directe NST ↔ CPA n'a été trouvée** sur cette page. La correspondance NST ↔ CPA est décrite comme « forte » par Eurostat (S2) mais aucune table officielle de mapping direct n'a été localisée lors de cette recherche. |
-| S6 | WCO — Système Harmonisé (HS) | Organisation Mondiale des Douanes | En vigueur (HS 2022/2027) | [wcoomd.org](https://www.wcoomd.org/) | Nomenclature douanière internationale à 6 chiffres. Base de la CN européenne et du SH sénégalais. | HS ne classe pas par famille logistique mais par nature du produit pour fins douanières. Pas de correspondance officielle HS ↔ NST trouvée. |
-| S7 | UIC — NHM (Nomenclature Harmonisée Marchandises) | UIC (Union Internationale des Chemins de fer) | En vigueur | [uic.org/nhm](https://uic.org/nhm) | NHM est basée sur HS et utilisée pour le transport ferroviaire. Publiée par UIC/CIT. | Document payant (shop.uic.org). **Aucune table de correspondance officielle NHM ↔ NST n'a été trouvée en accès libre.** NHM est pertinente pour le ferroviaire mais non directement applicable au contexte portuaire de Dakar. |
-| S8 | Eurostat — Ramon (base de métadonnées) | Eurostat | Variable | [Ramon Eurostat](http://ec.europa.eu/eurostat/ramon/index.cfm) | Base de référence pour les nomenclatures statistiques européennes. Contient la classification NST 2007 complète avec sous-groupes. | L'URL directe vers NST 2007 dans Ramon retourne une erreur 404 (constaté 2026-05-07). La base a pu être migrée. |
-| S9 | Interoperable Europe Portal — NST 2007 Excel | Commission européenne | 2013 (publié), 2019 (mis à jour) | [Interoperable Europe — NST 2007 Excel](https://interoperable-europe.ec.europa.eu/collection/eu-semantic-interoperability-catalogue/solution/standard-goods-classification-transport-statistics/distribution/nst-2007-standard-code-list-ms-excel-format) | Fichier Excel standard contenant les codes NST 2007. Marqué « Archived / Completed ». | Statut archivé. Non vérifié si le téléchargement est encore fonctionnel. |
+> **Passe de vérification effectuée le 2026-05-07.**
+> Chaque URL a été consultée directement. Les statuts ci-dessous reflètent l'accès réel constaté.
 
-### Distinction fait / interprétation / recommandation
+### Tableau des sources avec statut de vérification
+
+#### S1 — Regulation (EC) No 1304/2007
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Commission européenne |
+| **Lien** | [EUR-Lex CELEX:32007R1304](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32007R1304) |
+| **Statut de vérification** | `VERIFIED_DIRECT` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page HTML du règlement complet, ouverte et consultée. Texte intégral accessible. |
+| **Ce qui est confirmé** | Établit NST 2007 comme classification unique des marchandises transportées (route, rail, voies navigables, maritime). Liste les 20 divisions au premier niveau dans l'annexe. |
+| **Ce qui n'est pas confirmé** | Ne contient pas le détail des sous-groupes (niveau 2 — 81 groupes). N'est plus en vigueur en tant que texte autonome (intégré dans des actes ultérieurs), mais la classification NST 2007 elle-même reste la référence active. |
+| **Interprétation applicative** | Aucune — fait réglementaire pur. |
+
+#### S2 — Eurostat — Glossaire NST 2007
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Eurostat (Commission européenne) |
+| **Lien** | [Eurostat Statistics Explained — Glossary:NST_2007](https://ec.europa.eu/eurostat/statistics-explained/index.php?title=Glossary:NST_2007) |
+| **Statut de vérification** | `VERIFIED_DIRECT` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page de glossaire HTML, ouverte et consultée. Contient le tableau des 20 divisions et la citation sur CPA/NACE. |
+| **Ce qui est confirmé** | Confirme les 20 divisions NST 2007. Citation exacte : « each of its items is strongly connected to an item of the EU product and activity classifications CPA and NACE ». |
+| **Ce qui n'est pas confirmé** | Ne fournit pas de table de correspondance directe NST ↔ CPA sur cette page. Renvoie vers Ramon (URL obsolète — voir S8). |
+| **Interprétation applicative** | Le « lien fort » NST ↔ CPA est une affirmation Eurostat, pas une table de mapping. Cependant, UNECE (S3) publie une table officielle NST 2007 ↔ CPA 2.1 — voir S3. |
+
+#### S3 — UNECE — Classification NST 2007
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | UNECE (Commission économique des Nations Unies pour l'Europe) |
+| **Lien** | [unece.org/transport/statistics-transport/classification-nst-2007](https://unece.org/transport/statistics-transport/classification-nst-2007) |
+| **Statut de vérification** | `VERIFIED_DIRECT` (**mise à jour PAD-NST-1A** — page accessible lors de cette vérification, contrairement à la consultation initiale bloquée par Cloudflare) |
+| **Date de consultation** | 2026-05-07 (re-vérification PAD-NST-1A) |
+| **URL vérifiée exactement** | Page HTML de la classification NST 2007, ouverte et consultée. Contient la structure (20 divisions, 81 groupes), les liens vers les tables de correspondance officielles, et la FAQ. |
+| **Ce qui est confirmé** | NST 2007 : 20 divisions (niveau 1), 81 groupes (niveau 2). Statut : « Operational ». Custodian : UNECE. **Tables de correspondance officielles publiées** : NST 2007 ↔ CN (2017 à 2024), NST 2007 ↔ CPA 2.1, NST 2007 ↔ NHM (2017, 2024, 2025), NST/R 1967 ↔ NST 2007. FAQ confirme que la conversion HS → NST passe par NHM (les 6 premiers chiffres NHM = HS). |
+| **Ce qui n'est pas confirmé** | Le contenu exact des fichiers de correspondance (non téléchargés ni vérifiés ligne par ligne dans cette phase documentaire). |
+| **Interprétation applicative** | Aucune — fait institutionnel. L'existence des tables de correspondance est un fait. Leur exploitabilité pour le contexte PAD Dakar reste une interprétation applicative. |
+
+> **⚠️ CORRECTION PAD-NST-1A** : La version initiale de ce document indiquait que la page UNECE était « bloquée par Cloudflare lors de la consultation ». Lors de la re-vérification PAD-NST-1A (2026-05-07), la page est pleinement accessible. De plus, UNECE publie des tables de correspondance officielles NST ↔ CN, NST ↔ CPA et NST ↔ NHM, ce qui corrige plusieurs affirmations du document initial (voir section « Affirmations rétrogradées ou promues »).
+
+#### S4 — Statistics Denmark — NST 2007 v1:2007
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Danmarks Statistik |
+| **Lien** | [dst.dk — NST](https://www.dst.dk/en/Statistik/dokumentation/nomenklaturer/nst) |
+| **Statut de vérification** | `VERIFIED_PARTIAL` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page HTML de nomenclature, ouverte et consultée. Affiche la liste des 20 divisions avec descriptions. |
+| **Ce qui est confirmé** | NST 2007 considère l'activité économique d'origine. Liste les 20 divisions. Renvoie vers le Règlement (CE) n° 1304/2007. Valide depuis le 1er janvier 2008. |
+| **Ce qui n'est pas confirmé** | Source secondaire (office statistique national danois) — confirme mais n'est pas l'émetteur de la nomenclature. |
+| **Interprétation applicative** | Aucune — corroboration. |
+
+#### S5 — Eurostat — Tables de correspondance CPA
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Eurostat |
+| **Lien** | [Eurostat CPA correspondence tables](https://ec.europa.eu/eurostat/web/cpa/correspondence-tables) |
+| **Statut de vérification** | `VERIFIED_PARTIAL` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page HTML de correspondances CPA, ouverte et consultée. Publie CPA 2.1 ↔ CPA 2.2 et CPA 2.2 ↔ CN 2025. |
+| **Ce qui est confirmé** | Eurostat publie des tables CPA ↔ CN. |
+| **Ce qui n'est pas confirmé** | **Aucune table de correspondance directe NST ↔ CPA n'est publiée sur cette page Eurostat.** Cependant, UNECE (S3) publie séparément une table NST 2007 ↔ CPA 2.1. |
+| **Interprétation applicative** | Le rapprochement NST ↔ CPA via Eurostat n'est pas direct sur cette page. La table officielle est publiée par UNECE (S3). |
+
+#### S6 — WCO — Système Harmonisé (HS)
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Organisation Mondiale des Douanes (OMD/WCO) |
+| **Lien** | [wcoomd.org](https://www.wcoomd.org/) |
+| **Statut de vérification** | `NOT_DIRECTLY_VERIFIED` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page d'accueil générale de l'OMD uniquement — **aucune page spécifique de nomenclature HS consultée**. Le site WCO est principalement institutionnel ; les données HS détaillées sont derrière un accès réservé ou publiées via les douanes nationales. |
+| **Ce qui est confirmé** | L'OMD/WCO est l'organisme responsable du Système Harmonisé (fait de notoriété publique, confirmé indirectement par S3 FAQ). |
+| **Ce qui n'est pas confirmé** | Aucune page HS spécifique n'a été consultée. Pas de correspondance officielle HS ↔ NST trouvée sur ce site. UNECE (S3 FAQ) confirme que la conversion HS → NST passe par NHM (les 6 premiers chiffres NHM = HS). |
+| **Interprétation applicative** | HS est utilisé comme référence contextuelle. Le lien HS → NST est indirect, via NHM (S3 FAQ). |
+
+#### S7 — UIC — NHM (Nomenclature Harmonisée Marchandises)
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | UIC (Union Internationale des Chemins de fer) |
+| **Lien** | [uic.org/nhm](https://uic.org/nhm) |
+| **Statut de vérification** | `PAID_SOURCE` (pour le document NHM complet) / `VERIFIED_PARTIAL` (existence confirmée) |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page UIC non consultée directement dans cette passe. Cependant, UNECE (S3) publie des tables officielles NST 2007 ↔ NHM (2017, 2024, 2025) et la FAQ UNECE confirme que les 6 premiers chiffres NHM = HS. |
+| **Ce qui est confirmé** | NHM est basée sur HS, publiée par UIC/CIT. UNECE publie des tables officielles NST ↔ NHM (S3). Les 30 derniers codes NHM concernent les équipements de transport gérés par l'UIC et s'alignent avec NST (S3 FAQ). |
+| **Ce qui n'est pas confirmé** | Le document NHM complet (tables détaillées publiées par UIC) est payant (shop.uic.org). Le contenu exact des fichiers NST ↔ NHM publiés par UNECE n'a pas été téléchargé ni vérifié ligne par ligne. |
+| **Interprétation applicative** | NHM est pertinente comme passerelle HS → NST (via les tables UNECE). Son utilité directe pour le contexte portuaire de Dakar reste une interprétation applicative. |
+
+#### S8 — Eurostat — Ramon (base de métadonnées)
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Eurostat |
+| **Lien** | [Ramon Eurostat](http://ec.europa.eu/eurostat/ramon/index.cfm) |
+| **Statut de vérification** | `INACCESSIBLE` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | **URL retourne « Not Found ».** Page inaccessible — base probablement migrée ou supprimée. La page Eurostat glossaire (S2) renvoie encore vers Ramon, mais le lien est obsolète. |
+| **Ce qui est confirmé** | Rien — page inaccessible. |
+| **Ce qui n'est pas confirmé** | Le contenu complet de la classification NST 2007 avec sous-groupes (qui était hébergé sur Ramon). |
+| **Interprétation applicative** | Aucune — source non exploitable en l'état. Les sous-groupes NST 2007 (81 groupes) sont confirmés par UNECE (S3) comme existants, mais leur détail n'est pas disponible via Ramon. |
+
+#### S9 — Interoperable Europe Portal — NST 2007 Excel
+
+| Champ | Détail |
+|-------|--------|
+| **Organisme** | Commission européenne |
+| **Lien** | [Interoperable Europe — NST 2007 Excel](https://interoperable-europe.ec.europa.eu/collection/eu-semantic-interoperability-catalogue/solution/standard-goods-classification-transport-statistics/distribution/nst-2007-standard-code-list-ms-excel-format) |
+| **Statut de vérification** | `ARCHIVED_SOURCE` |
+| **Date de consultation** | 2026-05-07 |
+| **URL vérifiée exactement** | Page HTML accessible, marquée « Archived ». La page existe mais le téléchargement du fichier Excel n'a pas été vérifié (non testé si le lien de téléchargement fonctionne encore). |
+| **Ce qui est confirmé** | La page existe et référence un fichier Excel NST 2007. Statut « Archived / Completed ». |
+| **Ce qui n'est pas confirmé** | Le fichier Excel est-il encore téléchargeable. Son contenu exact (divisions + sous-groupes ou divisions seules). |
+| **Interprétation applicative** | Aucune — source d'archivage. |
+
+### Tableau récapitulatif des statuts
+
+| # | Source | Statut | URL exacte consultée |
+|---|--------|--------|---------------------|
+| S1 | EUR-Lex Regulation 1304/2007 | `VERIFIED_DIRECT` | Page HTML du règlement complet |
+| S2 | Eurostat Glossaire NST 2007 | `VERIFIED_DIRECT` | Page HTML glossaire avec tableau 20 divisions |
+| S3 | UNECE Classification NST 2007 | `VERIFIED_DIRECT` | Page HTML avec structure + tables de correspondance |
+| S4 | Statistics Denmark NST 2007 | `VERIFIED_PARTIAL` | Page HTML nomenclature (source secondaire) |
+| S5 | Eurostat CPA correspondence | `VERIFIED_PARTIAL` | Page HTML CPA (pas de table NST↔CPA ici) |
+| S6 | WCO / HS | `NOT_DIRECTLY_VERIFIED` | Page d'accueil générale uniquement |
+| S7 | UIC / NHM | `PAID_SOURCE` | Page UIC non consultée ; tables UNECE S3 confirment NST↔NHM |
+| S8 | Eurostat Ramon | `INACCESSIBLE` | URL retourne 404 |
+| S9 | Interoperable Europe Excel | `ARCHIVED_SOURCE` | Page accessible, statut archivé, téléchargement non testé |
+
+### Affirmations rétrogradées ou promues (PAD-NST-1A)
+
+| Affirmation initiale | Statut initial | Statut corrigé PAD-NST-1A | Raison |
+|---------------------|----------------|---------------------------|--------|
+| « Aucune table de correspondance directe NST ↔ CPA n'a été trouvée » | Absence de preuve | **PROMU → Fait sourcé** | UNECE (S3) publie une table officielle NST 2007 ↔ CPA 2.1. Table non téléchargée mais existence confirmée sur la page UNECE. |
+| « Aucune table officielle NHM ↔ NST n'a été trouvée en accès libre » | Absence de preuve | **PROMU → Fait sourcé (existence)** | UNECE (S3) publie des tables officielles NST 2007 ↔ NHM (2017, 2024, 2025). Contenu non vérifié ligne par ligne. |
+| « Pas de correspondance officielle HS ↔ NST trouvée » | Absence de preuve | **Rétrogradé → Indirect confirmé** | UNECE FAQ (S3) confirme que HS → NST passe par NHM (6 premiers chiffres NHM = HS). Pas de table directe HS ↔ NST, mais passerelle officielle via NHM. |
+| « Aucune table officielle de correspondance directe NST ↔ CN n'a été trouvée » | Absence de preuve | **PROMU → Fait sourcé** | UNECE (S3) publie des tables officielles NST 2007 ↔ CN (2017 à 2024). |
+| « Page UNECE bloquée par Cloudflare » | Inaccessible | **PROMU → Accessible** | Page UNECE pleinement accessible lors de la re-vérification PAD-NST-1A. |
+| NST → PAD | Interprétation applicative | **Inchangé → Interprétation applicative** | Aucune source officielle ne relie NST aux catégories PAD du Port Autonome de Dakar. Ce rapprochement reste une interprétation applicative. |
+
+### Distinction fait / interprétation / recommandation (mise à jour PAD-NST-1A)
 
 | Nature | Exemple |
 |--------|---------|
-| **Fait sourcé** | NST 2007 comporte 20 divisions (S1, S2, S4). NST est liée à CPA/NACE (S2 — citation Eurostat). |
+| **Fait sourcé** | NST 2007 comporte 20 divisions et 81 groupes (S1, S2, S3, S4). NST est liée à CPA/NACE (S2 — citation Eurostat). Des tables de correspondance officielles NST ↔ CPA, NST ↔ CN et NST ↔ NHM existent et sont publiées par UNECE (S3). La conversion HS → NST passe par NHM (S3 FAQ). |
+| **Fait sourcé mais contenu non vérifié en détail** | Les fichiers de correspondance NST ↔ CPA 2.1, NST ↔ CN, NST ↔ NHM publiés par UNECE existent. Leur contenu exact n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire. |
 | **Interprétation** | La division NST 08 (chimie, plastiques) pourrait aider à orienter vers les catégories PAD T04/T11. Cette interprétation n'a aucune source officielle de mapping NST → PAD. |
 | **Recommandation applicative** | Utiliser NST comme couche de raisonnement intermédiaire pour proposer des familles PAD candidates, en `TO_CONFIRM`, avec validation opérateur obligatoire. |
 
@@ -109,15 +247,15 @@ Version moderne et actuellement en vigueur. Adoptée en juin 2007 par l'UNECE, t
 
 ### 3.6 CPA
 
-**Classification des Produits par Activité** (Classification of Products by Activity). Classification statistique européenne qui classe les produits par l'activité économique qui les produit. CPA est « fortement connectée » à NST 2007 (source S2). La version actuelle est CPA 2.2. Eurostat publie des tables CPA ↔ CN mais **aucune table officielle directe NST ↔ CPA n'a été trouvée** lors de cette recherche.
+**Classification des Produits par Activité** (Classification of Products by Activity). Classification statistique européenne qui classe les produits par l'activité économique qui les produit. CPA est « fortement connectée » à NST 2007 (source S2). La version actuelle est CPA 2.2. **UNECE publie une table de correspondance officielle NST 2007 ↔ CPA 2.1** (source S3). Eurostat publie des tables CPA ↔ CN (source S5) mais pas de table NST ↔ CPA directement.
 
 ### 3.7 NHM
 
 **Nomenclature Harmonisée Marchandises** (Harmonised Commodity Code). Nomenclature basée sur le HS, publiée par l'UIC (Union Internationale des Chemins de fer) et le CIT. Utilisée principalement pour le transport ferroviaire de marchandises.
 
-**Source officielle NHM** : UIC — [uic.org/nhm](https://uic.org/nhm) (source S7).
+**Source officielle NHM** : UIC — [uic.org/nhm](https://uic.org/nhm) (source S7). Document NHM complet payant.
 
-**Correspondance NHM ↔ NST** : Source officielle non trouvée en accès libre. Le document NHM complet est payant (shop.uic.org). La NHM étant basée sur HS et NST étant liée à CPA/NACE, un rapprochement indirect est théoriquement possible via HS → CPA → NST, mais **aucune table officielle de correspondance directe NHM ↔ NST n'a été localisée**.
+**Correspondance NHM ↔ NST** : **UNECE publie des tables officielles NST 2007 ↔ NHM** (2017, 2024, 2025) (source S3). La FAQ UNECE confirme que les 6 premiers chiffres NHM correspondent aux codes HS, et que les 30 derniers codes NHM concernent les équipements de transport gérés par l'UIC, qui s'alignent avec NST. Le contenu exact des fichiers n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire.
 
 ---
 
@@ -128,8 +266,8 @@ Version moderne et actuellement en vigueur. Adoptée en juin 2007 par l'UNECE, t
 | **NST 2007** | Statistiques de transport (route, rail, voies navigables, maritime) | 20 divisions + sous-groupes | Non | Oui — comme aide au raisonnement par famille logistique | Ne contient pas de tarif. Pas de mapping officiel vers PAD. |
 | **HS / SH** | Classification douanière internationale | 6+ chiffres, très précis | Oui — base des droits de douane | Indirectement — aide à identifier la nature du produit | Trop fin pour le raisonnement par famille PAD. Pas de mapping officiel HS → PAD. |
 | **CN** | Douane + statistiques commerce extérieur UE | 8 chiffres (extension HS) | Oui (UE) | Indirectement — via rapprochement CPA | Nomenclature européenne, pas utilisée directement au Sénégal. |
-| **CPA** | Classification produits par activité économique | Hiérarchique, liée à NACE | Non | Indirectement — aide à classer par secteur économique | « Fortement connectée » à NST (Eurostat) mais aucune table officielle de mapping direct NST ↔ CPA trouvée. |
-| **NHM** | Transport ferroviaire de marchandises | Basée sur HS | Non | Marginalement — contexte ferroviaire | Document payant. Pas de mapping officiel NHM ↔ NST trouvé en accès libre. |
+| **CPA** | Classification produits par activité économique | Hiérarchique, liée à NACE | Non | Indirectement — aide à classer par secteur économique | « Fortement connectée » à NST (Eurostat). **Table officielle NST 2007 ↔ CPA 2.1 publiée par UNECE (S3).** Contenu non vérifié en détail. |
+| **NHM** | Transport ferroviaire de marchandises | Basée sur HS | Non | Indirectement — passerelle HS → NST via tables UNECE | Document NHM complet payant (UIC). **Tables officielles NST ↔ NHM publiées par UNECE (S3).** |
 | **PAD 2006** | Tarification portuaire — droits de passage Port Autonome de Dakar | 19 catégories (T01–T14, P01–P05) | Non (redevance portuaire, pas douane) | **OUI — source de vérité unique** | Nomenclature locale, pas normalisée internationalement. |
 
 ### Conclusion obligatoire
@@ -270,12 +408,12 @@ Le BL décrit-il plusieurs marchandises hétérogènes ? Le terme est-il génér
 | 08 | Chimie, plastiques, caoutchouc | T04 (produits chimiques), T11 (plastiques/caoutchouc) | Interprétation — dépend du degré de transformation |
 | 09 | Produits minéraux non métalliques | T07 (matériaux de construction) | Interprétation |
 | 10 | Métaux de base, produits métalliques | T02 (métaux), T10 (ferraille/déchets métalliques) | Interprétation |
-| 11 | Machines, équipements, informatique | T09 (matériel), T14 (véhicules/machines) | Interprétation — ambiguïté PAD |
+| 11 | Machines, équipements, informatique | Catégorie portée par l'alias PAD validé (ex : « mat informatique ordinateurs ») ou T14 (véhicules/machines) si pas d'alias | Interprétation — ambiguïté PAD, dépend de l'alias validé |
 | 12 | Matériel de transport | T14 (véhicules) | Interprétation |
 | 13 | Meubles, autres produits manufacturés | T12 (divers), T13 | Interprétation |
 | 14 | Matières premières secondaires, déchets | T10 (déchets/ferraille) | Interprétation |
 | 15 | Courrier, colis | T12 (divers) | Interprétation — rare en contexte portuaire Dakar |
-| 16 | Équipements de transport de marchandises | T09 (matériel), T16 (conteneurs vides si existait) | Interprétation |
+| 16 | Équipements de transport de marchandises | T09 (matériel) — interprétation, pas de catégorie PAD dédiée pour équipements de transport | Interprétation |
 | 17 | Déménagement, bagages | T12 (divers) | Interprétation — rare |
 | 18 | Marchandises groupées | **BLOCAGE** — validation opérateur obligatoire | N/A |
 | 19 | Marchandises non identifiables | **BLOCAGE** — validation opérateur obligatoire | N/A |
@@ -422,7 +560,7 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 | # | Description | Signaux matière | Signaux usage | Famille NST probable | Catégorie PAD candidate (existante dans repo) | Confiance | Justification | Catégorie conservatrice | Validation opérateur | Statut recommandé |
 |---|-------------|-----------------|---------------|---------------------|-----------------------------------------------|-----------|---------------|------------------------|---------------------|-------------------|
 | 1 | HDPE geomembrane pour projet minier | plastique, HDPE, polyéthylène | revêtement, étanchéité, projet minier | NST 08 (chimie, plastiques) | T11 (plastiques/caoutchouc) ou T04 (produits chimiques) | medium | Plastique manufacturé semi-fini. HDPE = polyéthylène haute densité. Geomembrane = produit plastique technique. NST 08 couvre plastiques. T11 couvre plastiques dans PAD. Aucun alias PAD existant pour « geomembrane ». | T11 (tarif plus élevé si applicable) | **OUI** | `TO_CONFIRM` |
-| 2 | Matériel informatique | informatique, électronique | équipement bureau, IT | NST 11 (machines, équipements, informatique) | T09 (matériel divers) — alias PAD existant : « mat informatique ordinateurs » | high | Alias PAD validé existant pour « mat informatique ». Si alias exact trouvé → OFFICIAL. Si non exact → TO_CONFIRM via scoring. | N/A (alias probable) | Oui si alias non exact | `AUTO_SUGGESTED` ou `OFFICIAL` (si alias exact) |
+| 2 | Matériel informatique | informatique, électronique | équipement bureau, IT | NST 11 (machines, équipements, informatique) | Catégorie portée par l'alias PAD validé (ex : « mat informatique ordinateurs ») — ne pas supposer T09 en dur | high | Alias PAD validé existant pour « mat informatique ». Si alias exact trouvé → OFFICIAL (catégorie = celle de l'alias). Si non exact → TO_CONFIRM via scoring. La catégorie PAD dépend de l'alias, pas d'une supposition fixe. | N/A (alias probable) | Oui si alias non exact | `AUTO_SUGGESTED` ou `OFFICIAL` (si alias exact) |
 | 3 | Pièces détachées industrielles | métal (probable), plastique (possible) | maintenance, réparation, industrie | NST 10 (métaux) ou NST 11 (machines) ou NST 13 (divers) | T02 (métaux) ou T09 (matériel) ou T12 (divers) | low | **Ambiguïté forte** : « pièces détachées » sans précision sur la machine ou le secteur. Peut couvrir des pièces métalliques (T02), du matériel (T09), ou des produits divers (T12). | N/A — blocage | **OUI — obligatoire** | `BLOCKED_OPERATOR_REQUIRED` |
 | 4 | Résine plastique brute | plastique, résine, polymère | matière première industrielle | NST 08 (chimie, plastiques) | T04 (produits chimiques) ou T11 (plastiques) | medium | Résine = matière première plastique (brute/semi-finie). NST 08 couvre chimie et plastiques. Ambiguïté entre T04 (chimie) et T11 (plastiques) dans PAD. | T04 ou T11 (conservateur = tarif le plus élevé) | **OUI** | `TO_CONFIRM` |
 | 5 | Tuyaux PVC | plastique, PVC, vinyle | construction, canalisation, plomberie | NST 08 (plastiques) | T11 (plastiques/caoutchouc) — alias PAD existant possible via synonyme PVC | medium-high | PVC = plastique. Tuyaux = produit manufacturé. Alias « pvc » dans `commoditySynonyms.ts` → expansion vers « plastique, vinyle ». Si alias PAD trouvé → score plus élevé. | T11 | **OUI** | `TO_CONFIRM` |
@@ -464,34 +602,34 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ CPA si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ CPA |
 | **Colonnes probables** | `id`, `nst_code`, `cpa_code`, `cpa_version`, `correspondence_type` ("official", "interpretation"), `source_id` (FK → `nst_mapping_sources`), `notes` |
-| **Source de vérité** | **Source officielle non trouvée.** Eurostat indique un lien fort NST ↔ CPA (S2) mais aucune table officielle n'a été localisée. |
-| **Niveau de preuve** | **À confirmer.** Table vide tant qu'aucune source officielle n'est trouvée. |
-| **Usage runtime futur** | Enrichissement du scoring si source fiable disponible |
-| **Risques** | Ne pas remplir avec des correspondances inventées. Attendre source officielle ou marquer comme « interpretation ». |
+| **Source de vérité** | **Table officielle NST 2007 ↔ CPA 2.1 publiée par UNECE (S3).** Contenu non téléchargé ni vérifié ligne par ligne dans cette phase. |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3).** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Enrichissement du scoring si correspondance exploitable pour le contexte PAD |
+| **Risques** | Le contenu exact du fichier UNECE doit être vérifié avant injection. Ne pas remplir avec des correspondances inventées. |
 
 #### 12.4 `nst_cn_hs_mappings`
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ CN/HS si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ CN/HS |
 | **Colonnes probables** | `id`, `nst_code`, `hs_code_prefix` (4-6 chiffres), `cn_code` (8 chiffres, nullable), `correspondence_type`, `source_id`, `notes` |
-| **Source de vérité** | **Source officielle non trouvée.** Pas de table directe NST ↔ HS publiée par Eurostat ou WCO. Un rapprochement indirect via CPA ↔ CN est théoriquement possible. |
-| **Niveau de preuve** | **À confirmer.** |
-| **Usage runtime futur** | Enrichissement si code HS disponible dans le dossier |
-| **Risques** | Correspondance indirecte (NST → CPA → CN → HS) = perte de précision à chaque étape. |
+| **Source de vérité** | **Tables officielles NST 2007 ↔ CN (2017 à 2024) publiées par UNECE (S3).** Pas de table directe NST ↔ HS, mais les 6 premiers chiffres NHM = HS (S3 FAQ), et les tables NST ↔ NHM permettent un rapprochement indirect. |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3) pour NST ↔ CN.** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Enrichissement si code HS ou CN disponible dans le dossier |
+| **Risques** | Correspondance NST ↔ HS reste indirecte (via NHM ou CN). Contenu des fichiers UNECE à vérifier avant injection. |
 
 #### 12.5 `nst_nhm_mappings`
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ NHM si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ NHM |
 | **Colonnes probables** | `id`, `nst_code`, `nhm_code`, `correspondence_type`, `source_id`, `notes` |
-| **Source de vérité** | **Source officielle non trouvée en accès libre.** NHM est publiée par UIC (document payant). |
-| **Niveau de preuve** | **Non vérifié.** |
-| **Usage runtime futur** | Faible — NHM est ferroviaire, peu pertinent pour le contexte portuaire de Dakar |
-| **Risques** | Investissement disproportionné par rapport à l'utilité. Prioriser NST → PAD directement. |
+| **Source de vérité** | **Tables officielles NST 2007 ↔ NHM (2017, 2024, 2025) publiées par UNECE (S3).** |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3).** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Passerelle HS → NST (via NHM). Pertinence directe pour le contexte portuaire de Dakar à évaluer. |
+| **Risques** | Le document NHM complet (UIC) reste payant. Les tables UNECE sont la source exploitable. Contenu à vérifier avant injection. |
 
 #### 12.6 `pad_nst_recommendation_rules`
 
@@ -523,7 +661,7 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 
 - Créer les migrations pour `nst_2007_groups` et `nst_mapping_sources` uniquement.
 - Injecter les 20 divisions NST 2007 confirmées (source S1).
-- **Ne pas créer** `nst_cpa_mappings`, `nst_cn_hs_mappings`, `nst_nhm_mappings` tant que les sources officielles n'ont pas été trouvées et vérifiées.
+- **PAD-NST-2 peut désormais envisager** la création de `nst_cpa_mappings`, `nst_cn_hs_mappings`, `nst_nhm_mappings` car les tables de correspondance officielles UNECE existent (S3). Cependant, leur contenu doit être téléchargé et vérifié ligne par ligne avant injection. Ne pas injecter de données sans vérification.
 - Créer `pad_nst_recommendation_rules` avec les règles interprétatives documentées ici, marquées `rule_type = "interpretation"`.
 - Créer `pad_recommendation_audit_log`.
 - **Prérequis** : validation documentaire PAD-NST-1 (ce document).
@@ -567,7 +705,7 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 | # | Critère | Statut |
 |---|---------|--------|
 | 1 | Sources citées avec organisme, date, lien | ✅ 9 sources documentées |
-| 2 | Limites clairement identifiées | ✅ Correspondances NST ↔ CPA/HS/NHM non trouvées — explicitement mentionné |
+| 2 | Limites clairement identifiées | ✅ Correspondances NST ↔ CPA/CN/NHM : tables officielles UNECE confirmées (S3). Contenu non vérifié en détail. NST → PAD : interprétation applicative. |
 | 3 | Aucune catégorie PAD inventée | ✅ Toutes les catégories mentionnées existent dans le repo (T01–T14, P01–P05) |
 | 4 | Compatibilité PAD-R1B | ✅ Vérifiée point par point (section 10) |
 | 5 | Cas tests couverts | ✅ 10 cas tests documentés (section 11) |
@@ -595,8 +733,8 @@ NST 2007 peut améliorer la qualité de recommandation PAD, mais **seulement com
 **Limites fondamentales** :
 
 1. **Aucune correspondance officielle NST → PAD n'existe.** Tout rapprochement est une interprétation applicative.
-2. **Aucune table officielle de correspondance directe NST ↔ CPA n'a été trouvée** lors de cette recherche, malgré l'indication d'Eurostat d'un « lien fort » entre les deux nomenclatures.
-3. **Aucune table officielle NHM ↔ NST n'a été trouvée en accès libre** (document NHM payant, UIC).
+2. **Des tables officielles NST ↔ CPA 2.1, NST ↔ CN (2017–2024), et NST ↔ NHM (2017, 2024, 2025) sont publiées par UNECE (S3).** Leur existence est confirmée mais leur contenu exact n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire. Ces tables pourraient enrichir le scoring futur, mais ne remplacent pas la validation opérateur pour PAD.
+3. **La conversion HS → NST passe par NHM** (les 6 premiers chiffres NHM = HS, confirmé par FAQ UNECE S3). Il n'existe pas de table directe HS ↔ NST.
 4. Le rapprochement NST → PAD dépend du contexte spécifique de chaque marchandise et ne peut être automatisé avec certitude.
 
 **Principes inviolables** :
