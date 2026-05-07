@@ -14,8 +14,12 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 |----|-----------|--------|----------|-----------------|------|---------------------------|----------------|
 | PAD-NOM-SECONDARY-ALIASES | Données | Reporté | P3 | PAD-NOM-2 | 2026-05-07 | Décision opérateur sur les 41 alias secondaires (typos corrigées) | Revue manuelle puis injection sélective |
 | PAD-NOM-OPERATOR-REVIEW | Données | Reporté | P2 | PAD-NOM-1B | 2026-05-07 | Décision opérateur sur les 4 lignes retirées (3× ACOOLISEES, 1× P¨RODUIT) — clarifier l'intention sémantique T01 vs T02 | Revue manuelle par opérateur |
-| PAD-NOM-GEOMEMBRANES | Données | Reporté | P3 | PAD-NOM-2 | 2026-05-07 | Identification du bon pad_category pour les géomembranes (non présent dans le barème PAD 2006) | Ajout via moteur de recommandation IA + validation opérateur |
+| PAD-NOM-GEOMEMBRANES | Données | Clos | P3 | PAD-NOM-2 → PAD-R1 | 2026-05-07 | — | Non couvert par nomenclature officielle ; traité par PAD-R1 (moteur de recommandation IA + validation opérateur) |
 | PAD-NOM-CONFLICTS | Données | Reporté | P2 | PAD-NOM-1 | 2026-05-07 | Décision opérateur sur les conflits cross-category (`alcool industriel` T07/T12, `sport` T01/T02) | Revue manuelle, choix de la catégorie prioritaire |
+| PAD-R1-APPLY | Pricing | Reporté | P2 | PAD-R1 | 2026-05-07 | Audit du comportement "Appliquer au dossier" pour catégories estimées IA | Vérifier quel fact est écrit, si le gap devient bloquant, si run-pricing relit correctement — mini-lot séparé |
+| PAD-R1-CONFLICT-AWARENESS | UI | Reporté | P3 | PAD-R1 | 2026-05-07 | Exposer les conflits connus (sport, alcool industriel) à l'UI de suggestion | Source de conflits dédiée ou dictionnaire de termes ambigus |
+| PAD-R2 | Données | Reporté | P3 | PAD-R1 | 2026-05-07 | Besoin de recherche web contrôlée pour produits non couverts par nomenclature + IA | Web search déclenchée sur demande opérateur, info produit uniquement, pas de catégorie PAD inventée |
+| PAD-R4 | Données | Reporté | P4 | PAD-R1 | 2026-05-07 | Feedback loop opérateur → création d'alias `ai_suggestion_validated` après validation humaine répétée | Apprentissage supervisé, jamais automatique |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
