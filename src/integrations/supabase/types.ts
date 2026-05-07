@@ -2669,7 +2669,7 @@ export type Database = {
           id: string
           nst_group_code: string
           source_id: string
-          source_row_number: number | null
+          source_row_number: number
           source_uri: string | null
           target_uri: string | null
         }
@@ -2681,7 +2681,7 @@ export type Database = {
           id?: string
           nst_group_code: string
           source_id: string
-          source_row_number?: number | null
+          source_row_number: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2693,7 +2693,7 @@ export type Database = {
           id?: string
           nst_group_code?: string
           source_id?: string
-          source_row_number?: number | null
+          source_row_number?: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2722,7 +2722,7 @@ export type Database = {
           id: string
           nst_group_code: string
           source_id: string
-          source_row_number: number | null
+          source_row_number: number
           source_uri: string | null
           target_uri: string | null
         }
@@ -2733,7 +2733,7 @@ export type Database = {
           id?: string
           nst_group_code: string
           source_id: string
-          source_row_number?: number | null
+          source_row_number: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2744,7 +2744,7 @@ export type Database = {
           id?: string
           nst_group_code?: string
           source_id?: string
-          source_row_number?: number | null
+          source_row_number?: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2868,7 +2868,7 @@ export type Database = {
           nhm_label: string | null
           nst_group_code: string
           source_id: string
-          source_row_number: number | null
+          source_row_number: number
           source_uri: string | null
           target_uri: string | null
         }
@@ -2879,7 +2879,7 @@ export type Database = {
           nhm_label?: string | null
           nst_group_code: string
           source_id: string
-          source_row_number?: number | null
+          source_row_number: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2890,7 +2890,7 @@ export type Database = {
           nhm_label?: string | null
           nst_group_code?: string
           source_id?: string
-          source_row_number?: number | null
+          source_row_number?: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2925,7 +2925,7 @@ export type Database = {
           nstr_label: string | null
           quarantine_reason: string | null
           source_id: string
-          source_row_number: number | null
+          source_row_number: number
           source_uri: string | null
           target_uri: string | null
         }
@@ -2942,7 +2942,7 @@ export type Database = {
           nstr_label?: string | null
           quarantine_reason?: string | null
           source_id: string
-          source_row_number?: number | null
+          source_row_number: number
           source_uri?: string | null
           target_uri?: string | null
         }
@@ -2959,7 +2959,7 @@ export type Database = {
           nstr_label?: string | null
           quarantine_reason?: string | null
           source_id?: string
-          source_row_number?: number | null
+          source_row_number?: number
           source_uri?: string | null
           target_uri?: string | null
         }
