@@ -2538,6 +2538,7 @@ ${JSON.stringify(refPayload)}`;
         operationnel: engineOperationnel,
         border: engineBorder,
         terminal: engineTerminal,
+        debours: engineDebours + enrichmentAmount,
         debours_engine: engineDebours,
         debours_enrichment: enrichmentAmount,
         debours_total: engineDebours + enrichmentAmount,
