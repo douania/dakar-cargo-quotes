@@ -68,3 +68,4 @@
 - Divisions 15 and 20 inserted with labels but have no groups in this phase.
 - 5 quarantined NSTR rows have `quarantine_reason = 'NSTR_NULL_CPA_ONLY'` and must not participate in PAD reasoning.
 - 1 dot entry (`NST2007 = '.'`, NSTR=999) excluded before INSERT.
+- The versioned script (`pad_nst_2c_import.py`) corresponds to the batch version used for the final import. It includes conditional COMMIT / ROLLBACK logic: `RAISE EXCEPTION` (automatic ROLLBACK) if any expected vs actual count mismatches.
