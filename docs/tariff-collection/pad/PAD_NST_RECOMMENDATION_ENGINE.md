@@ -705,7 +705,7 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 | # | Critère | Statut |
 |---|---------|--------|
 | 1 | Sources citées avec organisme, date, lien | ✅ 9 sources documentées |
-| 2 | Limites clairement identifiées | ✅ Correspondances NST ↔ CPA/HS/NHM non trouvées — explicitement mentionné |
+| 2 | Limites clairement identifiées | ✅ Correspondances NST ↔ CPA/CN/NHM : tables officielles UNECE confirmées (S3). Contenu non vérifié en détail. NST → PAD : interprétation applicative. |
 | 3 | Aucune catégorie PAD inventée | ✅ Toutes les catégories mentionnées existent dans le repo (T01–T14, P01–P05) |
 | 4 | Compatibilité PAD-R1B | ✅ Vérifiée point par point (section 10) |
 | 5 | Cas tests couverts | ✅ 10 cas tests documentés (section 11) |
@@ -733,8 +733,8 @@ NST 2007 peut améliorer la qualité de recommandation PAD, mais **seulement com
 **Limites fondamentales** :
 
 1. **Aucune correspondance officielle NST → PAD n'existe.** Tout rapprochement est une interprétation applicative.
-2. **Aucune table officielle de correspondance directe NST ↔ CPA n'a été trouvée** lors de cette recherche, malgré l'indication d'Eurostat d'un « lien fort » entre les deux nomenclatures.
-3. **Aucune table officielle NHM ↔ NST n'a été trouvée en accès libre** (document NHM payant, UIC).
+2. **Des tables officielles NST ↔ CPA 2.1, NST ↔ CN (2017–2024), et NST ↔ NHM (2017, 2024, 2025) sont publiées par UNECE (S3).** Leur existence est confirmée mais leur contenu exact n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire. Ces tables pourraient enrichir le scoring futur, mais ne remplacent pas la validation opérateur pour PAD.
+3. **La conversion HS → NST passe par NHM** (les 6 premiers chiffres NHM = HS, confirmé par FAQ UNECE S3). Il n'existe pas de table directe HS ↔ NST.
 4. Le rapprochement NST → PAD dépend du contexte spécifique de chaque marchandise et ne peut être automatisé avec certitude.
 
 **Principes inviolables** :
