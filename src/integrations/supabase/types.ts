@@ -2660,6 +2660,326 @@ export type Database = {
         }
         Relationships: []
       }
+      nst_cn_mappings: {
+        Row: {
+          cn_code: string
+          cn_label: string | null
+          created_at: string
+          hs6_prefix: string | null
+          id: string
+          nst_group_code: string
+          source_id: string
+          source_row_number: number | null
+          source_uri: string | null
+          target_uri: string | null
+        }
+        Insert: {
+          cn_code: string
+          cn_label?: string | null
+          created_at?: string
+          hs6_prefix?: string | null
+          id?: string
+          nst_group_code: string
+          source_id: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Update: {
+          cn_code?: string
+          cn_label?: string | null
+          created_at?: string
+          hs6_prefix?: string | null
+          id?: string
+          nst_group_code?: string
+          source_id?: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nst_cn_mappings_nst_group_code_fkey"
+            columns: ["nst_group_code"]
+            isOneToOne: false
+            referencedRelation: "nst_groups"
+            referencedColumns: ["group_code"]
+          },
+          {
+            foreignKeyName: "nst_cn_mappings_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "nst_mapping_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nst_cpa_mappings: {
+        Row: {
+          cpa_code: string
+          cpa_label: string | null
+          created_at: string
+          id: string
+          nst_group_code: string
+          source_id: string
+          source_row_number: number | null
+          source_uri: string | null
+          target_uri: string | null
+        }
+        Insert: {
+          cpa_code: string
+          cpa_label?: string | null
+          created_at?: string
+          id?: string
+          nst_group_code: string
+          source_id: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Update: {
+          cpa_code?: string
+          cpa_label?: string | null
+          created_at?: string
+          id?: string
+          nst_group_code?: string
+          source_id?: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nst_cpa_mappings_nst_group_code_fkey"
+            columns: ["nst_group_code"]
+            isOneToOne: false
+            referencedRelation: "nst_groups"
+            referencedColumns: ["group_code"]
+          },
+          {
+            foreignKeyName: "nst_cpa_mappings_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "nst_mapping_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nst_divisions: {
+        Row: {
+          created_at: string
+          division_code: string
+          id: string
+          label_en: string
+          label_fr: string | null
+        }
+        Insert: {
+          created_at?: string
+          division_code: string
+          id?: string
+          label_en: string
+          label_fr?: string | null
+        }
+        Update: {
+          created_at?: string
+          division_code?: string
+          id?: string
+          label_en?: string
+          label_fr?: string | null
+        }
+        Relationships: []
+      }
+      nst_groups: {
+        Row: {
+          created_at: string
+          division_code: string
+          group_code: string
+          id: string
+          label_en: string
+          label_fr: string | null
+        }
+        Insert: {
+          created_at?: string
+          division_code: string
+          group_code: string
+          id?: string
+          label_en: string
+          label_fr?: string | null
+        }
+        Update: {
+          created_at?: string
+          division_code?: string
+          group_code?: string
+          id?: string
+          label_en?: string
+          label_fr?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nst_groups_division_code_fkey"
+            columns: ["division_code"]
+            isOneToOne: false
+            referencedRelation: "nst_divisions"
+            referencedColumns: ["division_code"]
+          },
+        ]
+      }
+      nst_mapping_sources: {
+        Row: {
+          created_at: string
+          id: string
+          local_path: string | null
+          phase: string
+          row_count: number | null
+          sha256_hash: string
+          source_name: string
+          source_type: string
+          source_uri: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          local_path?: string | null
+          phase: string
+          row_count?: number | null
+          sha256_hash: string
+          source_name: string
+          source_type: string
+          source_uri?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          local_path?: string | null
+          phase?: string
+          row_count?: number | null
+          sha256_hash?: string
+          source_name?: string
+          source_type?: string
+          source_uri?: string | null
+        }
+        Relationships: []
+      }
+      nst_nhm_mappings: {
+        Row: {
+          created_at: string
+          id: string
+          nhm_code: string
+          nhm_label: string | null
+          nst_group_code: string
+          source_id: string
+          source_row_number: number | null
+          source_uri: string | null
+          target_uri: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nhm_code: string
+          nhm_label?: string | null
+          nst_group_code: string
+          source_id: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nhm_code?: string
+          nhm_label?: string | null
+          nst_group_code?: string
+          source_id?: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nst_nhm_mappings_nst_group_code_fkey"
+            columns: ["nst_group_code"]
+            isOneToOne: false
+            referencedRelation: "nst_groups"
+            referencedColumns: ["group_code"]
+          },
+          {
+            foreignKeyName: "nst_nhm_mappings_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "nst_mapping_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nstr_nst2007_mappings: {
+        Row: {
+          cn2008_code: string | null
+          cpa2008_code: string | null
+          created_at: string
+          id: string
+          is_quarantined: boolean
+          nst2007_code: string
+          nst2007_label: string | null
+          nstr_chapter: string | null
+          nstr_code: string | null
+          nstr_label: string | null
+          quarantine_reason: string | null
+          source_id: string
+          source_row_number: number | null
+          source_uri: string | null
+          target_uri: string | null
+        }
+        Insert: {
+          cn2008_code?: string | null
+          cpa2008_code?: string | null
+          created_at?: string
+          id?: string
+          is_quarantined?: boolean
+          nst2007_code: string
+          nst2007_label?: string | null
+          nstr_chapter?: string | null
+          nstr_code?: string | null
+          nstr_label?: string | null
+          quarantine_reason?: string | null
+          source_id: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Update: {
+          cn2008_code?: string | null
+          cpa2008_code?: string | null
+          created_at?: string
+          id?: string
+          is_quarantined?: boolean
+          nst2007_code?: string
+          nst2007_label?: string | null
+          nstr_chapter?: string | null
+          nstr_code?: string | null
+          nstr_label?: string | null
+          quarantine_reason?: string | null
+          source_id?: string
+          source_row_number?: number | null
+          source_uri?: string | null
+          target_uri?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nstr_nst2007_mappings_nst2007_code_fkey"
+            columns: ["nst2007_code"]
+            isOneToOne: false
+            referencedRelation: "nst_groups"
+            referencedColumns: ["group_code"]
+          },
+          {
+            foreignKeyName: "nstr_nst2007_mappings_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "nst_mapping_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       operational_costs_senegal: {
         Row: {
           amount: number | null
