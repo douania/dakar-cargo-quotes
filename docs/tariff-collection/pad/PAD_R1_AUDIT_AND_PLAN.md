@@ -1,7 +1,8 @@
 # PAD-R1 — Audit et plan moteur de recommandation PAD
 
 **Date**: 2026-05-07
-**Statut**: NO-GO — bloqué par PAD-TOTALS-1 et PAD-R1B-GOVERNANCE
+**Statut**: NO-GO — bloqué par implémentation locale (gouvernance et doctrine actées)
+**Gouvernance** : PAD-R1B-GOVERNANCE ✅ DÉCISION ACTÉE — voir `PAD_R1B_GOVERNANCE_DECISION.md`
 
 ---
 
@@ -40,32 +41,30 @@ PAD-R1 vise à fournir un moteur local (sans IA) pour recommander une catégorie
 - **Patch PAD-TOTALS-1 appliqué** — en attente de validation
 - Si PAD-R1 génère des `amount > 0` avec un statut intermédiaire, ils doivent être correctement gérés par les totaux
 
-### PAD-R1B-GOVERNANCE (BLOQUANT)
-- `supabase/functions/recommend-pad-category/index.ts` existe déjà
-- Appelle `callAI` avec `google/gemini-2.5-flash`
-- Active dans l'UI via `DesignationSuggestionBlock.tsx`
-- **Non conforme** à la doctrine PAD-R1 local-only
-- Doit être clarifiée avant de démarrer PAD-R1 :
-  - Coexistence ? Remplacement ? Isolation ?
-  - Config.toml à ajouter ?
-  - Surface IA à gouverner ?
+### PAD-R1B-GOVERNANCE (✅ RÉSOLU)
+- Décision CTO actée : **Option A — coexistence réglementée**
+- `recommend-pad-category` = aide opérateur UI uniquement, jamais branchée à `run-pricing`
+- PAD-R1 local = seul mécanisme runtime, déterministe, sans IA
+- Voir `PAD_R1B_GOVERNANCE_DECISION.md`
 
-### Doctrine amount (NON DÉFINIE)
-- PAD-R1 doit-il produire `amount > 0` avec `source.type = 'ESTIMATED'` ?
-- Ou `amount > 0` avec `source.type = 'TO_CONFIRM'` ?
-- Ou un nouveau champ `estimated_amount` séparé de `amount` ?
-- Impact sur totaux, PDF, email à définir
+### Doctrine amount (✅ RÉSOLU)
+- Décision CTO : **Option C modifiée**
+- `source.type = TO_CONFIRM`, `amount = 0`, `estimated_amount > 0`
+- Non inclus dans `total_ht` / `total_ttc`
+- Validation opérateur requise avant transformation en ligne OFFICIAL
+- Voir `PAD_R1B_GOVERNANCE_DECISION.md`
 
 ## 5. Verdict
 
 **PAD-R1 = NO-GO** jusqu'à :
-1. ✅ PAD-TOTALS-1 PASS (patch appliqué, tests en cours)
-2. ❌ PAD-R1B-GOVERNANCE clarifié
-3. ❌ Doctrine amount définie
+1. ✅ PAD-TOTALS-1 PASS — CLOS
+2. ✅ PAD-R1B-GOVERNANCE clarifié — DÉCISION ACTÉE
+3. ✅ Doctrine amount définie — Option C modifiée actée
+4. ❌ **Implémentation PAD-R1 local** — non démarrée
 
 ## 6. Prochaines étapes
 
-1. Valider PAD-TOTALS-1 avec tests end-to-end
-2. Ouvrir chantier PAD-R1B-GOVERNANCE
-3. Définir doctrine amount pour recommandations
-4. Seulement alors : implémenter PAD-R1 local-only
+1. ~~Valider PAD-TOTALS-1 avec tests end-to-end~~ → ✅ CLOS
+2. ~~Ouvrir chantier PAD-R1B-GOVERNANCE~~ → ✅ DÉCISION ACTÉE
+3. ~~Définir doctrine amount pour recommandations~~ → ✅ Option C modifiée actée
+4. **Implémenter PAD-R1 local-only** dans `run-pricing/index.ts` (phase séparée à planifier)
