@@ -247,15 +247,15 @@ Version moderne et actuellement en vigueur. Adoptée en juin 2007 par l'UNECE, t
 
 ### 3.6 CPA
 
-**Classification des Produits par Activité** (Classification of Products by Activity). Classification statistique européenne qui classe les produits par l'activité économique qui les produit. CPA est « fortement connectée » à NST 2007 (source S2). La version actuelle est CPA 2.2. Eurostat publie des tables CPA ↔ CN mais **aucune table officielle directe NST ↔ CPA n'a été trouvée** lors de cette recherche.
+**Classification des Produits par Activité** (Classification of Products by Activity). Classification statistique européenne qui classe les produits par l'activité économique qui les produit. CPA est « fortement connectée » à NST 2007 (source S2). La version actuelle est CPA 2.2. **UNECE publie une table de correspondance officielle NST 2007 ↔ CPA 2.1** (source S3). Eurostat publie des tables CPA ↔ CN (source S5) mais pas de table NST ↔ CPA directement.
 
 ### 3.7 NHM
 
 **Nomenclature Harmonisée Marchandises** (Harmonised Commodity Code). Nomenclature basée sur le HS, publiée par l'UIC (Union Internationale des Chemins de fer) et le CIT. Utilisée principalement pour le transport ferroviaire de marchandises.
 
-**Source officielle NHM** : UIC — [uic.org/nhm](https://uic.org/nhm) (source S7).
+**Source officielle NHM** : UIC — [uic.org/nhm](https://uic.org/nhm) (source S7). Document NHM complet payant.
 
-**Correspondance NHM ↔ NST** : Source officielle non trouvée en accès libre. Le document NHM complet est payant (shop.uic.org). La NHM étant basée sur HS et NST étant liée à CPA/NACE, un rapprochement indirect est théoriquement possible via HS → CPA → NST, mais **aucune table officielle de correspondance directe NHM ↔ NST n'a été localisée**.
+**Correspondance NHM ↔ NST** : **UNECE publie des tables officielles NST 2007 ↔ NHM** (2017, 2024, 2025) (source S3). La FAQ UNECE confirme que les 6 premiers chiffres NHM correspondent aux codes HS, et que les 30 derniers codes NHM concernent les équipements de transport gérés par l'UIC, qui s'alignent avec NST. Le contenu exact des fichiers n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire.
 
 ---
 
