@@ -209,6 +209,18 @@ NST 2007 est une **aide au raisonnement**, pas une source de vérité tarifaire.
 
 **NST/R** (NST Révisée). Version antérieure de la nomenclature de transport, utilisée jusqu'en 2007. Remplacée par NST 2007 via le Règlement (CE) n° 1304/2007 (source S1). NST-R était utilisée dans les statistiques de transport routier (Règlement 1172/98) et ferroviaire (Règlement 91/2003).
 
+#### 3.2.1 NST/R 1967 ↔ NST 2007 — Passerelle historique (PAD-NST-1C)
+
+**Découverte stratégique** : Le barème PAD 2006 utilise explicitement une « Table des produits par catégorie NST (2 positions) », qui correspond à la structure de chapitres NST/R ancienne (52 chapitres à 2 positions, 173 groupes à 3 positions).
+
+La table officielle UNECE `NSTR-NST2007.xls` (9 782 lignes, Evidence Package PAD-NST-1C) fournit la correspondance directe NST/R 1967 → NST 2007, via les codes CN 2008 et CPA 2008.
+
+**Conséquences** :
+- La table NST/R 1967 ↔ NST 2007 devient une **source prioritaire** pour le rapprochement PAD.
+- Le futur schéma PAD-NST-2 doit inclure une table `nstr_nst2007_mappings` (passerelle legacy).
+- NST/R → NST2007 aide au raisonnement, mais **ne donne pas automatiquement la catégorie PAD finale** : un chapitre NSTR 2 positions mappe vers 2 à 25 groupes NST 2007. La validation opérateur reste obligatoire.
+- Le chaînage complet devient : `PAD 2006 / NST 2 positions → NST/R 1967 → NST 2007 → CPA / CN / NHM → recommandation PAD moderne`.
+
 ### 3.3 NST 2007
 
 Version moderne et actuellement en vigueur. Adoptée en juin 2007 par l'UNECE, transposée dans le droit européen en novembre 2007 (source S1). Comprend **20 divisions** au premier niveau, avec des sous-groupes au deuxième niveau. Chaque item est « fortement connecté » à un item CPA/NACE (source S2 — Eurostat).
