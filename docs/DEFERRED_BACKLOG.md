@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-A manifeste généré : 112 règles candidates (28 division, 84 group), 0 importées en DB.** Voir `docs/tariff-collection/pad/PAD_NST_2E_RULE_CANDIDATES.md`.
+
+Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
@@ -26,6 +28,8 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-TOTALS-1 | Pricing | **✅ CLOS** | P0 | PAD-TOTALS | 2026-05-07 | — | Patch chirurgical `run-pricing/index.ts` L2480-2551. 8/8 Deno tests + E2E validé. Legacy `debours` préservé. |
 | PAD-R1 | Pricing | **NO-GO** | P2 | PAD-R1 | 2026-05-07 | Implémentation PAD-R1 local dans run-pricing | Gouvernance actée (Option A). Doctrine amount actée (TO_CONFIRM + estimated_amount). Reste : implémenter le scoring local. Voir `PAD_R1_AUDIT_AND_PLAN.md` |
 | PAD-R1B-GOVERNANCE | Architecture | **✅ DÉCISION ACTÉE** | P2 | PAD-TOTALS | 2026-05-07 | — | Option A coexistence réglementée. Doctrine amount C modifiée. Voir `PAD_R1B_GOVERNANCE_DECISION.md` |
+| PAD-NST-2E-OFFICIAL | Données | Reporté | P3 | PAD-NST-2E | 2026-05-07 | Extraction structurée de la table NST 2 positions du barème PAD 2006 | Phase documentaire : extraire les correspondances officielles PAD 2006 / NST 2 positions, puis créer des règles `pad_official_extract`. Nécessite source PDF originale vérifiée. |
+| PAD-NST-2E-B | Données | Reporté | P2 | PAD-NST-2E-A | 2026-05-07 | Validation CTO du manifeste PAD-NST-2E-A (112 règles candidates) | Import en DB des règles approuvées dans `pad_nst_recommendation_rules`. NO-GO tant que le CSV/MD n'est pas audité. Voir `PAD_NST_2E_RULE_CANDIDATES.md`. |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
@@ -64,6 +68,7 @@ Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT valid
 ### Conclusion
 
 La phase UX Communication est stabilisée côté code pour les lots traités. Les vérifications terrain différées ne doivent pas être forcées par création de données artificielles. Elles seront réalisées uniquement lors de l'apparition naturelle de données réelles.
+
 
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
