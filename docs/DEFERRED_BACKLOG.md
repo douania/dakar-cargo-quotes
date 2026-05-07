@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-AUDIT exécuté : 112 règles auditées → 35 TIER-A, 53 TIER-B, 24 TIER-C. 88 ready_for_import, 20 deferred, 4 removed. 0 importées en DB.** Voir `docs/tariff-collection/pad/PAD_NST_2E_AUDIT_REPORT.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-AUDIT-R1 exécuté : recalibration confidence des 112 règles. 35 TIER-A (0.70-0.85), 53 TIER-B (0.45-0.65), 24 TIER-C inchangés. 88 ready_for_import, 20 deferred, 4 removed. 0 importées en DB.** Voir `docs/tariff-collection/pad/PAD_NST_2E_AUDIT_REPORT.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
