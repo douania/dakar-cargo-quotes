@@ -2,7 +2,20 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-04 — **Phase UX Communication stabilisée : 3 lots clos, 3 lots code-validé en vérification terrain différée, 7 lots explicitement reportés.** Voir § Rapport de stabilisation ci-dessous.
+Dernière mise à jour : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
+
+Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée : 3 lots clos, 3 lots code-validé en vérification terrain différée, 7 lots explicitement reportés.** Voir § Rapport de stabilisation ci-dessous.
+
+---
+
+## PAD Nomenclature — Sujets différés post PAD-NOM-2
+
+| ID | Catégorie | Statut | Priorité | Phase d'origine | Date | Déclencheur de réouverture | Recommandation |
+|----|-----------|--------|----------|-----------------|------|---------------------------|----------------|
+| PAD-NOM-SECONDARY-ALIASES | Données | Reporté | P3 | PAD-NOM-2 | 2026-05-07 | Décision opérateur sur les 41 alias secondaires (typos corrigées) | Revue manuelle puis injection sélective |
+| PAD-NOM-OPERATOR-REVIEW | Données | Reporté | P2 | PAD-NOM-1B | 2026-05-07 | Décision opérateur sur les 4 lignes retirées (3× ACOOLISEES, 1× P¨RODUIT) — clarifier l'intention sémantique T01 vs T02 | Revue manuelle par opérateur |
+| PAD-NOM-GEOMEMBRANES | Données | Reporté | P3 | PAD-NOM-2 | 2026-05-07 | Identification du bon pad_category pour les géomembranes (non présent dans le barème PAD 2006) | Ajout via moteur de recommandation IA + validation opérateur |
+| PAD-NOM-CONFLICTS | Données | Reporté | P2 | PAD-NOM-1 | 2026-05-07 | Décision opérateur sur les conflits cross-category (`alcool industriel` T07/T12, `sport` T01/T02) | Revue manuelle, choix de la catégorie prioritaire |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
