@@ -955,13 +955,13 @@ def validate_decisions(decisions):
         if d["audit_tier"] in ("TIER-A", "TIER-B") and d["adjusted_confidence"] is None:
             errors.append(f"[{i}] {rk}: {d['audit_tier']} must have adjusted_confidence")
 
-        # Confidence caps (same as manifest rules)
+        # R1 confidence caps (aligned with DB constraint 0..1, CTO doctrine)
         if d["adjusted_confidence"] is not None:
             level = rk.split("|")[0]
-            if level == "division" and d["adjusted_confidence"] > 0.50:
-                errors.append(f"[{i}] {rk}: division confidence {d['adjusted_confidence']} > 0.50")
-            if level == "group" and d["adjusted_confidence"] > 0.65:
-                errors.append(f"[{i}] {rk}: group confidence {d['adjusted_confidence']} > 0.65")
+            if level == "division" and d["adjusted_confidence"] > 0.80:
+                errors.append(f"[{i}] {rk}: division confidence {d['adjusted_confidence']} > 0.80")
+            if level == "group" and d["adjusted_confidence"] > 0.90:
+                errors.append(f"[{i}] {rk}: group confidence {d['adjusted_confidence']} > 0.90")
 
     return errors
 
