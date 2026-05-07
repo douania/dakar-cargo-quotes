@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """
-PAD-NST-2E-AUDIT — Audit documentaire des 112 règles candidates NST→PAD.
+PAD-NST-2E-AUDIT-R1 — Recalibration confidence des 112 règles candidates NST→PAD.
 
-Phase: PAD-NST-2E-AUDIT (documentation only)
+Phase: PAD-NST-2E-AUDIT-R1 (documentation only — recalibration uniquement)
 Périmètre: AUCUN import DB, aucune migration, aucun runtime.
 
-Chaque décision d'audit est EXPLICITE (pas de heuristique opaque).
-TIER-A/B/C ne change PAS le validation_status (reste 'candidate')
-ni requires_operator_validation (reste true).
+R1 DOCTRINE:
+  confidence = probabilité métier que la correspondance NST→PAD soit correcte.
+  validation_status = statut officiel (reste 'candidate' pour TOUTES les règles).
+  requires_operator_validation = garde-fou (reste true pour TOUTES les règles).
+
+  Une règle peut être FORTEMENT RECOMMANDÉE (confidence 0.85) sans être
+  OFFICIELLEMENT VALIDÉE (validation_status='validated').
+
+R1 CALIBRATION TARGETS:
+  TIER-A group-level direct: 0.80 à 0.90
+  TIER-A division-level: 0.65 à 0.80
+  TIER-B primaire en conflit: 0.55 à 0.75
+  TIER-B secondaire ou contextuel: 0.45 à 0.60
+  TIER-C: inchangé, non importable.
+
+DB constraint: chk_pad_nst_rule_confidence allows 0..1 (no artificial cap).
 
 NSTR bridge verification (DB-verified counts):
   Division 07 total: 76 mappings (group 07.2 = 37)
