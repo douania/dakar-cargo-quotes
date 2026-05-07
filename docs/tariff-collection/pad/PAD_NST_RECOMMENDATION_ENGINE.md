@@ -602,12 +602,12 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ CPA si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ CPA |
 | **Colonnes probables** | `id`, `nst_code`, `cpa_code`, `cpa_version`, `correspondence_type` ("official", "interpretation"), `source_id` (FK → `nst_mapping_sources`), `notes` |
-| **Source de vérité** | **Source officielle non trouvée.** Eurostat indique un lien fort NST ↔ CPA (S2) mais aucune table officielle n'a été localisée. |
-| **Niveau de preuve** | **À confirmer.** Table vide tant qu'aucune source officielle n'est trouvée. |
-| **Usage runtime futur** | Enrichissement du scoring si source fiable disponible |
-| **Risques** | Ne pas remplir avec des correspondances inventées. Attendre source officielle ou marquer comme « interpretation ». |
+| **Source de vérité** | **Table officielle NST 2007 ↔ CPA 2.1 publiée par UNECE (S3).** Contenu non téléchargé ni vérifié ligne par ligne dans cette phase. |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3).** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Enrichissement du scoring si correspondance exploitable pour le contexte PAD |
+| **Risques** | Le contenu exact du fichier UNECE doit être vérifié avant injection. Ne pas remplir avec des correspondances inventées. |
 
 #### 12.4 `nst_cn_hs_mappings`
 
