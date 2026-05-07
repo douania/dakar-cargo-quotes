@@ -1,0 +1,77 @@
+{
+  "input_rows": 332,
+  "final_rows": 328,
+  "removed_rows": 4,
+  "checks": {
+    "zero_conflicts": {
+      "pass": true,
+      "count": 0,
+      "details": {}
+    },
+    "zero_duplicates": {
+      "pass": true,
+      "count": 0,
+      "details": []
+    },
+    "zero_cabotage": {
+      "pass": true,
+      "count": 0
+    },
+    "zero_diaeresis": {
+      "pass": true,
+      "count": 0
+    },
+    "zero_acoolisees": {
+      "pass": true,
+      "count": 0
+    },
+    "all_categories_valid": {
+      "pass": true,
+      "invalid": [],
+      "found": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08",
+        "T09",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14"
+      ]
+    }
+  },
+  "distribution": {
+    "P01": 1,
+    "P02": 1,
+    "P03": 4,
+    "P04": 1,
+    "P05": 1,
+    "T01": 34,
+    "T02": 83,
+    "T03": 24,
+    "T04": 22,
+    "T05": 14,
+    "T06": 8,
+    "T07": 27,
+    "T08": 7,
+    "T09": 7,
+    "T10": 1,
+    "T11": 12,
+    "T12": 79,
+    "T13": 1,
+    "T14": 1
+  },
+  "all_checks_pass": true,
+  "verdict": "READY_FOR_INJECTION"
+}

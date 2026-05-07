@@ -1,0 +1,91 @@
+raw_text,source_section,source_page,reason
+0 PRODUITS AGRICOLES ET ANIMAUX,2.3.1,9,NST chapter header
+00 ANIMAUX VIVANTS,2.3.1,9,NST section header
+01CEREAES,2.3.1,9,NST section header (typo: should be CEREALES)
+02 POMME DE TERRE,2.3.1,9,NST section header
+03 AUTRES LEGUMES FRAIS OU CONGELEES ET FRUITS FRAIS,2.3.1,9,NST section header
+04 MATIERES TEXTILES ET DECHETS,2.3.1,9,NST section header
+05 BOIS ET LIEGE,2.3.1,9,NST section header
+09 AUTRES MATIERES PREMIERES ANIMALES OU VEGETALES,2.3.1,9,NST section header
+10 DENREES ALIMENTAIRES ET FOURRAGES,2.3.1,10,NST section header
+11 SUCRES,2.3.1,10,NST section header
+12 BOISSONS,2.3.1,10,NST section header
+13 STIMULANTS ET EPICERIE,2.3.1,10,NST section header
+14 DENREES ALIMENTAIRES PERISSABLE,2.3.1,10,NST section header
+16 DENREES ALIMENTAIRES NON PERISSABLES,2.3.1,11,NST section header
+17 NOURRITURES POUR ANIMAUX,2.3.1,11,NST section header
+18 OLEAGINEUX,2.3.1,11,NST section header
+2 COMBUSTIBLES MINERAUX SOLIDES,2.3.1,11,NST chapter header
+21 HOUILLE,2.3.1,11,NST section header
+23 COKE,2.3.1,11,NST section header
+3 PRODUITS PETROLIERS,2.3.1,11,NST chapter header
+31 PETROLE BRUT,2.3.1,11,NST section header
+32 DERIVES ENERGITIQUES DE PETROLE,2.3.1,11,NST section header
+33 HYDROCARBURES ENERGITIQUES GAZEUX LIQUEFIES,2.3.1,11,NST section header
+34 DERIVES NON ENERGITIQUES,2.3.1,12,NST section header
+4 MINERAIS ET DECHETS POUR LA METALLURGIE,2.3.1,12,NST chapter header
+45 MINERAIS ET DECHETS NON FERREUX,2.3.1,12,NST section header
+46 FERAILLES,2.3.1,12,NST section header
+5 PRODUITS METALLURGIQUES,2.3.1,12,NST chapter header
+6 MINERAUX BRUTS OU MANUFACTURES ET MATERIAUX DE CONSTRUCTION,2.3.1,12,NST chapter header
+61 ARGILE,2.3.1,12,NST section header
+"62 SELS, PYRITES, SOUFFRE",2.3.1,12,NST section header
+"63 AUTRES PIERRES, TERRE, MINERAUX",2.3.1,12,NST section header
+64 CIMENT ET CHAUX,2.3.1,13,NST section header
+65 PLATRE,2.3.1,13,NST section header
+69 AUTRES MATERIAUX DE CONSTRUCTION,2.3.1,13,NST section header
+69 AUTRES MATERIAUX DE CONSTUCTION,2.3.1,13,"NST section header (duplicate, with typo CONSTUCTION)"
+7 ENGRAIS,2.3.1,13,NST chapter header
+71 ENGRAIS NATURELS,2.3.1,13,NST section header
+72 ENGRIAS MANUFACTURES,2.3.1,13,NST section header (typo: ENGRIAS)
+8 PRODUITS CHIMIQUES,2.3.1,14,NST chapter header
+81 PRODUITS CHIMIQUES DE BASE,2.3.1,14,NST section header
+84 CELLULOSE ET DECHETS,2.3.1,14,NST section header
+89 MATIERES CHIMIQUES,2.3.1,14,NST section header
+"9 MACHINES, VEHICULES, OBJETS, MANUFACTURES ET TRANSACTIONS SPECIALES",2.3.1,15,NST chapter header
+91 VEHICULES ET MATERIELS DE TRANSPORT,2.3.1,15,NST section header
+92 TRACTEURS ET MACHINES AGRICOLES,2.3.1,15,NST section header
+"93 AUTRES MACHINES, APPAREILLAGES, MOTEURS ET PIECES",2.3.1,15,NST section header
+94 ARTICLES MATALLIQUES,2.3.1,15,NST section header (typo: MATALLIQUES)
+"95 VERRES, VERRERIE, PRODUITS CERAMIQUES",2.3.1,15,NST section header
+"96 CUIRS, TEXTILES, HABILLEMENT",2.3.1,16,NST section header
+97 ARTICLES MANUFACTURES DIVERS,2.3.1,16,NST section header
+99 TRANSACTIONS SPECIALES,2.3.1,16,NST section header
+A,2.3.2,17,alphabetical section header
+B,2.3.2,17,alphabetical section header
+C,2.3.2,18,alphabetical section header
+D,2.3.2,19,alphabetical section header
+E,2.3.2,19,alphabetical section header
+F,2.3.2,19,alphabetical section header
+G,2.3.2,20,alphabetical section header
+H,2.3.2,20,alphabetical section header
+I,2.3.2,20,alphabetical section header
+J,2.3.2,20,alphabetical section header
+L,2.3.2,20,alphabetical section header
+M,2.3.2,20,alphabetical section header
+N,2.3.2,21,alphabetical section header
+O,2.3.2,21,alphabetical section header
+P,2.3.2,21,alphabetical section header
+Q,2.3.2,22,alphabetical section header
+R,2.3.2,22,alphabetical section header
+S,2.3.2,22,alphabetical section header
+T,2.3.2,23,alphabetical section header
+U,2.3.2,23,alphabetical section header
+V,2.3.2,23,alphabetical section header
+W,2.3.2,23,alphabetical section header
+P,2.3.3,24,tariff category header
+T01,2.3.3,24,tariff category header
+T02,2.3.3,25,tariff category header
+T03,2.3.3,26,tariff category header
+T04,2.3.3,27,tariff category header
+T05,2.3.3,27,tariff category header
+T06,2.3.3,27,tariff category header
+T07,2.3.3,28,tariff category header
+T08,2.3.3,28,tariff category header
+T09,2.3.3,28,tariff category header
+T10,2.3.3,28,tariff category header
+T11,2.3.3,29,tariff category header
+T12,2.3.3,29,tariff category header
+T13,2.3.3,30,tariff category header
+T14,2.3.3,30,tariff category header
+C,2.3.3,31,"tariff category header (cabotage containers, excluded from injectable)"
