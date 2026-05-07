@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-TOTALS-1 appliqué : correction intégrité totaux (total_ht incluait seulement honoraires, maintenant inclut tous blocs engine + enrichissements PAD/terminal).** Voir `docs/tariff-collection/pad/PAD_TOTALS_1_PATCH_REPORT.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-TOTALS-1 CLOS : 8/8 tests unitaires Deno PASS + end-to-end (version/PDF/email) validé. Legacy `debours` préservé.** Voir `docs/tariff-collection/pad/PAD_TOTALS_1_PATCH_REPORT.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
@@ -23,8 +23,8 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-R2 | Données | Reporté | P3 | PAD-R1 | 2026-05-07 | Besoin de recherche web contrôlée pour produits non couverts par nomenclature + IA | Web search déclenchée sur demande opérateur, info produit uniquement, pas de catégorie PAD inventée |
 | PAD-R4 | Données | Reporté | P4 | PAD-R1 | 2026-05-07 | Feedback loop opérateur → création d'alias `ai_suggestion_validated` après validation humaine répétée | Apprentissage supervisé, jamais automatique |
 | PAD-TOTALS-0 | Pricing | **CLOS** | P0 | PAD-TOTALS | 2026-05-07 | — | Audit terminé. Bug confirmé : total_ht = honoraires_ht ignorait operationnel/border/terminal/debours/enrichissements. Voir `PAD_TOTALS_0_AUDIT.md` |
-| PAD-TOTALS-1 | Pricing | **APPLIQUÉ** | P0 | PAD-TOTALS | 2026-05-07 | Tests end-to-end requis pour CLOS | Patch chirurgical `run-pricing/index.ts` L2480-2551. Voir `PAD_TOTALS_1_PATCH_REPORT.md` |
-| PAD-R1 | Pricing | **NO-GO** | P2 | PAD-R1 | 2026-05-07 | PAD-TOTALS-1 PASS + PAD-R1B-GOVERNANCE + doctrine amount | Moteur local-only, conceptuellement validé mais bloqué. Voir `PAD_R1_AUDIT_AND_PLAN.md` |
+| PAD-TOTALS-1 | Pricing | **✅ CLOS** | P0 | PAD-TOTALS | 2026-05-07 | — | Patch chirurgical `run-pricing/index.ts` L2480-2551. 8/8 Deno tests + E2E validé. Legacy `debours` préservé. |
+| PAD-R1 | Pricing | **NO-GO** | P2 | PAD-R1 | 2026-05-07 | PAD-R1B-GOVERNANCE + doctrine amount | Moteur local-only, bloqué par gouvernance PAD-R1B. Voir `PAD_R1_AUDIT_AND_PLAN.md` |
 | PAD-R1B-GOVERNANCE | Architecture | **Ouvert** | P2 | PAD-TOTALS | 2026-05-07 | Décision CTO sur recommend-pad-category (IA active dans UI, non canonique) | Clarifier coexistence avec PAD-R1 local, config.toml, surface IA. Ne pas supprimer sans décision explicite |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
