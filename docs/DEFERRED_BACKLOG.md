@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-A manifeste généré : 112 règles candidates (28 division, 84 group), 0 importées en DB.** Voir `docs/tariff-collection/pad/PAD_NST_2E_RULE_CANDIDATES.md`.
+
+Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
