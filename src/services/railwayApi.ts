@@ -2,7 +2,12 @@
  * Service centralisé pour les appels API Railway
  * Gère: Intake (analyse complexité), Workflow (CaseView), Truck loading
  * Refactor Phase 1 - Étape 1.5
+ * 
+ * Security: All requests include the Supabase auth token so that
+ * the Railway backend can verify the caller is authenticated.
  */
+
+import { supabase } from "@/integrations/supabase/client";
 
 const API_BASE = import.meta.env.VITE_TRUCK_LOADING_API_URL || 'https://web-production-8afea.up.railway.app';
 
@@ -68,15 +73,29 @@ export interface WorkflowRunResponse {
   error?: string;
 }
 
+// ============= Auth Helper =============
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Authentification requise pour accéder à l'API");
+  }
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session.access_token}`,
+  };
+}
+
 // ============= API Functions =============
 
 /**
  * Créer un nouveau dossier via l'analyse d'intake
  */
 export async function createIntake(request: IntakeRequest): Promise<IntakeResponse> {
+  const headers = await getAuthHeaders();
   const response = await fetch(`${API_BASE}/api/casefiles/intake`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(request),
   });
 
@@ -93,7 +112,8 @@ export async function createIntake(request: IntakeRequest): Promise<IntakeRespon
  * Récupérer les détails d'un dossier
  */
 export async function fetchCaseFile(caseId: string): Promise<CaseFileResponse> {
-  const response = await fetch(`${API_BASE}/api/casefiles/${caseId}`);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE}/api/casefiles/${caseId}`, { headers });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
@@ -107,9 +127,10 @@ export async function fetchCaseFile(caseId: string): Promise<CaseFileResponse> {
  * Lancer l'exécution du workflow pour un dossier
  */
 export async function runWorkflow(caseId: string): Promise<WorkflowRunResponse> {
+  const headers = await getAuthHeaders();
   const response = await fetch(`${API_BASE}/api/casefiles/${caseId}/run`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({}),
   });
 
