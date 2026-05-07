@@ -1,10 +1,12 @@
-# Synthèse tarifaire globale — Post-nettoyage LOT2 + LOT3-A
+# Synthèse tarifaire globale — Post-nettoyage LOT2 + LOT3-A + PAD-NOM-2
 
-**Date :** 2026-05-02  
-**Contexte :** après exécution de LOT2-REV-A/B/C (transport local) et LOT3-A (quarantaine P0 minimale).  
-**Type de validation :** analytique (SELECT réels post-LOT3-A). Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb). Cependant, aucun smoke runtime contrôlé n'a été déclenché spécifiquement dans le cadre de l'audit.  
+**Date :** 2026-05-07 (mise à jour PAD-NOM-2)  
+**Date initiale :** 2026-05-02  
+**Contexte :** après exécution de LOT2-REV-A/B/C (transport local), LOT3-A (quarantaine P0 minimale), et **PAD-NOM-2** (injection nomenclature officielle PAD 2006 : 324 alias, 9 catégories, 384 alias totaux).  
+**Type de validation :** analytique (SELECT réels post-LOT3-A + post-checks PAD-NOM-2). Deux runs post-LOT3 existent et ont été inspectés analytiquement en base (0 contamination Aksa/Taleb). Cependant, aucun smoke runtime contrôlé n'a été déclenché spécifiquement dans le cadre de l'audit.  
 **Périmètre :** les sources P0 identifiées dans LOT3-0 et traitées par LOT3-A ne peuvent plus sortir automatiquement en cotation client. Cette conclusion est limitée aux sources P0 identifiées ; elle ne constitue pas une garantie absolue sur toutes les futures sources.  
-**Audit complet :** voir `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md` — verdict GO conditionnel, risques R1–R4 documentés dans `docs/DEFERRED_BACKLOG.md`.
+**Audit complet :** voir `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md` — verdict GO conditionnel, risques R1–R4 documentés dans `docs/DEFERRED_BACKLOG.md`.  
+**PAD-NOM-2 :** voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
 ---
 
