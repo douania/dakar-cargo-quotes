@@ -3,7 +3,9 @@
 **Date** : 2026-05-07
 **Phase** : PAD-NST-2E-B — Import contrôlé des 88 règles candidates
 **Méthode** : Script Python → SQL généré → Migration data-only Lovable Cloud (voie unique)
-**Statut** : ✅ EXÉCUTÉ — Tous contrôles conformes
+**Statut** : ⚠️ IMPORT INITIAL INVALIDÉ — Corrigé par PAD-NST-2E-B-R2 (2026-05-08)
+
+> **IMPORTANT** : L'import initial contenait 88 lignes mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La correction R1 n'a jamais été appliquée. La correction R2 a purge + réimporté les 88 bonnes règles. Voir `PAD_NST_2E_B_R2_RECONCILIATION_REPORT.md` pour le rapport complet.
 
 ## Résumé
 

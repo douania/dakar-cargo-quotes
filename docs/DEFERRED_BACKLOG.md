@@ -1311,3 +1311,20 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Impact** | Faible tant que mono-opérateur. Bloquant si déploiement multi-société. |
 | **Déclencheur de réouverture** | Décision de supporter un second opérateur ou un déploiement multi-tenant. |
 | **Recommandation** | Créer une table `operator_config` avec : `operator_company_name`, `operator_aliases`, `operator_domains`, `operator_email_addresses`. Remplacer les constantes statiques par des lookups dynamiques. Éventuellement ajouter `sender_role` sur emails et `actor_origin` sur quote_facts. |
+
+---
+
+### DEFER-PAD-NST-2E-B-R2-CLOSED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-B-R2` |
+| **Catégorie** | Data / Tarifs PAD |
+| **Statut** | ✅ CLOS — Corrigé le 2026-05-08 |
+| **Priorité** | P0 (était bloquant pour PAD-NST-2E-C-A runtime) |
+| **Phase d'origine** | PAD-NST-2E-B |
+| **Date** | 2026-05-07 → 2026-05-08 |
+| **Constat** | La migration PAD-NST-2E-B initiale a importé 88 règles mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La tentative de correction R1 n'a jamais été appliquée (aucune migration dans le dépôt). |
+| **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
+| **Déclencheur de réouverture** | N/A — clos. |
+| **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. |
