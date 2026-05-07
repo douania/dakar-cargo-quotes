@@ -38,7 +38,7 @@ PAD-R1 vise à fournir un moteur local (sans IA) pour recommander une catégorie
 
 ### PAD-TOTALS-INTEGRITY (CRITIQUE)
 - Les enrichissements PAD post-engine n'étaient pas inclus dans `total_ht`/`total_ttc`
-- **Patch PAD-TOTALS-1 appliqué** — en attente de validation
+- **Patch PAD-TOTALS-1 appliqué, testé et CLOS.**
 - Si PAD-R1 génère des `amount > 0` avec un statut intermédiaire, ils doivent être correctement gérés par les totaux
 
 ### PAD-R1B-GOVERNANCE (✅ RÉSOLU)
