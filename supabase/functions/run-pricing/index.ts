@@ -2477,20 +2477,78 @@ ${JSON.stringify(refPayload)}`;
     const engineTotals = engineResponse.totals;
     const incotermUpper = (inputs.incoterm || "").toUpperCase();
 
-    // --- P0 FIX: Agregation correcte HT / TTC ---
-    const honoraires_ht  = engineTotals?.honoraires ?? 0;
-    const debours        = engineTotals?.debours ?? 0;
+    // ═══ PAD-TOTALS-1: Robust client-facing totals ═══
+    // Extract all engine bloc totals safely
+    const engineOperationnel = Number(engineTotals?.operationnel) || 0;
+    const engineHonoraires   = Number(engineTotals?.honoraires) || 0;
+    const engineDebours      = Number(engineTotals?.debours) || 0;
+    const engineBorder       = Number(engineTotals?.border) || 0;
+    const engineTerminal     = Number(engineTotals?.terminal) || 0;
+
+    // Robust DAP/DDP: use engine value if present and finite, otherwise reconstruct
+    // Three paths (provisional DDP L1708, export guard L1715/L1793) produce engineTotals without dap/ddp
+    const rawDap = Number(engineTotals?.dap);
+    const rawDdp = Number(engineTotals?.ddp);
+    const hasRawDap = engineTotals?.dap !== undefined && engineTotals?.dap !== null && Number.isFinite(rawDap);
+    const hasRawDdp = engineTotals?.ddp !== undefined && engineTotals?.ddp !== null && Number.isFinite(rawDdp);
+
+    const engineDapComputed = hasRawDap
+      ? rawDap
+      : engineOperationnel + engineHonoraires + engineBorder + engineTerminal;
+
+    const engineDdpComputed = hasRawDdp
+      ? rawDdp
+      : engineDapComputed + engineDebours;
+
+    // Post-engine enrichment: PAD + terminal storage (non-TO_CONFIRM, amount > 0)
+    const enrichmentAmount = tariffLines
+      .filter((l: any) => {
+        const layer = l.canonical?.origin_layer;
+        if (layer !== 'enrichment_pad' && layer !== 'enrichment_terminal_storage') return false;
+        const sourceType = String(l?.source?.type || '')
+          .trim()
+          .split('+')[0]
+          .split(':')[0]
+          .toUpperCase();
+        if (sourceType === 'TO_CONFIRM') return false;
+        const amt = Number(l.amount) || 0;
+        return amt > 0;
+      })
+      .reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0);
+
+    // TVA SODATRA: applies ONLY to honoraires, not to PAD/terminal/operationnel/border/debours
     const TVA_RATE       = 0.18;
+    const honoraires_ht  = engineHonoraires;
     const honoraires_tva = Math.round(honoraires_ht * TVA_RATE);
     const honoraires_ttc = honoraires_ht + honoraires_tva;
 
-    const totalHt  = honoraires_ht;
-    const totalTtc = debours + honoraires_ttc;
+    // Client-facing totals
+    const totalHt  = engineDdpComputed + enrichmentAmount;
+    const totalTtc = totalHt + honoraires_tva;
     const currency = engineResponse.currency || "XOF";
 
     const outputsJson = {
       lines: tariffLines,
-      totals: { ht: totalHt, ttc: totalTtc, honoraires_tva: honoraires_tva, currency, dap: engineTotals?.dap, ddp: engineTotals?.ddp, debours: engineTotals?.debours, incoterm_applied: incotermUpper || "N/A" },
+      totals: {
+        ht: totalHt,
+        ttc: totalTtc,
+        honoraires_ht,
+        honoraires_tva,
+        honoraires_ttc,
+        operationnel: engineOperationnel,
+        border: engineBorder,
+        terminal: engineTerminal,
+        debours_engine: engineDebours,
+        debours_enrichment: enrichmentAmount,
+        debours_total: engineDebours + enrichmentAmount,
+        dap: engineDapComputed,
+        ddp: engineDdpComputed,
+        dap_engine_raw: engineTotals?.dap ?? null,
+        ddp_engine_raw: engineTotals?.ddp ?? null,
+        enrichment_amount: enrichmentAmount,
+        currency,
+        incoterm_applied: incotermUpper || "N/A",
+      },
       duty_breakdown: engineResponse.duty_breakdown || [],
       metadata: {
         engine_version: engineResponse.version || "v4",
