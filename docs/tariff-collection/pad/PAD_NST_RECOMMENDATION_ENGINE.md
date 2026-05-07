@@ -266,8 +266,8 @@ Version moderne et actuellement en vigueur. Adoptée en juin 2007 par l'UNECE, t
 | **NST 2007** | Statistiques de transport (route, rail, voies navigables, maritime) | 20 divisions + sous-groupes | Non | Oui — comme aide au raisonnement par famille logistique | Ne contient pas de tarif. Pas de mapping officiel vers PAD. |
 | **HS / SH** | Classification douanière internationale | 6+ chiffres, très précis | Oui — base des droits de douane | Indirectement — aide à identifier la nature du produit | Trop fin pour le raisonnement par famille PAD. Pas de mapping officiel HS → PAD. |
 | **CN** | Douane + statistiques commerce extérieur UE | 8 chiffres (extension HS) | Oui (UE) | Indirectement — via rapprochement CPA | Nomenclature européenne, pas utilisée directement au Sénégal. |
-| **CPA** | Classification produits par activité économique | Hiérarchique, liée à NACE | Non | Indirectement — aide à classer par secteur économique | « Fortement connectée » à NST (Eurostat) mais aucune table officielle de mapping direct NST ↔ CPA trouvée. |
-| **NHM** | Transport ferroviaire de marchandises | Basée sur HS | Non | Marginalement — contexte ferroviaire | Document payant. Pas de mapping officiel NHM ↔ NST trouvé en accès libre. |
+| **CPA** | Classification produits par activité économique | Hiérarchique, liée à NACE | Non | Indirectement — aide à classer par secteur économique | « Fortement connectée » à NST (Eurostat). **Table officielle NST 2007 ↔ CPA 2.1 publiée par UNECE (S3).** Contenu non vérifié en détail. |
+| **NHM** | Transport ferroviaire de marchandises | Basée sur HS | Non | Indirectement — passerelle HS → NST via tables UNECE | Document NHM complet payant (UIC). **Tables officielles NST ↔ NHM publiées par UNECE (S3).** |
 | **PAD 2006** | Tarification portuaire — droits de passage Port Autonome de Dakar | 19 catégories (T01–T14, P01–P05) | Non (redevance portuaire, pas douane) | **OUI — source de vérité unique** | Nomenclature locale, pas normalisée internationalement. |
 
 ### Conclusion obligatoire
@@ -408,12 +408,12 @@ Le BL décrit-il plusieurs marchandises hétérogènes ? Le terme est-il génér
 | 08 | Chimie, plastiques, caoutchouc | T04 (produits chimiques), T11 (plastiques/caoutchouc) | Interprétation — dépend du degré de transformation |
 | 09 | Produits minéraux non métalliques | T07 (matériaux de construction) | Interprétation |
 | 10 | Métaux de base, produits métalliques | T02 (métaux), T10 (ferraille/déchets métalliques) | Interprétation |
-| 11 | Machines, équipements, informatique | T09 (matériel), T14 (véhicules/machines) | Interprétation — ambiguïté PAD |
+| 11 | Machines, équipements, informatique | Catégorie portée par l'alias PAD validé (ex : « mat informatique ordinateurs ») ou T14 (véhicules/machines) si pas d'alias | Interprétation — ambiguïté PAD, dépend de l'alias validé |
 | 12 | Matériel de transport | T14 (véhicules) | Interprétation |
 | 13 | Meubles, autres produits manufacturés | T12 (divers), T13 | Interprétation |
 | 14 | Matières premières secondaires, déchets | T10 (déchets/ferraille) | Interprétation |
 | 15 | Courrier, colis | T12 (divers) | Interprétation — rare en contexte portuaire Dakar |
-| 16 | Équipements de transport de marchandises | T09 (matériel), T16 (conteneurs vides si existait) | Interprétation |
+| 16 | Équipements de transport de marchandises | T09 (matériel) — interprétation, pas de catégorie PAD dédiée pour équipements de transport | Interprétation |
 | 17 | Déménagement, bagages | T12 (divers) | Interprétation — rare |
 | 18 | Marchandises groupées | **BLOCAGE** — validation opérateur obligatoire | N/A |
 | 19 | Marchandises non identifiables | **BLOCAGE** — validation opérateur obligatoire | N/A |
