@@ -68,8 +68,7 @@ Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT valid
 ### Conclusion
 
 La phase UX Communication est stabilisée côté code pour les lots traités. Les vérifications terrain différées ne doivent pas être forcées par création de données artificielles. Elles seront réalisées uniquement lors de l'apparition naturelle de données réelles.
-| PAD-NST-2E-OFFICIAL | Données | Reporté | P3 | PAD-NST-2E | 2026-05-07 | Extraction structurée de la table NST 2 positions du barème PAD 2006 | Phase documentaire : extraire les correspondances officielles PAD 2006 / NST 2 positions, puis créer des règles `pad_official_extract`. Nécessite source PDF originale vérifiée. |
-| PAD-NST-2E-B | Données | Reporté | P2 | PAD-NST-2E-A | 2026-05-07 | Validation CTO du manifeste PAD-NST-2E-A (112 règles candidates) | Import en DB des règles approuvées dans `pad_nst_recommendation_rules`. NO-GO tant que le CSV/MD n'est pas audité. Voir `PAD_NST_2E_RULE_CANDIDATES.md`. |
+
 
 
 Mise à jour antérieure : 2026-04-28 (INFRA-PUBLISH-VITE-ENV-001 cause racine **identifiée et confirmée par le support Lovable** : `.env` ajouté à `.gitignore` par un outil externe, ce qui empêche Lovable Cloud de versionner le fichier et donc d'injecter les `VITE_*` au build Preview/Publish. Correctif documenté : retrait ligne `.env` du `.gitignore` + création `.env.example` + garde sécurité « variables `VITE_*` publiques uniquement dans `.env`, jamais de secret backend ». Patch `.gitignore` à appliquer manuellement par l'opérateur — `code--line_replace` refuse `.gitignore` en écriture côté sandbox agent. Voir `docs/audits/INFRA-PUBLISH-VITE-ENV-001-evidence.md` § 8.)
