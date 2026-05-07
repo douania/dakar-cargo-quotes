@@ -19,8 +19,13 @@ import {
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL")!;
-const SUPABASE_ANON_KEY = Deno.env.get("VITE_SUPABASE_PUBLISHABLE_KEY")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEYS") || "";
+
+// run-pricing uses serviceClient (service role) to query pad_designation_aliases.
+// RLS on that table requires 'authenticated' role, so we must use service role key.
+if (!SERVICE_ROLE_KEY) {
+  console.warn("⚠️ PAD-NOM-3 tests require SUPABASE_SERVICE_ROLE_KEY — skipping");
+}
 
 // Exact replica of run-pricing's normalizePricingText
 function normalizePricingText(value: unknown): string {
@@ -34,7 +39,7 @@ function normalizePricingText(value: unknown): string {
 }
 
 function getClient() {
-  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY || SUPABASE_ANON_KEY);
+  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 }
 
 // ─── S1: gasoil → T06 → 885 FCFA/t ───
