@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-TOTALS-1 CLOS : 8/8 tests unitaires Deno PASS + end-to-end (version/PDF/email) validé. Legacy `debours` préservé.** Voir `docs/tariff-collection/pad/PAD_TOTALS_1_PATCH_REPORT.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
@@ -24,8 +24,8 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-R4 | Données | Reporté | P4 | PAD-R1 | 2026-05-07 | Feedback loop opérateur → création d'alias `ai_suggestion_validated` après validation humaine répétée | Apprentissage supervisé, jamais automatique |
 | PAD-TOTALS-0 | Pricing | **CLOS** | P0 | PAD-TOTALS | 2026-05-07 | — | Audit terminé. Bug confirmé : total_ht = honoraires_ht ignorait operationnel/border/terminal/debours/enrichissements. Voir `PAD_TOTALS_0_AUDIT.md` |
 | PAD-TOTALS-1 | Pricing | **✅ CLOS** | P0 | PAD-TOTALS | 2026-05-07 | — | Patch chirurgical `run-pricing/index.ts` L2480-2551. 8/8 Deno tests + E2E validé. Legacy `debours` préservé. |
-| PAD-R1 | Pricing | **NO-GO** | P2 | PAD-R1 | 2026-05-07 | PAD-R1B-GOVERNANCE + doctrine amount | Moteur local-only, bloqué par gouvernance PAD-R1B. Voir `PAD_R1_AUDIT_AND_PLAN.md` |
-| PAD-R1B-GOVERNANCE | Architecture | **Ouvert** | P2 | PAD-TOTALS | 2026-05-07 | Décision CTO sur recommend-pad-category (IA active dans UI, non canonique) | Clarifier coexistence avec PAD-R1 local, config.toml, surface IA. Ne pas supprimer sans décision explicite |
+| PAD-R1 | Pricing | **NO-GO** | P2 | PAD-R1 | 2026-05-07 | Implémentation PAD-R1 local dans run-pricing | Gouvernance actée (Option A). Doctrine amount actée (TO_CONFIRM + estimated_amount). Reste : implémenter le scoring local. Voir `PAD_R1_AUDIT_AND_PLAN.md` |
+| PAD-R1B-GOVERNANCE | Architecture | **✅ DÉCISION ACTÉE** | P2 | PAD-TOTALS | 2026-05-07 | — | Option A coexistence réglementée. Doctrine amount C modifiée. Voir `PAD_R1B_GOVERNANCE_DECISION.md` |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
