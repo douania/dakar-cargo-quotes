@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-TOTALS-1 appliqué : correction intégrité totaux (total_ht incluait seulement honoraires, maintenant inclut tous blocs engine + enrichissements PAD/terminal).** Voir `docs/tariff-collection/pad/PAD_TOTALS_1_PATCH_REPORT.md`.
+
+Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias officiels PAD 2006 injectés, 9 catégories créées, 384 alias totaux.** Voir `docs/tariff-collection/pad/PAD_NOM2_EXECUTION_REPORT.md`.
 
 Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée : 3 lots clos, 3 lots code-validé en vérification terrain différée, 7 lots explicitement reportés.** Voir § Rapport de stabilisation ci-dessous.
 
