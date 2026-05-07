@@ -613,23 +613,23 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ CN/HS si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ CN/HS |
 | **Colonnes probables** | `id`, `nst_code`, `hs_code_prefix` (4-6 chiffres), `cn_code` (8 chiffres, nullable), `correspondence_type`, `source_id`, `notes` |
-| **Source de vérité** | **Source officielle non trouvée.** Pas de table directe NST ↔ HS publiée par Eurostat ou WCO. Un rapprochement indirect via CPA ↔ CN est théoriquement possible. |
-| **Niveau de preuve** | **À confirmer.** |
-| **Usage runtime futur** | Enrichissement si code HS disponible dans le dossier |
-| **Risques** | Correspondance indirecte (NST → CPA → CN → HS) = perte de précision à chaque étape. |
+| **Source de vérité** | **Tables officielles NST 2007 ↔ CN (2017 à 2024) publiées par UNECE (S3).** Pas de table directe NST ↔ HS, mais les 6 premiers chiffres NHM = HS (S3 FAQ), et les tables NST ↔ NHM permettent un rapprochement indirect. |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3) pour NST ↔ CN.** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Enrichissement si code HS ou CN disponible dans le dossier |
+| **Risques** | Correspondance NST ↔ HS reste indirecte (via NHM ou CN). Contenu des fichiers UNECE à vérifier avant injection. |
 
 #### 12.5 `nst_nhm_mappings`
 
 | Attribut | Détail |
 |----------|--------|
-| **Rôle** | Correspondance NST ↔ NHM si source officielle trouvée |
+| **Rôle** | Correspondance NST ↔ NHM |
 | **Colonnes probables** | `id`, `nst_code`, `nhm_code`, `correspondence_type`, `source_id`, `notes` |
-| **Source de vérité** | **Source officielle non trouvée en accès libre.** NHM est publiée par UIC (document payant). |
-| **Niveau de preuve** | **Non vérifié.** |
-| **Usage runtime futur** | Faible — NHM est ferroviaire, peu pertinent pour le contexte portuaire de Dakar |
-| **Risques** | Investissement disproportionné par rapport à l'utilité. Prioriser NST → PAD directement. |
+| **Source de vérité** | **Tables officielles NST 2007 ↔ NHM (2017, 2024, 2025) publiées par UNECE (S3).** |
+| **Niveau de preuve** | **Existence confirmée (UNECE S3).** Contenu à vérifier lors de PAD-NST-2. |
+| **Usage runtime futur** | Passerelle HS → NST (via NHM). Pertinence directe pour le contexte portuaire de Dakar à évaluer. |
+| **Risques** | Le document NHM complet (UIC) reste payant. Les tables UNECE sont la source exploitable. Contenu à vérifier avant injection. |
 
 #### 12.6 `pad_nst_recommendation_rules`
 
