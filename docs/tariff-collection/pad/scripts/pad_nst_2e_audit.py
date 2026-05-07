@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """
-PAD-NST-2E-AUDIT — Audit documentaire des 112 règles candidates NST→PAD.
+PAD-NST-2E-AUDIT-R1 — Recalibration confidence des 112 règles candidates NST→PAD.
 
-Phase: PAD-NST-2E-AUDIT (documentation only)
+Phase: PAD-NST-2E-AUDIT-R1 (documentation only — recalibration uniquement)
 Périmètre: AUCUN import DB, aucune migration, aucun runtime.
 
-Chaque décision d'audit est EXPLICITE (pas de heuristique opaque).
-TIER-A/B/C ne change PAS le validation_status (reste 'candidate')
-ni requires_operator_validation (reste true).
+R1 DOCTRINE:
+  confidence = probabilité métier que la correspondance NST→PAD soit correcte.
+  validation_status = statut officiel (reste 'candidate' pour TOUTES les règles).
+  requires_operator_validation = garde-fou (reste true pour TOUTES les règles).
+
+  Une règle peut être FORTEMENT RECOMMANDÉE (confidence 0.85) sans être
+  OFFICIELLEMENT VALIDÉE (validation_status='validated').
+
+R1 CALIBRATION TARGETS:
+  TIER-A group-level direct: 0.80 à 0.90
+  TIER-A division-level: 0.65 à 0.80
+  TIER-B primaire en conflit: 0.55 à 0.75
+  TIER-B secondaire ou contextuel: 0.45 à 0.60
+  TIER-C: inchangé, non importable.
+
+DB constraint: chk_pad_nst_rule_confidence allows 0..1 (no artificial cap).
 
 NSTR bridge verification (DB-verified counts):
   Division 07 total: 76 mappings (group 07.2 = 37)
@@ -41,7 +54,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|01|P05",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.5,
         "action": "enrich_notes",
         "audit_note": "P05 pertinent uniquement pour le sous-groupe peche (01.B). La division est trop large pour un seul PAD. Conserver comme candidat secondaire peche."
     },
@@ -56,14 +69,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|02|T07",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "enrich_notes",
         "audit_note": "T07 pertinent pour le charbon (02.1) mais pas pour le pétrole (02.2) ni le gaz (02.3). Division trop hétérogène. Conserver comme candidat secondaire charbon."
     },
     {
         "rule_key": "division|02|T11",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "T11 pertinent pour pétrole brut (02.2) mais pas pour charbon (02.1). Les groupes 02.x ont des règles plus précises. Conserver car le pétrole domine le trafic."
     },
@@ -71,14 +84,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|03|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "enrich_notes",
         "audit_note": "T03 'matières premières' pertinent pour minerais (03.1, 03.2) mais la division inclut aussi sel (T10), sable (T07), phosphates (T08). Trop large."
     },
     {
         "rule_key": "division|03|T08",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T08 pertinent pour phosphates (03.3) uniquement. Confidence baissée car secondaire au niveau division. Les groupes 03.x sont plus précis."
     },
@@ -86,7 +99,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|04|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "enrich_notes",
         "audit_note": "T02 par défaut pour les denrées alimentaires transformées. Ambiguïté avec T01 (boissons alcoolisées), T05 (farines/céréales). Accepté comme candidat principal par défaut."
     },
@@ -108,7 +121,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|05|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "T12 pertinent pour textiles et cuir manufacturés. Confidence acceptable au niveau division. Cohérent avec les règles group-level 05.x→T12."
     },
@@ -116,7 +129,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|06|T04",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T04 = 'Bois et produits divers'. Division 06 = bois, liège, papier. Le bois est explicitement dans le label T04."
     },
@@ -124,7 +137,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|07|T11",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T11 = 'Pétrole brut, essences, bitumes, hydrocarbures raffinés'. Division 07 = produits pétroliers raffinés. Correspondance explicite."
     },
@@ -132,7 +145,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|08|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T03 pertinent pour chimie de base (08.1) mais la division couvre aussi plastiques (T12), engrais (T08), pharma (T01). Confidence baissée car trop hétérogène."
     },
@@ -147,14 +160,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|09|T05",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T05 pertinent pour ciment fini (09.2) mais pas pour verre/céramique. Confidence baissée. Le conflit T05/T07 pour le ciment doit être résolu au group-level."
     },
     {
         "rule_key": "division|09|T07",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "T07 pertinent pour clinker, sable, matériaux de carrière. Plus large que T05 pour cette division. Conflit ciment/clinker documenté."
     },
@@ -169,14 +182,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|10|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "T12 pertinent pour produits métalliques fabriqués (10.3-10.5). Accepté comme candidat secondaire derrière T14."
     },
     {
         "rule_key": "division|10|T14",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.7,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T14 = 'Fil machine et feuillard'. Division 10 = métaux de base. Le fil machine est un produit de première transformation."
     },
@@ -184,7 +197,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|11|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "T01 pertinent pour informatique et électronique (11.3-11.7) mais pas pour machines industrielles (11.1, 11.8). Division hétérogène."
     },
@@ -199,7 +212,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|12|T09",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T09 = 'Tracteurs, véhicules industriels et matériel de transport'. Division 12 = matériel de transport."
     },
@@ -207,14 +220,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|13|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.7,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T01 mentionne 'mobilier'. Division 13 = meubles et autres produits manufacturés."
     },
     {
         "rule_key": "division|13|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "T12 pertinent pour 'autres produits manufacturés' (13.2). Candidat secondaire cohérent."
     },
@@ -222,7 +235,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|14|T08",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "adjust_confidence",
         "audit_note": "T08 ferrailles pertinent pour matières premières secondaires mais pas pour déchets municipaux. Confidence baissée."
     },
@@ -257,7 +270,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.1|T05",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T05 = 'Céréales, ciment, riz et produits assimilés'. Céréales explicitement nommées."
     },
@@ -265,7 +278,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.2|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "Produit agricole frais sans catégorie PAD dédiée. T02 par défaut acceptable."
     },
@@ -273,7 +286,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.3|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.5,
         "action": "adjust_confidence",
         "audit_note": "Betterave sucrière = matière première pour le sucre. T03 'sucres et matières premières' pertinent. Confidence baissée car betterave brute rare à Dakar."
     },
@@ -281,7 +294,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.4|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "Fruits/légumes frais : marchandises générales. Pas de PAD dédié. Acceptable."
     },
@@ -289,7 +302,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.5|T04",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T04 = 'Bois et produits divers'. Produits forestiers = bois brut."
     },
@@ -305,7 +318,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.7|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Matières premières végétales (coton brut, fibres). T03 'matières premières' pertinent."
     },
@@ -337,7 +350,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|01.B|P05",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : P05 = 'Produits de pêche non dénommés ailleurs'. Poissons et produits de la pêche → P05."
     },
@@ -345,7 +358,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|02.1|T07",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T07 cite 'charbon'. Charbon et lignite → T07."
     },
@@ -353,7 +366,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|02.2|T11",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "keep_as_is",
         "audit_note": "Match direct : label PAD T11 cite 'Pétrole brut'. Correspondance explicite."
     },
@@ -361,7 +374,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|02.3|T06",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "T06 cite 'butane en vrac'. Le gaz naturel n'est pas explicitement nommé mais T06 couvre les hydrocarbures en vrac gazeux. Ambiguïté documentée."
     },
@@ -376,7 +389,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|03.1|T03",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Minerais de fer = matières premières brutes. T03 'matières premières' pertinent."
     },
@@ -384,7 +397,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|03.2|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Minerais non ferreux = matières premières. Même logique que 03.1 avec confidence légèrement inférieure car plus variés."
     },
@@ -392,14 +405,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|03.3|T06",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "adjust_confidence",
         "audit_note": "CONFLIT T06/T08 pour phosphates. T06 cite 'phosphates' mais T08 aussi. Confidence baissée. Validation opérateur obligatoire pour arbitrer."
     },
     {
         "rule_key": "group|03.3|T08",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "enrich_notes",
         "audit_note": "CONFLIT T06/T08 : T08 cite aussi 'phosphates'. T08 semble plus pertinent car les phosphates y sont listés avec d'autres minéraux fertilisants. Priorité T08 > T06 recommandée."
     },
@@ -407,7 +420,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|03.4|T10",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "enrich_notes",
         "audit_note": "Match direct : T10 = 'Sel de production locale'. Note : T10 précise 'production locale', peut ne pas convenir pour sel importé. Validation opérateur recommandée."
     },
@@ -415,7 +428,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|03.5|T07",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : T07 cite 'sable et vracs pondéreux'. Pierre, sable, gravier → T07."
     },
@@ -431,7 +444,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.1|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Viandes et produits carnés : marchandises générales. Flux réel à Dakar (viande importée). T02 acceptable."
     },
@@ -439,7 +452,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.2|P05",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Poissons transformés et conservés → P05. Les produits de pêche transformés restent dans la famille PAD pêche."
     },
@@ -447,7 +460,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.3|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Fruits/légumes transformés (conserves). Marchandises générales. Flux réel à Dakar."
     },
@@ -455,7 +468,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.4|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Huiles alimentaires en conteneur. T02 par défaut. Flux important à Dakar (huile de palme, arachide)."
     },
@@ -463,7 +476,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.5|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "Produits laitiers : marchandises générales réfrigérées. Flux réel à Dakar (lait en poudre)."
     },
@@ -471,14 +484,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.6|T05",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : T05 = 'Céréales, ciment, riz et produits assimilés'. Farines = produits céréaliers transformés."
     },
     {
         "rule_key": "group|04.6|T07",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "adjust_confidence",
         "audit_note": "CONFLIT T05/T07 pour farine : T07 cite 'farine' pour le vrac. Dépend du conditionnement (vrac → T07, conditionné → T05). Confidence baissée. Validation opérateur nécessaire."
     },
@@ -486,14 +499,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.7|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "adjust_confidence",
         "audit_note": "T01 pertinent pour boissons alcoolisées (alias PAD existant). Confidence baissée car ne couvre que la composante alcool du groupe."
     },
     {
         "rule_key": "group|04.7|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.5,
         "action": "keep_as_is",
         "audit_note": "T02 pertinent pour boissons non alcoolisées (eau, jus). Conflit T01/T02 documenté : dépend du type de boisson."
     },
@@ -501,14 +514,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|04.8|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T01 pertinent uniquement pour tabac/cigarettes (alias PAD). Confidence baissée car très partiel."
     },
     {
         "rule_key": "group|04.8|T02",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "T02 pour denrées alimentaires diverses et tabac. Candidat principal. Flux réel à Dakar."
     },
@@ -516,7 +529,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|05.1|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Textiles manufacturés → T12 produits manufacturés. Pertinent."
     },
@@ -524,7 +537,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|05.2|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Vêtements → T12 produits manufacturés. Flux réel à Dakar (friperie)."
     },
@@ -532,7 +545,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|05.3|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Articles en cuir → T12 produits manufacturés. Acceptable."
     },
@@ -540,7 +553,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|06.1|T04",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "keep_as_is",
         "audit_note": "Match direct : T04 = 'Bois et produits divers'. Produits en bois → T04."
     },
@@ -548,7 +561,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|06.2|T04",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Pâte à papier, papier → T04 'Bois et produits divers'. Le papier dérive du bois."
     },
@@ -556,7 +569,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|06.3|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Imprimés et médias enregistrés → T12 produits manufacturés. Acceptable."
     },
@@ -564,7 +577,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|07.1|T07",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Coke, briquettes, combustibles solides → T07 vracs pondéreux. T07 cite 'charbon'."
     },
@@ -572,14 +585,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|07.2|T06",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "CONFLIT T06/T11 : T06 = carburants courants en vrac (gasoil, fuel oil), T11 = hydrocarbures raffinés au sens large. T06 pertinent si carburants courants. Candidat secondaire."
     },
     {
         "rule_key": "group|07.2|T11",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.65,
+        "adjusted_confidence": 0.85,
         "action": "enrich_notes",
         "audit_note": "NSTR bridge vérifié : 37 mappings NSTR pour le groupe 07.2 (pas 76 comme cité dans le manifeste — 76 est le total division 07). T11 cite 'essences, bitumes, hydrocarbures raffinés'. Match direct confirmé par bridge NSTR. Note : le manifeste citait le total division (76), corrigé ici au group-level (37)."
     },
@@ -587,7 +600,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|07.3|T06",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "T06 cite 'butane en vrac'. Produits pétroliers gazeux/liquéfiés → T06. Match direct."
     },
@@ -595,7 +608,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|07.4|T11",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "T11 cite 'bitumes'. Produits pétroliers solides/cireux → T11."
     },
@@ -603,7 +616,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.1|T03",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "T03 cite 'Acides'. Produits chimiques minéraux de base (acides) → T03. Match direct."
     },
@@ -611,7 +624,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.2|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Chimie organique de base → T03 matières premières chimiques. Pertinent mais ambiguïté avec T12 pour produits finis."
     },
@@ -619,7 +632,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.3|T08",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.65,
         "action": "keep_as_is",
         "audit_note": "Engrais azotés → T08. T08 couvre phosphates et produits fertilisants. Pertinent. Flux réel au Sénégal (ICS)."
     },
@@ -627,14 +640,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.4|T03",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "CONFLIT T03/T12 : granulés plastiques bruts = matière première (T03) vs plaques/films semi-finis (T12). Dépend du degré de transformation. Validation opérateur nécessaire."
     },
     {
         "rule_key": "group|08.4|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.35,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T12 secondaire pour plastiques semi-finis. Confidence baissée car T03 est prioritaire pour les formes primaires."
     },
@@ -642,7 +655,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.5|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Produits pharmaceutiques = biens de valeur → T01. Flux réel à Dakar. Pertinent."
     },
@@ -657,7 +670,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|08.6|T12",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Produits en caoutchouc/plastique finis (pneus, tuyaux) → T12 produits manufacturés. Flux réel à Dakar."
     },
@@ -673,7 +686,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|09.1|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Verre, céramique, porcelaine → T12 produits manufacturés. Pertinent."
     },
@@ -681,14 +694,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|09.2|T05",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "enrich_notes",
         "audit_note": "Match direct : T05 cite 'ciment'. CONFLIT T05/T07 documenté : ciment fini → T05, clinker/vrac → T07. Candidat primaire pour ciment conditionné."
     },
     {
         "rule_key": "group|09.2|T07",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "enrich_notes",
         "audit_note": "CONFLIT T05/T07 : T07 cite 'clinker'. Candidat si clinker ou ciment en vrac. Secondaire derrière T05 pour ciment fini."
     },
@@ -696,14 +709,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|09.3|T07",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "keep_as_is",
         "audit_note": "Matériaux de construction en vrac (graviers, agrégats) → T07. Dépend du conditionnement."
     },
     {
         "rule_key": "group|09.3|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Carrelage, briques, tuiles → T12 matériaux de construction manufacturés. Pertinent."
     },
@@ -711,7 +724,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|10.1|T14",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "enrich_notes",
         "audit_note": "Match direct : T14 = 'Fil machine et feuillard'. NSTR bridge vérifié : 348 mappings NSTR pour le groupe 10.1 (pas 1039 — 1039 est le total division 10). Produits sidérurgiques de première transformation → T14. Note manifeste corrigée."
     },
@@ -719,7 +732,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|10.2|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Métaux non ferreux transformés (aluminium, cuivre) → T12 matériaux manufacturés. Pertinent."
     },
@@ -727,7 +740,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|10.3|T12",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Tubes, tuyaux, profilés creux → T12 produits manufacturés. Flux réel à Dakar."
     },
@@ -735,7 +748,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|10.4|T12",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.50,
+        "adjusted_confidence": 0.75,
         "action": "keep_as_is",
         "audit_note": "Charpentes, pylônes, structures métalliques → T12. Flux réel à Dakar."
     },
@@ -750,7 +763,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|10.5|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Chaudières, quincaillerie → T12 produits manufacturés. Candidat principal pour le groupe."
     },
@@ -758,7 +771,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.1|T09",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : T09 cite 'Tracteurs'. Machines agricoles → T09."
     },
@@ -766,7 +779,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.2|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Électroménager → T01 biens de valeur. Flux réel à Dakar. Ambiguïté avec T12 pour petits appareils."
     },
@@ -774,7 +787,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.3|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "keep_as_is",
         "audit_note": "Match direct : T01 cite 'informatique'. Alias PAD : 'mat informatique ordinateurs' → T01."
     },
@@ -782,7 +795,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.4|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Appareils électriques → T01 'électronique'. Ambiguïté avec T12 pour équipements industriels."
     },
@@ -797,7 +810,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.5|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Composants électroniques → T01 'électronique'. Match direct."
     },
@@ -805,7 +818,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.6|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "keep_as_is",
         "audit_note": "TV, radio, audio/vidéo → T01. Alias PAD confirmés : 'electrophones chaines hifi', 'magnetophones magnetoscopes tv'."
     },
@@ -813,7 +826,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.7|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Instruments médicaux, optiques, horlogerie → T01 biens de valeur. Alias PAD : 'horlogerie', 'instruments de mesure'."
     },
@@ -821,7 +834,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|11.8|T09",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.40,
+        "adjusted_confidence": 0.55,
         "action": "adjust_confidence",
         "audit_note": "Machines-outils industrielles → T09. Pertinent mais confidence ajustée car le groupe est hétérogène."
     },
@@ -836,7 +849,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|12.1|T09",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.60,
+        "adjusted_confidence": 0.85,
         "action": "enrich_notes",
         "audit_note": "Match direct : T09 = 'Tracteurs, véhicules industriels et matériel de transport'. NSTR bridge vérifié : 164 mappings NSTR pour le groupe 12.1 (pas 312 — 312 est le total division 12). Note manifeste corrigée."
     },
@@ -844,7 +857,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|12.2|T09",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Navires, avions, wagons, remorques → T09 matériel de transport."
     },
@@ -852,7 +865,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|13.1|T01",
         "audit_tier": "TIER-A",
-        "adjusted_confidence": 0.55,
+        "adjusted_confidence": 0.8,
         "action": "keep_as_is",
         "audit_note": "Match direct : T01 cite 'mobilier'. Meubles → T01."
     },
@@ -860,14 +873,14 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|13.2|T01",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.45,
         "action": "adjust_confidence",
         "audit_note": "T01 pertinent uniquement pour bijouterie vraie, instruments de musique (alias PAD). Trop partiel. Confidence baissée."
     },
     {
         "rule_key": "group|13.2|T12",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "keep_as_is",
         "audit_note": "Produits manufacturés divers (jouets, articles de sport) → T12. Candidat principal pour le groupe."
     },
@@ -883,7 +896,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "group|14.2|T08",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.45,
+        "adjusted_confidence": 0.6,
         "action": "enrich_notes",
         "audit_note": "T08 cite 'ferrailles'. NSTR bridge vérifié : 117 mappings NSTR pour le groupe 14.2 (pas 118 — 118 est le total division 14, incluant 1 mapping pour 14.1). Note manifeste corrigée. Matières premières secondaires/ferrailles → T08."
     },
@@ -942,13 +955,13 @@ def validate_decisions(decisions):
         if d["audit_tier"] in ("TIER-A", "TIER-B") and d["adjusted_confidence"] is None:
             errors.append(f"[{i}] {rk}: {d['audit_tier']} must have adjusted_confidence")
 
-        # Confidence caps (same as manifest rules)
+        # R1 confidence caps (aligned with DB constraint 0..1, CTO doctrine)
         if d["adjusted_confidence"] is not None:
             level = rk.split("|")[0]
-            if level == "division" and d["adjusted_confidence"] > 0.50:
-                errors.append(f"[{i}] {rk}: division confidence {d['adjusted_confidence']} > 0.50")
-            if level == "group" and d["adjusted_confidence"] > 0.65:
-                errors.append(f"[{i}] {rk}: group confidence {d['adjusted_confidence']} > 0.65")
+            if level == "division" and d["adjusted_confidence"] > 0.80:
+                errors.append(f"[{i}] {rk}: division confidence {d['adjusted_confidence']} > 0.80")
+            if level == "group" and d["adjusted_confidence"] > 0.90:
+                errors.append(f"[{i}] {rk}: group confidence {d['adjusted_confidence']} > 0.90")
 
     return errors
 
@@ -1013,12 +1026,19 @@ def generate_report(decisions, original_rules, output_path):
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
     lines = []
-    lines.append(f"# PAD-NST-2E-AUDIT — Rapport d'audit des règles candidates")
+    lines.append(f"# PAD-NST-2E-AUDIT-R1 — Rapport d'audit recalibré des règles candidates")
     lines.append(f"")
     lines.append(f"**Date**: {now}")
-    lines.append(f"**Phase**: PAD-NST-2E-AUDIT (documentation only)")
+    lines.append(f"**Phase**: PAD-NST-2E-AUDIT-R1 (recalibration confidence — documentation only)")
     lines.append(f"**Import DB**: ❌ AUCUN")
     lines.append(f"**Toutes les règles restent**: `validation_status=candidate`, `requires_operator_validation=true`")
+    lines.append(f"")
+    lines.append(f"### Doctrine R1")
+    lines.append(f"")
+    lines.append(f"- **confidence** = probabilité métier que la correspondance NST→PAD soit correcte")
+    lines.append(f"- **validation_status** = statut officiel (inchangé, reste `candidate`)")
+    lines.append(f"- **requires_operator_validation** = garde-fou opérationnel (inchangé, reste `true`)")
+    lines.append(f"- Une règle peut être **fortement recommandée** (confidence 0.85) sans être **officiellement validée**")
     lines.append(f"")
     lines.append(f"---")
     lines.append(f"")
