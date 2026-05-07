@@ -661,7 +661,7 @@ Ce document prolonge et respecte la doctrine actée dans `PAD_R1B_GOVERNANCE_DEC
 
 - Créer les migrations pour `nst_2007_groups` et `nst_mapping_sources` uniquement.
 - Injecter les 20 divisions NST 2007 confirmées (source S1).
-- **Ne pas créer** `nst_cpa_mappings`, `nst_cn_hs_mappings`, `nst_nhm_mappings` tant que les sources officielles n'ont pas été trouvées et vérifiées.
+- **PAD-NST-2 peut désormais envisager** la création de `nst_cpa_mappings`, `nst_cn_hs_mappings`, `nst_nhm_mappings` car les tables de correspondance officielles UNECE existent (S3). Cependant, leur contenu doit être téléchargé et vérifié ligne par ligne avant injection. Ne pas injecter de données sans vérification.
 - Créer `pad_nst_recommendation_rules` avec les règles interprétatives documentées ici, marquées `rule_type = "interpretation"`.
 - Créer `pad_recommendation_audit_log`.
 - **Prérequis** : validation documentaire PAD-NST-1 (ce document).
