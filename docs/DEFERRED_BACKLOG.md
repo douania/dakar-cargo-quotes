@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-AUDIT-R1 exécuté : recalibration confidence des 112 règles. 35 TIER-A (0.70-0.85), 53 TIER-B (0.45-0.65), 24 TIER-C inchangés. 88 ready_for_import, 20 deferred, 4 removed. 0 importées en DB.** Voir `docs/tariff-collection/pad/PAD_NST_2E_AUDIT_REPORT.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-B EXÉCUTÉ : 88 règles candidates importées dans pad_nst_recommendation_rules via migration data-only transactionnelle. 19 division + 69 group. Confidence 0.45-0.85 (R1). Tous contrôles OK (count=88, 0 validated, 0 requires_operator_validation=false, 0 is_active=false). 24 TIER-C exclues.** Voir `docs/tariff-collection/pad/PAD_NST_2E_IMPORT_REPORT.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
@@ -30,7 +30,7 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-R1B-GOVERNANCE | Architecture | **✅ DÉCISION ACTÉE** | P2 | PAD-TOTALS | 2026-05-07 | — | Option A coexistence réglementée. Doctrine amount C modifiée. Voir `PAD_R1B_GOVERNANCE_DECISION.md` |
 | PAD-NST-2E-OFFICIAL | Données | Reporté | P3 | PAD-NST-2E | 2026-05-07 | Extraction structurée de la table NST 2 positions du barème PAD 2006 | Phase documentaire : extraire les correspondances officielles PAD 2006 / NST 2 positions, puis créer des règles `pad_official_extract`. Nécessite source PDF originale vérifiée. |
 | PAD-NST-2E-AUDIT | Données | **✅ EXÉCUTÉ** | P1 | PAD-NST-2E-A | 2026-05-07 | — | Audit des 112 règles : 35 TIER-A, 53 TIER-B, 24 TIER-C. 88 ready, 20 deferred, 4 removed. 4 NSTR bridge counts vérifiés. Voir `PAD_NST_2E_AUDIT_REPORT.md`. |
-| PAD-NST-2E-B | Données | Reporté | P2 | PAD-NST-2E-AUDIT | 2026-05-07 | Validation CTO du rapport d'audit PAD-NST-2E-AUDIT | Import en DB des 88 règles ready_for_import (TIER-A + TIER-B). NO-GO tant que le rapport d'audit n'est pas validé par CTO. Les 24 règles TIER-C sont explicitement exclues. |
+| PAD-NST-2E-B | Données | **✅ EXÉCUTÉ** | P1 | PAD-NST-2E-AUDIT-R1 | 2026-05-07 | — | 88 règles importées via migration data-only transactionnelle. 19 division + 69 group. Confidence 0.45-0.85 (R1). 84 expert_rule + 4 nstr_bridge_inferred. Tous contrôles OK. 24 TIER-C exclues. Voir `PAD_NST_2E_IMPORT_REPORT.md`. |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
