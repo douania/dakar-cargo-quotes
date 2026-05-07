@@ -10,9 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Edit2, FileInput, Loader2, Search } from "lucide-react";
+import { Check, Edit2, FileInput, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, extractTokens } from "@/lib/normalizeForMatch";
+import { expandTokensWithSynonyms } from "@/lib/commoditySynonyms";
 
 interface SuggestionCandidate {
   categoryId: string | null;
@@ -20,14 +21,30 @@ interface SuggestionCandidate {
   label: string;
   score: number;
   reason: string;
-  source: "validated_match" | "unvalidated_match" | "reference";
+  source: "validated_match" | "unvalidated_match" | "reference" | "pad_official_alias";
+}
+
+interface AIRecommendation {
+  pad_category: string;
+  confidence: string;
+  justification_fr: string;
+  matching_aliases: string[];
+  pad_rate_fcfa_per_ton: number | null;
+  requires_operator_confirmation: boolean;
+  is_conservative_pick: boolean;
+}
+
+interface AIResponse {
+  qualification: string;
+  recommendations: AIRecommendation[];
+  conservative_category: string | null;
+  message?: string;
 }
 
 interface DesignationSuggestionBlockProps {
   goodsDescription: string;
   caseDocumentId: string;
   caseId: string;
-  /** Build source_reference from available doc fields */
   sourceReference: string;
 }
 
@@ -40,11 +57,14 @@ export default function DesignationSuggestionBlock({
   const queryClient = useQueryClient();
   const [correcting, setCorrecting] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [aiResult, setAiResult] = useState<AIResponse | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const normInput = normalizeForMatch(goodsDescription);
-  const tokens = extractTokens(normInput);
+  const rawTokens = extractTokens(normInput);
+  const tokens = expandTokensWithSynonyms(rawTokens);
 
-  // Fetch matches (bounded: limit 20 per source)
+  // Fetch matches (bounded)
   const { data: suggestions, isLoading } = useQuery({
     queryKey: ["designation-suggestions", normInput],
     enabled: normInput.length >= 3,
@@ -61,9 +81,16 @@ export default function DesignationSuggestionBlock({
         .select("*")
         .limit(50);
 
+      // Source 3: pad_designation_aliases (PAD-R1A)
+      const { data: padAliases } = await supabase
+        .from("pad_designation_aliases")
+        .select("normalized_term, bl_term, pad_category, commodity_category_id, source_type, is_validated")
+        .eq("is_validated", true)
+        .order("normalized_term");
+
       const candidates: SuggestionCandidate[] = [];
 
-      // Build categoryId -> pad_category map for resolving missing pad codes
+      // Build categoryId -> pad_category map
       const categoryPadMap = new Map(
         (categories || [])
           .filter((c) => c.id && c.pad_category)
@@ -78,7 +105,6 @@ export default function DesignationSuggestionBlock({
         let matchFound = false;
         let baseScore = (m.match_score as number) || 0.5;
 
-        // Bidirectional matching on observed_term and normalized_term
         if (obsNorm && (obsNorm.includes(normInput) || normInput.includes(obsNorm))) {
           matchFound = true;
         }
@@ -86,7 +112,6 @@ export default function DesignationSuggestionBlock({
           matchFound = true;
         }
 
-        // Token fallback
         if (!matchFound && tokens.length > 0) {
           const tokenHits = tokens.filter(
             (t) => obsNorm.includes(t) || termNorm.includes(t)
@@ -98,13 +123,11 @@ export default function DesignationSuggestionBlock({
         }
 
         if (matchFound) {
-          // Ranking boost
           let boost = 0;
           if (m.is_validated && obsNorm === normInput) boost = 0.3;
           else if (m.is_validated && termNorm === normInput) boost = 0.2;
           else if (m.is_validated) boost = 0.1;
 
-          // Resolve padCategory: direct field first, then parent category fallback
           const resolvedPadCategory =
             m.pad_category_candidate ||
             (m.commodity_category_id
@@ -136,7 +159,6 @@ export default function DesignationSuggestionBlock({
           matchFound = true;
         }
 
-        // Token fallback on reference
         if (!matchFound && tokens.length > 0) {
           const tokenHits = tokens.filter(
             (t) => rawNorm.includes(t) || desNorm.includes(t)
@@ -156,6 +178,61 @@ export default function DesignationSuggestionBlock({
         }
       });
 
+      // Source 3: Score from pad_designation_aliases (PAD-R1A)
+      (padAliases || []).forEach((a) => {
+        const aliasNorm = normalizeForMatch(a.normalized_term || "");
+        const blNorm = normalizeForMatch(a.bl_term || "");
+
+        let matchFound = false;
+        let score = 0.3;
+
+        // Exact match
+        if (aliasNorm === normInput || blNorm === normInput) {
+          matchFound = true;
+          score = 0.95;
+        }
+
+        // Substring match
+        if (!matchFound) {
+          if (aliasNorm && (aliasNorm.includes(normInput) || normInput.includes(aliasNorm))) {
+            matchFound = true;
+            score = 0.7;
+          }
+          if (blNorm && (blNorm.includes(normInput) || normInput.includes(blNorm))) {
+            matchFound = true;
+            score = 0.7;
+          }
+        }
+
+        // Token match with synonym expansion
+        if (!matchFound && tokens.length > 0) {
+          const tokenHits = tokens.filter(
+            (t) => aliasNorm.includes(t) || blNorm.includes(t)
+          );
+          if (tokenHits.length > 0) {
+            matchFound = true;
+            const maxTokens = Math.max(tokens.length, 1);
+            score = 0.3 + (tokenHits.length / maxTokens) * 0.5;
+          }
+        }
+
+        if (matchFound) {
+          // Boost for official_nomenclature
+          if (a.source_type === "official_nomenclature") {
+            score = Math.min(1, score + 0.1);
+          }
+
+          candidates.push({
+            categoryId: a.commodity_category_id,
+            padCategory: a.pad_category,
+            label: a.normalized_term,
+            score,
+            reason: `Alias PAD officiel (${a.pad_category})`,
+            source: "pad_official_alias",
+          });
+        }
+      });
+
       // Deduplicate by categoryId or padCategory, keep highest score
       const deduped = new Map<string, SuggestionCandidate>();
       candidates
@@ -165,7 +242,7 @@ export default function DesignationSuggestionBlock({
           if (!deduped.has(key)) deduped.set(key, c);
         });
 
-      return Array.from(deduped.values()).slice(0, 3);
+      return Array.from(deduped.values()).slice(0, 5);
     },
   });
 
@@ -213,6 +290,30 @@ export default function DesignationSuggestionBlock({
     },
   });
 
+  // --- AI recommendation (PAD-R1B) ---
+  const requestAIRecommendation = async () => {
+    setAiLoading(true);
+    setAiResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("recommend-pad-category", {
+        body: {
+          goods_description: goodsDescription.trim(),
+          context_hints: [], // Minimized: no client names sent
+        },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast({ title: "Erreur IA", description: data.error, variant: "destructive" });
+        return;
+      }
+      setAiResult(data as AIResponse);
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message || "Échec de la recommandation IA", variant: "destructive" });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   // Upsert mutation with proper source tracing
   const confirmMutation = useMutation({
     mutationFn: async (candidate: SuggestionCandidate) => {
@@ -221,7 +322,6 @@ export default function DesignationSuggestionBlock({
       const { data: session } = await supabase.auth.getSession();
       const userId = session?.session?.user?.id || null;
 
-      // Check existing (upsert logic for partial unique indexes)
       let existingId: string | null = null;
       if (candidate.categoryId) {
         const { data } = await supabase
@@ -281,10 +381,9 @@ export default function DesignationSuggestionBlock({
     },
   });
 
-  // --- Apply to dossier mutation (writes quote_facts via set-case-fact) ---
+  // --- Apply to dossier mutation (existing behavior — UNCHANGED per CTO) ---
   const applyToDossierMutation = useMutation({
     mutationFn: async (candidate: SuggestionCandidate) => {
-      // Always write cargo.pad_category
       await supabase.functions.invoke("set-case-fact", {
         body: {
           case_id: caseId,
@@ -293,7 +392,6 @@ export default function DesignationSuggestionBlock({
         },
       });
 
-      // Write cargo.pad_rate_fcfa_per_ton only if PAD rate exists
       const rate = candidate.padCategory ? padRates?.[candidate.padCategory] : null;
       if (rate) {
         await supabase.functions.invoke("set-case-fact", {
@@ -329,6 +427,10 @@ export default function DesignationSuggestionBlock({
     });
   };
 
+  // Check if local suggestions are weak (best score < 0.5)
+  const bestLocalScore = Math.max(0, ...(suggestions || []).map((s) => s.score));
+  const showAIButton = bestLocalScore < 0.5 && !aiResult;
+
   if (!goodsDescription?.trim() || normInput.length < 3) return null;
   if (isLoading) {
     return (
@@ -338,7 +440,9 @@ export default function DesignationSuggestionBlock({
       </div>
     );
   }
-  if (!suggestions || suggestions.length === 0) return null;
+
+  const hasAnySuggestion = (suggestions && suggestions.length > 0) || aiResult;
+  if (!hasAnySuggestion && !showAIButton) return null;
 
   return (
     <div className="border rounded-md p-3 bg-muted/30 space-y-2">
@@ -347,18 +451,24 @@ export default function DesignationSuggestionBlock({
         Catégories suggérées
       </div>
 
-      {suggestions.map((s, i) => {
+      {/* Local suggestions */}
+      {(suggestions || []).map((s, i) => {
         const rate = s.padCategory ? padRates?.[s.padCategory] : null;
         return (
           <div key={i} className="space-y-0.5">
             <div className="flex items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <Badge
-                  variant={s.source === "validated_match" ? "default" : "outline"}
+                  variant={s.source === "validated_match" ? "default" : s.source === "pad_official_alias" ? "secondary" : "outline"}
                   className="text-xs shrink-0"
                 >
                   {s.padCategory || "—"}
                 </Badge>
+                {s.source === "pad_official_alias" && (
+                  <Badge variant="outline" className="text-[10px] shrink-0 border-primary/30 text-primary">
+                    PAD officiel
+                  </Badge>
+                )}
                 <span className="truncate">{s.label}</span>
                 <span className="text-muted-foreground shrink-0">
                   {Math.round(s.score * 100)}%
@@ -404,6 +514,93 @@ export default function DesignationSuggestionBlock({
           </div>
         );
       })}
+
+      {/* AI Recommendation Button (PAD-R1C) — only when local suggestions are weak */}
+      {showAIButton && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-3 text-xs w-full border-amber-500/30 text-amber-700 hover:bg-amber-50"
+          disabled={aiLoading}
+          onClick={requestAIRecommendation}
+        >
+          {aiLoading ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <Sparkles className="h-3 w-3 mr-1" />
+          )}
+          {aiLoading ? "Analyse IA en cours..." : "Demander une suggestion IA"}
+        </Button>
+      )}
+
+      {/* AI Recommendations display (PAD-R1C) */}
+      {aiResult && (
+        <div className="border border-amber-300/50 rounded-md p-2 bg-amber-50/30 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-700">
+            <Sparkles className="h-3 w-3" />
+            Estimé IA — À confirmer par opérateur
+          </div>
+          {aiResult.recommendations.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              {aiResult.message || "Aucune catégorie PAD plausible identifiée."}
+            </p>
+          )}
+          {aiResult.recommendations.map((rec, i) => (
+            <div key={i} className="space-y-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Badge className="text-xs shrink-0 bg-amber-500 hover:bg-amber-600">
+                    {rec.pad_category}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] shrink-0 border-amber-400 text-amber-700">
+                    Estimé IA
+                  </Badge>
+                  {rec.is_conservative_pick && (
+                    <Badge variant="outline" className="text-[10px] shrink-0 border-orange-400 text-orange-700">
+                      Conservateur
+                    </Badge>
+                  )}
+                  <span className="text-muted-foreground shrink-0 capitalize">
+                    {rec.confidence}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  disabled={confirmMutation.isPending}
+                  onClick={() =>
+                    confirmMutation.mutate({
+                      categoryId: null,
+                      padCategory: rec.pad_category,
+                      label: rec.matching_aliases[0] || rec.pad_category,
+                      score: rec.confidence === "high" ? 0.8 : rec.confidence === "medium" ? 0.6 : 0.4,
+                      reason: `Recommandation IA confirmée : ${rec.justification_fr}`,
+                      source: "validated_match",
+                    })
+                  }
+                >
+                  <Check className="h-3 w-3 mr-1" />
+                  Confirmer
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground pl-2">
+                {rec.justification_fr}
+              </p>
+              {rec.matching_aliases.length > 0 && (
+                <p className="text-[10px] text-muted-foreground pl-2">
+                  Alias proches : {rec.matching_aliases.join(", ")}
+                </p>
+              )}
+              {rec.pad_rate_fcfa_per_ton != null && (
+                <p className="text-[11px] text-muted-foreground pl-2">
+                  └ Droit de passage PAD : {Number(rec.pad_rate_fcfa_per_ton).toLocaleString("fr-FR")} FCFA/t
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Correct button */}
       {!correcting ? (
