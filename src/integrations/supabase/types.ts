@@ -3166,6 +3166,57 @@ export type Database = {
           },
         ]
       }
+      pad_nst_recommendation_rules: {
+        Row: {
+          confidence: number
+          created_at: string
+          evidence_level: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          nst_code: string
+          nst_level: string
+          pad_category: string
+          requires_operator_validation: boolean
+          source_document: string | null
+          source_reference: string | null
+          updated_at: string
+          validation_status: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          evidence_level: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          nst_code: string
+          nst_level: string
+          pad_category: string
+          requires_operator_validation?: boolean
+          source_document?: string | null
+          source_reference?: string | null
+          updated_at?: string
+          validation_status?: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          evidence_level?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          nst_code?: string
+          nst_level?: string
+          pad_category?: string
+          requires_operator_validation?: boolean
+          source_document?: string | null
+          source_reference?: string | null
+          updated_at?: string
+          validation_status?: string
+        }
+        Relationships: []
+      }
       partner_response_suggestions: {
         Row: {
           case_id: string
