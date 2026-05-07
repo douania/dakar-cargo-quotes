@@ -54,7 +54,7 @@ AUDIT_DECISIONS = [
     {
         "rule_key": "division|01|P05",
         "audit_tier": "TIER-B",
-        "adjusted_confidence": 0.30,
+        "adjusted_confidence": 0.50,
         "action": "enrich_notes",
         "audit_note": "P05 pertinent uniquement pour le sous-groupe peche (01.B). La division est trop large pour un seul PAD. Conserver comme candidat secondaire peche."
     },
