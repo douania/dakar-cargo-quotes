@@ -176,23 +176,24 @@ NST 2007 est une **aide au raisonnement**, pas une source de vérité tarifaire.
 | S8 | Eurostat Ramon | `INACCESSIBLE` | URL retourne 404 |
 | S9 | Interoperable Europe Excel | `ARCHIVED_SOURCE` | Page accessible, statut archivé, téléchargement non testé |
 
-### Affirmations rétrogradées ou promues (PAD-NST-1A)
+### Affirmations rétrogradées ou promues (PAD-NST-1A → PAD-NST-1B)
 
-| Affirmation initiale | Statut initial | Statut corrigé PAD-NST-1A | Raison |
+| Affirmation initiale | Statut PAD-NST-1A | Statut corrigé PAD-NST-1B | Raison |
 |---------------------|----------------|---------------------------|--------|
-| « Aucune table de correspondance directe NST ↔ CPA n'a été trouvée » | Absence de preuve | **PROMU → Fait sourcé** | UNECE (S3) publie une table officielle NST 2007 ↔ CPA 2.1. Table non téléchargée mais existence confirmée sur la page UNECE. |
-| « Aucune table officielle NHM ↔ NST n'a été trouvée en accès libre » | Absence de preuve | **PROMU → Fait sourcé (existence)** | UNECE (S3) publie des tables officielles NST 2007 ↔ NHM (2017, 2024, 2025). Contenu non vérifié ligne par ligne. |
-| « Pas de correspondance officielle HS ↔ NST trouvée » | Absence de preuve | **Rétrogradé → Indirect confirmé** | UNECE FAQ (S3) confirme que HS → NST passe par NHM (6 premiers chiffres NHM = HS). Pas de table directe HS ↔ NST, mais passerelle officielle via NHM. |
-| « Aucune table officielle de correspondance directe NST ↔ CN n'a été trouvée » | Absence de preuve | **PROMU → Fait sourcé** | UNECE (S3) publie des tables officielles NST 2007 ↔ CN (2017 à 2024). |
-| « Page UNECE bloquée par Cloudflare » | Inaccessible | **PROMU → Accessible** | Page UNECE pleinement accessible lors de la re-vérification PAD-NST-1A. |
-| NST → PAD | Interprétation applicative | **Inchangé → Interprétation applicative** | Aucune source officielle ne relie NST aux catégories PAD du Port Autonome de Dakar. Ce rapprochement reste une interprétation applicative. |
+| « Aucune table de correspondance directe NST ↔ CPA n'a été trouvée » | PROMU → Fait sourcé (existence) | **PROMU → Fait sourcé et vérifié** | Table téléchargée et analysée : 1 759 lignes, 16 divisions, 0 doublons, 0 cellules vides. SHA256 confirmé. Voir `PAD_NST_1B_EVIDENCE_PACKAGE.md`. |
+| « Aucune table officielle NHM ↔ NST n'a été trouvée en accès libre » | PROMU → Fait sourcé (existence) | **PROMU → Fait sourcé et vérifié** | Table téléchargée et analysée : 15 079 lignes, 18 divisions, labels FR inclus, 0 doublons. SHA256 confirmé. Voir `PAD_NST_1B_EVIDENCE_PACKAGE.md`. |
+| « Pas de correspondance officielle HS ↔ NST trouvée » | Rétrogradé → Indirect confirmé | **Inchangé → Indirect confirmé** | La table NST ↔ CN 2024 (9 762 lignes) confirme le pont CN/HS → NST (6 premiers chiffres CN = HS). Pas de table directe HS ↔ NST. |
+| « Aucune table officielle de correspondance directe NST ↔ CN n'a été trouvée » | PROMU → Fait sourcé (existence) | **PROMU → Fait sourcé et vérifié** | Table téléchargée et analysée : 9 762 lignes, 16 divisions, 0 doublons, 0 cellules vides. SHA256 confirmé. Voir `PAD_NST_1B_EVIDENCE_PACKAGE.md`. |
+| « Page UNECE bloquée par Cloudflare » | PROMU → Accessible | **Inchangé → Accessible** | Téléchargement manuel par opérateur confirmé. Cloudflare bloque uniquement les requêtes automatisées. |
+| NST → PAD | Inchangé → Interprétation applicative | **Inchangé → Interprétation applicative** | Aucune source officielle ne relie NST aux catégories PAD du Port Autonome de Dakar. Ce rapprochement reste une interprétation applicative. |
+| « Contenu des tables non vérifié ligne par ligne » | Fait sourcé mais non vérifié en détail | **PROMU → Vérifié (statistiques)** | Les 3 tables ont été analysées : lignes, colonnes, divisions, doublons, cellules vides. Voir `PAD_NST_1B_EVIDENCE_PACKAGE.md`. Vérification sémantique ligne par ligne NON effectuée (hors périmètre). |
 
-### Distinction fait / interprétation / recommandation (mise à jour PAD-NST-1A)
+### Distinction fait / interprétation / recommandation (mise à jour PAD-NST-1B)
 
 | Nature | Exemple |
 |--------|---------|
-| **Fait sourcé** | NST 2007 comporte 20 divisions et 81 groupes (S1, S2, S3, S4). NST est liée à CPA/NACE (S2 — citation Eurostat). Des tables de correspondance officielles NST ↔ CPA, NST ↔ CN et NST ↔ NHM existent et sont publiées par UNECE (S3). La conversion HS → NST passe par NHM (S3 FAQ). |
-| **Fait sourcé mais contenu non vérifié en détail** | Les fichiers de correspondance NST ↔ CPA 2.1, NST ↔ CN, NST ↔ NHM publiés par UNECE existent. Leur contenu exact n'a pas été téléchargé ni vérifié ligne par ligne dans cette phase documentaire. |
+| **Fait sourcé et vérifié** | NST 2007 comporte 20 divisions et 81 groupes (S1, S2, S3, S4). Des tables de correspondance officielles NST ↔ CPA 2.1 (1 759 lignes), NST ↔ CN 2024 (9 762 lignes), NST ↔ NHM 2025 (15 079 lignes) ont été téléchargées, hashées et analysées. Voir `PAD_NST_1B_EVIDENCE_PACKAGE.md`. |
+| **Fait sourcé, statistiquement vérifié, sémantiquement non vérifié** | Le contenu des 3 tables est structurellement sain (0 doublons, colonnes complètes). La correspondance sémantique (ex: tel code CPA correspond-il vraiment à tel groupe NST ?) n'a pas été vérifiée manuellement. |
 | **Interprétation** | La division NST 08 (chimie, plastiques) pourrait aider à orienter vers les catégories PAD T04/T11. Cette interprétation n'a aucune source officielle de mapping NST → PAD. |
 | **Recommandation applicative** | Utiliser NST comme couche de raisonnement intermédiaire pour proposer des familles PAD candidates, en `TO_CONFIRM`, avec validation opérateur obligatoire. |
 
