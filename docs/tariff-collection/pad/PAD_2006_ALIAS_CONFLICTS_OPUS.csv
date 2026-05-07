@@ -1,0 +1,3 @@
+normalized_term,raw_designations,categories,source_refs,reason,recommended_action
+alcool industriel,ALCOOL INDUSTRIEL,"T07, T12",2.3.2:p17; 2.3.3:p29,Same normalized term mapped to different tariff categories in the source PDF.,Manual operator arbitration required; do NOT inject either mapping until resolved.
+sport,SPORT,"T01, T02",2.3.1:p14; 2.3.2:p22; 2.3.3:p26,Same normalized term mapped to different tariff categories in the source PDF.,Manual operator arbitration required; do NOT inject either mapping until resolved.

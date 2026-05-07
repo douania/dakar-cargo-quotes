@@ -1,0 +1,42 @@
+suggested_alias,normalized_term,pad_category,original_pdf_term,reason,status
+CEREALES NDA,cereales nda,(none),01CEREAES,"Section-header typo: CEREAES â CEREALES (header only, not a designation)",operator_review_required
+CONT TRANSIT RIM 40P,cont transit rim 40p,C02,CONT TRANIT RIM 40P,Typo correction: TRANIT â TRANSIT (note: C02 is excluded from injectable),operator_review_required
+"MOLLUSQUES, ROUGETS, POISSONS PLATS",mollusques rougets poissons plats,P03,"MULLUSQUES, ROUGERS, POISSONS PLATS","Typo correction: MULLUSQUES â MOLLUSQUES, ROUGERS â ROUGETS",operator_review_required
+APPAREILS METEO,appareils meteo,T01,APARAILS METEO,Typo correction within 'RADIO EMETTEUR ET APARAILS METEO': APARAILS â APPAREILS. Full corrected form: 'RADIO EMETTEUR ET APPAREILS METEO',operator_review_required
+ARMURERIE,armurerie,T01,ARMRURERIE,Typo correction: ARMRURERIE â ARMURERIE,operator_review_required
+"MUNITIONS POUR CHASSE ET SPORT NDA, PYROTECHNIE, EXPLOSIFS",munitions pour chasse et sport nda pyrotechnie explosifs,T01,"MUNITIONS POUR CHASSE ET SPORT NDA, PYROTECHNIE, EXPLOISIFS",Typo correction: EXPLOISIFS â EXPLOSIFS,operator_review_required
+BEURRE FROMAGE ET AUTRES PRODUITS LAITIERS NDA,beurre fromage et autres produits laitiers nda,T02,BEURRE FROAMGE ET AUTRES PRODUITS LAITIERS NDA,Typo correction: FROAMGE â FROMAGE,operator_review_required
+MOTEURS ELECTRIQUES ET A EXPLOSION,moteurs electriques et a explosion,T02,MOTEURS ELCETRIQUES ET A EXPLOSION,Typo correction: ELCETRIQUES â ELECTRIQUES,operator_review_required
+MOTOCYCLES SAUF SCOOTER,motocycles sauf scooter,T02,MOTOCYCLES SAUF SCOOOTER,Typo correction: SCOOOTER â SCOOTER,operator_review_required
+"PAPETERIE, MATERIELS FOURNITURE DE BUREAU",papeterie materiels fourniture de bureau,T02,"PAPETERIRE, MATERIELS FOURNITURE DE BUREAU",Typo correction: PAPETERIRE â PAPETERIE (singular FOURNITURE variant),operator_review_required
+"PAPETERIE, MATERIELS FOURNITURES DE BUREAU",papeterie materiels fournitures de bureau,T02,"PAPETERIRE, MATERIELS FOURNITURES DE BUREAU",Typo correction: PAPETERIRE â PAPETERIE,operator_review_required
+"PARFUMERIE, TEINTURE CAPILLAIRE",parfumerie teinture capillaire,T02,"PARFUMERIE, TEINTURE CAPILAIRE",Typo correction: CAPILAIRE â CAPILLAIRE,operator_review_required
+"QUINCAILLERIE, BOULONNERIE, VISSERIE",quincaillerie boulonnerie visserie,T02,"QUINCALLERIE, BOULONNERIE, VISSERIE",Typo correction: QUINCALLERIE â QUINCAILLERIE,operator_review_required
+USTENSILES DE MENAGE,ustensiles de menage,T02,USTENSILS DE MENAGE,Typo correction: USTENSILS â USTENSILES,operator_review_required
+CONSERVES DE THON ET PICHARDS,conserves de thon et pichards,T03,CONSERVE DE THON ET PICHARDS,Spelling normalization: CONSERVE (singular) â CONSERVES (plural) â note: 2.3.2 uses plural,operator_review_required
+GLYCERINE BRUTE,glycerine brute,T03,GLUCERINE BRUTE,Typo correction: GLUCERINE â GLYCERINE,operator_review_required
+HUILES BRUTES VEGETALES OU ANIMALES POUR LA SAVONNERIE,huiles brutes vegetales ou animales pour la savonnerie,T03,HUILES BRUTES VEGETALES OU ANIMALES POUR LA SAVONNERIRE,Typo correction: SAVONNERIRE â SAVONNERIE,operator_review_required
+PRODUITS BRUTS D'ORIGINE ANIMALE ET VEGETALE NDA,produits bruts d origine animale et vegetale nda,T03,PRODUITS BRUTS D'ORIGINE VEGETAL ET VEGETALE NDA,Likely error in 2.3.1 â 'VEGETAL ET VEGETALE' should read 'ANIMALE ET VEGETALE' as in 2.3.2/2.3.3,operator_review_required
+GLACES ET SORBETS,glaces et sorbets,T04,GLACES ET SOBRETS,Typo correction: SOBRETS â SORBETS,operator_review_required
+"PRODUITS PHARMACEUTIQUES, MEDICAMENTS",produits pharmaceutiques medicaments,T04,"PORDUITS PHARMACEUTIQUES, MEDICAMENTS",Typo correction: PORDUITS â PRODUITS,operator_review_required
+PHOSPHATES D'ALUMINE,phosphates d alumine,T06,PHOSPHATES D'ALLUMINE,Typo correction: ALLUMINE â ALUMINE,operator_review_required
+"SABLE, PIERRES DE CONSTRUCTIONS",sable pierres de constructions,T07,"SABLE, PIERRES DE CONSTRUCTION",Number variant: 2.3.3 uses plural CONSTRUCTIONS while 2.3.1/2.3.2 use singular CONSTRUCTION,operator_review_required
+SEMOULE ET AUTRES FARINES DE CERALES NDA,semoule et autres farines de cerales nda,T07,SEMOULE ET AUTRES FARINE DE CERALES NDA,Number agreement: FARINE (singular) â FARINES (plural) â note: 2.3.2 uses plural; CERALES is a separate typo for CEREALES,operator_review_required
+TERRES REFRACTAIRES,terres refractaires,T07,TERRES REFRACRTAIRES,Typo correction: REFRACRTAIRES â REFRACTAIRES,operator_review_required
+TERRES REFRACTAIRES,terres refractaires,T07,TERRES REFRACRTAIRE,Typo correction (singular form in 2.3.3): REFRACRTAIRE â REFRACTAIRES,operator_review_required
+"BITUMES EN FUTS, EN SAC",bitumes en futs en sac,T11,"BITUMES EN FUITS, EN SAC",Typo correction in 2.3.1: FUITS â FUTS (note: 2.3.2 already uses FUTS),operator_review_required
+PRODUITS ENERGETIQUES GAZEUX NDA,produits energetiques gazeux nda,T11,PRODUITS ENERGITIQUES GAZEUX NDA,Spelling: 'ENERGITIQUES' is consistently used in this PDF; standard French would be 'ÃNERGÃTIQUES',operator_review_required
+PRODUITS NERGITIQUES GAZEUX NDA,produits nergitiques gazeux nda,T11,PRODUITS NERGITIQUES GAZEUX NDA,Likely typo: NERGITIQUES â ENERGITIQUES (in 2.3.1) â note: 2.3.2 already uses ENERGITIQUES,operator_review_required
+ALCOOL INDUSTRIEL,alcool industriel,T12,ALCCOL INDUSTRIEL,Typo correction: ALCCOL â ALCOOL,operator_review_required
+ARTICLES EN MATIERES PLASTIQUES NDA,articles en matieres plastiques nda,T12,ARTICLES EN MATIERES PLASTIQUES NENDA,Typo correction: NENDA â NDA,operator_review_required
+CARTONNAGE EN ROULEAU OU EN PLAQUE,cartonnage en rouleau ou en plaque,T12,CARTONNAGE EN ROULEAU OU NE PLAQUE,Typo correction: 'OU NE' â 'OU EN',operator_review_required
+CHAUFFE EAU ET MATERIELS DE CHAUFFAGE,chauffe eau et materiels de chauffage,T12,CHAUFFE EEAU ET MATERIELS DE CHAUFFAGE,Typo correction: EEAU â EAU,operator_review_required
+HUILES DE GRAISSAGE ET AUTRES HUILES INDUSTRIELLES NDA,huiles de graissage et autres huiles industrielles nda,T12,HUILES DE GRAISSAGE ET AUTRESHUILES INDUSTRIELLES NDA,Spacing correction: AUTRESHUILES â AUTRES HUILES,operator_review_required
+MATIERES CHIMIQUES NDA,matieres chimiques nda,T12,MATIRES CHIMIQUES NDA,Typo correction: MATIRES â MATIERES,operator_review_required
+PAPIER ET PAPIER KRAFT EN BOBINES > 1T,papier et papier kraft en bobines 1t,T12,PAPIER ET PAPIER KRAFT EN BOBINNES > 1T,Typo correction: BOBINNES â BOBINES,operator_review_required
+PARAFFINE,paraffine,T12,PARAFINE,Typo correction: PARAFINE â PARAFFINE (one F â two),operator_review_required
+QUINQUELIBA,quinqueliba,T12,QUINOUELIBA,Typo correction: QUINOUELIBA â QUINQUELIBA (the standard French spelling for the Combretum micranthum plant),operator_review_required
+SACS EN JUTE OU EN FIBRES VEGETALES,sacs en jute ou en fibres vegetales,T12,SACS EN JUT OU EN FIBRES VEGETALES,Typo correction: JUT â JUTE,operator_review_required
+SACS EN JUTE OU EN FIBRES VEGETALES,sacs en jute ou en fibres vegetales,T12,SACS EN JUTE OU EN FIBRES VEGETALS,Typo correction: VEGETALS â VEGETALES,operator_review_required
+TUYAUX EN PVC,tuyaux en pvc,T12,TUYEAUX EN PVC,Typo correction: TUYEAUX â TUYAUX,operator_review_required
+CONTENEURS DE GROUPAGE IMPORT DE DIVERSES MARCHANDISES NE CONTENANT AUCUN PRODUIT DE CAT. T01,conteneurs de groupage import de diverses marchandises ne contenant aucun produit de cat t01,T13,CONTENEURS DE GROUPAGE IMPORT DE DIVERSES MARCHANDISES NE CONTENANT AUCUN PÂ¨RODUIT DE CAT. T01,Typo correction: PÂ¨RODUIT (with diaeresis artifact) â PRODUIT,operator_review_required
