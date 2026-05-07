@@ -1,0 +1,70 @@
+{
+  "phase": "PAD-NOM-2",
+  "date": "2026-05-07",
+  "status": "READY_FOR_MIGRATION",
+  
+  "input": {
+    "csv_file": "PAD_2006_NOMENCLATURE_INJECTABLE_FINAL.csv",
+    "csv_rows": 328
+  },
+  
+  "schema_audit": {
+    "pad_designation_aliases": {
+      "unique_index": "(normalized_term, commodity_category_id) — idx_pda_normalized_category",
+      "check_source_type": {
+        "current": ["seed", "operator_correction", "ai_suggestion_validated"],
+        "needed": "official_nomenclature",
+        "action": "ALTER CHECK to add official_nomenclature"
+      },
+      "fk_commodity_category_id": "REFERENCES commodity_categories(id) ON DELETE CASCADE — NOT NULL"
+    }
+  },
+  
+  "commodity_categories": {
+    "existing": ["T01", "T02", "T03", "T04", "T05", "T07", "T09", "T12", "T13", "T14"],
+    "missing": ["P01", "P02", "P03", "P04", "P05", "T06", "T08", "T10", "T11"],
+    "action": "Create 9 categories via INSERT WHERE NOT EXISTS"
+  },
+  
+  "port_tariffs_coverage": {
+    "all_19_categories_have_tariffs": true,
+    "tariffs": {
+      "P01": 28100, "P02": 2325, "P03": 13000, "P04": 1850, "P05": 3350,
+      "T01": 19239, "T02": 9678, "T03": 1416, "T04": 3069, "T05": 1180,
+      "T06": 885, "T07": 484, "T08": 1062, "T09": 4367, "T10": 0,
+      "T11": 1770, "T12": 4780, "T13": 11803, "T14": 4072
+    }
+  },
+  
+  "collision_analysis": {
+    "existing_aliases_count": 60,
+    "exact_matches": {
+      "count": 4,
+      "items": ["clinker→T07", "farine de ble→T07", "materiel de chantier→T09", "tracteurs agricoles→T09"],
+      "handling": "ON CONFLICT DO NOTHING — preserved"
+    },
+    "cross_category_collisions": 0,
+    "net_new_aliases": 324
+  },
+  
+  "migration_components": [
+    "1. ALTER CHECK source_type += official_nomenclature",
+    "2. INSERT 9 commodity_categories WHERE NOT EXISTS",
+    "3. INSERT 328 aliases ON CONFLICT DO NOTHING",
+    "Expected result: 324 new + 4 skipped + 60 existing = 384 total aliases"
+  ],
+  
+  "excluded_from_injection": {
+    "conflicts": ["alcool industriel (T07/T12)", "sport (T01/T02)"],
+    "operator_review": ["1x P¨RODUIT artifact", "3x BOISSONS ACOOLISEES"],
+    "secondary_aliases": "41 typo corrections — not injected",
+    "geomembranes": "NOT in PDF, NOT injected"
+  },
+  
+  "post_injection_checks": [
+    "SELECT COUNT(*) FROM pad_designation_aliases → expected ~384",
+    "SELECT pad_category, COUNT(*) FROM pad_designation_aliases GROUP BY pad_category → 19 categories",
+    "SELECT COUNT(*) FROM commodity_categories WHERE pad_category IS NOT NULL → expected 19",
+    "Zero cross-category collision on normalized_term"
+  ]
+}
