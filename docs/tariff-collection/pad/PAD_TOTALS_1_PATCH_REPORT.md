@@ -1,7 +1,7 @@
 # PAD-TOTALS-1 — Rapport de patch intégrité des totaux
 
 **Date**: 2026-05-07
-**Statut**: APPLIQUÉ — en attente de tests
+**Statut**: ✅ CLOS — tous tests PASS
 **Fichier modifié**: `supabase/functions/run-pricing/index.ts` (L2480-2551)
 
 ---
