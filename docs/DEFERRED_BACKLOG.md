@@ -1320,10 +1320,10 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | `DEFER-PAD-NST-2E-B-R2` |
 | **Catégorie** | Data / Tarifs PAD |
-| **Statut** | ✅ CLOS — Corrigé le 2026-05-08 |
+| **Statut** | ✅ CLOS — Corrigé le 2026-05-07 |
 | **Priorité** | P0 (était bloquant pour PAD-NST-2E-C-A runtime) |
 | **Phase d'origine** | PAD-NST-2E-B |
-| **Date** | 2026-05-07 → 2026-05-08 |
+| **Date** | 2026-05-07 |
 | **Constat** | La migration PAD-NST-2E-B initiale a importé 88 règles mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La tentative de correction R1 n'a jamais été appliquée (aucune migration dans le dépôt). |
 | **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
 | **Déclencheur de réouverture** | N/A — clos. |
