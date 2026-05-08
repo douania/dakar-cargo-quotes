@@ -86,6 +86,19 @@
 }
 ```
 
+## Décision CTO — Filtre confidence
+
+**Date** : 2026-05-08  
+**Décision** : C-B ne filtre **pas** par `confidence >= 0.60`.
+
+**Justification** : `get-pad-nst-suggestions` est un endpoint de lecture isolé destiné à l'audit, au diagnostic et au pilote terrain. Il ne branche pas `run-pricing` et ne produit aucun montant. Retourner les règles à `0.45–0.59` est utile pour l'observation terrain et l'UI opérateur (C-D), à condition que la confidence soit visible dans chaque suggestion (✅ champ `confidence` présent dans la réponse).
+
+**Garde-fou** : tout usage runtime futur — en particulier C-C (branchement `run-pricing`) — **devra** appliquer un seuil de confiance explicite. Seuil recommandé : `confidence >= 0.60`, à confirmer après pilote terrain C-E.
+
+**Ce qui est interdit maintenant** : aucune règle retournée par C-B ne devient `OFFICIAL`, ne produit un `amount > 0`, ni ne s'écrit dans `pad_designation_aliases`, quelle que soit sa confidence.
+
+---
+
 ## Statut
 
 **PAD-NST-2E-C-B = ✅ DÉPLOYÉ ET VÉRIFIÉ**
@@ -93,3 +106,4 @@
 - C-C = non autorisé
 - `run-pricing` = intouché
 - Aucun `src/` modifié
+- Filtre confidence : absent de C-B (décision CTO — voir § ci-dessus). Appartient à C-C.
