@@ -1320,7 +1320,7 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | `DEFER-PAD-NST-2E-B-R2` |
 | **Catégorie** | Data / Tarifs PAD |
-| **Statut** | ✅ CLOS — Corrigé le 2026-05-08 |
+| **Statut** | ✅ CLOS — Corrigé le 2026-05-07 |
 | **Priorité** | P0 (était bloquant pour PAD-NST-2E-C-A runtime) |
 | **Phase d'origine** | PAD-NST-2E-B |
 | **Date** | 2026-05-07 → 2026-05-08 |
