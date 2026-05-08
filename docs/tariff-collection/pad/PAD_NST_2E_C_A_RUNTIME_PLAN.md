@@ -84,7 +84,7 @@ Définir **comment** et **quand** le moteur de pricing (`run-pricing`) lira les 
 
 | Aspect | Spécification |
 |--------|---------------|
-| Requête DB | `SELECT ... FROM pad_nst_recommendation_rules WHERE nst_code = ? AND is_active = true AND validation_status = 'candidate'` |
+| Requête DB | `SELECT ... FROM pad_nst_recommendation_rules WHERE nst_level = ? AND nst_code = ? AND is_active = true AND validation_status = 'candidate' ORDER BY confidence DESC` |
 | Écriture DB | **Aucune** — le moteur ne modifie jamais la table |
 | Sortie moteur | `source.type = "TO_CONFIRM"`, `amount = 0`, `estimated_amount` éventuel (séparé) |
 | Validation | `requires_operator_confirmation = true` toujours |
@@ -146,21 +146,28 @@ Structure indicative (documentation uniquement) :
 
 ---
 
-## 8. Tests documentés (exigences pour phases futures)
+## 8. Tests documentés — exigences pour phases futures
 
-Les 10 cas tests de PAD-NST-1 §11 sont repris comme exigences de test pour les phases C-B et C-C :
+Les cas tests ci-dessous ne valident pas une catégorie PAD officielle.
+Ils servent à vérifier que le moteur :
+
+1. ne force jamais une catégorie en OFFICIAL ;
+2. retourne uniquement TO_CONFIRM ;
+3. affiche les candidates issues des règles R2 ;
+4. bloque ou demande validation opérateur en cas d'ambiguïté ;
+5. ne produit jamais amount > 0.
 
 | # | Description | Résultat attendu |
 |---|-------------|-----------------|
-| 1 | HDPE geomembrane pour projet minier | TO_CONFIRM — T11 ou T04 |
-| 2 | Matériel informatique | OFFICIAL si alias exact trouvé, sinon TO_CONFIRM |
-| 3 | Pièces détachées industrielles | BLOCKED_OPERATOR_REQUIRED (ambiguïté forte) |
-| 4 | Résine plastique brute | TO_CONFIRM — T04 ou T11 |
-| 5 | Tuyaux PVC | TO_CONFIRM — T11 |
-| 6 | Engrais | TO_CONFIRM — T04 ou T01 |
-| 7 | Équipements de chantier | OFFICIAL si alias exact, sinon TO_CONFIRM — T09 |
-| 8 | Produits chimiques industriels | TO_CONFIRM — T04 |
-| 9 | Matériaux de construction divers | TO_CONFIRM ou BLOCKED selon précision |
+| 1 | HDPE geomembrane pour projet minier | TO_CONFIRM — candidates à déterminer via règles NST plastics/manufactured products ; opérateur obligatoire |
+| 2 | Matériel informatique | OFFICIAL si alias exact validé ; sinon TO_CONFIRM avec T01 probable |
+| 3 | Pièces détachées industrielles | TO_CONFIRM ou BLOCKED_OPERATOR_REQUIRED selon précision |
+| 4 | Résine plastique brute | TO_CONFIRM — famille plastiques/matières premières industrielles ; candidate probable T08 selon règle applicable |
+| 5 | Tuyaux PVC | TO_CONFIRM — produit plastique manufacturé ; candidate probable T12 selon règle applicable |
+| 6 | Engrais | TO_CONFIRM — candidates probables T03/T08 selon composition |
+| 7 | Équipements de chantier | OFFICIAL si alias exact validé ; sinon TO_CONFIRM — T09 probable si matériel roulant/transport |
+| 8 | Produits chimiques industriels | TO_CONFIRM — candidates probables T10/T03 selon nature chimique |
+| 9 | Matériaux de construction divers | TO_CONFIRM ou BLOCKED selon précision ; T05/T07/T12 possibles selon produit |
 | 10 | Marchandises de groupage mixtes | BLOCKED_OPERATOR_REQUIRED |
 
 ---
