@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-C-A CLOS : plan documentaire d'intégration runtime accepté côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé.** Voir `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`.
+Dernière mise à jour : 2026-05-08 — **PAD-NST-2E-C-B DÉPLOYÉ : Edge Function isolée `get-pad-nst-suggestions` (lecture SELECT, requireUser, RLS, no service role). C-C à C-E nécessitent chacun un GO CTO séparé.** Voir `docs/tariff-collection/pad/PAD_NST_2E_C_B_VERIFICATION_REPORT.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
@@ -33,6 +33,7 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-NST-2E-B | Données | **✅ EXÉCUTÉ** | P1 | PAD-NST-2E-AUDIT-R1 | 2026-05-07 | — | 88 règles importées via migration data-only transactionnelle. 19 division + 69 group. Confidence 0.45-0.85 (R1). 84 expert_rule + 4 nstr_bridge_inferred. Tous contrôles OK. 24 TIER-C exclues. Voir `PAD_NST_2E_IMPORT_REPORT.md`. |
 | PAD-NST-2E-B-R2 | Données | **✅ CLOS** | P0 | PAD-NST-2E-B | 2026-05-07 | N/A — clos | Réconciliation corrective R2. Script Python → SQL généré → migration data-only. 88 règles TIER-A/B restaurées. 0 TIER-C. Voir `PAD_NST_2E_B_R2_RECONCILIATION_REPORT.md`. |
 | PAD-NST-2E-C-A | Architecture | **✅ CLOS** | P1 | PAD-NST-2E-B-R2 | 2026-05-07 | N/A — clos | Plan documentaire d'intégration runtime validé côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé. Voir `PAD_NST_2E_C_A_RUNTIME_PLAN.md`. |
+| PAD-NST-2E-C-B | Runtime backend | **✅ DÉPLOYÉ** | P1 | PAD-NST-2E-C-A | 2026-05-08 | N/A — déployé | Edge Function `get-pad-nst-suggestions` : lecture SELECT isolée, requireUser, RLS, no service role, POST only, TO_CONFIRM. C-C non autorisé. Voir `PAD_NST_2E_C_B_VERIFICATION_REPORT.md`. |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
@@ -1345,5 +1346,20 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Date** | 2026-05-07 |
 | **Constat** | Plan documentaire d'intégration runtime PAD-NST accepté côté CTO. Les corrections demandées (lookup alias exact validé uniquement, requête logique avec nst_level + nst_code + ORDER BY confidence DESC, tests documentés reformulés prudemment, audit log comme objectif futur, phases C-B à C-E chacune avec GO CTO séparé) ont été intégrées. |
 | **Résolution** | PAD-NST-2E-C-A clos. Document de plan : `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`. Aucun code, aucune migration, aucun runtime. |
-| **Déclencheur de réouverture** | N/A — clos. Prochaine étape possible : PAD-NST-2E-C-B (GO CTO séparé requis). |
-| **Recommandation** | Ne pas lancer C-B sans GO CTO explicite. Ne pas patcher run-pricing. Ne pas modifier src/. |
+| **Déclencheur de réouverture** | N/A — clos. PAD-NST-2E-C-B déployé le 2026-05-08. |
+| **Recommandation** | C-B déployé. Ne pas lancer C-C sans GO CTO explicite. Ne pas patcher run-pricing. Ne pas modifier src/. |
+
+### DEFER-PAD-NST-2E-C-B-DEPLOYED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-C-B` |
+| **Catégorie** | Runtime backend / Edge Function isolée |
+| **Statut** | ✅ DÉPLOYÉ — 2026-05-08 |
+| **Priorité** | P1 |
+| **Phase d'origine** | PAD-NST-2E-C-A |
+| **Date** | 2026-05-08 |
+| **Constat** | Edge Function `get-pad-nst-suggestions` déployée. Lecture SELECT isolée sur `pad_nst_recommendation_rules`. Auth via `requireUser`, client Supabase avec JWT utilisateur, RLS respectée. Aucun service role. POST uniquement, OPTIONS preflight, autres méthodes 405. Réponse `source_type=TO_CONFIRM`, `requires_operator_confirmation=true`. Aucun amount, aucun estimated_amount, aucun OFFICIAL. |
+| **Résolution** | Fonction déployée et vérifiée. Voir `docs/tariff-collection/pad/PAD_NST_2E_C_B_VERIFICATION_REPORT.md`. |
+| **Déclencheur de réouverture** | N/A — déployé. C-C nécessite GO CTO séparé. |
+| **Recommandation** | Ne pas lancer C-C sans GO CTO explicite. Ne pas brancher run-pricing. Ne pas modifier src/. |
