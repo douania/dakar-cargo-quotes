@@ -1330,3 +1330,20 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
 | **Déclencheur de réouverture** | N/A — clos. |
 | **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. PAD-NST-2E-C-A clos le 2026-05-08 (plan documentaire validé côté CTO). |
+
+---
+
+### DEFER-PAD-NST-2E-C-A-CLOSED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-C-A` |
+| **Catégorie** | Architecture / Plan runtime |
+| **Statut** | ✅ CLOS — Accepté le 2026-05-08 |
+| **Priorité** | P1 |
+| **Phase d'origine** | PAD-NST-2E-B-R2 |
+| **Date** | 2026-05-08 |
+| **Constat** | Plan documentaire d'intégration runtime PAD-NST accepté côté CTO. Les corrections demandées (lookup alias exact validé uniquement, requête logique avec nst_level + nst_code + ORDER BY confidence DESC, tests documentés reformulés prudemment, audit log comme objectif futur, phases C-B à C-E chacune avec GO CTO séparé) ont été intégrées. |
+| **Résolution** | PAD-NST-2E-C-A clos. Document de plan : `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`. Aucun code, aucune migration, aucun runtime. |
+| **Déclencheur de réouverture** | N/A — clos. Prochaine étape possible : PAD-NST-2E-C-B (GO CTO séparé requis). |
+| **Recommandation** | Ne pas lancer C-B sans GO CTO explicite. Ne pas patcher run-pricing. Ne pas modifier src/. |
