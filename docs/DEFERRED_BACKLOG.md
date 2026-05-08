@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-08 — **PAD-NST-2E-C-A CLOS : plan documentaire d'intégration runtime accepté côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé.** Voir `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`.
+Dernière mise à jour : 2026-05-07 — **PAD-NST-2E-C-A CLOS : plan documentaire d'intégration runtime accepté côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé.** Voir `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`.
 
 Mise à jour antérieure : 2026-05-07 — **PAD-R1B-GOVERNANCE DÉCISION ACTÉE : Option A (coexistence réglementée) + doctrine amount C modifiée (TO_CONFIRM + estimated_amount, non inclus dans total_ht). PAD-R1 reste NO-GO en attente d'implémentation locale.** Voir `docs/tariff-collection/pad/PAD_R1B_GOVERNANCE_DECISION.md`.
 
@@ -32,7 +32,7 @@ Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée :
 | PAD-NST-2E-AUDIT | Données | **✅ EXÉCUTÉ** | P1 | PAD-NST-2E-A | 2026-05-07 | — | Audit des 112 règles : 35 TIER-A, 53 TIER-B, 24 TIER-C. 88 ready, 20 deferred, 4 removed. 4 NSTR bridge counts vérifiés. Voir `PAD_NST_2E_AUDIT_REPORT.md`. |
 | PAD-NST-2E-B | Données | **✅ EXÉCUTÉ** | P1 | PAD-NST-2E-AUDIT-R1 | 2026-05-07 | — | 88 règles importées via migration data-only transactionnelle. 19 division + 69 group. Confidence 0.45-0.85 (R1). 84 expert_rule + 4 nstr_bridge_inferred. Tous contrôles OK. 24 TIER-C exclues. Voir `PAD_NST_2E_IMPORT_REPORT.md`. |
 | PAD-NST-2E-B-R2 | Données | **✅ CLOS** | P0 | PAD-NST-2E-B | 2026-05-07 | N/A — clos | Réconciliation corrective R2. Script Python → SQL généré → migration data-only. 88 règles TIER-A/B restaurées. 0 TIER-C. Voir `PAD_NST_2E_B_R2_RECONCILIATION_REPORT.md`. |
-| PAD-NST-2E-C-A | Architecture | **✅ CLOS** | P1 | PAD-NST-2E-B-R2 | 2026-05-08 | N/A — clos | Plan documentaire d'intégration runtime validé côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé. Voir `PAD_NST_2E_C_A_RUNTIME_PLAN.md`. |
+| PAD-NST-2E-C-A | Architecture | **✅ CLOS** | P1 | PAD-NST-2E-B-R2 | 2026-05-07 | N/A — clos | Plan documentaire d'intégration runtime validé côté CTO. Aucun code, aucune migration, aucun runtime. C-B à C-E nécessitent chacun un GO CTO séparé. Voir `PAD_NST_2E_C_A_RUNTIME_PLAN.md`. |
 
 Mise à jour antérieure : 2026-05-02 — POST-CLEANING-QUOTE-ENGINE-AUDIT validé — GO confirmé. R3 smoke runtime passé. R2 hardening appliqué, déployé et vérifié par runs authentifiés post-R2 (#19 `8ca8c2d3`, #20 `465bf868`). Rapport complet : `docs/POST_CLEANING_QUOTE_ENGINE_AUDIT.md`. Risques résiduels R1, R4 ouverts. LOT3-B-PAD fermé. LOT3-A-VALIDATION clos. LOT3-0 clos. LOT3-A clos. Synthèse tarifaire globale : `docs/SYNTHESE_TARIFAIRE_POST_NETTOYAGE.md`.
 
@@ -1329,7 +1329,7 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Constat** | La migration PAD-NST-2E-B initiale a importé 88 règles mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La tentative de correction R1 n'a jamais été appliquée (aucune migration dans le dépôt). |
 | **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
 | **Déclencheur de réouverture** | N/A — clos. |
-| **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. PAD-NST-2E-C-A clos le 2026-05-08 (plan documentaire validé côté CTO). |
+| **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. PAD-NST-2E-C-A clos le 2026-05-07 (plan documentaire validé côté CTO). |
 
 ---
 
@@ -1339,10 +1339,10 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | `DEFER-PAD-NST-2E-C-A` |
 | **Catégorie** | Architecture / Plan runtime |
-| **Statut** | ✅ CLOS — Accepté le 2026-05-08 |
+| **Statut** | ✅ CLOS — Accepté le 2026-05-07 |
 | **Priorité** | P1 |
 | **Phase d'origine** | PAD-NST-2E-B-R2 |
-| **Date** | 2026-05-08 |
+| **Date** | 2026-05-07 |
 | **Constat** | Plan documentaire d'intégration runtime PAD-NST accepté côté CTO. Les corrections demandées (lookup alias exact validé uniquement, requête logique avec nst_level + nst_code + ORDER BY confidence DESC, tests documentés reformulés prudemment, audit log comme objectif futur, phases C-B à C-E chacune avec GO CTO séparé) ont été intégrées. |
 | **Résolution** | PAD-NST-2E-C-A clos. Document de plan : `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`. Aucun code, aucune migration, aucun runtime. |
 | **Déclencheur de réouverture** | N/A — clos. Prochaine étape possible : PAD-NST-2E-C-B (GO CTO séparé requis). |
