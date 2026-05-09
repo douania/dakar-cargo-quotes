@@ -2014,6 +2014,12 @@ export default function CaseView() {
           );
         })()}
 
+        {/* PAD-NST-2E-C-D : Panneau Suggestions PAD-NST (assistance opérateur, frontend-only, TO_CONFIRM) */}
+        {(() => {
+          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
+          return <PadNstSuggestionsPanel padCategoryAlreadySet={padCatFact?.value_text ?? null} />;
+        })()}
+
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6">
