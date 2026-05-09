@@ -402,7 +402,7 @@ function NstSelect({
   );
 }
 
-function SuggestionCard({ suggestion }: { suggestion: PadNstSuggestion }) {
+function SuggestionCard({ suggestion, padLabels }: { suggestion: PadNstSuggestion; padLabels: Record<string, string> }) {
   const tier = getConfidenceTier(suggestion.confidence);
   const tierColor =
     tier === "strong"
