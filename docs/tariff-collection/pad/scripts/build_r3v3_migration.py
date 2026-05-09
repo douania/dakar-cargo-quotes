@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SOURCE_SQL = ROOT / "docs/tariff-collection/pad/rules/pad_nst_2e_b_r2_corrective.sql"
 MIGRATIONS_DIR = ROOT / "supabase/migrations"
 
