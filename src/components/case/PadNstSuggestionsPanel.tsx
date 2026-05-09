@@ -428,7 +428,7 @@ function SuggestionCard({ suggestion, padLabels }: { suggestion: PadNstSuggestio
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <Badge className="font-mono text-sm">{suggestion.pad_category}</Badge>
-              <span className="text-sm font-medium">{getPadCategoryLabel(suggestion.pad_category)}</span>
+              <span className="text-sm font-medium">{getPadCategoryLabel(suggestion.pad_category, padLabels)}</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {suggestion.nst_level === "group" ? "Groupe NST" : "Division NST"}{" "}
