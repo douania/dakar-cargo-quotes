@@ -80,9 +80,38 @@ export default function PadNstSuggestionsPanel({ padCategoryAlreadySet }: Props)
   const [lastQueriedCode, setLastQueriedCode] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Chargement des libellés PAD officiels (commodity_categories) AU MONTAGE,
+  // indépendamment de `open`, pour couvrir aussi l'état padCategoryAlreadySet
+  // (carte lecture seule, sans ouverture possible du Collapsible).
+  // Erreur NON bloquante : console.warn + padLabels = {} → fallback strict.
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("commodity_categories")
+      .select("pad_category,pad_category_label")
+      .not("pad_category", "is", null)
+      .not("pad_category_label", "is", null)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.warn("[PadNstSuggestionsPanel] commodity_categories load failed (non-blocking):", error.message);
+          return;
+        }
+        const dict: Record<string, string> = {};
+        for (const row of (data ?? []) as Array<{ pad_category: string | null; pad_category_label: string | null }>) {
+          if (row.pad_category && row.pad_category_label) {
+            dict[row.pad_category] = row.pad_category_label;
+          }
+        }
+        setPadLabels(dict);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Charge nst_groups / nst_divisions une seule fois à l'ouverture du panneau.
   // Référentiel NST : erreur bloquante (état refError affiché).
-  // commodity_categories : chargée séparément, erreur NON bloquante (fallback strict).
   useEffect(() => {
     if (!open || (groups.length > 0 && divisions.length > 0) || refLoading) return;
     let cancelled = false;
@@ -106,29 +135,6 @@ export default function PadNstSuggestionsPanel({ padCategoryAlreadySet }: Props)
       .finally(() => {
         if (!cancelled) setRefLoading(false);
       });
-
-    // Chargement isolé des libellés PAD officiels (commodity_categories).
-    // En cas d'erreur : warn + dict vide → fallback strict, panneau NON bloqué.
-    supabase
-      .from("commodity_categories")
-      .select("pad_category,pad_category_label")
-      .not("pad_category", "is", null)
-      .not("pad_category_label", "is", null)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.warn("[PadNstSuggestionsPanel] commodity_categories load failed (non-blocking):", error.message);
-          return;
-        }
-        const dict: Record<string, string> = {};
-        for (const row of (data ?? []) as Array<{ pad_category: string | null; pad_category_label: string | null }>) {
-          if (row.pad_category && row.pad_category_label) {
-            dict[row.pad_category] = row.pad_category_label;
-          }
-        }
-        setPadLabels(dict);
-      });
-
     return () => {
       cancelled = true;
     };
