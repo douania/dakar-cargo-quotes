@@ -2,42 +2,25 @@
  * PAD-NST-2E-C-D — Constantes locales du panneau UI opérateur PAD-NST.
  *
  * Frontend-only. Aucune dépendance DB côté écriture.
- * - Dictionnaire pad_category_label (T01–T14 + P01–P05) avec fallback propre.
+ * - Libellés PAD : SOURCE DE VÉRITÉ = commodity_categories(pad_category, pad_category_label)
+ *   chargée par PadNstSuggestionsPanel et passée en argument à getPadCategoryLabel.
+ *   Aucun libellé hardcodé — fallback strict "<code> (libellé non référencé)".
  * - Traduction evidence_level → libellé FR.
  * - Familles de conflits critiques P1-C (alertes UI au-dessus des cartes).
  */
 
-export const PAD_CATEGORY_LABELS: Record<string, string> = {
-  // Familles T (terrestre / général PAD 2006)
-  T01: "Sucres, sels, denrées de base",
-  T02: "Boissons, alcools, produits agroalimentaires",
-  T03: "Matières premières, résines, plastiques en granules",
-  T04: "Métaux, ferraille, produits sidérurgiques",
-  T05: "Ciment, clinker, matériaux conditionnés",
-  T06: "Hydrocarbures (gasoil, diesel, fuel, butane)",
-  T07: "Vrac non conditionné (clinker vrac, pondéreux)",
-  T08: "Phosphates, minéraux bruts, engrais",
-  T09: "Bois, papier, matériaux dérivés",
-  T10: "Véhicules, engins roulants",
-  T11: "Pétrole brut, essences, bitumes",
-  T12: "Produits manufacturés finis (tuyaux, films, équipements)",
-  T13: "Marchandises diverses",
-  T14: "Autres marchandises",
-  // Familles P (pêche / produits halieutiques)
-  P01: "Produits de la pêche — frais",
-  P02: "Produits de la pêche — congelés",
-  P03: "Produits de la pêche — transformés",
-  P04: "Produits de la pêche — conserves",
-  P05: "Produits de la pêche — divers",
-};
-
 /**
- * Fallback propre si le code PAD n'est pas dans le dictionnaire local.
- * N'invente jamais de label — restitue uniquement le code.
+ * Restitue le libellé PAD officiel depuis un dictionnaire externe (commodity_categories).
+ * Null-safe. N'invente JAMAIS de libellé : fallback strict si code absent ou dict vide.
  */
-export function getPadCategoryLabel(code: string | null | undefined): string {
+export function getPadCategoryLabel(
+  code: string | null | undefined,
+  dict?: Record<string, string>,
+): string {
   if (!code) return "—";
-  return PAD_CATEGORY_LABELS[code] ?? `${code} (libellé non référencé)`;
+  const label = dict?.[code];
+  if (label && label.trim().length > 0) return label;
+  return `${code} (libellé non référencé)`;
 }
 
 export const EVIDENCE_LEVEL_LABELS: Record<string, string> = {
