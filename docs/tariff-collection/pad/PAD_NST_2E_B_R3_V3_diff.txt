@@ -1,0 +1,73 @@
+--- docs/tariff-collection/pad/rules/pad_nst_2e_b_r2_corrective.sql
++++ supabase/migrations/20260509120000_pad_nst_2e_b_r3_v3_corrective.sql
+@@ -1,3 +1,19 @@
++-- PAD-NST-2E-B-R3 v3 — Migration corrective avec garde E0 (checksum indépendant)
++-- Date : 2026-05-09
++-- Statut : R3 v3 — préparation locale, exécution DB en attente de GO CTO séparé
++-- Source SQL : docs/tariff-collection/pad/rules/pad_nst_2e_b_r2_corrective.sql
++-- SHA-256 source : fe9fab1d35ec2423196c60c47bd92e1c6b281d9df87cb2f72e522e664ffd9e50
++-- Méthode : copie byte-for-byte du body source R2 + 3 zones d'injection minimale :
++--   1) cet en-tête (commentaires uniquement)
++--   2) 2 lignes DECLARE supplémentaires (v_db_hash, v_expected_hash)
++--   3) bloc PHASE 1bis (garde E0) entre fin PHASE 1 et début PHASE 2
++-- Garde E0 : md5 indépendant calculé côté DB sur expected_rules,
++--   comparé à H_source = '4fba07069aa5f7eaa487cb33838f3c6f' calculé par compute_r3_source_hash.py.
++-- Sérialisation déterministe : len:val; ; NULL=N; ; bool TRUE=1:t;|FALSE=1:f; ;
++--   confidence=FM0.00 ; lignes triées (nst_level,nst_code,pad_category) ; LF entre lignes.
++-- Si la transmission du payload est altérée d'un seul octet : E0 RAISE EXCEPTION → rollback.
++-- Contrôles internes existants (E1–E5, F1–F6, EQ1–EQ2) préservés byte-for-byte.
++-- NE PAS MODIFIER CE FICHIER
+ -- PAD-NST-2E-B-R2 — Migration corrective finale
+ -- Généré automatiquement par pad_nst_2e_b_r2_corrective.py
+ -- NE PAS MODIFIER MANUELLEMENT
+@@ -17,6 +33,8 @@
+   v_max_conf NUMERIC;
+   v_extra INTEGER;
+   v_missing INTEGER;
++  v_db_hash text;
++  v_expected_hash text;
+ BEGIN
+ 
+   -- ============ PHASE 1: TABLE TEMPORAIRE expected_rules ============
+@@ -1091,6 +1109,41 @@
+     '118 mappings NSTR division 14 + label PAD T08', true, true
+   );
+ 
++  -- ============ PHASE 1bis: GARDE E0 — CHECKSUM INDÉPENDANT ============
++  -- Détecte toute corruption silencieuse du payload inline AVANT le DELETE.
++  -- Sérialisation : len:val; ; NULL=N; ; bool TRUE=1:t;|FALSE=1:f; ; confidence=FM0.00
++  -- Ordre : nst_level, nst_code, pad_category (88 clés uniques garanties par script source).
++  -- LF unique entre lignes. Hash final : md5(payload_global).
++
++  v_expected_hash := '4fba07069aa5f7eaa487cb33838f3c6f';
++
++  SELECT md5(string_agg(row_payload, E'\n' ORDER BY nst_level, nst_code, pad_category))
++  INTO v_db_hash
++  FROM (
++    SELECT
++      nst_level, nst_code, pad_category,
++      octet_length(nst_level)::text || ':' || nst_level || ';' ||
++      octet_length(nst_code)::text || ':' || nst_code || ';' ||
++      octet_length(pad_category)::text || ':' || pad_category || ';' ||
++      octet_length(to_char(confidence, 'FM0.00'))::text || ':' || to_char(confidence, 'FM0.00') || ';' ||
++      octet_length(evidence_level)::text || ':' || evidence_level || ';' ||
++      octet_length(validation_status)::text || ':' || validation_status || ';' ||
++      CASE WHEN notes IS NULL THEN 'N;'
++           ELSE octet_length(notes)::text || ':' || notes || ';' END ||
++      CASE WHEN source_document IS NULL THEN 'N;'
++           ELSE octet_length(source_document)::text || ':' || source_document || ';' END ||
++      CASE WHEN source_reference IS NULL THEN 'N;'
++           ELSE octet_length(source_reference)::text || ':' || source_reference || ';' END ||
++      (CASE WHEN requires_operator_validation THEN '1:t;' ELSE '1:f;' END) ||
++      (CASE WHEN is_active THEN '1:t;' ELSE '1:f;' END)
++      AS row_payload
++    FROM expected_rules
++  ) AS s;
++
++  IF v_db_hash IS DISTINCT FROM v_expected_hash THEN
++    RAISE EXCEPTION 'ECHEC E0: payload corruption detected. db_hash=% expected=%', v_db_hash, v_expected_hash;
++  END IF;
++
+   -- ============ PHASE 2: CONTRÔLES SUR expected_rules ============
+ 
+   -- Contrôle E1: count expected_rules = 88
