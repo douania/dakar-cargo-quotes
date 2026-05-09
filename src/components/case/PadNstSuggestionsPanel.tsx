@@ -360,7 +360,7 @@ export default function PadNstSuggestionsPanel({ padCategoryAlreadySet }: Props)
             )}
 
             {fetchState === "success" &&
-              suggestions.map((s) => <SuggestionCard key={s.rule_id} suggestion={s} />)}
+              suggestions.map((s) => <SuggestionCard key={s.rule_id} suggestion={s} padLabels={padLabels} />)}
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
