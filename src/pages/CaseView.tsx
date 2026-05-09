@@ -48,6 +48,7 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import PadNstSuggestionsPanel from "@/components/case/PadNstSuggestionsPanel";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
   SELECT_FACT_OPTIONS,
@@ -2011,6 +2012,12 @@ export default function CaseView() {
               </div>
             </div>
           );
+        })()}
+
+        {/* PAD-NST-2E-C-D : Panneau Suggestions PAD-NST (assistance opérateur, frontend-only, TO_CONFIRM) */}
+        {(() => {
+          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
+          return <PadNstSuggestionsPanel padCategoryAlreadySet={padCatFact?.value_text ?? null} />;
         })()}
 
         {/* Pricing Result Panel — visible after pricing */}
