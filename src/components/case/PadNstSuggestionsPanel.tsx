@@ -220,7 +220,7 @@ export default function PadNstSuggestionsPanel({ padCategoryAlreadySet }: Props)
           <CardDescription className="text-xs">
             Catégorie PAD opérateur déjà saisie : <span className="font-mono font-semibold">{padCategoryAlreadySet}</span>
             {" — "}
-            {getPadCategoryLabel(padCategoryAlreadySet)}. Aucune suggestion affichée par-dessus une décision opérateur.
+            {getPadCategoryLabel(padCategoryAlreadySet, padLabels)}. Aucune suggestion affichée par-dessus une décision opérateur.
           </CardDescription>
         </CardHeader>
       </Card>
