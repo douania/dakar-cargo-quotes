@@ -181,15 +181,19 @@ def main(timestamp: str) -> None:
         sys.exit(1)
     print("[Byte-for-byte] OK — R3 v3 minus 3 zones autorisées = source pure")
 
-    # ----- Generate diff for CTO review -----
+    # ----- Generate diff for CTO review (using difflib, no system 'diff' needed) -----
+    import difflib
     diff_path = ROOT / "docs/tariff-collection/pad/PAD_NST_2E_B_R3_V3_diff.txt"
-    diff = subprocess.run(
-        ["diff", "-u", str(SOURCE_SQL), str(out_path)],
-        capture_output=True, text=True
-    )
-    diff_path.write_text(diff.stdout, encoding="utf-8")
+    diff_text = "".join(difflib.unified_diff(
+        src.splitlines(keepends=True),
+        out_text.splitlines(keepends=True),
+        fromfile=str(SOURCE_SQL.relative_to(ROOT)),
+        tofile=str(out_path.relative_to(ROOT)),
+        n=3,
+    ))
+    diff_path.write_text(diff_text, encoding="utf-8")
     print(f"Diff written: {diff_path}")
-    print(f"Diff length: {len(diff.stdout)} chars / {diff.stdout.count(chr(10))} lines")
+    print(f"Diff length: {len(diff_text)} chars / {diff_text.count(chr(10))} lines")
 
     # Summary
     print()
