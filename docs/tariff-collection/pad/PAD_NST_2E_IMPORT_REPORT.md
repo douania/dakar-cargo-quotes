@@ -1,11 +1,17 @@
 # PAD-NST-2E-B — Rapport d'import
 
-**Date** : 2026-05-07
+**Date** : 2026-05-07 → clôture définitive 2026-05-09
 **Phase** : PAD-NST-2E-B — Import contrôlé des 88 règles candidates
-**Méthode** : Script Python → SQL généré → Migration data-only Lovable Cloud (voie unique)
-**Statut** : ⚠️ IMPORT INITIAL INVALIDÉ — Corrigé par PAD-NST-2E-B-R2 (2026-05-08)
+**Méthode** : Script Python → SQL généré → Migration data-only (voie unique)
+**Statut** : ✅ ALIGNEMENT DÉFINITIF — R3 v3 appliqué en DB réelle (2026-05-09)
 
-> **IMPORTANT** : L'import initial contenait 88 lignes mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La correction R1 n'a jamais été appliquée. La correction R2 a purge + réimporté les 88 bonnes règles. Voir `PAD_NST_2E_B_R2_RECONCILIATION_REPORT.md` pour le rapport complet.
+> **Historique complet** :
+> 1. **Import initial (2026-05-07)** : 88 lignes importées mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). Invalidé.
+> 2. **R1** : Correction préparée mais jamais appliquée en DB.
+> 3. **R2 (2026-05-08)** : Migration `20260508200000_pad_nst_2e_b_r3_corrective.sql` exécutée. Réalignement constaté incomplet après réconciliation DB active : 9 extras, 9 manquants, 16 écarts confidence, 5 écarts evidence_level, orphan `group|15.1|T02`. R2 **réouvert**.
+> 4. **R3 v3 (2026-05-09)** : Migration `20260509120000_pad_nst_2e_b_r3_v3_corrective.sql` exécutée via `supabase--migration` rôle service. Garde E0 (MD5 `H_source = 4fba07069aa5f7eaa487cb33838f3c6f`) vérifiée. Tous contrôles internes passés (E0+E1–E5+F1–F6+EQ1+EQ2). DB finale = 88 règles TIER-A/B conformes.
+>
+> Voir `PAD_NST_2E_B_R3_FORENSIC_REPORT.md` et `PAD_NST_2E_B_R3_V3_DIFF_VERIFICATION.md` pour le détail complet.
 
 ## Résumé
 
@@ -76,7 +82,27 @@
 4. Migration data-only exécutée via Lovable Cloud (voie unique)
 5. Vérifications post-import via requêtes DB
 
+## État DB finale post-R3 v3 (2026-05-09)
+
+| Contrôle | Attendu | Résultat |
+|----------|---------|----------|
+| `count(*)` | 88 | **88** ✅ |
+| `validation_status != 'candidate'` | 0 | **0** ✅ |
+| `requires_operator_validation = false` | 0 | **0** ✅ |
+| `is_active = false` | 0 | **0** ✅ |
+| `evidence_level hors whitelist` | 0 | **0** ✅ |
+| Group orphelins | 0 | **0** ✅ |
+| `group\|15.1\|T02` absent | absent | **absent** ✅ |
+| `H_db = H_source` (garde E0) | égaux | **égaux** ✅ |
+
+**Evidence levels post-R3 v3** :
+
+| evidence_level | Count |
+|---------------|-------|
+| expert_rule | 84 |
+| nstr_bridge_inferred | 4 |
+
 ## Prochaines étapes possibles
 
-- **PAD-NST-2E-C** : Intégration runtime (lecture des règles dans le moteur de pricing) — requiert validation CTO
+- **PAD-NST-2E-C-D** : Implémentation UI opérateur — EN ATTENTE GO CTO séparé (précondition R3 levée)
 - **Audit opérateur** : Validation individuelle des règles par l'opérateur via l'interface
