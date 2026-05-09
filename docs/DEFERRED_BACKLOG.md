@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-09 — **✅ PAD-NST-2E-B-R3 CLOS : migration R3 v3 appliquée en DB réelle via supabase--migration. Garde E0 (MD5 H_source = 4fba07069aa5f7eaa487cb33838f3c6f) vérifiée. 14 contrôles internes passés. DB finale = 88 règles TIER-A/B conformes, 0 orphelin, group|15.1|T02 absent. C-D précondition R3 levée — EN ATTENTE GO CTO séparé.**
+Dernière mise à jour : 2026-05-09 — **📋 CARRIER-PORT-TAX-1B AUDIT LIVRÉ (read-only) : ancien diagnostic "IMPORT non injecté globalement" obsolète. `quotation-engine` traite bien IMPORT, mais 3 trous structurels confirmés — G1 (whitelist `evidence_level` exclut `observed`/`historical_only` → MSC, GRIMALDI, MAERSK silencieux), G2 (`operation_type='ALL'` jamais lu → 14 lignes orphelines actives), G3 (`is_variable=true` + `default_amount=null` silencieux). Patch NON exécuté. Options A (post-engine `run-pricing`), B (élargir whitelist engine), C (promotion data) documentées. En attente arbitrage CTO.** Voir `docs/tariff-collection/CARRIER_PORT_TAX_1B_AUDIT.md`.
+
+Mise à jour antérieure : 2026-05-09 — **✅ PAD-NST-2E-B-R3 CLOS : migration R3 v3 appliquée en DB réelle via supabase--migration. Garde E0 (MD5 H_source = 4fba07069aa5f7eaa487cb33838f3c6f) vérifiée. 14 contrôles internes passés. DB finale = 88 règles TIER-A/B conformes, 0 orphelin, group|15.1|T02 absent. C-D précondition R3 levée — EN ATTENTE GO CTO séparé.**
 
 Mise à jour antérieure : 2026-05-08 — **🔴 PAD-NST-2E-B-R2 RÉOUVERT : réconciliation DB active montre 9 extras, 9 manquantes, 16 écarts confidence, 5 écarts evidence_level, orphan group|15.1|T02. R2 non appliqué à la DB active. R3 requis. C-D implémentation bloquée. C-D-SPEC non invalidée.**
 
