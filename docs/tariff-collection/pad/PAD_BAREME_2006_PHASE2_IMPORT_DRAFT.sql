@@ -438,10 +438,13 @@ BEGIN
   -- POST-CHECKS H1..H6
   -- ===================================================================
 
-  -- H1 — 120 lignes actives source_document
+  -- H1 — 120 lignes actives source_document (renforcé : provider/category)
   SELECT COUNT(*) INTO v_active_count
   FROM public.port_tariffs
-  WHERE source_document = c_source_doc AND is_active = true
+  WHERE provider = c_provider
+    AND category = c_category
+    AND source_document = c_source_doc
+    AND is_active = true
     AND effective_date = c_effective_date;
   IF v_active_count <> c_expected_payload THEN
     RAISE EXCEPTION 'H1 abort: active rows = %, expected %',
