@@ -195,7 +195,7 @@ WHERE is_active = true;
 
 ## 8. Stratégie de rollback
 
-- Migration future enveloppée dans `BEGIN … EXCEPTION WHEN OTHERS THEN ROLLBACK`.
+- **Doctrine PostgreSQL** : la migration future s'exécute dans une transaction unique. Les gardes lèvent `RAISE EXCEPTION` et laissent PostgreSQL annuler la transaction nativement. **Aucun bloc `EXCEPTION WHEN OTHERS THEN ROLLBACK`** dans un `DO $$` (anti-pattern : capture l'erreur sans rollback réel et masque le diagnostic). Le rollback est implicite côté Supabase migration runner.
 - Snapshot pré-import : export CSV des lignes courantes via `\copy` documenté (fichier `pre_phase2_snapshot.csv`).
 - Script de restauration documenté (non généré) : `restore_pre_phase2.sql` = `UPDATE … SET is_active=true WHERE id IN (…19 ids legacy…)` + `DELETE … WHERE source_document='pdf_redevances_portuaires_2006' AND effective_date='2006-01-01' AND id NOT IN (…19 ids legacy…)`.
 
