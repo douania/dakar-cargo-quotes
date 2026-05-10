@@ -79,6 +79,8 @@ Deno.serve(async (req) => {
       .select("classification, amount, unit")
       .eq("provider", "PAD")
       .eq("category", "DROIT_PASSAGE")
+      .eq("operation_type", "IMPORT")
+      .eq("cargo_type", "CONTENEUR")
       .eq("is_active", true);
 
     if (tariffErr) {
