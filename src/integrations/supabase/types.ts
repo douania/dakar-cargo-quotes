@@ -3217,6 +3217,106 @@ export type Database = {
         }
         Relationships: []
       }
+      pad_recommendation_audit_log: {
+        Row: {
+          actor_user_id: string
+          case_id: string | null
+          confidence: number | null
+          created_at: string
+          dedupe_key: string
+          event_payload: Json
+          event_type: string
+          evidence_level: string | null
+          id: string
+          notes: string | null
+          nst_code: string | null
+          nst_level: string | null
+          operator_comment: string | null
+          operator_decision: string | null
+          operator_pad_category: string | null
+          recommended_pad_category: string | null
+          related_event_id: string | null
+          request_id: string
+          requires_operator_confirmation: boolean
+          rule_id: string | null
+          source_document: string | null
+          source_reference: string | null
+          source_type: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          case_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          dedupe_key: string
+          event_payload?: Json
+          event_type: string
+          evidence_level?: string | null
+          id?: string
+          notes?: string | null
+          nst_code?: string | null
+          nst_level?: string | null
+          operator_comment?: string | null
+          operator_decision?: string | null
+          operator_pad_category?: string | null
+          recommended_pad_category?: string | null
+          related_event_id?: string | null
+          request_id: string
+          requires_operator_confirmation?: boolean
+          rule_id?: string | null
+          source_document?: string | null
+          source_reference?: string | null
+          source_type?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          case_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          dedupe_key?: string
+          event_payload?: Json
+          event_type?: string
+          evidence_level?: string | null
+          id?: string
+          notes?: string | null
+          nst_code?: string | null
+          nst_level?: string | null
+          operator_comment?: string | null
+          operator_decision?: string | null
+          operator_pad_category?: string | null
+          recommended_pad_category?: string | null
+          related_event_id?: string | null
+          request_id?: string
+          requires_operator_confirmation?: boolean
+          rule_id?: string | null
+          source_document?: string | null
+          source_reference?: string | null
+          source_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pad_recommendation_audit_log_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pad_recommendation_audit_log_related_event_id_fkey"
+            columns: ["related_event_id"]
+            isOneToOne: false
+            referencedRelation: "pad_recommendation_audit_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pad_recommendation_audit_log_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "pad_nst_recommendation_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       partner_response_suggestions: {
         Row: {
           case_id: string
