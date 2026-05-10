@@ -1,0 +1,77 @@
+{
+  "manifest_version": "1.0",
+  "frozen": true,
+  "lot_id": "PAD-BAREME-2006-DROIT-PASSAGE",
+  "csv_filename": "PAD_BAREME_2006_DROIT_PASSAGE_FULL.csv",
+  "expected_sha256": "1c34c05fe596eb48831aa5bc53bf16008b4b6076f541fef27d93de7b0b396be0",
+  "expected_total_rows": 124,
+  "expected_page_counts": { "7": 76, "8": 48 },
+  "expected_op_counts": {
+    "IMPORT": 38,
+    "EXPORT": 38,
+    "TRANSBORDEMENT": 16,
+    "TRANSIT_IMPORT": 16,
+    "TRANSIT_EXPORT": 16
+  },
+  "expected_cell_status_counts": { "PRESENT": 120, "BLANK_IN_PDF": 4 },
+  "expected_header": [
+    "source_document",
+    "source_page",
+    "source_section",
+    "rate_family",
+    "operation_type",
+    "cargo_type",
+    "classification",
+    "container_size_hint",
+    "amount_fcfa_per_tonne",
+    "unit",
+    "currency",
+    "cell_status",
+    "evidence_level",
+    "notes"
+  ],
+  "enums": {
+    "rate_family": ["DROIT_PASSAGE"],
+    "operation_type": ["IMPORT", "EXPORT", "TRANSBORDEMENT", "TRANSIT_IMPORT", "TRANSIT_EXPORT"],
+    "cargo_type": ["CONTENEUR", "CONVENTIONNEL"],
+    "classification": [
+      "T01","T02","T03","T04","T05","T06","T07","T08","T09","T10",
+      "T11","T12","T13","T14",
+      "P01","P02","P03","P04","P05",
+      "C01","C02","C03"
+    ],
+    "cell_status": ["PRESENT", "BLANK_IN_PDF"],
+    "unit": ["PER_TONNE"],
+    "currency": ["XOF"]
+  },
+  "critical_spots": {
+    "T13_page7_EXPORT_CONVENTIONNEL_cell_status": "BLANK_IN_PDF",
+    "T10_page7_IMPORT_CONTENEUR_amount": "0",
+    "T10_page7_IMPORT_CONVENTIONNEL_amount": "0",
+    "T10_page8_BLANK_rows": [
+      { "operation_type": "TRANSBORDEMENT",  "cargo_type": "CONVENTIONNEL", "cell_status": "BLANK_IN_PDF" },
+      { "operation_type": "TRANSIT_IMPORT",  "cargo_type": "CONVENTIONNEL", "cell_status": "BLANK_IN_PDF" },
+      { "operation_type": "TRANSIT_EXPORT",  "cargo_type": "CONVENTIONNEL", "cell_status": "BLANK_IN_PDF" }
+    ],
+    "page7_IMPORT_CONTENEUR_amounts": {
+      "P01": "28100",
+      "P02": "2325",
+      "P03": "13000"
+    }
+  },
+  "db_legacy_check": {
+    "table": "public.port_tariffs",
+    "filter": {
+      "provider": "PAD",
+      "category": "DROIT_PASSAGE",
+      "operation_type": "IMPORT",
+      "cargo_type": "CONTENEUR",
+      "is_active": true
+    },
+    "expected_count": 19,
+    "non_regression": {
+      "cargo_type_CONTENEUR_active": 19,
+      "cargo_type_NULL_active": 0
+    }
+  }
+}

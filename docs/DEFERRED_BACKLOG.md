@@ -1381,3 +1381,18 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Résolution** | Fonction déployée et vérifiée. Voir `docs/tariff-collection/pad/PAD_NST_2E_C_B_VERIFICATION_REPORT.md`. |
 | **Déclencheur de réouverture** | N/A — déployé. C-C nécessite GO CTO séparé. |
 | **Recommandation** | Ne pas lancer C-C sans GO CTO explicite. Ne pas brancher run-pricing. Ne pas modifier src/. |
+
+### DEFER-PAD-BAREME-2006-CSV-IMPORT-VALIDATOR-1-EDGE-FN
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `PAD-BAREME-2006-CSV-IMPORT-VALIDATOR-1-EDGE-FN` |
+| **Catégorie** | Tariff governance / validator |
+| **Statut** | Différé |
+| **Priorité** | Basse |
+| **Phase d'origine** | Phase 1ter-a (`PAD-BAREME-2006-CSV-IMPORT-VALIDATOR-1`) |
+| **Date** | 2026-05-10 |
+| **Constat** | Phase 1ter-a livrée sous forme de script Python local read-only (`docs/tariff-collection/pad/validate_pad_csv.py`) + manifest figé (`PAD_BAREME_2006_MANIFEST.json`). Verdict `GO` (24/24 PASS, exit 0). Aucune edge function créée à ce stade. |
+| **Résolution** | À ouvrir uniquement si besoin de valider un CSV uploadé hors repo, ou d'exposer le validateur à un opérateur non-technique via UI. |
+| **Déclencheur de réouverture** | Demande explicite CTO de Phase 1ter-b (edge function `pad-csv-validator`). |
+| **Recommandation** | Ne pas créer d'edge function tant qu'aucun cas d'usage production n'est confirmé. Le script local couvre le besoin de pré-validation avant import. Ce GO ne vaut pas GO import 124 lignes ni GO migration data. |
