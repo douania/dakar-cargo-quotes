@@ -279,7 +279,7 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 - Fichier visé : `docs/tariff-collection/pad/PAD_BAREME_2006_PHASE2_IMPORT_DRAFT.sql`
 - **Hors `supabase/migrations/`** (intentionnel — non auto-appliquée).
-- Format : DO block transactionnel avec G0..G8 + désactivation legacy + INSERT 120 + CREATE INDEX + H1..H6.
+- Format : DO block transactionnel avec G0..G8 + désactivation legacy + CREATE UNIQUE INDEX + INSERT 120 + H1..H6 (ordre v2 §6).
 - Doit être suivi d'un GO CTO **séparé** avant toute application.
 
 **NO-GO** :
