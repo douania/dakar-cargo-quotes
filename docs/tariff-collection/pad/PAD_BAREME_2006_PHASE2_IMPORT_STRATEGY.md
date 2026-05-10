@@ -164,19 +164,23 @@ WHERE is_active = true;
 
 **Recommandation CTO** : **OUI**, comme garde structurelle permanente.
 
-### Ordre d'exécution futur (impératif)
+### Ordre d'exécution futur (impératif — v2 corrigé CTO)
 
 ```text
 1. Pré-check : aucune FK pointant vers port_tariffs.id
 2. Pré-check : 0 doublon actif sur (provider, category, operation_type, classification, cargo_type)
 3. Désactivation legacy (R2) : UPDATE 19 lignes → is_active=false
-4. INSERT 120 lignes PRESENT (BLANK_IN_PDF exclus)
-5. CREATE UNIQUE INDEX (garde structurelle)
-6. Post-checks cardinalité + hash agrégé montants
+4. CREATE UNIQUE INDEX partiel (garde structurelle WHERE is_active=true)
+5. INSERT 120 lignes PRESENT (BLANK_IN_PDF exclus) — l'index protège directement l'INSERT
+6. Post-checks H1..H6 (cardinalité + hash agrégé montants)
 ```
 
+**Justification CTO** : créer l'index AVANT l'INSERT garantit que toute collision résiduelle dans le payload échoue au moment exact de l'insertion fautive, et non a posteriori.
+
 ⚠️ **Interdit absolu** : INSERT avant DESACTIVATION → collision certaine sur les 19 lignes IMPORT/CONTENEUR.
-⚠️ **Interdit absolu** : CREATE INDEX avant désactivation → l'index échouera sur les 19 doublons.
+⚠️ **Interdit absolu** : CREATE INDEX avant désactivation → l'index échouera sur les 19 doublons legacy.
+
+**Variante tolérée** : si pour une raison opérationnelle l'index est créé APRÈS l'INSERT, l'intégralité des étapes 3→6 doit s'exécuter dans **une seule transaction** avec rollback intégral en cas d'échec d'une quelconque étape. Cette variante est **moins sûre** et doit être justifiée explicitement.
 
 ---
 
