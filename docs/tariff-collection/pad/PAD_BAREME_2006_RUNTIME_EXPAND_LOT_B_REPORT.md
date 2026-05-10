@@ -63,7 +63,7 @@ Hiérarchie de priorité (déterministe) :
 0. **Détection libellé facture** (informatif, ajoute warnings, ne classifie jamais).
 1. **Préchecks structurels** : `operation_type` puis `cargo_type` obligatoires sinon gap immédiat.
 2. **operator_confirmed** — `known_pad_category` validée (T01..T14 / P01..P05 / C01..C03).
-3. **validated_alias** — `context.aliases[].is_validated=true` matchant `designation`. Les alias `invoice_label`/`carrier_label` sont **explicitement ignorés comme source de classification** (réserve CTO #1).
+3. **validated_alias** — `context.aliases[].is_validated=true` matchant `designation`. Les alias `invoice_label` sont **explicitement ignorés comme source de classification** (réserve CTO #1).
 4. **hs_to_nst** — uniquement via `context.hsToNstMapping` explicite, avec `is_unique=true` et `pad_category` non null. Aucune normalisation HS10→CN8/HS6 hardcodée (réserve CTO #2).
 5. **nst_rule** — `context.nstRules` matchant `nst_code`. Si `requires_operator_validation=true` → `needs_human_review=true` + `confidence=0.5`.
 6. **designation_match** — `context.designationMatches[].is_validated=true`.

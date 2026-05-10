@@ -91,7 +91,7 @@ export interface ResolvePadOutput {
 /* Contexte injecté (toutes les données de référence viennent de l'appelant). */
 /* -------------------------------------------------------------------------- */
 
-export type PadAliasKind = "designation" | "invoice_label" | "carrier_label";
+export type PadAliasKind = "designation" | "invoice_label";
 
 export interface PadAliasCandidate {
   /** Forme normalisée du terme (lowercase, trim, espaces compactés). */

@@ -424,11 +424,7 @@ function matchValidatedAliases(
     if (!term) continue;
     if (a.alias_kind === "designation" && designation && designation === term) {
       matches.push(a);
-    } else if (
-      (a.alias_kind === "invoice_label" || a.alias_kind === "carrier_label") &&
-      invoice &&
-      invoice === term
-    ) {
+    } else if (a.alias_kind === "invoice_label" && invoice && invoice === term) {
       // Garde-fou : un invoice_label ne peut JAMAIS classifier seul.
       // On l'ignore comme source de classification.
       // (Il a déjà ajouté un warning DROIT_PASSAGE dans le préchecks.)
