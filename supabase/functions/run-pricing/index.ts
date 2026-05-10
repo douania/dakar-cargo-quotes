@@ -1982,7 +1982,7 @@ Deno.serve(async (req) => {
                     .from('port_tariffs')
                     .select('amount, unit, classification')
                     .eq('provider', 'PAD')
-                    .eq('category', 'DROIT_PASSAGE')
+                     .eq('category', 'DROIT_PASSAGE')
                     .eq('operation_type', 'IMPORT')
                     .eq('classification', alias.pad_category)
                     .eq('is_active', true)
