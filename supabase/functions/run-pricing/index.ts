@@ -1984,7 +1984,6 @@ Deno.serve(async (req) => {
                     .eq('provider', 'PAD')
                      .eq('category', 'DROIT_PASSAGE')
                     .eq('operation_type', 'IMPORT')
-                    .eq('cargo_type', 'CONTENEUR')
                     .eq('classification', alias.pad_category)
                     .eq('is_active', true)
                     .maybeSingle();
@@ -2007,7 +2006,6 @@ Deno.serve(async (req) => {
                   .eq('provider', 'PAD')
                   .eq('category', 'DROIT_PASSAGE')
                   .eq('operation_type', 'IMPORT')
-                  .eq('cargo_type', 'CONTENEUR')
                   .eq('classification', alias.pad_category)
                   .eq('is_active', true)
                   .maybeSingle();
