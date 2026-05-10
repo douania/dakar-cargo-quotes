@@ -8,6 +8,7 @@
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1953,6 +1954,11 @@ Deno.serve(async (req) => {
       // ═══ isMaritime — hoisted for PAD-GAP-1 + terminal storage ═══
       const isMaritime = !isExportFlow && !String(caseData.request_type || '').toUpperCase().includes('AIR');
 
+      // ═══ PAD_SHADOW (Lot C) — capture pré-PAD-1, observation seule ═══
+      const SHADOW_ON = Deno.env.get('PAD_RESOLVER_SHADOW') === 'true';
+      const padCategoryBeforeAlias = inputs.padCategory ?? null;
+      let padShadowAliasRows: any[] = [];
+
       // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
       // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
       // commodity_category_id = source de vérité métier, pad_category = copie dénormalisée runtime.
@@ -1965,6 +1971,7 @@ Deno.serve(async (req) => {
               .select('pad_category, bl_term, commodity_category_id')
               .eq('normalized_term', normalizedDescPad)
               .eq('is_validated', true);
+            padShadowAliasRows = padAliasRows ?? [];
 
             if (padAliasRows && padAliasRows.length > 0) {
               if (padAliasRows.length > 1) {
@@ -2027,6 +2034,102 @@ Deno.serve(async (req) => {
         }
       } else if (inputs.padCategory) {
         console.log(`[PAD] Facts opérateur présents: padCategory=${inputs.padCategory} — alias lookup skipped`);
+      }
+
+      // ═══ PAD_SHADOW (Lot C) — observation pure, scope IMPORT/CONTENEUR strict ═══
+      // Aucune mutation runtime, aucun changement output, OFF par défaut.
+      {
+        const requestTypeUpper = String(caseData.request_type || '').toUpperCase();
+        const packageUpper = String((typeof pkg !== 'undefined' ? pkg : inputs.servicePackage) || '').toUpperCase();
+        const isTransitLike =
+          packageUpper.includes('TRANSIT') ||
+          packageUpper.includes('TRANSBORDEMENT') ||
+          packageUpper.includes('TRANSSHIPMENT') ||
+          requestTypeUpper.includes('TRANSIT') ||
+          requestTypeUpper.includes('TRANSBORDEMENT') ||
+          requestTypeUpper.includes('TRANSSHIPMENT');
+        const hasContainers = Array.isArray(inputs.containers) && inputs.containers.length > 0;
+        const isImportContainer =
+          SHADOW_ON &&
+          isMaritime &&
+          !isExportFlow &&
+          !isTransitLike &&
+          hasContainers;
+
+        if (isImportContainer) {
+          try {
+            const normalizeShadowSource = (source: string | null | undefined): string | null => {
+              if (!source || source === 'none') return null;
+              if (source === 'validated_alias') return 'alias';
+              if (source === 'operator_confirmed') return 'operator';
+              return source;
+            };
+
+            const normalizedDescPadShadow = normalizePricingText(inputs.cargoDescription);
+            const shadowAliases = (padShadowAliasRows || []).map((r: any) => ({
+              pad_category: r.pad_category,
+              alias_kind: 'designation' as const,
+              normalized_term: normalizedDescPadShadow,
+              is_validated: true,
+            }));
+
+            const resolverOut = resolvePadClassification(
+              {
+                designation: inputs.cargoDescription ?? null,
+                invoice_label: null,
+                hs_code: inputs.hsCode ?? null,
+                nst_code: null,
+                operation_type: 'IMPORT',
+                cargo_type: 'CONTENEUR',
+                container_size: null,
+                known_pad_category: padCategoryBeforeAlias,
+              },
+              {
+                aliases: shadowAliases,
+                nstRules: [],
+                hsToNstMapping: [],
+                designationMatches: [],
+              },
+            );
+
+            const legacyCategory = inputs.padCategory ?? null;
+            const legacySource: string | null = padCategoryBeforeAlias
+              ? 'operator'
+              : (padShadowAliasRows.length > 0 && legacyCategory ? 'alias' : null);
+            const resolverCategory = resolverOut.classification;
+            const resolverSource = normalizeShadowSource(resolverOut.source);
+            const match = legacyCategory === resolverCategory && legacySource === resolverSource;
+
+            let mismatch_reason: string | null = null;
+            if (!match) {
+              if (legacyCategory && !resolverCategory) mismatch_reason = 'legacy_only';
+              else if (!legacyCategory && resolverCategory) mismatch_reason = 'resolver_only';
+              else if (legacyCategory !== resolverCategory) mismatch_reason = 'category_diff';
+              else mismatch_reason = 'source_diff';
+            }
+
+            console.log(JSON.stringify({
+              tag: 'PAD_SHADOW',
+              case_id,
+              scope: 'IMPORT/CONTENEUR',
+              legacy: {
+                pad_category: legacyCategory,
+                source: legacySource,
+                alias_match_count: padShadowAliasRows.length,
+              },
+              resolver: {
+                classification: resolverCategory,
+                source: resolverOut.source,
+                confidence: resolverOut.confidence,
+                blocking_gap: resolverOut.blocking_gap,
+                warnings: resolverOut.warnings,
+              },
+              comparison: { match, mismatch_reason },
+            }));
+          } catch (e) {
+            console.warn('[PAD_SHADOW] non-blocking error:', e instanceof Error ? e.message : String(e));
+          }
+        }
       }
 
       // ═══ PAD-GAP-1: Gap bloquant si PAD applicable mais catégorie non résolue ═══
