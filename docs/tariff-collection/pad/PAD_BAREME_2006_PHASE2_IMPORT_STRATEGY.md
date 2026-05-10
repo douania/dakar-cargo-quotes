@@ -224,7 +224,7 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 | ID | Contrôle | Attendu |
 |----|----------|---------|
 | H1 | `count(*) WHERE active=true AND source_document='pdf_redevances_portuaires_2006'` | 120 |
-| H2 | Cardinalité par `(operation_type, cargo_type)` | IMPORT/CONTENEUR=19 ; IMPORT/CONVENTIONNEL=19 ; EXPORT/CONTENEUR=19 ; EXPORT/CONVENTIONNEL=18 ; TRANSBORDEMENT/CONTENEUR=8 ; TRANSBORDEMENT/CONVENTIONNEL=7 ; TRANSIT_IMPORT/CONTENEUR=8 ; TRANSIT_IMPORT/CONVENTIONNEL=7 ; TRANSIT_EXPORT/CONTENEUR=8 ; TRANSIT_EXPORT/CONVENTIONNEL=7 — **à recalculer depuis CSV PRESENT à la création de la migration** |
+| H2 | Cardinalité par `(operation_type, cargo_type)` — **valeurs figées v2, recomptées depuis CSV PRESENT** | IMPORT/CONTENEUR=19 ; IMPORT/CONVENTIONNEL=19 ; EXPORT/CONTENEUR=19 ; EXPORT/CONVENTIONNEL=18 ; TRANSBORDEMENT/CONTENEUR=3 ; TRANSBORDEMENT/CONVENTIONNEL=12 ; TRANSIT_IMPORT/CONTENEUR=3 ; TRANSIT_IMPORT/CONVENTIONNEL=12 ; TRANSIT_EXPORT/CONTENEUR=3 ; TRANSIT_EXPORT/CONVENTIONNEL=12 — **TOTAL=120** |
 | H3 | `count(*) WHERE active=false AND source_document='pdf_redevances_portuaires_2006'` | 19 (legacy désactivés) |
 | H4 | `sum(amount)` par classification IMPORT/CONTENEUR == sum CSV équivalent | match strict |
 | H5 | Lookup runtime équivalent au backfill : `provider=PAD AND category=DROIT_PASSAGE AND op=IMPORT AND cargo=CONTENEUR AND active=true` retourne 19 montants identiques aux 19 valeurs legacy | non-régression RT-PREIMPORT-1 |
