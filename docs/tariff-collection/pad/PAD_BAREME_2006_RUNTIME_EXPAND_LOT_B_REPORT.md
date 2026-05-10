@@ -63,7 +63,7 @@ Hiérarchie de priorité (déterministe) :
 0. **Détection libellé facture** (informatif, ajoute warnings, ne classifie jamais).
 1. **Préchecks structurels** : `operation_type` puis `cargo_type` obligatoires sinon gap immédiat.
 2. **operator_confirmed** — `known_pad_category` validée (T01..T14 / P01..P05 / C01..C03).
-3. **validated_alias** — `context.aliases[].is_validated=true` matchant `designation`. Les alias `invoice_label`/`carrier_label` sont **explicitement ignorés comme source de classification** (réserve CTO #1).
+3. **validated_alias** — `context.aliases[].is_validated=true` matchant `designation`. Les alias `invoice_label` sont **explicitement ignorés comme source de classification** (réserve CTO #1).
 4. **hs_to_nst** — uniquement via `context.hsToNstMapping` explicite, avec `is_unique=true` et `pad_category` non null. Aucune normalisation HS10→CN8/HS6 hardcodée (réserve CTO #2).
 5. **nst_rule** — `context.nstRules` matchant `nst_code`. Si `requires_operator_validation=true` → `needs_human_review=true` + `confidence=0.5`.
 6. **designation_match** — `context.designationMatches[].is_validated=true`.
@@ -149,3 +149,18 @@ $ bunx vitest run src/lib/pad/__tests__/resolvePadClassification.test.ts --confi
 Helper pur livré, 26 tests Vitest verts, aucun branchement runtime, aucune modification DB / migration / Edge Function. Le comportement de pricing actuel reste strictement inchangé.
 
 Prochaine étape autorisée uniquement sur GO CTO séparé : **Lot C — intégration contrôlée du resolver dans `run-pricing` (scope `IMPORT/CONTENEUR` d'abord en non-régression, puis élargissement par étapes)**.
+
+---
+
+## Correctif Lot B.1 — Retrait de `carrier_label`
+
+**Verdict :** `LOT_B_1_CARRIER_LABEL_REMOVED`
+
+Retrait de `carrier_label` de `PadAliasKind` pour conformité stricte au brief Lot B (`"designation" | "invoice_label"` uniquement). Aucun impact comportemental : la valeur était déjà ignorée comme source de classification (la branche `invoice_label || carrier_label` aboutissait à un `continue` inconditionnel).
+
+**Fichiers modifiés :**
+- `src/lib/pad/types.ts` (ligne 94) — union de type réduite
+- `src/lib/pad/resolvePadClassification.ts` (lignes 427-431) — branche `carrier_label` retirée
+- `docs/tariff-collection/pad/PAD_BAREME_2006_RUNTIME_EXPAND_LOT_B_REPORT.md` — section §3 mise à jour + ce correctif tracé
+
+**Tests :** 26/26 PASS (cf. exécution Vitest ci-dessous).
