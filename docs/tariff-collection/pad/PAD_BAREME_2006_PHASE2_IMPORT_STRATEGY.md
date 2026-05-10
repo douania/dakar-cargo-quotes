@@ -334,15 +334,15 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 ## 18. Points nécessitant validation CTO explicite
 
-| # | Point | Recommandation |
-|---|-------|----------------|
-| 1 | `source_document` final | **S1** : `pdf_redevances_portuaires_2006` |
-| 2 | Sort des 4 BLANK_IN_PDF | **A** : exclus de l'import |
-| 3 | Stratégie legacy | **R2** : désactivation 19 + INSERT 120 |
-| 4 | Index unique partiel | **OUI** + ordre d'exécution §6 |
-| 5 | `effective_date` | `2006-01-01` |
-| 6 | Patch runtime supplémentaire | **NON requis** Phase 2 ; reporté à `PAD-BAREME-2006-RUNTIME-EXPAND` |
-| 7 | Création du brouillon documentaire SQL | GO conditionné à validation CTO de ce rapport |
+| # | Point | Recommandation | Statut v2 |
+|---|-------|----------------|-----------|
+| 1 | `source_document` final | **S1** : `pdf_redevances_portuaires_2006` | ✅ VALIDÉ CTO |
+| 2 | Sort des 4 BLANK_IN_PDF | **A** : exclus de l'import | ✅ VALIDÉ CTO |
+| 3 | Stratégie legacy | **R2** : désactivation 19 + INSERT 120 | ✅ VALIDÉ CTO |
+| 4 | Index unique partiel + ordre d'exécution §6 (index AVANT INSERT) | **OUI** | ✅ VALIDÉ CTO |
+| 5 | `effective_date` | `2006-01-01` | ✅ VALIDÉ CTO |
+| 6 | Patch runtime supplémentaire | **NON requis** Phase 2 ; reporté à `PAD-BAREME-2006-RUNTIME-EXPAND` | ✅ VALIDÉ CTO |
+| 7 | Création du brouillon documentaire SQL `2a` | GO conditionné à acceptation des corrections v2 (H2, T13, ordre, doctrine transaction) | ⏳ EN ATTENTE GO CTO SÉPARÉ |
 
 ---
 
