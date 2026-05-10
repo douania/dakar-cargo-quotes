@@ -9,6 +9,7 @@
 > Source : `PAD_BAREME_2006_DROIT_PASSAGE_FULL.csv` (SHA-256 `1c34c05f…6be0`)
 > Manifest : `PAD_BAREME_2006_MANIFEST.json` (figé)
 > Validator : `validate_pad_csv.py` → 24 PASS / 0 FAIL / 0 WARN (exit 0)
+> **Version** : v2 — corrections CTO H2 / T13 / ordre d'exécution / doctrine transaction intégrées.
 
 ---
 
