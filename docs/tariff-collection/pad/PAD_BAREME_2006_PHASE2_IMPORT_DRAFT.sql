@@ -492,6 +492,39 @@ BEGIN
       v_runtime_sum_db, v_runtime_sum_payload;
   END IF;
 
+  -- H4bis — non-régression runtime ligne par ligne IMPORT/CONTENEUR
+  -- Forme CTO : deux sous-requêtes pré-filtrées + FULL OUTER JOIN USING (classification).
+  -- Détecte : amount différent, ligne manquante côté DB, ligne manquante côté payload.
+  FOR r IN
+    SELECT
+      COALESCE(db.classification, p.classification) AS classification,
+      db.amount  AS db_amount,
+      p.amount   AS payload_amount
+    FROM (
+      SELECT classification, amount
+      FROM public.port_tariffs
+      WHERE provider        = c_provider
+        AND category        = c_category
+        AND operation_type  = 'IMPORT'
+        AND cargo_type      = 'CONTENEUR'
+        AND source_document = c_source_doc
+        AND effective_date  = c_effective_date
+        AND is_active       = true
+    ) db
+    FULL OUTER JOIN (
+      SELECT classification, amount
+      FROM _pad2006_payload
+      WHERE operation_type = 'IMPORT'
+        AND cargo_type     = 'CONTENEUR'
+    ) p
+    USING (classification)
+  LOOP
+    IF r.db_amount IS DISTINCT FROM r.payload_amount THEN
+      RAISE EXCEPTION 'H4bis abort: classification % amount mismatch db=% payload=%',
+        r.classification, r.db_amount, r.payload_amount;
+    END IF;
+  END LOOP;
+
   -- H5 — 0 doublon actif sur la clé composite (post-état)
   SELECT COUNT(*) INTO v_active_dup_count
   FROM (
