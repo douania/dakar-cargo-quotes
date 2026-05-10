@@ -11,6 +11,10 @@
 --   Stratégie (v2)         : docs/tariff-collection/pad/PAD_BAREME_2006_PHASE2_IMPORT_STRATEGY.md
 --   Validator              : docs/tariff-collection/pad/validate_pad_csv.py (24 PASS / 0 FAIL)
 --
+-- ⚠️  SHA-256 CSV : contrôlé hors SQL par validate_pad_csv.py + manifest figé.
+--     Ce DO block ne recalcule PAS le SHA du fichier CSV (non accessible depuis SQL).
+--     Le payload INSERT est supposé généré à partir du CSV validé.
+--
 -- Doctrine PostgreSQL :
 --   * Une seule transaction (BEGIN ... COMMIT).
 --   * Toutes les gardes lèvent RAISE EXCEPTION ; rollback natif sur échec.
@@ -434,10 +438,13 @@ BEGIN
   -- POST-CHECKS H1..H6
   -- ===================================================================
 
-  -- H1 — 120 lignes actives source_document
+  -- H1 — 120 lignes actives source_document (renforcé : provider/category)
   SELECT COUNT(*) INTO v_active_count
   FROM public.port_tariffs
-  WHERE source_document = c_source_doc AND is_active = true
+  WHERE provider = c_provider
+    AND category = c_category
+    AND source_document = c_source_doc
+    AND is_active = true
     AND effective_date = c_effective_date;
   IF v_active_count <> c_expected_payload THEN
     RAISE EXCEPTION 'H1 abort: active rows = %, expected %',
@@ -459,10 +466,13 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- H3 — 19 lignes inactives legacy source_document
+  -- H3 — 19 lignes inactives legacy source_document (renforcé : provider/category)
   SELECT COUNT(*) INTO v_inactive_count
   FROM public.port_tariffs
-  WHERE source_document = c_source_doc AND is_active = false;
+  WHERE provider = c_provider
+    AND category = c_category
+    AND source_document = c_source_doc
+    AND is_active = false;
   IF v_inactive_count <> c_expected_legacy THEN
     RAISE EXCEPTION 'H3 abort: inactive legacy rows = %, expected %',
       v_inactive_count, c_expected_legacy;
@@ -481,6 +491,39 @@ BEGIN
     RAISE EXCEPTION 'H4 abort: runtime sum mismatch IMPORT/CONTENEUR db=% payload=%',
       v_runtime_sum_db, v_runtime_sum_payload;
   END IF;
+
+  -- H4bis — non-régression runtime ligne par ligne IMPORT/CONTENEUR
+  -- Forme CTO : deux sous-requêtes pré-filtrées + FULL OUTER JOIN USING (classification).
+  -- Détecte : amount différent, ligne manquante côté DB, ligne manquante côté payload.
+  FOR r IN
+    SELECT
+      COALESCE(db.classification, p.classification) AS classification,
+      db.amount  AS db_amount,
+      p.amount   AS payload_amount
+    FROM (
+      SELECT classification, amount
+      FROM public.port_tariffs
+      WHERE provider        = c_provider
+        AND category        = c_category
+        AND operation_type  = 'IMPORT'
+        AND cargo_type      = 'CONTENEUR'
+        AND source_document = c_source_doc
+        AND effective_date  = c_effective_date
+        AND is_active       = true
+    ) db
+    FULL OUTER JOIN (
+      SELECT classification, amount
+      FROM _pad2006_payload
+      WHERE operation_type = 'IMPORT'
+        AND cargo_type     = 'CONTENEUR'
+    ) p
+    USING (classification)
+  LOOP
+    IF r.db_amount IS DISTINCT FROM r.payload_amount THEN
+      RAISE EXCEPTION 'H4bis abort: classification % amount mismatch db=% payload=%',
+        r.classification, r.db_amount, r.payload_amount;
+    END IF;
+  END LOOP;
 
   -- H5 — 0 doublon actif sur la clé composite (post-état)
   SELECT COUNT(*) INTO v_active_dup_count
