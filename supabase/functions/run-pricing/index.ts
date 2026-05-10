@@ -8,6 +8,7 @@
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
