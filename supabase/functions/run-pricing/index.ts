@@ -2075,7 +2075,7 @@ Deno.serve(async (req) => {
 
             const resolverOut = resolvePadClassification(
               {
-                designation: inputs.cargoDescription ?? null,
+                designation: normalizedDescPadShadow || null,
                 invoice_label: null,
                 hs_code: inputs.hsCode ?? null,
                 nst_code: null,

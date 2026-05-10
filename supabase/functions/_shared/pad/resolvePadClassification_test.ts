@@ -40,10 +40,12 @@ Deno.test("aucun input PAD → source none + blocking_gap", () => {
 });
 
 Deno.test("designation matchant un alias validé → validated_alias", () => {
-  const designation = "matériaux de construction";
+  // Lot C.1 : on fournit la désignation déjà normalisée legacy (comme le fait
+  // le shadow block dans run-pricing après normalizePricingText). Le test
+  // exige strictement validated_alias + T12, plus de repli sur "none".
   const out = resolvePadClassification(
     {
-      designation,
+      designation: "materiaux de construction",
       invoice_label: null,
       hs_code: null,
       nst_code: null,
@@ -57,18 +59,12 @@ Deno.test("designation matchant un alias validé → validated_alias", () => {
         {
           pad_category: "T12",
           alias_kind: "designation",
-          // normalize() lowercase + trim + collapse spaces ; on fournit déjà la forme normalisée.
           normalized_term: "materiaux de construction",
           is_validated: true,
         },
       ],
     },
   );
-  // Le resolver normalise la designation côté input avant comparaison.
-  // Si la normalisation ne supprime pas les accents, le test ci-dessus pourra retourner "none".
-  // Ce smoke test vérifie au minimum que le resolver ne throw pas et reste déterministe.
-  assert(out.source === "validated_alias" || out.source === "none");
-  if (out.source === "validated_alias") {
-    assertEquals(out.classification, "T12");
-  }
+  assertEquals(out.source, "validated_alias");
+  assertEquals(out.classification, "T12");
 });
