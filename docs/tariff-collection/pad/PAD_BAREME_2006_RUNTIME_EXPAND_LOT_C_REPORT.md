@@ -97,3 +97,64 @@ Le rapport ne prétend pas que cette validation a été faite tant qu'elle ne l'
 - Ingestion HS-NST mappings, NST rules, AI suggestions
 - Alimentation `invoice_label` depuis facture commerciale
 - Exposition de `nstCode` dans `PricingInputs`
+
+---
+
+## Correctif Lot C.1 — Normalisation désignation shadow
+
+**Verdict :** `LOT_C_1_SHADOW_ALIAS_NORMALIZATION_FIXED`
+**Date :** 2026-05-10
+
+### Problème
+
+Asymétrie de normalisation entre `shadowAliases.normalized_term` (issu de `normalizePricingText`, accents supprimés) et la `designation` brute passée au resolver. Risque de faux mismatches shadow sur des termes accentués (ex : `"matériaux de construction"`) une fois `PAD_RESOLVER_SHADOW=true` activé.
+
+### Diff réel
+
+**1. `supabase/functions/run-pricing/index.ts` (1 ligne, ligne 2078)**
+
+```diff
+- designation: inputs.cargoDescription ?? null,
++ designation: normalizedDescPadShadow || null,
+```
+
+Le resolver reçoit désormais la même base normalisée que celle utilisée pour construire `shadowAliases.normalized_term`. Aucune autre ligne touchée. Aucun changement de calcul, de DB, de gap, de ligne tarifaire, de mutation runtime.
+
+**2. `supabase/functions/_shared/pad/resolvePadClassification_test.ts`**
+
+Smoke test alias renforcé : suppression du repli toléré sur `source === "none"`. Le test exige strictement :
+
+```ts
+assertEquals(out.source, "validated_alias");
+assertEquals(out.classification, "T12");
+```
+
+La désignation fournie au test est déjà normalisée (`"materiaux de construction"`), reproduisant fidèlement l'entrée que le shadow block envoie en runtime.
+
+### Tests
+
+| Suite | Résultat |
+|-------|----------|
+| Vitest `src/lib/pad/__tests__/resolvePadClassification.test.ts` | ✅ 26/26 PASS |
+| Deno `supabase/functions/_shared/pad/resolvePadClassification_test.ts` | ✅ 3/3 PASS (dont alias strict) |
+| Déploiement `run-pricing` | ✅ Successfully deployed |
+
+### Périmètre du diff
+
+Strictement 3 fichiers :
+- `supabase/functions/run-pricing/index.ts`
+- `supabase/functions/_shared/pad/resolvePadClassification_test.ts`
+- `docs/tariff-collection/pad/PAD_BAREME_2006_RUNTIME_EXPAND_LOT_C_REPORT.md`
+
+### Interdictions respectées
+
+- ✅ Aucun impact pricing
+- ✅ Aucun changement DB
+- ✅ Aucun changement de ligne tarifaire
+- ✅ Aucun changement de gap
+- ✅ Aucun élargissement runtime
+- ✅ `PAD_RESOLVER_SHADOW` reste OFF par défaut
+
+### Validation runtime
+
+Toujours différée. Procédure inchangée (cf. section précédente) : activer `PAD_RESOLVER_SHADOW=true`, rejouer un IMPORT/CONTENEUR connu, lire `edge_function_logs` filtrés sur `tag=PAD_SHADOW`.
