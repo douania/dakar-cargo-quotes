@@ -9,6 +9,7 @@
 > Source : `PAD_BAREME_2006_DROIT_PASSAGE_FULL.csv` (SHA-256 `1c34c05f…6be0`)
 > Manifest : `PAD_BAREME_2006_MANIFEST.json` (figé)
 > Validator : `validate_pad_csv.py` → 24 PASS / 0 FAIL / 0 WARN (exit 0)
+> **Version** : v2 — corrections CTO H2 / T13 / ordre d'exécution / doctrine transaction intégrées.
 
 ---
 
@@ -163,19 +164,23 @@ WHERE is_active = true;
 
 **Recommandation CTO** : **OUI**, comme garde structurelle permanente.
 
-### Ordre d'exécution futur (impératif)
+### Ordre d'exécution futur (impératif — v2 corrigé CTO)
 
 ```text
 1. Pré-check : aucune FK pointant vers port_tariffs.id
 2. Pré-check : 0 doublon actif sur (provider, category, operation_type, classification, cargo_type)
 3. Désactivation legacy (R2) : UPDATE 19 lignes → is_active=false
-4. INSERT 120 lignes PRESENT (BLANK_IN_PDF exclus)
-5. CREATE UNIQUE INDEX (garde structurelle)
-6. Post-checks cardinalité + hash agrégé montants
+4. CREATE UNIQUE INDEX partiel (garde structurelle WHERE is_active=true)
+5. INSERT 120 lignes PRESENT (BLANK_IN_PDF exclus) — l'index protège directement l'INSERT
+6. Post-checks H1..H6 (cardinalité + hash agrégé montants)
 ```
 
+**Justification CTO** : créer l'index AVANT l'INSERT garantit que toute collision résiduelle dans le payload échoue au moment exact de l'insertion fautive, et non a posteriori.
+
 ⚠️ **Interdit absolu** : INSERT avant DESACTIVATION → collision certaine sur les 19 lignes IMPORT/CONTENEUR.
-⚠️ **Interdit absolu** : CREATE INDEX avant désactivation → l'index échouera sur les 19 doublons.
+⚠️ **Interdit absolu** : CREATE INDEX avant désactivation → l'index échouera sur les 19 doublons legacy.
+
+**Variante tolérée** : si pour une raison opérationnelle l'index est créé APRÈS l'INSERT, l'intégralité des étapes 3→6 doit s'exécuter dans **une seule transaction** avec rollback intégral en cas d'échec d'une quelconque étape. Cette variante est **moins sûre** et doit être justifiée explicitement.
 
 ---
 
@@ -190,7 +195,7 @@ WHERE is_active = true;
 
 ## 8. Stratégie de rollback
 
-- Migration future enveloppée dans `BEGIN … EXCEPTION WHEN OTHERS THEN ROLLBACK`.
+- **Doctrine PostgreSQL** : la migration future s'exécute dans une transaction unique. Les gardes lèvent `RAISE EXCEPTION` et laissent PostgreSQL annuler la transaction nativement. **Aucun bloc `EXCEPTION WHEN OTHERS THEN ROLLBACK`** dans un `DO $$` (anti-pattern : capture l'erreur sans rollback réel et masque le diagnostic). Le rollback est implicite côté Supabase migration runner.
 - Snapshot pré-import : export CSV des lignes courantes via `\copy` documenté (fichier `pre_phase2_snapshot.csv`).
 - Script de restauration documenté (non généré) : `restore_pre_phase2.sql` = `UPDATE … SET is_active=true WHERE id IN (…19 ids legacy…)` + `DELETE … WHERE source_document='pdf_redevances_portuaires_2006' AND effective_date='2006-01-01' AND id NOT IN (…19 ids legacy…)`.
 
@@ -219,7 +224,7 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 | ID | Contrôle | Attendu |
 |----|----------|---------|
 | H1 | `count(*) WHERE active=true AND source_document='pdf_redevances_portuaires_2006'` | 120 |
-| H2 | Cardinalité par `(operation_type, cargo_type)` | IMPORT/CONTENEUR=19 ; IMPORT/CONVENTIONNEL=19 ; EXPORT/CONTENEUR=19 ; EXPORT/CONVENTIONNEL=18 ; TRANSBORDEMENT/CONTENEUR=8 ; TRANSBORDEMENT/CONVENTIONNEL=7 ; TRANSIT_IMPORT/CONTENEUR=8 ; TRANSIT_IMPORT/CONVENTIONNEL=7 ; TRANSIT_EXPORT/CONTENEUR=8 ; TRANSIT_EXPORT/CONVENTIONNEL=7 — **à recalculer depuis CSV PRESENT à la création de la migration** |
+| H2 | Cardinalité par `(operation_type, cargo_type)` — **valeurs figées v2, recomptées depuis CSV PRESENT** | IMPORT/CONTENEUR=19 ; IMPORT/CONVENTIONNEL=19 ; EXPORT/CONTENEUR=19 ; EXPORT/CONVENTIONNEL=18 ; TRANSBORDEMENT/CONTENEUR=3 ; TRANSBORDEMENT/CONVENTIONNEL=12 ; TRANSIT_IMPORT/CONTENEUR=3 ; TRANSIT_IMPORT/CONVENTIONNEL=12 ; TRANSIT_EXPORT/CONTENEUR=3 ; TRANSIT_EXPORT/CONVENTIONNEL=12 — **TOTAL=120** |
 | H3 | `count(*) WHERE active=false AND source_document='pdf_redevances_portuaires_2006'` | 19 (legacy désactivés) |
 | H4 | `sum(amount)` par classification IMPORT/CONTENEUR == sum CSV équivalent | match strict |
 | H5 | Lookup runtime équivalent au backfill : `provider=PAD AND category=DROIT_PASSAGE AND op=IMPORT AND cargo=CONTENEUR AND active=true` retourne 19 montants identiques aux 19 valeurs legacy | non-régression RT-PREIMPORT-1 |
@@ -248,16 +253,23 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 ---
 
-## 13. Traitement futur C01/C02/C03 et T13 transit/transbordement
+## 13. Traitement futur C01/C02/C03 et T13 transit/transbordement (v2 corrigé CTO)
+
+**Clarification page 7 vs page 8** :
+
+- T13 **n'apparaît pas comme ligne en page 8**. Le PDF page 8 redirige les produits T13 en transit/transbordement vers `C01/C02/C03` selon la taille du conteneur.
+- La cellule `BLANK_IN_PDF` portant T13 concerne **uniquement** `page 7 / EXPORT / CONVENTIONNEL` (1 cellule).
+- Aucune ligne T13 page 8 n'est attendue, ni en CSV, ni en DB.
 
 | Classification | Présence DB actuelle | Présence CSV Phase 2 | Risque runtime |
 |----------------|----------------------|----------------------|----------------|
-| `T01..T14` | partielle (legacy) | totale | aucun (filtre CONTENEUR/IMPORT) |
+| `T01..T14` | partielle (legacy) | totale (selon page 7) | aucun (filtre CONTENEUR/IMPORT) |
 | `P01..P05` | partielle (legacy) | totale | aucun |
-| `C01`, `C02`, `C03` | **absente** | présente (page 8) | aucun aujourd'hui (jamais référencée par run-pricing ni recommend-pad-category) |
-| `T13` transit/transbordement | absente | partiellement BLANK_IN_PDF (1 ligne T13 EXPORT/CONVENTIONNEL exclue par option A) | aucun |
+| `C01`, `C02`, `C03` | **absente** | présente (page 8 — substituts T13 transit/transbordement par taille conteneur) | aucun aujourd'hui (jamais référencée par run-pricing ni recommend-pad-category) |
+| `T13` (page 7) | absente | 1 cellule `BLANK_IN_PDF` (`EXPORT/CONVENTIONNEL`, exclue par option A) | aucun |
+| `T13` (page 8) | n/a | **non attendu** — substitution C01/C02/C03 | n/a |
 
-**Conclusion** : ingestion data-only sans risque pour la stack runtime actuelle.
+**Implication runtime future** : tout futur lookup transit/transbordement T13 devra être routé vers `C01/C02/C03` selon `container_size_hint`. À spécifier dans `PAD-BAREME-2006-RUNTIME-EXPAND`.
 
 ---
 
@@ -267,7 +279,7 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 - Fichier visé : `docs/tariff-collection/pad/PAD_BAREME_2006_PHASE2_IMPORT_DRAFT.sql`
 - **Hors `supabase/migrations/`** (intentionnel — non auto-appliquée).
-- Format : DO block transactionnel avec G0..G8 + désactivation legacy + INSERT 120 + CREATE INDEX + H1..H6.
+- Format : DO block transactionnel avec G0..G8 + désactivation legacy + CREATE UNIQUE INDEX + INSERT 120 + H1..H6 (ordre v2 §6).
 - Doit être suivi d'un GO CTO **séparé** avant toute application.
 
 **NO-GO** :
@@ -322,15 +334,15 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 ## 18. Points nécessitant validation CTO explicite
 
-| # | Point | Recommandation |
-|---|-------|----------------|
-| 1 | `source_document` final | **S1** : `pdf_redevances_portuaires_2006` |
-| 2 | Sort des 4 BLANK_IN_PDF | **A** : exclus de l'import |
-| 3 | Stratégie legacy | **R2** : désactivation 19 + INSERT 120 |
-| 4 | Index unique partiel | **OUI** + ordre d'exécution §6 |
-| 5 | `effective_date` | `2006-01-01` |
-| 6 | Patch runtime supplémentaire | **NON requis** Phase 2 ; reporté à `PAD-BAREME-2006-RUNTIME-EXPAND` |
-| 7 | Création du brouillon documentaire SQL | GO conditionné à validation CTO de ce rapport |
+| # | Point | Recommandation | Statut v2 |
+|---|-------|----------------|-----------|
+| 1 | `source_document` final | **S1** : `pdf_redevances_portuaires_2006` | ✅ VALIDÉ CTO |
+| 2 | Sort des 4 BLANK_IN_PDF | **A** : exclus de l'import | ✅ VALIDÉ CTO |
+| 3 | Stratégie legacy | **R2** : désactivation 19 + INSERT 120 | ✅ VALIDÉ CTO |
+| 4 | Index unique partiel + ordre d'exécution §6 (index AVANT INSERT) | **OUI** | ✅ VALIDÉ CTO |
+| 5 | `effective_date` | `2006-01-01` | ✅ VALIDÉ CTO |
+| 6 | Patch runtime supplémentaire | **NON requis** Phase 2 ; reporté à `PAD-BAREME-2006-RUNTIME-EXPAND` | ✅ VALIDÉ CTO |
+| 7 | Création du brouillon documentaire SQL `2a` | GO conditionné à acceptation des corrections v2 (H2, T13, ordre, doctrine transaction) | ⏳ EN ATTENTE GO CTO SÉPARÉ |
 
 ---
 
