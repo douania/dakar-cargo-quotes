@@ -1,0 +1,140 @@
+{
+  "verdict": "GO",
+  "lot_id": "PAD-BAREME-2006-DROIT-PASSAGE",
+  "generated_at": "2026-05-10T19:10:52.702357+00:00",
+  "csv_sha256": "1c34c05fe596eb48831aa5bc53bf16008b4b6076f541fef27d93de7b0b396be0",
+  "csv_sha256_match": true,
+  "manifest_sha256": "4d60f4e160ace7827f552b043298a0b4a83c338cee4cc8c27da335074697da6a",
+  "checks": [
+    {
+      "id": "A1",
+      "status": "PASS",
+      "details": "SHA-256 match: 1c34c05fe596eb48831aa5bc53bf16008b4b6076f541fef27d93de7b0b396be0"
+    },
+    {
+      "id": "A2",
+      "status": "PASS",
+      "details": "UTF-8 strict OK"
+    },
+    {
+      "id": "B1",
+      "status": "PASS",
+      "details": "Header match (14 cols)"
+    },
+    {
+      "id": "B2",
+      "status": "PASS",
+      "details": "All rows have 14 columns"
+    },
+    {
+      "id": "C1",
+      "status": "PASS",
+      "details": "Total rows = 124"
+    },
+    {
+      "id": "C2",
+      "status": "PASS",
+      "details": "Page counts: {'7': 76, '8': 48}"
+    },
+    {
+      "id": "C3",
+      "status": "PASS",
+      "details": "rate_family = DROIT_PASSAGE everywhere; no PORT_TAX"
+    },
+    {
+      "id": "C4",
+      "status": "PASS",
+      "details": "No duplicate (page, op, cargo, classification)"
+    },
+    {
+      "id": "C5",
+      "status": "PASS",
+      "details": "All classifications in allowed set (22 values)"
+    },
+    {
+      "id": "C6",
+      "status": "PASS",
+      "details": "operation_type counts match manifest: {'IMPORT': 38, 'EXPORT': 38, 'TRANSBORDEMENT': 16, 'TRANSIT_IMPORT': 16, 'TRANSIT_EXPORT': 16}"
+    },
+    {
+      "id": "C7",
+      "status": "PASS",
+      "details": "cell_status counts match: {'PRESENT': 120, 'BLANK_IN_PDF': 4}"
+    },
+    {
+      "id": "D1",
+      "status": "PASS",
+      "details": "operation_type in ['EXPORT', 'IMPORT', 'TRANSBORDEMENT', 'TRANSIT_EXPORT', 'TRANSIT_IMPORT']"
+    },
+    {
+      "id": "D2",
+      "status": "PASS",
+      "details": "cargo_type in ['CONTENEUR', 'CONVENTIONNEL']"
+    },
+    {
+      "id": "D3",
+      "status": "PASS",
+      "details": "cell_status in ['BLANK_IN_PDF', 'PRESENT']"
+    },
+    {
+      "id": "E1",
+      "status": "PASS",
+      "details": "PRESENT amounts ok (120/120)"
+    },
+    {
+      "id": "E2",
+      "status": "PASS",
+      "details": "BLANK_IN_PDF amounts empty (4/4)"
+    },
+    {
+      "id": "E3",
+      "status": "PASS",
+      "details": "Decimal-only comparisons (no float used)"
+    },
+    {
+      "id": "E4",
+      "status": "PASS",
+      "details": "T10 page7/IMPORT/{CONTENEUR,CONVENTIONNEL}=0 PRESENT, distinct from BLANK_IN_PDF"
+    },
+    {
+      "id": "F1",
+      "status": "PASS",
+      "details": "T13/page7/EXPORT/CONVENTIONNEL = BLANK_IN_PDF"
+    },
+    {
+      "id": "F2",
+      "status": "PASS",
+      "details": "T10 page 8 = BLANK_IN_PDF on 3 expected rows"
+    },
+    {
+      "id": "F3",
+      "status": "PASS",
+      "details": "Page7/IMPORT/CONTENEUR P01=28100 P02=2325 P03=13000"
+    },
+    {
+      "id": "G1",
+      "status": "PASS",
+      "details": "DB IMPORT/CONTENEUR active = 19"
+    },
+    {
+      "id": "G2",
+      "status": "PASS",
+      "details": "19/19 strict match (classification+amount Decimal)"
+    },
+    {
+      "id": "G3",
+      "status": "PASS",
+      "details": "Non-regression: CONTENEUR=19, NULL=0"
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "guarantees": {
+    "csv_modified": false,
+    "manifest_modified": false,
+    "db_writes": false,
+    "migrations": false,
+    "edge_functions_changed": false,
+    "runtime_src_changed": false
+  }
+}
