@@ -253,16 +253,23 @@ Calqués sur `PAD_BAREME_2006_LEGACY_BACKFILL_1_MIGRATION_DRAFT.sql` :
 
 ---
 
-## 13. Traitement futur C01/C02/C03 et T13 transit/transbordement
+## 13. Traitement futur C01/C02/C03 et T13 transit/transbordement (v2 corrigé CTO)
+
+**Clarification page 7 vs page 8** :
+
+- T13 **n'apparaît pas comme ligne en page 8**. Le PDF page 8 redirige les produits T13 en transit/transbordement vers `C01/C02/C03` selon la taille du conteneur.
+- La cellule `BLANK_IN_PDF` portant T13 concerne **uniquement** `page 7 / EXPORT / CONVENTIONNEL` (1 cellule).
+- Aucune ligne T13 page 8 n'est attendue, ni en CSV, ni en DB.
 
 | Classification | Présence DB actuelle | Présence CSV Phase 2 | Risque runtime |
 |----------------|----------------------|----------------------|----------------|
-| `T01..T14` | partielle (legacy) | totale | aucun (filtre CONTENEUR/IMPORT) |
+| `T01..T14` | partielle (legacy) | totale (selon page 7) | aucun (filtre CONTENEUR/IMPORT) |
 | `P01..P05` | partielle (legacy) | totale | aucun |
-| `C01`, `C02`, `C03` | **absente** | présente (page 8) | aucun aujourd'hui (jamais référencée par run-pricing ni recommend-pad-category) |
-| `T13` transit/transbordement | absente | partiellement BLANK_IN_PDF (1 ligne T13 EXPORT/CONVENTIONNEL exclue par option A) | aucun |
+| `C01`, `C02`, `C03` | **absente** | présente (page 8 — substituts T13 transit/transbordement par taille conteneur) | aucun aujourd'hui (jamais référencée par run-pricing ni recommend-pad-category) |
+| `T13` (page 7) | absente | 1 cellule `BLANK_IN_PDF` (`EXPORT/CONVENTIONNEL`, exclue par option A) | aucun |
+| `T13` (page 8) | n/a | **non attendu** — substitution C01/C02/C03 | n/a |
 
-**Conclusion** : ingestion data-only sans risque pour la stack runtime actuelle.
+**Implication runtime future** : tout futur lookup transit/transbordement T13 devra être routé vers `C01/C02/C03` selon `container_size_hint`. À spécifier dans `PAD-BAREME-2006-RUNTIME-EXPAND`.
 
 ---
 
