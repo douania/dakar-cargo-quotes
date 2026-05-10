@@ -11,6 +11,10 @@
 --   Stratégie (v2)         : docs/tariff-collection/pad/PAD_BAREME_2006_PHASE2_IMPORT_STRATEGY.md
 --   Validator              : docs/tariff-collection/pad/validate_pad_csv.py (24 PASS / 0 FAIL)
 --
+-- ⚠️  SHA-256 CSV : contrôlé hors SQL par validate_pad_csv.py + manifest figé.
+--     Ce DO block ne recalcule PAS le SHA du fichier CSV (non accessible depuis SQL).
+--     Le payload INSERT est supposé généré à partir du CSV validé.
+--
 -- Doctrine PostgreSQL :
 --   * Une seule transaction (BEGIN ... COMMIT).
 --   * Toutes les gardes lèvent RAISE EXCEPTION ; rollback natif sur échec.
