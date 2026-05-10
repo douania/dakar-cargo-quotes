@@ -466,10 +466,13 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- H3 — 19 lignes inactives legacy source_document
+  -- H3 — 19 lignes inactives legacy source_document (renforcé : provider/category)
   SELECT COUNT(*) INTO v_inactive_count
   FROM public.port_tariffs
-  WHERE source_document = c_source_doc AND is_active = false;
+  WHERE provider = c_provider
+    AND category = c_category
+    AND source_document = c_source_doc
+    AND is_active = false;
   IF v_inactive_count <> c_expected_legacy THEN
     RAISE EXCEPTION 'H3 abort: inactive legacy rows = %, expected %',
       v_inactive_count, c_expected_legacy;
