@@ -1954,6 +1954,11 @@ Deno.serve(async (req) => {
       // ═══ isMaritime — hoisted for PAD-GAP-1 + terminal storage ═══
       const isMaritime = !isExportFlow && !String(caseData.request_type || '').toUpperCase().includes('AIR');
 
+      // ═══ PAD_SHADOW (Lot C) — capture pré-PAD-1, observation seule ═══
+      const SHADOW_ON = Deno.env.get('PAD_RESOLVER_SHADOW') === 'true';
+      const padCategoryBeforeAlias = inputs.padCategory ?? null;
+      let padShadowAliasRows: any[] = [];
+
       // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
       // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
       // commodity_category_id = source de vérité métier, pad_category = copie dénormalisée runtime.
@@ -1966,6 +1971,7 @@ Deno.serve(async (req) => {
               .select('pad_category, bl_term, commodity_category_id')
               .eq('normalized_term', normalizedDescPad)
               .eq('is_validated', true);
+            padShadowAliasRows = padAliasRows ?? [];
 
             if (padAliasRows && padAliasRows.length > 0) {
               if (padAliasRows.length > 1) {
