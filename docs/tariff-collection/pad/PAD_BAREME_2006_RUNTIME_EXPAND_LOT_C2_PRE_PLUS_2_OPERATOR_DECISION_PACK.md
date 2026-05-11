@@ -208,3 +208,39 @@ VALUES (
 ## 8. Verdict
 
 **`LOT_C2_PRE_PLUS_2_OPERATOR_PACK_READY`** — pack publié, en attente de décision opérateur réelle. Aucune action runtime ni DB déclenchée.
+
+---
+
+## 9. Suivi décision opérateur — statut
+
+| Champ | Valeur |
+|---|---|
+| Statut actuel | `awaiting_operator_decision` |
+| Décision retenue | `pending` |
+| Décideur (nom / rôle) | `pending` |
+| Date de décision (ISO 8601) | `pending` |
+| Justification opérateur | `pending` |
+| Conséquence | C.2-pre+3 **gelé** tant que le statut n'est pas `decided` avec Option 1 explicite |
+
+### 9.1 Options possibles (rappel verrouillé)
+
+1. **OUI sans réserve** → seule option qui peut ouvrir un futur Lot **C.2-pre+3** (migration `INSERT` ciblée). **GO CTO séparé requis** en plus de la décision opérateur.
+2. **NON** → **NO-INSERT**. Règle opératoire à appliquer : pour tout cargo libellé seulement `carreaux`, demander la précision matière au client avant pricing.
+3. **CONDITIONNEL / NO-INSERT** → **NO-INSERT**. Même règle opératoire que l'Option 2. Une note libre ne peut PAS remplacer un alias validé : pas d'injection conditionnelle déguisée.
+
+### 9.2 Garde-fous (rappel)
+
+- Aucune injection dans `pad_designation_aliases` autorisée tant que le statut est `pending` ou que la décision retenue est ≠ Option 1.
+- Aucune activation `PAD_RESOLVER_SHADOW` tant que la décision est `pending`.
+- Aucune modification des sections 1–8 de ce pack par cet addendum.
+- Aucune décision opérateur simulée par l'AI ou le système — la décision doit être renseignée par l'opérateur réel identifié.
+
+### 9.3 Procédure de mise à jour
+
+Lorsque la décision opérateur est rendue :
+1. Mettre à jour **uniquement** le tableau § 9 ci-dessus (option choisie, identité du décideur, date ISO 8601, justification métier 1–3 lignes).
+2. Mettre à jour l'entrée `LOT_C2_PRE_NO_ALIAS_COVERAGE` du `docs/DEFERRED_BACKLOG.md` en cohérence (statut, conséquence).
+3. Si — et seulement si — Option 1 retenue : ouvrir un **Lot C.2-pre+3 séparé** (plan dédié + **GO CTO explicite et séparé**) pour la migration `INSERT`. Les sections 1–8 et le SQL DRAFT § 5.2 restent la base de travail.
+4. Si Option 2 ou Option 3 retenue : clôturer la voie d'injection pour `carreaux` seul, formaliser la règle opératoire « précision matière requise », et conserver le gap `pad_category` ouvert au cas par cas. Aucun INSERT.
+
+Aucun INSERT DB n'est autorisé par la simple mise à jour de cette section.
