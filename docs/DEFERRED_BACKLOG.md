@@ -24,6 +24,17 @@ Mise à jour antérieure : 2026-05-07 — **PAD-NOM-2 exécuté : 324 alias offi
 
 Mise à jour antérieure : 2026-05-04 — **Phase UX Communication stabilisée : 3 lots clos, 3 lots code-validé en vérification terrain différée, 7 lots explicitement reportés.** Voir § Rapport de stabilisation ci-dessous.
 
+Mise à jour : 2026-05-12 — **📋 HS10 SUGGESTION — 2 lots ajoutés au backlog (documentation only)** suite à validation idempotence DCQ-P0-HS10-SUGGESTION-IDEMPOTENCE et au constat que le ranking IA HS10 répond *« Without a cargo description »* alors que `cargo.description = "Metallic Poles"` est présent dans le dossier. Ordre imposé : **HS10-RANKING-CONTEXT-ENRICHMENT doit précéder HS10-SUGGESTION-UI-SELECTOR**, sinon l'opérateur verra des suggestions mal classées dans la future carte de validation. Aucun runtime modifié dans cette mise à jour.
+
+---
+
+## HS10 Suggestion — Sujets différés post DCQ-P0-HS10-SUGGESTION-IDEMPOTENCE
+
+| ID | Catégorie | Statut | Priorité | Phase d'origine | Date | Déclencheur de réouverture | Recommandation |
+|----|-----------|--------|----------|-----------------|------|---------------------------|----------------|
+| HS10-RANKING-CONTEXT-ENRICHMENT | Edge function `build-case-puzzle` (extraction HS10) | **🚫 NO-GO — à exécuter en lot dédié** | P1 | DCQ-P0-HS10-SAFE-SUGGESTION-AND-EXEMPTION-V3 | 2026-05-12 | Constat : l'IA de ranking HS10 répond *« Without a cargo description »* alors que `cargo.description = "Metallic Poles"` est présent (dossier `3803115f-b2ed-44c3-a62b-4124bd043613`, event `HS10_CLASSIFICATION_SUGGESTION` 16:13:48). Confidences plafonnées à 0.1–0.2 sur les 5 candidats. Déblocage : GO CTO séparé pour micro-patch chirurgical limité au prompt de ranking. | Avant ranking IA HS10, récupérer et transmettre explicitement au prompt : `cargo.description`, source excerpt autour du code détecté, client / projet si disponible, document source. **Interdictions strictes** : ne pas changer la logique de validation HS10, ne pas écrire `cargo.hs_code`, ne pas toucher `run-pricing` / `quotation-engine` / PAD-NST / Railway / migrations. Vérification post-patch : confidences > 0.5 sur ≥1 candidat sur dossier `Metallic Poles` + idempotence préservée (≤2 events `(case_id, action_code, status=trace, source_digits, sh6, origin, source_label)`). |
+| HS10-SUGGESTION-UI-SELECTOR | UI opérateur CaseView | **🚫 NO-GO — bloqué par HS10-RANKING-CONTEXT-ENRICHMENT** | P2 | DCQ-P0-HS10-SAFE-SUGGESTION-AND-EXEMPTION-V3 | 2026-05-12 | GO CTO séparé requis. Préalable cumulatif : HS10-RANKING-CONTEXT-ENRICHMENT clos avec ranking IA fiable (≥1 candidat à confidence > 0.5). Sans ce préalable, l'UI exposerait à l'opérateur des suggestions au ranking faible et trompeur. | Afficher dans CaseView une carte opérateur lisible avec : code source document (ex. 73089000), SH6 (ex. 730890), liste des candidats HS10 (libellé + DD + TVA), alerte si `rate_divergence=true` (DD/TVA divergent entre candidats), ranking IA + confiance + justification, bouton « Valider ce HS10 ». **Après validation opérateur uniquement** : écrire `cargo.hs_code = HS10 sélectionné` via `set-case-fact` (whitelist `cargo.hs_code` déjà présente), fermer / résoudre le gap `cargo.hs_code`, relancer `build-case-puzzle` si nécessaire. **Interdictions strictes** : aucune écriture automatique `cargo.hs_code` sans clic explicite opérateur, aucune promotion HS8 → HS10, aucune inférence d'exonération côté UI, aucune modif `run-pricing` / `quotation-engine` / PAD-NST. |
+
 ---
 
 ## PAD Nomenclature — Sujets différés post PAD-NOM-2
