@@ -528,28 +528,290 @@ async function resolveSenegalHsCode(
 }
 
 // --- Deterministic HS code extraction from free text (regex) ---
-function extractHsCodesFromText(text: string): string[] {
-  const patterns = [
-    /Code\s*SH\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
-    /HS\s*(?:Code)?\s*:?\s*(\d{4}[\.\s]?\d{2}[\.\s]?\d{2}[\.\s]?\d{2})/gi,
-    /(\d{4}\.\d{2}\.\d{2}\.\d{2})/g,
-    // "Code Douanier" – standard French invoices/proformas
-    /Code\s*Douanier\s*:?\s*(\d{6,10})/gi,
-    // Standalone 10-digit HS codes (isolated block of exactly 10 digits)
-    /(?<!\d)(\d{10})(?!\d)/g,
-  ];
+//
+// DCQ-P0-HS10-SAFE-SUGGESTION-AND-EXEMPTION (v3):
+//  - Patterns restreints au CONTEXTE explicite (parenthèses, label HS/SH/Code Douanier, ligne cargo).
+//  - Le pattern global "8 chiffres isolés" est REJETÉ (capterait dates/références).
+//  - Retourne maintenant aussi sourceLen pour permettre aux callers de refuser la promotion HS6/HS8 → HS10.
+//
+export interface HsExtractionMatch {
+  digits: string;          // normalisé (sourceLen chiffres exactement, jamais tronqué)
+  sourceLen: 6 | 8 | 10;
+  context: "parenthesized" | "hs_label" | "code_douanier" | "iso_10digit" | "cargo_line";
+}
 
+function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
+  const out: HsExtractionMatch[] = [];
   const seen = new Set<string>();
-  for (const regex of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(text)) !== null) {
-      const normalized = match[1].replace(/\D/g, "").substring(0, 10);
-      if (normalized.length >= 6) {
-        seen.add(normalized);
-      }
+
+  function push(digitsRaw: string, ctx: HsExtractionMatch["context"]) {
+    const d = digitsRaw.replace(/\D/g, "");
+    if (d.length !== 6 && d.length !== 8 && d.length !== 10) return;
+    const key = `${d}|${ctx}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ digits: d, sourceLen: d.length as 6 | 8 | 10, context: ctx });
+  }
+
+  // 1. Codes parenthésés 6/8/10 chiffres — ex "(73089000)"
+  for (const m of text.matchAll(/\(\s*(\d{6}|\d{8}|\d{10})\s*\)/g)) {
+    push(m[1], "parenthesized");
+  }
+  // 2. Labels HS/SH (avec ou sans dots, 6/8/10 chiffres)
+  for (const m of text.matchAll(/\b(?:HS|SH)\s*(?:code)?\s*:?\s*(\d{4}[.\s]?\d{2}(?:[.\s]?\d{2})?(?:[.\s]?\d{2})?)/gi)) {
+    push(m[1], "hs_label");
+  }
+  // 3. "Code Douanier" — fournisseurs FR
+  for (const m of text.matchAll(/Code\s*Douanier\s*:?\s*(\d{6,10})/gi)) {
+    push(m[1], "code_douanier");
+  }
+  // 4. Code 10 chiffres formaté "4.2.2.2"
+  for (const m of text.matchAll(/(\d{4}\.\d{2}\.\d{2}\.\d{2})/g)) {
+    push(m[1], "iso_10digit");
+  }
+  // 5. Bloc isolé de 10 chiffres
+  for (const m of text.matchAll(/(?<!\d)(\d{10})(?!\d)/g)) {
+    push(m[1], "iso_10digit");
+  }
+  // 6. Contexte "cargo line" — 6/8 chiffres dans une ligne mentionnant cargo/description/marchandise/goods/commodity/product
+  const lines = text.split(/\r?\n/);
+  for (const ln of lines) {
+    if (!/cargo|description|marchandise|goods|commodity|product/i.test(ln)) continue;
+    for (const m of ln.matchAll(/(?<!\d)(\d{6}|\d{8})(?!\d)/g)) {
+      push(m[1], "cargo_line");
     }
   }
-  return [...seen];
+  // ⚠️ PAS de pattern "8 chiffres isolés global" — interdit (capturerait dates/refs)
+  return out;
+}
+
+// Wrapper rétrocompatible — renvoie uniquement les codes 10 chiffres validables sans contexte sensible.
+// (Conservé pour compat avec d'éventuels appelants externes ; non utilisé dans le pipeline.)
+function extractHsCodesFromText(text: string): string[] {
+  const detailed = extractHsCodesFromTextDetailed(text);
+  return [...new Set(detailed.map((m) => m.digits))];
+}
+
+// --- DCQ-P0-HS10-SAFE-SUGGESTION-AND-EXEMPTION (v3) ---
+// Helper: charger les détails tarifaires (DD/TVA + description) d'un set de codes HS10
+async function loadHsCandidatesDetails(
+  serviceClient: any,
+  codes10: string[],
+): Promise<Array<{ code10: string; description: string | null; dd: number | null; tva: number | null }>> {
+  if (!codes10.length) return [];
+  const { data } = await serviceClient
+    .from("hs_codes")
+    .select("code_normalized, description, dd, tva")
+    .in("code_normalized", codes10);
+  const byCode = new Map<string, any>((data || []).map((r: any) => [r.code_normalized, r]));
+  return codes10.map((c) => {
+    const r = byCode.get(c);
+    return {
+      code10: c,
+      description: r?.description ?? null,
+      dd: r?.dd != null ? Number(r.dd) : null,
+      tva: r?.tva != null ? Number(r.tva) : null,
+    };
+  });
+}
+
+// Helper: classement IA (best-effort, jamais bloquant)
+async function rankHsCandidatesWithAI(args: {
+  cargoDescription: string;
+  candidates: Array<{ code10: string; description: string | null; dd: number | null; tva: number | null }>;
+  timeoutMs?: number;
+}): Promise<Array<{ code10: string; confidence: number; reason: string }> | null> {
+  const { cargoDescription, candidates } = args;
+  const timeoutMs = args.timeoutMs ?? 8000;
+  if (!candidates.length) return null;
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) return null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a customs classification assistant for CEDEAO/UEMOA tariffs. Given a cargo description and a list of HS10 candidates (with DD/TVA and official description), rank them by likelihood. Reply with STRICT JSON only: {\"ranked\":[{\"code10\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}]}.",
+          },
+          {
+            role: "user",
+            content: `Cargo description: ${cargoDescription || "(unknown)"}\n\nCandidates:\n${candidates
+              .map((c) => `- ${c.code10} | DD=${c.dd ?? "?"}% TVA=${c.tva ?? "?"}% | ${c.description ?? "(no description)"}`)
+              .join("\n")}\n\nReturn JSON only.`,
+          },
+        ],
+      }),
+    });
+    clearTimeout(t);
+    if (!resp.ok) {
+      console.warn(`[HS-AI] ranking_failed reason=http_${resp.status}`);
+      return null;
+    }
+    const json = await resp.json();
+    const content = json?.choices?.[0]?.message?.content || "";
+    const cleaned = content.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed?.ranked)) return null;
+    const codeSet = new Set(candidates.map((c) => c.code10));
+    return parsed.ranked
+      .filter((r: any) => r && typeof r.code10 === "string" && codeSet.has(r.code10))
+      .map((r: any) => ({
+        code10: r.code10,
+        confidence: Math.max(0, Math.min(1, Number(r.confidence) || 0)),
+        reason: String(r.reason || "").slice(0, 240),
+      }));
+  } catch (e) {
+    console.warn(`[HS-AI] ranking_failed reason=${(e as Error).message || "unknown"}`);
+    return null;
+  }
+}
+
+// Helper: insérer un événement de suggestion HS10 dans la chronologie (visible OperatorJournal,
+// invisible pour ReadyActionsPanel car event_type dédié et action_code distinct).
+async function emitHs10SuggestionEvent(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    source_digits: string;
+    source_context: HsExtractionMatch["context"];
+    sh6: string;
+    candidates: Array<{ code10: string; description: string | null; dd: number | null; tva: number | null }>;
+    ai_ranking: Array<{ code10: string; confidence: number; reason: string }> | null;
+    origin: "ai_extraction" | "document_regex" | "email_regex" | "post_attach";
+    source_label?: string;
+  },
+): Promise<void> {
+  const dds = args.candidates.map((c) => c.dd).filter((v): v is number => v != null);
+  const rate_divergence = dds.length > 1 && Math.max(...dds) - Math.min(...dds) > 0.0001;
+  const rates_available = dds.length > 0;
+  const aiOk = args.ai_ranking != null;
+  const operator_message = aiOk
+    ? `Code source ${args.source_digits} (${args.source_context}) → ${args.candidates.length} HS10 candidat(s) en SH6=${args.sh6}.${rate_divergence ? " Attention : taux DD divergents, validation douane requise." : ""}`
+    : `Code source ${args.source_digits} (${args.source_context}) → ${args.candidates.length} HS10 candidat(s). Classement IA indisponible — sélection manuelle requise.`;
+
+  try {
+    await serviceClient.from("case_timeline_events").insert({
+      case_id: args.case_id,
+      event_type: "hs10_suggestion",
+      actor_type: "system",
+      event_data: {
+        action_code: "HS10_CLASSIFICATION_SUGGESTION",
+        status: "trace", // ⚠️ pas "open" — n'apparaît pas comme action opérateur à traiter
+        action_type: "hs10_suggestion_pending",
+        origin: args.origin,
+        source_digits: args.source_digits,
+        source_context: args.source_context,
+        source_label: args.source_label || null,
+        sh6: args.sh6,
+        candidates: args.candidates,
+        ai_ranking: args.ai_ranking,
+        rate_divergence,
+        rates_available,
+        operator_message,
+      },
+    });
+    console.log(`[HS Suggestion] Emitted timeline event for source=${args.source_digits} (${args.candidates.length} candidates)`);
+  } catch (e) {
+    console.warn(`[HS Suggestion] insert failed: ${(e as Error).message}`);
+  }
+}
+
+// Helper: créer un GAP cargo.hs_code (idempotent par case_id + status='open')
+async function ensureHsCodeGap(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    is_blocking: boolean;
+    question_fr: string;
+    question_en: string;
+  },
+): Promise<boolean> {
+  const { data: existing } = await serviceClient
+    .from("quote_gaps")
+    .select("id")
+    .eq("case_id", args.case_id)
+    .eq("gap_key", "cargo.hs_code")
+    .eq("status", "open")
+    .maybeSingle();
+  if (existing?.id) return false;
+  await serviceClient.from("quote_gaps").insert({
+    case_id: args.case_id,
+    gap_key: "cargo.hs_code",
+    gap_category: "cargo",
+    question_fr: args.question_fr,
+    question_en: args.question_en,
+    priority: "high",
+    is_blocking: args.is_blocking,
+  });
+  return true;
+}
+
+// Orchestrateur : pour un code source <10 chiffres, créer suggestion + GAP (jamais d'écriture cargo.hs_code)
+async function handleSubTenHsSuggestion(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    source_digits: string;       // 6 ou 8 chiffres
+    source_context: HsExtractionMatch["context"];
+    origin: "ai_extraction" | "document_regex" | "email_regex" | "post_attach";
+    source_label?: string;
+    cargoDescription?: string;
+  },
+): Promise<{ blocking: boolean; status: "unique" | "ambiguous" | "not_found" }> {
+  const sh6 = args.source_digits.substring(0, 6);
+  const result = await resolveSenegalHsCode(serviceClient, args.source_digits);
+
+  if (result.status === "not_found") {
+    await ensureHsCodeGap(serviceClient, {
+      case_id: args.case_id,
+      is_blocking: true,
+      question_fr: `Code HS source "${args.source_digits}" non résolu en HS10 dans la nomenclature CEDEAO/UEMOA. Veuillez fournir le code HS 10 chiffres.`,
+      question_en: `Source HS code "${args.source_digits}" not resolved to HS10 in CEDEAO/UEMOA nomenclature. Please provide the 10-digit HS code.`,
+    });
+    return { blocking: true, status: "not_found" };
+  }
+
+  // unique ou ambiguous → constituer la liste des candidats, charger DD/TVA, ranker IA, émettre suggestion
+  const codes10 =
+    result.status === "unique" ? [result.code10] : result.candidates.map((c) => c.code10);
+  const candidates = await loadHsCandidatesDetails(serviceClient, codes10);
+  const ranking = await rankHsCandidatesWithAI({
+    cargoDescription: args.cargoDescription || "",
+    candidates,
+  });
+
+  await emitHs10SuggestionEvent(serviceClient, {
+    case_id: args.case_id,
+    source_digits: args.source_digits,
+    source_context: args.source_context,
+    sh6,
+    candidates,
+    ai_ranking: ranking,
+    origin: args.origin,
+    source_label: args.source_label,
+  });
+
+  const isBlocking = result.status === "ambiguous";
+  await ensureHsCodeGap(serviceClient, {
+    case_id: args.case_id,
+    is_blocking: isBlocking,
+    question_fr: isBlocking
+      ? `Plusieurs HS10 possibles pour le code source "${args.source_digits}" (SH6=${sh6}). Classification douane requise — voir suggestions dans la chronologie.`
+      : `Code HS10 suggéré pour le code source "${args.source_digits}" (SH6=${sh6}). Confirmation opérateur requise — voir suggestions dans la chronologie.`,
+    question_en: isBlocking
+      ? `Multiple HS10 candidates for source code "${args.source_digits}" (SH6=${sh6}). Customs classification required — see timeline suggestions.`
+      : `HS10 suggestion for source code "${args.source_digits}" (SH6=${sh6}). Operator confirmation required — see timeline suggestions.`,
+  });
+
+  return { blocking: isBlocking, status: result.status };
 }
 
 // --- Deterministic cargo value extraction from free text (regex) ---
