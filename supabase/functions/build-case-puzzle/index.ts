@@ -538,47 +538,64 @@ export interface HsExtractionMatch {
   digits: string;          // normalisé (sourceLen chiffres exactement, jamais tronqué)
   sourceLen: 6 | 8 | 10;
   context: "parenthesized" | "hs_label" | "code_douanier" | "iso_10digit" | "cargo_line";
+  // HS10-RANKING-CONTEXT-ENRICHMENT v2 : extrait ±80 chars autour du match
+  // (utilisé uniquement par le prompt IA de ranking ; jamais persisté en DB,
+  // jamais utilisé pour la résolution/promotion HS10).
+  excerpt?: string;
 }
 
 function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
   const out: HsExtractionMatch[] = [];
   const seen = new Set<string>();
 
-  function push(digitsRaw: string, ctx: HsExtractionMatch["context"]) {
+  // Helper : extrait ±80 chars autour d'un index dans une source donnée
+  function makeExcerpt(source: string, idx: number, matchLen: number): string {
+    const start = Math.max(0, idx - 80);
+    const end = Math.min(source.length, idx + matchLen + 80);
+    return source.slice(start, end).replace(/\s+/g, " ").trim();
+  }
+
+  function push(digitsRaw: string, ctx: HsExtractionMatch["context"], excerpt?: string) {
     const d = digitsRaw.replace(/\D/g, "");
     if (d.length !== 6 && d.length !== 8 && d.length !== 10) return;
     const key = `${d}|${ctx}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ digits: d, sourceLen: d.length as 6 | 8 | 10, context: ctx });
+    out.push({
+      digits: d,
+      sourceLen: d.length as 6 | 8 | 10,
+      context: ctx,
+      excerpt: excerpt ? excerpt.slice(0, 240) : undefined,
+    });
   }
 
   // 1. Codes parenthésés 6/8/10 chiffres — ex "(73089000)"
   for (const m of text.matchAll(/\(\s*(\d{6}|\d{8}|\d{10})\s*\)/g)) {
-    push(m[1], "parenthesized");
+    push(m[1], "parenthesized", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 2. Labels HS/SH (avec ou sans dots, 6/8/10 chiffres)
   for (const m of text.matchAll(/\b(?:HS|SH)\s*(?:code)?\s*:?\s*(\d{4}[.\s]?\d{2}(?:[.\s]?\d{2})?(?:[.\s]?\d{2})?)/gi)) {
-    push(m[1], "hs_label");
+    push(m[1], "hs_label", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 3. "Code Douanier" — fournisseurs FR
   for (const m of text.matchAll(/Code\s*Douanier\s*:?\s*(\d{6,10})/gi)) {
-    push(m[1], "code_douanier");
+    push(m[1], "code_douanier", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 4. Code 10 chiffres formaté "4.2.2.2"
   for (const m of text.matchAll(/(\d{4}\.\d{2}\.\d{2}\.\d{2})/g)) {
-    push(m[1], "iso_10digit");
+    push(m[1], "iso_10digit", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 5. Bloc isolé de 10 chiffres
   for (const m of text.matchAll(/(?<!\d)(\d{10})(?!\d)/g)) {
-    push(m[1], "iso_10digit");
+    push(m[1], "iso_10digit", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 6. Contexte "cargo line" — 6/8 chiffres dans une ligne mentionnant cargo/description/marchandise/goods/commodity/product
   const lines = text.split(/\r?\n/);
   for (const ln of lines) {
     if (!/cargo|description|marchandise|goods|commodity|product/i.test(ln)) continue;
     for (const m of ln.matchAll(/(?<!\d)(\d{6}|\d{8})(?!\d)/g)) {
-      push(m[1], "cargo_line");
+      // Pour cargo_line, l'extrait est la ligne entière (déjà sémantiquement riche)
+      push(m[1], "cargo_line", ln.replace(/\s+/g, " ").trim().slice(0, 240));
     }
   }
   // ⚠️ PAS de pattern "8 chiffres isolés global" — interdit (capturerait dates/refs)
@@ -616,9 +633,16 @@ async function loadHsCandidatesDetails(
 }
 
 // Helper: classement IA (best-effort, jamais bloquant)
+// HS10-RANKING-CONTEXT-ENRICHMENT v2 :
+// Le prompt reçoit maintenant explicitement cargoDescription, sourceExcerpt,
+// clientName et documentSource. Aucun changement de modèle ni de timeout.
+// Aucune écriture cargo.hs_code, aucun impact sur la résolution/promotion HS10.
 async function rankHsCandidatesWithAI(args: {
   cargoDescription: string;
   candidates: Array<{ code10: string; description: string | null; dd: number | null; tva: number | null }>;
+  sourceExcerpt?: string;
+  clientName?: string;
+  documentSource?: string;
   timeoutMs?: number;
 }): Promise<Array<{ code10: string; confidence: number; reason: string }> | null> {
   const { cargoDescription, candidates } = args;
@@ -626,6 +650,45 @@ async function rankHsCandidatesWithAI(args: {
   if (!candidates.length) return null;
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) return null;
+
+  const cargoDesc = (cargoDescription || "").trim();
+  const sourceExcerpt = (args.sourceExcerpt || "").trim();
+  const clientName = (args.clientName || "").trim();
+  const documentSource = (args.documentSource || "").trim();
+
+  // Log sanitisé (ne jamais logger le prompt complet — peut contenir données client/OCR sensibles)
+  console.log(
+    `[HS-AI] ranking_context ` +
+      JSON.stringify({
+        hasCargoDescription: cargoDesc.length > 0,
+        cargoDescriptionPreview: cargoDesc.slice(0, 80),
+        hasSourceExcerpt: sourceExcerpt.length > 0,
+        sourceExcerptPreview: sourceExcerpt.slice(0, 120),
+        clientNamePreview: clientName.slice(0, 80),
+        documentSource: documentSource.slice(0, 120),
+        candidateCount: candidates.length,
+      }),
+  );
+
+  const userPrompt = [
+    "=== DOSSIER CONTEXT ===",
+    `Client: ${clientName || "N/A"}`,
+    `Cargo description: ${cargoDesc || "N/A"}`,
+    `Source excerpt (text around the detected HS code): ${sourceExcerpt || "N/A"}`,
+    `Document source: ${documentSource || "N/A"}`,
+    "",
+    "=== CANDIDATE HS10 CODES ===",
+    candidates
+      .map((c) => `- ${c.code10} | DD=${c.dd ?? "?"}% TVA=${c.tva ?? "?"}% | ${c.description ?? "(no description)"}`)
+      .join("\n"),
+    "",
+    "Task: Given ALL the context above, rank the HS10 candidates by likelihood for this cargo.",
+    'Cite explicitly which context elements support your ranking in each "reason".',
+    "If the context is insufficient to differentiate, return prudent confidences and explain why.",
+    "",
+    'Reply with STRICT JSON only: {"ranked":[{"code10":"...","confidence":0.0-1.0,"reason":"..."}]}',
+  ].join("\n");
+
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -639,14 +702,9 @@ async function rankHsCandidatesWithAI(args: {
           {
             role: "system",
             content:
-              "You are a customs classification assistant for CEDEAO/UEMOA tariffs. Given a cargo description and a list of HS10 candidates (with DD/TVA and official description), rank them by likelihood. Reply with STRICT JSON only: {\"ranked\":[{\"code10\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}]}.",
+              "You are a customs classification assistant for CEDEAO/UEMOA tariffs. Use the dossier context (client, cargo description, source excerpt, document source) AND the candidate HS10 codes (with DD/TVA and official description) to rank them by likelihood. Reply with STRICT JSON only.",
           },
-          {
-            role: "user",
-            content: `Cargo description: ${cargoDescription || "(unknown)"}\n\nCandidates:\n${candidates
-              .map((c) => `- ${c.code10} | DD=${c.dd ?? "?"}% TVA=${c.tva ?? "?"}% | ${c.description ?? "(no description)"}`)
-              .join("\n")}\n\nReturn JSON only.`,
-          },
+          { role: "user", content: userPrompt },
         ],
       }),
     });
@@ -798,6 +856,12 @@ async function handleSubTenHsSuggestion(
     origin: "ai_extraction" | "document_regex" | "email_regex" | "post_attach";
     source_label?: string;
     cargoDescription?: string;
+    // HS10-RANKING-CONTEXT-ENRICHMENT v2 — contexte transmis UNIQUEMENT au ranker IA
+    // (jamais persisté en DB, jamais utilisé pour la résolution/promotion HS10,
+    // jamais inclus dans le tuple d'idempotence d'emitHs10SuggestionEvent).
+    sourceExcerpt?: string;
+    clientName?: string;
+    documentSource?: string;
   },
 ): Promise<{ blocking: boolean; status: "unique" | "ambiguous" | "not_found" }> {
   const sh6 = args.source_digits.substring(0, 6);
@@ -820,6 +884,9 @@ async function handleSubTenHsSuggestion(
   const ranking = await rankHsCandidatesWithAI({
     cargoDescription: args.cargoDescription || "",
     candidates,
+    sourceExcerpt: args.sourceExcerpt,
+    clientName: args.clientName,
+    documentSource: args.documentSource,
   });
 
   await emitHs10SuggestionEvent(serviceClient, {
@@ -2432,6 +2499,20 @@ Deno.serve(async (req) => {
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 
+    // HS10-RANKING-CONTEXT-ENRICHMENT v2 : charger une seule fois client_company
+    // et cargo.description depuis quote_facts pour enrichir le prompt IA de ranking HS10.
+    // Aucun impact métier — utilisé uniquement par rankHsCandidatesWithAI.
+    const { data: hsRankingFacts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text")
+      .eq("case_id", case_id)
+      .in("fact_key", ["contacts.client_company", "cargo.description"])
+      .eq("is_current", true);
+    const hsRankingClientName: string =
+      (hsRankingFacts || []).find((r: any) => r.fact_key === "contacts.client_company")?.value_text || "";
+    const hsRankingCargoDescription: string =
+      (hsRankingFacts || []).find((r: any) => r.fact_key === "cargo.description")?.value_text || "";
+
     // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
     const FROZEN_STATUSES = ["DECISIONS_PENDING", "DECISIONS_COMPLETE", "ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
     const isFrozenCase = FROZEN_STATUSES.includes(caseData.status);
@@ -2680,6 +2761,9 @@ Deno.serve(async (req) => {
               source_digits: rawDigits,
               source_context: "hs_label",
               origin: "ai_extraction",
+              cargoDescription: hsRankingCargoDescription,
+              clientName: hsRankingClientName,
+              sourceExcerpt: (fact as any)?.sourceExcerpt || undefined,
             });
             factsSkipped++;
             continue;
@@ -3153,6 +3237,9 @@ Deno.serve(async (req) => {
                 origin: "document_regex",
                 source_label: doc.file_name,
                 cargoDescription: cargoDescDoc,
+                sourceExcerpt: m.excerpt,
+                clientName: hsRankingClientName,
+                documentSource: doc.file_name,
               });
             }
           }
@@ -3308,6 +3395,9 @@ Deno.serve(async (req) => {
                 origin: "email_regex",
                 source_label: email.subject || "(no subject)",
                 cargoDescription: cargoDescEmail,
+                sourceExcerpt: m.excerpt,
+                clientName: hsRankingClientName,
+                documentSource: email.subject || "(no subject)",
               });
             }
           }
@@ -3890,6 +3980,7 @@ Deno.serve(async (req) => {
               source_context: "hs_label",
               origin: "post_attach",
               cargoDescription: descFactPA?.value_text || "",
+              clientName: hsRankingClientName,
             });
             gapsIdentified++;
           } else {
