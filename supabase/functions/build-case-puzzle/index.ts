@@ -856,6 +856,12 @@ async function handleSubTenHsSuggestion(
     origin: "ai_extraction" | "document_regex" | "email_regex" | "post_attach";
     source_label?: string;
     cargoDescription?: string;
+    // HS10-RANKING-CONTEXT-ENRICHMENT v2 — contexte transmis UNIQUEMENT au ranker IA
+    // (jamais persisté en DB, jamais utilisé pour la résolution/promotion HS10,
+    // jamais inclus dans le tuple d'idempotence d'emitHs10SuggestionEvent).
+    sourceExcerpt?: string;
+    clientName?: string;
+    documentSource?: string;
   },
 ): Promise<{ blocking: boolean; status: "unique" | "ambiguous" | "not_found" }> {
   const sh6 = args.source_digits.substring(0, 6);
@@ -878,6 +884,9 @@ async function handleSubTenHsSuggestion(
   const ranking = await rankHsCandidatesWithAI({
     cargoDescription: args.cargoDescription || "",
     candidates,
+    sourceExcerpt: args.sourceExcerpt,
+    clientName: args.clientName,
+    documentSource: args.documentSource,
   });
 
   await emitHs10SuggestionEvent(serviceClient, {
