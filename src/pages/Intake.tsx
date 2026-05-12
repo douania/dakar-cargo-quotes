@@ -165,13 +165,49 @@ export default function Intake() {
     cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
   };
 
-  /** Parse operator text overrides (container count, type, destination) */
+  // Apostrophe class: simple, typographic ’, prime ′, double-quote
+  const APOS = `['\\u2019\\u2032"]`;
+
+  /** Trim + drop trailing punctuation .,;: + cap length */
+  function cleanCaptured(value: string, max = 80): string {
+    return value.trim().replace(/[.,;:]+$/, "").trim().slice(0, max);
+  }
+
+  /**
+   * Parse operator text overrides.
+   *
+   * @test-manual DCQ-P0-WHATSAPP-RFQ-INTAKE-GAPS — RFQ KAS0032026
+   *   Input:
+   *     "From Pune To Nhava Sheva port, to Dakar (Senegal) and further to Kaolack City
+   *      Port of Discharge: Dakar Port, Senegal
+   *      Final Place of Discharge of Containers: Kaolack Site, Senegal
+   *      20 x 40' HC ..."
+   *   Expected overrides:
+   *     origin = "Pune"
+   *     origin_port = "Nhava Sheva"
+   *     pod = "Dakar Port, Senegal"
+   *     destination = "Kaolack Site, Senegal"   (NOT Dakar)
+   *     container_count = 20
+   *     container_type  = "40' HC"
+   *     requires_final_destination = true
+   *
+   * @test-manual Cas piège port-to-port pur:
+   *   "Sea quote: Port of Discharge: Dakar Port. 1x40HC."
+   *   → requires_final_destination=false, pod resolves route.destinations.
+   *
+   * @test-manual Cas piège inland sans extraction:
+   *   "Door delivery required. Port of Discharge: Dakar Port."
+   *   → requires_final_destination=true, destination=undefined.
+   *   route.destinations gap MUST remain (Dakar must NOT mask Kaolack/inland).
+   */
   function parseTextOverrides(inputText: string): Record<string, any> {
     const overrides: Record<string, any> = {};
+    // Normalize CRLF → LF for robust regex separators (WhatsApp / Gmail / Windows)
+    const normalized = inputText.replace(/\r\n/g, "\n");
 
-    // Pattern 1: digits — "1 conteneur 40'", "1 x 40HC"
-    const containerMatch = inputText.match(
-      /(\d+)\s*(?:seul\s+)?(?:conteneur|container|x)\s*(\d{2})?[''']?\s*(HC|DV|OT|FR|GP)?/i
+    // Pattern 1: digits — "1 conteneur 40'", "1 x 40HC", "20 x 40' HC", "20 x 40’ HC"
+    const containerMatch = normalized.match(
+      new RegExp(`(\\d+)\\s*(?:seul\\s+)?(?:conteneur|container|x)\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`, "i")
     );
     if (containerMatch) {
       overrides.container_count = parseInt(containerMatch[1], 10);
@@ -185,10 +221,10 @@ export default function Intake() {
     // Pattern 2: French words — "un des huit conteneurs 40'"
     if (overrides.container_count == null) {
       const wordPattern = new RegExp(
-        `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?\\s*(\\d{2})?['''"]*\\s*(HC|DV|OT|FR|GP)?`,
+        `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
         "i"
       );
-      const wordMatch = inputText.match(wordPattern);
+      const wordMatch = normalized.match(wordPattern);
       if (wordMatch) {
         overrides.container_count = FRENCH_NUMBERS[wordMatch[1].toLowerCase()] ?? 1;
         if (wordMatch[2]) {
@@ -199,26 +235,95 @@ export default function Intake() {
       }
     }
 
-    // Detect delivery location (explicit space, NOT \s, to avoid newline bleed)
-    const destPatterns = [
-      /Lieu\s+de\s+Livraison[^:\n]*:\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
-      /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
-      /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ0-9 -]+)/i,
+    // ── ORIGIN (city) ─────────────────────────────────────────────────────
+    const originPatterns = [
+      /From\s+([A-Za-z][\w\s-]+?)\s+(?:To|to|→|-)/,
+      /Origin(?:e)?\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      /Départ\s+(?:de|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      /Pickup\s+(?:from|at|location)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
     ];
-    for (const pat of destPatterns) {
-      const match = inputText.match(pat);
-      if (match) {
-        overrides.destination = match[1].trim();
+    for (const pat of originPatterns) {
+      const m = normalized.match(pat);
+      if (m && m[1]) {
+        overrides.origin = cleanCaptured(m[1]);
         break;
       }
     }
+
+    // ── ORIGIN PORT / POL ────────────────────────────────────────────────
+    const polPatterns = [
+      /(?:To|to|via)\s+([A-Za-z][\w\s-]+?)\s+(?:port|Port)\b/,
+      /(?:POL|Port\s+of\s+Loading)\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
+    ];
+    for (const pat of polPatterns) {
+      const m = normalized.match(pat);
+      if (m && m[1]) {
+        overrides.origin_port = cleanCaptured(m[1]);
+        break;
+      }
+    }
+
+    // ── POD (Port of Discharge) ──────────────────────────────────────────
+    const podMatch = normalized.match(
+      /(?:POD|Port\s+of\s+Discharge)\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i
+    );
+    if (podMatch && podMatch[1]) {
+      overrides.pod = cleanCaptured(podMatch[1]);
+    }
+
+    // ── FINAL DESTINATION (priority strong) ──────────────────────────────
+    const finalDestPatterns = [
+      /Final\s+Place\s+of\s+Discharge[^:\n]*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
+      /further\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?(?:\s+(?:City|Site|Town))?)(?:[.,;\n]|$)/i,
+      /Deliveries?\s+up\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      /Final\s+destination\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.,;\n]|$)/i,
+    ];
+    for (const pat of finalDestPatterns) {
+      const m = normalized.match(pat);
+      if (m && m[1]) {
+        overrides.destination = cleanCaptured(m[1]);
+        break;
+      }
+    }
+
+    // FR fallback patterns (kept as before)
+    if (!overrides.destination) {
+      const destPatterns = [
+        /Lieu\s+de\s+Livraison[^:\n]*:\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+        /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+        /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      ];
+      for (const pat of destPatterns) {
+        const match = normalized.match(pat);
+        if (match && match[1]) {
+          overrides.destination = cleanCaptured(match[1]);
+          break;
+        }
+      }
+    }
+
+    // ── GUARD: requires_final_destination ────────────────────────────────
+    // If text mentions an inland delivery cue, POD/IA destination must NOT mask the gap.
+    overrides.requires_final_destination =
+      /final\s+place|further\s+to|deliveries?\s+up\s+to|door|site|chantier|livraison/i.test(normalized);
 
     return overrides;
   }
 
   // Mapping: Railway missing_field name -> resolver checking if data is available
   const FIELD_RESOLVERS: Record<string, (a: Record<string, any>, o: Record<string, any>) => boolean> = {
-    "route.destinations": (a, o) => !!(o.destination || a.destination),
+    "route.origins": (a, o) =>
+      !!(o.origin || o.origin_port || a.origin || a.origin_port),
+    "route.destinations": (a, o) => {
+      // Locally-extracted final destination = absolute priority
+      if (o.destination) return true;
+      // Inland cue present → require a real local final destination.
+      // Do NOT let a.destination (Railway/IA) nor o.pod mask the gap.
+      // Dakar must NEVER mask Kaolack.
+      if (o.requires_final_destination) return false;
+      // Otherwise: Railway/IA destination or POD acceptable as fallback
+      return !!(a.destination || o.pod);
+    },
     "cargo.container_count": (a, o) => !!(o.container_count || a.container_count),
     "cargo.weight": (a, o) => !!(a.weight_kg),
     "cargo.commodity": (a, o) => !!(a.commodity || a.cargo_description),
@@ -255,7 +360,13 @@ export default function Intake() {
     const containerCount = Number(textOverrides.container_count ?? mergedAnalysis.container_count) || 0;
     const containerType = String(textOverrides.container_type ?? mergedAnalysis.container_type ?? "").replace(/[^0-9]/g, "");
     const weightKg = Number(mergedAnalysis.weight_kg) || 0;
-    const destination = textOverrides.destination ?? mergedAnalysis.destination ?? null;
+    const requiresFinal = !!textOverrides.requires_final_destination;
+    // Safe destination for display: never show Dakar/IA when inland is expected but not extracted
+    const destination = textOverrides.destination
+      ?? (requiresFinal ? null : (mergedAnalysis.destination ?? null));
+    const origin = textOverrides.origin ?? mergedAnalysis.origin ?? null;
+    const originPort = textOverrides.origin_port ?? mergedAnalysis.origin_port ?? null;
+    const pod = textOverrides.pod ?? null;
 
     // Always filter missing_fields against available data
     let result = filterMissingFields(data, mergedAnalysis, textOverrides);
@@ -293,18 +404,29 @@ export default function Intake() {
         filtered.push("Importation partielle détectée");
       }
 
-      // Show destination if detected
+      if (origin) filtered.push(`📦 Origine : ${origin}`);
+      if (originPort) filtered.push(`🚢 Port d'embarquement (probable) : ${originPort}`);
+      if (pod) filtered.push(`⚓ Port de déchargement : ${pod}`);
       if (destination) {
-        filtered.push(`📍 Lieu de livraison : ${destination}`);
+        filtered.push(`📍 Destination finale : ${destination}`);
+      } else if (requiresFinal) {
+        filtered.push(`⚠️ Destination finale inland mentionnée mais non extraite — préciser`);
       }
 
       return { ...result, assumptions: filtered };
     }
 
-    // Even if no container info, show destination override
+    // No container info path — still surface route hints
+    const assumptions = [...(result.assumptions || [])];
+    if (origin) assumptions.push(`📦 Origine : ${origin}`);
+    if (originPort) assumptions.push(`🚢 Port d'embarquement (probable) : ${originPort}`);
+    if (pod) assumptions.push(`⚓ Port de déchargement : ${pod}`);
     if (destination) {
-      const assumptions = [...(result.assumptions || [])];
-      assumptions.push(`📍 Lieu de livraison : ${destination}`);
+      assumptions.push(`📍 Destination finale : ${destination}`);
+    } else if (requiresFinal) {
+      assumptions.push(`⚠️ Destination finale inland mentionnée mais non extraite — préciser`);
+    }
+    if (assumptions.length !== (result.assumptions || []).length) {
       return { ...result, assumptions };
     }
 
@@ -321,7 +443,11 @@ export default function Intake() {
     const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
     const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
     const weightKg = Number(analysis.weight_kg) || 0;
-    const destination = textOverrides.destination ?? analysis.destination ?? null;
+    // Guard: if inland final destination is required but not extracted locally,
+    // do NOT inject mergedAnalysis.destination (e.g. Dakar) as routing.destination_city.
+    // Dakar must NEVER mask Kaolack.
+    const destination = textOverrides.destination
+      ?? (textOverrides.requires_final_destination ? null : (analysis.destination ?? null));
 
     const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [];
 
