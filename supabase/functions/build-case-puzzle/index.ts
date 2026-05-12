@@ -2499,16 +2499,19 @@ Deno.serve(async (req) => {
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 
-    // HS10-RANKING-CONTEXT-ENRICHMENT v2 : charger une seule fois le client_company
-    // depuis quote_facts pour enrichir le prompt IA de ranking HS10. Aucun impact métier.
-    const { data: clientCompanyFact } = await serviceClient
+    // HS10-RANKING-CONTEXT-ENRICHMENT v2 : charger une seule fois client_company
+    // et cargo.description depuis quote_facts pour enrichir le prompt IA de ranking HS10.
+    // Aucun impact métier — utilisé uniquement par rankHsCandidatesWithAI.
+    const { data: hsRankingFacts } = await serviceClient
       .from("quote_facts")
-      .select("value_text")
+      .select("fact_key, value_text")
       .eq("case_id", case_id)
-      .eq("fact_key", "contacts.client_company")
-      .eq("is_current", true)
-      .maybeSingle();
-    const hsRankingClientName: string = clientCompanyFact?.value_text || "";
+      .in("fact_key", ["contacts.client_company", "cargo.description"])
+      .eq("is_current", true);
+    const hsRankingClientName: string =
+      (hsRankingFacts || []).find((r: any) => r.fact_key === "contacts.client_company")?.value_text || "";
+    const hsRankingCargoDescription: string =
+      (hsRankingFacts || []).find((r: any) => r.fact_key === "cargo.description")?.value_text || "";
 
     // Phase C: Statuts figés qui ne doivent pas être modifiés automatiquement
     const FROZEN_STATUSES = ["DECISIONS_PENDING", "DECISIONS_COMPLETE", "ACK_READY_FOR_PRICING", "PRICED_DRAFT", "HUMAN_REVIEW", "SENT", "ACCEPTED", "REJECTED", "ARCHIVED"];
