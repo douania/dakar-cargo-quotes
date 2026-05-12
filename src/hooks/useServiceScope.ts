@@ -2,6 +2,9 @@
  * P2-D Lot 1 — Lightweight hook for reading the latest service_scope_v1 event.
  * Single query, replaces 2-3 duplicate queries across PartnerSuggestionPanel,
  * PartnerScopeCard, and CaseUnderstandingPanel.
+ *
+ * v5 — Returns null instead of undefined to satisfy TanStack Query
+ * (queryFn must not resolve to undefined).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -15,7 +18,7 @@ export interface ServiceScope {
 }
 
 export function useServiceScope(caseId: string | undefined) {
-  return useQuery<ServiceScope | undefined>({
+  return useQuery<ServiceScope | null>({
     queryKey: ["service-scope", caseId],
     enabled: !!caseId,
     staleTime: 60_000,
@@ -29,11 +32,11 @@ export function useServiceScope(caseId: string | undefined) {
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      if (!data?.event_data) return undefined;
+      if (!data?.event_data) return null;
 
       const ed = data.event_data as Record<string, unknown>;
       const scope = ed?.["scope"] as Record<string, unknown> | undefined;
-      if (!scope) return undefined;
+      if (!scope) return null;
 
       const toBoolOrNull = (v: unknown): boolean | null =>
         typeof v === "boolean" ? v : null;
