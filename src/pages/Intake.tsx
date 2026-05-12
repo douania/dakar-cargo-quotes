@@ -404,18 +404,29 @@ export default function Intake() {
         filtered.push("Importation partielle détectée");
       }
 
-      // Show destination if detected
+      if (origin) filtered.push(`📦 Origine : ${origin}`);
+      if (originPort) filtered.push(`🚢 Port d'embarquement (probable) : ${originPort}`);
+      if (pod) filtered.push(`⚓ Port de déchargement : ${pod}`);
       if (destination) {
-        filtered.push(`📍 Lieu de livraison : ${destination}`);
+        filtered.push(`📍 Destination finale : ${destination}`);
+      } else if (requiresFinal) {
+        filtered.push(`⚠️ Destination finale inland mentionnée mais non extraite — préciser`);
       }
 
       return { ...result, assumptions: filtered };
     }
 
-    // Even if no container info, show destination override
+    // No container info path — still surface route hints
+    const assumptions = [...(result.assumptions || [])];
+    if (origin) assumptions.push(`📦 Origine : ${origin}`);
+    if (originPort) assumptions.push(`🚢 Port d'embarquement (probable) : ${originPort}`);
+    if (pod) assumptions.push(`⚓ Port de déchargement : ${pod}`);
     if (destination) {
-      const assumptions = [...(result.assumptions || [])];
-      assumptions.push(`📍 Lieu de livraison : ${destination}`);
+      assumptions.push(`📍 Destination finale : ${destination}`);
+    } else if (requiresFinal) {
+      assumptions.push(`⚠️ Destination finale inland mentionnée mais non extraite — préciser`);
+    }
+    if (assumptions.length !== (result.assumptions || []).length) {
       return { ...result, assumptions };
     }
 
