@@ -3893,6 +3893,7 @@ Deno.serve(async (req) => {
               console.log(`[HS Post-Attach] Created blocking GAP for cargo.hs_code (${hsResult.status})`);
             }
         }
+        } // end else (digits===10 branch — DCQ-P0-HS10-SAFE)
         } // end else (S5 manual source guard)
         }
         } // end else (multi-HS guard)
