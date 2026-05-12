@@ -50,6 +50,8 @@ export default function Intake() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<IntakeResponse | null>(null);
+  // v5 — gate "Ouvrir le dossier" until critical facts are persisted
+  const [criticalInjectionOk, setCriticalInjectionOk] = useState(false);
 
   function handleFileSelect(file: File) {
     setError("");
@@ -582,6 +584,7 @@ export default function Intake() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    setCriticalInjectionOk(false);
 
     try {
       const data = await createIntake({
@@ -596,7 +599,6 @@ export default function Intake() {
 
       // Correct assumptions using extracted analysis data + operator overrides
       const correctedData = correctAssumptions(data, extractedAnalysis, textOverrides);
-      setResult(correctedData);
 
       if (data.case_id) {
         // Step A: Ensure quote_cases row exists in DB (via service-role Edge Function)
@@ -611,12 +613,17 @@ export default function Intake() {
           );
         }
 
-        // Step B: Inject facts with operator overrides taking priority
+        // Step B: Inject facts (AWAITED + verifiable). Throws on critical failure.
         if (extractedAnalysis || Object.keys(textOverrides).length > 0) {
-          injectFacts(data.case_id, extractedAnalysis || {}, textOverrides);
+          const summary = await injectFacts(data.case_id, extractedAnalysis || {}, textOverrides);
+          console.log("[Intake] facts inserted:", summary.inserted, "failed:", summary.failed);
         }
 
-        // Step C: Store uploaded document in case-documents
+        // Critical injection succeeded — surface the result and unlock "Ouvrir le dossier"
+        setResult(correctedData);
+        setCriticalInjectionOk(true);
+
+        // Step C: Store uploaded document in case-documents (best-effort, non-blocking)
         if (uploadedFile) {
           try {
             const { data: userData } = await supabase.auth.getUser();
@@ -654,9 +661,13 @@ export default function Intake() {
             console.warn("[Intake] Post-creation tasks skipped (non-blocking):", docErr);
           }
         }
+      } else {
+        // No case_id (shouldn't happen), still surface analysis
+        setResult(correctedData);
       }
     } catch (err: any) {
       setError(err.message || "Erreur de connexion au serveur");
+      setCriticalInjectionOk(false);
     } finally {
       setLoading(false);
     }
@@ -670,6 +681,7 @@ export default function Intake() {
 
   function handleReset() {
     setResult(null);
+    setCriticalInjectionOk(false);
     clearFile();
     setText("");
     setClientName("");
