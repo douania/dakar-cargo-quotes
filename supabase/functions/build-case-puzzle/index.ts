@@ -697,6 +697,40 @@ async function emitHs10SuggestionEvent(
     ? `Code source ${args.source_digits} (${args.source_context}) → ${args.candidates.length} HS10 candidat(s) en SH6=${args.sh6}.${rate_divergence ? " Attention : taux DD divergents, validation douane requise." : ""}`
     : `Code source ${args.source_digits} (${args.source_context}) → ${args.candidates.length} HS10 candidat(s). Classement IA indisponible — sélection manuelle requise.`;
 
+  // ===== Idempotence guard (DCQ-P0-HS10-SUGGESTION-IDEMPOTENCE) =====
+  // Évite d'empiler des doublons HS10_CLASSIFICATION_SUGGESTION pour le même tuple
+  // (case_id, source_digits, sh6, origin, source_label) à chaque relance build-case-puzzle.
+  // source_label comparé côté JS pour matcher anciens events (null) ET nouveaux ("").
+  try {
+    const { data: existingCandidates, error: lookupErr } = await serviceClient
+      .from("case_timeline_events")
+      .select("id, event_data")
+      .eq("case_id", args.case_id)
+      .eq("event_type", "manual_action")
+      .eq("event_data->>action_code", "HS10_CLASSIFICATION_SUGGESTION")
+      .eq("event_data->>status", "trace")
+      .eq("event_data->>source_digits", args.source_digits)
+      .eq("event_data->>sh6", args.sh6)
+      .eq("event_data->>origin", args.origin)
+      .limit(20);
+
+    if (lookupErr) {
+      console.warn(`[HS Suggestion] idempotence lookup failed: ${lookupErr.message} — proceeding with insert`);
+    } else if (Array.isArray(existingCandidates) && existingCandidates.length > 0) {
+      const wantedLabel = args.source_label ?? "";
+      const duplicate = existingCandidates.find((row: any) => {
+        const existingLabel = row?.event_data?.source_label ?? "";
+        return existingLabel === wantedLabel;
+      });
+      if (duplicate) {
+        console.log(`[HS Suggestion] Skip insert (idempotent) source=${args.source_digits} sh6=${args.sh6} origin=${args.origin} existing_event=${duplicate.id}`);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn(`[HS Suggestion] idempotence pre-check threw: ${(e as Error).message} — proceeding with insert`);
+  }
+
   try {
     await serviceClient.from("case_timeline_events").insert({
       case_id: args.case_id,
@@ -709,7 +743,7 @@ async function emitHs10SuggestionEvent(
         origin: args.origin,
         source_digits: args.source_digits,
         source_context: args.source_context,
-        source_label: args.source_label || null,
+        source_label: args.source_label ?? "", // normalisé pour matcher futurs lookups
         sh6: args.sh6,
         candidates: args.candidates,
         ai_ranking: args.ai_ranking,
