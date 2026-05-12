@@ -538,47 +538,64 @@ export interface HsExtractionMatch {
   digits: string;          // normalisé (sourceLen chiffres exactement, jamais tronqué)
   sourceLen: 6 | 8 | 10;
   context: "parenthesized" | "hs_label" | "code_douanier" | "iso_10digit" | "cargo_line";
+  // HS10-RANKING-CONTEXT-ENRICHMENT v2 : extrait ±80 chars autour du match
+  // (utilisé uniquement par le prompt IA de ranking ; jamais persisté en DB,
+  // jamais utilisé pour la résolution/promotion HS10).
+  excerpt?: string;
 }
 
 function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
   const out: HsExtractionMatch[] = [];
   const seen = new Set<string>();
 
-  function push(digitsRaw: string, ctx: HsExtractionMatch["context"]) {
+  // Helper : extrait ±80 chars autour d'un index dans une source donnée
+  function makeExcerpt(source: string, idx: number, matchLen: number): string {
+    const start = Math.max(0, idx - 80);
+    const end = Math.min(source.length, idx + matchLen + 80);
+    return source.slice(start, end).replace(/\s+/g, " ").trim();
+  }
+
+  function push(digitsRaw: string, ctx: HsExtractionMatch["context"], excerpt?: string) {
     const d = digitsRaw.replace(/\D/g, "");
     if (d.length !== 6 && d.length !== 8 && d.length !== 10) return;
     const key = `${d}|${ctx}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ digits: d, sourceLen: d.length as 6 | 8 | 10, context: ctx });
+    out.push({
+      digits: d,
+      sourceLen: d.length as 6 | 8 | 10,
+      context: ctx,
+      excerpt: excerpt ? excerpt.slice(0, 240) : undefined,
+    });
   }
 
   // 1. Codes parenthésés 6/8/10 chiffres — ex "(73089000)"
   for (const m of text.matchAll(/\(\s*(\d{6}|\d{8}|\d{10})\s*\)/g)) {
-    push(m[1], "parenthesized");
+    push(m[1], "parenthesized", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 2. Labels HS/SH (avec ou sans dots, 6/8/10 chiffres)
   for (const m of text.matchAll(/\b(?:HS|SH)\s*(?:code)?\s*:?\s*(\d{4}[.\s]?\d{2}(?:[.\s]?\d{2})?(?:[.\s]?\d{2})?)/gi)) {
-    push(m[1], "hs_label");
+    push(m[1], "hs_label", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 3. "Code Douanier" — fournisseurs FR
   for (const m of text.matchAll(/Code\s*Douanier\s*:?\s*(\d{6,10})/gi)) {
-    push(m[1], "code_douanier");
+    push(m[1], "code_douanier", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 4. Code 10 chiffres formaté "4.2.2.2"
   for (const m of text.matchAll(/(\d{4}\.\d{2}\.\d{2}\.\d{2})/g)) {
-    push(m[1], "iso_10digit");
+    push(m[1], "iso_10digit", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 5. Bloc isolé de 10 chiffres
   for (const m of text.matchAll(/(?<!\d)(\d{10})(?!\d)/g)) {
-    push(m[1], "iso_10digit");
+    push(m[1], "iso_10digit", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
   // 6. Contexte "cargo line" — 6/8 chiffres dans une ligne mentionnant cargo/description/marchandise/goods/commodity/product
   const lines = text.split(/\r?\n/);
   for (const ln of lines) {
     if (!/cargo|description|marchandise|goods|commodity|product/i.test(ln)) continue;
     for (const m of ln.matchAll(/(?<!\d)(\d{6}|\d{8})(?!\d)/g)) {
-      push(m[1], "cargo_line");
+      // Pour cargo_line, l'extrait est la ligne entière (déjà sémantiquement riche)
+      push(m[1], "cargo_line", ln.replace(/\s+/g, " ").trim().slice(0, 240));
     }
   }
   // ⚠️ PAS de pattern "8 chiffres isolés global" — interdit (capturerait dates/refs)
