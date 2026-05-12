@@ -656,6 +656,40 @@ export default function Intake() {
                 actor_user_id: userId,
                 event_data: { document_type: "Ordre de transit", file_name: uploadedFile.name },
               });
+
+              // 4. DCQ-P0-CASE-DOCUMENT-BACKFILL-BEFORE-PUZZLE v2
+              // Populate case_documents.extracted_text via parse-document in
+              // case_document_id mode. text_preview is NOT a complete text
+              // and must not be reused as such. Best-effort: failure logged,
+              // backfill-case-documents will repair on next analysis.
+              try {
+                const parseFormData = new FormData();
+                parseFormData.append("file", uploadedFile);
+                parseFormData.append("case_document_id", docId);
+                const { data: sessionData } = await supabase.auth.getSession();
+                const token = sessionData?.session?.access_token;
+                const parseRes = await fetch(
+                  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
+                  {
+                    method: "POST",
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    body: parseFormData,
+                  }
+                );
+                if (!parseRes.ok) {
+                  const body = await parseRes.text().catch(() => "");
+                  console.warn(
+                    "[Intake] parse-document (case_document_id mode) failed:",
+                    parseRes.status,
+                    body
+                  );
+                }
+              } catch (parseErr) {
+                console.warn(
+                  "[Intake] parse-document call threw (non-blocking):",
+                  parseErr
+                );
+              }
             }
           } catch (docErr) {
             console.warn("[Intake] Post-creation tasks skipped (non-blocking):", docErr);
