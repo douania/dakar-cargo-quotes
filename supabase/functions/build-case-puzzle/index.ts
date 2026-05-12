@@ -3084,19 +3084,46 @@ Deno.serve(async (req) => {
       }
 
       if (!skipHsDocRegex && caseDocuments && caseDocuments.length > 0) {
-        // 2. Extract HS candidates from all case_documents
+        // Charger description cargo une fois (pour AI ranking sub-10)
+        const { data: descFactDoc } = await serviceClient
+          .from("quote_facts")
+          .select("value_text")
+          .eq("case_id", case_id)
+          .eq("fact_key", "cargo.description")
+          .eq("is_current", true)
+          .maybeSingle();
+        const cargoDescDoc = descFactDoc?.value_text || "";
+
+        // 2. Extract HS candidates from all case_documents (detailed: capture sourceLen)
         const resolvedCandidates: Array<{ code10: string; file: string; raw: string }> = [];
+        const subTenSeen = new Set<string>();
 
         for (const doc of caseDocuments) {
           if (!doc.extracted_text) continue;
-          const rawCandidates = extractHsCodesFromText(doc.extracted_text);
-          for (const raw of rawCandidates) {
-            const hsResult = await resolveSenegalHsCode(serviceClient, raw);
-            if (hsResult.status === "unique") {
-              resolvedCandidates.push({ code10: hsResult.code10, file: doc.file_name, raw });
+          const detailedMatches = extractHsCodesFromTextDetailed(doc.extracted_text);
+          for (const m of detailedMatches) {
+            if (m.sourceLen === 10) {
+              const hsResult = await resolveSenegalHsCode(serviceClient, m.digits);
+              if (hsResult.status === "unique") {
+                resolvedCandidates.push({ code10: hsResult.code10, file: doc.file_name, raw: m.digits });
+              }
+            } else {
+              // Source <10 chiffres → suggestion only, JAMAIS d'écriture cargo.hs_code
+              const dedupeKey = `${m.digits}|${m.context}`;
+              if (subTenSeen.has(dedupeKey)) continue;
+              subTenSeen.add(dedupeKey);
+              await handleSubTenHsSuggestion(serviceClient, {
+                case_id,
+                source_digits: m.digits,
+                source_context: m.context,
+                origin: "document_regex",
+                source_label: doc.file_name,
+                cargoDescription: cargoDescDoc,
+              });
             }
           }
         }
+
 
         // 3. Deduplicate by resolved code10
         const uniqueCodes = [...new Set(resolvedCandidates.map(r => r.code10))];
