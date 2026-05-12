@@ -2634,21 +2634,34 @@ Deno.serve(async (req) => {
         }
 
         // --- HS Code guard: validate against hs_codes table before injection ---
+        // DCQ-P0-HS10-SAFE: refuser toute promotion HS6/HS8 → HS10 (suggestion only).
         if (fact.key === "cargo.hs_code") {
           const rawHs = String(fact.value);
+          const rawDigits = rawHs.replace(/\D/g, "");
+          if (rawDigits.length < 10) {
+            // Source <10 chiffres → JAMAIS d'écriture cargo.hs_code. Suggestion + GAP.
+            console.warn(`[HS Guard] Refused sub-10 promotion (raw=${rawHs}, digits=${rawDigits.length}) — emitting suggestion`);
+            await handleSubTenHsSuggestion(serviceClient, {
+              case_id,
+              source_digits: rawDigits,
+              source_context: "hs_label",
+              origin: "ai_extraction",
+            });
+            factsSkipped++;
+            continue;
+          }
           const hsResult = await resolveSenegalHsCode(serviceClient, rawHs);
           if (hsResult.status === "unique") {
-            // Replace with validated 10-digit code
             fact.value = hsResult.code10;
-            fact.confidence = rawHs.replace(/\D/g, "").length >= 10 ? 1.0 : 0.98;
+            fact.confidence = 1.0;
             console.log(`[HS Guard] Resolved ${rawHs} → ${hsResult.code10}`);
           } else {
-            // ambiguous or not_found → skip injection, will be handled post-attachment
             console.warn(`[HS Guard] Skipping cargo.hs_code injection: ${hsResult.status} for raw=${rawHs}`);
             factsSkipped++;
             continue;
           }
         }
+
 
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
