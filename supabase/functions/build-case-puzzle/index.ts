@@ -700,7 +700,7 @@ async function emitHs10SuggestionEvent(
   try {
     await serviceClient.from("case_timeline_events").insert({
       case_id: args.case_id,
-      event_type: "hs10_suggestion",
+      event_type: "manual_action", // CHECK constraint n'autorise pas un type dédié — discriminant porté par action_code/status ci-dessous
       actor_type: "system",
       event_data: {
         action_code: "HS10_CLASSIFICATION_SUGGESTION",
