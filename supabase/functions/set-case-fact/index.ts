@@ -28,8 +28,11 @@ const ALLOWED_FACT_KEYS = new Set([
   "routing.incoterm",
   "routing.destination_city",
   "routing.destination_country",
+  "routing.destination_port",
   "routing.origin_country",
+  "routing.origin_port",
   "routing.transport_mode",
+  "cargo.containers",
   "service.mode",
   "service.package",
   "service.overrides",
@@ -101,6 +104,38 @@ Deno.serve(async (req) => {
         httpStatus: 400, durationMs: Date.now() - startMs,
       });
       return resp;
+    }
+
+    // 4b-bis. Structural validation for cargo.containers (DCQ-P0-INTAKE-FACTS-PERSISTENCE v5)
+    if (fact_key === "cargo.containers" && value_json != null) {
+      if (!Array.isArray(value_json)) {
+        return respondError({ code: "VALIDATION_FAILED",
+          message: "cargo.containers doit être un tableau JSON", correlationId });
+      }
+      if (value_json.length > 50) {
+        return respondError({ code: "VALIDATION_FAILED",
+          message: "Maximum 50 containers autorisés", correlationId });
+      }
+      for (const item of value_json as any[]) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "Chaque conteneur doit être un objet", correlationId });
+        }
+        if (item.count !== undefined && (!Number.isFinite(item.count) || item.count <= 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "count doit être un nombre fini > 0", correlationId });
+        }
+        if (item.quantity !== undefined && (!Number.isFinite(item.quantity) || item.quantity <= 0)) {
+          return respondError({ code: "VALIDATION_FAILED",
+            message: "quantity doit être un nombre fini > 0", correlationId });
+        }
+        if (item.type !== undefined) {
+          if (typeof item.type !== "string" || item.type.trim().length === 0 || item.type.length > 32) {
+            return respondError({ code: "VALIDATION_FAILED",
+              message: "type doit être une chaîne non vide ≤ 32 caractères", correlationId });
+          }
+        }
+      }
     }
 
     // 4b. Structural validation for cargo.articles_detail (P2-D)
