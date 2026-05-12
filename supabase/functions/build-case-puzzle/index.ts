@@ -3232,7 +3232,17 @@ Deno.serve(async (req) => {
       }
 
       if (!skipHsEmailRegex && emails && emails.length > 0) {
+        const { data: descFactEmail } = await serviceClient
+          .from("quote_facts")
+          .select("value_text")
+          .eq("case_id", case_id)
+          .eq("fact_key", "cargo.description")
+          .eq("is_current", true)
+          .maybeSingle();
+        const cargoDescEmail = descFactEmail?.value_text || "";
+
         const resolvedEmailCandidates: Array<{ code10: string; emailId: string; subject: string; raw: string }> = [];
+        const subTenSeenEmail = new Set<string>();
 
         for (const email of emails) {
           const emailText = [
@@ -3240,19 +3250,35 @@ Deno.serve(async (req) => {
             extractPlainTextFromMime(email.body_text || ""),
           ].join(" ");
 
-          const rawCandidates = extractHsCodesFromText(emailText);
-          for (const raw of rawCandidates) {
-            const hsResult = await resolveSenegalHsCode(serviceClient, raw);
-            if (hsResult.status === "unique") {
-              resolvedEmailCandidates.push({
-                code10: hsResult.code10,
-                emailId: email.id,
-                subject: email.subject || "(no subject)",
-                raw,
+          const detailedMatches = extractHsCodesFromTextDetailed(emailText);
+          for (const m of detailedMatches) {
+            if (m.sourceLen === 10) {
+              const hsResult = await resolveSenegalHsCode(serviceClient, m.digits);
+              if (hsResult.status === "unique") {
+                resolvedEmailCandidates.push({
+                  code10: hsResult.code10,
+                  emailId: email.id,
+                  subject: email.subject || "(no subject)",
+                  raw: m.digits,
+                });
+              }
+            } else {
+              // DCQ-P0-HS10-SAFE: source <10 chiffres → suggestion only
+              const dedupeKey = `${m.digits}|${m.context}`;
+              if (subTenSeenEmail.has(dedupeKey)) continue;
+              subTenSeenEmail.add(dedupeKey);
+              await handleSubTenHsSuggestion(serviceClient, {
+                case_id,
+                source_digits: m.digits,
+                source_context: m.context,
+                origin: "email_regex",
+                source_label: email.subject || "(no subject)",
+                cargoDescription: cargoDescEmail,
               });
             }
           }
         }
+
 
         // Deduplicate by resolved code10
         const uniqueEmailCodes = [...new Set(resolvedEmailCandidates.map(r => r.code10))];
