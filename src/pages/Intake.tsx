@@ -360,7 +360,13 @@ export default function Intake() {
     const containerCount = Number(textOverrides.container_count ?? mergedAnalysis.container_count) || 0;
     const containerType = String(textOverrides.container_type ?? mergedAnalysis.container_type ?? "").replace(/[^0-9]/g, "");
     const weightKg = Number(mergedAnalysis.weight_kg) || 0;
-    const destination = textOverrides.destination ?? mergedAnalysis.destination ?? null;
+    const requiresFinal = !!textOverrides.requires_final_destination;
+    // Safe destination for display: never show Dakar/IA when inland is expected but not extracted
+    const destination = textOverrides.destination
+      ?? (requiresFinal ? null : (mergedAnalysis.destination ?? null));
+    const origin = textOverrides.origin ?? mergedAnalysis.origin ?? null;
+    const originPort = textOverrides.origin_port ?? mergedAnalysis.origin_port ?? null;
+    const pod = textOverrides.pod ?? null;
 
     // Always filter missing_fields against available data
     let result = filterMissingFields(data, mergedAnalysis, textOverrides);
