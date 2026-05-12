@@ -443,7 +443,11 @@ export default function Intake() {
     const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
     const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
     const weightKg = Number(analysis.weight_kg) || 0;
-    const destination = textOverrides.destination ?? analysis.destination ?? null;
+    // Guard: if inland final destination is required but not extracted locally,
+    // do NOT inject mergedAnalysis.destination (e.g. Dakar) as routing.destination_city.
+    // Dakar must NEVER mask Kaolack.
+    const destination = textOverrides.destination
+      ?? (textOverrides.requires_final_destination ? null : (analysis.destination ?? null));
 
     const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [];
 
