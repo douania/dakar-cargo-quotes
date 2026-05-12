@@ -2761,6 +2761,9 @@ Deno.serve(async (req) => {
               source_digits: rawDigits,
               source_context: "hs_label",
               origin: "ai_extraction",
+              cargoDescription: hsRankingCargoDescription,
+              clientName: hsRankingClientName,
+              sourceExcerpt: (fact as any)?.sourceExcerpt || undefined,
             });
             factsSkipped++;
             continue;
@@ -3234,6 +3237,9 @@ Deno.serve(async (req) => {
                 origin: "document_regex",
                 source_label: doc.file_name,
                 cargoDescription: cargoDescDoc,
+                sourceExcerpt: m.excerpt,
+                clientName: hsRankingClientName,
+                documentSource: doc.file_name,
               });
             }
           }
@@ -3389,6 +3395,9 @@ Deno.serve(async (req) => {
                 origin: "email_regex",
                 source_label: email.subject || "(no subject)",
                 cargoDescription: cargoDescEmail,
+                sourceExcerpt: m.excerpt,
+                clientName: hsRankingClientName,
+                documentSource: email.subject || "(no subject)",
               });
             }
           }
@@ -3971,6 +3980,7 @@ Deno.serve(async (req) => {
               source_context: "hs_label",
               origin: "post_attach",
               cargoDescription: descFactPA?.value_text || "",
+              clientName: hsRankingClientName,
             });
             gapsIdentified++;
           } else {
