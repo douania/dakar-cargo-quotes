@@ -3814,11 +3814,31 @@ Deno.serve(async (req) => {
           if (MANUAL_PROTECTED_SOURCES.has(hsFactRow.source_type ?? '')) {
             console.log(`[HS Post-Attach] Manual HS preserved, skipping re-validation (source=${hsFactRow.source_type})`);
           } else {
+          // DCQ-P0-HS10-SAFE: refuser toute promotion sub-10. Si la valeur courante a moins de 10 chiffres,
+          // l'invalider et basculer en suggestion (jamais d'écriture cargo.hs_code par inférence SH6→unique).
+          if (digitsOnly.length < 10) {
+            console.warn(`[HS Post-Attach] Refused sub-10 promotion for existing fact (digits=${digitsOnly.length}, raw=${rawHsValue})`);
+            await serviceClient
+              .from("quote_facts")
+              .update({ is_current: false, updated_at: new Date().toISOString() })
+              .eq("id", hsFactRow.id);
+            factsUpdated++;
+            const { data: descFactPA } = await serviceClient
+              .from("quote_facts").select("value_text").eq("case_id", case_id)
+              .eq("fact_key", "cargo.description").eq("is_current", true).maybeSingle();
+            await handleSubTenHsSuggestion(serviceClient, {
+              case_id,
+              source_digits: digitsOnly,
+              source_context: "hs_label",
+              origin: "post_attach",
+              cargoDescription: descFactPA?.value_text || "",
+            });
+            gapsIdentified++;
+          } else {
           const hsResult = await resolveSenegalHsCode(serviceClient, rawHsValue);
 
           if (hsResult.status === "unique") {
-            // Supersede with validated 10-digit code
-            const confidence = digitsOnly.length >= 10 ? 1.0 : 0.98;
+            // Source est 10 chiffres et résout en HS10 unique → écriture autorisée.
             await serviceClient.rpc("supersede_fact", {
               p_case_id: case_id,
               p_fact_key: "cargo.hs_code",
@@ -3831,9 +3851,10 @@ Deno.serve(async (req) => {
               p_source_email_id: null,
               p_source_attachment_id: null,
               p_source_excerpt: `[HS Resolution] ${rawHsValue} → ${hsResult.code10} (${hsResult.description || "N/A"})`,
-              p_confidence: confidence,
+              p_confidence: 1.0,
             });
             console.log(`[HS Post-Attach] Resolved ${rawHsValue} → ${hsResult.code10}`);
+
           } else {
             // ambiguous or not_found → invalidate the fact + create GAP
             // Deactivate the invalid fact
