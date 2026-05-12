@@ -633,9 +633,16 @@ async function loadHsCandidatesDetails(
 }
 
 // Helper: classement IA (best-effort, jamais bloquant)
+// HS10-RANKING-CONTEXT-ENRICHMENT v2 :
+// Le prompt reçoit maintenant explicitement cargoDescription, sourceExcerpt,
+// clientName et documentSource. Aucun changement de modèle ni de timeout.
+// Aucune écriture cargo.hs_code, aucun impact sur la résolution/promotion HS10.
 async function rankHsCandidatesWithAI(args: {
   cargoDescription: string;
   candidates: Array<{ code10: string; description: string | null; dd: number | null; tva: number | null }>;
+  sourceExcerpt?: string;
+  clientName?: string;
+  documentSource?: string;
   timeoutMs?: number;
 }): Promise<Array<{ code10: string; confidence: number; reason: string }> | null> {
   const { cargoDescription, candidates } = args;
@@ -643,6 +650,45 @@ async function rankHsCandidatesWithAI(args: {
   if (!candidates.length) return null;
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) return null;
+
+  const cargoDesc = (cargoDescription || "").trim();
+  const sourceExcerpt = (args.sourceExcerpt || "").trim();
+  const clientName = (args.clientName || "").trim();
+  const documentSource = (args.documentSource || "").trim();
+
+  // Log sanitisé (ne jamais logger le prompt complet — peut contenir données client/OCR sensibles)
+  console.log(
+    `[HS-AI] ranking_context ` +
+      JSON.stringify({
+        hasCargoDescription: cargoDesc.length > 0,
+        cargoDescriptionPreview: cargoDesc.slice(0, 80),
+        hasSourceExcerpt: sourceExcerpt.length > 0,
+        sourceExcerptPreview: sourceExcerpt.slice(0, 120),
+        clientNamePreview: clientName.slice(0, 80),
+        documentSource: documentSource.slice(0, 120),
+        candidateCount: candidates.length,
+      }),
+  );
+
+  const userPrompt = [
+    "=== DOSSIER CONTEXT ===",
+    `Client: ${clientName || "N/A"}`,
+    `Cargo description: ${cargoDesc || "N/A"}`,
+    `Source excerpt (text around the detected HS code): ${sourceExcerpt || "N/A"}`,
+    `Document source: ${documentSource || "N/A"}`,
+    "",
+    "=== CANDIDATE HS10 CODES ===",
+    candidates
+      .map((c) => `- ${c.code10} | DD=${c.dd ?? "?"}% TVA=${c.tva ?? "?"}% | ${c.description ?? "(no description)"}`)
+      .join("\n"),
+    "",
+    "Task: Given ALL the context above, rank the HS10 candidates by likelihood for this cargo.",
+    'Cite explicitly which context elements support your ranking in each "reason".',
+    "If the context is insufficient to differentiate, return prudent confidences and explain why.",
+    "",
+    'Reply with STRICT JSON only: {"ranked":[{"code10":"...","confidence":0.0-1.0,"reason":"..."}]}',
+  ].join("\n");
+
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -656,14 +702,9 @@ async function rankHsCandidatesWithAI(args: {
           {
             role: "system",
             content:
-              "You are a customs classification assistant for CEDEAO/UEMOA tariffs. Given a cargo description and a list of HS10 candidates (with DD/TVA and official description), rank them by likelihood. Reply with STRICT JSON only: {\"ranked\":[{\"code10\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}]}.",
+              "You are a customs classification assistant for CEDEAO/UEMOA tariffs. Use the dossier context (client, cargo description, source excerpt, document source) AND the candidate HS10 codes (with DD/TVA and official description) to rank them by likelihood. Reply with STRICT JSON only.",
           },
-          {
-            role: "user",
-            content: `Cargo description: ${cargoDescription || "(unknown)"}\n\nCandidates:\n${candidates
-              .map((c) => `- ${c.code10} | DD=${c.dd ?? "?"}% TVA=${c.tva ?? "?"}% | ${c.description ?? "(no description)"}`)
-              .join("\n")}\n\nReturn JSON only.`,
-          },
+          { role: "user", content: userPrompt },
         ],
       }),
     });
