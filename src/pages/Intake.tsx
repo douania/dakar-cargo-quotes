@@ -433,12 +433,35 @@ export default function Intake() {
     return result;
   }
 
-  /** Inject facts into quote_facts with operator overrides taking priority */
+  /**
+   * Inject facts into quote_facts with operator overrides taking priority.
+   *
+   * v5 — Verifiable injection:
+   * - returns { inserted, failed } summary
+   * - throws if a CRITICAL fact fails (so handleSubmit blocks "Ouvrir le dossier")
+   * - never silently swallows errors with console.warn alone
+   *
+   * Critical fact_keys (per CTO v5):
+   *   routing.destination_city, routing.transport_mode, cargo.containers,
+   *   routing.origin_port (if detected), routing.destination_port (if detected)
+   */
+  type FactPayload = {
+    fact_key: string;
+    value_text?: string | null;
+    value_number?: number | null;
+    value_json?: unknown;
+  };
+
+  type InjectFactsResult = {
+    inserted: string[];
+    failed: Array<{ fact_key: string; error: string }>;
+  };
+
   async function injectFacts(
     caseId: string,
     analysis: Record<string, any>,
     textOverrides: Record<string, any>
-  ) {
+  ): Promise<InjectFactsResult> {
     // Merge: text overrides > document analysis
     const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
     const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
@@ -448,19 +471,54 @@ export default function Intake() {
     // Dakar must NEVER mask Kaolack.
     const destination = textOverrides.destination
       ?? (textOverrides.requires_final_destination ? null : (analysis.destination ?? null));
+    const originPort = textOverrides.origin_port ?? analysis.origin_port ?? null;
+    const pod = textOverrides.pod ?? null;
 
-    const facts: Array<{ fact_key: string; value_text?: string; value_number?: number }> = [];
+    const facts: FactPayload[] = [];
+    const criticalKeys = new Set<string>();
 
+    // Container facts (canonical + legacy compat)
     if (containerCount >= 1) {
       facts.push({ fact_key: "cargo.container_count", value_number: containerCount });
-      facts.push({ fact_key: "cargo.container_type", value_text: containerType });
+      if (containerType) {
+        facts.push({ fact_key: "cargo.container_type", value_text: containerType });
+      }
+      // Canonical: cargo.containers as JSON array
+      const containersJson = [
+        {
+          count: containerCount,
+          type: containerType || null,
+        },
+      ];
+      facts.push({ fact_key: "cargo.containers", value_json: containersJson });
+      criticalKeys.add("cargo.containers");
     }
+
     if (weightKg > 0) {
       facts.push({ fact_key: "cargo.weight_kg", value_number: weightKg });
     }
+
+    // service.mode (legacy compat for some UI paths)
     if (containerType.includes("40") || containerType.includes("20")) {
       facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
+      // Canonical transport_mode (UI/runtime expects MARITIME — see SELECT_FACT_OPTIONS)
+      facts.push({ fact_key: "routing.transport_mode", value_text: "MARITIME" });
+      criticalKeys.add("routing.transport_mode");
     }
+
+    // Origin port (if extracted)
+    if (originPort) {
+      facts.push({ fact_key: "routing.origin_port", value_text: String(originPort) });
+      criticalKeys.add("routing.origin_port");
+    }
+
+    // POD (port of discharge)
+    if (pod) {
+      facts.push({ fact_key: "routing.destination_port", value_text: String(pod) });
+      criticalKeys.add("routing.destination_port");
+    }
+
+    // Final destination — country vs city routing
     if (destination) {
       const KNOWN_COUNTRIES = new Set([
         'MALI','SENEGAL','SÉNÉGAL','GUINEE','GUINÉE','GAMBIE',
@@ -473,18 +531,51 @@ export default function Intake() {
         facts.push({ fact_key: "routing.destination_country", value_text: destination });
       } else {
         facts.push({ fact_key: "routing.destination_city", value_text: destination });
+        criticalKeys.add("routing.destination_city");
       }
     }
 
+    // cargo.description — only if reliably extracted by analysis (no invention)
+    const cargoDesc = typeof analysis.cargo_description === "string" ? analysis.cargo_description.trim() : "";
+    if (cargoDesc.length > 0) {
+      facts.push({ fact_key: "cargo.description", value_text: cargoDesc });
+    }
+
+    const result: InjectFactsResult = { inserted: [], failed: [] };
+
     for (const fact of facts) {
       try {
-        await supabase.functions.invoke("set-case-fact", {
+        const { data, error } = await supabase.functions.invoke("set-case-fact", {
           body: { case_id: caseId, ...fact },
         });
+        if (error) {
+          const msg = (error as any)?.message || String(error);
+          result.failed.push({ fact_key: fact.fact_key, error: msg });
+          console.warn(`[Intake.injectFacts] ${fact.fact_key} failed:`, msg);
+          continue;
+        }
+        if (data && (data as any).error) {
+          const msg = String((data as any).error);
+          result.failed.push({ fact_key: fact.fact_key, error: msg });
+          console.warn(`[Intake.injectFacts] ${fact.fact_key} returned error:`, msg);
+          continue;
+        }
+        result.inserted.push(fact.fact_key);
       } catch (err) {
-        console.warn(`[Intake] Failed to inject fact ${fact.fact_key}:`, err);
+        const msg = err instanceof Error ? err.message : String(err);
+        result.failed.push({ fact_key: fact.fact_key, error: msg });
+        console.warn(`[Intake.injectFacts] ${fact.fact_key} threw:`, msg);
       }
     }
+
+    // CRITICAL guard — throw if any critical fact failed
+    const criticalFailures = result.failed.filter((f) => criticalKeys.has(f.fact_key));
+    if (criticalFailures.length > 0) {
+      const summary = criticalFailures.map((f) => `${f.fact_key}: ${f.error}`).join(" | ");
+      throw new Error(`Échec d'injection des faits critiques — ${summary}`);
+    }
+
+    return result;
   }
 
   async function handleSubmit(e: React.FormEvent) {
