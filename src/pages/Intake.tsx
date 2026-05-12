@@ -973,7 +973,11 @@ Merci de nous faire une cotation."
                 <Button variant="outline" onClick={handleReset}>
                   Nouvelle analyse
                 </Button>
-                <Button onClick={handleViewCase}>
+                <Button
+                  onClick={handleViewCase}
+                  disabled={!criticalInjectionOk}
+                  title={!criticalInjectionOk ? "Faits critiques non persistés — vérifier les erreurs ci-dessus" : undefined}
+                >
                   Ouvrir le dossier
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
