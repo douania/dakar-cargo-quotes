@@ -3568,6 +3568,30 @@ Deno.serve(async (req) => {
           }
         }
 
+        // DCQ-P0-HS10-SAFE-EXEMPTION (v3): patterns EN d'exonération.
+        // Règle stricte : un titre n'est créé QUE si un signal explicite d'exonération est présent.
+        // SENELEC/SONATEL/SENEAU/SAR seuls (sans signal) ≠ preuve d'exonération.
+        const EXEMPTION_PATTERNS: RegExp[] = [
+          /exempted?\s+from\s+(?:duties\s*(?:and\s*taxes)?|customs\s+duties|tax(?:es)?)/i,
+          /duty[\s\-]?free/i,
+          /tax[\s\-]?exempt(?:ed|ion)?/i,
+          /march[ée]\s+public/i,
+          /public\s+market/i,
+          /government\s+contract/i,
+          /titre\s+d[''\u2019]?exon[ée]ration/i,
+        ];
+        const PUBLIC_CLIENT_PATTERNS: RegExp[] = [
+          /\b(SENELEC|SONATEL|SENEAU|SAR|SONACOS|ONAS|PETROSEN)\b/i,
+        ];
+        const exemptionMatch = EXEMPTION_PATTERNS.map((p) => text.match(p)).find((m) => m);
+        if (exemptionMatch) {
+          const clientMatch = PUBLIC_CLIENT_PATTERNS.map((p) => text.match(p)).find((m) => m);
+          const signal = exemptionMatch[0].trim();
+          const clientLabel = clientMatch ? ` (client: ${clientMatch[1].toUpperCase()})` : "";
+          const composedTitle = `Indice exonération: ${signal}${clientLabel}`.slice(0, 200);
+          titles.push(composedTitle);
+        }
+
         return {
           regimeCodes: [...new Set(regimeCodes)],
           titles: [...new Set(titles)],
