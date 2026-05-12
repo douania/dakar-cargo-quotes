@@ -449,6 +449,45 @@ export default function CaseView() {
     if (!caseId || isAnalyzing) return;
     setIsAnalyzing(true);
     try {
+      // ── DCQ-P0-CASE-DOCUMENT-BACKFILL-BEFORE-PUZZLE v2 ──
+      // Avant build-case-puzzle, garantir qu'aucun case_document n'a
+      // extracted_text=NULL (sinon le puzzle scanne 0 document).
+      // Boucle bornee a 5 documents par relance.
+      const MAX_BACKFILL_PASSES = 5;
+      let lastWarning: string | null = null;
+      try {
+        for (let i = 0; i < MAX_BACKFILL_PASSES; i++) {
+          const { data: bfData, error: bfErr } = await supabase.functions.invoke(
+            "backfill-case-documents",
+            { body: { case_id: caseId } },
+          );
+          if (bfErr) throw bfErr;
+          const remaining = Number(bfData?.remaining ?? 0);
+          const textLen = Number(bfData?.text_length ?? 0);
+          const processed = bfData?.processed_file as string | undefined;
+          if (processed) {
+            // Detect failed/insufficient OCR markers
+            if (textLen === 0) {
+              lastWarning = `Texte vide extrait pour ${processed}`;
+            } else if (textLen <= 30) {
+              // "[Extraction echouee]", "[OCR vide]", "[PDF - extraction indisponible]" ...
+              lastWarning = `OCR insuffisant pour ${processed} (${textLen} caracteres)`;
+            }
+          }
+          if (remaining <= 0) break;
+        }
+      } catch (bfFatal) {
+        toast.error(
+          "Preparation des documents echouee : " +
+            ((bfFatal as Error).message || "erreur inconnue"),
+        );
+        return;
+      }
+      if (lastWarning) {
+        toast.warning(lastWarning + " — l'analyse continue mais les faits peuvent manquer.");
+      }
+      // ── END BACKFILL ──
+
       await runBuildCasePuzzleAsync(caseId);
       // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
       try {
