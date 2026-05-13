@@ -1481,3 +1481,17 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Constat** | Livrable unique `docs/tariff-collection/pad/MAP_2_TECHNICAL_DESIGN_MULTI_SOURCE_PAD_SUGGESTION.md` — design production-grade de la cascade `Désignation → code structuré → NST → PAD → DROIT_PASSAGE`, intégrant les audits Manus (MAP-RUNTIME-1 + NSTR forensic), ChatGPT agent (767 l., base technique principale) et Claude. Aucune implémentation, aucune migration, aucune Edge Function, aucun INSERT alias, aucune activation `PAD_RESOLVER_SHADOW`. |
 | **Déclencheur de réouverture** | Revue CTO + GO MAP-3 (migration table `commodity_classification_candidates` + facts pivots whitelist `commodity.cn_code` / `nhm_code` / `nstr_code` / `nst_code` / `pricing.pad_category`). |
 | **Recommandation** | Design-only. Aucune implémentation runtime autorisée. **MAPPING-TAX-CHAIN-0 reste ouvert** (clôture conditionnée à MAP-7 minimum). Séquence recommandée : MAP-3 (storage) → MAP-4 (Edge Function read-only) → MAP-5 (UI opérateur CaseView) → MAP-6 (shadow-mode) → MAP-7 (activation partielle `OFFICIAL_EXACT_CODE_SINGLE_PAD` uniquement) → MAP-8 (extension IA/Web HS, operator-in-the-loop strict). Alias `pad_designation_aliases` rétrogradés en fallback (étape 3 cascade), plus colonne vertébrale. |
+
+### MAP-3 — Schema design `commodity_classification_candidates`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-3` |
+| **Catégorie** | Schema design — stockage candidats classification commodity |
+| **Statut** | `📋 MAP-3 SCHEMA DESIGN DRAFT — awaiting CTO review` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Post MAP-2 |
+| **Date** | 2026-05-13 |
+| **Constat** | Livrable `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md` — design schema-only de la table `commodity_classification_candidates` (Option C) + whitelist facts pivots `quote_facts` (Option B). DDL/RLS/index/triggers/idempotence proposés et marqués `DRAFT ONLY — DO NOT EXECUTE`. Aucune migration, aucune DB write, aucun runtime. Modèle hybride `case_id` obligatoire + `article_id` nullable (sans FK forte). |
+| **Déclencheur de réouverture** | Revue CTO + GO MAP-3b (migration réelle). |
+| **Recommandation** | Schema-design only. Aucune migration, aucune DB write, aucun runtime, aucune Edge Function. **MAPPING-TAX-CHAIN-0 reste ouvert.** Séquence : MAP-3b (migration) → MAP-4 (Edge Function read-only) → MAP-5 (UI opérateur) → MAP-6 (shadow-mode) → MAP-7 (activation partielle). Critères GO/NO-GO MAP-3b consignés en §16 du livrable. |
