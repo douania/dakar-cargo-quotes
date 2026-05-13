@@ -481,6 +481,184 @@ const PORT_COUNTRY_MAP: Record<string, string> = {
   'HAMBURG': 'DE', 'ROTTERDAM': 'NL',
 };
 
+// =============================================================================
+// HS10-AUTO-INJECTION-GUARD Phase 2 (Option C v3) — helpers
+// Doctrine : DEFERRED_BACKLOG.md L35-36 + memory HS Code Governance.
+// Auto-write cargo.hs_code autorisé uniquement si TOUS les critères passent :
+//   1. sourceLen === 10
+//   2. resolveSenegalHsCode === "unique"
+//   3. cohérence cross-source (uniqueCodes.length === 1)
+//   4. SH6 : 1 seul couple DD/TVA, dd!=null, tva!=null
+//   5. source labellisée HS (hs_label, code_douanier, parenthesized w/ contexte)
+// Sinon : suggestion HS10_CLASSIFICATION_SUGGESTION + GAP cargo.hs_code
+// (criticité respectée : DDP / customs.regime_code → blocking, sinon non-blocking).
+// =============================================================================
+
+type HsAutoInjectionContext = "parenthesized" | "hs_label" | "code_douanier" | "iso_10digit" | "cargo_line";
+
+function isLabeledHsContext(ctx: HsAutoInjectionContext, excerpt?: string): boolean {
+  if (ctx === "hs_label" || ctx === "code_douanier") return true;
+  if (ctx === "parenthesized") {
+    if (!excerpt) return false;
+    return /\b(cargo|description|marchandise|goods|commodity|hs|hscode)\b/i.test(excerpt);
+  }
+  // iso_10digit, cargo_line → jamais auto-write (interdit doctrine v3)
+  return false;
+}
+
+async function checkSh6RateDivergence(
+  serviceClient: any,
+  sh6: string,
+): Promise<{
+  divergent: boolean;
+  distinctRates: Array<{ dd: number | null; tva: number | null }>;
+  candidatesCount: number;
+  hasNullRate: boolean;
+}> {
+  const { data: rows } = await serviceClient
+    .from("hs_codes")
+    .select("code_normalized, dd, tva")
+    .like("code_normalized", `${sh6}%`)
+    .limit(200);
+  if (!rows || rows.length === 0) {
+    return { divergent: false, distinctRates: [], candidatesCount: 0, hasNullRate: false };
+  }
+  const seen = new Map<string, { dd: number | null; tva: number | null }>();
+  let hasNullRate = false;
+  for (const r of rows) {
+    if (r.dd === null || r.tva === null) hasNullRate = true;
+    const key = `${r.dd ?? "null"}|${r.tva ?? "null"}`;
+    if (!seen.has(key)) seen.set(key, { dd: r.dd ?? null, tva: r.tva ?? null });
+  }
+  const distinctRates = [...seen.values()];
+  return {
+    divergent: distinctRates.length > 1,
+    distinctRates,
+    candidatesCount: rows.length,
+    hasNullRate,
+  };
+}
+
+async function hs10AutoInjectionGuardAllows(
+  serviceClient: any,
+  args: {
+    code10: string;
+    source_context: HsAutoInjectionContext;
+    source_excerpt?: string;
+  },
+): Promise<{
+  allowed: boolean;
+  sh6: string;
+  reason: string;
+  distinctRatesCount: number;
+}> {
+  const sh6 = args.code10.substring(0, 6);
+
+  // Critère 5 : labellisation
+  if (!isLabeledHsContext(args.source_context, args.source_excerpt)) {
+    return {
+      allowed: false, sh6,
+      reason: `unlabeled_source_context (ctx=${args.source_context})`,
+      distinctRatesCount: 0,
+    };
+  }
+
+  // Critère 4 : taux DD/TVA SH6
+  const div = await checkSh6RateDivergence(serviceClient, sh6);
+  if (div.candidatesCount === 0) {
+    return { allowed: false, sh6, reason: "no_sh6_candidates", distinctRatesCount: 0 };
+  }
+  if (div.divergent) {
+    return {
+      allowed: false, sh6,
+      reason: `dd_tva_divergence_within_sh6 (distinct_rates=${div.distinctRates.length})`,
+      distinctRatesCount: div.distinctRates.length,
+    };
+  }
+  if (div.distinctRates.length !== 1
+      || div.distinctRates[0].dd === null
+      || div.distinctRates[0].tva === null) {
+    return {
+      allowed: false, sh6,
+      reason: "missing_dd_tva_for_sh6",
+      distinctRatesCount: div.distinctRates.length,
+    };
+  }
+
+  return { allowed: true, sh6, reason: "all_criteria_passed", distinctRatesCount: 1 };
+}
+
+async function emitHs10AutoInjectionTrace(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    code10: string;
+    sh6: string;
+    origin: "document_regex" | "email_regex";
+    source_label: string;
+    source_context: HsAutoInjectionContext;
+    confidence: number;
+    distinct_rates_count: number;
+  },
+): Promise<void> {
+  try {
+    await serviceClient.from("case_timeline_events").insert({
+      case_id: args.case_id,
+      event_type: "manual_action",
+      actor_type: "system",
+      event_data: {
+        action_code: "HS10_AUTO_INJECTION",
+        status: "trace",
+        code10: args.code10,
+        sh6: args.sh6,
+        origin: args.origin,
+        source_label: args.source_label,
+        source_context: args.source_context,
+        confidence: args.confidence,
+        distinct_rates_count: args.distinct_rates_count,
+        criteria_passed: ["sourceLen10", "resolveUnique", "crossSourceCoherent",
+                          "noDdTvaDivergenceAndComplete", "labeledSource"],
+        doctrine: "HS10-AUTO-INJECTION-GUARD Option C v3",
+      },
+    });
+  } catch (err) {
+    console.warn(`[hs10-guard] emitHs10AutoInjectionTrace failed (non-blocking): ${err}`);
+  }
+}
+
+// v3 : criticité gap respectée (DDP / régime douanier → blocking).
+// Fact keys vérifiées dans ce projet : routing.incoterm, customs.regime_code.
+async function assessHsCodeGapBlocking(
+  serviceClient: any,
+  case_id: string,
+): Promise<{ is_blocking: boolean; reason: string }> {
+  try {
+    const { data: facts } = await serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", ["routing.incoterm", "customs.regime_code"]);
+
+    const factMap = new Map<string, string | null>();
+    for (const f of facts ?? []) factMap.set(f.fact_key, (f.value_text ?? null) as string | null);
+
+    const incoterm = (factMap.get("routing.incoterm") ?? "").toUpperCase();
+    const regime = (factMap.get("customs.regime_code") ?? "").toUpperCase();
+
+    if (incoterm === "DDP") {
+      return { is_blocking: true, reason: "incoterm=DDP" };
+    }
+    if (regime && regime !== "NONE") {
+      return { is_blocking: true, reason: `customs_regime=${regime}` };
+    }
+    return { is_blocking: false, reason: "no_criticality_signal" };
+  } catch (err) {
+    console.warn(`[hs10-guard] assessHsCodeGapBlocking failed, defaulting non-blocking: ${err}`);
+    return { is_blocking: false, reason: "fallback_safe_default" };
+  }
+}
+
 // --- HS Code Resolution: SH6 → 10 digits Sénégal (UEMOA) ---
 async function resolveSenegalHsCode(
   serviceClient: any,
