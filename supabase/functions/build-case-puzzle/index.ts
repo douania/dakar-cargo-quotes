@@ -4258,6 +4258,10 @@ Deno.serve(async (req) => {
 
           if (hsResult.status === "unique") {
             // Source est 10 chiffres et résout en HS10 unique → écriture autorisée.
+            // HS10-AUTO-INJECTION-GUARD v3 : Path C inchangé.
+            // Re-validation d'un cargo.hs_code DÉJÀ présent (manuel ou écrit par M3.4b/c sous garde Option C).
+            // La garde Option C s'applique uniquement aux paths d'écriture initiale (M3.4b/c),
+            // pas à la re-validation Post-Attach qui ne crée pas de nouveau fact d'origine externe.
             await serviceClient.rpc("supersede_fact", {
               p_case_id: case_id,
               p_fact_key: "cargo.hs_code",
