@@ -13,8 +13,8 @@
 Statut global :
 
 - **Railway intake (`createIntake`)** : ACTIF, branché sur `/intake` manuel. À migrer (Phase 2) — sans casser la chaîne `parse-document` → `ensure-quote-case` → `build-case-puzzle` déjà éprouvée.
-- **Railway casefile (`fetchCaseFile`, `runWorkflow`)** : **MORT** côté `src/` (zéro consommateur). Candidats à `@deprecated` immédiat puis suppression Phase 4.
-- **Railway truck loading** : ACTIF mais **incohérent** (front appelle Railway en direct ET via un proxy edge sous-utilisé). **Hors scope** ici → audit dédié `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`.
+- **Railway casefile (`fetchCaseFile`, `runWorkflow`)** : **MORT** côté `src/` (zéro consommateur). Candidats à `@deprecated` puis suppression dans un lot ultérieur (hors de cet audit).
+- **Railway truck loading** : ACTIF avec **architecture proxy-first** : `truckLoadingService` (`getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet`) appelle d'abord `truck-optimization-proxy` (Edge Function avec `requireUser`), puis retombe en `fetch` direct Railway en cas d'échec proxy. **Hors scope** ici → audit dédié `DCQ-RAILWAY-TRUCK-LOADING-AUDIT` pour décider du devenir du fallback direct.
 - **Pipeline email** (import-thread / ensure-quote-case / build-case-puzzle) : **100 % indépendant de Railway**. Aucun risque de régression côté chaîne email/quotation/pricing si Railway tombe.
 
 Une suppression brutale de `railwayApi.ts` aujourd'hui casserait `/intake` ET tous les flux truck loading. Le chemin sûr est : geler → documenter → feature flag → migrer intake → désactiver intake Railway → supprimer après migration truck loading.
@@ -31,15 +31,15 @@ Une suppression brutale de `railwayApi.ts` aujourd'hui casserait `/intake` ET to
 | `createIntake()` | `src/services/railwayApi.ts:94` | `POST /api/casefiles/intake` | `src/pages/Intake.tsx:24,590` | `fetch` direct front (Bearer JWT Supabase) | **HAUTE** — bloque `/intake` si Railway down | **ACTIF** |
 | `fetchCaseFile()` | `src/services/railwayApi.ts:114` | `GET /api/casefiles/{id}` | aucun (`rg` zéro consommateur dans `src/`) | `fetch` direct front | **NULLE** | **MORT — dead export** |
 | `runWorkflow()` | `src/services/railwayApi.ts:129` | `POST /api/casefiles/{id}/run` | aucun (`rg` zéro consommateur dans `src/`) | `fetch` direct front | **NULLE** | **MORT — dead export** |
-| `RAILWAY_API_URL` (truck) | `src/services/truckLoadingService.ts:110` | `/api/optimization/truck-specs` (L367), `/optimize` (L446), `/visualize` (L490), `/suggest-fleet` (L622) | `src/components/truck-loading/*` (notamment `FleetSuggestionResults.tsx`) | `fetch` direct front (sans Bearer) | **HAUTE** | **ACTIF** |
-| `RAILWAY_API_URL` (proxy) | `supabase/functions/truck-optimization-proxy/index.ts:5` | mêmes 4 endpoints `/api/optimization/*` | invoqué via `supabase.functions.invoke('truck-optimization-proxy')` à `truckLoadingService.ts:279` (un seul site d'appel) | Edge Function proxy avec `requireUser` | MOYENNE | **ACTIF partiel** |
+| Proxy edge `truck-optimization-proxy` | `supabase/functions/truck-optimization-proxy/index.ts:5` invoqué via `callOptimizationProxy()` (`truckLoadingService.ts:276–295`) | `/api/optimization/truck-specs`, `/optimize`, `/visualize`, `/suggest-fleet` | `getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet` (chemin principal) | Edge Function proxy avec `requireUser` (Bearer JWT Supabase ajouté côté edge) | **HAUTE** | **ACTIF — chemin principal** |
+| `RAILWAY_API_URL` (fallback direct) | `src/services/truckLoadingService.ts:110` | mêmes 4 endpoints, appelés en `catch` après échec proxy : `truck-specs` (L367), `optimize` (L446), `visualize` (L490), `suggest-fleet` (L622) | mêmes 4 fonctions, branche fallback | `fetch` direct front (sans Bearer) | MOYENNE — fallback uniquement | **ACTIF — fallback** |
 | `VITE_TRUCK_LOADING_API_URL` | `.env`, `.env.example` | (override d'URL) | `railwayApi.ts:12` + `truckLoadingService.ts:110` | env var partagée intake/truck | — | couplage à dénouer |
 
 ### 2.2 Pages & composants concernés
 
 - **`src/pages/Intake.tsx`** — seul vrai consommateur Railway côté intake. Importe `createIntake` et `IntakeResponse` (L24), appelle Railway L590, mappe les `missing_fields` Railway → resolvers locaux (L315+), corrige les `assumptions` Railway via les facts extraits (L353+).
 - **`src/pages/case-view/*`** — **aucune** référence Railway, `fetchCaseFile`, `runWorkflow`, ou `web-production`. CaseView ne dépend plus de Railway (vérifié par `rg`).
-- **`src/components/truck-loading/*`** — dépendance Railway uniquement transitivement via `truckLoadingService`. `FleetSuggestionResults.tsx` contient des commentaires "format Railway" (lignes 397/405/415/432) sur les unités CM, à conserver lors d'une éventuelle migration.
+- **`src/components/truck-loading/*`** — dépendance Railway uniquement transitivement via `truckLoadingService`. Pattern actuel : **proxy edge `truck-optimization-proxy` comme chemin principal** pour `truck-specs`, `optimize`, `visualize`, `suggest-fleet` (helper `callOptimizationProxy()` à `truckLoadingService.ts:276`), avec **fallback `fetch` direct Railway** dans la branche `catch` de chaque fonction. `FleetSuggestionResults.tsx` contient des commentaires "format Railway" (lignes 397/405/415/432) sur les unités CM, à conserver lors d'une éventuelle migration.
 
 ### 2.3 Vérification d'indépendance du pipeline email
 
@@ -58,10 +58,10 @@ Recherche `railway|RAILWAY|web-production` dans :
 | Usage | Statut | Action recommandée |
 |---|---|---|
 | `createIntake` | **ACTIF** — flux `/intake` manuel WhatsApp/texte libre | À migrer (Phase 2). Garder Railway en fallback jusqu'à Phase 3. |
-| `fetchCaseFile` | **MORT** — zéro consommateur | `@deprecated` JSDoc (Phase 0), suppression Phase 4. |
-| `runWorkflow` | **MORT** — zéro consommateur | `@deprecated` JSDoc (Phase 0), suppression Phase 4. |
-| Truck loading direct (`truckLoadingService`) | **ACTIF** — 4 endpoints | Hors scope. Audit séparé `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`. |
-| Proxy edge `truck-optimization-proxy` | **ACTIF partiel** — un seul site d'invocation | Hors scope. À harmoniser dans l'audit truck séparé. |
+| `fetchCaseFile` | **MORT** — zéro consommateur | À traiter dans un lot ultérieur (`@deprecated` JSDoc puis suppression). **Pas de modification de code dans cet audit.** |
+| `runWorkflow` | **MORT** — zéro consommateur | À traiter dans un lot ultérieur (`@deprecated` JSDoc puis suppression). **Pas de modification de code dans cet audit.** |
+| Truck loading via proxy edge (chemin principal) | **ACTIF** — `getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet` appellent d'abord `callOptimizationProxy()` | Hors scope. Audit séparé `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`. |
+| Truck loading direct Railway (fallback) | **ACTIF** — branche `catch` après échec proxy, mêmes 4 endpoints | Hors scope. À harmoniser dans l'audit truck séparé (décider du devenir du fallback). |
 
 ---
 
@@ -125,11 +125,11 @@ Pas d'équivalent Supabase pour la **classification de complexité** : `complexi
 
 ## 7. Plan par phases
 
-### Phase 0 — Documentation (ce livrable)
+### Phase 0 — Documentation (ce livrable, documentation only)
 
 - ✅ Audit Markdown (ce fichier).
-- 🟡 Marquer `fetchCaseFile` et `runWorkflow` comme `@deprecated` via commentaire JSDoc dans `railwayApi.ts` (sous-lot séparé, non inclus ici).
-- 🟡 Mettre à jour `docs/DEFERRED_BACKLOG.md` avec 3 entrées Railway (inclus dans le même lot).
+- ❌ **Aucune modification de `railwayApi.ts`** dans ce lot. Pas de commentaire JSDoc `@deprecated` ajouté.
+- ❌ **Aucune modification de `docs/DEFERRED_BACKLOG.md`** dans ce lot. La mise à jour backlog (3 entrées : `DCQ-RAILWAY-INTAKE-MIGRATION`, `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`, `DCQ-RAILWAY-DEAD-EXPORTS`) sera traitée dans **un lot documentaire séparé** après validation de cet audit.
 
 ### Phase 1 — Feature flag / fallback
 
@@ -185,7 +185,7 @@ Pas d'équivalent Supabase pour la **classification de complexité** : `complexi
 | Action | Cible | Échéance |
 |---|---|---|
 | **GARDER** Railway `createIntake` | jusqu'à Phase 3 | court terme |
-| **DEPRECATE** `fetchCaseFile`, `runWorkflow` | JSDoc `@deprecated` Phase 0 | immédiat (sous-lot séparé) |
+| **DEPRECATE** `fetchCaseFile`, `runWorkflow` | JSDoc `@deprecated` (lot séparé, **pas dans cet audit**) | priorité 3 |
 | **MIGRER** intake vers Edge Function | Phase 2 | priorité 1 |
 | **DIFFÉRER** truck loading | audit séparé | priorité 2 |
 | **INTERDIRE** suppression `railwayApi.ts` | tant que truck non clos | toujours |
