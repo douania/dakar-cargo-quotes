@@ -3591,7 +3591,15 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const cargoDescEmail = descFactEmail?.value_text || "";
 
-        const resolvedEmailCandidates: Array<{ code10: string; emailId: string; subject: string; raw: string }> = [];
+        // HS10-AUTO-INJECTION-GUARD v3 : porter source_context + source_excerpt pour la garde Option C.
+        const resolvedEmailCandidates: Array<{
+          code10: string;
+          emailId: string;
+          subject: string;
+          raw: string;
+          source_context: HsAutoInjectionContext;
+          source_excerpt?: string;
+        }> = [];
         const subTenSeenEmail = new Set<string>();
 
         for (const email of emails) {
@@ -3610,6 +3618,8 @@ Deno.serve(async (req) => {
                   emailId: email.id,
                   subject: email.subject || "(no subject)",
                   raw: m.digits,
+                  source_context: m.context,
+                  source_excerpt: m.excerpt,
                 });
               }
             } else {
@@ -3644,62 +3654,93 @@ Deno.serve(async (req) => {
             console.log("[HS email-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedEmailCandidates.find(r => r.code10 === uniqueEmailCodes[0])!;
-            const { error: hsEmailRpcErr } = await serviceClient.rpc("supersede_fact", {
-              p_case_id: case_id,
-              p_fact_key: "cargo.hs_code",
-              p_fact_category: "cargo",
-              p_value_text: match.code10,
-              p_value_number: null,
-              p_value_json: null,
-              p_value_date: null,
-              p_source_type: "email_body",
-              p_source_email_id: match.emailId,
-              p_source_attachment_id: null,
-              p_source_excerpt: `[email_regex] ${match.subject}: ${match.raw} → ${match.code10}`,
-              p_confidence: 0.92,
+            // HS10-AUTO-INJECTION-GUARD v3 : garde Option C.
+            const guard = await hs10AutoInjectionGuardAllows(serviceClient, {
+              code10: match.code10,
+              source_context: match.source_context,
+              source_excerpt: match.source_excerpt,
             });
-            if (hsEmailRpcErr) {
-              console.error("[HS email-regex] supersede_fact FAILED:", hsEmailRpcErr.message);
+            if (!guard.allowed) {
+              console.warn(`[HS email-regex] Auto-injection BLOCKED Option C: ${guard.reason} (sh6=${guard.sh6})`);
+              await handleSubTenHsSuggestion(serviceClient, {
+                case_id,
+                source_digits: match.code10,
+                source_context: match.source_context,
+                origin: "email_regex",
+                source_label: match.subject,
+                cargoDescription: cargoDescEmail,
+                sourceExcerpt: match.source_excerpt,
+                clientName: hsRankingClientName,
+                documentSource: match.subject,
+              });
+              const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
+              await ensureHsCodeGap(serviceClient, {
+                case_id,
+                is_blocking: gapCriticality.is_blocking,
+                question_fr: `HS10 ${match.code10} détecté (email: ${match.subject}) mais garde Option C : ${guard.reason}. Validation opérateur requise (criticité: ${gapCriticality.reason}).`,
+                question_en: `HS10 ${match.code10} detected (email: ${match.subject}) but Option C guard: ${guard.reason}. Operator validation required (criticality: ${gapCriticality.reason}).`,
+              });
+              gapsIdentified++;
             } else {
-              factsAdded++;
-              console.log("[HS email-regex] Injected", match.code10, "from email:", match.subject);
+              const { error: hsEmailRpcErr } = await serviceClient.rpc("supersede_fact", {
+                p_case_id: case_id,
+                p_fact_key: "cargo.hs_code",
+                p_fact_category: "cargo",
+                p_value_text: match.code10,
+                p_value_number: null,
+                p_value_json: null,
+                p_value_date: null,
+                p_source_type: "email_body",
+                p_source_email_id: match.emailId,
+                p_source_attachment_id: null,
+                p_source_excerpt: `[email_regex] ${match.subject}: ${match.raw} → ${match.code10}`,
+                p_confidence: 0.92,
+              });
+              if (hsEmailRpcErr) {
+                console.error("[HS email-regex] supersede_fact FAILED:", hsEmailRpcErr.message);
+              } else {
+                factsAdded++;
+                console.log("[HS email-regex] Injected", match.code10, "from email:", match.subject);
+                await emitHs10AutoInjectionTrace(serviceClient, {
+                  case_id, code10: match.code10, sh6: guard.sh6,
+                  origin: "email_regex", source_label: match.subject,
+                  source_context: match.source_context,
+                  confidence: 0.92, distinct_rates_count: guard.distinctRatesCount,
+                });
+              }
             }
           }
         } else if (uniqueEmailCodes.length === 0) {
           console.log("[HS email-regex] No HS found/resolved from emails");
         } else {
-          // P1: Multi-HS email — inject as sorted CSV
-          const sortedEmailCodes = [...uniqueEmailCodes].sort();
-          const csvEmailValue = sortedEmailCodes.join(",");
-          const hsRawEmail = (hsFactEmail?.value_text || "").trim();
-          const existingEmailNormalized = normalizeHsCsv(hsRawEmail);
-          if (csvEmailValue === existingEmailNormalized) {
-            console.log("[HS email-regex] Multi-HS CSV identical to existing, skip");
-          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
-            console.log("[HS email-regex] Existing HS is manual source, skip multi-HS supersede");
-          } else {
-            const firstEmailMatch = resolvedEmailCandidates.find(r => r.code10 === sortedEmailCodes[0])!;
-            const { error: hsEmailMultiErr } = await serviceClient.rpc("supersede_fact", {
-              p_case_id: case_id,
-              p_fact_key: "cargo.hs_code",
-              p_fact_category: "cargo",
-              p_value_text: csvEmailValue,
-              p_value_number: null,
-              p_value_json: null,
-              p_value_date: null,
-              p_source_type: "email_body",
-              p_source_email_id: firstEmailMatch.emailId,
-              p_source_attachment_id: null,
-              p_source_excerpt: `[email_regex] Multi-HS from ${firstEmailMatch.subject}: ${sortedEmailCodes.join(", ")}`,
-              p_confidence: 0.88,
+          // HS10-AUTO-INJECTION-GUARD v3 : multi-CSV supprimé (incompatible critère 3).
+          // → N suggestions + GAP cargo.hs_code (criticité respectée).
+          console.warn(`[HS email-regex] Multi-HS detected (${uniqueEmailCodes.length} distinct) — Option C : suggestions only`);
+          const seenAutoBlockedEmail = new Set<string>();
+          for (const code10 of uniqueEmailCodes) {
+            if (seenAutoBlockedEmail.has(code10)) continue;
+            seenAutoBlockedEmail.add(code10);
+            const m = resolvedEmailCandidates.find(r => r.code10 === code10)!;
+            await handleSubTenHsSuggestion(serviceClient, {
+              case_id,
+              source_digits: m.code10,
+              source_context: m.source_context,
+              origin: "email_regex",
+              source_label: m.subject,
+              cargoDescription: cargoDescEmail,
+              sourceExcerpt: m.source_excerpt,
+              clientName: hsRankingClientName,
+              documentSource: m.subject,
             });
-            if (hsEmailMultiErr) {
-              console.error("[HS email-regex] Multi-HS supersede_fact FAILED:", hsEmailMultiErr.message);
-            } else {
-              factsAdded++;
-              console.log("[HS email-regex] Injected multi-HS CSV:", csvEmailValue);
-            }
           }
+          const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
+          await ensureHsCodeGap(serviceClient, {
+            case_id,
+            is_blocking: gapCriticality.is_blocking,
+            question_fr: `Plusieurs HS10 distincts détectés (${uniqueEmailCodes.join(", ")}) dans les emails. Sélection opérateur requise (criticité: ${gapCriticality.reason}).`,
+            question_en: `Multiple distinct HS10 detected (${uniqueEmailCodes.join(", ")}) in emails. Operator selection required (criticality: ${gapCriticality.reason}).`,
+          });
+          gapsIdentified++;
         }
       }
     } catch (hsEmailErr) {
