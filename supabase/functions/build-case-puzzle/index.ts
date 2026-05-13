@@ -3543,7 +3543,6 @@ Deno.serve(async (req) => {
           gapsIdentified++;
         }
       }
-      }
     } catch (hsDocErr) {
       console.error("[HS doc-regex] Unexpected error:", hsDocErr);
     }
