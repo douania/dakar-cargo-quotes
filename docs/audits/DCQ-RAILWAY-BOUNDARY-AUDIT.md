@@ -125,11 +125,11 @@ Pas d'équivalent Supabase pour la **classification de complexité** : `complexi
 
 ## 7. Plan par phases
 
-### Phase 0 — Documentation (ce livrable)
+### Phase 0 — Documentation (ce livrable, documentation only)
 
 - ✅ Audit Markdown (ce fichier).
-- 🟡 Marquer `fetchCaseFile` et `runWorkflow` comme `@deprecated` via commentaire JSDoc dans `railwayApi.ts` (sous-lot séparé, non inclus ici).
-- 🟡 Mettre à jour `docs/DEFERRED_BACKLOG.md` avec 3 entrées Railway (inclus dans le même lot).
+- ❌ **Aucune modification de `railwayApi.ts`** dans ce lot. Pas de commentaire JSDoc `@deprecated` ajouté.
+- ❌ **Aucune modification de `docs/DEFERRED_BACKLOG.md`** dans ce lot. La mise à jour backlog (3 entrées : `DCQ-RAILWAY-INTAKE-MIGRATION`, `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`, `DCQ-RAILWAY-DEAD-EXPORTS`) sera traitée dans **un lot documentaire séparé** après validation de cet audit.
 
 ### Phase 1 — Feature flag / fallback
 
