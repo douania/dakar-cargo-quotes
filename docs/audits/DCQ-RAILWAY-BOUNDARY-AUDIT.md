@@ -39,7 +39,7 @@ Une suppression brutale de `railwayApi.ts` aujourd'hui casserait `/intake` ET to
 
 - **`src/pages/Intake.tsx`** — seul vrai consommateur Railway côté intake. Importe `createIntake` et `IntakeResponse` (L24), appelle Railway L590, mappe les `missing_fields` Railway → resolvers locaux (L315+), corrige les `assumptions` Railway via les facts extraits (L353+).
 - **`src/pages/case-view/*`** — **aucune** référence Railway, `fetchCaseFile`, `runWorkflow`, ou `web-production`. CaseView ne dépend plus de Railway (vérifié par `rg`).
-- **`src/components/truck-loading/*`** — dépendance Railway uniquement transitivement via `truckLoadingService`. `FleetSuggestionResults.tsx` contient des commentaires "format Railway" (lignes 397/405/415/432) sur les unités CM, à conserver lors d'une éventuelle migration.
+- **`src/components/truck-loading/*`** — dépendance Railway uniquement transitivement via `truckLoadingService`. Pattern actuel : **proxy edge `truck-optimization-proxy` comme chemin principal** pour `truck-specs`, `optimize`, `visualize`, `suggest-fleet` (helper `callOptimizationProxy()` à `truckLoadingService.ts:276`), avec **fallback `fetch` direct Railway** dans la branche `catch` de chaque fonction. `FleetSuggestionResults.tsx` contient des commentaires "format Railway" (lignes 397/405/415/432) sur les unités CM, à conserver lors d'une éventuelle migration.
 
 ### 2.3 Vérification d'indépendance du pipeline email
 
