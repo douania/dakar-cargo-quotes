@@ -185,7 +185,7 @@ Pas d'équivalent Supabase pour la **classification de complexité** : `complexi
 | Action | Cible | Échéance |
 |---|---|---|
 | **GARDER** Railway `createIntake` | jusqu'à Phase 3 | court terme |
-| **DEPRECATE** `fetchCaseFile`, `runWorkflow` | JSDoc `@deprecated` Phase 0 | immédiat (sous-lot séparé) |
+| **DEPRECATE** `fetchCaseFile`, `runWorkflow` | JSDoc `@deprecated` (lot séparé, **pas dans cet audit**) | priorité 3 |
 | **MIGRER** intake vers Edge Function | Phase 2 | priorité 1 |
 | **DIFFÉRER** truck loading | audit séparé | priorité 2 |
 | **INTERDIRE** suppression `railwayApi.ts` | tant que truck non clos | toujours |
