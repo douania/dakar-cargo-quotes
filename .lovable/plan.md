@@ -1,256 +1,67 @@
+## MAP-3 — Schema design only (commodity_classification_candidates)
 
-# HS10-AUTO-INJECTION-GUARD — Phase 2 plan chirurgical (Option C) — v3 FINAL
+**Périmètre strict** : schema-design uniquement. Aucun fichier `supabase/migrations/*.sql`, aucune migration exécutée, aucune DB write, aucun changement `src/`, `supabase/functions/`, `run-pricing`, ni de la DB. **Pas de recopie du contenu MAP-2** (audits Manus/ChatGPT/Claude, état runtime, algorithme cascade, NSTR, HS10, PAD→DROIT_PASSAGE) — ces sujets sont déjà traités dans `docs/tariff-collection/pad/MAP_2_TECHNICAL_DESIGN_MULTI_SOURCE_PAD_SUGGESTION.md` et seront cités par référence en une ligne.
 
-**Statut** : GO CTO conditionnel reçu sur v2. v3 intègre la **micro-réserve criticité gap** demandée. Patch backend isolé, exécution autorisée après ce plan.
+### Diff autorisé (2 fichiers max)
 
----
+- **A** `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md`
+- **M** `docs/DEFERRED_BACKLOG.md` — ajout entrée `📋 MAP-3 SCHEMA DESIGN DRAFT — awaiting CTO review` uniquement
 
-## 1. Périmètre strict (inchangé v2)
+### Plan exact du livrable (17 sections)
 
-**Fichier modifié, unique** : `supabase/functions/build-case-puzzle/index.ts`.
+1. **Contexte court** — 1 paragraphe : « MAP-2 accepté (`MAP_2_TECHNICAL_DESIGN_READY_ACCEPTED`). MAP-3 arbitre le schéma de stockage avant toute migration. Voir `MAP_2_TECHNICAL_DESIGN_MULTI_SOURCE_PAD_SUGGESTION.md` pour la cascade fonctionnelle. » Pas de recopie.
+2. **Périmètre schema-design only** — interdictions explicites (pas de migration, pas de runtime, pas de DB write, pas d'Edge Function, pas de clôture MAPPING-TAX-CHAIN-0).
+3. **Modèle retenu B + C** — 1 paragraphe rappelant la décision : Option C (table candidats) + Option B (facts validés dans `quote_facts` via `supersede_fact` uniquement). Interdiction d'écrire un candidat suggéré dans `quote_facts`.
+4. **Design table `commodity_classification_candidates`** — liste structurée des colonnes (sans SQL ici, le DDL est en §14) :
+   - identité : `id`, `case_id` (NOT NULL, FK quote_cases), `article_id` (NULLABLE, sans FK forte), `source_fact_id` (NULLABLE, FK quote_facts SET NULL)
+   - classification : `designation_normalized`, `candidate_kind` (cn8/hs6/hs10_uemoa/nhm/nst2007/nstr/pad_label/pad_category), `candidate_value`, `pad_category`, `droit_passage_value/_currency/_unit`
+   - provenance : `source` (operator/structured_code_exact/validated_alias/pad_label_2_3/reference_label_cn_nhm_nst_nstr/ai_suggestion/web_hs_lookup), `evidence jsonb`, `confidence`, `score`, `rank`
+   - cycle de vie : `status`, `is_current`, `validated_by`, `validated_at`, `rejection_reason`, `supersedes_id`
+   - timestamps : `created_at`, `updated_at`
+5. **Design facts validés `quote_facts`** — whitelist `fact_key` pivots autorisés (validés uniquement) : `commodity.cn_code`, `commodity.hs_code` (avec `value_json.scheme`), `commodity.nhm_code`, `commodity.nst_code`, `commodity.nstr_code`, `pricing.pad_category`, `pricing.pad_droit_passage_value`. Rappel contrainte `uq_quote_facts_current_key` → incompatibilité native avec top-N candidats (justifie la table dédiée).
+6. **Règles `case_id` / `article_id` / `source_fact_id`** — `case_id` obligatoire ; `article_id` nullable, sans FK tant que table article non stable (dette assumée) ; `source_fact_id` nullable mais recommandé pour traçabilité.
+7. **Contraintes proposées** — CHECK sur `candidate_kind`, `source`, `status`, `confidence` (0..1) ; FK ON DELETE CASCADE pour `case_id`, ON DELETE SET NULL pour `source_fact_id` et `supersedes_id`.
+8. **Index proposés** — `(case_id)`, `(case_id, article_id)`, `(case_id, candidate_kind) WHERE is_current`, partiel UNIQUE d'idempotence (cf §11), `(status) WHERE status='suggested'`, `(source_fact_id) WHERE NOT NULL`.
+9. **RLS proposées** — alignées sur `quote_facts` : SELECT pour utilisateurs ayant accès au `case_id` (réutilisation fonction d'accès existante, **non créée** ici) ; INSERT/UPDATE service_role + opérateur ; DELETE interdit en RLS. **Aucune policy n'est créée dans ce lot** — uniquement décrite.
+10. **Triggers proposés** — `BEFORE UPDATE` → `update_updated_at_column()` (existant) ; garde-fou cohérence `status`/`is_current`. **Aucun trigger qui écrit dans `quote_facts`** (séparation runtime stricte, MAP-4/5).
+11. **Idempotence & supersession** — clé naturelle `(case_id, COALESCE(article_id, sentinel), candidate_kind, source, candidate_value) WHERE is_current=true` → UPSERT `ON CONFLICT DO NOTHING`. Re-scoring = nouvelle ligne `is_current=true` + ancienne `is_current=false, status='superseded', supersedes_id=<new>`.
+12. **Statuts** — diagramme texte : `suggested → accepted | rejected | superseded`. Sémantique de chaque transition. `accepted` ⇒ déclenche écriture fact pivot (hors MAP-3).
+13. **Règles d'écriture future vers `quote_facts`** — uniquement via `supersede_fact` RPC (futur MAP-5), uniquement sur whitelist §5, uniquement après `accepted` opérateur, jamais auto depuis `ai_suggestion`/`web_hs_lookup`.
+14. **DDL illustratif** — bloc unique préfixé :
+    ```text
+    -- DRAFT ONLY — DO NOT EXECUTE
+    -- Schema design MAP-3. Migration réelle = MAP-3b (lot séparé, GO CTO requis).
+    ```
+    Contient : `CREATE TABLE`, contraintes CHECK/FK, `CREATE INDEX` (dont partiel UNIQUE), `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`, exemples de `CREATE POLICY` (commentés `-- DRAFT`), exemple `CREATE TRIGGER` (commenté `-- DRAFT`).
+15. **Tests attendus pour MAP-3b** — checklist : insertion candidat ; idempotence (réinsertion identique = no-op) ; supersession (re-scoring) ; transitions de statut interdites bloquées par trigger ; RLS lecture/écriture par rôle ; cascade ON DELETE case ; comportement `article_id NULL` vs UUID.
+16. **Critères GO / NO-GO MAP-3b**
+    - GO : DDL accepté sans refonte structurelle ; fonction `has_case_access(case_id)` (ou équivalent) confirmée ; whitelist `fact_key` validée ; pas de table article stable bloquante.
+    - NO-GO : décision de fusionner candidats dans `quote_facts` ; apparition table article stable avec FK obligatoire ; refus du modèle hybride article_id nullable.
+17. **Verdict** — `MAP_3_SCHEMA_DESIGN_READY` (ou `MAP_3_BLOCKED` si une décision bloquante est levée à la revue).
 
-**Interdictions absolues** :
-- ❌ `docs/DEFERRED_BACKLOG.md` (lot documentation séparé après Phase 3)
-- ❌ Aucune modification memory dans ce lot
-- ❌ `run-pricing`, `quotation-engine`, PAD-NST, Railway
-- ❌ Toute migration SQL (la table `hs_codes` est lue seulement)
-- ❌ `src/`, `config.toml`
-- ❌ Aucune création d'`event_type` libre
-- ❌ Aucune modification de `resolveSenegalHsCode`, `isExactHsMatch`, `extractHsCodesFromTextDetailed`, `MANUAL_PROTECTED_SOURCES`, `handleSubTenHsSuggestion` (sauf commentaire)
-- ❌ Aucune modification de la logique sub-10 chiffres
-- ❌ Aucun déploiement avant exécution complète du diff
+### Entrée DEFERRED_BACKLOG.md (M, ajout en fin de section MAP)
 
----
+| Champ | Valeur |
+|-------|--------|
+| ID | `MAP-3` |
+| Catégorie | Schema design — stockage candidats classification commodity |
+| Statut | `📋 MAP-3 SCHEMA DESIGN DRAFT — awaiting CTO review` |
+| Priorité | P1 |
+| Phase d'origine | Post MAP-2 |
+| Date | 2026-05-13 |
+| Constat | Livrable `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md` — design schema-only table `commodity_classification_candidates` (Option C) + whitelist facts pivots `quote_facts` (Option B). DDL marqué `DRAFT ONLY — DO NOT EXECUTE`. |
+| Déclencheur de réouverture | Revue CTO + GO MAP-3b (migration réelle). |
+| Recommandation | Schema-design only. Aucune migration, aucune DB write, aucun runtime. MAPPING-TAX-CHAIN-0 reste ouvert. Séquence : MAP-3b (migration) → MAP-4 (Edge read-only) → MAP-5 (UI) → MAP-6 (shadow) → MAP-7 (activation partielle). |
 
-## 2. Critères Option C (inchangés v2)
+### Interdictions absolues (rappel)
 
-Auto-write `cargo.hs_code` autorisé **si tous** :
+- Pas de `src/`, `supabase/functions/`, `supabase/migrations/`, `supabase/config.toml`.
+- Pas de DB write, pas de création de table, pas de policy/trigger appliqués.
+- Pas d'Edge Function, pas d'INSERT alias, pas d'activation `PAD_RESOLVER_SHADOW`.
+- Pas de décision Lot D, pas de clôture MAPPING-TAX-CHAIN-0.
+- Pas de copie des fichiers externes joints dans le repo.
+- **Pas de recopie du contenu MAP-2** (audits, runtime, algorithme cascade, NSTR/HS10, DROIT_PASSAGE).
 
-1. `sourceLen === 10`
-2. `resolveSenegalHsCode === "unique"`
-3. Cohérence cross-source : `uniqueCodes.length === 1`
-4. **Taux DD/TVA SH6 complets et non divergents** :
-   - `candidatesCount > 0`
-   - `distinctRates.length === 1`
-   - `dd !== null` ET `tva !== null`
-5. **Source labellisée HS** :
-   - `hs_label` → ✅
-   - `code_douanier` → ✅
-   - `parenthesized` → ✅ uniquement si `sourceExcerpt` matche `/\b(cargo|description|marchandise|goods|commodity|hs|hscode)\b/i`
-   - `iso_10digit`, `cargo_line` → ❌
+### Verdict attendu après exécution
 
----
-
-## 3. NOUVEAU v3 — Micro-réserve criticité gap (fix CTO #5)
-
-Quand la garde bloque l'auto-write, le GAP `cargo.hs_code` doit **respecter la criticité existante du dossier**, sans la durcir.
-
-### 3.1 Helper `assessHsCodeGapBlocking`
-
-```ts
-// Phase 2 HS10-AUTO-INJECTION-GUARD v3 : criticité gap respectée.
-// Si le dossier est DDP ou customs-dependent, un gap cargo.hs_code peut être bloquant.
-// Sinon, par défaut non bloquant pour éviter d'élargir le scope.
-async function assessHsCodeGapBlocking(
-  serviceClient: any,
-  case_id: string,
-): Promise<{ is_blocking: boolean; reason: string }> {
-  try {
-    const { data: facts } = await serviceClient
-      .from("quote_facts")
-      .select("fact_key, value_text")
-      .eq("case_id", case_id)
-      .eq("is_current", true)
-      .in("fact_key", ["incoterm", "customs.regime", "service.scope"]);
-
-    const factMap = new Map<string, string | null>();
-    for (const f of facts ?? []) factMap.set(f.fact_key, f.value_text ?? null);
-
-    const incoterm = (factMap.get("incoterm") ?? "").toUpperCase();
-    const regime = (factMap.get("customs.regime") ?? "").toUpperCase();
-    const scope = (factMap.get("service.scope") ?? "").toUpperCase();
-
-    // Critère criticité : DDP ou régime douanier explicite ou scope customs
-    if (incoterm === "DDP") {
-      return { is_blocking: true, reason: "incoterm=DDP" };
-    }
-    if (regime && regime !== "NONE" && regime !== "") {
-      return { is_blocking: true, reason: `customs_regime=${regime}` };
-    }
-    if (scope.includes("CUSTOMS") || scope.includes("DOUANE")) {
-      return { is_blocking: true, reason: `scope_customs_dependent` };
-    }
-    return { is_blocking: false, reason: "no_criticality_signal" };
-  } catch (err) {
-    console.warn(`[hs10-guard] assessHsCodeGapBlocking failed, defaulting non-blocking: ${err}`);
-    return { is_blocking: false, reason: "fallback_safe_default" };
-  }
-}
-```
-
-### 3.2 Usage dans les paths bloqués
-
-Remplacer dans 4.1 et 4.3 le `is_blocking: false` codé en dur par :
-
-```ts
-const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
-await ensureHsCodeGap(serviceClient, {
-  case_id,
-  is_blocking: gapCriticality.is_blocking,
-  question_fr: `HS10 ${match.code10} détecté mais garde Option C : ${guard.reason}. Validation opérateur requise (criticité: ${gapCriticality.reason}).`,
-  question_en: `HS10 ${match.code10} detected but Option C guard: ${guard.reason}. Operator validation required (criticality: ${gapCriticality.reason}).`,
-});
-```
-
-> **Note** : si les fact_keys `incoterm`, `customs.regime`, `service.scope` ne sont pas exactement ceux utilisés dans le projet, **vérification en lecture obligatoire avant patch** (rg sur `fact_key.*incoterm` dans `build-case-puzzle/index.ts`). Ajustement ≤2 lignes au mapping si nécessaire. Pas de nouvelle fact_key.
-
----
-
-## 4. Helpers Option C (inchangés v2 sauf §3.1 ajouté)
-
-### 4.1 `checkSh6RateDivergence` — voir v2 §3.1
-### 4.2 `isLabeledHsContext` — voir v2 §3.2
-### 4.3 `hs10AutoInjectionGuardAllows` — voir v2 §3.3
-### 4.4 `emitHs10AutoInjectionTrace` — voir v2 §3.4
-### 4.5 `assessHsCodeGapBlocking` — voir §3.1 ci-dessus
-
----
-
-## 5. Modifications dans les paths
-
-### 5.1 Path A — M3.4b doc-regex mono (L3252-3280)
-
-```ts
-const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
-const guard = await hs10AutoInjectionGuardAllows(serviceClient, {
-  code10: match.code10,
-  source_context: match.source_context,
-  source_excerpt: match.source_excerpt,
-});
-if (!guard.allowed) {
-  console.warn(`[HS doc-regex] Auto-injection BLOCKED Option C: ${guard.reason} (sh6=${guard.sh6})`);
-  await handleSubTenHsSuggestion(serviceClient, {
-    case_id,
-    source_digits: match.code10,
-    source_context: match.source_context,
-    origin: "document_regex",
-    source_label: match.file,
-    cargoDescription: cargoDescDoc,
-    sourceExcerpt: match.source_excerpt,
-    clientName: hsRankingClientName,
-    documentSource: match.file,
-  });
-  // v3 : criticité gap respectée
-  const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
-  await ensureHsCodeGap(serviceClient, {
-    case_id,
-    is_blocking: gapCriticality.is_blocking,
-    question_fr: `HS10 ${match.code10} détecté mais garde Option C : ${guard.reason} (criticité: ${gapCriticality.reason}).`,
-    question_en: `HS10 ${match.code10} detected but Option C guard: ${guard.reason} (criticality: ${gapCriticality.reason}).`,
-  });
-} else {
-  // supersede_fact existant inchangé
-  await emitHs10AutoInjectionTrace(serviceClient, {
-    case_id, code10: match.code10, sh6: guard.sh6,
-    origin: "document_regex", source_label: match.file,
-    confidence: 0.95, distinct_rates_count: guard.distinctRatesCount,
-  });
-}
-```
-
-> **Pré-requis** : `resolvedCandidates` doit porter `source_context` et `source_excerpt`. Vérification en lecture avant patch ; mapping local ≤4 lignes si absent.
-
-### 5.2 Path A bis — M3.4b multi-CSV (L3281-3316)
-
-Suppression écriture CSV multi (critère 3 incompatible). Bascule N suggestions + GAP avec criticité (§3.1).
-
-### 5.3 Path B — M3.4c email-regex (L3410-3475)
-
-Symétrique 5.1 + 5.2. `confidence=0.92`, `origin="email_regex"`.
-
-### 5.4 Path C — Post-Attach (L3987-4005)
-
-**Inchangé.** Commentaire justificatif au-dessus de L3989 :
-
-```ts
-// Phase 2 HS10-AUTO-INJECTION-GUARD : Path C inchangé.
-// Re-validation d'un cargo.hs_code déjà présent (manuel ou écrit par M3.4b/c sous garde Option C).
-// La garde Option C s'applique uniquement aux paths d'écriture initiale (M3.4b/c),
-// pas à la re-validation Post-Attach qui ne crée pas de nouveau fact.
-```
-
-### 5.5 Commentaire fix #4 sur `handleSubTenHsSuggestion` (L850)
-
-```ts
-// NOTE Phase 2 HS10-AUTO-INJECTION-GUARD : ce helper est réutilisé comme mécanisme
-// générique de suggestion HS10 trace quand l'auto-write est bloqué par la garde Option C,
-// même si source_digits contient déjà 10 chiffres. Il ne doit JAMAIS écrire cargo.hs_code
-// (cf. corps de la fonction : seulement event HS10_CLASSIFICATION_SUGGESTION + GAP).
-// Renommage différé pour éviter un refactor inutile.
-```
-
----
-
-## 6. Diff prévisionnel
-
-| Fichier | + lignes | – lignes | Sites |
-|---|---|---|---|
-| `supabase/functions/build-case-puzzle/index.ts` | ~165 | ~25 | 5 helpers (près de L485) + commentaires L850 + L3989 + 4 sites de modification |
-
-**Aucun autre fichier modifié dans ce lot.**
-
----
-
-## 7. Vérifications post-patch (Phase 3, hors ce lot)
-
-### 7.1 Requête DB préalable Test B `31efcc01`
-
-```sql
-SELECT DISTINCT dd, tva, COUNT(*) AS n
-FROM hs_codes
-WHERE code_normalized LIKE '440311%'
-GROUP BY dd, tva
-ORDER BY n DESC;
-```
-
-- 1 ligne, dd/tva non null → garde laisse passer
-- ≥2 lignes ou null → garde bloque, suggestion + GAP (criticité évaluée)
-
-### 7.2 Tests Phase 3
-
-| Test | Cible | Attendu |
-|---|---|---|
-| T-C1 | `31efcc01` HS10 unique labellisé | Selon §7.1 |
-| T-C2 | 2 HS10 distincts | N suggestions, pas de CSV |
-| T-C3 | HS10 contexte `iso_10digit`/`cargo_line` | Suggestion (fix #1) |
-| T-C4 | SH6 `dd=NULL` ou `tva=NULL` | Suggestion (fix #2) |
-| T-C5 | Idempotence T-C1 | Skip insert |
-| **T-C6** | **Dossier DDP HS10 bloqué** | **GAP `is_blocking=true`** (fix #5) |
-| **T-C7** | **Dossier non-DDP HS10 bloqué** | **GAP `is_blocking=false`** (fix #5) |
-
----
-
-## 8. Risques résiduels et mitigations
-
-| Risque | Probabilité | Mitigation |
-|---|---|---|
-| `resolvedCandidates` ne porte pas `source_context`/`source_excerpt` | Moyenne | Vérification en lecture avant patch |
-| Fact keys criticité incorrects | Faible | Try/catch → fallback non-blocking ; vérif rg avant patch |
-| Régression `PRICED_DRAFT` pré-patch | Faible | `document_regex` non protégé → re-évaluation. No-op si critères OK. **Aucun pricing rétroactif.** |
-| Coût DB +1-2 queries par HS10 | Très faible | LIMIT 200 + 1 select facts indexé |
-
----
-
-## 9. Livrables Phase 2 (ce lot)
-
-1. **Diff `supabase/functions/build-case-puzzle/index.ts` uniquement** : 5 helpers + 2 commentaires + 4 sites.
-2. Diff réel envoyé au CTO après exécution (règle projet).
-3. Résultat de la requête §7.1 documenté dans le message de livraison.
-
-**Pas de mise à jour `DEFERRED_BACKLOG.md` ni memory dans ce lot.**
-
----
-
-## 10. GO CTO
-
-Plan v3 prêt à exécution. Sortie en mode build pour livrer le diff complet, puis envoi du diff réel au CTO conformément à la règle projet.
+`MAP_3_SCHEMA_DESIGN_READY`
