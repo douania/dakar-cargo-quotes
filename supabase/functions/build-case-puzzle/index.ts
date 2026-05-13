@@ -3397,7 +3397,14 @@ Deno.serve(async (req) => {
         const cargoDescDoc = descFactDoc?.value_text || "";
 
         // 2. Extract HS candidates from all case_documents (detailed: capture sourceLen)
-        const resolvedCandidates: Array<{ code10: string; file: string; raw: string }> = [];
+        // HS10-AUTO-INJECTION-GUARD v3 : on porte source_context + source_excerpt pour la garde Option C.
+        const resolvedCandidates: Array<{
+          code10: string;
+          file: string;
+          raw: string;
+          source_context: HsAutoInjectionContext;
+          source_excerpt?: string;
+        }> = [];
         const subTenSeen = new Set<string>();
 
         for (const doc of caseDocuments) {
@@ -3407,7 +3414,13 @@ Deno.serve(async (req) => {
             if (m.sourceLen === 10) {
               const hsResult = await resolveSenegalHsCode(serviceClient, m.digits);
               if (hsResult.status === "unique") {
-                resolvedCandidates.push({ code10: hsResult.code10, file: doc.file_name, raw: m.digits });
+                resolvedCandidates.push({
+                  code10: hsResult.code10,
+                  file: doc.file_name,
+                  raw: m.digits,
+                  source_context: m.context,
+                  source_excerpt: m.excerpt,
+                });
               }
             } else {
               // Source <10 chiffres → suggestion only, JAMAIS d'écriture cargo.hs_code
@@ -3441,63 +3454,95 @@ Deno.serve(async (req) => {
             console.log("[HS doc-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
-            const { error: hsRpcErr } = await serviceClient.rpc("supersede_fact", {
-              p_case_id: case_id,
-              p_fact_key: "cargo.hs_code",
-              p_fact_category: "cargo",
-              p_value_text: match.code10,
-              p_value_number: null,
-              p_value_json: null,
-              p_value_date: null,
-              p_source_type: "document_regex",
-              p_source_email_id: null,
-              p_source_attachment_id: null,
-              p_source_excerpt: `[document_regex] ${match.file}: ${match.raw} → ${match.code10}`,
-              p_confidence: 0.95,
+            // HS10-AUTO-INJECTION-GUARD v3 : garde Option C (5 critères cumulatifs).
+            const guard = await hs10AutoInjectionGuardAllows(serviceClient, {
+              code10: match.code10,
+              source_context: match.source_context,
+              source_excerpt: match.source_excerpt,
             });
-            if (hsRpcErr) {
-              console.error("[HS doc-regex] supersede_fact FAILED:", hsRpcErr.message);
+            if (!guard.allowed) {
+              console.warn(`[HS doc-regex] Auto-injection BLOCKED Option C: ${guard.reason} (sh6=${guard.sh6})`);
+              await handleSubTenHsSuggestion(serviceClient, {
+                case_id,
+                source_digits: match.code10,
+                source_context: match.source_context,
+                origin: "document_regex",
+                source_label: match.file,
+                cargoDescription: cargoDescDoc,
+                sourceExcerpt: match.source_excerpt,
+                clientName: hsRankingClientName,
+                documentSource: match.file,
+              });
+              const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
+              await ensureHsCodeGap(serviceClient, {
+                case_id,
+                is_blocking: gapCriticality.is_blocking,
+                question_fr: `HS10 ${match.code10} détecté (${match.file}) mais garde Option C : ${guard.reason}. Validation opérateur requise (criticité: ${gapCriticality.reason}).`,
+                question_en: `HS10 ${match.code10} detected (${match.file}) but Option C guard: ${guard.reason}. Operator validation required (criticality: ${gapCriticality.reason}).`,
+              });
+              gapsIdentified++;
             } else {
-              factsAdded++;
-              console.log("[HS doc-regex] Injected", match.code10, "from", match.file);
+              const { error: hsRpcErr } = await serviceClient.rpc("supersede_fact", {
+                p_case_id: case_id,
+                p_fact_key: "cargo.hs_code",
+                p_fact_category: "cargo",
+                p_value_text: match.code10,
+                p_value_number: null,
+                p_value_json: null,
+                p_value_date: null,
+                p_source_type: "document_regex",
+                p_source_email_id: null,
+                p_source_attachment_id: null,
+                p_source_excerpt: `[document_regex] ${match.file}: ${match.raw} → ${match.code10}`,
+                p_confidence: 0.95,
+              });
+              if (hsRpcErr) {
+                console.error("[HS doc-regex] supersede_fact FAILED:", hsRpcErr.message);
+              } else {
+                factsAdded++;
+                console.log("[HS doc-regex] Injected", match.code10, "from", match.file);
+                await emitHs10AutoInjectionTrace(serviceClient, {
+                  case_id, code10: match.code10, sh6: guard.sh6,
+                  origin: "document_regex", source_label: match.file,
+                  source_context: match.source_context,
+                  confidence: 0.95, distinct_rates_count: guard.distinctRatesCount,
+                });
+              }
             }
           }
         } else if (uniqueCodes.length === 0) {
           console.log("[HS doc-regex] No HS found/resolved from case_documents");
         } else {
-          // P1: Multi-HS — inject as sorted CSV (quotation-engine already supports comma-separated HS)
-          const sortedCodes = [...uniqueCodes].sort();
-          const csvValue = sortedCodes.join(",");
-          const hsRawDoc = (hsFactDoc?.value_text || "").trim();
-          const existingNormalized = normalizeHsCsv(hsRawDoc);
-          if (csvValue === existingNormalized) {
-            console.log("[HS doc-regex] Multi-HS CSV identical to existing, skip");
-          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
-            console.log("[HS doc-regex] Existing HS is manual source, skip multi-HS supersede");
-          } else {
-            const firstMatch = resolvedCandidates.find(r => r.code10 === sortedCodes[0])!;
-            const { error: hsMultiErr } = await serviceClient.rpc("supersede_fact", {
-              p_case_id: case_id,
-              p_fact_key: "cargo.hs_code",
-              p_fact_category: "cargo",
-              p_value_text: csvValue,
-              p_value_number: null,
-              p_value_json: null,
-              p_value_date: null,
-              p_source_type: "document_regex",
-              p_source_email_id: null,
-              p_source_attachment_id: null,
-              p_source_excerpt: `[document_regex] Multi-HS from ${firstMatch.file}: ${sortedCodes.join(", ")}`,
-              p_confidence: 0.90,
+          // HS10-AUTO-INJECTION-GUARD v3 : multi-CSV supprimé (incompatible critère 3 cohérence cross-source).
+          // → N suggestions HS10_CLASSIFICATION_SUGGESTION + GAP cargo.hs_code (criticité respectée).
+          console.warn(`[HS doc-regex] Multi-HS detected (${uniqueCodes.length} distinct) — Option C : suggestions only, no auto-write`);
+          const seenAutoBlocked = new Set<string>();
+          for (const code10 of uniqueCodes) {
+            if (seenAutoBlocked.has(code10)) continue;
+            seenAutoBlocked.add(code10);
+            const m = resolvedCandidates.find(r => r.code10 === code10)!;
+            await handleSubTenHsSuggestion(serviceClient, {
+              case_id,
+              source_digits: m.code10,
+              source_context: m.source_context,
+              origin: "document_regex",
+              source_label: m.file,
+              cargoDescription: cargoDescDoc,
+              sourceExcerpt: m.source_excerpt,
+              clientName: hsRankingClientName,
+              documentSource: m.file,
             });
-            if (hsMultiErr) {
-              console.error("[HS doc-regex] Multi-HS supersede_fact FAILED:", hsMultiErr.message);
-            } else {
-              factsAdded++;
-              console.log("[HS doc-regex] Injected multi-HS CSV:", csvValue);
-            }
           }
+          const gapCriticality = await assessHsCodeGapBlocking(serviceClient, case_id);
+          await ensureHsCodeGap(serviceClient, {
+            case_id,
+            is_blocking: gapCriticality.is_blocking,
+            question_fr: `Plusieurs HS10 distincts détectés (${uniqueCodes.join(", ")}) dans les documents. Sélection opérateur requise (criticité: ${gapCriticality.reason}).`,
+            question_en: `Multiple distinct HS10 detected (${uniqueCodes.join(", ")}) in documents. Operator selection required (criticality: ${gapCriticality.reason}).`,
+          });
+          gapsIdentified++;
         }
+      }
       }
     } catch (hsDocErr) {
       console.error("[HS doc-regex] Unexpected error:", hsDocErr);
