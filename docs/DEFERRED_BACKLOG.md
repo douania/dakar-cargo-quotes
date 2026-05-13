@@ -2,9 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-10 — **✅ PAD-BAREME-2006-PHASE2 CLOS : migration appliquée (19 legacy désactivées, 120 lignes PRESENT insérées, index unique partiel `port_tariffs_active_unique_key` créé), smoke test `PAD_PHASE2_SMOKE_OK` (19/19 classifications IMPORT/CONTENEUR conformes, 0 doublon actif, T10=0 et T13=11803 conservés, T12 non-régressé sur dossier réel). Runtime `run-pricing`/`recommend-pad-category` non modifié. `PAD-BAREME-2006-RUNTIME-EXPAND` reste NO-GO (GO CTO séparé requis). Voir `PAD_BAREME_2006_PHASE2_IMPORT_REPORT.md` + `PAD_BAREME_2006_PHASE2_SMOKE_TEST.md`.**
+Dernière mise à jour : 2026-05-13 — **🟡 DCQ-RAILWAY-BOUNDARY-AUDIT accepté — 3 sujets ajoutés au backlog (INTAKE-MIGRATION, TRUCK-LOADING-AUDIT, DEAD-EXPORTS). Audit documentaire validé par CTO. Documentation only, aucun runtime modifié. Voir `docs/audits/DCQ-RAILWAY-BOUNDARY-AUDIT.md`.**
 
-Mise à jour antérieure : 2026-05-09 — **📋 PAD-NST-2E-C-B-LOG-0 SPEC LIVRÉE : spécification documentaire de traçabilité des recommandations PAD-NST créée dans `docs/tariff-collection/pad/PAD_NST_2E_C_B_LOG_SPEC.md`. Aucune migration créée. Aucune implémentation. Aucune écriture DB. Aucun `src/`, aucune Edge Function, aucun `config.toml`, aucun `run-pricing` / `quotation-engine` modifié. Verdict CTO : GO conditionnel recommandé uniquement pour une future phase C-B-LOG-1 migration-only (`pad_recommendation_audit_log` append-only + RLS + index + dedupe_key), avec GO CTO séparé requis. Journalisation runtime C-B/C-D et décisions opérateur restent NO-GO sans phase dédiée.**
+Mise à jour antérieure : 2026-05-10 — **✅ PAD-BAREME-2006-PHASE2 CLOS : migration appliquée (19 legacy désactivées, 120 lignes PRESENT insérées, index unique partiel `port_tariffs_active_unique_key` créé), smoke test `PAD_PHASE2_SMOKE_OK` (19/19 classifications IMPORT/CONTENEUR conformes, 0 doublon actif, T10=0 et T13=11803 conservés, T12 non-régressé sur dossier réel). Runtime `run-pricing`/`recommend-pad-category` non modifié. `PAD-BAREME-2006-RUNTIME-EXPAND` reste NO-GO (GO CTO séparé requis). Voir `PAD_BAREME_2006_PHASE2_IMPORT_REPORT.md` + `PAD_BAREME_2006_PHASE2_SMOKE_TEST.md`.**
 
 Mise à jour antérieure : 2026-05-09 — **📋 MAPPING-TAX-CHAIN-0 AUDIT LIVRÉ (read-only) : chaîne automatique complète CN/NHM/NSTR → NST → PAD → taxe portuaire = NON. Chaîne partielle = OUI. Bridges CN (9 762) / NHM (15 079) / NSTR (9 781, 5 quarantaine) / CPA (1 759) populés et FK propres mais **dormants** (jamais lus par le runtime). `nst_groups` = 73/81 documentés (divisions 15 et 20 non peuplées). `pad_nst_recommendation_rules` = 88 (60 group + 14 division actifs) lue uniquement par `get-pad-nst-suggestions`, non branchée à `run-pricing`. `pad_designation_aliases` = 384 = seule source PAD active runtime. Aucun champ pivot (`cn_code`/`nhm_code`/`nstr_code`/`nst_code`) sur `quote_facts` ni `cargo` → chaîne ne peut pas démarrer depuis un dossier. `port_tariffs.PORT_TAX` = 2 lignes TRANSIT only, 0 IMPORT → chaîne ne peut pas aboutir à un montant. Ambiguïtés : CN→NST 0 %, NHM→NST 0 %, NSTR→NST 47 %, NST→PAD 19 %. Fichiers racine `nst_cn2024.xlsx` / `nst_nhm2024.xlsx` = pages d'erreur Cloudflare HTML (résidus, jamais référencés). Options A (connecter bridges runtime) / B (colonnes pivots facts) / C (statu quo, recommandée) / D (table `pad_port_tax_amounts`) documentées sans exécution. Aucun chantier exécuté. En attente arbitrage CTO.** Voir `docs/tariff-collection/MAPPING_TAX_CHAIN_0_AUDIT.md`.
 
@@ -1417,3 +1417,49 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Résolution** | À ouvrir uniquement si besoin de valider un CSV uploadé hors repo, ou d'exposer le validateur à un opérateur non-technique via UI. |
 | **Déclencheur de réouverture** | Demande explicite CTO de Phase 1ter-b (edge function `pad-csv-validator`). |
 | **Recommandation** | Ne pas créer d'edge function tant qu'aucun cas d'usage production n'est confirmé. Le script local couvre le besoin de pré-validation avant import. Ce GO ne vaut pas GO import 124 lignes ni GO migration data. |
+
+---
+
+## DCQ-RAILWAY — Sujets différés
+
+### DCQ-RAILWAY-INTAKE-MIGRATION
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DCQ-RAILWAY-INTAKE-MIGRATION` |
+| **Catégorie** | Infrastructure / Migration |
+| **Statut** | `🟡 AUDIT-DONE / AWAITING PHASE 1` |
+| **Priorité** | P1 |
+| **Phase d'origine** | DCQ-RAILWAY-BOUNDARY-AUDIT (2026-05-13) |
+| **Date** | 2026-05-13 |
+| **Constat** | Audit DCQ-RAILWAY-BOUNDARY-AUDIT livré et accepté. `createIntake` dans `src/services/railwayApi.ts` reste ACTIF — seul consommateur = `src/pages/Intake.tsx`. Pipeline email/import/pricing est 100% indépendant de Railway. |
+| **Déclencheur de réouverture** | GO CTO pour Phase 1 (feature flag `VITE_INTAKE_BACKEND=railway|edge`) puis Phase 2 (Edge Function `intake-case-request`). |
+| **Recommandation** | Phase 1 : feature flag `VITE_INTAKE_BACKEND=railway|edge` dans `.env.example` + routage `Intake.tsx`. Phase 2 : créer Edge Function `intake-case-request` (réutilise `parse-document` → `ensure-quote-case` → `build-case-puzzle` + classification complexité via Lovable AI). Phase 3 : flip default `edge`. Phase 4 : suppression `railwayApi.ts` conditionnée à truck loading clos. Voir `docs/audits/DCQ-RAILWAY-BOUNDARY-AUDIT.md` §7. |
+
+### DCQ-RAILWAY-TRUCK-LOADING-AUDIT
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DCQ-RAILWAY-TRUCK-LOADING-AUDIT` |
+| **Catégorie** | Infrastructure / Audit |
+| **Statut** | `🟡 TODO — audit séparé` |
+| **Priorité** | P2 |
+| **Phase d'origine** | DCQ-RAILWAY-BOUNDARY-AUDIT (2026-05-13) |
+| **Date** | 2026-05-13 |
+| **Constat** | Truck loading utilise `truck-optimization-proxy` Edge Function comme chemin principal (proxy-first) pour les 4 endpoints (`truck-specs`, `optimize`, `visualize`, `suggest-fleet`), avec fallback Railway direct en `catch`. Architecture identifiée mais besoin d'un audit dédié pour décider du devenir du fallback. |
+| **Déclencheur de réouverture** | GO CTO pour audit dédié truck loading. |
+| **Recommandation** | Produire un audit DCQ-RAILWAY-TRUCK-LOADING-AUDIT dédié. Décider : (a) conserver le fallback Railway direct, (b) le supprimer et rendre le proxy edge unique, ou (c) migrer truck loading vers un autre backend. |
+
+### DCQ-RAILWAY-DEAD-EXPORTS
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DCQ-RAILWAY-DEAD-EXPORTS` |
+| **Catégorie** | Code quality / Deprecation |
+| **Statut** | `🟡 DEPRECATE-PENDING` |
+| **Priorité** | P3 |
+| **Phase d'origine** | DCQ-RAILWAY-BOUNDARY-AUDIT (2026-05-13) |
+| **Date** | 2026-05-13 |
+| **Constat** | `fetchCaseFile` et `runWorkflow` dans `src/services/railwayApi.ts` = zéro consommateur dans `src/` (vérifié par `rg`). Exports morts. |
+| **Déclencheur de réouverture** | Phase 3-4 intake migration stable + décision CTO. |
+| **Recommandation** | JSDoc `@deprecated` puis suppression dans un lot ultérieur, après migration intake complète et stabilité confirmée. Ne pas traiter avant Phase 3. |
