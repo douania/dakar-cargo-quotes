@@ -1025,6 +1025,12 @@ async function ensureHsCodeGap(
 }
 
 // Orchestrateur : pour un code source <10 chiffres, créer suggestion + GAP (jamais d'écriture cargo.hs_code)
+//
+// NOTE Phase 2 HS10-AUTO-INJECTION-GUARD v3 : ce helper est aussi réutilisé comme mécanisme
+// générique de suggestion HS10 trace quand l'auto-write est bloqué par la garde Option C,
+// même si source_digits contient déjà 10 chiffres. Il ne doit JAMAIS écrire cargo.hs_code
+// (cf. corps : seulement event HS10_CLASSIFICATION_SUGGESTION + GAP).
+// Renommage différé pour éviter un refactor inutile.
 async function handleSubTenHsSuggestion(
   serviceClient: any,
   args: {
