@@ -58,10 +58,10 @@ Recherche `railway|RAILWAY|web-production` dans :
 | Usage | Statut | Action recommandée |
 |---|---|---|
 | `createIntake` | **ACTIF** — flux `/intake` manuel WhatsApp/texte libre | À migrer (Phase 2). Garder Railway en fallback jusqu'à Phase 3. |
-| `fetchCaseFile` | **MORT** — zéro consommateur | `@deprecated` JSDoc (Phase 0), suppression Phase 4. |
-| `runWorkflow` | **MORT** — zéro consommateur | `@deprecated` JSDoc (Phase 0), suppression Phase 4. |
-| Truck loading direct (`truckLoadingService`) | **ACTIF** — 4 endpoints | Hors scope. Audit séparé `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`. |
-| Proxy edge `truck-optimization-proxy` | **ACTIF partiel** — un seul site d'invocation | Hors scope. À harmoniser dans l'audit truck séparé. |
+| `fetchCaseFile` | **MORT** — zéro consommateur | À traiter dans un lot ultérieur (`@deprecated` JSDoc puis suppression). **Pas de modification de code dans cet audit.** |
+| `runWorkflow` | **MORT** — zéro consommateur | À traiter dans un lot ultérieur (`@deprecated` JSDoc puis suppression). **Pas de modification de code dans cet audit.** |
+| Truck loading via proxy edge (chemin principal) | **ACTIF** — `getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet` appellent d'abord `callOptimizationProxy()` | Hors scope. Audit séparé `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`. |
+| Truck loading direct Railway (fallback) | **ACTIF** — branche `catch` après échec proxy, mêmes 4 endpoints | Hors scope. À harmoniser dans l'audit truck séparé (décider du devenir du fallback). |
 
 ---
 
