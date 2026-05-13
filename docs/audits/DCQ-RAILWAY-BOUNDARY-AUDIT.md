@@ -33,7 +33,7 @@ Une suppression brutale de `railwayApi.ts` aujourd'hui casserait `/intake` ET to
 | `runWorkflow()` | `src/services/railwayApi.ts:129` | `POST /api/casefiles/{id}/run` | aucun (`rg` zéro consommateur dans `src/`) | `fetch` direct front | **NULLE** | **MORT — dead export** |
 | Proxy edge `truck-optimization-proxy` | `supabase/functions/truck-optimization-proxy/index.ts:5` invoqué via `callOptimizationProxy()` (`truckLoadingService.ts:276–295`) | `/api/optimization/truck-specs`, `/optimize`, `/visualize`, `/suggest-fleet` | `getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet` (chemin principal) | Edge Function proxy avec `requireUser` (Bearer JWT Supabase ajouté côté edge) | **HAUTE** | **ACTIF — chemin principal** |
 | `RAILWAY_API_URL` (fallback direct) | `src/services/truckLoadingService.ts:110` | mêmes 4 endpoints, appelés en `catch` après échec proxy : `truck-specs` (L367), `optimize` (L446), `visualize` (L490), `suggest-fleet` (L622) | mêmes 4 fonctions, branche fallback | `fetch` direct front (sans Bearer) | MOYENNE — fallback uniquement | **ACTIF — fallback** |
-| `VITE_TRUCK_LOADING_API_URL` | `.env`, `.env.example` | (override d'URL) | `railwayApi.ts:12` + `truckLoadingService.ts:110` | env var partagée intake/truck | — | couplage à dénouer |
+| `VITE_TRUCK_LOADING_API_URL` | référencée dans le code (`railwayApi.ts`, `truckLoadingService.ts`), **absente** de `.env.example` et du `.env` du ZIP | (override d'URL, fallback hardcodé Railway) | `railwayApi.ts:12` + `truckLoadingService.ts:110` | env var partagée intake/truck | — | couplage à dénouer |
 
 ### 2.2 Pages & composants concernés
 
