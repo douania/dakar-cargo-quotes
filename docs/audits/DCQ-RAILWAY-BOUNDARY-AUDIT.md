@@ -13,8 +13,8 @@
 Statut global :
 
 - **Railway intake (`createIntake`)** : ACTIF, branché sur `/intake` manuel. À migrer (Phase 2) — sans casser la chaîne `parse-document` → `ensure-quote-case` → `build-case-puzzle` déjà éprouvée.
-- **Railway casefile (`fetchCaseFile`, `runWorkflow`)** : **MORT** côté `src/` (zéro consommateur). Candidats à `@deprecated` immédiat puis suppression Phase 4.
-- **Railway truck loading** : ACTIF mais **incohérent** (front appelle Railway en direct ET via un proxy edge sous-utilisé). **Hors scope** ici → audit dédié `DCQ-RAILWAY-TRUCK-LOADING-AUDIT`.
+- **Railway casefile (`fetchCaseFile`, `runWorkflow`)** : **MORT** côté `src/` (zéro consommateur). Candidats à `@deprecated` puis suppression dans un lot ultérieur (hors de cet audit).
+- **Railway truck loading** : ACTIF avec **architecture proxy-first** : `truckLoadingService` (`getTruckSpecs`, `runOptimization`, `getVisualization`, `suggestFleet`) appelle d'abord `truck-optimization-proxy` (Edge Function avec `requireUser`), puis retombe en `fetch` direct Railway en cas d'échec proxy. **Hors scope** ici → audit dédié `DCQ-RAILWAY-TRUCK-LOADING-AUDIT` pour décider du devenir du fallback direct.
 - **Pipeline email** (import-thread / ensure-quote-case / build-case-puzzle) : **100 % indépendant de Railway**. Aucun risque de régression côté chaîne email/quotation/pricing si Railway tombe.
 
 Une suppression brutale de `railwayApi.ts` aujourd'hui casserait `/intake` ET tous les flux truck loading. Le chemin sûr est : geler → documenter → feature flag → migrer intake → désactiver intake Railway → supprimer après migration truck loading.
