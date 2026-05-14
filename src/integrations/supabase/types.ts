@@ -597,6 +597,109 @@ export type Database = {
         }
         Relationships: []
       }
+      commodity_classification_candidates: {
+        Row: {
+          article_id: string | null
+          candidate_kind: string
+          candidate_value: string
+          case_id: string
+          confidence: number
+          created_at: string
+          designation_normalized: string
+          droit_passage_currency: string | null
+          droit_passage_unit: string | null
+          droit_passage_value: number | null
+          evidence: Json | null
+          id: string
+          is_current: boolean
+          pad_category: string | null
+          rank: number | null
+          rejection_reason: string | null
+          score: number | null
+          source: string
+          source_fact_id: string | null
+          status: string
+          supersedes_id: string | null
+          updated_at: string
+          validated_at: string | null
+          validated_by: string | null
+        }
+        Insert: {
+          article_id?: string | null
+          candidate_kind: string
+          candidate_value: string
+          case_id: string
+          confidence?: number
+          created_at?: string
+          designation_normalized: string
+          droit_passage_currency?: string | null
+          droit_passage_unit?: string | null
+          droit_passage_value?: number | null
+          evidence?: Json | null
+          id?: string
+          is_current?: boolean
+          pad_category?: string | null
+          rank?: number | null
+          rejection_reason?: string | null
+          score?: number | null
+          source: string
+          source_fact_id?: string | null
+          status?: string
+          supersedes_id?: string | null
+          updated_at?: string
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Update: {
+          article_id?: string | null
+          candidate_kind?: string
+          candidate_value?: string
+          case_id?: string
+          confidence?: number
+          created_at?: string
+          designation_normalized?: string
+          droit_passage_currency?: string | null
+          droit_passage_unit?: string | null
+          droit_passage_value?: number | null
+          evidence?: Json | null
+          id?: string
+          is_current?: boolean
+          pad_category?: string | null
+          rank?: number | null
+          rejection_reason?: string | null
+          score?: number | null
+          source?: string
+          source_fact_id?: string | null
+          status?: string
+          supersedes_id?: string | null
+          updated_at?: string
+          validated_at?: string | null
+          validated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ccc_case_fk"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ccc_source_fact_fk"
+            columns: ["source_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ccc_supersedes_fk"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "commodity_classification_candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commodity_designation_matches: {
         Row: {
           commodity_category_id: string | null
@@ -5906,6 +6009,8 @@ export type Database = {
         Args: { p_case_id: string }
         Returns: number
       }
+      has_case_read_access: { Args: { _case_id: string }; Returns: boolean }
+      has_case_write_access: { Args: { _case_id: string }; Returns: boolean }
       insert_historical_quotation_atomic: {
         Args: { p_lines: Json; p_metadata?: Json; p_quotation: Json }
         Returns: string
