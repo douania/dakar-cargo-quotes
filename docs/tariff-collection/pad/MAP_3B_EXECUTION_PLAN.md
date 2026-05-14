@@ -10,7 +10,7 @@
 
 ## 1. Contexte & statut
 
-MAP-3b a été accepté par le CTO (`MAP_3B_MIGRATION_PLAN_READY_ACCEPTED`). Le présent lot MAP-3b-exec produit le **plan d'exécution réel** de la migration `commodity_classification_candidates` + fonction `has_case_access`, **sans exécuter la migration**.
+MAP-3b a été accepté par le CTO (`MAP_3B_MIGRATION_PLAN_READY_ACCEPTED`), puis patché 2026-05-14 (`MAP_3B_RLS_DRAFT_ALIGNED_WITH_QUOTE_FACTS`) suite au verdict préflight `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED`. Le présent lot MAP-3b-exec produit le **plan d'exécution réel** de la migration `commodity_classification_candidates` + fonctions `has_case_read_access` / `has_case_write_access`, **sans exécuter la migration**.
 
 L'exécution effective sera ouverte par un lot séparé après GO CTO explicite, et utilisera l'outil `supabase--migration` pour matérialiser dans `supabase/migrations/` une copie adaptée du SQL candidate documentaire :
 
@@ -30,7 +30,7 @@ Ce lot ne produit **que** ce document et une entrée backlog ciblée. Aucune ex�
 - ❌ Aucun fichier créé dans `supabase/migrations/*.sql`.
 - ❌ Le SQL draft n'est ni déplacé, ni copié, ni exécuté.
 - ❌ Aucune création de la table `commodity_classification_candidates`.
-- ❌ Aucune création de la fonction `has_case_access`.
+- ❌ Aucune création des fonctions `has_case_read_access` / `has_case_write_access`.
 - ❌ Aucune RLS / index / trigger appliqué.
 - ❌ Aucun changement `src/`, `supabase/functions/`, `supabase/config.toml`.
 - ❌ Aucune activation `PAD_RESOLVER_SHADOW`. Aucune décision Lot D.
@@ -63,11 +63,11 @@ Toutes les requêtes ci-dessous sont **read-only**. Aucune n'est exécutée dans
 | # | But | Requête | Attendu pour GO |
 |---|-----|---------|-----------------|
 | P1 | Table absente | `SELECT to_regclass('public.commodity_classification_candidates') AS oid;` | `oid IS NULL` |
-| P2 | Fonction absente | `SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'has_case_access';` | 0 ligne |
+| P2 | Fonctions absentes | `SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname IN ('has_case_read_access','has_case_write_access');` | 0 ligne pour chacun des deux noms |
 | P3 | `quote_cases` présente | `SELECT to_regclass('public.quote_cases') AS oid;` | `oid IS NOT NULL` |
 | P4 | `quote_facts` présente | `SELECT to_regclass('public.quote_facts') AS oid;` | `oid IS NOT NULL` |
 | P5 | `update_updated_at_column` présente | `SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'update_updated_at_column';` | ≥ 1 ligne |
-| P6 | RLS actuelle de `quote_facts` | `SELECT polname, polcmd, polroles::regrole[], pg_get_expr(polqual, polrelid) AS qual, pg_get_expr(polwithcheck, polrelid) AS withcheck FROM pg_policy WHERE polrelid = 'public.quote_facts'::regclass;` | Modèle shared workspace cohérent (pas de `created_by` enforcement, pas d'owner-scoped guard) |
+| P6 | RLS actuelle de `quote_facts` | `SELECT polname, polcmd, polroles::regrole[], pg_get_expr(polqual, polrelid) AS qual, pg_get_expr(polwithcheck, polrelid) AS withcheck FROM pg_policy WHERE polrelid = 'public.quote_facts'::regclass;` | SELECT au moins partiellement shared (`quote_facts_select_team` ouvert) ; INSERT/UPDATE owner/assigned (`created_by = auth.uid() OR assigned_to = auth.uid()`) — modèle aligné avec `has_case_read_access` / `has_case_write_access` |
 | P7 | Aucun lot pricing concurrent ouvert sur `quote_facts` | Revue manuelle de `docs/DEFERRED_BACKLOG.md` + `docs/STATUS_REGISTRY.md` | Aucun lot bloquant |
 
 > Note : `update_updated_at_column()` est déjà confirmée présente dans la liste des `db-functions` du projet. La revérification P5 reste obligatoire au moment de MAP-3b-exec pour figer l'état.
@@ -80,18 +80,19 @@ Tout écart sur P1–P7 → **NO-GO** avec cause exacte (§8).
 
 ### 5.1 Confirmations explicites requises
 
-- ✅ `has_case_access(_case_id uuid)` est **shared workspace** : tout utilisateur authentifié → tout `quote_cases` existant.
-- ✅ « Any authenticated user may access any existing case » est aligné sur `docs/SECURITY_CONTRACT.md` § *Access Model* et accepté par CTO.
-- ✅ Les policies `ccc_select_case_access`, `ccc_insert_authenticated`, `ccc_update_authenticated` ne dépassent **pas** le modèle déjà appliqué à `quote_facts` (vérifié via P6).
+- ✅ `has_case_read_access(_case_id uuid)` est **shared workspace** (lecture) : tout utilisateur authentifié → tout `quote_cases` existant.
+- ✅ `has_case_write_access(_case_id uuid)` est **owner/assigned** (écriture) : aligné sur les policies INSERT/UPDATE réelles de `quote_facts` (`created_by = auth.uid() OR assigned_to = auth.uid()`).
+- ✅ Divergence assumée `SECURITY_CONTRACT.md` ↔ DB réelle documentée dans `MAP_3B_MIGRATION_PLAN.md` §4bis. Réconciliation hors périmètre MAP-3/3b.
+- ✅ Les policies `ccc_select_case_access`, `ccc_insert_owner_assigned`, `ccc_update_owner_assigned` ne dépassent **pas** le modèle déjà appliqué à `quote_facts` en écriture (vérifié via P6).
 - ✅ Aucune policy DELETE n'est créée → DELETE refusé par défaut RLS pour le rôle `authenticated`. `service_role` reste autorisé (bypass RLS standard).
 
 ### 5.2 STOP condition — `MAP_3B_EXEC_BLOCKED_SECURITY_MISMATCH`
 
 Si **au moins un** des constats suivants est vrai au moment de MAP-3b-exec :
 
-- `docs/SECURITY_CONTRACT.md` a basculé en modèle owner-scoped / RBAC strict / `created_by` enforcement.
-- Les policies actives sur `quote_facts` (résultat P6) sont **plus restrictives** que celles proposées sur `commodity_classification_candidates`.
-- La fonction `has_case_access` existe déjà avec une signature ou logique **différente** (e.g. owner-scoped, `IMMUTABLE`, retour différent).
+- `docs/SECURITY_CONTRACT.md` a basculé en modèle owner-scoped / RBAC strict en lecture (rendrait `has_case_read_access` plus permissive que la cible).
+- Les policies INSERT/UPDATE actives sur `quote_facts` (résultat P6) sont **plus restrictives** que `has_case_write_access` (e.g. RBAC, claims dédiés).
+- L'une des fonctions `has_case_read_access` ou `has_case_write_access` existe déjà avec une signature ou logique **différente**.
 
 → Exécution **annulée** avec verdict `MAP_3B_EXEC_BLOCKED_SECURITY_MISMATCH` consigné dans `docs/DEFERRED_BACKLOG.md`.
 
@@ -112,15 +113,16 @@ Si **au moins un** des constats suivants est vrai au moment de MAP-3b-exec :
 ### 6.3 Adaptations à appliquer lors de la copie
 
 1. **Retirer** la garde anti-exécution en tête (`MIGRATION CANDIDATE ONLY — DO NOT APPLY`) — l'exécution est explicitement autorisée par le GO CTO.
-2. **Conserver** tous les `COMMENT ON FUNCTION` / `COMMENT ON TABLE`, en particulier l'avertissement shared workspace sur `has_case_access`.
+2. **Conserver** tous les `COMMENT ON FUNCTION` / `COMMENT ON TABLE`, en particulier les avertissements sur `has_case_read_access` (shared workspace read) et `has_case_write_access` (owner/assigned write, aligné `quote_facts`).
 3. **Conserver l'ordre exact** :
-   1. `CREATE OR REPLACE FUNCTION public.has_case_access(_case_id uuid)` + `COMMENT ON FUNCTION`.
-   2. `CREATE TABLE public.commodity_classification_candidates` + CHECK + FK.
-   3. `COMMENT ON TABLE`.
-   4. `CREATE INDEX` × 6 (dont `uq_ccc_current` UNIQUE partiel avec sentinel COALESCE).
-   5. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + `CREATE POLICY` × 3 (SELECT/INSERT/UPDATE).
-   6. `CREATE TRIGGER trg_ccc_updated_at` (utilise `public.update_updated_at_column()` existante).
-   7. `CREATE OR REPLACE FUNCTION public.ccc_status_consistency()` + `CREATE TRIGGER trg_ccc_status_consistency`.
+   1. `CREATE OR REPLACE FUNCTION public.has_case_read_access(_case_id uuid)` + `COMMENT ON FUNCTION`.
+   2. `CREATE OR REPLACE FUNCTION public.has_case_write_access(_case_id uuid)` + `COMMENT ON FUNCTION`.
+   3. `CREATE TABLE public.commodity_classification_candidates` + CHECK + FK.
+   4. `COMMENT ON TABLE`.
+   5. `CREATE INDEX` × 6 (dont `uq_ccc_current` UNIQUE partiel avec sentinel COALESCE).
+   6. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + `CREATE POLICY` × 3 (`ccc_select_case_access`, `ccc_insert_owner_assigned`, `ccc_update_owner_assigned`).
+   7. `CREATE TRIGGER trg_ccc_updated_at` (utilise `public.update_updated_at_column()` existante).
+   8. `CREATE OR REPLACE FUNCTION public.ccc_status_consistency()` + `CREATE TRIGGER trg_ccc_status_consistency`.
 4. **Aucun INSERT** de données (pas de seed).
 5. **Aucune modification** des autres tables (`quote_cases`, `quote_facts`, `auth.*`, `storage.*`, `realtime.*`, `supabase_functions.*`, `vault.*`).
 6. Description `supabase--migration` rédigée pour utilisateur non-technique : ne lister que les champs fonctionnels (pas `id`, `created_at`, `updated_at`), expliquer les règles d'accès en français simple.
@@ -141,9 +143,9 @@ Un seul appel, contenant l'intégralité du SQL adapté. Pas de découpage en pl
 | T2 | Idempotence | Réinsertion identique avec `ON CONFLICT DO NOTHING` sur `uq_ccc_current` | No-op, count inchangé |
 | T3 | Supersession | INSERT new `is_current=true, supersedes_id=<old>` + UPDATE old `is_current=false, status='superseded'` en transaction | Invariant unicité courante préservé |
 | T4 | Trigger status/is_current | UPDATE `status='rejected' AND is_current=true` (puis idem `superseded`) | `RAISE EXCEPTION` (`ERRCODE='check_violation'`) |
-| T5 | RLS SELECT | Utilisateur authentifié quelconque | Toutes lignes visibles (shared workspace) |
-| T6 | RLS INSERT/UPDATE | Utilisateur authentifié + `service_role` | Autorisés tous les deux |
-| T7 | RLS DELETE refusé | DELETE par utilisateur authentifié | Refusé (aucune policy). `service_role` autorisé |
+| T5 | RLS SELECT | Utilisateur authentifié quelconque (owner, assigned, ou ni l'un ni l'autre) sur un case existant | Toutes lignes visibles (shared workspace via `has_case_read_access`) |
+| T6 | RLS INSERT/UPDATE | (a) utilisateur owner OU assigned du case ; (b) utilisateur authentifié ni owner ni assigned ; (c) `service_role` | (a) autorisé ; (b) **refusé** (`new row violates row-level security policy` / `permission denied`) ; (c) autorisé (bypass RLS) |
+| T7 | RLS DELETE | (a) utilisateur authentifié (même owner/assigned) ; (b) `service_role` | (a) **refusé** — aucune policy DELETE ; (b) autorisé (bypass RLS) |
 | T8 | Cascade ON DELETE case | DELETE `quote_cases` parent | Candidats associés supprimés |
 | T9 | `article_id` NULL vs UUID | Deux candidats avec mêmes `(case_id, candidate_kind, source, candidate_value)` mais `article_id` différents (NULL vs UUID) | Coexistence grâce au sentinel COALESCE |
 | T10 | FK `source_fact_id` SET NULL | DELETE `quote_facts` source | Candidat conservé, `source_fact_id = NULL` |
@@ -172,9 +174,10 @@ Au moins une des conditions suivantes vraie → verdict `MAP_3B_EXECUTION_PLAN_B
 | Cause | Code verdict |
 |-------|--------------|
 | Table `commodity_classification_candidates` déjà existante (P1 KO) | `MAP_3B_EXEC_BLOCKED_TABLE_EXISTS` |
-| Fonction `has_case_access` déjà existante avec logique différente (P2 KO + signature divergente) | `MAP_3B_EXEC_BLOCKED_FUNCTION_CONFLICT` |
-| `SECURITY_CONTRACT.md` incompatible shared workspace | `MAP_3B_EXEC_BLOCKED_SECURITY_MISMATCH` |
-| Policies `quote_facts` plus restrictives que celles proposées (P6) | `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION` |
+| Fonction `has_case_read_access` déjà existante avec logique différente (P2 KO read) | `MAP_3B_EXEC_BLOCKED_READ_FUNCTION_CONFLICT` |
+| Fonction `has_case_write_access` déjà existante avec logique différente (P2 KO write) | `MAP_3B_EXEC_BLOCKED_WRITE_FUNCTION_CONFLICT` |
+| `SECURITY_CONTRACT.md` ou policies DB rendent le modèle read/write proposé incohérent | `MAP_3B_EXEC_BLOCKED_SECURITY_MISMATCH` |
+| Policies INSERT/UPDATE de `quote_facts` plus restrictives que `has_case_write_access` (P6) | `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION` |
 | Lot pricing concurrent touchant `quote_facts` ou cascade tarifaire | `MAP_3B_EXEC_BLOCKED_CONCURRENT_LOT` |
 | `git status` non propre (R3 KO) | `MAP_3B_EXEC_BLOCKED_DIRTY_REPO` |
 

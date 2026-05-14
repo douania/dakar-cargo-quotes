@@ -42,17 +42,18 @@ Référence schema : `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_C
 | `public.quote_cases` | ✅ Présente | FK CASCADE sur les enfants standards. |
 | `public.quote_facts` | ✅ Présente | Contrainte `uq_quote_facts_current_key` sur `(case_id, fact_key) WHERE is_current=true` confirme l'incompatibilité native avec un modèle top-N → justifie la table dédiée. |
 | `public.update_updated_at_column()` | ✅ Présente | Réutilisée par le trigger `trg_ccc_updated_at`. |
-| `public.has_case_access(uuid)` | ❌ **Absente** | À créer dans la migration candidate (§4). |
+| `public.has_case_read_access(uuid)` | ❌ **Absente** | À créer dans la migration candidate (§4) — lecture shared workspace. |
+| `public.has_case_write_access(uuid)` | ❌ **Absente** | À créer dans la migration candidate (§4) — écriture owner/assigned, alignée sur policies INSERT/UPDATE actuelles de `quote_facts`. |
 | Entrée MAP-3 dans `docs/DEFERRED_BACKLOG.md` | ✅ Présente (lignes 1485+) | Modification ciblée possible : statut → `ACCEPTED`. |
 
 ---
 
-## 4. Fonction `has_case_access` — politique shared workspace
+## 4. Fonctions `has_case_read_access` / `has_case_write_access`
 
-### Spécification
+### 4.1 Spécification — read (shared workspace)
 
 ```sql
-CREATE OR REPLACE FUNCTION public.has_case_access(_case_id uuid)
+CREATE OR REPLACE FUNCTION public.has_case_read_access(_case_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -67,20 +68,52 @@ AS $$
 $$;
 ```
 
-### Politique : **shared workspace**
+Tout utilisateur authentifié peut **lire** tout dossier existant. Aligné avec `docs/SECURITY_CONTRACT.md` § *Access Model*.
 
-Tout utilisateur **authentifié** accède à **tout dossier existant**. Cette politique est explicitement alignée avec `docs/SECURITY_CONTRACT.md` § *Access Model* :
+### 4.2 Spécification — write (owner/assigned)
 
-> "All authenticated operators can access all cases. Case ownership (`created_by`) is **not enforced** for access control."
+```sql
+CREATE OR REPLACE FUNCTION public.has_case_write_access(_case_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    auth.role() = 'authenticated'
+    AND EXISTS (
+      SELECT 1
+      FROM public.quote_cases qc
+      WHERE qc.id = _case_id
+        AND (qc.created_by = auth.uid() OR qc.assigned_to = auth.uid())
+    );
+$$;
+```
 
-### Avertissement (commentaire SQL obligatoire)
+Seul l'opérateur `created_by` ou `assigned_to` du dossier peut **écrire** (INSERT/UPDATE). Aligné sur les policies INSERT/UPDATE actuellement appliquées à `public.quote_facts`.
 
-Le `COMMENT ON FUNCTION` rappelle :
+### 4.3 Avertissements (commentaires SQL obligatoires)
 
-- politique shared workspace explicite ;
-- **interdiction** de réutiliser la fonction comme garde owner-scoped sans redesign dédié (par exemple `has_case_owner_access()` consultant `quote_cases.created_by` / `assigned_to`).
+- `has_case_read_access` : doit indiquer explicitement "shared workspace read — do NOT reuse for write paths".
+- `has_case_write_access` : doit indiquer "owner/assigned write — aligned on actual quote_facts INSERT/UPDATE policies. Diverges intentionally from shared-workspace model to avoid an RLS regression."
 
-Cette fonction n'est **pas** owner-scoped. Toute affirmation contraire dans un futur lot doit être traitée comme un bug de gouvernance.
+---
+
+## 4bis. Divergence `SECURITY_CONTRACT` ↔ DB réelle — décision MAP-3b
+
+`docs/SECURITY_CONTRACT.md` § *Access Model* décrit un modèle **shared workspace global** :
+
+> "All authenticated operators can access all cases. Case ownership (`created_by`) is not enforced."
+
+Les préchecks DB read-only (verdict `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED`, 2026-05-14) ont mis en évidence que **3 des 4 policies actuelles de `public.quote_facts`** appliquent en réalité un modèle **owner/assigned** sur les écritures (`created_by = auth.uid() OR assigned_to = auth.uid()`), alors que la lecture est ouverte par `quote_facts_select_team`.
+
+**Décision MAP-3b** : aligner `commodity_classification_candidates` sur la **DB réelle** (et non sur l'intention du contrat) :
+
+- éviter de créer une nouvelle table **plus permissive** en écriture que la cible future `quote_facts` ;
+- ne pas introduire d'asymétrie RLS entre `commodity_classification_candidates` et `quote_facts`, qui sont sémantiquement liées via le pivot `supersede_fact`.
+
+La réconciliation `SECURITY_CONTRACT.md` ↔ policies DB (mise à jour du contrat ou refonte des policies `quote_facts`) est **hors périmètre MAP-3/3b** et doit être traitée par un lot dédié.
 
 ---
 
@@ -100,14 +133,14 @@ Contraintes CHECK : `candidate_kind`, `source`, `status`, `confidence`, `rank`. 
 
 ## 6. RLS proposées
 
-Politique alignée sur `quote_facts` + utilisation de `has_case_access` (shared workspace) :
+Politique alignée sur les policies réelles de `quote_facts` (cf. §4bis) :
 
 | Opération | Policy | Règle |
 |-----------|--------|-------|
-| SELECT | `ccc_select_case_access` | `USING (public.has_case_access(case_id))` |
-| INSERT | `ccc_insert_authenticated` | `WITH CHECK (public.has_case_access(case_id))` |
-| UPDATE | `ccc_update_authenticated` | `USING (...)` + `WITH CHECK (...)` |
-| DELETE | *(aucune policy)* | Refusé par défaut RLS. Purge admin = job futur, hors périmètre. |
+| SELECT | `ccc_select_case_access` | `USING (public.has_case_read_access(case_id))` — shared workspace |
+| INSERT | `ccc_insert_owner_assigned` | `WITH CHECK (public.has_case_write_access(case_id))` — owner/assigned |
+| UPDATE | `ccc_update_owner_assigned` | `USING (public.has_case_write_access(case_id))` + `WITH CHECK (...)` — owner/assigned |
+| DELETE | *(aucune policy)* | Refusé par défaut RLS pour `authenticated`. `service_role` bypass standard. Purge admin = job futur, hors périmètre. |
 
 Le `service_role` Supabase contourne RLS comme d'habitude (Edge Functions futures MAP-4/5).
 
@@ -182,11 +215,12 @@ Le DDL complet vit dans `docs/tariff-collection/pad/sql-drafts/20260513_map_3b_c
 
 Le fichier SQL contient, dans cet ordre :
 
-1. Création de `public.has_case_access(_case_id uuid)` + `COMMENT ON FUNCTION` rappelant la politique shared workspace.
-2. `CREATE TABLE public.commodity_classification_candidates` (colonnes, CHECK, FK).
-3. `CREATE INDEX` × 6 (dont `uq_ccc_current` UNIQUE partiel).
-4. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + 3 `CREATE POLICY` (SELECT/INSERT/UPDATE).
-5. `CREATE TRIGGER trg_ccc_updated_at` + `CREATE FUNCTION public.ccc_status_consistency()` + `CREATE TRIGGER trg_ccc_status_consistency`.
+1. Création de `public.has_case_read_access(_case_id uuid)` + `COMMENT ON FUNCTION` (shared workspace read).
+2. Création de `public.has_case_write_access(_case_id uuid)` + `COMMENT ON FUNCTION` (owner/assigned write, aligné `quote_facts`).
+3. `CREATE TABLE public.commodity_classification_candidates` (colonnes, CHECK, FK).
+4. `CREATE INDEX` × 6 (dont `uq_ccc_current` UNIQUE partiel).
+5. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + 3 `CREATE POLICY` (`ccc_select_case_access`, `ccc_insert_owner_assigned`, `ccc_update_owner_assigned`).
+6. `CREATE TRIGGER trg_ccc_updated_at` + `CREATE FUNCTION public.ccc_status_consistency()` + `CREATE TRIGGER trg_ccc_status_consistency`.
 
 Pas de `BEGIN;` / `COMMIT;` (laissés à `MAP-3b-exec`). Pas d'INSERT de données.
 
@@ -200,9 +234,9 @@ Pas de `BEGIN;` / `COMMIT;` (laissés à `MAP-3b-exec`). Pas d'INSERT de donnée
 2. **Idempotence** — réinsertion identique avec `ON CONFLICT DO NOTHING` sur `uq_ccc_current` → no-op (count inchangé).
 3. **Supersession (re-scoring)** — INSERT nouvelle ligne `is_current=true` + UPDATE ancienne (`is_current=false`, `status='superseded'`, lien via `supersedes_id`) en transaction → invariant unicité courante préservé.
 4. **Garde-fou statut (trigger)** — UPDATE `status='rejected'` AND `is_current=true` → `RAISE EXCEPTION` (`ERRCODE='check_violation'`). Idem pour `status='superseded'`.
-5. **RLS lecture** — utilisateur authentifié quelconque → toutes lignes visibles (shared workspace).
-6. **RLS écriture INSERT/UPDATE** — utilisateur authentifié → autorisé. `service_role` → autorisé.
-7. **RLS DELETE** — DELETE par utilisateur authentifié → refusé (aucune policy). `service_role` → autorisé.
+5. **RLS lecture** — tout utilisateur authentifié peut lire les candidats d'un case existant (shared workspace via `has_case_read_access`).
+6. **RLS écriture INSERT/UPDATE** — utilisateur owner OU assigned du case : autorisé. Utilisateur authentifié non owner ET non assigned : refusé. `service_role` : autorisé.
+7. **RLS DELETE** — DELETE par utilisateur authentifié (même owner/assigned) : refusé (aucune policy DELETE). `service_role` : autorisé.
 8. **Cascade ON DELETE case** — suppression `quote_cases` → candidats associés supprimés.
 9. **`article_id NULL` vs UUID** — deux candidats avec mêmes `(case_id, candidate_kind, source, candidate_value)` mais `article_id` différents (NULL vs UUID) → coexistent grâce au sentinel `COALESCE`.
 10. **FK `source_fact_id` SET NULL** — suppression d'un `quote_facts` source → candidat conservé avec `source_fact_id = NULL`.
@@ -211,7 +245,7 @@ Pas de `BEGIN;` / `COMMIT;` (laissés à `MAP-3b-exec`). Pas d'INSERT de donnée
 
 ## 12. Pré-requis avant GO MAP-3b-exec
 
-- [ ] CTO valide la politique **shared workspace** explicite de `has_case_access`.
+- [ ] CTO valide la politique **read shared workspace + write owner/assigned** matérialisée par `has_case_read_access` / `has_case_write_access` (alignée DB réelle `quote_facts`, cf. §4bis).
 - [ ] CTO confirme la whitelist `fact_key` pivots définie dans MAP-3 §5 (`commodity.cn_code`, `commodity.hs_code`, `commodity.nhm_code`, `commodity.nst_code`, `commodity.nstr_code`, `pricing.pad_category`, `pricing.pad_droit_passage_value`).
 - [ ] Aucun lot pricing concurrent en cours qui modifierait `quote_facts` ou créerait une dépendance bloquante.
 - [ ] Aucune table `cargo_articles` stable apparue dans le repo / schéma — sinon `article_id` doit basculer NOT NULL + FK forte (refonte schema MAP-3).
