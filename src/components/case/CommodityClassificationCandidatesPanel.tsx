@@ -1,13 +1,16 @@
 /**
- * MAP-5A + MAP-5B — Panneau UI "Candidats de classification".
+ * MAP-5A + MAP-5B + MAP-6 — Panneau UI "Candidats de classification".
  *
  * Lecture (MAP-5A) : `get-commodity-classification-candidates`.
  * Actions opérateur (MAP-5B) : Accepter / Rejeter via `update-commodity-classification-candidate`.
+ * Propagation (MAP-6) : "Propager au dossier" via Edge Function
+ *   `propagate-classification-candidate-to-facts` UNIQUEMENT.
  *
- * - Aucune écriture DB directe (toutes les mutations passent par l'Edge Function dédiée).
- * - Aucun set-case-fact, aucun run-pricing.
- * - Aucune écriture quote_facts / case_facts / cargo.*.
- * - Action supersede réservée à MAP-5C.
+ * - Aucune écriture DB directe (toutes les mutations passent par une Edge Function dédiée).
+ * - Aucun appel direct au wrapper RPC `propagate_classification_candidate_to_fact`.
+ * - Aucun appel direct à `public.supersede_fact`.
+ * - Aucun set-case-fact, aucun run-pricing automatique. Rollback manuel.
+ * - Aucune écriture quote_facts / case_facts / cargo.* depuis le frontend.
  * - Aucun moteur de suggestion automatique.
  */
 
@@ -60,6 +63,7 @@ import {
   ListChecks,
   Loader2,
   RefreshCw,
+  Send,
   X,
 } from "lucide-react";
 
@@ -109,6 +113,50 @@ type UpdateResponse = {
   current_status?: string;
   details?: unknown;
 };
+
+/* MAP-6 — réponse de l'Edge Function propagate-classification-candidate-to-facts */
+type PropagateErrorCode =
+  | "VALIDATION_FAILED"
+  | "FORBIDDEN_OWNER"
+  | "CANDIDATE_NOT_FOUND"
+  | "CANDIDATE_NOT_ACCEPTED"
+  | "CANDIDATE_NOT_CURRENT"
+  | "IDEMPOTENCY_CONFLICT"
+  | "PAD_LABEL_FORBIDDEN"
+  | "KIND_NOT_WHITELISTED"
+  | "INTERNAL_ERROR";
+
+type PropagateResponse = {
+  ok?: boolean;
+  fact_id?: string;
+  candidate_id?: string;
+  fact_key?: string;
+  idempotent?: boolean;
+  replay_source?: "evidence" | "quote_facts";
+  correlation_id?: string;
+  error?: { code?: string; message?: string; details?: unknown };
+};
+
+/* MAP-6 — lecture défensive du champ evidence (ne jamais inventer fact_key) */
+function getEvidence(c: CommodityClassificationCandidate): Record<string, unknown> {
+  const ev = (c as { evidence?: unknown }).evidence;
+  return ev && typeof ev === "object" ? (ev as Record<string, unknown>) : {};
+}
+function getPropagatedFactId(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).propagated_fact_id;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function getPropagatedAt(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).propagated_at;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function getPropagatedFactKey(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).fact_key;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function canPropagate(c: CommodityClassificationCandidate): boolean {
+  return c.status === "accepted" && c.is_current === true && getPropagatedFactId(c) === null;
+}
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
 
@@ -170,7 +218,10 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<CommodityClassificationCandidate | null>(null);
   const [rejectReason, setRejectReason] = useState<string>("");
-  // idempotency_key par candidate, persistée tant que la tentative n'est pas confirmée OK.
+  // MAP-6 — état propagation
+  const [propagateTarget, setPropagateTarget] = useState<CommodityClassificationCandidate | null>(null);
+  // idempotency_key par scope (ex: candidate.id pour MAP-5B, `propagate:${candidate.id}` pour MAP-6),
+  // persistée tant que la tentative n'est pas confirmée OK.
   const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
 
   const getOrCreateIdempotencyKey = (candidateId: string): string => {
@@ -327,6 +378,94 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     await performAction(target, "reject", reason);
   };
 
+  /* ---------- MAP-6 — Propagation au dossier (Edge Function uniquement) ---------- */
+
+  const PROPAGATE_ERROR_TOASTS: Record<string, { title: string; description?: string; variant?: "destructive" | "default"; refetch?: boolean; keepKey?: boolean }> = {
+    VALIDATION_FAILED:      { title: "Validation échouée", description: "Requête invalide.", variant: "destructive" },
+    FORBIDDEN_OWNER:        { title: "Accès refusé", description: "Vous n'êtes pas owner ou assigné de ce dossier.", variant: "destructive" },
+    CANDIDATE_NOT_FOUND:    { title: "Candidat introuvable", description: "Rafraîchissement nécessaire.", variant: "destructive", refetch: true },
+    CANDIDATE_NOT_ACCEPTED: { title: "Candidat non accepté", description: "Le candidat n'est plus à l'état accepté.", refetch: true },
+    CANDIDATE_NOT_CURRENT:  { title: "Candidat non courant", description: "Le candidat n'est plus is_current.", refetch: true },
+    IDEMPOTENCY_CONFLICT:   { title: "Conflit d'idempotence", description: "Une autre opération a utilisé la même clé.", variant: "destructive", refetch: true, keepKey: true },
+    PAD_LABEL_FORBIDDEN:    { title: "pad_label non propageable", description: "Type interdit pour la propagation.", variant: "destructive" },
+    KIND_NOT_WHITELISTED:   { title: "Type non propageable", description: "candidate_kind non autorisé.", variant: "destructive" },
+    INTERNAL_ERROR:         { title: "Erreur serveur", description: "Réessayer ultérieurement.", variant: "destructive", keepKey: true },
+  };
+
+  const readErrorPayload = async (err: unknown): Promise<PropagateResponse | null> => {
+    try {
+      const ctx = (err as { context?: { json?: () => Promise<unknown>; text?: () => Promise<string> } } | null)?.context;
+      if (ctx && typeof ctx.json === "function") {
+        const j = await ctx.json();
+        if (j && typeof j === "object") return j as PropagateResponse;
+      }
+      if (ctx && typeof ctx.text === "function") {
+        const t = await ctx.text();
+        try { return JSON.parse(t) as PropagateResponse; } catch { /* not json */ }
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+
+  const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
+    setPendingId(candidate.id);
+    const idemKey = `propagate:${candidate.id}`;
+    const idempotency_key = getOrCreateIdempotencyKey(idemKey);
+    try {
+      const { data, error } = await supabase.functions.invoke<PropagateResponse>(
+        "propagate-classification-candidate-to-facts",
+        { body: { candidate_id: candidate.id, idempotency_key } },
+      );
+
+      let payload: PropagateResponse | null = (data ?? null) as PropagateResponse | null;
+      if (error) {
+        const fromErr = await readErrorPayload(error);
+        if (fromErr) payload = fromErr;
+      }
+
+      const code = payload?.error?.code;
+      if (code && PROPAGATE_ERROR_TOASTS[code]) {
+        const cfg = PROPAGATE_ERROR_TOASTS[code];
+        toast({ title: cfg.title, description: payload?.error?.message ?? cfg.description, variant: cfg.variant });
+        if (!cfg.keepKey) idempotencyKeysRef.current.delete(idemKey);
+        if (cfg.refetch) await fetchCandidates();
+        return;
+      }
+
+      if (error || !payload || payload.ok === false) {
+        const msg = (error instanceof Error ? error.message : null) ?? payload?.error?.message ?? "Erreur réseau";
+        toast({ title: "Propagation impossible", description: msg, variant: "destructive" });
+        return;
+      }
+
+      idempotencyKeysRef.current.delete(idemKey);
+      toast({
+        title: "Candidat propagé au dossier",
+        description: payload.idempotent ? "Aucun changement (idempotent)." : "Aucun run-pricing automatique. Rollback manuel.",
+      });
+      await fetchCandidates();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Propagation impossible", description: msg, variant: "destructive" });
+    } finally {
+      setPendingId(null);
+    }
+  }, [fetchCandidates]);
+
+  const openPropagateDialog = (candidate: CommodityClassificationCandidate) => {
+    setPropagateTarget(candidate);
+  };
+  const closePropagateDialog = () => {
+    setPropagateTarget(null);
+  };
+  const confirmPropagate = async () => {
+    if (!propagateTarget) return;
+    const target = propagateTarget;
+    closePropagateDialog();
+    await performPropagate(target);
+  };
+
+
   return (
     <Card className="mb-6">
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -456,6 +595,16 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                     {candidates.map((c) => {
                       const isPending = pendingId === c.id;
                       const canAct = c.status === "suggested";
+                      const propagated = getPropagatedFactId(c);
+                      const propagatedAt = getPropagatedAt(c);
+                      const propagatedFactKey = getPropagatedFactKey(c);
+                      const showPropagate = canPropagate(c);
+                      const propagatedTooltip = propagated
+                        ? [
+                            propagatedFactKey ? `fact_key: ${propagatedFactKey}` : `fact_id: ${propagated}`,
+                            propagatedAt ? `propagé le ${formatDate(propagatedAt)}` : null,
+                          ].filter(Boolean).join(" — ")
+                        : "";
                       return (
                         <TableRow key={c.id}>
                           <TableCell>
@@ -478,7 +627,18 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
+                              {propagated ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] border-green-300 bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300"
+                                  title={propagatedTooltip}
+                                >
+                                  PROPAGÉ
+                                </Badge>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
@@ -511,6 +671,23 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                                 >
                                   <X className="h-3 w-3" />
                                   <span className="ml-1 text-[11px]">Rejeter</span>
+                                </Button>
+                              </div>
+                            ) : showPropagate ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  disabled={isPending}
+                                  onClick={() => openPropagateDialog(c)}
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                  <span className="ml-1 text-[11px]">Propager au dossier</span>
                                 </Button>
                               </div>
                             ) : (
@@ -559,6 +736,51 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 <Loader2 className="h-3 w-3 animate-spin mr-2" />
               ) : null}
               Confirmer le rejet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MAP-6 — Dialog confirmation propagation */}
+      <Dialog open={propagateTarget !== null} onOpenChange={(o) => { if (!o) closePropagateDialog(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Propager ce candidat au dossier ?</DialogTitle>
+            <DialogDescription>
+              Cette action va écrire un fait dans le dossier. Aucun run-pricing ne sera lancé
+              automatiquement. Le rollback est manuel.
+            </DialogDescription>
+          </DialogHeader>
+          {propagateTarget ? (
+            <div className="text-xs space-y-1">
+              <div>
+                <span className="text-muted-foreground">Type : </span>
+                <span className="font-mono">{propagateTarget.candidate_kind}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Valeur : </span>
+                <span className="font-mono">{propagateTarget.candidate_value ?? "—"}</span>
+              </div>
+              {propagateTarget.pad_category ? (
+                <div>
+                  <span className="text-muted-foreground">PAD : </span>
+                  <span className="font-mono">{propagateTarget.pad_category}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={closePropagateDialog}>Annuler</Button>
+            <Button
+              onClick={confirmPropagate}
+              disabled={pendingId !== null}
+            >
+              {pendingId !== null ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-2" />
+              ) : (
+                <Send className="h-3 w-3 mr-2" />
+              )}
+              Confirmer la propagation
             </Button>
           </DialogFooter>
         </DialogContent>
