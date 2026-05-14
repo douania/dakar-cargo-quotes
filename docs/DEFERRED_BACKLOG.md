@@ -6,21 +6,21 @@ Dernière mise à jour : 2026-05-14 — **✅ MAP-6-SECURITY-GRANTS-FIX DONE (Op
 
 Dernière mise à jour : 2026-05-14 — **✅ MAP-6-EXEC-MIGRATION T1–T12 PASS (12/12, DB-only).** Migration unique : seed (1 dossier sandbox owned e3999a32, 5 candidats avec valeurs uniques uq_ccc_current, source=operator), simulation auth.uid via set_config request.jwt.claims local. T1 invalid_input null ✅ ; T2 invalid_input key<8 ✅ ; T3 candidate_not_found ✅ ; T4 rls_write_denied (sub non-owner) ✅ ; T5 candidate_not_accepted (suggested) ✅ ; **T6 UNREACHABLE** (trigger ccc_status_consistency interdit accepted+is_current=false) ; T7 pad_label_forbidden ✅ ; **T8 UNREACHABLE** (CHECK ccc_kind_chk aligne whitelist DB et wrapper) ; T9 happy cn8 → ok=true, fact_key=commodity.cn_code, fait+timeline CCC_PROPAGATED_TO_FACTS créés ✅ ; T10 idempotence Niveau A replay_source=evidence ✅ ; T11 idempotence Niveau B replay_source=quote_facts après wipe evidence ✅ ; T12 idempotency_conflict ✅. Rollback par IDs (1 case + 5 cand + 1 fact + 1 timeline) + filets sécurité par case_id + DROP _map6_t1_test_log/_map6_t1_seed_ids. Postcheck final : tables=0, facts=0, candidates=0, timeline=0. **T13b/T13c/T14 NON rejoués dans ce lot** — couverture sécurité REST déléguée à MAP-6-SECURITY-GRANTS-FIX (P1–P4 déjà passés). Verdict : MAP_6_EXEC_MIGRATION_DONE_PARTIAL_T1_T12 + MAP_6_REST_AUTH_DEFERRED. Voir entrées MAP-6-EXEC-REST-AUTH-RECHECK et MAP-6-AUTH-TEST-USERS-CLEANUP ci-dessous.
 
-### MAP-6-EXEC-REST-AUTH-RECHECK — partiellement levé (A/D/F/H ✅), B/C/E/G toujours bloqués
+### MAP-6-EXEC-REST-AUTH-RECHECK — A/B/C/D/F/H ✅, E/G couverture transitive
 - Catégorie : sécurité / tests E2E
-- Statut : pending — Priorité : P2 — Phase origine : MAP-6-EXEC-MIGRATION — Date : 2026-05-14 (recheck 2026-05-14)
-- **Recheck 2026-05-14 — Verdict : `MAP_6_EXEC_REST_AUTH_RECHECK_BLOCKED_NO_OPERATOR_JWT`**.
-- Tests rejoués sans dérogation et PASS :
-  - **A** EF sans Authorization → 401 `Missing authorization header` (RPC non atteinte).
-  - **D** PostgREST anon → `propagate_classification_candidate_to_fact` → HTTP 401 / `42501 permission denied`.
-  - **F** PostgREST anon → `supersede_fact` → HTTP 401 / `42501 permission denied`.
-  - **H** `has_function_privilege` : wrapper_authenticated=true, wrapper_anon=false, supersede_authenticated=false, supersede_anon=false, supersede_service_role=true. Conforme.
-  - Code EF vérifié : aucun `service_role`, aucun `getServiceClient`, aucun `logRuntimeEvent`, aucun appel direct `supersede_fact`, appel unique au wrapper.
-- Tests **non rejoués** (nécessitent un JWT operator réel) : **B** (EF + body invalide → 400), **C** (EF + UUID inexistant → 404), **E** (PostgREST authenticated → wrapper → ok=false candidate_not_found), **G** (PostgREST authenticated → supersede_fact → permission denied).
-- Motif blocage : preview session operator non active dans le sandbox ; règles CTO interdisent création user, reset password, SUPABASE_JWT_SECRET, JWT forgé, EF admin éphémère.
-- Postcheck : 0 résidu (map6_facts=0, map6_candidates=0, recheck_timeline=0, recent_pricing_runs=0). Aucun seed créé.
-- Déclencheur de réouverture : session preview operator active OU JWT légitime fourni hors-canal sans dérogation.
-- Recommandation : rejouer B/C/E/G dès qu'une session operator preview est disponible.
+- Statut : done partiel — Priorité : P3 — Phase origine : MAP-6-EXEC-MIGRATION — Date : 2026-05-14 (recheck #2 2026-05-14)
+- **Recheck #2 2026-05-14 — Verdict : `MAP_6_EXEC_REST_AUTH_RECHECK_DONE_PARTIAL_B_C_GREEN_E_G_COVERED_BY_H`** (preview session operator active, JWT injecté par `supabase--curl_edge_functions`, jamais affiché).
+- Nouveaux tests PASS sous JWT operator réel :
+  - **B** EF + body `{candidate_id:"not-a-uuid", idempotency_key:"short"}` → HTTP 400 `VALIDATION_FAILED` (`candidate_id must be a valid UUID`). correlation_id `db94ac6a-ad80-44e3-8dc3-3b0c2eabc9fe`.
+  - **C** EF + body `{candidate_id:"00000000-0000-0000-0000-000000000000", idempotency_key:"map6-recheck-test-key-001"}` → HTTP 404 `CANDIDATE_NOT_FOUND` (`Wrapper rejected: candidate_not_found`). correlation_id `f7f263d2-9652-4e7e-8ee8-7ac7d905997f`. Confirme bout-en-bout : `requireUser` OK, client user-scoped, RPC wrapper appelée sous identité operator, mapping code business → HTTP correct.
+- Rappel tests précédents PASS : A (EF sans Authorization → 401), D (PostgREST anon → wrapper → 401/42501), F (PostgREST anon → supersede_fact → 401/42501), H (matrice `has_function_privilege` conforme : wrapper_authenticated=true, wrapper_anon=false, supersede_authenticated=false, supersede_anon=false, supersede_service_role=true).
+- **E/G non rejoués en REST direct** : aucun outil sandbox n'expose le JWT operator brut sans violer « ne pas afficher le JWT complet » / « ne pas forger ». `supabase--curl_edge_functions` injecte automatiquement le JWT mais cible uniquement `/functions/v1/*`.
+- **Couverture transitive E/G acquise** :
+  - E (wrapper callable authenticated, retour `candidate_not_found`) ⇐ confirmé par C : RPC atteinte sous JWT operator, retour business `candidate_not_found` (et non 401/403/42501).
+  - G (`supersede_fact` refusé authenticated) ⇐ confirmé par H : `has_function_privilege('authenticated','public.supersede_fact(...)','EXECUTE')=false`. Le test runtime n'apporterait pas de signal supplémentaire au-delà de ce que `pg_proc.proacl` garantit déjà.
+- Postcheck : aucun seed créé, aucune écriture DB, aucun fait/timeline/pricing run généré (UUID `00000000-...` inexistant → court-circuit avant `supersede_fact`).
+- Déclencheur de réouverture : si futur outillage permet un `curl REST` direct avec JWT preview sans extraction manuelle, rejouer E/G pour preuve formelle distincte.
+- Recommandation : verdict accepté tel quel — la dette résiduelle est purement formelle.
 
 ### MAP-6-AUTH-TEST-USERS-CLEANUP — pending manual UI deletion
 - Catégorie : hygiène Auth — Statut : pending UI — Priorité : P3 — Phase origine : MAP-6-SECURITY-GRANTS-FIX — Date : 2026-05-14
