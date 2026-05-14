@@ -267,17 +267,21 @@ Implémentation = lot **MAP-6-EXEC-UI**, séparé.
 | T4 | Replay nouveau `idempotency_key` (re-propagation) | 200 non-idempotent, nouveau fact courant, ancien `is_current=false` |
 | T5 | Candidat `status='suggested'` | 409 `state_conflict` (`expected_accepted`) |
 | T6 | Candidat `status='accepted', is_current=false` | 409 `state_conflict` (`not_current`) |
-| T7 | Candidat `candidate_kind='pad_label'` | 400 `unmapped_candidate_kind` |
-| T8 | User authentifié non owner ni assigned | 403 `rls_write_denied` (pré-check, sans modification DB) |
-| T9 | User non authentifié | 401 `unauthorized` |
+| T7 | Candidat `candidate_kind='pad_label'` | 422 `pad_label_forbidden` |
+| T8 | User authentifié non owner ni assigned | 403 `rls_write_denied` (wrapper §3.4 étape 5, sans modification DB) |
+| T9 | User non authentifié (Edge Function) | 401 `unauthorized` (auth code-side EF, RPC jamais atteinte) |
 | T10 | Rejet ultérieur du candidat | `quote_facts` inchangé |
 | T11 | Aucun `pricing_runs` créé/modifié post-T1 | Confirmé read DB |
-| T12 | Aucun appel sortant `run-pricing` (logs) | Confirmé via `supabase--edge_function_logs` |
-| T13 | Timeline contient `CCC_PROPAGATED_TO_FACTS` avec `dedupe_key` correct | Confirmé read DB |
-| T14 | `quote_facts.source_type = 'manual_input'` | Confirmé read DB (correction CTO #2) |
-| T15 | Aucun écriture sur `cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton` | Confirmé read DB (isolation pivots MAP) |
+| T12 | **Test négatif `supersede_fact` non-grantée** : `has_function_privilege('authenticated', 'public.supersede_fact(...)', 'EXECUTE')` | `false` (correction Option C — supersede_fact reste non exposée) |
+| T13 | **Auth/grants matrix** (3 sous-cas) | |
+| T13a | Appel via Edge Function MAP-6 sans JWT | **401** côté Edge (auth code-side, RPC jamais atteinte) |
+| T13b | Appel direct PostgREST en `anon` (sans JWT user) sur la RPC wrapper | Refus PostgREST par **absence de GRANT EXECUTE pour `anon`** (`permission denied for function`). Pas de retour métier `rls_write_denied`. |
+| T13c | Appel `authenticated` non-owner / non-assigned sur la RPC wrapper | `{ ok:false, code:'rls_write_denied' }`, aucune modification DB |
+| T14 | Timeline contient `CCC_PROPAGATED_TO_FACTS` avec `dedupe_key` correct dans `case_timeline_events` | Confirmé read DB |
+| T15 | `quote_facts.source_type = 'manual_input'` | Confirmé read DB |
+| T16 | Aucune écriture sur `cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton` | Confirmé read DB (isolation pivots MAP) |
 
-Seed test obligatoire pour T8 : user secondaire authentifié non-owner / non-assigned (pattern V10) + rollback seed obligatoire après test + suppression user manuelle.
+Seed test obligatoire pour T8 / T13c : user secondaire authentifié non-owner / non-assigned (pattern V10) + rollback seed obligatoire après test + suppression user manuelle.
 
 ---
 
