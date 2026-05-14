@@ -2,7 +2,9 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-14 — **✅ MAP-5B-V10-DEFERRED CLOS — test E2E auth V10 exécuté (auto-confirm temporaire, user test, appel EF, 403 `rls_write_denied` confirmé, seed rollback, Auth restauré, suppression manuelle UI Cloud des 3 users). Verdict CTO : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. MAP-5B-GLOBAL : `OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED`. Aucune DB, aucun code, aucun runtime modifié.**
+Dernière mise à jour : 2026-05-14 — **📋 MAP-6-DESIGN livré (design-only) : action explicite séparée "Propager au dossier" pour candidat `accepted, is_current=true`. Nouvelle Edge Function dédiée `propagate-classification-candidate-to-facts` (auth caller JWT, no service_role), appel direct `supersede_fact` avec `p_source_type='manual_input'`, `value_json` portant `candidate_id`+`propagation_idempotency_key` pour replay/recovery guard (palliatif absence de transaction Edge globale). Whitelist pivots MAP : `commodity.cn_code`, `commodity.hs_code`, `commodity.nhm_code`, `commodity.nst_code`, `commodity.nstr_code`, `pricing.pad_category` — distincts des facts consommés par `run-pricing` actuel, aucun effet pricing immédiat garanti. Précheck RPC permission `authenticated` EXECUTE bloquant pré-EXEC. Aucun rollback auto, aucun run-pricing, aucune modification `update-commodity-classification-candidate`/`set-case-fact`. Verdict : `MAP_6_DESIGN_READY`. MAPPING-TAX-CHAIN-0 reste ouvert.**
+
+Mise à jour antérieure : 2026-05-14 — **✅ MAP-5B-V10-DEFERRED CLOS — test E2E auth V10 exécuté (auto-confirm temporaire, user test, appel EF, 403 `rls_write_denied` confirmé, seed rollback, Auth restauré, suppression manuelle UI Cloud des 3 users). Verdict CTO : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. MAP-5B-GLOBAL : `OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED`. Aucune DB, aucun code, aucun runtime modifié.**
 
 Mise à jour antérieure : 2026-05-10 — **✅ PAD-BAREME-2006-PHASE2 CLOS : migration appliquée (19 legacy désactivées, 120 lignes PRESENT insérées, index unique partiel `port_tariffs_active_unique_key` créé), smoke test `PAD_PHASE2_SMOKE_OK` (19/19 classifications IMPORT/CONTENEUR conformes, 0 doublon actif, T10=0 et T13=11803 conservés, T12 non-régressé sur dossier réel). Runtime `run-pricing`/`recommend-pad-category` non modifié. `PAD-BAREME-2006-RUNTIME-EXPAND` reste NO-GO (GO CTO séparé requis). Voir `PAD_BAREME_2006_PHASE2_IMPORT_REPORT.md` + `PAD_BAREME_2006_PHASE2_SMOKE_TEST.md`.**
 
@@ -1580,3 +1582,17 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Constat** | MAP-5B accepte/rejete uniquement la ligne candidat. Aucune écriture `quote_facts`, aucun `set-case-fact`, aucun `run-pricing` déclenché. La propagation vers le moteur de pricing est intentionnellement hors scope. |
 | **Déclencheur de réouverture** | GO CTO explicite après stabilisation MAP-5B en production. |
 | **Recommandation** | Lot dédié MAP-6 — respecter `manual-data-protection-policy-v2`, `pricing-communication-guard`, `operator-in-the-loop-categorization-policy`. Aucun auto-trigger de pricing. |
+
+### MAP-6-DESIGN — Design action `propagate-classification-candidate-to-facts`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-6-DESIGN` |
+| **Catégorie** | Design — action explicite séparée "Propager au dossier" (candidat accepté → `quote_facts`) |
+| **Statut** | `📋 MAP-6 DESIGN DRAFT — awaiting CTO review` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Post MAP-5B clos |
+| **Date** | 2026-05-14 |
+| **Constat** | Document `docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md` livré (design-only). Périmètre : nouvelle Edge Function dédiée `propagate-classification-candidate-to-facts`, déclenchée par bouton UI séparé (≠ Accept). Auth caller JWT + `SUPABASE_ANON_KEY` (pas de service_role). Pré-check `has_case_write_access` avant tout RPC. Appel direct `supersede_fact` avec `p_source_type='manual_input'` (correction CTO #2). Replay/recovery guard à 3 niveaux (correction CTO #1) : Niveau A candidate.evidence, Niveau B SELECT `quote_facts.value_json` sur `candidate_id+propagation_idempotency_key`, Niveau C advisory lock natif RPC. Whitelist pivots MAP §3.4 : `commodity.cn_code`, `commodity.hs_code` (+`scheme`), `commodity.nhm_code`, `commodity.nst_code`, `commodity.nstr_code`, `pricing.pad_category`. Distincts des facts consommés par `run-pricing` actuel (`cargo.pad_category`, `cargo.hs_code`) — aucun effet pricing immédiat garanti (correction CTO #4). Pas de transaction Edge globale (correction CTO #1) : UPDATE candidate.evidence + INSERT timeline en best-effort, replay guard rattrape échecs partiels. Précheck RPC permission `authenticated` EXECUTE bloquant pré-EXEC (correction CTO #3) — STOP `MAP_6_EXEC_BLOCKED_RPC_PERMISSION` si grants manquants. Acceptation définitive, rollback manuel uniquement. Aucun trigger `run-pricing`, aucune modification `update-commodity-classification-candidate`, aucune modification `set-case-fact`. |
+| **Déclencheur de réouverture** | GO CTO explicite ouvrant le lot **MAP-6-EXEC** (création EF + tests Deno + RP4/RP5 live + seed/rollback) après préchecks RP1–RP3 OK. Verdict cible aval : `MAP_6_EXEC_VALIDATED`. UI dans lot séparé **MAP-6-EXEC-UI**. |
+| **Recommandation** | Design-only. Aucune Edge Function, aucune migration, aucune DB write, aucune UI dans ce lot. **MAPPING-TAX-CHAIN-0 reste ouvert** (clôture conditionnée à MAP-7 minimum). Verdict : `MAP_6_DESIGN_READY`. |
