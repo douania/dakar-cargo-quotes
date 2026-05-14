@@ -1,17 +1,17 @@
 /**
- * MAP-5A — Panneau UI lecture seule "Candidats de classification".
+ * MAP-5A + MAP-5B — Panneau UI "Candidats de classification".
  *
- * FRONTEND-ONLY. Strictement aucune écriture DB.
- * - Appelle l'Edge Function MAP-4 `get-commodity-classification-candidates` (read-only).
- * - Aucun INSERT/UPDATE/DELETE, aucun set-case-fact, aucun run-pricing.
+ * Lecture (MAP-5A) : `get-commodity-classification-candidates`.
+ * Actions opérateur (MAP-5B) : Accepter / Rejeter via `update-commodity-classification-candidate`.
+ *
+ * - Aucune écriture DB directe (toutes les mutations passent par l'Edge Function dédiée).
+ * - Aucun set-case-fact, aucun run-pricing.
  * - Aucune écriture quote_facts / case_facts / cargo.*.
- * - Aucune action accepter/rejeter/superseder (réservé MAP-5B).
+ * - Action supersede réservée à MAP-5C.
  * - Aucun moteur de suggestion automatique.
- * - Aucun import depuis @/integrations/supabase/types (types locaux uniquement).
- * - Aucune dépendance sur padNstConstants.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Card,
@@ -43,12 +43,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+import {
   AlertTriangle,
+  Check,
   ChevronDown,
   Info,
   ListChecks,
   Loader2,
   RefreshCw,
+  X,
 } from "lucide-react";
 
 /* ---------- Types locaux (pas d'import depuis types.ts) ---------- */
@@ -79,7 +91,6 @@ type CommodityClassificationCandidate = {
   is_current: boolean;
   rank: number | null;
   created_at: string;
-  // Champs additionnels tolérés sans typage strict.
   [k: string]: unknown;
 };
 
@@ -87,6 +98,16 @@ type GetCandidatesResponse = {
   case_id: string;
   count: number;
   candidates: CommodityClassificationCandidate[];
+};
+
+type UpdateResponse = {
+  ok?: boolean;
+  idempotent?: boolean;
+  candidate?: CommodityClassificationCandidate;
+  error?: string;
+  reason?: string;
+  current_status?: string;
+  details?: unknown;
 };
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
@@ -145,6 +166,23 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
   const [isCurrent, setIsCurrent] = useState<boolean>(true);
 
+  // MAP-5B — état actions
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<CommodityClassificationCandidate | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>("");
+  // idempotency_key par candidate, persistée tant que la tentative n'est pas confirmée OK.
+  const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
+
+  const getOrCreateIdempotencyKey = (candidateId: string): string => {
+    const existing = idempotencyKeysRef.current.get(candidateId);
+    if (existing) return existing;
+    const key = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+      ? crypto.randomUUID()
+      : `k-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    idempotencyKeysRef.current.set(candidateId, key);
+    return key;
+  };
+
   const fetchCandidates = useCallback(async () => {
     setState("loading");
     setErrorMsg(null);
@@ -180,11 +218,114 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     }
   }, [caseId, kindFilter, statusFilter, isCurrent]);
 
-  // Premier fetch à l'ouverture, refetch quand les filtres changent (uniquement si déjà ouvert).
   useEffect(() => {
     if (!open) return;
     fetchCandidates();
   }, [open, fetchCandidates]);
+
+  const performAction = useCallback(async (
+    candidate: CommodityClassificationCandidate,
+    action: "accept" | "reject",
+    reason?: string,
+  ) => {
+    setPendingId(candidate.id);
+    const idempotency_key = getOrCreateIdempotencyKey(candidate.id);
+    try {
+      const body: Record<string, unknown> = {
+        candidate_id: candidate.id,
+        case_id: candidate.case_id,
+        action,
+        idempotency_key,
+      };
+      if (action === "reject") body.rejection_reason = reason ?? "";
+
+      const { data, error } = await supabase.functions.invoke<UpdateResponse>(
+        "update-commodity-classification-candidate",
+        { body },
+      );
+      // supabase.functions.invoke ne throw pas sur 4xx mais expose data avec error key.
+      const payload = (data ?? {}) as UpdateResponse;
+
+      if (error) {
+        // Erreur réseau / invocation
+        toast({
+          title: "Action impossible",
+          description: error.message ?? "Erreur réseau",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (payload.error) {
+        if (payload.error === "forbidden") {
+          toast({
+            title: "Accès refusé",
+            description: "Vous n'avez pas les droits sur ce dossier.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (payload.error === "state_conflict") {
+          toast({
+            title: "Conflit d'état",
+            description: payload.reason
+              ? `${payload.reason} (statut actuel: ${payload.current_status ?? "?"})`
+              : `Statut actuel: ${payload.current_status ?? "?"}`,
+          });
+          await fetchCandidates();
+          return;
+        }
+        if (payload.error === "candidate_not_found") {
+          toast({ title: "Candidat introuvable", variant: "destructive" });
+          await fetchCandidates();
+          return;
+        }
+        toast({
+          title: "Échec",
+          description: payload.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Succès
+      idempotencyKeysRef.current.delete(candidate.id);
+      toast({
+        title: action === "accept" ? "Candidat accepté" : "Candidat rejeté",
+        description: payload.idempotent ? "Aucun changement (idempotent)." : undefined,
+      });
+      await fetchCandidates();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Action impossible", description: msg, variant: "destructive" });
+    } finally {
+      setPendingId(null);
+    }
+  }, [fetchCandidates]);
+
+  const handleAccept = (candidate: CommodityClassificationCandidate) => {
+    if (!window.confirm(`Accepter ce candidat (${candidate.candidate_kind} / ${candidate.candidate_value ?? "—"}) ?`)) {
+      return;
+    }
+    void performAction(candidate, "accept");
+  };
+
+  const openRejectDialog = (candidate: CommodityClassificationCandidate) => {
+    setRejectTarget(candidate);
+    setRejectReason("");
+  };
+  const closeRejectDialog = () => {
+    setRejectTarget(null);
+    setRejectReason("");
+  };
+  const confirmReject = async () => {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (reason.length < 3) return;
+    const target = rejectTarget;
+    closeRejectDialog();
+    await performAction(target, "reject", reason);
+  };
 
   return (
     <Card className="mb-6">
@@ -193,9 +334,8 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               <ListChecks className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Candidats de classification (lecture seule)</CardTitle>
-              <Badge variant="outline" className="text-[10px]">READ_ONLY</Badge>
-              <Badge variant="outline" className="text-[10px]">MAP-5A</Badge>
+              <CardTitle className="text-sm">Candidats de classification</CardTitle>
+              <Badge variant="outline" className="text-[10px]">MAP-5B</Badge>
               {state === "success" || state === "empty" ? (
                 <Badge variant="secondary" className="text-[10px]">{count} candidat(s)</Badge>
               ) : null}
@@ -208,7 +348,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
             </CollapsibleTrigger>
           </div>
           <CardDescription className="text-xs">
-            Lecture seule des candidats stockés en base pour ce dossier. Aucune action de validation ni écriture.
+            Validation opérateur des candidats. Aucun déclenchement de pricing automatique.
           </CardDescription>
         </CardHeader>
 
@@ -309,40 +449,77 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                       <TableHead className="text-xs">Source</TableHead>
                       <TableHead className="text-xs">Rang</TableHead>
                       <TableHead className="text-xs">Créé</TableHead>
+                      <TableHead className="text-xs text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {candidates.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono text-[10px]">{c.candidate_kind}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{c.candidate_value ?? "—"}</TableCell>
-                        <TableCell className="text-xs max-w-[280px] truncate" title={c.designation_normalized ?? ""}>
-                          {c.designation_normalized || "—"}
-                        </TableCell>
-                        <TableCell>
-                          {c.pad_category ? (
-                            <Badge variant="outline" className="font-mono text-[10px]">{c.pad_category}</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-[10px] ${confidenceTierClass(c.confidence)}`}>
-                            {c.confidence != null ? `${(c.confidence * 100).toFixed(0)}%` : "—"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">{c.rank ?? "—"}</TableCell>
-                        <TableCell className="text-xs whitespace-nowrap">{formatDate(c.created_at)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {candidates.map((c) => {
+                      const isPending = pendingId === c.id;
+                      const canAct = c.status === "suggested";
+                      return (
+                        <TableRow key={c.id}>
+                          <TableCell>
+                            <Badge variant="outline" className="font-mono text-[10px]">{c.candidate_kind}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{c.candidate_value ?? "—"}</TableCell>
+                          <TableCell className="text-xs max-w-[280px] truncate" title={c.designation_normalized ?? ""}>
+                            {c.designation_normalized || "—"}
+                          </TableCell>
+                          <TableCell>
+                            {c.pad_category ? (
+                              <Badge variant="outline" className="font-mono text-[10px]">{c.pad_category}</Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-[10px] ${confidenceTierClass(c.confidence)}`}>
+                              {c.confidence != null ? `${(c.confidence * 100).toFixed(0)}%` : "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{c.rank ?? "—"}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{formatDate(c.created_at)}</TableCell>
+                          <TableCell className="text-right">
+                            {canAct ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  disabled={isPending}
+                                  onClick={() => handleAccept(c)}
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3 w-3" />
+                                  )}
+                                  <span className="ml-1 text-[11px]">Accepter</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2"
+                                  disabled={isPending}
+                                  onClick={() => openRejectDialog(c)}
+                                >
+                                  <X className="h-3 w-3" />
+                                  <span className="ml-1 text-[11px]">Rejeter</span>
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -350,6 +527,42 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
           </CardContent>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Dialog rejet */}
+      <Dialog open={rejectTarget !== null} onOpenChange={(o) => { if (!o) closeRejectDialog(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rejeter ce candidat</DialogTitle>
+            <DialogDescription>
+              Indiquez un motif (3 à 500 caractères). Le rejet est tracé et conservé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value.slice(0, 500))}
+              placeholder="Motif du rejet…"
+              rows={4}
+            />
+            <div className="text-[10px] text-muted-foreground text-right">
+              {rejectReason.trim().length}/500
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeRejectDialog}>Annuler</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmReject}
+              disabled={rejectReason.trim().length < 3 || pendingId !== null}
+            >
+              {pendingId !== null ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-2" />
+              ) : null}
+              Confirmer le rejet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

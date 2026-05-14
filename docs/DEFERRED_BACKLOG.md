@@ -1524,3 +1524,45 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Déclencheur de réouverture** | GO CTO explicite ouvrant le lot d'exécution réelle MAP-3b-exec (appel `supabase--migration` après préchecks P1–P7 OK). Verdict cible aval : `MAP_3B_MIGRATION_EXECUTED`. |
 | **Recommandation** | Plan d'exécution documentaire approuvé. Exécution conditionnée aux critères GO §8 du plan. NO-GO → `MAP_3B_EXEC_BLOCKED_*` avec cause exacte (table existante, conflit fonction read/write, mismatch sécurité, régression RLS, lot concurrent, repo dirty). **MAPPING-TAX-CHAIN-0 reste ouvert.** |
 | **Mise à jour 2026-05-14** | Préflight read-only exécuté → verdict `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED` : les policies INSERT/UPDATE réelles de `quote_facts` sont owner/assigned, alors que le SQL draft initial proposait un INSERT/UPDATE shared workspace via la fonction unique `has_case_access`. Patch documentaire appliqué : split `has_case_access` → `has_case_read_access` (shared workspace, SELECT) + `has_case_write_access` (owner/assigned, INSERT/UPDATE, aligné `quote_facts`). Policies renommées `ccc_insert_owner_assigned` / `ccc_update_owner_assigned`. Tests T5/T6/T7 du `MAP_3B_EXECUTION_PLAN.md` réécrits en conséquence. Aucune exécution DB. Verdict patch : `MAP_3B_RLS_DRAFT_ALIGNED_WITH_QUOTE_FACTS`. Divergence `SECURITY_CONTRACT.md` ↔ DB documentée en §4bis du plan migration ; réconciliation hors périmètre MAP-3/3b. |
+
+### MAP-5B — V10 RLS write denied (test non-owner) reporté
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5B-V10-DEFERRED` |
+| **Catégorie** | Test E2E auth — V10 (UPDATE par user non owner / non assigned → 403 `rls_write_denied`) |
+| **Statut** | `🟡 BLOCKED_NO_SECONDARY_TEST_USER` |
+| **Priorité** | P3 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 non exécuté : aucun JWT secondaire (non owner / non assigned) disponible côté sandbox de test sans création d'utilisateur auth (interdit par directive CTO). Le code traduit explicitement `42501` / `permission denied` / `row-level security` en `403 forbidden / rls_write_denied`, et UPDATE renvoyant 0 ligne après SELECT OK retombe sur le même 403. Garde côté UI déjà branchée (toast destructive). |
+| **Déclencheur de réouverture** | Disponibilité d'un user secondaire authentifiable (login preview alterné) OU lot dédié autorisant la création d'un user de test contrôlé. |
+| **Recommandation** | Lever V10 dans un lot test dédié quand un second compte preview existe. Aucune modification EF requise pour ce test (logique 403 déjà implémentée). |
+
+### MAP-5C — Action `supersede` sur candidats classification
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5C` |
+| **Catégorie** | Action opérateur — supersede candidate (chaîne `supersedes_id`, `is_current=false`) |
+| **Statut** | `📋 DEFERRED — pas dans MAP-5B` |
+| **Priorité** | P2 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | MAP-5B couvre uniquement accept/reject. Supersede nécessite : sélection candidat remplaçant, transition atomique (ancien → `superseded` + `is_current=false`, nouveau → `is_current=true`, lien `supersedes_id`), idempotence dédiée. |
+| **Déclencheur de réouverture** | Demande explicite CTO ou besoin opérateur identifié (multi-AI competing classifications). |
+| **Recommandation** | Lot séparé MAP-5C avec EF dédiée ou extension EF MAP-5B. Pas avant MAP-6. |
+
+### MAP-6 — Écriture downstream `quote_facts` après acceptation candidat
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-6` |
+| **Catégorie** | Pipeline — propagation candidat accepté → `quote_facts` (fact `commodity.classification`) |
+| **Statut** | `📋 DEFERRED — hors MAP-5B` |
+| **Priorité** | P1 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | MAP-5B accepte/rejete uniquement la ligne candidat. Aucune écriture `quote_facts`, aucun `set-case-fact`, aucun `run-pricing` déclenché. La propagation vers le moteur de pricing est intentionnellement hors scope. |
+| **Déclencheur de réouverture** | GO CTO explicite après stabilisation MAP-5B en production. |
+| **Recommandation** | Lot dédié MAP-6 — respecter `manual-data-protection-policy-v2`, `pricing-communication-guard`, `operator-in-the-loop-categorization-policy`. Aucun auto-trigger de pricing. |
