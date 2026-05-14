@@ -1525,19 +1525,19 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Recommandation** | Plan d'exécution documentaire approuvé. Exécution conditionnée aux critères GO §8 du plan. NO-GO → `MAP_3B_EXEC_BLOCKED_*` avec cause exacte (table existante, conflit fonction read/write, mismatch sécurité, régression RLS, lot concurrent, repo dirty). **MAPPING-TAX-CHAIN-0 reste ouvert.** |
 | **Mise à jour 2026-05-14** | Préflight read-only exécuté → verdict `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED` : les policies INSERT/UPDATE réelles de `quote_facts` sont owner/assigned, alors que le SQL draft initial proposait un INSERT/UPDATE shared workspace via la fonction unique `has_case_access`. Patch documentaire appliqué : split `has_case_access` → `has_case_read_access` (shared workspace, SELECT) + `has_case_write_access` (owner/assigned, INSERT/UPDATE, aligné `quote_facts`). Policies renommées `ccc_insert_owner_assigned` / `ccc_update_owner_assigned`. Tests T5/T6/T7 du `MAP_3B_EXECUTION_PLAN.md` réécrits en conséquence. Aucune exécution DB. Verdict patch : `MAP_3B_RLS_DRAFT_ALIGNED_WITH_QUOTE_FACTS`. Divergence `SECURITY_CONTRACT.md` ↔ DB documentée en §4bis du plan migration ; réconciliation hors périmètre MAP-3/3b. |
 
-### MAP-5B — V10 RLS write denied (test non-owner) reporté
+### MAP-5B — V10 RLS write denied (test non-owner) clos
 
 | Champ | Valeur |
 |-------|--------|
 | **ID** | `MAP-5B-V10-DEFERRED` |
 | **Catégorie** | Test E2E auth — V10 (UPDATE par user non owner / non assigned → 403 `rls_write_denied`) |
-| **Statut** | `🟡 BLOCKED_NO_SECONDARY_TEST_USER` |
+| **Statut** | `✅ CLOS — 2026-05-14` |
 | **Priorité** | P3 |
 | **Phase d'origine** | MAP-5B |
 | **Date** | 2026-05-14 |
-| **Constat** | EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 non exécuté : aucun JWT secondaire (non owner / non assigned) disponible côté sandbox de test sans création d'utilisateur auth (interdit par directive CTO). Le code traduit explicitement `42501` / `permission denied` / `row-level security` en `403 forbidden / rls_write_denied`, et UPDATE renvoyant 0 ligne après SELECT OK retombe sur le même 403. Garde côté UI déjà branchée (toast destructive). |
-| **Déclencheur de réouverture** | Disponibilité d'un user secondaire authentifiable (login preview alterné) OU lot dédié autorisant la création d'un user de test contrôlé. |
-| **Recommandation** | Lever V10 dans un lot test dédié quand un second compte preview existe. Aucune modification EF requise pour ce test (logique 403 déjà implémentée). |
+| **Constat** | **Exécuté et validé.** EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 exécuté avec auto-confirm temporaire : création d'un user test authentifié (`phase15-v10b-1747230649@test.local`), appel EF avec JWT valide mais userId ≠ owner et ≠ assigned_to. Réponse : `HTTP 403 {"error":"forbidden","reason":"rls_write_denied"}` — comportement critique confirmé. Seed test resté inchangé (`status=suggested`, `is_current=true`, `validated_by=NULL`). Seed rollback exécuté (count=0). Auth restauré au snapshot initial (`auto_confirm_email=false`, `password_hibp_enabled=true`). Suppression manuelle des 3 users test effectuée côté UI Cloud. Verdict CTO accepté : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. |
+| **Déclencheur de réouverture** | — |
+| **Recommandation** | Aucune. V10 clos. MAP-5B dans son ensemble validé et accepté. |
 
 ### MAP-5C — Action `supersede` sur candidats classification
 
