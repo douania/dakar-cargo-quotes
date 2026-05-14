@@ -378,6 +378,94 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     await performAction(target, "reject", reason);
   };
 
+  /* ---------- MAP-6 — Propagation au dossier (Edge Function uniquement) ---------- */
+
+  const PROPAGATE_ERROR_TOASTS: Record<string, { title: string; description?: string; variant?: "destructive" | "default"; refetch?: boolean; keepKey?: boolean }> = {
+    VALIDATION_FAILED:      { title: "Validation échouée", description: "Requête invalide.", variant: "destructive" },
+    FORBIDDEN_OWNER:        { title: "Accès refusé", description: "Vous n'êtes pas owner ou assigné de ce dossier.", variant: "destructive" },
+    CANDIDATE_NOT_FOUND:    { title: "Candidat introuvable", description: "Rafraîchissement nécessaire.", variant: "destructive", refetch: true },
+    CANDIDATE_NOT_ACCEPTED: { title: "Candidat non accepté", description: "Le candidat n'est plus à l'état accepté.", refetch: true },
+    CANDIDATE_NOT_CURRENT:  { title: "Candidat non courant", description: "Le candidat n'est plus is_current.", refetch: true },
+    IDEMPOTENCY_CONFLICT:   { title: "Conflit d'idempotence", description: "Une autre opération a utilisé la même clé.", variant: "destructive", refetch: true, keepKey: true },
+    PAD_LABEL_FORBIDDEN:    { title: "pad_label non propageable", description: "Type interdit pour la propagation.", variant: "destructive" },
+    KIND_NOT_WHITELISTED:   { title: "Type non propageable", description: "candidate_kind non autorisé.", variant: "destructive" },
+    INTERNAL_ERROR:         { title: "Erreur serveur", description: "Réessayer ultérieurement.", variant: "destructive", keepKey: true },
+  };
+
+  const readErrorPayload = async (err: unknown): Promise<PropagateResponse | null> => {
+    try {
+      const ctx = (err as { context?: { json?: () => Promise<unknown>; text?: () => Promise<string> } } | null)?.context;
+      if (ctx && typeof ctx.json === "function") {
+        const j = await ctx.json();
+        if (j && typeof j === "object") return j as PropagateResponse;
+      }
+      if (ctx && typeof ctx.text === "function") {
+        const t = await ctx.text();
+        try { return JSON.parse(t) as PropagateResponse; } catch { /* not json */ }
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+
+  const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
+    setPendingId(candidate.id);
+    const idemKey = `propagate:${candidate.id}`;
+    const idempotency_key = getOrCreateIdempotencyKey(idemKey);
+    try {
+      const { data, error } = await supabase.functions.invoke<PropagateResponse>(
+        "propagate-classification-candidate-to-facts",
+        { body: { candidate_id: candidate.id, idempotency_key } },
+      );
+
+      let payload: PropagateResponse | null = (data ?? null) as PropagateResponse | null;
+      if (error) {
+        const fromErr = await readErrorPayload(error);
+        if (fromErr) payload = fromErr;
+      }
+
+      const code = payload?.error?.code;
+      if (code && PROPAGATE_ERROR_TOASTS[code]) {
+        const cfg = PROPAGATE_ERROR_TOASTS[code];
+        toast({ title: cfg.title, description: payload?.error?.message ?? cfg.description, variant: cfg.variant });
+        if (!cfg.keepKey) idempotencyKeysRef.current.delete(idemKey);
+        if (cfg.refetch) await fetchCandidates();
+        return;
+      }
+
+      if (error || !payload || payload.ok === false) {
+        const msg = (error instanceof Error ? error.message : null) ?? payload?.error?.message ?? "Erreur réseau";
+        toast({ title: "Propagation impossible", description: msg, variant: "destructive" });
+        return;
+      }
+
+      idempotencyKeysRef.current.delete(idemKey);
+      toast({
+        title: "Candidat propagé au dossier",
+        description: payload.idempotent ? "Aucun changement (idempotent)." : "Aucun run-pricing automatique. Rollback manuel.",
+      });
+      await fetchCandidates();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Propagation impossible", description: msg, variant: "destructive" });
+    } finally {
+      setPendingId(null);
+    }
+  }, [fetchCandidates]);
+
+  const openPropagateDialog = (candidate: CommodityClassificationCandidate) => {
+    setPropagateTarget(candidate);
+  };
+  const closePropagateDialog = () => {
+    setPropagateTarget(null);
+  };
+  const confirmPropagate = async () => {
+    if (!propagateTarget) return;
+    const target = propagateTarget;
+    closePropagateDialog();
+    await performPropagate(target);
+  };
+
+
   return (
     <Card className="mb-6">
       <Collapsible open={open} onOpenChange={setOpen}>
