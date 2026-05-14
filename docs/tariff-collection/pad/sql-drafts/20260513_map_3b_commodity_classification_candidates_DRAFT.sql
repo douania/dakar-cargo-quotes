@@ -6,8 +6,8 @@
 --
 -- Source schema design : docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md (§14)
 -- Plan associé          : docs/tariff-collection/pad/MAP_3B_MIGRATION_PLAN.md
--- Date                  : 2026-05-13
--- Statut                : 📋 MAP-3B MIGRATION PLAN DRAFT — awaiting CTO review
+-- Date                  : 2026-05-13 (patch RLS read/write split : 2026-05-14)
+-- Statut                : 📋 MAP-3B MIGRATION PLAN DRAFT — RLS aligned with quote_facts
 --
 -- Location intentionally OUTSIDE supabase/migrations/ to prevent any
 -- accidental auto-apply by the Lovable / Supabase migration pipeline.
@@ -17,22 +17,30 @@
 -- Aucune écriture DB n'est produite par ce lot. Aucun test DB n'est
 -- déclaré PASS ici — voir le plan §11 pour la liste des tests attendus
 -- côté MAP-3b-exec.
+--
+-- PATCH 2026-05-14 — RLS draft alignment
+-- --------------------------------------
+-- Précédente fonction unique `has_case_access` supprimée (lecture+écriture
+-- shared workspace) car les policies INSERT/UPDATE réelles de quote_facts
+-- sont owner/assigned (created_by = auth.uid() OR assigned_to = auth.uid()).
+-- Maintenir un INSERT/UPDATE shared workspace sur cette nouvelle table
+-- créerait une asymétrie RLS volontairement évitée (cf. plan §4bis).
+--
+-- Remplacée par DEUX fonctions :
+--   - has_case_read_access  → lecture shared workspace
+--   - has_case_write_access → écriture owner/assigned (alignée quote_facts)
 -- =====================================================================
 
 
 -- ---------------------------------------------------------------------
--- Prerequisite 1 — public.has_case_access(_case_id uuid)
+-- Prerequisite 1 — public.has_case_read_access(_case_id uuid)
 --
--- SHARED WORKSPACE POLICY:
---   Any authenticated user may access any existing case.
---   This is aligned with docs/SECURITY_CONTRACT.md § "Access Model"
+-- SHARED WORKSPACE READ POLICY:
+--   Any authenticated user may READ any existing case.
+--   Aligned with docs/SECURITY_CONTRACT.md § "Access Model"
 --   ("All authenticated operators can access all cases").
---
--- DO NOT reuse this function as an owner-scoped guard. Owner-scoped
--- access requires a redesign (e.g. dedicated has_case_owner_access()
--- function checking quote_cases.created_by / assigned_to).
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.has_case_access(_case_id uuid)
+CREATE OR REPLACE FUNCTION public.has_case_read_access(_case_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -46,8 +54,44 @@ AS $$
     );
 $$;
 
-COMMENT ON FUNCTION public.has_case_access(uuid) IS
-  'Shared workspace case access — any authenticated user may access any existing case. Aligned with docs/SECURITY_CONTRACT.md. Do NOT reuse for owner-scoped security without redesign.';
+COMMENT ON FUNCTION public.has_case_read_access(uuid) IS
+  'Shared workspace READ access — any authenticated user may read any existing case. Aligned with docs/SECURITY_CONTRACT.md §Access Model. Do NOT reuse for write paths: use has_case_write_access for INSERT/UPDATE.';
+
+
+-- ---------------------------------------------------------------------
+-- Prerequisite 2 — public.has_case_write_access(_case_id uuid)
+--
+-- OWNER/ASSIGNED WRITE POLICY:
+--   Authenticated user may WRITE only if owner OR assignee of the case.
+--   Aligned with the actual INSERT/UPDATE RLS policies currently enforced
+--   on public.quote_facts (created_by = auth.uid() OR assigned_to = auth.uid()).
+--
+--   Diverges intentionally from the theoretical shared-workspace model
+--   described in docs/SECURITY_CONTRACT.md to avoid an RLS regression on
+--   this new table (the contract describes intent ; the DB enforces the
+--   stricter owner/assigned model on writes).
+--
+--   Reconciliation contract ↔ DB is OUT OF SCOPE for MAP-3b — see plan §4bis.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.has_case_write_access(_case_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    auth.role() = 'authenticated'
+    AND EXISTS (
+      SELECT 1
+      FROM public.quote_cases qc
+      WHERE qc.id = _case_id
+        AND (qc.created_by = auth.uid() OR qc.assigned_to = auth.uid())
+    );
+$$;
+
+COMMENT ON FUNCTION public.has_case_write_access(uuid) IS
+  'Owner/assigned WRITE access — aligned on the actual INSERT/UPDATE RLS policies of public.quote_facts (created_by = auth.uid() OR assigned_to = auth.uid()). Diverges intentionally from the shared-workspace model to avoid an RLS regression on this new table. See MAP_3B_MIGRATION_PLAN.md §4bis.';
 
 
 -- ---------------------------------------------------------------------
@@ -109,7 +153,7 @@ CREATE TABLE public.commodity_classification_candidates (
 );
 
 COMMENT ON TABLE public.commodity_classification_candidates IS
-  'MAP-3 — Stocke les propositions multi-source de classification commodity (CN/HS/NHM/NST/NSTR/PAD). Validations explicites opérateur uniquement déclenchent l''écriture pivot dans quote_facts via supersede_fact (futur MAP-5). Voir docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md.';
+  'MAP-3 — Stocke les propositions multi-source de classification commodity (CN/HS/NHM/NST/NSTR/PAD). Validations explicites opérateur uniquement déclenchent l''écriture pivot dans quote_facts via supersede_fact (futur MAP-5). RLS : SELECT shared workspace (has_case_read_access), INSERT/UPDATE owner/assigned (has_case_write_access, aligné quote_facts), DELETE refusé. Voir docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md.';
 
 
 -- ---------------------------------------------------------------------
@@ -146,7 +190,8 @@ CREATE INDEX idx_ccc_source_fact
 
 
 -- ---------------------------------------------------------------------
--- RLS — Shared workspace alignée sur quote_facts (MAP-3 §9)
+-- RLS — Read shared workspace / Write owner-or-assigned
+-- Alignée sur les policies réelles INSERT/UPDATE de quote_facts.
 -- DELETE volontairement non couvert par policy → refusé par défaut.
 -- Purge admin = job futur hors périmètre MAP-3/3b.
 -- ---------------------------------------------------------------------
@@ -156,22 +201,22 @@ CREATE POLICY "ccc_select_case_access"
   ON public.commodity_classification_candidates
   FOR SELECT
   TO authenticated
-  USING (public.has_case_access(case_id));
+  USING (public.has_case_read_access(case_id));
 
-CREATE POLICY "ccc_insert_authenticated"
+CREATE POLICY "ccc_insert_owner_assigned"
   ON public.commodity_classification_candidates
   FOR INSERT
   TO authenticated
-  WITH CHECK (public.has_case_access(case_id));
+  WITH CHECK (public.has_case_write_access(case_id));
 
-CREATE POLICY "ccc_update_authenticated"
+CREATE POLICY "ccc_update_owner_assigned"
   ON public.commodity_classification_candidates
   FOR UPDATE
   TO authenticated
-  USING (public.has_case_access(case_id))
-  WITH CHECK (public.has_case_access(case_id));
+  USING (public.has_case_write_access(case_id))
+  WITH CHECK (public.has_case_write_access(case_id));
 
--- (No DELETE policy — DELETE refused by default RLS.)
+-- (No DELETE policy — DELETE refused by default RLS for `authenticated`. `service_role` bypasses RLS as usual.)
 
 
 -- ---------------------------------------------------------------------
