@@ -111,11 +111,19 @@ Le RPC `supersede_fact` est appelé aujourd'hui :
 
 Aucune valeur `'operator'` n'est attestée dans le runtime existant. **MAP-6-EXEC utilisera `p_source_type = 'manual_input'`** (valeur déjà en production, sémantique cohérente : opérateur en posture de saisie manuelle validée). L'origine MAP-6 est tracée dans `value_json` et `source_excerpt`. Toute bascule vers `'operator'` exige un précheck explicite des contraintes DB sur `quote_facts.source_type` et un GO CTO séparé.
 
-### 3.5 Logique d'écriture (séquence Edge — **NON transactionnelle globale**)
+### 3.5 Logique d'écriture — appel du wrapper RPC dédié (post-correction Option C)
 
-> ⚠️ **Correction CTO #1 — pas de transaction globale Edge.** `supersede_fact` rend atomique uniquement la supersession dans `quote_facts` (advisory lock interne). Les étapes suivantes (UPDATE candidate.evidence, INSERT timeline) **ne sont pas** dans la même transaction. MAP-6-EXEC implémente donc un **replay/recovery guard** explicite (§3.6) pour gérer les échecs partiels.
+> ⚠️ **Correction CTO Option C (cf. `MAP_6_RPC_WRAPPER_DESIGN.md`).** L'Edge Function n'appelle **plus** `supersede_fact` directement, et n'utilise **plus** le service role. Elle appelle un **wrapper RPC dédié** `public.propagate_classification_candidate_to_fact(p_candidate_id, p_idempotency_key)` qui :
+> - dérive `case_id` depuis le candidat (jamais paramètre) ;
+> - exécute `has_case_write_access` après chargement candidat ;
+> - applique la whitelist §3.4 (incluant `hs10_uemoa`) côté DB ;
+> - appelle `supersede_fact` en interne, sous SECURITY DEFINER ;
+> - écrit `candidate.evidence` et `case_timeline_events` **dans la même transaction** que la supersession ;
+> - retourne un payload `jsonb` typé (pas de `RAISE` métier).
+>
+> **Aucun GRANT EXECUTE n'est posé sur `public.supersede_fact` à `authenticated`** — seul le wrapper est exposé. Voir `MAP_6_RPC_WRAPPER_DESIGN.md` pour la spécification complète du wrapper.
 
-Séquence sous l'identité caller (RLS owner/assigned via `has_case_write_access`) :
+Séquence Edge Function :
 
 1. SELECT candidat (RLS read).
 2. Vérifications §3.3.
