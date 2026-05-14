@@ -6,12 +6,21 @@ Dernière mise à jour : 2026-05-14 — **✅ MAP-6-SECURITY-GRANTS-FIX DONE (Op
 
 Dernière mise à jour : 2026-05-14 — **✅ MAP-6-EXEC-MIGRATION T1–T12 PASS (12/12, DB-only).** Migration unique : seed (1 dossier sandbox owned e3999a32, 5 candidats avec valeurs uniques uq_ccc_current, source=operator), simulation auth.uid via set_config request.jwt.claims local. T1 invalid_input null ✅ ; T2 invalid_input key<8 ✅ ; T3 candidate_not_found ✅ ; T4 rls_write_denied (sub non-owner) ✅ ; T5 candidate_not_accepted (suggested) ✅ ; **T6 UNREACHABLE** (trigger ccc_status_consistency interdit accepted+is_current=false) ; T7 pad_label_forbidden ✅ ; **T8 UNREACHABLE** (CHECK ccc_kind_chk aligne whitelist DB et wrapper) ; T9 happy cn8 → ok=true, fact_key=commodity.cn_code, fait+timeline CCC_PROPAGATED_TO_FACTS créés ✅ ; T10 idempotence Niveau A replay_source=evidence ✅ ; T11 idempotence Niveau B replay_source=quote_facts après wipe evidence ✅ ; T12 idempotency_conflict ✅. Rollback par IDs (1 case + 5 cand + 1 fact + 1 timeline) + filets sécurité par case_id + DROP _map6_t1_test_log/_map6_t1_seed_ids. Postcheck final : tables=0, facts=0, candidates=0, timeline=0. **T13b/T13c/T14 NON rejoués dans ce lot** — couverture sécurité REST déléguée à MAP-6-SECURITY-GRANTS-FIX (P1–P4 déjà passés). Verdict : MAP_6_EXEC_MIGRATION_DONE_PARTIAL_T1_T12 + MAP_6_REST_AUTH_DEFERRED. Voir entrées MAP-6-EXEC-REST-AUTH-RECHECK et MAP-6-AUTH-TEST-USERS-CLEANUP ci-dessous.
 
-### MAP-6-EXEC-REST-AUTH-RECHECK — deferred
+### MAP-6-EXEC-REST-AUTH-RECHECK — partiellement levé (A/D/F/H ✅), B/C/E/G toujours bloqués
 - Catégorie : sécurité / tests E2E
-- Statut : pending — Priorité : P2 — Phase origine : MAP-6-EXEC-MIGRATION — Date : 2026-05-14
-- Motif : sandbox sans SUPABASE_SERVICE_ROLE_KEY ; règles CTO interdisent 3e user Auth, mutation auth.users, EF admin éphémère, JWT forgé. T13b/T13c/T14 REST non rejoués. Couverture équivalente via MAP-6-SECURITY-GRANTS-FIX P1–P4.
-- Déclencheur de réouverture : disponibilité d'un JWT authenticated réel sans dérogation.
-- Recommandation : rejouer T13b/T13c/T14 PostgREST dès qu'un JWT légitime est dispo, sans nouveau user Auth.
+- Statut : pending — Priorité : P2 — Phase origine : MAP-6-EXEC-MIGRATION — Date : 2026-05-14 (recheck 2026-05-14)
+- **Recheck 2026-05-14 — Verdict : `MAP_6_EXEC_REST_AUTH_RECHECK_BLOCKED_NO_OPERATOR_JWT`**.
+- Tests rejoués sans dérogation et PASS :
+  - **A** EF sans Authorization → 401 `Missing authorization header` (RPC non atteinte).
+  - **D** PostgREST anon → `propagate_classification_candidate_to_fact` → HTTP 401 / `42501 permission denied`.
+  - **F** PostgREST anon → `supersede_fact` → HTTP 401 / `42501 permission denied`.
+  - **H** `has_function_privilege` : wrapper_authenticated=true, wrapper_anon=false, supersede_authenticated=false, supersede_anon=false, supersede_service_role=true. Conforme.
+  - Code EF vérifié : aucun `service_role`, aucun `getServiceClient`, aucun `logRuntimeEvent`, aucun appel direct `supersede_fact`, appel unique au wrapper.
+- Tests **non rejoués** (nécessitent un JWT operator réel) : **B** (EF + body invalide → 400), **C** (EF + UUID inexistant → 404), **E** (PostgREST authenticated → wrapper → ok=false candidate_not_found), **G** (PostgREST authenticated → supersede_fact → permission denied).
+- Motif blocage : preview session operator non active dans le sandbox ; règles CTO interdisent création user, reset password, SUPABASE_JWT_SECRET, JWT forgé, EF admin éphémère.
+- Postcheck : 0 résidu (map6_facts=0, map6_candidates=0, recheck_timeline=0, recent_pricing_runs=0). Aucun seed créé.
+- Déclencheur de réouverture : session preview operator active OU JWT légitime fourni hors-canal sans dérogation.
+- Recommandation : rejouer B/C/E/G dès qu'une session operator preview est disponible.
 
 ### MAP-6-AUTH-TEST-USERS-CLEANUP — pending manual UI deletion
 - Catégorie : hygiène Auth — Statut : pending UI — Priorité : P3 — Phase origine : MAP-6-SECURITY-GRANTS-FIX — Date : 2026-05-14
