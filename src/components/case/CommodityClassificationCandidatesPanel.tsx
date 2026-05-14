@@ -740,6 +740,51 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* MAP-6 — Dialog confirmation propagation */}
+      <Dialog open={propagateTarget !== null} onOpenChange={(o) => { if (!o) closePropagateDialog(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Propager ce candidat au dossier ?</DialogTitle>
+            <DialogDescription>
+              Cette action va écrire un fait dans le dossier. Aucun run-pricing ne sera lancé
+              automatiquement. Le rollback est manuel.
+            </DialogDescription>
+          </DialogHeader>
+          {propagateTarget ? (
+            <div className="text-xs space-y-1">
+              <div>
+                <span className="text-muted-foreground">Type : </span>
+                <span className="font-mono">{propagateTarget.candidate_kind}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Valeur : </span>
+                <span className="font-mono">{propagateTarget.candidate_value ?? "—"}</span>
+              </div>
+              {propagateTarget.pad_category ? (
+                <div>
+                  <span className="text-muted-foreground">PAD : </span>
+                  <span className="font-mono">{propagateTarget.pad_category}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={closePropagateDialog}>Annuler</Button>
+            <Button
+              onClick={confirmPropagate}
+              disabled={pendingId !== null}
+            >
+              {pendingId !== null ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-2" />
+              ) : (
+                <Send className="h-3 w-3 mr-2" />
+              )}
+              Confirmer la propagation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
