@@ -14,51 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      _map6_t1_seed_ids: {
-        Row: {
-          id: string
-          kind: string
-        }
-        Insert: {
-          id: string
-          kind: string
-        }
-        Update: {
-          id?: string
-          kind?: string
-        }
-        Relationships: []
-      }
-      _map6_t1_test_log: {
-        Row: {
-          actual_response: Json | null
-          description: string
-          expected_code: string | null
-          expected_ok: boolean | null
-          passed: boolean | null
-          ran_at: string
-          test_id: string
-        }
-        Insert: {
-          actual_response?: Json | null
-          description: string
-          expected_code?: string | null
-          expected_ok?: boolean | null
-          passed?: boolean | null
-          ran_at?: string
-          test_id: string
-        }
-        Update: {
-          actual_response?: Json | null
-          description?: string
-          expected_code?: string | null
-          expected_ok?: boolean | null
-          passed?: boolean | null
-          ran_at?: string
-          test_id?: string
-        }
-        Relationships: []
-      }
       border_clearing_rates: {
         Row: {
           amount_20ft: number | null
