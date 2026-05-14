@@ -322,14 +322,19 @@ Seed test obligatoire pour T8 / T13c : user secondaire authentifié non-owner / 
 
 ---
 
-## 7. Diff attendu du présent lot MAP-6 (design)
+## 7. Diff attendu (rappel — mis à jour post-Option C)
 
 ```text
-A docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md
+A docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md  (lot original)
+A docs/tariff-collection/pad/MAP_6_RPC_WRAPPER_DESIGN.md         (lot Option C)
+M docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md  (patch §3.5/§3.6/§3.10/§3.11/§4)
 M docs/DEFERRED_BACKLOG.md
-  - ligne 5 "Dernière mise à jour" : ajout mention MAP-6-DESIGN
-  - ajout "### MAP-6 — Design action propagate_to_facts" sous la section MAP
 ```
+
+**Interdictions renforcées (post-Option C)** :
+- Aucun `GRANT EXECUTE` sur `public.supersede_fact` à `authenticated`.
+- Aucun `case_id` accepté en paramètre RPC ou EF (toujours dérivé du candidat dans le wrapper).
+- Aucun `service_role` côté Edge.
 
 **Aucun autre fichier touché.**
 
