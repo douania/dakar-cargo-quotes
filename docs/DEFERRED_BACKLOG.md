@@ -1539,7 +1539,19 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Déclencheur de réouverture** | — |
 | **Recommandation** | Aucune. V10 clos. MAP-5B dans son ensemble validé et accepté. |
 
-### MAP-5C — Action `supersede` sur candidats classification
+### MAP-5B-GLOBAL — Opérateur actions déployées et validées
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5B-GLOBAL` |
+| **Catégorie** | Edge Function `update-commodity-classification-candidate` — opérateur actions accept/reject |
+| **Statut** | `✅ OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED` |
+| **Priorité** | P1 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | EF `update-commodity-classification-candidate` déployée. Actions opérateur `accept` et `reject` opérationnelles. V1–V9 validés (accept/reject idempotence, state conflict, garde état, payload update). V10 validé (403 `rls_write_denied` pour user non-owner / non-assigned). Aucun appel `run-pricing`. Aucune écriture `quote_facts`. Aucune écriture `case_facts` / `cargo.*` / `pricing_runs`. RLS write : `has_case_write_access` (owner/assigned). Auth : `requireUser` via `SUPABASE_ANON_KEY` + bearer token, aucun service_role. Idempotence stricte via `evidence.idempotency_key`. |
+| **Déclencheur de réouverture** | GO CTO explicite pour extension (ex. MAP-5C `supersede`, MAP-6 écriture downstream `quote_facts`). |
+| **Recommandation** | MAP-5B clos. Extensions futures : MAP-5C (supersede) et MAP-6 (propagation `quote_facts`) nécessitent chacune un GO CTO séparé. |
 
 | Champ | Valeur |
 |-------|--------|
