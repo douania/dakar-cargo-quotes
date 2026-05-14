@@ -125,41 +125,25 @@ Aucune valeur `'operator'` n'est attestée dans le runtime existant. **MAP-6-EXE
 
 Séquence Edge Function :
 
-1. SELECT candidat (RLS read).
-2. Vérifications §3.3.
-3. **Replay/recovery guard pré-RPC (§3.6)** : recherche d'un fact déjà créé pour `(case_id, fact_key, candidate_id, propagation_idempotency_key)`. Si trouvé → réparer `candidate.evidence` (best-effort) puis retourner `200 idempotent:true`.
-4. Construction du payload `supersede_fact` :
-   - `p_case_id = candidate.case_id`
-   - `p_fact_key = <résolu §3.4>`
-   - `p_fact_category = <résolu §3.4>`
-   - `p_value_text = candidate.candidate_value`
-   - `p_value_json` :
-     ```json
-     {
-       "origin": "MAP-6",
-       "propagated_from": "commodity_classification_candidates",
-       "candidate_id": "<candidate.id>",
-       "propagation_idempotency_key": "<idempotency_key>",
-       "operator_validated": true,
-       "scheme": "<hs6|hs10_uemoa>"   // uniquement pour candidate_kind ∈ {hs6, hs10_uemoa}
-     }
-     ```
-   - `p_source_type = 'manual_input'` (correction CTO #2)
-   - `p_source_excerpt = '[MAP-6] propagate candidate ' || candidate.id`
-   - `p_confidence = 1.0` (validation humaine).
-5. Appel RPC `supersede_fact` (advisory lock interne sur `(case_id, fact_key)` → atomicité de la supersession `quote_facts`).
-6. UPDATE `commodity_classification_candidates` (best-effort, hors transaction RPC) :
-   - `evidence = evidence || { propagated_at, propagation_idempotency_key, propagated_fact_id }`
-   - **Aucun changement de `status`** (le candidat reste `accepted`).
-   - Si l'UPDATE échoue : log d'erreur, **ne pas** retourner 500 (le fact existe et le replay guard le rattrapera au prochain appel). Retourner `200 { ok: true, idempotent: false, fact_id, fact_key, candidate_id, evidence_repair_pending: true }`.
-7. INSERT `case_timeline_events` (best-effort) :
-   - `event_type = 'manual_action'`
-   - `actor_type = 'operator'`, `actor_user_id = userId`
-   - `event_data.action_code = 'CCC_PROPAGATED_TO_FACTS'`
-   - `event_data.dedupe_key = 'ccc_propagate:' || candidate_id || ':' || idempotency_key`
-   - `event_data.candidate_id`, `event_data.fact_key`, `event_data.fact_id`, `event_data.status = 'done'`
-   - Échec → log seulement, pas de 500.
-8. Réponse `200 { ok: true, idempotent: false, fact_id, fact_key, candidate_id }`.
+1. Validation Zod du body (`candidate_id`, `idempotency_key` ; `case_id` **n'est plus accepté en paramètre**).
+2. Appel unique :
+   ```ts
+   const { data, error } = await supabase.rpc(
+     'propagate_classification_candidate_to_fact',
+     { p_candidate_id: candidate_id, p_idempotency_key: idempotency_key }
+   );
+   ```
+3. Mapping du retour wrapper → réponse HTTP (cf. §3.11) :
+   - `{ ok:true, idempotent:false }` → 200 succès
+   - `{ ok:true, idempotent:true, replay_source }` → 200 idempotent
+   - `{ ok:false, code:'rls_write_denied' }` → 403
+   - `{ ok:false, code:'candidate_not_found' }` → 404
+   - `{ ok:false, code:'candidate_not_accepted' | 'candidate_not_current' | 'idempotency_conflict' }` → 409
+   - `{ ok:false, code:'candidate_kind_not_whitelisted' | 'pad_label_forbidden' }` → 422
+   - `{ ok:false, code:'invalid_input' }` → 400
+   - `error` PostgREST `42501` (permission denied) → 500 `internal_error` (ne devrait pas arriver si grants posés correctement)
+
+> Toutes les étapes critiques (supersede_fact + UPDATE candidate.evidence + INSERT case_timeline_events) sont **atomiques dans la transaction RPC du wrapper**. L'EF ne fait **plus** de best-effort hors transaction.
 
 ### 3.6 Idempotence stricte + replay/recovery guard (correction CTO #1)
 
