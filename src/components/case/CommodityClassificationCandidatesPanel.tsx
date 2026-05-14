@@ -63,6 +63,7 @@ import {
   ListChecks,
   Loader2,
   RefreshCw,
+  Send,
   X,
 } from "lucide-react";
 
