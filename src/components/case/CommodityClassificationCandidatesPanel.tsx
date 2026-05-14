@@ -595,6 +595,16 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                     {candidates.map((c) => {
                       const isPending = pendingId === c.id;
                       const canAct = c.status === "suggested";
+                      const propagated = getPropagatedFactId(c);
+                      const propagatedAt = getPropagatedAt(c);
+                      const propagatedFactKey = getPropagatedFactKey(c);
+                      const showPropagate = canPropagate(c);
+                      const propagatedTooltip = propagated
+                        ? [
+                            propagatedFactKey ? `fact_key: ${propagatedFactKey}` : `fact_id: ${propagated}`,
+                            propagatedAt ? `propagé le ${formatDate(propagatedAt)}` : null,
+                          ].filter(Boolean).join(" — ")
+                        : "";
                       return (
                         <TableRow key={c.id}>
                           <TableCell>
@@ -617,7 +627,18 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px]">{c.status}</Badge>
+                              {propagated ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] border-green-300 bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300"
+                                  title={propagatedTooltip}
+                                >
+                                  PROPAGÉ
+                                </Badge>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
@@ -650,6 +671,23 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                                 >
                                   <X className="h-3 w-3" />
                                   <span className="ml-1 text-[11px]">Rejeter</span>
+                                </Button>
+                              </div>
+                            ) : showPropagate ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  disabled={isPending}
+                                  onClick={() => openPropagateDialog(c)}
+                                >
+                                  {isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                  <span className="ml-1 text-[11px]">Propager au dossier</span>
                                 </Button>
                               </div>
                             ) : (
