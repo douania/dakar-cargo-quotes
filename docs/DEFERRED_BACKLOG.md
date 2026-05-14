@@ -1553,6 +1553,8 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Déclencheur de réouverture** | GO CTO explicite pour extension (ex. MAP-5C `supersede`, MAP-6 écriture downstream `quote_facts`). |
 | **Recommandation** | MAP-5B clos. Extensions futures : MAP-5C (supersede) et MAP-6 (propagation `quote_facts`) nécessitent chacune un GO CTO séparé. |
 
+### MAP-5C — Action `supersede` sur candidats classification
+
 | Champ | Valeur |
 |-------|--------|
 | **ID** | `MAP-5C` |
