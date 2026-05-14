@@ -27,13 +27,13 @@ Dernière mise à jour : 2026-05-14 — **✅ MAP-6-EXEC-MIGRATION T1–T12 PASS
 - Déclencheur de réouverture : si futur outillage permet un `curl REST` direct avec JWT preview sans extraction manuelle, rejouer E/G pour preuve formelle distincte.
 - Recommandation : verdict accepté tel quel — la dette résiduelle est purement formelle.
 
-### MAP-6-AUTH-TEST-USERS-CLEANUP — pending manual UI deletion
-- Catégorie : hygiène Auth — Statut : pending UI — Priorité : P3 — Phase origine : MAP-6-SECURITY-GRANTS-FIX — Date : 2026-05-14
-- Users à supprimer manuellement (UI Cloud → Auth → Users) :
+### MAP-6-AUTH-TEST-USERS-CLEANUP — ✅ CLOS (`MAP_6_AUTH_TEST_USERS_CLEANUP_CLOSED`)
+- Catégorie : hygiène Auth — Statut : **done** — Priorité : closed — Phase origine : MAP-6-SECURITY-GRANTS-FIX — Date clôture : 2026-05-14
+- Suppression manuelle UI Cloud (Auth → Users) **confirmée par CTO / utilisateur** des 2 users de test :
   - dd45375a-aae3-4791-9d0e-add174b29668 — map6-sec-test-1778776673101@example.test
   - e3999a32-8aec-4318-bef0-6c2a9453d8e3 — map6-sec-test-1778776707695@example.test (sub réutilisé en T4 via set_config, aucune session live créée dans ce lot)
-- Préconditions vérifiées avant T1–T12 : 0 résidu MAP-6, ces users ne sont owner/assigned d'aucun dossier réel.
-- Déclencheur de réouverture : suppression UI Cloud (schéma auth interdit aux migrations).
+- Préconditions vérifiées avant T1–T12 : 0 résidu MAP-6, ces users n'étaient owner/assigned d'aucun dossier réel.
+- Aucun nouveau user Auth créé pour cette clôture. Aucune migration, aucun GRANT, aucun `src/`, aucune Edge Function, aucune écriture DB.
 
 Mise à jour antérieure : 2026-05-14 — **🔴 `MAP_6_EXEC_BLOCKED_SECURITY_GRANT`** détecté après création du wrapper : `pg_proc.proacl` montrait `supersede_fact` exposée par défaut à `anon` + `authenticated` (auto-grant Supabase sur fonctions `public`), invalidant la précondition Option C. STOP appliqué (aucun T1-T14, aucun seed, aucun user de test). Décision CTO : Option S1 — révocation ciblée en lot séparé `MAP-6-SECURITY-GRANTS-FIX`.
 
