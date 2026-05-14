@@ -1,0 +1,1 @@
+DELETE FROM public.commodity_classification_candidates WHERE id='428f551a-bbcb-458c-be70-3027faca6725' AND evidence->>'tag'='MAP-5B-V10b-test';
