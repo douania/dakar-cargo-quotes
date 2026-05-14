@@ -145,34 +145,25 @@ Séquence Edge Function :
 
 > Toutes les étapes critiques (supersede_fact + UPDATE candidate.evidence + INSERT case_timeline_events) sont **atomiques dans la transaction RPC du wrapper**. L'EF ne fait **plus** de best-effort hors transaction.
 
-### 3.6 Idempotence stricte + replay/recovery guard (correction CTO #1)
+### 3.6 Idempotence stricte + replay/recovery guard (désormais porté par le wrapper RPC)
+
+> ⚠️ **Post-correction Option C.** Les 3 niveaux de protection décrits ci-dessous sont **désormais entièrement implémentés dans le wrapper RPC** `public.propagate_classification_candidate_to_fact` (voir `MAP_6_RPC_WRAPPER_DESIGN.md` §3.4 étapes 8, 9, 10), pas côté Edge Function. L'EF se contente d'appeler le wrapper.
 
 Trois niveaux de protection contre la divergence d'état entre `quote_facts` et `commodity_classification_candidates` :
 
-**Niveau A — Edge candidate-side (rapide)** :
-Si `candidate.evidence.propagation_idempotency_key === idempotency_key` ET `candidate.evidence.propagated_fact_id` présent → retour `200 { ok: true, idempotent: true, fact_id, fact_key }` sans appel RPC.
+**Niveau A — wrapper, evidence (clé exigée)** :
+Si `candidate.evidence.propagated_fact_id` présent **ET** `candidate.evidence.propagation_idempotency_key === p_idempotency_key` → retour `{ ok:true, idempotent:true, replay_source:'evidence' }` sans appel `supersede_fact`. Si `propagated_fact_id` présent avec une **autre** clé, ce n'est PAS un replay : c'est traité comme une re-propagation explicite (Niveau C).
 
-**Niveau B — Edge fact-side (replay guard)** — nouveau :
-Avant d'appeler `supersede_fact`, exécuter une SELECT dans `quote_facts` :
+**Niveau B — wrapper, quote_facts (sans filtre `is_current`)** :
+SELECT dans `quote_facts` filtré par `case_id`, `fact_key`, `value_json->>'candidate_id'`, `value_json->>'propagation_idempotency_key'`, **sans filtre `is_current=true`**. Un fact superseded entre-temps doit toujours être détecté pour empêcher tout double-propagation. Si trouvé → réparation `evidence` puis retour `{ ok:true, idempotent:true, replay_source:'quote_facts' }`.
 
-```text
-SELECT id FROM public.quote_facts
-WHERE case_id = :case_id
-  AND fact_key = :fact_key
-  AND value_json->>'candidate_id' = :candidate_id
-  AND value_json->>'propagation_idempotency_key' = :idempotency_key
-LIMIT 1;
-```
+**Niveau B' — wrapper, détection conflit clé idempotence** :
+SELECT vérifiant qu'aucun **autre** candidat sur le même `case_id` n'utilise déjà cette `propagation_idempotency_key`. Si trouvé → `{ ok:false, code:'idempotency_conflict' }`.
 
-- Si la ligne existe → un précédent appel a réussi `supersede_fact` mais a échoué sur l'UPDATE candidate.evidence ou sur le timeline. **Réparer** : tenter à nouveau l'UPDATE candidate.evidence avec ce `fact_id`, puis retourner `200 idempotent:true`.
-- Si la ligne n'existe pas → procéder normalement.
+**Niveau C — DB native (supersede_fact)** :
+`supersede_fact` reste nativement idempotent par advisory lock + supersession. Un appel avec une `idempotency_key` **différente** (re-propagation volontaire) produit un nouveau fact courant, l'ancien `is_current=false` — sémantique métier acceptée.
 
-Ce SELECT exploite le fait que MAP-6 grave `candidate_id` + `propagation_idempotency_key` dans `value_json` (étape §3.5.4). Il garantit qu'un retry après échec partiel ne crée jamais un second fact courant pour le même couple.
-
-**Niveau C — DB native** :
-`supersede_fact` est nativement idempotent par advisory lock + supersession. Un appel concurrent avec un `idempotency_key` **différent** (re-propagation volontaire) produit un nouveau fact courant, l'ancien `is_current=false` — sémantique métier acceptée (l'opérateur souverain).
-
-**Note** : un RPC wrapper dédié (`propagate_candidate_to_fact_atomic`) qui ferait `supersede_fact` + UPDATE candidate + INSERT timeline dans une transaction unique serait une alternative plus propre. C'est explicitement **hors périmètre MAP-6** : ce serait un lot DB séparé (`MAP-6-RPC-WRAPPER`) avec migration dédiée et GO CTO indépendant.
+> Le replay guard et la transactionnalité étant désormais portés par le wrapper, les états transitoires `evidence_repair_pending` du modèle d'origine **n'existent plus**. L'EF ne renvoie jamais cet état.
 
 ### 3.7 Aucun rollback automatique
 
