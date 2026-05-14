@@ -1,13 +1,16 @@
 /**
- * MAP-5A + MAP-5B — Panneau UI "Candidats de classification".
+ * MAP-5A + MAP-5B + MAP-6 — Panneau UI "Candidats de classification".
  *
  * Lecture (MAP-5A) : `get-commodity-classification-candidates`.
  * Actions opérateur (MAP-5B) : Accepter / Rejeter via `update-commodity-classification-candidate`.
+ * Propagation (MAP-6) : "Propager au dossier" via Edge Function
+ *   `propagate-classification-candidate-to-facts` UNIQUEMENT.
  *
- * - Aucune écriture DB directe (toutes les mutations passent par l'Edge Function dédiée).
- * - Aucun set-case-fact, aucun run-pricing.
- * - Aucune écriture quote_facts / case_facts / cargo.*.
- * - Action supersede réservée à MAP-5C.
+ * - Aucune écriture DB directe (toutes les mutations passent par une Edge Function dédiée).
+ * - Aucun appel direct au wrapper RPC `propagate_classification_candidate_to_fact`.
+ * - Aucun appel direct à `public.supersede_fact`.
+ * - Aucun set-case-fact, aucun run-pricing automatique. Rollback manuel.
+ * - Aucune écriture quote_facts / case_facts / cargo.* depuis le frontend.
  * - Aucun moteur de suggestion automatique.
  */
 
