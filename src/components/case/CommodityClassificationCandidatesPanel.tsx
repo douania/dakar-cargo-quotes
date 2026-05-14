@@ -218,7 +218,10 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<CommodityClassificationCandidate | null>(null);
   const [rejectReason, setRejectReason] = useState<string>("");
-  // idempotency_key par candidate, persistée tant que la tentative n'est pas confirmée OK.
+  // MAP-6 — état propagation
+  const [propagateTarget, setPropagateTarget] = useState<CommodityClassificationCandidate | null>(null);
+  // idempotency_key par scope (ex: candidate.id pour MAP-5B, `propagate:${candidate.id}` pour MAP-6),
+  // persistée tant que la tentative n'est pas confirmée OK.
   const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
 
   const getOrCreateIdempotencyKey = (candidateId: string): string => {
