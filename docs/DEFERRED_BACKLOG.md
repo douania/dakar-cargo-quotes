@@ -1488,10 +1488,24 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 |-------|--------|
 | **ID** | `MAP-3` |
 | **Catégorie** | Schema design — stockage candidats classification commodity |
-| **Statut** | `📋 MAP-3 SCHEMA DESIGN DRAFT — awaiting CTO review` |
+| **Statut** | `✅ MAP-3 ACCEPTED — schema design validé (CTO 2026-05-13)` |
 | **Priorité** | P1 |
 | **Phase d'origine** | Post MAP-2 |
 | **Date** | 2026-05-13 |
-| **Constat** | Livrable `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md` — design schema-only de la table `commodity_classification_candidates` (Option C) + whitelist facts pivots `quote_facts` (Option B). DDL/RLS/index/triggers/idempotence proposés et marqués `DRAFT ONLY — DO NOT EXECUTE`. Aucune migration, aucune DB write, aucun runtime. Modèle hybride `case_id` obligatoire + `article_id` nullable (sans FK forte). |
-| **Déclencheur de réouverture** | Revue CTO + GO MAP-3b (migration réelle). |
-| **Recommandation** | Schema-design only. Aucune migration, aucune DB write, aucun runtime, aucune Edge Function. **MAPPING-TAX-CHAIN-0 reste ouvert.** Séquence : MAP-3b (migration) → MAP-4 (Edge Function read-only) → MAP-5 (UI opérateur) → MAP-6 (shadow-mode) → MAP-7 (activation partielle). Critères GO/NO-GO MAP-3b consignés en §16 du livrable. |
+| **Constat** | Livrable `docs/tariff-collection/pad/MAP_3_SCHEMA_DESIGN_COMMODITY_CLASSIFICATION_CANDIDATES.md` — design schema-only de la table `commodity_classification_candidates` (Option C) + whitelist facts pivots `quote_facts` (Option B). DDL/RLS/index/triggers/idempotence proposés et marqués `DRAFT ONLY — DO NOT EXECUTE`. Aucune migration, aucune DB write, aucun runtime. Modèle hybride `case_id` obligatoire + `article_id` nullable (sans FK forte). Verdict CTO : `MAP_3_SCHEMA_DESIGN_READY_ACCEPTED`. |
+| **Déclencheur de réouverture** | Aucun — voir MAP-3b pour la suite (plan migration candidate). |
+| **Recommandation** | Schema-design accepté. Aucune migration exécutée. **MAPPING-TAX-CHAIN-0 reste ouvert.** Séquence : MAP-3b (plan migration candidate) → MAP-3b-exec (migration réelle) → MAP-4 (Edge read-only) → MAP-5 (UI) → MAP-6 (shadow) → MAP-7 (activation partielle). |
+
+### MAP-3b — Plan migration candidate `commodity_classification_candidates`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-3b` |
+| **Catégorie** | Migration plan candidate — table `commodity_classification_candidates` + fonction `has_case_access` (shared workspace) |
+| **Statut** | `📋 MAP-3B MIGRATION PLAN DRAFT — awaiting CTO review` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Post MAP-3 |
+| **Date** | 2026-05-13 |
+| **Constat** | Plan documentaire `docs/tariff-collection/pad/MAP_3B_MIGRATION_PLAN.md` + SQL candidate `docs/tariff-collection/pad/sql-drafts/20260513_map_3b_commodity_classification_candidates_DRAFT.sql`. SQL placé **hors `supabase/migrations/`** pour éviter tout auto-apply. Garde anti-exécution explicite en tête (`MIGRATION CANDIDATE ONLY — DO NOT APPLY`). Fonction `has_case_access` documentée comme **shared workspace** (alignée `SECURITY_CONTRACT.md`), pas owner-scoped. Aucun test DB déclaré PASS — uniquement tests attendus pour MAP-3b-exec. Aucune exécution DB, aucun appel `supabase--migration`, aucun changement `src/` ni `supabase/functions/`. |
+| **Déclencheur de réouverture** | GO CTO explicite pour MAP-3b-exec (exécution réelle via `supabase--migration` après copie/adaptation du SQL candidate vers `supabase/migrations/`). |
+| **Recommandation** | Plan migration documentaire only. **MAPPING-TAX-CHAIN-0 reste ouvert.** Lot suivant : MAP-3b-exec. Pré-requis CTO listés en §12 du plan (validation politique shared workspace, whitelist `fact_key` pivots, absence de lot pricing concurrent, absence de table `cargo_articles` stable bloquante). |
