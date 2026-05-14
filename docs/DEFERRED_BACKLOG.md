@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-13 — **🟡 DCQ-RAILWAY-BOUNDARY-AUDIT accepté — 3 sujets ajoutés au backlog (INTAKE-MIGRATION, TRUCK-LOADING-AUDIT, DEAD-EXPORTS). Audit documentaire validé par CTO. Documentation only, aucun runtime modifié. Voir `docs/audits/DCQ-RAILWAY-BOUNDARY-AUDIT.md`.**
+Dernière mise à jour : 2026-05-14 — **✅ MAP-5B-V10-DEFERRED CLOS — test E2E auth V10 exécuté (auto-confirm temporaire, user test, appel EF, 403 `rls_write_denied` confirmé, seed rollback, Auth restauré, suppression manuelle UI Cloud des 3 users). Verdict CTO : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. MAP-5B-GLOBAL : `OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED`. Aucune DB, aucun code, aucun runtime modifié.**
 
 Mise à jour antérieure : 2026-05-10 — **✅ PAD-BAREME-2006-PHASE2 CLOS : migration appliquée (19 legacy désactivées, 120 lignes PRESENT insérées, index unique partiel `port_tariffs_active_unique_key` créé), smoke test `PAD_PHASE2_SMOKE_OK` (19/19 classifications IMPORT/CONTENEUR conformes, 0 doublon actif, T10=0 et T13=11803 conservés, T12 non-régressé sur dossier réel). Runtime `run-pricing`/`recommend-pad-category` non modifié. `PAD-BAREME-2006-RUNTIME-EXPAND` reste NO-GO (GO CTO séparé requis). Voir `PAD_BAREME_2006_PHASE2_IMPORT_REPORT.md` + `PAD_BAREME_2006_PHASE2_SMOKE_TEST.md`.**
 
