@@ -6030,6 +6030,10 @@ export type Database = {
         Args: { owner_user_id: string }
         Returns: string
       }
+      propagate_classification_candidate_to_fact: {
+        Args: { p_candidate_id: string; p_idempotency_key: string }
+        Returns: Json
+      }
       release_attachment_claim: {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: undefined
