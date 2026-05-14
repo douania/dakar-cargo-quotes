@@ -111,76 +111,59 @@ Le RPC `supersede_fact` est appelé aujourd'hui :
 
 Aucune valeur `'operator'` n'est attestée dans le runtime existant. **MAP-6-EXEC utilisera `p_source_type = 'manual_input'`** (valeur déjà en production, sémantique cohérente : opérateur en posture de saisie manuelle validée). L'origine MAP-6 est tracée dans `value_json` et `source_excerpt`. Toute bascule vers `'operator'` exige un précheck explicite des contraintes DB sur `quote_facts.source_type` et un GO CTO séparé.
 
-### 3.5 Logique d'écriture (séquence Edge — **NON transactionnelle globale**)
+### 3.5 Logique d'écriture — appel du wrapper RPC dédié (post-correction Option C)
 
-> ⚠️ **Correction CTO #1 — pas de transaction globale Edge.** `supersede_fact` rend atomique uniquement la supersession dans `quote_facts` (advisory lock interne). Les étapes suivantes (UPDATE candidate.evidence, INSERT timeline) **ne sont pas** dans la même transaction. MAP-6-EXEC implémente donc un **replay/recovery guard** explicite (§3.6) pour gérer les échecs partiels.
+> ⚠️ **Correction CTO Option C (cf. `MAP_6_RPC_WRAPPER_DESIGN.md`).** L'Edge Function n'appelle **plus** `supersede_fact` directement, et n'utilise **plus** le service role. Elle appelle un **wrapper RPC dédié** `public.propagate_classification_candidate_to_fact(p_candidate_id, p_idempotency_key)` qui :
+> - dérive `case_id` depuis le candidat (jamais paramètre) ;
+> - exécute `has_case_write_access` après chargement candidat ;
+> - applique la whitelist §3.4 (incluant `hs10_uemoa`) côté DB ;
+> - appelle `supersede_fact` en interne, sous SECURITY DEFINER ;
+> - écrit `candidate.evidence` et `case_timeline_events` **dans la même transaction** que la supersession ;
+> - retourne un payload `jsonb` typé (pas de `RAISE` métier).
+>
+> **Aucun GRANT EXECUTE n'est posé sur `public.supersede_fact` à `authenticated`** — seul le wrapper est exposé. Voir `MAP_6_RPC_WRAPPER_DESIGN.md` pour la spécification complète du wrapper.
 
-Séquence sous l'identité caller (RLS owner/assigned via `has_case_write_access`) :
+Séquence Edge Function :
 
-1. SELECT candidat (RLS read).
-2. Vérifications §3.3.
-3. **Replay/recovery guard pré-RPC (§3.6)** : recherche d'un fact déjà créé pour `(case_id, fact_key, candidate_id, propagation_idempotency_key)`. Si trouvé → réparer `candidate.evidence` (best-effort) puis retourner `200 idempotent:true`.
-4. Construction du payload `supersede_fact` :
-   - `p_case_id = candidate.case_id`
-   - `p_fact_key = <résolu §3.4>`
-   - `p_fact_category = <résolu §3.4>`
-   - `p_value_text = candidate.candidate_value`
-   - `p_value_json` :
-     ```json
-     {
-       "origin": "MAP-6",
-       "propagated_from": "commodity_classification_candidates",
-       "candidate_id": "<candidate.id>",
-       "propagation_idempotency_key": "<idempotency_key>",
-       "operator_validated": true,
-       "scheme": "<hs6|hs10_uemoa>"   // uniquement pour candidate_kind ∈ {hs6, hs10_uemoa}
-     }
-     ```
-   - `p_source_type = 'manual_input'` (correction CTO #2)
-   - `p_source_excerpt = '[MAP-6] propagate candidate ' || candidate.id`
-   - `p_confidence = 1.0` (validation humaine).
-5. Appel RPC `supersede_fact` (advisory lock interne sur `(case_id, fact_key)` → atomicité de la supersession `quote_facts`).
-6. UPDATE `commodity_classification_candidates` (best-effort, hors transaction RPC) :
-   - `evidence = evidence || { propagated_at, propagation_idempotency_key, propagated_fact_id }`
-   - **Aucun changement de `status`** (le candidat reste `accepted`).
-   - Si l'UPDATE échoue : log d'erreur, **ne pas** retourner 500 (le fact existe et le replay guard le rattrapera au prochain appel). Retourner `200 { ok: true, idempotent: false, fact_id, fact_key, candidate_id, evidence_repair_pending: true }`.
-7. INSERT `case_timeline_events` (best-effort) :
-   - `event_type = 'manual_action'`
-   - `actor_type = 'operator'`, `actor_user_id = userId`
-   - `event_data.action_code = 'CCC_PROPAGATED_TO_FACTS'`
-   - `event_data.dedupe_key = 'ccc_propagate:' || candidate_id || ':' || idempotency_key`
-   - `event_data.candidate_id`, `event_data.fact_key`, `event_data.fact_id`, `event_data.status = 'done'`
-   - Échec → log seulement, pas de 500.
-8. Réponse `200 { ok: true, idempotent: false, fact_id, fact_key, candidate_id }`.
+1. Validation Zod du body (`candidate_id`, `idempotency_key` ; `case_id` **n'est plus accepté en paramètre**).
+2. Appel unique :
+   ```ts
+   const { data, error } = await supabase.rpc(
+     'propagate_classification_candidate_to_fact',
+     { p_candidate_id: candidate_id, p_idempotency_key: idempotency_key }
+   );
+   ```
+3. Mapping du retour wrapper → réponse HTTP (cf. §3.11) :
+   - `{ ok:true, idempotent:false }` → 200 succès
+   - `{ ok:true, idempotent:true, replay_source }` → 200 idempotent
+   - `{ ok:false, code:'rls_write_denied' }` → 403
+   - `{ ok:false, code:'candidate_not_found' }` → 404
+   - `{ ok:false, code:'candidate_not_accepted' | 'candidate_not_current' | 'idempotency_conflict' }` → 409
+   - `{ ok:false, code:'candidate_kind_not_whitelisted' | 'pad_label_forbidden' }` → 422
+   - `{ ok:false, code:'invalid_input' }` → 400
+   - `error` PostgREST `42501` (permission denied) → 500 `internal_error` (ne devrait pas arriver si grants posés correctement)
 
-### 3.6 Idempotence stricte + replay/recovery guard (correction CTO #1)
+> Toutes les étapes critiques (supersede_fact + UPDATE candidate.evidence + INSERT case_timeline_events) sont **atomiques dans la transaction RPC du wrapper**. L'EF ne fait **plus** de best-effort hors transaction.
+
+### 3.6 Idempotence stricte + replay/recovery guard (désormais porté par le wrapper RPC)
+
+> ⚠️ **Post-correction Option C.** Les 3 niveaux de protection décrits ci-dessous sont **désormais entièrement implémentés dans le wrapper RPC** `public.propagate_classification_candidate_to_fact` (voir `MAP_6_RPC_WRAPPER_DESIGN.md` §3.4 étapes 8, 9, 10), pas côté Edge Function. L'EF se contente d'appeler le wrapper.
 
 Trois niveaux de protection contre la divergence d'état entre `quote_facts` et `commodity_classification_candidates` :
 
-**Niveau A — Edge candidate-side (rapide)** :
-Si `candidate.evidence.propagation_idempotency_key === idempotency_key` ET `candidate.evidence.propagated_fact_id` présent → retour `200 { ok: true, idempotent: true, fact_id, fact_key }` sans appel RPC.
+**Niveau A — wrapper, evidence (clé exigée)** :
+Si `candidate.evidence.propagated_fact_id` présent **ET** `candidate.evidence.propagation_idempotency_key === p_idempotency_key` → retour `{ ok:true, idempotent:true, replay_source:'evidence' }` sans appel `supersede_fact`. Si `propagated_fact_id` présent avec une **autre** clé, ce n'est PAS un replay : c'est traité comme une re-propagation explicite (Niveau C).
 
-**Niveau B — Edge fact-side (replay guard)** — nouveau :
-Avant d'appeler `supersede_fact`, exécuter une SELECT dans `quote_facts` :
+**Niveau B — wrapper, quote_facts (sans filtre `is_current`)** :
+SELECT dans `quote_facts` filtré par `case_id`, `fact_key`, `value_json->>'candidate_id'`, `value_json->>'propagation_idempotency_key'`, **sans filtre `is_current=true`**. Un fact superseded entre-temps doit toujours être détecté pour empêcher tout double-propagation. Si trouvé → réparation `evidence` puis retour `{ ok:true, idempotent:true, replay_source:'quote_facts' }`.
 
-```text
-SELECT id FROM public.quote_facts
-WHERE case_id = :case_id
-  AND fact_key = :fact_key
-  AND value_json->>'candidate_id' = :candidate_id
-  AND value_json->>'propagation_idempotency_key' = :idempotency_key
-LIMIT 1;
-```
+**Niveau B' — wrapper, détection conflit clé idempotence** :
+SELECT vérifiant qu'aucun **autre** candidat sur le même `case_id` n'utilise déjà cette `propagation_idempotency_key`. Si trouvé → `{ ok:false, code:'idempotency_conflict' }`.
 
-- Si la ligne existe → un précédent appel a réussi `supersede_fact` mais a échoué sur l'UPDATE candidate.evidence ou sur le timeline. **Réparer** : tenter à nouveau l'UPDATE candidate.evidence avec ce `fact_id`, puis retourner `200 idempotent:true`.
-- Si la ligne n'existe pas → procéder normalement.
+**Niveau C — DB native (supersede_fact)** :
+`supersede_fact` reste nativement idempotent par advisory lock + supersession. Un appel avec une `idempotency_key` **différente** (re-propagation volontaire) produit un nouveau fact courant, l'ancien `is_current=false` — sémantique métier acceptée.
 
-Ce SELECT exploite le fait que MAP-6 grave `candidate_id` + `propagation_idempotency_key` dans `value_json` (étape §3.5.4). Il garantit qu'un retry après échec partiel ne crée jamais un second fact courant pour le même couple.
-
-**Niveau C — DB native** :
-`supersede_fact` est nativement idempotent par advisory lock + supersession. Un appel concurrent avec un `idempotency_key` **différent** (re-propagation volontaire) produit un nouveau fact courant, l'ancien `is_current=false` — sémantique métier acceptée (l'opérateur souverain).
-
-**Note** : un RPC wrapper dédié (`propagate_candidate_to_fact_atomic`) qui ferait `supersede_fact` + UPDATE candidate + INSERT timeline dans une transaction unique serait une alternative plus propre. C'est explicitement **hors périmètre MAP-6** : ce serait un lot DB séparé (`MAP-6-RPC-WRAPPER`) avec migration dédiée et GO CTO indépendant.
+> Le replay guard et la transactionnalité étant désormais portés par le wrapper, les états transitoires `evidence_repair_pending` du modèle d'origine **n'existent plus**. L'EF ne renvoie jamais cet état.
 
 ### 3.7 Aucun rollback automatique
 
@@ -209,43 +192,47 @@ Cela aligne MAP-6 sur le comportement V10 démontré (non-owner → 403 sans mod
 
 ### 3.10 Précheck RPC permission obligatoire (correction CTO #3)
 
-`set-case-fact` et `validate-partner-fact` appellent `supersede_fact` via un **service client** (`SUPABASE_SERVICE_ROLE_KEY`). MAP-6 propose volontairement de ne **pas** utiliser le service role et d'appeler `supersede_fact` sous l'identité caller (`SUPABASE_ANON_KEY` + JWT user). C'est cohérent avec l'isolation MAP-4 / MAP-5B mais **non vérifié runtime**.
+**Décision CTO : Option C retenue — wrapper RPC dédié.** Voir document complet `MAP_6_RPC_WRAPPER_DESIGN.md`.
 
-`supersede_fact` est `SECURITY DEFINER` (cf. `db-functions`). Cela exécute le corps avec les droits du propriétaire (par défaut Supabase admin), **mais le droit d'INVOQUER** la fonction reste régi par les `GRANT EXECUTE` sur le rôle `authenticated`.
+Le précheck RP3 a été exécuté et conclu **NEGATIF** : `authenticated` n'a pas `EXECUTE` sur `public.supersede_fact`. Plutôt que de poser ce GRANT direct (Option A), qui exposerait à `authenticated` une RPC `SECURITY DEFINER` générique sans `has_case_write_access` ni whitelist `fact_key` ni contrôle `source_type` (faille d'écriture sur `quote_facts`), MAP-6 introduit un **wrapper RPC dédié** :
 
-**MAP-6-EXEC précheck obligatoire — avant tout commit code** :
+- `public.propagate_classification_candidate_to_fact(p_candidate_id uuid, p_idempotency_key text) RETURNS jsonb`
+- `SECURITY DEFINER`, borné métier (RLS check, whitelist §3.4, source_type forcé à `manual_input`).
+- **Seul le wrapper est `GRANT EXECUTE` à `authenticated`.**
+- **`public.supersede_fact` reste non-grantée à `authenticated`.**
+- Le wrapper appelle `supersede_fact` en interne, dans la **même transaction** que l'UPDATE `candidate.evidence` et l'INSERT `case_timeline_events` — atomicité native, plus de best-effort hors transaction.
 
-| # | Précheck | Méthode | Attendu pour GO |
+Préchecks toujours obligatoires en lot **MAP-6-EXEC-MIGRATION** (avant le déploiement EF) :
+
+| # | Précheck | Méthode | Attendu |
 |---|---|---|---|
-| RP1 | Vérifier signature `public.supersede_fact` | `\df+ public.supersede_fact` ou `pg_proc` query | Signature inchangée vs `MASTER_CONTEXT.md` |
-| RP2 | Vérifier `prosecdef = true` (SECURITY DEFINER) | `SELECT prosecdef FROM pg_proc WHERE proname='supersede_fact';` | `true` |
-| RP3 | Vérifier grants EXECUTE | `SELECT grantee, privilege_type FROM information_schema.routine_privileges WHERE routine_name='supersede_fact';` | `authenticated` doit apparaître avec `EXECUTE`, sinon **STOP** |
-| RP4 | Test live RPC sous JWT owner/assigned | `supabase--curl_edge_functions` après EF déployée — premier appel POST réel | 200 + fact créé |
-| RP5 | Test live RPC sous JWT non-owner non-assigned | Idem avec user secondaire (pattern V10) | 403 `rls_write_denied` (pré-check `has_case_write_access` arrête avant RPC) |
+| RP1 | Signature `public.supersede_fact` | `pg_proc` | Inchangée vs `MASTER_CONTEXT.md` |
+| RP2 | `prosecdef = true` | `pg_proc` | `true` |
+| RP3' | Wrapper créé + `GRANT EXECUTE` ciblé wrapper uniquement | `routine_privileges` | Wrapper apparaît, `supersede_fact` reste **vide** pour `authenticated` |
+| RP4 | Test live wrapper sous JWT owner | RPC direct + EF | `{ ok:true, idempotent:false }` |
+| RP5 | Test live wrapper sous JWT non-owner | RPC direct + EF | `{ ok:false, code:'rls_write_denied' }`, aucune écriture DB |
+| RP6 | Test négatif `supersede_fact` non-grantée | `has_function_privilege('authenticated', 'public.supersede_fact(...)', 'EXECUTE')` | `false` |
 
-**STOP conditions** :
-- RP3 KO (`authenticated` n'a pas `EXECUTE`) → **`MAP_6_EXEC_BLOCKED_RPC_PERMISSION`**. Choix CTO requis :
-  - Option A : ajouter un `GRANT EXECUTE ON FUNCTION public.supersede_fact(...) TO authenticated` (lot DB séparé, GO CTO).
-  - Option B : revenir au modèle service_role (refonte MAP-6 — perte d'isolation, GO CTO requis).
-  - Aucune des deux options n'est exécutée par MAP-6-EXEC sans GO CTO explicite.
+> Aucune Option A (GRANT direct) ni Option B (service_role) n'est exécutée. Option C est la seule voie autorisée.
 
-> Ce précheck doit être exécuté **avant** tout codage UI MAP-6-EXEC-UI pour éviter une découverte tardive.
+### 3.11 Réponses HTTP normalisées (post-Option C)
 
-### 3.11 Réponses HTTP normalisées
+L'EF mappe le retour `jsonb` du wrapper :
 
 | Status | Body | Cas |
 |---|---|---|
 | 200 | `{ ok: true, idempotent: false, fact_id, fact_key, candidate_id }` | Propagation effective |
-| 200 | `{ ok: true, idempotent: true, fact_id, fact_key, candidate_id, recovered?: true }` | Replay (Niveau A ou B §3.6) |
-| 200 | `{ ok: true, idempotent: false, fact_id, fact_key, candidate_id, evidence_repair_pending: true }` | RPC OK mais UPDATE candidate KO (le replay guard rattrapera) |
-| 400 | `{ error: 'invalid_input', details }` | Body Zod invalide |
-| 400 | `{ error: 'unmapped_candidate_kind', candidate_kind }` | §3.4 violée |
-| 401 | `{ error: 'unauthorized', reason }` | Auth manquante / invalide |
-| 403 | `{ error: 'forbidden', reason: 'rls_write_denied' }` | Pré-check `has_case_write_access=false` |
-| 404 | `{ error: 'candidate_not_found' }` | UUID inexistant ou hors case |
-| 409 | `{ error: 'state_conflict', reason, current_status }` | `status≠accepted` ou `is_current=false` |
+| 200 | `{ ok: true, idempotent: true, fact_id, fact_key, candidate_id, replay_source: 'evidence' \| 'quote_facts' }` | Replay |
+| 400 | `{ error: 'invalid_input', details }` | Body Zod invalide ou wrapper `code:'invalid_input'` |
+| 401 | `{ error: 'unauthorized', reason }` | Auth manquante / invalide (code-side EF, RPC jamais atteinte) |
+| 403 | `{ error: 'forbidden', reason: 'rls_write_denied' }` | Wrapper `code:'rls_write_denied'` |
+| 404 | `{ error: 'candidate_not_found' }` | Wrapper `code:'candidate_not_found'` |
+| 409 | `{ error: 'state_conflict', reason: 'candidate_not_accepted' \| 'candidate_not_current' \| 'idempotency_conflict', details }` | Wrapper `code` correspondant |
+| 422 | `{ error: 'unmapped_candidate_kind' \| 'pad_label_forbidden', candidate_kind }` | Wrapper `code:'candidate_kind_not_whitelisted'` ou `'pad_label_forbidden'` |
 | 405 | `{ error: 'method_not_allowed' }` | Hors POST/OPTIONS |
-| 500 | `{ error: 'internal_error' }` | RPC échec inattendu (uniquement quand replay guard ne peut pas rattraper) |
+| 500 | `{ error: 'internal_error' }` | Échec inattendu (panne RPC, contrainte DB inattendue, `42501` permission denied imprévue) |
+
+> L'état `evidence_repair_pending` du modèle d'origine **disparaît** : la transaction wrapper rend l'écriture `evidence` atomique avec la supersession.
 
 ### 3.12 Effet pricing — clarification explicite
 
@@ -280,17 +267,21 @@ Implémentation = lot **MAP-6-EXEC-UI**, séparé.
 | T4 | Replay nouveau `idempotency_key` (re-propagation) | 200 non-idempotent, nouveau fact courant, ancien `is_current=false` |
 | T5 | Candidat `status='suggested'` | 409 `state_conflict` (`expected_accepted`) |
 | T6 | Candidat `status='accepted', is_current=false` | 409 `state_conflict` (`not_current`) |
-| T7 | Candidat `candidate_kind='pad_label'` | 400 `unmapped_candidate_kind` |
-| T8 | User authentifié non owner ni assigned | 403 `rls_write_denied` (pré-check, sans modification DB) |
-| T9 | User non authentifié | 401 `unauthorized` |
+| T7 | Candidat `candidate_kind='pad_label'` | 422 `pad_label_forbidden` |
+| T8 | User authentifié non owner ni assigned | 403 `rls_write_denied` (wrapper §3.4 étape 5, sans modification DB) |
+| T9 | User non authentifié (Edge Function) | 401 `unauthorized` (auth code-side EF, RPC jamais atteinte) |
 | T10 | Rejet ultérieur du candidat | `quote_facts` inchangé |
 | T11 | Aucun `pricing_runs` créé/modifié post-T1 | Confirmé read DB |
-| T12 | Aucun appel sortant `run-pricing` (logs) | Confirmé via `supabase--edge_function_logs` |
-| T13 | Timeline contient `CCC_PROPAGATED_TO_FACTS` avec `dedupe_key` correct | Confirmé read DB |
-| T14 | `quote_facts.source_type = 'manual_input'` | Confirmé read DB (correction CTO #2) |
-| T15 | Aucun écriture sur `cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton` | Confirmé read DB (isolation pivots MAP) |
+| T12 | **Test négatif `supersede_fact` non-grantée** : `has_function_privilege('authenticated', 'public.supersede_fact(...)', 'EXECUTE')` | `false` (correction Option C — supersede_fact reste non exposée) |
+| T13 | **Auth/grants matrix** (3 sous-cas) | |
+| T13a | Appel via Edge Function MAP-6 sans JWT | **401** côté Edge (auth code-side, RPC jamais atteinte) |
+| T13b | Appel direct PostgREST en `anon` (sans JWT user) sur la RPC wrapper | Refus PostgREST par **absence de GRANT EXECUTE pour `anon`** (`permission denied for function`). Pas de retour métier `rls_write_denied`. |
+| T13c | Appel `authenticated` non-owner / non-assigned sur la RPC wrapper | `{ ok:false, code:'rls_write_denied' }`, aucune modification DB |
+| T14 | Timeline contient `CCC_PROPAGATED_TO_FACTS` avec `dedupe_key` correct dans `case_timeline_events` | Confirmé read DB |
+| T15 | `quote_facts.source_type = 'manual_input'` | Confirmé read DB |
+| T16 | Aucune écriture sur `cargo.pad_category`, `cargo.pad_rate_fcfa_per_ton` | Confirmé read DB (isolation pivots MAP) |
 
-Seed test obligatoire pour T8 : user secondaire authentifié non-owner / non-assigned (pattern V10) + rollback seed obligatoire après test + suppression user manuelle.
+Seed test obligatoire pour T8 / T13c : user secondaire authentifié non-owner / non-assigned (pattern V10) + rollback seed obligatoire après test + suppression user manuelle.
 
 ---
 
@@ -331,14 +322,19 @@ Seed test obligatoire pour T8 : user secondaire authentifié non-owner / non-ass
 
 ---
 
-## 7. Diff attendu du présent lot MAP-6 (design)
+## 7. Diff attendu (rappel — mis à jour post-Option C)
 
 ```text
-A docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md
+A docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md  (lot original)
+A docs/tariff-collection/pad/MAP_6_RPC_WRAPPER_DESIGN.md         (lot Option C)
+M docs/tariff-collection/pad/MAP_6_PROPAGATE_TO_FACTS_DESIGN.md  (patch §3.5/§3.6/§3.10/§3.11/§4)
 M docs/DEFERRED_BACKLOG.md
-  - ligne 5 "Dernière mise à jour" : ajout mention MAP-6-DESIGN
-  - ajout "### MAP-6 — Design action propagate_to_facts" sous la section MAP
 ```
+
+**Interdictions renforcées (post-Option C)** :
+- Aucun `GRANT EXECUTE` sur `public.supersede_fact` à `authenticated`.
+- Aucun `case_id` accepté en paramètre RPC ou EF (toujours dérivé du candidat dans le wrapper).
+- Aucun `service_role` côté Edge.
 
 **Aucun autre fichier touché.**
 
