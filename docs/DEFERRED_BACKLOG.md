@@ -2,7 +2,7 @@
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
-Dernière mise à jour : 2026-05-13 — **🟡 DCQ-RAILWAY-BOUNDARY-AUDIT accepté — 3 sujets ajoutés au backlog (INTAKE-MIGRATION, TRUCK-LOADING-AUDIT, DEAD-EXPORTS). Audit documentaire validé par CTO. Documentation only, aucun runtime modifié. Voir `docs/audits/DCQ-RAILWAY-BOUNDARY-AUDIT.md`.**
+Dernière mise à jour : 2026-05-14 — **✅ MAP-5B-V10-DEFERRED CLOS — test E2E auth V10 exécuté (auto-confirm temporaire, user test, appel EF, 403 `rls_write_denied` confirmé, seed rollback, Auth restauré, suppression manuelle UI Cloud des 3 users). Verdict CTO : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. MAP-5B-GLOBAL : `OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED`. Aucune DB, aucun code, aucun runtime modifié.**
 
 Mise à jour antérieure : 2026-05-10 — **✅ PAD-BAREME-2006-PHASE2 CLOS : migration appliquée (19 legacy désactivées, 120 lignes PRESENT insérées, index unique partiel `port_tariffs_active_unique_key` créé), smoke test `PAD_PHASE2_SMOKE_OK` (19/19 classifications IMPORT/CONTENEUR conformes, 0 doublon actif, T10=0 et T13=11803 conservés, T12 non-régressé sur dossier réel). Runtime `run-pricing`/`recommend-pad-category` non modifié. `PAD-BAREME-2006-RUNTIME-EXPAND` reste NO-GO (GO CTO séparé requis). Voir `PAD_BAREME_2006_PHASE2_IMPORT_REPORT.md` + `PAD_BAREME_2006_PHASE2_SMOKE_TEST.md`.**
 
@@ -1525,19 +1525,33 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Recommandation** | Plan d'exécution documentaire approuvé. Exécution conditionnée aux critères GO §8 du plan. NO-GO → `MAP_3B_EXEC_BLOCKED_*` avec cause exacte (table existante, conflit fonction read/write, mismatch sécurité, régression RLS, lot concurrent, repo dirty). **MAPPING-TAX-CHAIN-0 reste ouvert.** |
 | **Mise à jour 2026-05-14** | Préflight read-only exécuté → verdict `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED` : les policies INSERT/UPDATE réelles de `quote_facts` sont owner/assigned, alors que le SQL draft initial proposait un INSERT/UPDATE shared workspace via la fonction unique `has_case_access`. Patch documentaire appliqué : split `has_case_access` → `has_case_read_access` (shared workspace, SELECT) + `has_case_write_access` (owner/assigned, INSERT/UPDATE, aligné `quote_facts`). Policies renommées `ccc_insert_owner_assigned` / `ccc_update_owner_assigned`. Tests T5/T6/T7 du `MAP_3B_EXECUTION_PLAN.md` réécrits en conséquence. Aucune exécution DB. Verdict patch : `MAP_3B_RLS_DRAFT_ALIGNED_WITH_QUOTE_FACTS`. Divergence `SECURITY_CONTRACT.md` ↔ DB documentée en §4bis du plan migration ; réconciliation hors périmètre MAP-3/3b. |
 
-### MAP-5B — V10 RLS write denied (test non-owner) reporté
+### MAP-5B — V10 RLS write denied (test non-owner) clos
 
 | Champ | Valeur |
 |-------|--------|
 | **ID** | `MAP-5B-V10-DEFERRED` |
 | **Catégorie** | Test E2E auth — V10 (UPDATE par user non owner / non assigned → 403 `rls_write_denied`) |
-| **Statut** | `🟡 BLOCKED_NO_SECONDARY_TEST_USER` |
+| **Statut** | `✅ CLOS — 2026-05-14` |
 | **Priorité** | P3 |
 | **Phase d'origine** | MAP-5B |
 | **Date** | 2026-05-14 |
-| **Constat** | EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 non exécuté : aucun JWT secondaire (non owner / non assigned) disponible côté sandbox de test sans création d'utilisateur auth (interdit par directive CTO). Le code traduit explicitement `42501` / `permission denied` / `row-level security` en `403 forbidden / rls_write_denied`, et UPDATE renvoyant 0 ligne après SELECT OK retombe sur le même 403. Garde côté UI déjà branchée (toast destructive). |
-| **Déclencheur de réouverture** | Disponibilité d'un user secondaire authentifiable (login preview alterné) OU lot dédié autorisant la création d'un user de test contrôlé. |
-| **Recommandation** | Lever V10 dans un lot test dédié quand un second compte preview existe. Aucune modification EF requise pour ce test (logique 403 déjà implémentée). |
+| **Constat** | **Exécuté et validé.** EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 exécuté avec auto-confirm temporaire : création d'un user test authentifié (`phase15-v10b-1747230649@test.local`), appel EF avec JWT valide mais userId ≠ owner et ≠ assigned_to. Réponse : `HTTP 403 {"error":"forbidden","reason":"rls_write_denied"}` — comportement critique confirmé. Seed test resté inchangé (`status=suggested`, `is_current=true`, `validated_by=NULL`). Seed rollback exécuté (count=0). Auth restauré au snapshot initial (`auto_confirm_email=false`, `password_hibp_enabled=true`). Suppression manuelle des 3 users test effectuée côté UI Cloud. Verdict CTO accepté : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. |
+| **Déclencheur de réouverture** | — |
+| **Recommandation** | Aucune. V10 clos. MAP-5B dans son ensemble validé et accepté. |
+
+### MAP-5B-GLOBAL — Opérateur actions déployées et validées
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5B-GLOBAL` |
+| **Catégorie** | Edge Function `update-commodity-classification-candidate` — opérateur actions accept/reject |
+| **Statut** | `✅ OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED` |
+| **Priorité** | P1 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | EF `update-commodity-classification-candidate` déployée. Actions opérateur `accept` et `reject` opérationnelles. V1–V9 validés (accept/reject idempotence, state conflict, garde état, payload update). V10 validé (403 `rls_write_denied` pour user non-owner / non-assigned). Aucun appel `run-pricing`. Aucune écriture `quote_facts`. Aucune écriture `case_facts` / `cargo.*` / `pricing_runs`. RLS write : `has_case_write_access` (owner/assigned). Auth : `requireUser` via `SUPABASE_ANON_KEY` + bearer token, aucun service_role. Idempotence stricte via `evidence.idempotency_key`. |
+| **Déclencheur de réouverture** | GO CTO explicite pour extension (ex. MAP-5C `supersede`, MAP-6 écriture downstream `quote_facts`). |
+| **Recommandation** | MAP-5B clos. Extensions futures : MAP-5C (supersede) et MAP-6 (propagation `quote_facts`) nécessitent chacune un GO CTO séparé. |
 
 ### MAP-5C — Action `supersede` sur candidats classification
 
