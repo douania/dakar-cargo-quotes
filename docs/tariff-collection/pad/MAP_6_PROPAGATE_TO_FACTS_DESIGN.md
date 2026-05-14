@@ -192,43 +192,47 @@ Cela aligne MAP-6 sur le comportement V10 démontré (non-owner → 403 sans mod
 
 ### 3.10 Précheck RPC permission obligatoire (correction CTO #3)
 
-`set-case-fact` et `validate-partner-fact` appellent `supersede_fact` via un **service client** (`SUPABASE_SERVICE_ROLE_KEY`). MAP-6 propose volontairement de ne **pas** utiliser le service role et d'appeler `supersede_fact` sous l'identité caller (`SUPABASE_ANON_KEY` + JWT user). C'est cohérent avec l'isolation MAP-4 / MAP-5B mais **non vérifié runtime**.
+**Décision CTO : Option C retenue — wrapper RPC dédié.** Voir document complet `MAP_6_RPC_WRAPPER_DESIGN.md`.
 
-`supersede_fact` est `SECURITY DEFINER` (cf. `db-functions`). Cela exécute le corps avec les droits du propriétaire (par défaut Supabase admin), **mais le droit d'INVOQUER** la fonction reste régi par les `GRANT EXECUTE` sur le rôle `authenticated`.
+Le précheck RP3 a été exécuté et conclu **NEGATIF** : `authenticated` n'a pas `EXECUTE` sur `public.supersede_fact`. Plutôt que de poser ce GRANT direct (Option A), qui exposerait à `authenticated` une RPC `SECURITY DEFINER` générique sans `has_case_write_access` ni whitelist `fact_key` ni contrôle `source_type` (faille d'écriture sur `quote_facts`), MAP-6 introduit un **wrapper RPC dédié** :
 
-**MAP-6-EXEC précheck obligatoire — avant tout commit code** :
+- `public.propagate_classification_candidate_to_fact(p_candidate_id uuid, p_idempotency_key text) RETURNS jsonb`
+- `SECURITY DEFINER`, borné métier (RLS check, whitelist §3.4, source_type forcé à `manual_input`).
+- **Seul le wrapper est `GRANT EXECUTE` à `authenticated`.**
+- **`public.supersede_fact` reste non-grantée à `authenticated`.**
+- Le wrapper appelle `supersede_fact` en interne, dans la **même transaction** que l'UPDATE `candidate.evidence` et l'INSERT `case_timeline_events` — atomicité native, plus de best-effort hors transaction.
 
-| # | Précheck | Méthode | Attendu pour GO |
+Préchecks toujours obligatoires en lot **MAP-6-EXEC-MIGRATION** (avant le déploiement EF) :
+
+| # | Précheck | Méthode | Attendu |
 |---|---|---|---|
-| RP1 | Vérifier signature `public.supersede_fact` | `\df+ public.supersede_fact` ou `pg_proc` query | Signature inchangée vs `MASTER_CONTEXT.md` |
-| RP2 | Vérifier `prosecdef = true` (SECURITY DEFINER) | `SELECT prosecdef FROM pg_proc WHERE proname='supersede_fact';` | `true` |
-| RP3 | Vérifier grants EXECUTE | `SELECT grantee, privilege_type FROM information_schema.routine_privileges WHERE routine_name='supersede_fact';` | `authenticated` doit apparaître avec `EXECUTE`, sinon **STOP** |
-| RP4 | Test live RPC sous JWT owner/assigned | `supabase--curl_edge_functions` après EF déployée — premier appel POST réel | 200 + fact créé |
-| RP5 | Test live RPC sous JWT non-owner non-assigned | Idem avec user secondaire (pattern V10) | 403 `rls_write_denied` (pré-check `has_case_write_access` arrête avant RPC) |
+| RP1 | Signature `public.supersede_fact` | `pg_proc` | Inchangée vs `MASTER_CONTEXT.md` |
+| RP2 | `prosecdef = true` | `pg_proc` | `true` |
+| RP3' | Wrapper créé + `GRANT EXECUTE` ciblé wrapper uniquement | `routine_privileges` | Wrapper apparaît, `supersede_fact` reste **vide** pour `authenticated` |
+| RP4 | Test live wrapper sous JWT owner | RPC direct + EF | `{ ok:true, idempotent:false }` |
+| RP5 | Test live wrapper sous JWT non-owner | RPC direct + EF | `{ ok:false, code:'rls_write_denied' }`, aucune écriture DB |
+| RP6 | Test négatif `supersede_fact` non-grantée | `has_function_privilege('authenticated', 'public.supersede_fact(...)', 'EXECUTE')` | `false` |
 
-**STOP conditions** :
-- RP3 KO (`authenticated` n'a pas `EXECUTE`) → **`MAP_6_EXEC_BLOCKED_RPC_PERMISSION`**. Choix CTO requis :
-  - Option A : ajouter un `GRANT EXECUTE ON FUNCTION public.supersede_fact(...) TO authenticated` (lot DB séparé, GO CTO).
-  - Option B : revenir au modèle service_role (refonte MAP-6 — perte d'isolation, GO CTO requis).
-  - Aucune des deux options n'est exécutée par MAP-6-EXEC sans GO CTO explicite.
+> Aucune Option A (GRANT direct) ni Option B (service_role) n'est exécutée. Option C est la seule voie autorisée.
 
-> Ce précheck doit être exécuté **avant** tout codage UI MAP-6-EXEC-UI pour éviter une découverte tardive.
+### 3.11 Réponses HTTP normalisées (post-Option C)
 
-### 3.11 Réponses HTTP normalisées
+L'EF mappe le retour `jsonb` du wrapper :
 
 | Status | Body | Cas |
 |---|---|---|
 | 200 | `{ ok: true, idempotent: false, fact_id, fact_key, candidate_id }` | Propagation effective |
-| 200 | `{ ok: true, idempotent: true, fact_id, fact_key, candidate_id, recovered?: true }` | Replay (Niveau A ou B §3.6) |
-| 200 | `{ ok: true, idempotent: false, fact_id, fact_key, candidate_id, evidence_repair_pending: true }` | RPC OK mais UPDATE candidate KO (le replay guard rattrapera) |
-| 400 | `{ error: 'invalid_input', details }` | Body Zod invalide |
-| 400 | `{ error: 'unmapped_candidate_kind', candidate_kind }` | §3.4 violée |
-| 401 | `{ error: 'unauthorized', reason }` | Auth manquante / invalide |
-| 403 | `{ error: 'forbidden', reason: 'rls_write_denied' }` | Pré-check `has_case_write_access=false` |
-| 404 | `{ error: 'candidate_not_found' }` | UUID inexistant ou hors case |
-| 409 | `{ error: 'state_conflict', reason, current_status }` | `status≠accepted` ou `is_current=false` |
+| 200 | `{ ok: true, idempotent: true, fact_id, fact_key, candidate_id, replay_source: 'evidence' \| 'quote_facts' }` | Replay |
+| 400 | `{ error: 'invalid_input', details }` | Body Zod invalide ou wrapper `code:'invalid_input'` |
+| 401 | `{ error: 'unauthorized', reason }` | Auth manquante / invalide (code-side EF, RPC jamais atteinte) |
+| 403 | `{ error: 'forbidden', reason: 'rls_write_denied' }` | Wrapper `code:'rls_write_denied'` |
+| 404 | `{ error: 'candidate_not_found' }` | Wrapper `code:'candidate_not_found'` |
+| 409 | `{ error: 'state_conflict', reason: 'candidate_not_accepted' \| 'candidate_not_current' \| 'idempotency_conflict', details }` | Wrapper `code` correspondant |
+| 422 | `{ error: 'unmapped_candidate_kind' \| 'pad_label_forbidden', candidate_kind }` | Wrapper `code:'candidate_kind_not_whitelisted'` ou `'pad_label_forbidden'` |
 | 405 | `{ error: 'method_not_allowed' }` | Hors POST/OPTIONS |
-| 500 | `{ error: 'internal_error' }` | RPC échec inattendu (uniquement quand replay guard ne peut pas rattraper) |
+| 500 | `{ error: 'internal_error' }` | Échec inattendu (panne RPC, contrainte DB inattendue, `42501` permission denied imprévue) |
+
+> L'état `evidence_repair_pending` du modèle d'origine **disparaît** : la transaction wrapper rend l'écriture `evidence` atomique avec la supersession.
 
 ### 3.12 Effet pricing — clarification explicite
 
