@@ -114,6 +114,50 @@ type UpdateResponse = {
   details?: unknown;
 };
 
+/* MAP-6 — réponse de l'Edge Function propagate-classification-candidate-to-facts */
+type PropagateErrorCode =
+  | "VALIDATION_FAILED"
+  | "FORBIDDEN_OWNER"
+  | "CANDIDATE_NOT_FOUND"
+  | "CANDIDATE_NOT_ACCEPTED"
+  | "CANDIDATE_NOT_CURRENT"
+  | "IDEMPOTENCY_CONFLICT"
+  | "PAD_LABEL_FORBIDDEN"
+  | "KIND_NOT_WHITELISTED"
+  | "INTERNAL_ERROR";
+
+type PropagateResponse = {
+  ok?: boolean;
+  fact_id?: string;
+  candidate_id?: string;
+  fact_key?: string;
+  idempotent?: boolean;
+  replay_source?: "evidence" | "quote_facts";
+  correlation_id?: string;
+  error?: { code?: string; message?: string; details?: unknown };
+};
+
+/* MAP-6 — lecture défensive du champ evidence (ne jamais inventer fact_key) */
+function getEvidence(c: CommodityClassificationCandidate): Record<string, unknown> {
+  const ev = (c as { evidence?: unknown }).evidence;
+  return ev && typeof ev === "object" ? (ev as Record<string, unknown>) : {};
+}
+function getPropagatedFactId(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).propagated_fact_id;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function getPropagatedAt(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).propagated_at;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function getPropagatedFactKey(c: CommodityClassificationCandidate): string | null {
+  const v = getEvidence(c).fact_key;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+function canPropagate(c: CommodityClassificationCandidate): boolean {
+  return c.status === "accepted" && c.is_current === true && getPropagatedFactId(c) === null;
+}
+
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
 
 interface Props {
