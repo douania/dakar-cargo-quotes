@@ -1509,3 +1509,17 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Constat** | Plan documentaire `docs/tariff-collection/pad/MAP_3B_MIGRATION_PLAN.md` + SQL candidate `docs/tariff-collection/pad/sql-drafts/20260513_map_3b_commodity_classification_candidates_DRAFT.sql`. SQL placé **hors `supabase/migrations/`** pour éviter tout auto-apply. Garde anti-exécution explicite en tête (`MIGRATION CANDIDATE ONLY — DO NOT APPLY`). Fonction `has_case_access` documentée comme **shared workspace** (alignée `SECURITY_CONTRACT.md`), pas owner-scoped. Aucun test DB déclaré PASS — uniquement tests attendus pour MAP-3b-exec. Aucune exécution DB, aucun appel `supabase--migration`, aucun changement `src/` ni `supabase/functions/`. |
 | **Déclencheur de réouverture** | GO CTO explicite pour MAP-3b-exec (exécution réelle via `supabase--migration` après copie/adaptation du SQL candidate vers `supabase/migrations/`). |
 | **Recommandation** | Plan migration documentaire only. **MAPPING-TAX-CHAIN-0 reste ouvert.** Lot suivant : MAP-3b-exec. Pré-requis CTO listés en §12 du plan (validation politique shared workspace, whitelist `fact_key` pivots, absence de lot pricing concurrent, absence de table `cargo_articles` stable bloquante). |
+
+### MAP-3b-exec — Plan d'exécution migration `commodity_classification_candidates`
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-3b-exec` |
+| **Catégorie** | Plan d'exécution migration — table `commodity_classification_candidates` + fonction `has_case_access` (shared workspace) |
+| **Statut** | `📋 MAP-3B-EXEC PLAN DRAFT — awaiting CTO GO` |
+| **Priorité** | P1 |
+| **Phase d'origine** | Post MAP-3b |
+| **Date** | 2026-05-14 |
+| **Constat** | Plan d'exécution documentaire `docs/tariff-collection/pad/MAP_3B_EXECUTION_PLAN.md` — préchecks repo (R1–R8), préchecks DB read-only (P1–P7), contrôle sécurité shared workspace, procédure de copie/adaptation du SQL draft vers `supabase/migrations/YYYYMMDDHHMMSS_map_3b_commodity_classification_candidates.sql`, tests prescriptifs T1–T10, critères GO/NO-GO codifiés. **Aucune exécution DB**, aucun appel `supabase--migration`, aucun fichier dans `supabase/migrations/`, aucun changement `src/` ni `supabase/functions/`. Verdict : `MAP_3B_EXECUTION_PLAN_READY`. |
+| **Déclencheur de réouverture** | GO CTO explicite ouvrant le lot d'exécution réelle MAP-3b-exec (appel `supabase--migration` après préchecks P1–P7 OK). Verdict cible aval : `MAP_3B_MIGRATION_EXECUTED`. |
+| **Recommandation** | Plan d'exécution documentaire approuvé. Exécution conditionnée aux critères GO §8 du plan. NO-GO → `MAP_3B_EXEC_BLOCKED_*` avec cause exacte (table existante, conflit fonction, mismatch sécurité, régression RLS, lot concurrent, repo dirty). **MAPPING-TAX-CHAIN-0 reste ouvert.** |
