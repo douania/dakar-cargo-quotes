@@ -49,6 +49,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PadNstSuggestionsPanel from "@/components/case/PadNstSuggestionsPanel";
+import CommodityClassificationCandidatesPanel from "@/components/case/CommodityClassificationCandidatesPanel";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
   SELECT_FACT_OPTIONS,
@@ -2058,6 +2059,9 @@ export default function CaseView() {
           const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
           return <PadNstSuggestionsPanel padCategoryAlreadySet={padCatFact?.value_text ?? null} />;
         })()}
+
+        {/* MAP-5A : lecture seule candidats classification */}
+        <CommodityClassificationCandidatesPanel caseId={caseId!} />
 
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
