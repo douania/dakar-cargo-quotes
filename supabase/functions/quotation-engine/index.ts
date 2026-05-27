@@ -1025,6 +1025,59 @@ async function fetchCarrierCharges(
   return data || [];
 }
 
+function normalizeCarrierPortChargeText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function isAmbiguousCarrierPortCharge(charge: any): boolean {
+  const code = normalizeCarrierPortChargeText(charge?.charge_code);
+  const name = normalizeCarrierPortChargeText(charge?.charge_name);
+  const notes = normalizeCarrierPortChargeText(charge?.notes);
+  const labelText = `${name} ${notes}`;
+
+  if ([
+    'TXI',
+    'XPV_20',
+    'XPV_40',
+    'PSX_20',
+    'PSX_40',
+    'PCD',
+    'PORT_TAX',
+    'PORT_DUES',
+    'PORT_CHARGES',
+  ].includes(code)) {
+    return true;
+  }
+
+  const ambiguousPortLabels = [
+    'PORT TAX',
+    'PORT DUES',
+    'PORT CHARGES',
+    'TAX IMPORT',
+    'TAXE PORT',
+    'TAXES PORT',
+    'TAXE DE PORT',
+    'DROIT PASSAGE',
+    'DROITS DE PASSAGE',
+    'TAXE PORTUAIRE',
+    'TAXES PORTUAIRES',
+    'REDEVANCE PORTUAIRE',
+    'REDEVANCES PORTUAIRES',
+    'PAD_DROIT_PASSAGE',
+  ];
+
+  if (ambiguousPortLabels.some((label) => name.includes(label))) {
+    return true;
+  }
+
+  return code === 'COLL' && ambiguousPortLabels.some((label) => labelText.includes(label));
+}
+
 async function fetchBorderClearingRates(
   supabase: any,
   country: string,
@@ -1465,6 +1518,35 @@ async function generateQuotationLines(
   
   if (carrierCharges.length > 0) {
     for (const charge of carrierCharges) {
+      if (isAmbiguousCarrierPortCharge(charge)) {
+        // STRUCTURAL_PATCH_ALLOWED: block ambiguous carrier port labels from auto-counting beside PAD_DROIT_PASSAGE.
+        const blockMessage = [
+          'Carrier charge blocked from auto-count to prevent PAD_DROIT_PASSAGE double counting',
+          `carrier=${charge.carrier || carrier || 'UNKNOWN'}`,
+          `charge_code=${charge.charge_code || 'UNKNOWN'}`,
+          `charge_name=${charge.charge_name || 'UNKNOWN'}`,
+          `operation_type=${charge.operation_type || effectiveOperationType}`,
+        ].join(' | ');
+
+        lines.push({
+          id: `carrier_${String(charge.charge_code || 'unknown').toLowerCase()}_blocked_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Compagnie Maritime',
+          description: charge.charge_name || charge.charge_code || 'Carrier charge to confirm',
+          amount: null,
+          currency: charge.currency || 'XOF',
+          source: {
+            type: 'TO_CONFIRM',
+            reference: blockMessage,
+            confidence: 0
+          },
+          notes: blockMessage,
+          isEditable: true
+        });
+        warnings.push(blockMessage);
+        continue;
+      }
+
       let amount = 0;
       
       // Calculate based on method
