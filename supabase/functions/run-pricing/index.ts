@@ -38,6 +38,10 @@ interface PricingInputs {
   clientEmail?: string;
   clientCompany?: string;
   hsCode?: string;
+  cnCode?: string;
+  nhmCode?: string;
+  nstCode?: string;
+  nstrCode?: string;
   articlesDetail?: Array<{ hs_code: string; value: number; currency: string; description?: string }>;
   regimeCode?: string;
   exemptionTitle?: string;
@@ -185,6 +189,113 @@ function normalizePricingText(value: unknown): string {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+function normalizeShadowCode(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const normalized = String(value).trim();
+  return normalized === '' ? null : normalized;
+}
+
+function findShadowPadCategoryForNst(nstCode: string, nstRules: any[]): string | null {
+  const validated = nstRules.filter((rule: any) =>
+    rule?.nst_code === nstCode &&
+    rule?.validation_status === 'validated' &&
+    rule?.requires_operator_validation === false &&
+    typeof rule?.pad_category === 'string' &&
+    rule.pad_category.trim() !== ''
+  );
+  const categories = [...new Set(validated.map((rule: any) => rule.pad_category.trim().toUpperCase()))];
+  return categories.length === 1 ? categories[0] : null;
+}
+
+async function buildPadShadowContext(serviceClient: any, inputs: PricingInputs): Promise<{
+  aliases: any[];
+  nstRules: any[];
+  hsToNstMapping: any[];
+}> {
+  const normalizedDesignation = normalizePricingText(inputs.cargoDescription);
+  const aliasesPromise = normalizedDesignation
+    ? serviceClient
+        .from('pad_designation_aliases')
+        .select('normalized_term, pad_category')
+        .eq('normalized_term', normalizedDesignation)
+        .eq('is_validated', true)
+    : Promise.resolve({ data: [], error: null });
+
+  const nstRulesPromise = serviceClient
+    .from('pad_nst_recommendation_rules')
+    .select('nst_level,nst_code,pad_category,confidence,validation_status,requires_operator_validation')
+    .eq('is_active', true);
+
+  const [{ data: aliasRows, error: aliasError }, { data: nstRuleRows, error: nstRuleError }] = await Promise.all([
+    aliasesPromise,
+    nstRulesPromise,
+  ]);
+
+  if (aliasError) throw aliasError;
+  if (nstRuleError) throw nstRuleError;
+
+  const aliases = (aliasRows ?? []).map((row: any) => ({
+    normalized_term: row.normalized_term,
+    pad_category: row.pad_category,
+    alias_kind: 'designation' as const,
+    is_validated: true,
+    source_type: null,
+  }));
+
+  const nstRules = (nstRuleRows ?? []).map((row: any) => ({
+    nst_level: row.nst_level,
+    nst_code: row.nst_code,
+    pad_category: row.pad_category,
+    confidence: Number(row.confidence) || 0,
+    requires_operator_validation: row.requires_operator_validation === true,
+    validation_status: row.validation_status,
+  }));
+
+  const hsToNstMapping: any[] = [];
+  const cnCode = normalizeShadowCode(inputs.cnCode);
+  const nhmCode = normalizeShadowCode(inputs.nhmCode);
+
+  if (cnCode) {
+    const { data, error } = await serviceClient
+      .from('nst_cn_mappings')
+      .select('cn_code,nst_group_code')
+      .eq('cn_code', cnCode);
+    if (error) throw error;
+    const nstCodes = [...new Set((data ?? []).map((row: any) => row.nst_group_code).filter(Boolean))];
+    for (const row of data ?? []) {
+      hsToNstMapping.push({
+        source_code: row.cn_code,
+        source_kind: 'cn',
+        nst_code: row.nst_group_code,
+        nst_level: 'group',
+        pad_category: nstCodes.length === 1 ? findShadowPadCategoryForNst(row.nst_group_code, nstRules) : null,
+        is_unique: nstCodes.length === 1,
+      });
+    }
+  }
+
+  if (nhmCode) {
+    const { data, error } = await serviceClient
+      .from('nst_nhm_mappings')
+      .select('nhm_code,nst_group_code')
+      .eq('nhm_code', nhmCode);
+    if (error) throw error;
+    const nstCodes = [...new Set((data ?? []).map((row: any) => row.nst_group_code).filter(Boolean))];
+    for (const row of data ?? []) {
+      hsToNstMapping.push({
+        source_code: row.nhm_code,
+        source_kind: 'nhm',
+        nst_code: row.nst_group_code,
+        nst_level: 'group',
+        pad_category: nstCodes.length === 1 ? findShadowPadCategoryForNst(row.nst_group_code, nstRules) : null,
+        is_unique: nstCodes.length === 1,
+      });
+    }
+  }
+
+  return { aliases, nstRules, hsToNstMapping };
 }
 
 function inferServiceKeyFromDescription(description: unknown): string | undefined {
@@ -2065,29 +2176,26 @@ Deno.serve(async (req) => {
               return source;
             };
 
-            const normalizedDescPadShadow = normalizePricingText(inputs.cargoDescription);
-            const shadowAliases = (padShadowAliasRows || []).map((r: any) => ({
-              pad_category: r.pad_category,
-              alias_kind: 'designation' as const,
-              normalized_term: normalizedDescPadShadow,
-              is_validated: true,
-            }));
+            const shadowContext = await buildPadShadowContext(serviceClient, inputs);
 
             const resolverOut = resolvePadClassification(
               {
-                designation: normalizedDescPadShadow || null,
+                designation: inputs.cargoDescription ?? null,
                 invoice_label: null,
                 hs_code: inputs.hsCode ?? null,
-                nst_code: null,
+                cn_code: inputs.cnCode ?? null,
+                nhm_code: inputs.nhmCode ?? null,
+                nst_code: inputs.nstCode ?? null,
+                nstr_code: inputs.nstrCode ?? null,
                 operation_type: 'IMPORT',
                 cargo_type: 'CONTENEUR',
                 container_size: null,
                 known_pad_category: padCategoryBeforeAlias,
               },
               {
-                aliases: shadowAliases,
-                nstRules: [],
-                hsToNstMapping: [],
+                aliases: shadowContext.aliases,
+                nstRules: shadowContext.nstRules,
+                hsToNstMapping: shadowContext.hsToNstMapping,
                 designationMatches: [],
               },
             );
@@ -2110,21 +2218,41 @@ Deno.serve(async (req) => {
 
             console.log(JSON.stringify({
               tag: 'PAD_SHADOW',
+              version: 'MAP-RUNTIME-5',
               case_id,
               scope: 'IMPORT/CONTENEUR',
-              legacy: {
-                pad_category: legacyCategory,
-                source: legacySource,
-                alias_match_count: padShadowAliasRows.length,
+              enabled: true,
+              amount_policy: 'DO_NOT_COUNT_FROM_OBSERVATION',
+              creates_fact: false,
+              modifies_total: false,
+              nstr_used: false,
+              input_presence: {
+                hs_present: !!normalizeShadowCode(inputs.hsCode),
+                cn_present: !!normalizeShadowCode(inputs.cnCode),
+                nhm_present: !!normalizeShadowCode(inputs.nhmCode),
+                nst_present: !!normalizeShadowCode(inputs.nstCode),
+                nstr_present: !!normalizeShadowCode(inputs.nstrCode),
+              },
+              context_counts: {
+                aliases: shadowContext.aliases.length,
+                nst_rules: shadowContext.nstRules.length,
+                hs_to_nst_mappings: shadowContext.hsToNstMapping.length,
               },
               resolver: {
                 classification: resolverCategory,
+                canonical_rate_family: resolverOut.canonical_rate_family,
                 source: resolverOut.source,
                 confidence: resolverOut.confidence,
+                needs_human_review: resolverOut.needs_human_review,
                 blocking_gap: resolverOut.blocking_gap,
                 warnings: resolverOut.warnings,
               },
-              comparison: { match, mismatch_reason },
+              comparison: {
+                legacy_category: legacyCategory,
+                resolver_category: resolverCategory,
+                match,
+                mismatch_reason,
+              },
             }));
           } catch (e) {
             console.warn('[PAD_SHADOW] non-blocking error:', e instanceof Error ? e.message : String(e));
@@ -2882,6 +3010,18 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       case "cargo.hs_code":
         inputs.hsCode = String(value);
+        break;
+      case "cargo.cn_code":
+        inputs.cnCode = String(value);
+        break;
+      case "cargo.nhm_code":
+        inputs.nhmCode = String(value);
+        break;
+      case "cargo.nst_code":
+        inputs.nstCode = String(value);
+        break;
+      case "cargo.nstr_code":
+        inputs.nstrCode = String(value);
         break;
       case "cargo.articles_detail": {
         let parsed = value;
