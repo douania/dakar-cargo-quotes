@@ -1034,6 +1034,19 @@ function normalizeCarrierPortChargeText(value: unknown): string {
     .toUpperCase();
 }
 
+function containsTokenAwarePhrase(text: string, phrase: string): boolean {
+  const phraseTokens = phrase.match(/[A-Z0-9]+/g);
+
+  if (!phraseTokens?.length) {
+    return false;
+  }
+
+  const escapedTokens = phraseTokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(^|[^A-Z0-9])${escapedTokens.join('[^A-Z0-9]+')}(?=$|[^A-Z0-9])`);
+
+  return pattern.test(text);
+}
+
 function isAmbiguousCarrierPortCharge(charge: any): boolean {
   const code = normalizeCarrierPortChargeText(charge?.charge_code);
   const name = normalizeCarrierPortChargeText(charge?.charge_name);
@@ -1071,11 +1084,11 @@ function isAmbiguousCarrierPortCharge(charge: any): boolean {
     'PAD_DROIT_PASSAGE',
   ];
 
-  if (ambiguousPortLabels.some((label) => name.includes(label))) {
+  if (ambiguousPortLabels.some((label) => containsTokenAwarePhrase(name, label))) {
     return true;
   }
 
-  return code === 'COLL' && ambiguousPortLabels.some((label) => labelText.includes(label));
+  return code === 'COLL' && ambiguousPortLabels.some((label) => containsTokenAwarePhrase(labelText, label));
 }
 
 async function fetchBorderClearingRates(
