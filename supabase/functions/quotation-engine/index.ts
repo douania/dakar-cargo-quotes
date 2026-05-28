@@ -1048,10 +1048,24 @@ function containsTokenAwarePhrase(text: string, phrase: string): boolean {
 }
 
 function isAmbiguousCarrierPortCharge(charge: any): boolean {
+  const carrier = normalizeCarrierPortChargeText(charge?.carrier);
   const code = normalizeCarrierPortChargeText(charge?.charge_code);
   const name = normalizeCarrierPortChargeText(charge?.charge_name);
   const notes = normalizeCarrierPortChargeText(charge?.notes);
+  const evidenceLevel = normalizeCarrierPortChargeText(charge?.evidence_level);
+  const calculationMethod = normalizeCarrierPortChargeText(charge?.calculation_method);
+  const defaultAmount = Number(charge?.default_amount);
   const labelText = `${name} ${notes}`;
+
+  if (
+    carrier === 'HAPAG_LLOYD' &&
+    code === 'TXI' &&
+    ['OFFICIAL', 'VALIDATED_INTERNAL'].includes(evidenceLevel) &&
+    calculationMethod === 'PER_BL' &&
+    defaultAmount === 25000
+  ) {
+    return false;
+  }
 
   if ([
     'TXI',
