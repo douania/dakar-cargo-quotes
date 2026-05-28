@@ -1,65 +1,89 @@
-# MAP-6-EXEC-REST-AUTH-RECHECK — Rejeu B/C/E/G
+# CMA-CGM-TEMPLATES-CLEANUP-1 — Plan d'exécution data-only
 
-## Résultats déjà obtenus dans cette boucle (preview session JWT operator réel)
+## Préchecks SELECT (exécutés)
 
-### Test B — EF + JWT operator + body invalide
-- POST `/propagate-classification-candidate-to-facts`
-- Body: `{candidate_id:"not-a-uuid", idempotency_key:"short"}`
-- **HTTP 400** `VALIDATION_FAILED` — `candidate_id must be a valid UUID`
-- correlation_id: `db94ac6a-ad80-44e3-8dc3-3b0c2eabc9fe`
-- ✅ **PASS** — JWT accepté, validation locale rejette avant RPC.
+| charge_code | default_amount | evidence_level | operation_type | is_active | Précheck |
+|---|---|---|---|---|---|
+| SVC | 18000 | historical_only | ALL | true | OK |
+| TBL | 25000 | historical_only | ALL | true | OK |
+| DOF | 5000 | validated_internal | ALL | true | OK (operation_type=ALL → IMPORT) |
+| CMF | 10 | validated_internal | ALL | true | Inchangé |
+| COMM | 2.8 | validated_internal | ALL | true | Inchangé |
+| CMDF | 600 | validated_internal | ALL | true | Inchangé |
+| LOC_TERM | 11.50 | historical_only | ALL | true | Inchangé |
+| ISPS_TERM | 8.85 | historical_only | ALL | true | Inchangé |
+| THO | NULL | historical_only | ALL | false | Inchangé |
 
-### Test C — EF + JWT operator + UUID inexistant
-- POST `/propagate-classification-candidate-to-facts`
-- Body: `{candidate_id:"00000000-0000-0000-0000-000000000000", idempotency_key:"map6-recheck-test-key-001"}`
-- **HTTP 404** `CANDIDATE_NOT_FOUND` — `Wrapper rejected: candidate_not_found`
-- correlation_id: `f7f263d2-9652-4e7e-8ee8-7ac7d905997f`
-- ✅ **PASS** — JWT accepté, RPC wrapper appelé sous identité operator, code `candidate_not_found` mappé en 404.
+Total CMA_CGM : 9 lignes. Les 3 préchecks cibles (SVC, TBL, DOF) matchent exactement les conditions WHERE du SQL fourni.
 
-→ **Couvre implicitement** : auth EF (`requireUser`), client user-scoped, RPC `propagate_classification_candidate_to_fact` callable par `authenticated`, `has_case_write_access` pas atteint (court-circuité par `candidate_not_found`).
+Note : DOF est déjà `validated_internal` (le SQL ne touche pas `evidence_level` pour DOF, seul `operation_type` + `source_documents` + `notes` changent → cohérent).
 
-## Tests E/G — bloqués
+## Action proposée
 
-### Test E — PostgREST authenticated → wrapper callable
-### Test G — PostgREST authenticated → `supersede_fact` permission denied
+Exécuter le bloc SQL fourni via `supabase--insert` (UPDATE data-only, transactionnel, avec garde `GET DIAGNOSTICS rc` qui RAISE si ≠ 1 ligne touchée par UPDATE).
 
-Ces deux tests exigent un appel **direct PostgREST** (`/rest/v1/rpc/...`) avec le header `Authorization: Bearer <JWT_OPERATOR>` issu de la session preview.
+Aucune migration schéma, aucun patch code, aucun changement RLS, aucun runtime smoke.
 
-**Blocage** : aucun outil sandbox n'expose le JWT brut de la session preview de manière non-destructive.
-- `supabase--curl_edge_functions` injecte le JWT automatiquement mais cible uniquement `/functions/v1/*`, pas `/rest/v1/rpc/*`.
-- Lire le JWT depuis `localStorage` ou intercepter une requête réseau pour le réutiliser violerait :
-  - « ne pas afficher le JWT complet »
-  - implicitement « ne pas forger » (réutilisation manuelle hors flux applicatif).
-- Pas de proxy autorisé (interdiction d'ouvrir l'UI, modifier `src/`, créer EF de test, etc.).
+### Bloc à exécuter
 
-**Couverture indirecte déjà acquise** dans le précédent lot (test H, matrice `has_function_privilege`) :
-- `propagate_classification_candidate_to_fact` : EXECUTE = true pour `authenticated`, false pour `anon`.
-- `supersede_fact` : EXECUTE = false pour `authenticated` ET `anon`, true uniquement pour `service_role`.
-- `propagate_classification_candidate_to_fact` callable par operator confirmé indirectement par test C (RPC atteint sous JWT operator → réponse business `candidate_not_found`, pas 401/403/42501).
+```sql
+BEGIN;
+DO $$
+DECLARE rc integer;
+BEGIN
+  UPDATE public.carrier_billing_templates
+  SET evidence_level = 'validated_internal',
+      operation_type = 'IMPORT',
+      source_documents = ARRAY['CMA CGM/CNC SENEGAL LOCAL CHARGES - Effective 20-Jan-2023 (PDF officiel)'],
+      notes = 'General Administrative Fee at destination / Frais de Service de Consignation - confirmé PDF officiel'
+  WHERE carrier='CMA_CGM' AND charge_code='SVC'
+    AND default_amount=18000 AND evidence_level='historical_only';
+  GET DIAGNOSTICS rc = ROW_COUNT;
+  IF rc <> 1 THEN RAISE EXCEPTION 'SVC update expected 1 row, got %', rc; END IF;
 
-## Verdict proposé
+  UPDATE public.carrier_billing_templates
+  SET evidence_level='validated_internal', operation_type='IMPORT',
+      source_documents=ARRAY['CMA CGM/CNC SENEGAL LOCAL CHARGES - Effective 20-Jan-2023 (PDF officiel)'],
+      notes='Stamp duty at destination/import - confirmé PDF officiel ; export à traiter séparément si nécessaire'
+  WHERE carrier='CMA_CGM' AND charge_code='TBL'
+    AND default_amount=25000 AND evidence_level='historical_only';
+  GET DIAGNOSTICS rc = ROW_COUNT;
+  IF rc <> 1 THEN RAISE EXCEPTION 'TBL update expected 1 row, got %', rc; END IF;
 
-**Option recommandée : `MAP_6_EXEC_REST_AUTH_RECHECK_DONE_PARTIAL_B_C_GREEN_E_G_COVERED_BY_H`**
+  UPDATE public.carrier_billing_templates
+  SET operation_type='IMPORT',
+      source_documents=ARRAY['CMA CGM/CNC SENEGAL LOCAL CHARGES - Effective 20-Jan-2023 (PDF officiel)'],
+      notes='Delivery Order Fee at destination / BAD électronique - confirmé PDF officiel'
+  WHERE carrier='CMA_CGM' AND charge_code='DOF'
+    AND default_amount=5000 AND operation_type='ALL';
+  GET DIAGNOSTICS rc = ROW_COUNT;
+  IF rc <> 1 THEN RAISE EXCEPTION 'DOF update expected 1 row, got %', rc; END IF;
+END $$;
+COMMIT;
+```
 
-Justification :
-- B + C verts en JWT operator réel = chemin EF→RPC validé bout-en-bout.
-- E + G non rejouables en REST direct sans violer une interdiction, mais les invariants qu'ils testent (callabilité wrapper authenticated / refus `supersede_fact` authenticated) sont déjà prouvés au niveau Postgres par H + couverture transitive de C.
+## Postchecks SELECT (à exécuter après UPDATE)
 
-**Option stricte : `MAP_6_EXEC_REST_AUTH_RECHECK_BLOCKED_NO_RAW_OPERATOR_JWT_FOR_REST`**
-À retenir si le CTO exige absolument un appel PostgREST direct comme preuve formelle distincte.
+1. SVC : `evidence_level='validated_internal'`, `operation_type='IMPORT'`, `default_amount=18000`
+2. TBL : `evidence_level='validated_internal'`, `operation_type='IMPORT'`, `default_amount=25000`
+3. DOF : `operation_type='IMPORT'`, `default_amount=5000`
+4. CMF / LOC_TERM / ISPS_TERM / THO / COMM / CMDF inchangés
+5. Total lignes CMA_CGM = 9 (inchangé)
 
-## Mise à jour documentaire prévue (si DONE_PARTIAL retenu)
+## Rollback (conservé, à exécuter uniquement en cas de régression)
 
-`docs/DEFERRED_BACKLOG.md` :
-- Mettre à jour l'entrée `MAP-6-EXEC-REST-AUTH-RECHECK` :
-  - B ✅, C ✅ (avec correlation_ids, date, méthode preview-session-JWT)
-  - E/G : non rejouables en REST direct sans extraction JWT brut → couverture transitive H+C documentée.
-  - Garder dette ouverte pour rejeu E/G formel si futur outillage permet REST direct sans extraction.
+Bloc fourni par la consigne (restitue SVC/TBL → `historical_only`, ALL, source_documents factures D5/D6, notes to_confirm ; DOF → ALL).
 
-Aucune autre modification : pas de migration, pas de GRANT, pas de `src/`, pas de `config.toml`, pas de seed, pas de user Auth, pas de JWT exposé.
+## Gouvernance — sujets différés
 
-## Décision attendue
+À mettre à jour dans `docs/DEFERRED_BACKLOG.md` après PASS (chantier suivant, hors scope de ce plan) :
+- `CMA-CMF-REEFER-EXTEND-1` — REEFER 20 USD/TEU
+- `CMA-LOC-ISPS-AMOUNT-FIX-1` — refonte barème LOC_TERM/ISPS_TERM par taille
+- `CMA-EXP-DOC-CHARGES-EXTEND-1` — DOC_ORIG, SWB, ADDL_ADMIN
+- `CMA-SOURCE-DISTINCT-CMDF-COMM-1` — source PDF distincte pour CMDF/COMM
 
-Choisir entre :
-1. **DONE_PARTIAL B/C green, E/G transitively covered** — clore le recheck avec dette résiduelle "REST direct formel".
-2. **BLOCKED_NO_RAW_OPERATOR_JWT_FOR_REST** — laisser la dette entière ouverte.
+## Verdict attendu après exécution
+
+PASS si les 3 UPDATE retournent 1 ligne chacun et postchecks conformes. FAIL → rollback manuel.
+
+Approuver pour basculer en build mode et exécuter via `supabase--insert`.
