@@ -480,10 +480,56 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage' | 'enrichment_carrier_commission';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
+}
+
+const CMA_CGM_DEBOURS_COMMISSION_RATE = 0.028;
+const CMA_CGM_DEBOURS_COMMISSION_PERCENT = 2.8;
+const VALID_CARRIER_COMMISSION_EVIDENCE_LEVELS = new Set(['official', 'validated_internal']);
+
+function normalizeCarrierCode(value: unknown): string {
+  const normalized = normalizePricingText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return normalized === 'CMACGM' ? 'CMA_CGM' : normalized;
+}
+
+function isTransitLikeFlow(caseData: any, inputs: PricingInputs, packageKey: string): boolean {
+  const requestTypeUpper = String(caseData?.request_type || '').toUpperCase();
+  const packageUpper = String(packageKey || inputs.servicePackage || '').toUpperCase();
+
+  return (
+    packageUpper.includes('TRANSIT') ||
+    packageUpper.includes('TRANSBORDEMENT') ||
+    packageUpper.includes('TRANSSHIPMENT') ||
+    requestTypeUpper.includes('TRANSIT') ||
+    requestTypeUpper.includes('TRANSBORDEMENT') ||
+    requestTypeUpper.includes('TRANSSHIPMENT')
+  );
+}
+
+function isEligibleCmaCgmCommissionTemplate(template: any): boolean {
+  return (
+    normalizeCarrierCode(template?.carrier) === 'CMA_CGM' &&
+    String(template?.charge_code || '').trim().toUpperCase() === 'COMM' &&
+    template?.is_active === true &&
+    VALID_CARRIER_COMMISSION_EVIDENCE_LEVELS.has(String(template?.evidence_level || '').trim().toLowerCase()) &&
+    String(template?.calculation_method || '').trim().toUpperCase() === 'PERCENTAGE' &&
+    Number(template?.default_amount) === CMA_CGM_DEBOURS_COMMISSION_PERCENT
+  );
+}
+
+function getSourceReferenceFromTemplate(template: any): string {
+  const sourceDocuments = Array.isArray(template?.source_documents)
+    ? template.source_documents.filter((doc: unknown): doc is string => typeof doc === 'string' && doc.trim() !== '')
+    : [];
+
+  return sourceDocuments[0] || template?.base_reference || template?.notes || 'CMA CGM/CNC SENEGAL LOCAL CHARGES';
 }
 
 /**
@@ -549,6 +595,12 @@ function canonicalizeLine(
     canonical.source_system = 'terminal_designations';
     canonical.source_table = 'terminal_tariff_codes';
     canonical.pricing_method = 'provision_estimate';
+  } else if (context.origin_layer === 'enrichment_carrier_commission') {
+    canonical.service_key = 'CMA_CGM_COMM';
+    canonical.dedup_group = 'CMA_CGM_COMM';
+    canonical.source_system = 'carrier_billing_templates';
+    canonical.source_table = 'carrier_billing_templates';
+    canonical.pricing_method = 'percentage_on_pad';
   }
 
   return { ...line, canonical };
@@ -2330,7 +2382,7 @@ Deno.serve(async (req) => {
         if (weightTonnes > 0) {
           const padAmount = Math.round(inputs.padRateFcfaPerTon * weightTonnes);
           const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
-          engineLines.push(canonicalizeLine({
+          const officialPadLine = canonicalizeLine({
             category: 'PAD_DROIT_PASSAGE',
             label: `Droit de passage PAD ${inputs.padCategory}`,
             description: `Droit de passage PAD ${inputs.padCategory}`,
@@ -2345,9 +2397,65 @@ Deno.serve(async (req) => {
               confidence: 1.0,
             },
             isEditable: false,
-          }, { origin_layer: 'enrichment_pad' }));
+          }, { origin_layer: 'enrichment_pad' });
+          engineLines.push(officialPadLine);
           engineResponse.lines = engineLines;
           console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
+
+          const shouldTryCmaCommission =
+            isMaritime &&
+            !isExportFlow &&
+            !isTransitLikeFlow(caseData, inputs, pkg) &&
+            normalizeCarrierCode(inputs.carrier) === 'CMA_CGM' &&
+            Number(officialPadLine.amount) > 0 &&
+            String(officialPadLine?.source?.type || '').trim().toUpperCase() === 'OFFICIAL';
+
+          if (shouldTryCmaCommission) {
+            try {
+              const { data: commTemplates, error: commTemplateError } = await serviceClient
+                .from('carrier_billing_templates')
+                .select('carrier, charge_code, charge_name, calculation_method, default_amount, currency, operation_type, evidence_level, is_active, source_documents, base_reference, notes')
+                .eq('carrier', 'CMA_CGM')
+                .eq('charge_code', 'COMM')
+                .eq('is_active', true)
+                .in('operation_type', ['IMPORT', 'ALL'])
+                .in('evidence_level', ['official', 'validated_internal']);
+
+              if (commTemplateError) {
+                throw commTemplateError;
+              }
+
+              const commTemplate = (commTemplates || []).find(isEligibleCmaCgmCommissionTemplate);
+              if (commTemplate) {
+                const commissionAmount = Math.round(Number(officialPadLine.amount) * CMA_CGM_DEBOURS_COMMISSION_RATE);
+                if (commissionAmount > 0) {
+                  engineLines.push(canonicalizeLine({
+                    category: 'CMA_CGM_COMM',
+                    label: 'Commission sur débours CMA CGM',
+                    description: `Commission sur débours CMA CGM — ${CMA_CGM_DEBOURS_COMMISSION_PERCENT}% sur PAD_DROIT_PASSAGE (${officialPadLine.amount} FCFA)`,
+                    amount: commissionAmount,
+                    currency: 'FCFA',
+                    unit: 'percentage',
+                    quantity: Number(officialPadLine.amount),
+                    unitPrice: CMA_CGM_DEBOURS_COMMISSION_PERCENT,
+                    source: {
+                      type: 'CALCULATED',
+                      reference: getSourceReferenceFromTemplate(commTemplate),
+                      confidence: 1.0,
+                      table: 'carrier_billing_templates',
+                    },
+                    isEditable: false,
+                  }, { origin_layer: 'enrichment_carrier_commission' }));
+                  engineResponse.lines = engineLines;
+                  console.log(`[CMA-COMM] Commission sur débours CMA CGM: ${commissionAmount} FCFA (${CMA_CGM_DEBOURS_COMMISSION_PERCENT}% × PAD ${officialPadLine.amount})`);
+                }
+              } else {
+                console.log('[CMA-COMM] No eligible CMA_CGM/COMM template found — skipping commission');
+              }
+            } catch (cmaCommErr) {
+              console.warn('[CMA-COMM] Template lookup failed (non-blocking):', cmaCommErr);
+            }
+          }
         } else {
           console.warn(`[PAD] cargo.pad_rate set but cargoWeight=0 — skipping droit de passage`);
         }
@@ -2733,11 +2841,15 @@ ${JSON.stringify(refPayload)}`;
       ? rawDdp
       : engineDapComputed + engineDebours;
 
-    // Post-engine enrichment: PAD + terminal storage (non-TO_CONFIRM, amount > 0)
+    // Post-engine enrichment: PAD + terminal storage + carrier commission (non-TO_CONFIRM, amount > 0)
     const enrichmentAmount = tariffLines
       .filter((l: any) => {
         const layer = l.canonical?.origin_layer;
-        if (layer !== 'enrichment_pad' && layer !== 'enrichment_terminal_storage') return false;
+        if (
+          layer !== 'enrichment_pad' &&
+          layer !== 'enrichment_terminal_storage' &&
+          layer !== 'enrichment_carrier_commission'
+        ) return false;
         const sourceType = String(l?.source?.type || '')
           .trim()
           .split('+')[0]
