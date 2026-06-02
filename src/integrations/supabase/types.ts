@@ -3220,6 +3220,8 @@ export type Database = {
         Row: {
           cn2008_code: string | null
           cn2008_label: string | null
+          cpa2008_code: string | null
+          cpa2008_label: string | null
           created_at: string
           crosswalk_relationship: string
           id: string
@@ -3247,6 +3249,8 @@ export type Database = {
         Insert: {
           cn2008_code?: string | null
           cn2008_label?: string | null
+          cpa2008_code?: string | null
+          cpa2008_label?: string | null
           created_at?: string
           crosswalk_relationship: string
           id?: string
@@ -3274,6 +3278,8 @@ export type Database = {
         Update: {
           cn2008_code?: string | null
           cn2008_label?: string | null
+          cpa2008_code?: string | null
+          cpa2008_label?: string | null
           created_at?: string
           crosswalk_relationship?: string
           id?: string
