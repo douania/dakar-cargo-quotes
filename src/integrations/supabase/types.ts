@@ -3216,6 +3216,90 @@ export type Database = {
           },
         ]
       }
+      pad_cn2008_mapping_v5_shadow: {
+        Row: {
+          cn2008_code: string | null
+          cn2008_label: string | null
+          created_at: string
+          crosswalk_relationship: string
+          id: string
+          imported_at: string
+          is_active: boolean
+          nst2007_code: string | null
+          nst2007_label: string | null
+          nstr_label: string | null
+          nstr3_code: string
+          parent_nstr2: string
+          row_key: string
+          source_document: string
+          source_hash: string
+          source_reference: string | null
+          source_version: string
+          updated_at: string
+          v5_category_source: string
+          v5_confidence: number
+          v5_decision: string
+          v5_method: string
+          v5_note: string | null
+          v5_pad_category: string | null
+          v5_requires_operator: boolean
+        }
+        Insert: {
+          cn2008_code?: string | null
+          cn2008_label?: string | null
+          created_at?: string
+          crosswalk_relationship: string
+          id?: string
+          imported_at?: string
+          is_active?: boolean
+          nst2007_code?: string | null
+          nst2007_label?: string | null
+          nstr_label?: string | null
+          nstr3_code: string
+          parent_nstr2: string
+          row_key: string
+          source_document?: string
+          source_hash: string
+          source_reference?: string | null
+          source_version: string
+          updated_at?: string
+          v5_category_source: string
+          v5_confidence: number
+          v5_decision: string
+          v5_method: string
+          v5_note?: string | null
+          v5_pad_category?: string | null
+          v5_requires_operator: boolean
+        }
+        Update: {
+          cn2008_code?: string | null
+          cn2008_label?: string | null
+          created_at?: string
+          crosswalk_relationship?: string
+          id?: string
+          imported_at?: string
+          is_active?: boolean
+          nst2007_code?: string | null
+          nst2007_label?: string | null
+          nstr_label?: string | null
+          nstr3_code?: string
+          parent_nstr2?: string
+          row_key?: string
+          source_document?: string
+          source_hash?: string
+          source_reference?: string | null
+          source_version?: string
+          updated_at?: string
+          v5_category_source?: string
+          v5_confidence?: number
+          v5_decision?: string
+          v5_method?: string
+          v5_note?: string | null
+          v5_pad_category?: string | null
+          v5_requires_operator?: boolean
+        }
+        Relationships: []
+      }
       pad_designation_aliases: {
         Row: {
           bl_term: string
