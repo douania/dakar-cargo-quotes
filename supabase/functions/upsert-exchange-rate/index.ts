@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { requireUser } from "../_shared/auth.ts";
+import { requireAdmin } from "../_shared/auth.ts";
 import { createSupabaseClient } from "../_shared/supabase.ts";
 
 /**
@@ -21,8 +21,8 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Auth
-  const auth = await requireUser(req);
+  // Admin auth
+  const auth = await requireAdmin(req);
   if (auth instanceof Response) return auth;
 
   try {
