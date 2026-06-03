@@ -114,6 +114,17 @@ type UpdateResponse = {
   details?: unknown;
 };
 
+type CreatePadV5CandidateResponse = {
+  ok?: boolean;
+  idempotent?: boolean;
+  candidate?: CommodityClassificationCandidate | unknown;
+  candidate_id?: string;
+  error?: string;
+  reason?: string;
+  decision?: string;
+  details?: unknown;
+};
+
 /* PAD-V5 shadow — suggestion UI read-only */
 type PadV5ShadowSuggestion = {
   id: string;
@@ -210,6 +221,17 @@ const STATUS_OPTIONS: Array<{ value: CandidateStatus; label: string }> = [
 ];
 
 const ALL = "__all__";
+const CREATE_PAD_V5_ERROR_TITLES: Record<string, string> = {
+  unauthorized: "Session expirée",
+  forbidden: "Accès refusé",
+  invalid_input: "Requête invalide",
+  shadow_not_found: "Suggestion V5 obsolète",
+  shadow_inactive: "Suggestion V5 obsolète",
+  v5_decision_blocked: "Suggestion V5 non éligible",
+  v5_category_missing: "Catégorie PAD absente",
+  state_conflict: "Un candidat courant existe déjà",
+  internal_error: "Création du candidat impossible",
+};
 const PAD_V5_SELECT_COLUMNS = [
   "id",
   "row_key",
@@ -259,6 +281,12 @@ function isFirmPadV5Decision(value: string): boolean {
   return value === "AUTO_SAFE";
 }
 
+function isPadV5CccCreationEligible(suggestion: PadV5ShadowSuggestion): boolean {
+  const category = suggestion.v5_pad_category?.trim();
+  return (suggestion.v5_decision === "AUTO_SAFE" || suggestion.v5_decision === "AUTO_SAFE_CANDIDATE")
+    && Boolean(category);
+}
+
 function confidenceTierClass(c: number | null): string {
   if (c == null) return "bg-muted text-muted-foreground border-border";
   if (c >= 0.8) return "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300";
@@ -287,6 +315,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [padV5Suggestions, setPadV5Suggestions] = useState<PadV5ShadowSuggestion[]>([]);
   const [padV5ErrorMsg, setPadV5ErrorMsg] = useState<string | null>(null);
   const [padIndicativeTariffs, setPadIndicativeTariffs] = useState<Record<string, PadIndicativeTariff>>({});
+  const [creatingPadV5Id, setCreatingPadV5Id] = useState<string | null>(null);
 
   // Filtres locaux (n'écrivent rien)
   const [kindFilter, setKindFilter] = useState<string>(ALL);
@@ -313,21 +342,28 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     return key;
   };
 
-  const fetchCandidates = useCallback(async () => {
+  const fetchCandidates = useCallback(async (overrides?: {
+    kindFilter?: string;
+    statusFilter?: string;
+    isCurrent?: boolean;
+  }) => {
     setState("loading");
     setErrorMsg(null);
     try {
+      const effectiveKindFilter = overrides?.kindFilter ?? kindFilter;
+      const effectiveStatusFilter = overrides?.statusFilter ?? statusFilter;
+      const effectiveIsCurrent = overrides?.isCurrent ?? isCurrent;
       const body: Record<string, unknown> = {
         case_id: caseId,
         limit: 100,
         offset: 0,
-        filters: { is_current: isCurrent } as Record<string, unknown>,
+        filters: { is_current: effectiveIsCurrent } as Record<string, unknown>,
       };
-      if (kindFilter !== ALL) {
-        (body.filters as Record<string, unknown>).candidate_kind = kindFilter;
+      if (effectiveKindFilter !== ALL) {
+        (body.filters as Record<string, unknown>).candidate_kind = effectiveKindFilter;
       }
-      if (statusFilter !== ALL) {
-        (body.filters as Record<string, unknown>).status = statusFilter;
+      if (effectiveStatusFilter !== ALL) {
+        (body.filters as Record<string, unknown>).status = effectiveStatusFilter;
       }
 
       const { data, error } = await supabase.functions.invoke<GetCandidatesResponse>(
@@ -642,6 +678,76 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     return null;
   };
 
+  const readCreatePadV5ErrorPayload = async (err: unknown): Promise<CreatePadV5CandidateResponse | null> => {
+    try {
+      const ctx = (err as { context?: { json?: () => Promise<unknown>; text?: () => Promise<string> } } | null)?.context;
+      if (ctx && typeof ctx.json === "function") {
+        const j = await ctx.json();
+        if (j && typeof j === "object") return j as CreatePadV5CandidateResponse;
+      }
+      if (ctx && typeof ctx.text === "function") {
+        const t = await ctx.text();
+        try { return JSON.parse(t) as CreatePadV5CandidateResponse; } catch { /* not json */ }
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+
+  const createPadV5Candidate = useCallback(async (suggestion: PadV5ShadowSuggestion) => {
+    if (!isPadV5CccCreationEligible(suggestion)) {
+      toast({
+        title: suggestion.v5_pad_category?.trim() ? "Suggestion V5 non éligible" : "Catégorie PAD absente",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCreatingPadV5Id(suggestion.id);
+    try {
+      const body = {
+        case_id: caseId,
+        shadow_id: suggestion.id,
+        article_id: null,
+      };
+      const { data, error } = await supabase.functions.invoke<CreatePadV5CandidateResponse>(
+        "create-pad-v5-classification-candidate",
+        { body },
+      );
+
+      let payload = (data ?? null) as CreatePadV5CandidateResponse | null;
+      if (error) {
+        const fromErr = await readCreatePadV5ErrorPayload(error);
+        if (fromErr) payload = fromErr;
+      }
+
+      if (error || !payload || payload.error || payload.ok !== true) {
+        const code = payload?.error ?? "internal_error";
+        toast({
+          title: CREATE_PAD_V5_ERROR_TITLES[code] ?? "Création du candidat impossible",
+          description: payload?.reason ?? payload?.decision ?? (error instanceof Error ? error.message : undefined),
+          variant: "destructive",
+        });
+        if (code === "shadow_not_found" || code === "shadow_inactive" || code === "state_conflict") {
+          await fetchCandidates();
+        }
+        return;
+      }
+
+      toast({
+        title: payload.idempotent ? "Candidat CCC déjà existant" : "Candidat CCC créé à valider",
+      });
+      setKindFilter(ALL);
+      setStatusFilter(ALL);
+      setIsCurrent(true);
+      await fetchCandidates({ kindFilter: ALL, statusFilter: ALL, isCurrent: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Création du candidat impossible", description: msg, variant: "destructive" });
+    } finally {
+      setCreatingPadV5Id(null);
+    }
+  }, [caseId, fetchCandidates]);
+
   const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
     setPendingId(candidate.id);
     const idemKey = `propagate:${candidate.id}`;
@@ -816,12 +922,13 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                     <Info className="h-4 w-4 text-muted-foreground" />
                     <h3 className="text-sm font-medium">Suggestion PAD V5 shadow</h3>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">READ ONLY</Badge>
+                  <Badge variant="outline" className="text-[10px]">SOURCE READ ONLY</Badge>
                 </div>
                 <Alert>
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
                     Lecture seule — non utilisé pour le pricing sans validation opérateur.
+                    {" "}Cette action crée seulement un candidat à valider. Elle ne modifie pas le dossier et ne lance aucun pricing.
                   </AlertDescription>
                 </Alert>
 
@@ -852,6 +959,9 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                       const category = suggestion.v5_pad_category?.trim().toUpperCase() ?? null;
                       const tariff = category ? padIndicativeTariffs[category] : undefined;
                       const firmDecision = isFirmPadV5Decision(suggestion.v5_decision);
+                      const canCreateCcc = isPadV5CccCreationEligible(suggestion);
+                      const isCreating = creatingPadV5Id === suggestion.id;
+                      const disabledReason = category ? "Décision non éligible" : "Catégorie PAD absente";
                       return (
                         <div key={suggestion.row_key} className="rounded-md border bg-background p-3 space-y-2">
                           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -871,7 +981,31 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                                 <Badge variant="outline" className="text-[10px]">validation opérateur requise</Badge>
                               ) : null}
                             </div>
-                            <span className="font-mono text-[10px] text-muted-foreground">{suggestion.row_key}</span>
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
+                              <span className="font-mono text-[10px] text-muted-foreground">{suggestion.row_key}</span>
+                              {canCreateCcc ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2"
+                                  disabled={creatingPadV5Id !== null}
+                                  onClick={() => void createPadV5Candidate(suggestion)}
+                                >
+                                  {isCreating ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3 w-3" />
+                                  )}
+                                  <span className="ml-1 text-[11px]">
+                                    {isCreating ? "Création…" : "Créer candidat à valider"}
+                                  </span>
+                                </Button>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {disabledReason}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
 
                           <div className="grid gap-2 text-xs md:grid-cols-2">
