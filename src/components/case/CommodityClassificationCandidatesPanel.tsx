@@ -175,6 +175,18 @@ type PropagateResponse = {
   error?: { code?: string; message?: string; details?: unknown };
 };
 
+const PROPAGATE_ERROR_TOASTS: Record<string, { title: string; description?: string; variant?: "destructive" | "default"; refetch?: boolean; keepKey?: boolean }> = {
+  VALIDATION_FAILED:      { title: "Validation échouée", description: "Requête invalide.", variant: "destructive" },
+  FORBIDDEN_OWNER:        { title: "Accès refusé", description: "Vous n'êtes pas owner ou assigné de ce dossier.", variant: "destructive" },
+  CANDIDATE_NOT_FOUND:    { title: "Candidat introuvable", description: "Rafraîchissement nécessaire.", variant: "destructive", refetch: true },
+  CANDIDATE_NOT_ACCEPTED: { title: "Candidat non accepté", description: "Le candidat n'est plus à l'état accepté.", refetch: true },
+  CANDIDATE_NOT_CURRENT:  { title: "Candidat non courant", description: "Le candidat n'est plus is_current.", refetch: true },
+  IDEMPOTENCY_CONFLICT:   { title: "Conflit d'idempotence", description: "Une autre opération a utilisé la même clé.", variant: "destructive", refetch: true, keepKey: true },
+  PAD_LABEL_FORBIDDEN:    { title: "pad_label non propageable", description: "Type interdit pour la propagation.", variant: "destructive" },
+  KIND_NOT_WHITELISTED:   { title: "Type non propageable", description: "candidate_kind non autorisé.", variant: "destructive" },
+  INTERNAL_ERROR:         { title: "Erreur serveur", description: "Réessayer ultérieurement.", variant: "destructive", keepKey: true },
+};
+
 /* MAP-6 — lecture défensive du champ evidence (ne jamais inventer fact_key) */
 function getEvidence(c: CommodityClassificationCandidate): Record<string, unknown> {
   const ev = (c as { evidence?: unknown }).evidence;
@@ -285,6 +297,10 @@ function isPadV5CccCreationEligible(suggestion: PadV5ShadowSuggestion): boolean 
   const category = suggestion.v5_pad_category?.trim();
   return (suggestion.v5_decision === "AUTO_SAFE" || suggestion.v5_decision === "AUTO_SAFE_CANDIDATE")
     && Boolean(category);
+}
+
+function isPadV5ShadowCandidate(candidate: CommodityClassificationCandidate | null): boolean {
+  return candidate?.source === "pad_v5_shadow";
 }
 
 function confidenceTierClass(c: number | null): string {
@@ -626,7 +642,17 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   }, [fetchCandidates]);
 
   const handleAccept = (candidate: CommodityClassificationCandidate) => {
-    if (!window.confirm(`Accepter ce candidat (${candidate.candidate_kind} / ${candidate.candidate_value ?? "—"}) ?`)) {
+    const message = isPadV5ShadowCandidate(candidate)
+      ? [
+          `Accepter ce candidat (${candidate.candidate_kind} / ${candidate.candidate_value ?? "—"}) ?`,
+          "",
+          "Ce candidat provient du PAD V5 shadow.",
+          "Il ne constitue pas une vérité tarifaire.",
+          "port_tariffs / PAD / DROIT_PASSAGE reste l'unique source tarifaire.",
+          "L'acceptation valide seulement le CCC et ne doit déclencher aucun pricing.",
+        ].join("\n")
+      : `Accepter ce candidat (${candidate.candidate_kind} / ${candidate.candidate_value ?? "—"}) ?`;
+    if (!window.confirm(message)) {
       return;
     }
     void performAction(candidate, "accept");
@@ -650,18 +676,6 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   };
 
   /* ---------- MAP-6 — Propagation au dossier (Edge Function uniquement) ---------- */
-
-  const PROPAGATE_ERROR_TOASTS: Record<string, { title: string; description?: string; variant?: "destructive" | "default"; refetch?: boolean; keepKey?: boolean }> = {
-    VALIDATION_FAILED:      { title: "Validation échouée", description: "Requête invalide.", variant: "destructive" },
-    FORBIDDEN_OWNER:        { title: "Accès refusé", description: "Vous n'êtes pas owner ou assigné de ce dossier.", variant: "destructive" },
-    CANDIDATE_NOT_FOUND:    { title: "Candidat introuvable", description: "Rafraîchissement nécessaire.", variant: "destructive", refetch: true },
-    CANDIDATE_NOT_ACCEPTED: { title: "Candidat non accepté", description: "Le candidat n'est plus à l'état accepté.", refetch: true },
-    CANDIDATE_NOT_CURRENT:  { title: "Candidat non courant", description: "Le candidat n'est plus is_current.", refetch: true },
-    IDEMPOTENCY_CONFLICT:   { title: "Conflit d'idempotence", description: "Une autre opération a utilisé la même clé.", variant: "destructive", refetch: true, keepKey: true },
-    PAD_LABEL_FORBIDDEN:    { title: "pad_label non propageable", description: "Type interdit pour la propagation.", variant: "destructive" },
-    KIND_NOT_WHITELISTED:   { title: "Type non propageable", description: "candidate_kind non autorisé.", variant: "destructive" },
-    INTERNAL_ERROR:         { title: "Erreur serveur", description: "Réessayer ultérieurement.", variant: "destructive", keepKey: true },
-  };
 
   const readErrorPayload = async (err: unknown): Promise<PropagateResponse | null> => {
     try {
@@ -1081,6 +1095,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                       const propagatedAt = getPropagatedAt(c);
                       const propagatedFactKey = getPropagatedFactKey(c);
                       const showPropagate = canPropagate(c);
+                      const fromPadV5Shadow = isPadV5ShadowCandidate(c);
                       const propagatedTooltip = propagated
                         ? [
                             propagatedFactKey ? `fact_key: ${propagatedFactKey}` : `fact_id: ${propagated}`,
@@ -1120,10 +1135,22 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                                   PROPAGÉ
                                 </Badge>
                               ) : null}
+                              {fromPadV5Shadow ? (
+                                <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                  V5 SHADOW
+                                </Badge>
+                              ) : null}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
+                            <div className="space-y-1">
+                              <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
+                              {fromPadV5Shadow ? (
+                                <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                                  Suggestion V5 — vérifier avant validation
+                                </p>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs">{c.rank ?? "—"}</TableCell>
                           <TableCell className="text-xs whitespace-nowrap">{formatDate(c.created_at)}</TableCell>
@@ -1248,6 +1275,15 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                   <span className="text-muted-foreground">PAD : </span>
                   <span className="font-mono">{propagateTarget.pad_category}</span>
                 </div>
+              ) : null}
+              {isPadV5ShadowCandidate(propagateTarget) ? (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Candidat V5 shadow. La propagation écrit cargo.pad_category uniquement via le workflow MAP-6 existant.
+                    Aucun run-pricing automatique. Aucun tarif ne doit être inféré depuis V5 ; port_tariffs reste la source pricing.
+                  </AlertDescription>
+                </Alert>
               ) : null}
             </div>
           ) : null}
