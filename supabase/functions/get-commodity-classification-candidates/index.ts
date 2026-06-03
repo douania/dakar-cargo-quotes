@@ -16,7 +16,7 @@ const STATUSES = ["suggested", "accepted", "rejected", "superseded"] as const;
 const SOURCES = [
   "operator", "structured_code_exact", "validated_alias",
   "pad_label_2_3", "reference_label_cn_nhm_nst_nstr",
-  "ai_suggestion", "web_hs_lookup",
+  "ai_suggestion", "web_hs_lookup", "pad_v5_shadow",
 ] as const;
 
 const BodySchema = z.object({
