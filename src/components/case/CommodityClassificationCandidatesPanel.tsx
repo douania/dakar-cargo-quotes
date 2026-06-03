@@ -114,7 +114,34 @@ type UpdateResponse = {
   details?: unknown;
 };
 
-/* MAP-6 — réponse de l'Edge Function propagate-classification-candidate-to-facts */
+/* PAD-V5 shadow — suggestion UI read-only */
+type PadV5ShadowSuggestion = {
+  id: string;
+  row_key: string;
+  cn2008_code: string | null;
+  cn2008_label: string | null;
+  cpa2008_code: string | null;
+  cpa2008_label: string | null;
+  nst2007_code: string | null;
+  nst2007_label: string | null;
+  nstr3_code: string | null;
+  nstr_label: string | null;
+  v5_pad_category: string | null;
+  v5_decision: string;
+  v5_confidence: number;
+  v5_note: string | null;
+  v5_requires_operator: boolean;
+  v5_category_source: string;
+  source_version: string;
+  source_hash: string;
+  matched_source_codes: string[];
+};
+
+type PadIndicativeTariff = {
+  amount: number;
+  unit: string | null;
+};
+
 type PropagateErrorCode =
   | "VALIDATION_FAILED"
   | "FORBIDDEN_OWNER"
@@ -183,6 +210,54 @@ const STATUS_OPTIONS: Array<{ value: CandidateStatus; label: string }> = [
 ];
 
 const ALL = "__all__";
+const PAD_V5_SELECT_COLUMNS = [
+  "id",
+  "row_key",
+  "cn2008_code",
+  "cn2008_label",
+  "cpa2008_code",
+  "cpa2008_label",
+  "nst2007_code",
+  "nst2007_label",
+  "nstr3_code",
+  "nstr_label",
+  "v5_pad_category",
+  "v5_decision",
+  "v5_confidence",
+  "v5_note",
+  "v5_requires_operator",
+  "v5_category_source",
+  "source_version",
+  "source_hash",
+].join(", ");
+const PAD_V5_MAX_RESULTS = 12;
+
+function normalizeV5CandidateCode(value: string | null): string | null {
+  const normalized = (value ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isSafeNstr3Code(value: string): boolean {
+  return /^\d{3}$/.test(value);
+}
+
+function formatConfidence(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  const percent = value > 1 ? value : value * 100;
+  return `${Math.round(percent)}%`;
+}
+
+function formatFcfa(value: number): string {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value);
+}
+
+function shortHash(value: string | null | undefined): string {
+  return value ? value.slice(0, 10) : "—";
+}
+
+function isFirmPadV5Decision(value: string): boolean {
+  return value === "AUTO_SAFE";
+}
 
 function confidenceTierClass(c: number | null): string {
   if (c == null) return "bg-muted text-muted-foreground border-border";
@@ -208,6 +283,10 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [candidates, setCandidates] = useState<CommodityClassificationCandidate[]>([]);
   const [count, setCount] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [padV5State, setPadV5State] = useState<FetchState>("idle");
+  const [padV5Suggestions, setPadV5Suggestions] = useState<PadV5ShadowSuggestion[]>([]);
+  const [padV5ErrorMsg, setPadV5ErrorMsg] = useState<string | null>(null);
+  const [padIndicativeTariffs, setPadIndicativeTariffs] = useState<Record<string, PadIndicativeTariff>>({});
 
   // Filtres locaux (n'écrivent rien)
   const [kindFilter, setKindFilter] = useState<string>(ALL);
@@ -273,6 +352,162 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     if (!open) return;
     fetchCandidates();
   }, [open, fetchCandidates]);
+
+  useEffect(() => {
+    if (!open || candidates.length === 0) {
+      setPadV5State("idle");
+      setPadV5Suggestions([]);
+      setPadIndicativeTariffs({});
+      setPadV5ErrorMsg(null);
+      return;
+    }
+
+    const cn8Codes = new Set<string>();
+    const nst2007Codes = new Set<string>();
+    const nstr3Codes = new Set<string>();
+    const sourceLabelsByCode = new Map<string, Set<string>>();
+
+    for (const candidate of candidates) {
+      const normalized = normalizeV5CandidateCode(candidate.candidate_value);
+      if (!normalized) continue;
+
+      if (candidate.candidate_kind === "cn8") {
+        cn8Codes.add(normalized);
+        const key = `cn2008_code:${normalized}`;
+        if (!sourceLabelsByCode.has(key)) sourceLabelsByCode.set(key, new Set());
+        sourceLabelsByCode.get(key)!.add(`CN8 ${normalized}`);
+      } else if (candidate.candidate_kind === "nst2007") {
+        nst2007Codes.add(normalized);
+        const key = `nst2007_code:${normalized}`;
+        if (!sourceLabelsByCode.has(key)) sourceLabelsByCode.set(key, new Set());
+        sourceLabelsByCode.get(key)!.add(`NST2007 ${normalized}`);
+      } else if (candidate.candidate_kind === "nstr" && isSafeNstr3Code(normalized)) {
+        nstr3Codes.add(normalized);
+        const key = `nstr3_code:${normalized}`;
+        if (!sourceLabelsByCode.has(key)) sourceLabelsByCode.set(key, new Set());
+        sourceLabelsByCode.get(key)!.add(`NSTR3 ${normalized}`);
+      }
+    }
+
+    if (cn8Codes.size === 0 && nst2007Codes.size === 0 && nstr3Codes.size === 0) {
+      setPadV5State("empty");
+      setPadV5Suggestions([]);
+      setPadIndicativeTariffs({});
+      setPadV5ErrorMsg(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchPadV5Suggestions = async () => {
+      setPadV5State("loading");
+      setPadV5ErrorMsg(null);
+      try {
+        const queries = [];
+        if (cn8Codes.size > 0) {
+          queries.push(
+            supabase
+              .from("pad_cn2008_mapping_v5_shadow")
+              .select(PAD_V5_SELECT_COLUMNS)
+              .eq("is_active", true)
+              .in("cn2008_code", Array.from(cn8Codes))
+              .order("v5_confidence", { ascending: false })
+              .order("row_key", { ascending: true })
+              .limit(PAD_V5_MAX_RESULTS),
+          );
+        }
+        if (nst2007Codes.size > 0) {
+          queries.push(
+            supabase
+              .from("pad_cn2008_mapping_v5_shadow")
+              .select(PAD_V5_SELECT_COLUMNS)
+              .eq("is_active", true)
+              .in("nst2007_code", Array.from(nst2007Codes))
+              .order("v5_confidence", { ascending: false })
+              .order("row_key", { ascending: true })
+              .limit(PAD_V5_MAX_RESULTS),
+          );
+        }
+        if (nstr3Codes.size > 0) {
+          queries.push(
+            supabase
+              .from("pad_cn2008_mapping_v5_shadow")
+              .select(PAD_V5_SELECT_COLUMNS)
+              .eq("is_active", true)
+              .in("nstr3_code", Array.from(nstr3Codes))
+              .order("v5_confidence", { ascending: false })
+              .order("row_key", { ascending: true })
+              .limit(PAD_V5_MAX_RESULTS),
+          );
+        }
+
+        const responses = await Promise.all(queries);
+        const byRowKey = new Map<string, PadV5ShadowSuggestion>();
+        for (const response of responses) {
+          if (response.error) throw response.error;
+          for (const row of response.data ?? []) {
+            const sourceCodes = new Set<string>();
+            if (row.cn2008_code) {
+              sourceLabelsByCode.get(`cn2008_code:${row.cn2008_code}`)?.forEach((label) => sourceCodes.add(label));
+            }
+            if (row.nst2007_code) {
+              sourceLabelsByCode.get(`nst2007_code:${row.nst2007_code}`)?.forEach((label) => sourceCodes.add(label));
+            }
+            if (row.nstr3_code) {
+              sourceLabelsByCode.get(`nstr3_code:${row.nstr3_code}`)?.forEach((label) => sourceCodes.add(label));
+            }
+            const existing = byRowKey.get(row.row_key);
+            if (existing) {
+              existing.matched_source_codes = Array.from(new Set([...existing.matched_source_codes, ...sourceCodes]));
+            } else {
+              byRowKey.set(row.row_key, { ...row, matched_source_codes: Array.from(sourceCodes) });
+            }
+          }
+        }
+
+        const suggestions = Array.from(byRowKey.values()).slice(0, PAD_V5_MAX_RESULTS);
+        const categories = Array.from(new Set(
+          suggestions
+            .map((row) => row.v5_pad_category?.trim().toUpperCase())
+            .filter((category): category is string => Boolean(category)),
+        ));
+
+        let tariffs: Record<string, PadIndicativeTariff> = {};
+        if (categories.length > 0) {
+          const { data: tariffRows, error: tariffError } = await supabase
+            .from("port_tariffs")
+            .select("classification, amount, unit")
+            .eq("provider", "PAD")
+            .eq("category", "DROIT_PASSAGE")
+            .eq("operation_type", "IMPORT")
+            .eq("is_active", true)
+            .in("classification", categories)
+            .limit(categories.length);
+          if (tariffError) throw tariffError;
+          tariffs = (tariffRows ?? []).reduce<Record<string, PadIndicativeTariff>>((acc, row) => {
+            acc[row.classification] = { amount: row.amount, unit: row.unit };
+            return acc;
+          }, {});
+        }
+
+        if (cancelled) return;
+        setPadV5Suggestions(suggestions);
+        setPadIndicativeTariffs(tariffs);
+        setPadV5State(suggestions.length === 0 ? "empty" : "success");
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : "Erreur inconnue";
+        setPadV5ErrorMsg(msg);
+        setPadV5Suggestions([]);
+        setPadIndicativeTariffs({});
+        setPadV5State("error");
+      }
+    };
+
+    void fetchPadV5Suggestions();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, candidates]);
 
   const performAction = useCallback(async (
     candidate: CommodityClassificationCandidate,
@@ -572,6 +807,119 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                   Aucun candidat pour ce dossier avec les filtres actuels.
                 </AlertDescription>
               </Alert>
+            )}
+
+            {state === "success" && (
+              <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground" />
+                    <h3 className="text-sm font-medium">Suggestion PAD V5 shadow</h3>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">READ ONLY</Badge>
+                </div>
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Lecture seule — non utilisé pour le pricing sans validation opérateur.
+                  </AlertDescription>
+                </Alert>
+
+                {padV5State === "loading" ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-2/3" />
+                  </div>
+                ) : null}
+
+                {padV5State === "error" ? (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Suggestion V5 indisponible</AlertTitle>
+                    <AlertDescription className="text-xs">{padV5ErrorMsg}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {padV5State === "empty" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Aucune correspondance V5 shadow pour les candidats CN8, NST2007 ou NSTR3 sûrs chargés.
+                  </p>
+                ) : null}
+
+                {padV5State === "success" ? (
+                  <div className="space-y-2">
+                    {padV5Suggestions.map((suggestion) => {
+                      const category = suggestion.v5_pad_category?.trim().toUpperCase() ?? null;
+                      const tariff = category ? padIndicativeTariffs[category] : undefined;
+                      const firmDecision = isFirmPadV5Decision(suggestion.v5_decision);
+                      return (
+                        <div key={suggestion.row_key} className="rounded-md border bg-background p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px]">{suggestion.v5_decision}</Badge>
+                              {category && firmDecision ? (
+                                <Badge variant="outline" className="font-mono text-[10px]">{category}</Badge>
+                              ) : category ? (
+                                <Badge variant="outline" className="font-mono text-[10px]">non ferme: {category}</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px]">catégorie non ferme</Badge>
+                              )}
+                              <Badge variant="outline" className={`text-[10px] ${confidenceTierClass(suggestion.v5_confidence)}`}>
+                                {formatConfidence(suggestion.v5_confidence)}
+                              </Badge>
+                              {suggestion.v5_requires_operator ? (
+                                <Badge variant="outline" className="text-[10px]">validation opérateur requise</Badge>
+                              ) : null}
+                            </div>
+                            <span className="font-mono text-[10px] text-muted-foreground">{suggestion.row_key}</span>
+                          </div>
+
+                          <div className="grid gap-2 text-xs md:grid-cols-2">
+                            <div>
+                              <span className="text-muted-foreground">Code source utilisé : </span>
+                              <span className="font-mono">{suggestion.matched_source_codes.join(", ") || "—"}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Source : </span>
+                              <span>{suggestion.source_version}</span>
+                              <span className="text-muted-foreground"> / hash </span>
+                              <span className="font-mono">{shortHash(suggestion.source_hash)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">CN2008 : </span>
+                              <span className="font-mono">{suggestion.cn2008_code ?? "—"}</span>
+                              {suggestion.cn2008_label ? <span> — {suggestion.cn2008_label}</span> : null}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">NST/NSTR : </span>
+                              <span className="font-mono">{suggestion.nst2007_code ?? suggestion.nstr3_code ?? "—"}</span>
+                              {(suggestion.nst2007_label || suggestion.nstr_label) ? (
+                                <span> — {suggestion.nst2007_label ?? suggestion.nstr_label}</span>
+                              ) : null}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Catégorie source : </span>
+                              <span>{suggestion.v5_category_source}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Tarif PAD indicatif : </span>
+                              {tariff ? (
+                                <span>{formatFcfa(tariff.amount)} FCFA{tariff.unit ? ` / ${tariff.unit}` : ""} — indicatif — source port_tariffs</span>
+                              ) : (
+                                <span className="text-muted-foreground">non trouvé</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {suggestion.v5_note ? (
+                            <p className="text-xs text-muted-foreground">{suggestion.v5_note}</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             )}
 
             {state === "success" && (
