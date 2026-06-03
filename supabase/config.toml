@@ -226,3 +226,6 @@ verify_jwt = false
 
 [functions.upsert-exchange-rate]
 verify_jwt = false
+
+[functions.create-pad-v5-classification-candidate]
+verify_jwt = false
