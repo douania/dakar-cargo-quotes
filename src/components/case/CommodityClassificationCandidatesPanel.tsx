@@ -885,7 +885,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
               <Button
                 size="sm"
                 variant="outline"
-                onClick={fetchCandidates}
+                onClick={() => void fetchCandidates()}
                 disabled={state === "loading"}
                 className="ml-auto"
               >
@@ -913,7 +913,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 <AlertTitle>Impossible de récupérer les candidats</AlertTitle>
                 <AlertDescription className="space-y-2">
                   <p className="text-xs">{errorMsg}</p>
-                  <Button size="sm" variant="outline" onClick={fetchCandidates}>
+                  <Button size="sm" variant="outline" onClick={() => void fetchCandidates()}>
                     Réessayer
                   </Button>
                 </AlertDescription>
