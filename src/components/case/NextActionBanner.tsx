@@ -166,6 +166,8 @@ function computeAction(d: {
     };
   }
 
+  if (statusBelow(d.status, "PRICED_DRAFT")) return null;
+
   // 10 — Create version
   if (!d.hasSelectedVersion && !statusBelow(d.status, "PRICED_DRAFT")) return {
     action: "Créer la version du devis",
