@@ -229,3 +229,9 @@ verify_jwt = false
 
 [functions.create-pad-v5-classification-candidate]
 verify_jwt = false
+
+[functions.port-tariffs-admin]
+verify_jwt = false
+
+[functions.carrier-billing-templates-admin]
+verify_jwt = false
