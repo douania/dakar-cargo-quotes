@@ -435,19 +435,18 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     // 8 — Internal sequencing actions (ORCH-SYNC-2: blocked while blocking gaps exist)
     const hasBlockingGaps = blockingGaps.length > 0;
 
-    if (!hasBlockingGaps && statusBelow(status, "PRICED_DRAFT") && result.length < 4) {
+    if (!hasBlockingGaps && status === "ACK_READY_FOR_PRICING" && result.length < 4) {
+      const launchPricingColor = hasCriticalUnconfirmed ? "amber" : "emerald";
       result.push({
         type: "internal",
         actionKey: "launch_pricing",
-        priority: hasCriticalUnconfirmed ? "later" : getPriority(),
+        priority: getPriority(),
         title: "Lancer le pricing",
-        reason: hasCriticalUnconfirmed
-          ? "Des services dans le scope restent insuffisamment qualifiés"
-          : "Aucun blocage majeur",
+        reason: "Dossier validé et débloqué pour pricing",
         status: "to_execute",
         nextStep: NEXT_STEPS.launch_pricing,
         icon: <Calculator className="h-4 w-4 text-emerald-600" />,
-        color: hasCriticalUnconfirmed ? "amber" : "emerald",
+        color: launchPricingColor,
       });
     }
 
@@ -481,7 +480,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     }
 
     return result;
-  }, [data]);
+  }, [data, hasCriticalUnconfirmed]);
 
   /* ── Mutations ── */
 
