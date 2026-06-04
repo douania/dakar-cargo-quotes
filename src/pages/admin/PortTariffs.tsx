@@ -101,8 +101,11 @@ export default function PortTariffsAdmin() {
 
   const createMutation = useMutation({
     mutationFn: async (data: TariffFormData) => {
-      const { error } = await supabase.from('port_tariffs').insert(data);
+      const { data: result, error } = await supabase.functions.invoke('port-tariffs-admin', {
+        body: { action: 'create', data },
+      });
       if (error) throw error;
+      if (result?.error) throw new Error(result.error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['port-tariffs'] });
@@ -117,8 +120,11 @@ export default function PortTariffsAdmin() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<TariffFormData> }) => {
-      const { error } = await supabase.from('port_tariffs').update(data).eq('id', id);
+      const { data: result, error } = await supabase.functions.invoke('port-tariffs-admin', {
+        body: { action: 'update', id, data },
+      });
       if (error) throw error;
+      if (result?.error) throw new Error(result.error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['port-tariffs'] });
@@ -134,8 +140,11 @@ export default function PortTariffsAdmin() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('port_tariffs').delete().eq('id', id);
+      const { data: result, error } = await supabase.functions.invoke('port-tariffs-admin', {
+        body: { action: 'delete', id },
+      });
       if (error) throw error;
+      if (result?.error) throw new Error(result.error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['port-tariffs'] });

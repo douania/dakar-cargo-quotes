@@ -142,16 +142,17 @@ export default function CarrierBillingTemplates() {
   const upsert = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
       if (editing) {
-        const { error } = await supabase
-          .from('carrier_billing_templates')
-          .update(payload)
-          .eq('id', editing.id);
+        const { data, error } = await supabase.functions.invoke('carrier-billing-templates-admin', {
+          body: { action: 'update', id: editing.id, data: payload },
+        });
         if (error) throw error;
+        if (data?.error) throw new Error(data.error);
       } else {
-        const { error } = await supabase
-          .from('carrier_billing_templates')
-          .insert(payload as any);
+        const { data, error } = await supabase.functions.invoke('carrier-billing-templates-admin', {
+          body: { action: 'create', data: payload },
+        });
         if (error) throw error;
+        if (data?.error) throw new Error(data.error);
       }
     },
     onSuccess: () => {
@@ -164,11 +165,11 @@ export default function CarrierBillingTemplates() {
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('carrier_billing_templates')
-        .delete()
-        .eq('id', id);
+      const { data, error } = await supabase.functions.invoke('carrier-billing-templates-admin', {
+        body: { action: 'delete', id },
+      });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['carrier_billing_templates'] });
