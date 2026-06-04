@@ -138,8 +138,18 @@ function computeAction(d: {
     color: "amber",
   };
 
-  // 8 — Launch pricing (P2-D Lot 2: scope gate)
-  if (statusBelow(d.status, "PRICED_DRAFT")) {
+  // 8 — Unlock pricing once decision support is complete.
+  if (d.status === "DECISIONS_COMPLETE") {
+    return {
+      action: "Débloquer le pricing",
+      blocker: "Décisions validées, confirmation pricing requise",
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" />,
+      color: "emerald",
+    };
+  }
+
+  // 9 — Launch pricing (aligned with ReadyActionsPanel)
+  if (d.status === "ACK_READY_FOR_PRICING") {
     if (hasCriticalUnconfirmed) {
       return {
         action: "Confirmer le périmètre du dossier",
@@ -156,15 +166,15 @@ function computeAction(d: {
     };
   }
 
-  // 9 — Create version
-  if (!d.hasSelectedVersion) return {
+  // 10 — Create version
+  if (!d.hasSelectedVersion && !statusBelow(d.status, "PRICED_DRAFT")) return {
     action: "Créer la version du devis",
     blocker: "Version non créée",
     icon: <FileText className="h-4 w-4 text-blue-600" />,
     color: "blue",
   };
 
-  // 10 — Export PDF
+  // 11 — Export PDF
   if (!d.hasPdf) return {
     action: "Exporter le PDF",
     blocker: "PDF non généré",
@@ -172,7 +182,7 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 11 — Prepare client email
+  // 12 — Prepare client email
   if (!d.hasDraftEmail) return {
     action: "Préparer l'email client",
     blocker: "Brouillon non créé",
@@ -180,7 +190,7 @@ function computeAction(d: {
     color: "blue",
   };
 
-  // 12 — Mark sent
+  // 13 — Mark sent
   if (d.status !== "SENT") return {
     action: "Marquer l'envoi client",
     blocker: "Envoi non confirmé",

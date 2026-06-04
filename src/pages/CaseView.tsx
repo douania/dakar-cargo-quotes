@@ -1957,11 +1957,11 @@ export default function CaseView() {
           const canProvisionalDdp = prechecks.length > 0
             && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
 
-          // Lot 4.1: élargissement du gate — montage si statut pricing-éligible
-          // OU si le seul blocker est CARGO_VALUE_REQUIRED (provisoire DDP autorisé en amont).
+          // Lot 4.1: montage si pricing explicitement débloqué ou rerun.
+          // L'exception canProvisionalDdp est conservée pour le pilote DDP provisoire.
           // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
           const showPricingPanel =
-            ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
+            ['ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
             || canProvisionalDdp;
 
           if (!showPricingPanel) return null;
