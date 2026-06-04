@@ -1961,7 +1961,7 @@ export default function CaseView() {
           // L'exception canProvisionalDdp est conservée pour le pilote DDP provisoire.
           // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
           const showPricingPanel =
-            ['ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
+            ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
             || canProvisionalDdp;
 
           if (!showPricingPanel) return null;
