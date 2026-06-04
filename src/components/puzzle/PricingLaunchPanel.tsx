@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { PricingRunRecoveryAlert } from './PricingRunRecoveryAlert';
 // P2-D Lot 2: brancher sur qualifyScope() quand les facts réels seront disponibles ici
 // Voir docs/DEFERRED_BACKLOG.md → P2-D-PRICING-SCOPE
 
@@ -248,6 +249,8 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               </AlertDescription>
             </Alert>
           )}
+
+          <PricingRunRecoveryAlert caseId={caseId} />
 
           <Alert className="border-primary/30 bg-primary/5">
             <Info className="h-4 w-4 text-primary" />
