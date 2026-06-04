@@ -1,63 +1,64 @@
-## Mission: RLS-REFERENCE-TABLES-P1 — Deploy & Runtime Verification
+## Mission
 
-Strict deploy/runtime verification. No code patches, no new migration content, no docs changes.
+CASEVIEW-PRICING-GATE-UNIFICATION-1-RUNTIME-SMOKE — vérifier en preview que la CTA "Lancer le pricing" n'apparaît plus prématurément après le patch d'unification de la gate, sur les 3 composants concernés (`ReadyActionsPanel`, `NextActionBanner`, `PricingLaunchPanel`).
 
-### Scope (allowed)
-- Apply existing migration: `supabase/migrations/20260604120000_rls_reference_tables_p1.sql` (commits `665844f` / `26ec970` on branch `work`)
-- Deploy ONLY: `port-tariffs-admin`, `carrier-billing-templates-admin`
-- Run read-only metadata SELECT verification
-- Optional no-auth 401 smoke on the two admin functions
+## Mode
 
-### Out of scope (forbidden)
-- No edits to `quote_cases`, `quote_facts`, `commodity_classification_candidates`
-- No touch to `build-case-puzzle`, `run-pricing`, or any other function
-- No new migration, no docs change, no data mutation beyond the approved migration
-- No create/update/delete smoke tests
+Plan / read-only. Aucun patch, aucune migration, aucun deploy, aucun write DB, aucun edge function change. Uniquement SELECT pour identifier les fixtures + navigation browser preview pour observation visuelle.
 
-### Execution steps
+## Pré-analyse statique du code (déjà faite)
 
-1. **Pre-check (read-only)**
-   - Confirm the migration file exists at the expected path on branch `work`.
-   - Snapshot current RLS state of `port_tariffs` and `carrier_billing_templates` via `supabase--read_query` (queries 1 & 2 from mission) — baseline before/after diff.
+| Composant | Règle pertinente | Référence |
+|---|---|---|
+| `ReadyActionsPanel.tsx` | `launch_pricing` poussé **uniquement si** `status === "ACK_READY_FOR_PRICING"` ET pas de blocking gaps | L438 |
+| `ReadyActionsPanel.tsx` | `create_version` poussé si `!hasSelectedVersion && !statusBelow(status,"PRICED_DRAFT")` | L453 |
+| `NextActionBanner.tsx` | `"Lancer le pricing"` retourné **uniquement si** `status === "ACK_READY_FOR_PRICING"` | L152-167 |
+| `NextActionBanner.tsx` | `"Débloquer le pricing"` retourné si `status === "DECISIONS_COMPLETE"` | L142-149 |
+| `CaseView.tsx` | `PricingLaunchPanel` monté **uniquement si** status ∈ `[ACK_READY_FOR_PRICING, PRICED_DRAFT, HUMAN_REVIEW]` **ou** `canProvisionalDdp` | L1963-1965 |
+| `CaseView.tsx` | `isRerun=true` si status ∈ `[PRICED_DRAFT, HUMAN_REVIEW]` | L1976 |
 
-2. **Apply migration**
-   - Call `supabase--migration` with the exact SQL contents of `supabase/migrations/20260604120000_rls_reference_tables_p1.sql` (no modifications).
-   - Wait for user approval and execution.
+Le code en `src/` est conforme à l'unification attendue. Le commit runtime exact `471f588…` reste `NOT_VERIFIABLE_FROM_LOVABLE` (Lovable n'expose pas le SHA déployé en preview).
 
-3. **Deploy edge functions**
-   - `supabase--deploy_edge_functions` with `["port-tariffs-admin", "carrier-billing-templates-admin"]` only.
+## Inventaire fixtures (SELECT déjà exécuté)
 
-4. **Runtime metadata verification (read-only)**
-   - Query 1 — `pg_tables.rowsecurity` for both tables.
-   - Query 2 — `pg_policies` (policyname, roles, cmd, qual, with_check) for both tables.
-   - Compare against expected state:
-     - RLS enabled on both
-     - SELECT policy scoped to `authenticated` only
-     - No public read policy
-     - No INSERT/UPDATE/DELETE policy for `authenticated` (writes flow exclusively through admin edge functions with service_role)
-
-5. **Optional no-auth smoke (safe, non-mutating)**
-   - `supabase--curl_edge_functions` POST `/port-tariffs-admin` with empty Authorization + `{"action":"list"}` payload → expect `401 Missing authorization header`.
-   - Same for `/carrier-billing-templates-admin`.
-   - Explicit empty Authorization header to prevent preview-session token injection.
-   - No create/update/delete probes.
-
-### Deliverable (report)
-
-| Item | Result |
+| status | count |
 |---|---|
-| Migration file present on `work` | yes/no |
-| Migration applied | yes/no + timestamp |
-| Functions deployed | list |
-| `pg_tables` results | raw |
-| `pg_policies` results | raw |
-| Expected RLS shape matched | per-table verdict |
-| Auth smoke 401 (port-tariffs-admin) | HTTP + body |
-| Auth smoke 401 (carrier-billing-templates-admin) | HTTP + body |
-| Errors (verbatim) | … |
+| READY_TO_PRICE | 3 |
+| DECISIONS_PENDING | 1 |
+| PRICED_DRAFT | 17 |
+| DECISIONS_COMPLETE | **0** |
+| ACK_READY_FOR_PRICING | **0** |
 
-Verdicts: `RLS_P1_DEPLOY_PASS` / `RLS_P1_PARTIAL` / `RLS_P1_FAIL` / `NOT_VERIFIABLE`.
+→ Statuts 4 (DECISIONS_COMPLETE) et 5 (ACK_READY_FOR_PRICING) seront marqués `NOT_TESTED_NO_FIXTURE` avec preuve SQL ci-dessus.
 
-### Risks & guardrails
-- If migration drops an existing policy that authenticated writers rely on, write paths via direct PostgREST (if any) will start failing. Mitigation: both admin functions already use `requireAdmin` + `createSupabaseClient` (service_role), bypassing RLS — confirmed in current source.
-- No rollback migration is in scope. If the deployed RLS shape diverges from expectation, report as `RLS_P1_FAIL` and stop; do not author a corrective migration without separate CTO GO.
+## Étapes du smoke
+
+1. SELECT 1 case_id par statut testable (READY_TO_PRICE, DECISIONS_PENDING, PRICED_DRAFT sans `is_selected` version).
+2. Pour chaque case : SELECT `quote_gaps` open + `quotation_versions` + `quote_facts` (service.package, routing.incoterm, cargo.value) pour déterminer la branche `canProvisionalDdp`.
+3. `navigate_to_sandbox` → `/case/<case_id>` pour chacun des 3 cas.
+4. `observe` + `screenshot` ciblés sur :
+   - bloc `NextActionBanner` (Card en haut)
+   - bloc `ReadyActionsPanel` ("Actions à exécuter")
+   - section `#section-pricing` (présence/absence de `PricingLaunchPanel`)
+5. Consigner pour chaque case : libellé exact de la Badge "Action prioritaire", liste des cards du panel, présence/absence de la card "Lancer le pricing" / "Créer la version du devis" / "Débloquer le pricing", mount/non-mount du PricingLaunchPanel, flag `canProvisionalDdp` déduit.
+
+## Critères de PASS/FAIL appliqués
+
+- FAIL si NextActionBanner affiche "Lancer le pricing" pour READY_TO_PRICE ou DECISIONS_PENDING.
+- FAIL si PricingLaunchPanel monté pour READY_TO_PRICE sans exception `canProvisionalDdp`.
+- FAIL si PRICED_DRAFT sans version sélectionnée n'affiche plus "Créer la version du devis".
+- FAIL si DECISIONS_COMPLETE affiche "Lancer le pricing" au lieu de "Débloquer le pricing" (non testable — no fixture).
+
+## Livrable
+
+Tableau final :
+
+```
+status | case_id | commit | ReadyActionsPanel | NextActionBanner | PricingLaunchPanel | canProvisionalDdp | expected | verdict | anomaly
+```
+
+Plus un rapport synthétique distinguant PASS / FAIL / NOT_TESTED_NO_FIXTURE / CAN_PROVISIONAL_DDP_EXCEPTION et la note "commit runtime = NOT_VERIFIABLE_FROM_LOVABLE".
+
+## Garde-fous
+
+Arrêt immédiat si une étape requiert : patch, fichier modifié, migration, RLS change, deploy, edge function change, ou écriture DB. Le browser n'est utilisé qu'en observation (`observe`, `screenshot`, navigation) — aucun `act` mutant.
