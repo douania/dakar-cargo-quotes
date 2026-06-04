@@ -7,6 +7,24 @@
 
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
+const BLOCKED_PORT_TAX_IMPORT_WARNING = "PORT_TAX IMPORT blocked: use DROIT_PASSAGE / PAD_DROIT_PASSAGE canonical PAD handling; no amount generated from invoice label.";
+
+interface SimulatedQuotationLine {
+  id: string;
+  bloc: string;
+  category: string;
+  description: string;
+  amount: number;
+  currency: string;
+  containerType: string;
+  source: {
+    type: string;
+    reference: string;
+    confidence: number;
+  };
+  isEditable: boolean;
+}
+
 function normalizeCarrierPortChargeText(value: unknown): string {
   return String(value ?? "")
     .normalize("NFD")
@@ -151,6 +169,106 @@ Deno.test("carrier port charge guard: token-aware matching", () => {
       isAmbiguousCarrierPortCharge(testCase.charge),
       testCase.expected,
       `${testCase.label} should be ${testCase.expected}`,
+    );
+  }
+});
+
+function simulatePortTaxPadLines(effectiveOperationType: "IMPORT" | "TRANSIT") {
+  const lines: SimulatedQuotationLine[] = [];
+  const warnings: string[] = [];
+  const container = { type: "20GP", quantity: 1 };
+  const cargoType = "GENERAL";
+  const padTariffs = [{
+    category: "PORT_TAX",
+    cargo_type: cargoType,
+    amount: 25000,
+    source_document: "PAD Tariff",
+  }];
+
+  const portTaxTariff = padTariffs.find((t) =>
+    t.category === "PORT_TAX" && t.cargo_type === cargoType
+  );
+  if (portTaxTariff) {
+    if (effectiveOperationType === "IMPORT") {
+      warnings.push(BLOCKED_PORT_TAX_IMPORT_WARNING);
+      return { lines, warnings };
+    }
+
+    lines.push({
+      id: `port_tax_${container.type.toLowerCase()}_${lines.length}`,
+      bloc: "operationnel",
+      category: "Port (PAD)",
+      description: `Port Tax ${container.type}`,
+      amount: portTaxTariff.amount * container.quantity,
+      currency: "FCFA",
+      containerType: container.type,
+      source: {
+        type: "OFFICIAL",
+        reference: portTaxTariff.source_document || "PAD Tariff",
+        confidence: 0.95,
+      },
+      isEditable: false,
+    });
+  }
+
+  return { lines, warnings };
+}
+
+Deno.test("PORT_TAX IMPORT guard: blocks PAD amount generation with explicit warning", () => {
+  const result = simulatePortTaxPadLines("IMPORT");
+
+  assertEquals(result.lines.some((line) => typeof line.amount === "number"), false);
+  assertEquals(result.warnings, [BLOCKED_PORT_TAX_IMPORT_WARNING]);
+});
+
+Deno.test("PORT_TAX TRANSIT guard: leaves existing PAD behavior unchanged", () => {
+  const result = simulatePortTaxPadLines("TRANSIT");
+
+  assertEquals(result.lines.length, 1);
+  assertEquals(result.lines[0].description, "Port Tax 20GP");
+  assertEquals(result.lines[0].amount, 25000);
+  assertEquals(result.warnings.length, 0);
+});
+
+Deno.test("carrier port charge guard: named ambiguous invoice labels stay TO_CONFIRM candidates", () => {
+  const cases = [
+    {
+      label: "MAERSK FAI taxe de port marchandises",
+      charge: {
+        carrier: "MAERSK",
+        charge_code: "FAI",
+        charge_name: "taxe de port marchandises",
+        evidence_level: "observed",
+        default_amount: null,
+      },
+    },
+    {
+      label: "MSC THO taxe de port marchandises",
+      charge: {
+        carrier: "MSC",
+        charge_code: "THO",
+        charge_name: "taxe de port marchandises",
+        evidence_level: "observed",
+        default_amount: null,
+      },
+    },
+    {
+      label: "ONE COLL Port Dues",
+      charge: {
+        carrier: "ONE",
+        charge_code: "COLL",
+        charge_name: "Collection Fees",
+        notes: "Port Dues",
+        evidence_level: "to_confirm",
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    assertEquals(
+      isAmbiguousCarrierPortCharge(testCase.charge),
+      true,
+      `${testCase.label} should stay blocked for TO_CONFIRM handling`,
     );
   }
 });

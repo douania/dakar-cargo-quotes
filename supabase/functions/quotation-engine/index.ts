@@ -23,6 +23,7 @@ import {
 
 // Provider aliases — centralised to avoid hardcoded mismatches (DPW vs DP_WORLD)
 const DPW_PROVIDERS = ['DPW', 'DP_WORLD'];
+const BLOCKED_PORT_TAX_IMPORT_WARNING = 'PORT_TAX IMPORT blocked: use DROIT_PASSAGE / PAD_DROIT_PASSAGE canonical PAD handling; no amount generated from invoice label.';
 
 // Zone mapping: common city names → tariff zone labels in local_transport_rates
 const ZONE_MAPPING: Record<string, string> = {
@@ -1521,6 +1522,11 @@ async function generateQuotationLines(
       t.category === 'PORT_TAX' && t.cargo_type === cargoType
     );
     if (portTaxTariff) {
+      if (effectiveOperationType === 'IMPORT') {
+        warnings.push(BLOCKED_PORT_TAX_IMPORT_WARNING);
+        continue;
+      }
+
       lines.push({
         id: `port_tax_${container.type.toLowerCase()}_${lines.length}`,
         bloc: 'operationnel',
