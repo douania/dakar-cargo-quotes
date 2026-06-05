@@ -1300,7 +1300,9 @@ function detectMultiQuoteMarkers(text: string): boolean {
   return false;
 }
 
-const MULTI_QUOTE_SUBJECT_LINE_RE = /^\s*(?:Subject|Sujet|Re|Fwd|FW)\s*:/i;
+const MULTI_QUOTE_SUBJECT_LINE_RE = /^\s*(?:Subject|Sujet|Objet|Re|Fwd|FW)\s*:/i;
+const QUOTED_EMAIL_HISTORY_START_RE =
+  /^\s*(?:From|De|Sent|Envoy[ée]|Subject|Sujet|Objet)\s*:|^\s*-{2,}\s*Original Message\s*-{2,}|^\s*Message d['’]origine|^\s*On .+ wrote:\s*$|^\s*Le .+ a [ée]crit\s*:/i;
 
 function stripSubjectLinesForMultiQuoteGate(text: string): string {
   if (!text) return "";
@@ -1308,6 +1310,41 @@ function stripSubjectLinesForMultiQuoteGate(text: string): string {
     .split(/\r?\n/)
     .filter((line) => !MULTI_QUOTE_SUBJECT_LINE_RE.test(line))
     .join("\n");
+}
+
+function stripQuotedEmailHistory(text: string): string {
+  if (!text) return "";
+  const kept: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (/^>/.test(line)) continue;
+    if (QUOTED_EMAIL_HISTORY_START_RE.test(line)) break;
+    kept.push(rawLine);
+  }
+  return kept.join("\n").trim();
+}
+
+function buildActiveMultiQuoteContext(emails: any[], fullAttachmentContext: string): string {
+  const inboundEmails = Array.isArray(emails)
+    ? emails.filter((email) => !isSodatraEmail(email?.from_address || ""))
+    : [];
+  const latestInboundEmail = inboundEmails[inboundEmails.length - 1];
+  const latestBody = extractPlainTextFromMime(latestInboundEmail?.body_text || "");
+  const strippedBody = stripQuotedEmailHistory(latestBody);
+  const parts: string[] = [];
+
+  if (latestInboundEmail && strippedBody !== latestBody.trim()) {
+    console.log("[M3.5 multi-quote] quoted history stripped");
+  }
+
+  if (latestInboundEmail && strippedBody) {
+    parts.push(`[Latest inbound email: ${latestInboundEmail.sent_at || "unknown date"}]\n${strippedBody}`);
+  }
+  if (fullAttachmentContext) {
+    parts.push(fullAttachmentContext);
+  }
+
+  return parts.join("\n\n");
 }
 
 const MULTI_QUOTE_BUSINESS_CONTENT_RE =
@@ -1362,12 +1399,12 @@ function isDefensibleMultiQuoteLine(
   const excerpt = (sourceExcerpt || "").trim();
   if (!segment) return false;
   if (MULTI_QUOTE_SUBJECT_LINE_RE.test(segment)) return false;
+  if (looksLikeSubjectOnlyQuoteText(segment)) return false;
 
   const combined = `${segment}\n${excerpt}`;
   if (!hasBusinessContentBeyondSubject(combined)) return false;
 
-  const subjectLike = looksLikeSubjectOnlyQuoteText(segment)
-    || (excerpt ? looksLikeSubjectOnlyQuoteText(excerpt) : false);
+  const subjectLike = excerpt ? looksLikeSubjectOnlyQuoteText(excerpt) : false;
   if (subjectLike && !hasActiveEvidenceBeyondSubject(segment, excerpt, activeEvidenceText)) {
     return false;
   }
@@ -3952,22 +3989,38 @@ Deno.serve(async (req) => {
 
     // --- M3.5: Multi-quote line detection (C3.2-A) ---
     try {
-      const rawGateText = threadContext || "";
+      console.log("[M3.5 multi-quote] using active latest inbound context");
+      const activeMultiQuoteContext = buildActiveMultiQuoteContext(emails, fullAttachmentContext);
+      const clearQuoteRequestLines = async (mode: string) => {
+        console.log("[M3.5 multi-quote] no defensible active multi-quote lines, clearing quote_request_lines");
+        const { data: clearedCount, error: clearErr } = await serviceClient.rpc(
+          "replace_quote_request_lines",
+          { p_case_id: case_id, p_lines: [] }
+        );
+        if (clearErr) {
+          console.warn("[M3.5 multi-quote] Clear RPC error (non-blocking):", clearErr.message);
+          multiQuoteResult = { detected: false, stored: 0, mode: "clear_error" };
+        } else {
+          multiQuoteResult = { detected: false, stored: clearedCount ?? 0, mode };
+        }
+      };
+
+      const rawGateText = activeMultiQuoteContext || "";
       const gateText = stripSubjectLinesForMultiQuoteGate(rawGateText);
       const rawMarkersDetected = detectMultiQuoteMarkers(rawGateText);
       const gateMarkersDetected = detectMultiQuoteMarkers(gateText);
 
       if (rawMarkersDetected && !gateMarkersDetected) {
         console.log("[M3.5 multi-quote] subject-only markers ignored");
-        multiQuoteResult = { detected: false, stored: 0, mode: "subject_only_ignored" };
+        await clearQuoteRequestLines("subject_only_ignored");
       } else if (gateMarkersDetected) {
         console.log("[M3.5 multi-quote] Markers detected, launching AI extraction...");
         const quoteLines = await extractQuoteLinesWithAI(
-          threadContext, fullAttachmentContext, emails, lovableApiKey || ""
+          activeMultiQuoteContext, fullAttachmentContext, emails, lovableApiKey || ""
         );
 
         if (Array.isArray(quoteLines) && quoteLines.length > 0) {
-          const sourceEmailId = pickSourceEmailId(emails);
+          const sourceEmailId = pickSourceEmailId(inboundEmails);
 
           const linesPayload = quoteLines.map((line, idx) => ({
             line_index: idx + 1,
@@ -3984,7 +4037,7 @@ Deno.serve(async (req) => {
           const minFactLinesPayload = linesPayload.filter(
             (l) => Array.isArray(l.extracted_facts_json) && l.extracted_facts_json.length >= 2
           );
-          const activeEvidenceText = `${gateText}\n${fullAttachmentContext || ""}`;
+          const activeEvidenceText = `${activeMultiQuoteContext}\n${fullAttachmentContext || ""}`;
           const validLinesPayload = minFactLinesPayload.filter((line) => {
             const keep = isDefensibleMultiQuoteLine(
               line.segment_text,
@@ -4012,16 +4065,16 @@ Deno.serve(async (req) => {
             }
           } else if (minFactLinesPayload.length > 0) {
             console.log("[M3.5 multi-quote] All candidate lines rejected as subject-only or lacking active body/attachment evidence");
-            multiQuoteResult = { detected: false, stored: 0, mode: "subject_only_ignored" };
+            await clearQuoteRequestLines("subject_only_ignored");
           } else {
             console.log("[M3.5 multi-quote] No valid lines after validation (min 2 facts required)");
-            multiQuoteResult = { detected: true, stored: 0, mode: "detected_no_valid_lines" };
+            await clearQuoteRequestLines("no_defensible_active_lines");
           }
         } else {
-          multiQuoteResult = { detected: true, stored: 0, mode: "ai_no_lines" };
+          await clearQuoteRequestLines("ai_no_lines");
         }
       } else {
-        multiQuoteResult = { detected: false, stored: 0, mode: null };
+        await clearQuoteRequestLines("no_active_multi_quote");
       }
     } catch (mqErr) {
       console.warn("[M3.5 multi-quote] Non-blocking error:", mqErr);
