@@ -1300,6 +1300,81 @@ function detectMultiQuoteMarkers(text: string): boolean {
   return false;
 }
 
+const MULTI_QUOTE_SUBJECT_LINE_RE = /^\s*(?:Subject|Sujet|Re|Fwd|FW)\s*:/i;
+
+function stripSubjectLinesForMultiQuoteGate(text: string): string {
+  if (!text) return "";
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !MULTI_QUOTE_SUBJECT_LINE_RE.test(line))
+    .join("\n");
+}
+
+const MULTI_QUOTE_BUSINESS_CONTENT_RE =
+  /\b(?:airfreight|air freight|sea freight|seafreight|shipment|cargo|freight|container|conteneur|fcl|lcl|from|to|origin|destination|port|airport|incoterm|exw|fob|cif|dap|ddp|pickup|delivery|clearance|customs|kg|kgs|cbm|m3|tons?|tonnes?|pcs|pieces?|cartons?|packages?|pallets?|colis|palette|poids|volume|dimensions?)\b/i;
+
+function normalizeMultiQuoteEvidence(text: string): string {
+  return stripSubjectLinesForMultiQuoteGate(text)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasBusinessContentBeyondSubject(text: string): boolean {
+  return MULTI_QUOTE_BUSINESS_CONTENT_RE.test(stripSubjectLinesForMultiQuoteGate(text || ""));
+}
+
+function looksLikeSubjectOnlyQuoteText(text: string): boolean {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return true;
+  if (MULTI_QUOTE_SUBJECT_LINE_RE.test(trimmed)) return true;
+
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return true;
+  if (lines.every((line) => MULTI_QUOTE_SUBJECT_LINE_RE.test(line))) return true;
+
+  return lines.length === 1
+    && trimmed.length <= 160
+    && /^(?:airfreight|air freight|sea freight|seafreight|quotation|quote|cotation|devis|shipment)\b/i.test(trimmed)
+    && /\b(?:from|to|de)\b/i.test(trimmed);
+}
+
+function hasActiveEvidenceBeyondSubject(
+  segmentText: string,
+  sourceExcerpt: string,
+  activeEvidenceText: string
+): boolean {
+  const activeEvidence = normalizeMultiQuoteEvidence(activeEvidenceText);
+  if (!activeEvidence) return false;
+
+  return [segmentText, sourceExcerpt]
+    .map((text) => normalizeMultiQuoteEvidence(text || ""))
+    .filter((text) => text.length >= 12 && hasBusinessContentBeyondSubject(text))
+    .some((text) => activeEvidence.includes(text.slice(0, Math.min(text.length, 180))));
+}
+
+function isDefensibleMultiQuoteLine(
+  segmentText: string | null,
+  sourceExcerpt: string | null,
+  activeEvidenceText: string
+): boolean {
+  const segment = (segmentText || "").trim();
+  const excerpt = (sourceExcerpt || "").trim();
+  if (!segment) return false;
+  if (MULTI_QUOTE_SUBJECT_LINE_RE.test(segment)) return false;
+
+  const combined = `${segment}\n${excerpt}`;
+  if (!hasBusinessContentBeyondSubject(combined)) return false;
+
+  const subjectLike = looksLikeSubjectOnlyQuoteText(segment)
+    || (excerpt ? looksLikeSubjectOnlyQuoteText(excerpt) : false);
+  if (subjectLike && !hasActiveEvidenceBeyondSubject(segment, excerpt, activeEvidenceText)) {
+    return false;
+  }
+
+  return true;
+}
+
 function pickSourceEmailId(emails: any[]): string | null {
   if (!Array.isArray(emails) || emails.length === 0) return null;
   for (let i = emails.length - 1; i >= 0; i--) {
@@ -1333,8 +1408,13 @@ async function extractQuoteLinesWithAI(
 }> | null> {
   const truncatedAttach = (attachmentContext || "").slice(0, 8000);
 
-  const systemPrompt = `You are a freight quotation analyst. The email thread contains MULTIPLE distinct quotation requests (e.g., "Quote 1", "Option A", "Alternative 1").
-Extract each distinct quotation request as a separate line.
+  const systemPrompt = `You are a freight quotation analyst.
+Detect whether the active email body or recent attachments contain multiple distinct quotation requests.
+Email subjects may be stale or reused from older quotations.
+Do not create a quote line from the email subject alone.
+Prefer the latest inbound email body and recent attachments.
+If subject and body conflict, treat subject as weak metadata.
+Return { "lines": [] } if multiple active requests are not clearly present in body or attachments.
 
 Return ONLY a valid JSON object with this structure:
 {
@@ -3872,8 +3952,15 @@ Deno.serve(async (req) => {
 
     // --- M3.5: Multi-quote line detection (C3.2-A) ---
     try {
-      const gateText = threadContext || "";
-      if (detectMultiQuoteMarkers(gateText)) {
+      const rawGateText = threadContext || "";
+      const gateText = stripSubjectLinesForMultiQuoteGate(rawGateText);
+      const rawMarkersDetected = detectMultiQuoteMarkers(rawGateText);
+      const gateMarkersDetected = detectMultiQuoteMarkers(gateText);
+
+      if (rawMarkersDetected && !gateMarkersDetected) {
+        console.log("[M3.5 multi-quote] subject-only markers ignored");
+        multiQuoteResult = { detected: false, stored: 0, mode: "subject_only_ignored" };
+      } else if (gateMarkersDetected) {
         console.log("[M3.5 multi-quote] Markers detected, launching AI extraction...");
         const quoteLines = await extractQuoteLinesWithAI(
           threadContext, fullAttachmentContext, emails, lovableApiKey || ""
@@ -3894,9 +3981,21 @@ Deno.serve(async (req) => {
             meta_json: line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {},
           }));
 
-          const validLinesPayload = linesPayload.filter(
+          const minFactLinesPayload = linesPayload.filter(
             (l) => Array.isArray(l.extracted_facts_json) && l.extracted_facts_json.length >= 2
           );
+          const activeEvidenceText = `${gateText}\n${fullAttachmentContext || ""}`;
+          const validLinesPayload = minFactLinesPayload.filter((line) => {
+            const keep = isDefensibleMultiQuoteLine(
+              line.segment_text,
+              line.source_excerpt,
+              activeEvidenceText
+            );
+            if (!keep) {
+              console.log(`[M3.5 multi-quote] Line ${line.line_index} rejected: subject-only or insufficient active body/attachment evidence`);
+            }
+            return keep;
+          });
 
           if (validLinesPayload.length > 0) {
             const { data: storedCount, error: rpcErr } = await serviceClient.rpc(
@@ -3911,6 +4010,9 @@ Deno.serve(async (req) => {
               console.log(`[M3.5 multi-quote] Stored ${storedCount} quote request lines`);
               multiQuoteResult = { detected: true, stored: storedCount ?? 0, mode: "ai_extraction" };
             }
+          } else if (minFactLinesPayload.length > 0) {
+            console.log("[M3.5 multi-quote] All candidate lines rejected as subject-only or lacking active body/attachment evidence");
+            multiQuoteResult = { detected: false, stored: 0, mode: "subject_only_ignored" };
           } else {
             console.log("[M3.5 multi-quote] No valid lines after validation (min 2 facts required)");
             multiQuoteResult = { detected: true, stored: 0, mode: "detected_no_valid_lines" };
