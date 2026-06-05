@@ -24,6 +24,11 @@ import {
 // Provider aliases — centralised to avoid hardcoded mismatches (DPW vs DP_WORLD)
 const DPW_PROVIDERS = ['DPW', 'DP_WORLD'];
 const BLOCKED_PORT_TAX_IMPORT_WARNING = 'PORT_TAX IMPORT blocked: use DROIT_PASSAGE / PAD_DROIT_PASSAGE canonical PAD handling; no amount generated from invoice label.';
+const LEGACY_DDU_AS_DAP_WARNING = 'Incoterm legacy DDU traité comme DAP pour le pricing. Droits/taxes import non inclus sauf scope DDP explicite.';
+
+function isLegacyDduAsDap(rawIncoterm: string | null | undefined, normalizedIncoterm: string | null): boolean {
+  return String(rawIncoterm ?? '').trim().toUpperCase() === 'DDU' && normalizedIncoterm === 'DAP';
+}
 
 // Zone mapping: common city names → tariff zone labels in local_transport_rates
 const ZONE_MAPPING: Record<string, string> = {
@@ -574,6 +579,8 @@ interface QuotationResult {
     ddp: number;
   };
   metadata: {
+    original_incoterm?: string | null;
+    normalized_incoterm?: string;
     incoterm: IncotermInfo;
     zone: ZoneInfo;
     exceptional: ExceptionalInfo;
@@ -1330,15 +1337,19 @@ async function matchHistoricalTariff(
 async function generateQuotationLines(
   supabase: any,
   request: QuotationRequest
-): Promise<{ lines: QuotationLine[]; warnings: string[] }> {
+): Promise<{ lines: QuotationLine[]; warnings: string[]; dutyBreakdown: any[]; cargoValueFCFA: number }> {
   const lines: QuotationLine[] = [];
   const warnings: string[] = [];
+  const normalizedIncoterm = normalizeIncoterm(request.incoterm) ?? 'CIF';
+
+  if (isLegacyDduAsDap(request.incoterm, normalizedIncoterm)) {
+    warnings.push(LEGACY_DDU_AS_DAP_WARNING);
+  }
   
   // =====================================================
   // 0. LOAD DB-BACKED RULES (M1.3)
   // =====================================================
-  const [dbIncoterms, dbZones, tariffCategoryRules] = await Promise.all([
-    loadIncotermsFromDB(supabase),
+  const [dbZones, tariffCategoryRules] = await Promise.all([
     loadDeliveryZonesFromDB(supabase),
     loadTariffCategoryRules(supabase),
   ]);
@@ -2297,9 +2308,8 @@ async function generateQuotationLines(
     }
 
     // Calcul CAF
-    const incotermRule = dbIncoterms[normalizeIncoterm(request.incoterm) ?? 'CIF'];
     const caf = calculateCAF({
-      incoterm: request.incoterm || 'CIF',
+      incoterm: normalizedIncoterm,
       invoiceValue: cargoValueFCFA,
       freightAmount: freightFCFA,
       insuranceRate: 0.0015
@@ -2618,6 +2628,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'generate': {
         const request = params as QuotationRequest;
+        const originalIncoterm = String(request.incoterm ?? '').trim().toUpperCase();
+        const normalizedIncoterm = normalizeIncoterm(request.incoterm) ?? 'CIF';
         // Lot 1.2: preuve de réception clientCode (passe-plat, non consommé en Lot 1.2)
         console.log(`[LOT1.2][quotation-engine] received clientCode=${JSON.stringify(request.clientCode)}`);
         const earlyWarnings: string[] = [];
@@ -2631,8 +2643,7 @@ Deno.serve(async (req) => {
         }
         
         if (!request.cargoValue || request.cargoValue <= 0) {
-          const incotermUpper = String(request.incoterm ?? "").trim().toUpperCase();
-          const isDDP = incotermUpper === "DDP";
+          const isDDP = normalizedIncoterm === "DDP";
           request.cargoValue = 1;
           if (isDDP) {
             earlyWarnings.push(
@@ -2672,7 +2683,7 @@ Deno.serve(async (req) => {
         // Métadonnées — use DB-backed rules for consistency
         const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
         const dbZonesMeta = await loadDeliveryZonesFromDB(supabase);
-        const incotermRule = dbIncotermsMeta[normalizeIncoterm(request.incoterm) ?? 'CIF'];
+        const incotermRule = dbIncotermsMeta[normalizedIncoterm];
         const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
@@ -2688,7 +2699,7 @@ Deno.serve(async (req) => {
           }
         }
         const caf = calculateCAF({
-          incoterm: request.incoterm || 'CIF',
+          incoterm: normalizedIncoterm,
           invoiceValue: cargoValueFCFA || request.cargoValue,
           freightAmount: freightFCFA,
         });
@@ -2710,8 +2721,10 @@ Deno.serve(async (req) => {
           totals,
           duty_breakdown: dutyBreakdown,
           metadata: {
+            original_incoterm: originalIncoterm || null,
+            normalized_incoterm: normalizedIncoterm,
             incoterm: {
-              code: incotermRule?.code || request.incoterm || 'N/A',
+              code: incotermRule?.code || normalizedIncoterm || 'N/A',
               group: incotermRule?.group || 'N/A',
               description: incotermRule?.description || '',
               sellerPays: incotermRule?.sellerPays || {}
