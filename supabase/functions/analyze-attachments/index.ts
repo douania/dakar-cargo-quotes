@@ -1106,8 +1106,8 @@ serve(async (req) => {
         /^cid:/i,         // Content-ID references
       ];
       
-      // Skip small images (likely signatures) < 50KB
-      if (contentType?.startsWith('image/') && size && size < 50000) {
+      // Outlook-compressed screenshots can contain useful requests; only skip tiny signature/logo images.
+      if (contentType?.startsWith('image/') && size != null && size < 8000) {
         return true;
       }
       

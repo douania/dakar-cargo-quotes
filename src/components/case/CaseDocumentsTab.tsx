@@ -1,6 +1,5 @@
 import React, { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast as toastFn } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,6 +93,9 @@ function AnalysisBadge({ att }: { att: EmailAttachmentRow }) {
   const extractedType = typeof att.extracted_data?.type === "string"
     ? att.extracted_data.type.toLowerCase()
     : "";
+  if (extractedType === "skipped") {
+    return <Badge variant="outline" className="text-[10px] bg-slate-100 text-slate-800 border-slate-300">Ignorée</Badge>;
+  }
   if (extractedType.includes("error")) {
     return <Badge variant="destructive" className="text-[10px]">Erreur</Badge>;
   }
@@ -143,9 +145,10 @@ function useEmailAttachmentsForCase(caseId: string) {
       return attachments
         .filter(att => {
           const name = att.filename?.toLowerCase() ?? "";
-          // Exclude common inline/signature images
-          if (/^(image\d*|logo|signature|banner|footer|spacer)\.(png|gif|jpg|jpeg|bmp)$/i.test(name)) return false;
-          if (att.size && att.size < 2048 && att.content_type?.startsWith("image/")) return false;
+          const isImage = att.content_type?.toLowerCase().startsWith("image/") ?? false;
+          const hasSignatureName = /(^|[-_.\s])(logo|signature|banner|footer|spacer)([-_.\s]|\d|$)/i.test(name);
+          if (isImage && hasSignatureName) return false;
+          if (isImage && att.size != null && att.size < 8000) return false;
           return true;
         })
         .map(att => {
@@ -175,6 +178,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState("");
+  const [retryingAttachmentId, setRetryingAttachmentId] = useState<string | null>(null);
 
   // Manual documents
   const { data: documents = [], isLoading } = useQuery({
@@ -347,6 +351,70 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
     a.href = data.signedUrl;
     a.download = fileName;
     a.click();
+  }
+
+  async function handleRetryEmailAttachment(att: EmailAttachmentRow) {
+    setRetryingAttachmentId(att.id);
+    try {
+      const { data: resetId, error: resetError } = await supabase.rpc("reset_attachment_for_retry", {
+        p_attachment_id: att.id,
+      });
+
+      if (resetError || !resetId) {
+        toast({
+          title: "Erreur",
+          description: resetError?.message ?? "Pièce jointe non réinitialisée.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({ title: "Pièce jointe réinitialisée, analyse relancée…", description: att.filename });
+
+      const { data: analyzeData, error: analyzeError } = await supabase.functions.invoke("analyze-attachments", {
+        body: { attachmentId: att.id, background: false, mode: "sync" },
+      });
+
+      if (analyzeError || analyzeData?.success === false) {
+        toast({
+          title: "Erreur",
+          description: analyzeError?.message ?? analyzeData?.error ?? "Analyse échouée.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { error: puzzleError } = await supabase.functions.invoke("build-case-puzzle", {
+        body: { case_id: caseId, force_refresh: true },
+      });
+
+      if (puzzleError) {
+        toast({
+          title: "Attention",
+          description: `Analyse terminée, mais puzzle non relancé: ${puzzleError.message}`,
+        });
+        return;
+      }
+
+      toast({ title: "Analyse terminée, puzzle relancé" });
+    } catch (e: any) {
+      toast({
+        title: "Erreur",
+        description: e?.message ?? "Re-analyse échouée.",
+        variant: "destructive",
+      });
+    } finally {
+      setRetryingAttachmentId(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["case-email-attachments", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["case-view", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["case-gaps", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] }),
+      ]);
+    }
   }
 
   function handleSubmit() {
@@ -522,7 +590,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                   <TableHead>Analyse</TableHead>
                   <TableHead>Expéditeur</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
+                  <TableHead className="w-36">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -535,8 +603,10 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                     (
                       att.is_analyzed === false ||
                       extractedType.includes("error") ||
+                      extractedType === "skipped" ||
                       att.is_analyzed === null
                     );
+                  const isRetrying = retryingAttachmentId === att.id;
                   return (
                     <TableRow key={att.id}>
                       <TableCell>
@@ -572,23 +642,19 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                           )}
                           {canRetry && (
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Relancer l'analyse"
-                              onClick={async () => {
-                                try {
-                                  const { error } = await supabase.functions.invoke("analyze-attachments", {
-                                    body: { attachmentId: att.id, mode: "start" },
-                                  });
-                                  if (error) throw error;
-                                  toastFn({ title: "Analyse relancée", description: att.filename });
-                                  queryClient.invalidateQueries({ queryKey: ["case-email-attachments", caseId] });
-                                } catch (e: any) {
-                                  toastFn({ title: "Erreur", description: e.message, variant: "destructive" });
-                                }
-                              }}
+                              variant="outline"
+                              size="sm"
+                              title="Re-analyser"
+                              disabled={isRetrying}
+                              onClick={() => handleRetryEmailAttachment(att)}
+                              className="h-8 px-2 text-xs"
                             >
-                              <RefreshCw className="h-4 w-4" />
+                              {isRetrying ? (
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-1 h-3 w-3" />
+                              )}
+                              Re-analyser
                             </Button>
                           )}
                         </div>
