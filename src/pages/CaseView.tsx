@@ -291,13 +291,18 @@ export default function CaseView() {
   const displayedGapsCount = gaps.length || (caseData?.gaps_count ?? 0);
   const hasArticlesDetail = facts.some((f: any) => f.fact_key === "cargo.articles_detail");
 
-  function handleRefresh() {
+  const handleRefresh = useCallback(() => {
     refetchCase();
     refetchFacts();
     refetchEvents();
     refetchGaps();
     refetchGapRequests();
-  }
+  }, [refetchCase, refetchFacts, refetchEvents, refetchGaps, refetchGapRequests]);
+
+  const handlePricingComplete = useCallback(() => {
+    setPricingRefreshToken((t) => t + 1);
+    handleRefresh();
+  }, [handleRefresh]);
 
   // ── CL1: Mark client gap requests as sent ──
   async function markClientGapRequestsSent(gapKeys?: string[]) {
@@ -1972,7 +1977,7 @@ export default function CaseView() {
               <PricingReadinessCard caseId={caseId!} />
               <PricingLaunchPanel
                 caseId={caseId!}
-                onComplete={handleRefresh}
+                onComplete={handlePricingComplete}
                 isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)}
                 blockedByIntent={(() => {
                   const intentEvents = events
