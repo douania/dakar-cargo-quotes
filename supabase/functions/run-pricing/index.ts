@@ -2874,6 +2874,7 @@ ${JSON.stringify(refPayload)}`;
 
     const outputsJson = {
       lines: tariffLines,
+      warnings: Array.isArray(engineResponse.warnings) ? engineResponse.warnings : [],
       totals: {
         ht: totalHt,
         ttc: totalTtc,
@@ -2893,7 +2894,11 @@ ${JSON.stringify(refPayload)}`;
         ddp_engine_raw: engineTotals?.ddp ?? null,
         enrichment_amount: enrichmentAmount,
         currency,
-        incoterm_applied: incotermUpper || "N/A",
+        incoterm_applied:
+          engineResponse.metadata?.normalized_incoterm
+          ?? engineResponse.metadata?.incoterm?.code
+          ?? incotermUpper
+          ?? "N/A",
       },
       duty_breakdown: engineResponse.duty_breakdown || [],
       metadata: {
@@ -2901,6 +2906,12 @@ ${JSON.stringify(refPayload)}`;
         computed_at: new Date().toISOString(),
         request_type: caseData.request_type,
         duties_regime_code: inputs.regimeCode || null,
+        original_incoterm: engineResponse.metadata?.original_incoterm ?? inputs.incoterm ?? null,
+        normalized_incoterm:
+          engineResponse.metadata?.normalized_incoterm
+          ?? engineResponse.metadata?.incoterm?.code
+          ?? null,
+        incoterm: engineResponse.metadata?.incoterm ?? null,
       },
       client: {
         email: inputs.clientEmail,
@@ -2910,6 +2921,10 @@ ${JSON.stringify(refPayload)}`;
         origin: inputs.originPort || inputs.originAirport,
         destination: inputs.finalDestination,
         incoterm: inputs.incoterm,
+        normalized_incoterm:
+          engineResponse.metadata?.normalized_incoterm
+          ?? engineResponse.metadata?.incoterm?.code
+          ?? null,
       },
     };
 
