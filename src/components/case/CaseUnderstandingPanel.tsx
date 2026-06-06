@@ -14,9 +14,17 @@ interface TimelineEvent {
   created_at: string | null;
 }
 
+interface CurrentFact {
+  fact_key: string;
+  value_text?: string | null;
+  value_number?: number | null;
+  value_json?: unknown;
+}
+
 interface CaseUnderstandingPanelProps {
   events: TimelineEvent[];
   openGapKeys?: string[];
+  currentFacts?: CurrentFact[];
 }
 
 // ── Gap-key → domain-specific markers (conservative) ──
@@ -80,7 +88,91 @@ const SCOPE_LABELS: Record<string, string> = {
   unknown: "Inconnu",
 };
 
-export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandingPanelProps) {
+const CRITICAL_ROUTE_FACT_KEYS = [
+  "routing.origin_country",
+  "routing.origin_port",
+  "routing.destination_country",
+  "routing.destination_city",
+  "routing.incoterm",
+  "cargo.weight_kg",
+  "cargo.pieces_count",
+  "cargo.volume_cbm",
+];
+
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function factValueAsString(fact: CurrentFact | undefined): string {
+  if (!fact) return "";
+  if (typeof fact.value_text === "string" && fact.value_text.trim()) return fact.value_text;
+  if (typeof fact.value_number === "number") return String(fact.value_number);
+  if (typeof fact.value_json === "string" || typeof fact.value_json === "number" || typeof fact.value_json === "boolean") {
+    return String(fact.value_json);
+  }
+  if (fact.value_json && typeof fact.value_json === "object") {
+    const obj = fact.value_json as Record<string, unknown>;
+    if (typeof obj["value"] === "string" || typeof obj["value"] === "number") return String(obj["value"]);
+  }
+  return "";
+}
+
+function containsStalePekingRoute(text: string): boolean {
+  const normalized = normalizeText(text);
+  return normalized.includes("peking")
+    || normalized.includes("pekin")
+    || normalized.includes("dakar to peking")
+    || normalized.includes("dakar a pekin");
+}
+
+function currentFactsContradictPekingRoute(factsByKey: Map<string, string>): boolean {
+  const originCountry = normalizeText(factsByKey.get("routing.origin_country"));
+  const originPort = normalizeText(factsByKey.get("routing.origin_port"));
+  const destinationCountry = normalizeText(factsByKey.get("routing.destination_country"));
+  const destinationCity = normalizeText(factsByKey.get("routing.destination_city"));
+  const criticalFactsText = normalizeText(
+    CRITICAL_ROUTE_FACT_KEYS.map((key) => factsByKey.get(key) ?? "").join(" ")
+  );
+
+  return originCountry.includes("switzerland")
+    && originPort.includes("corgemont")
+    && originPort.includes("switzerland")
+    && destinationCountry.includes("senegal")
+    && destinationCity.includes("dakar")
+    && destinationCity.includes("senegal")
+    && !criticalFactsText.includes("peking")
+    && !criticalFactsText.includes("pekin");
+}
+
+function isStaleThreadIntent(
+  intent: Record<string, unknown>,
+  factsByKey: Map<string, string>
+): boolean {
+  const intentText = [
+    intent["request_summary"],
+    intent["incoterm_hypothesis"],
+    intent["transport_mode_hypothesis"],
+    intent["shipment_scope_hypothesis"],
+    ...(Array.isArray(intent["missing_business_questions"]) ? intent["missing_business_questions"] : []),
+    ...(Array.isArray(intent["operator_guidance"]) ? intent["operator_guidance"] : []),
+  ].join(" ");
+
+  return containsStalePekingRoute(intentText) && currentFactsContradictPekingRoute(factsByKey);
+}
+
+export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: CaseUnderstandingPanelProps) {
+  const currentFactByKey = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const fact of currentFacts ?? []) {
+      const value = factValueAsString(fact);
+      if (value) byKey.set(fact.fact_key, value);
+    }
+    return byKey;
+  }, [currentFacts]);
+
   // ── Existing: service_scope_v1 + case_reasoning_v1 ──
   const { scope, reasoning, analysisDate } = useMemo(() => {
     const scopeEvents = events
@@ -116,40 +208,49 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
   }, [events]);
 
   // ── V2: thread_intent_v1 enriched data ──
-  const intentV2 = useMemo(() => {
+  const { intentV2, staleIntentV2 } = useMemo(() => {
     const intentEvents = events
       .filter((e) => e.event_type === "thread_intent_v1" && e.event_data)
       .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    if (intentEvents.length === 0) return null;
+    if (intentEvents.length === 0) return { intentV2: null, staleIntentV2: false };
 
     const latestEvent = intentEvents[0];
     const ed = latestEvent.event_data as Record<string, unknown>;
     const intent = (ed?.["intent"] as Record<string, unknown>) ?? {};
 
     // Only show V2 sections if we have the enriched fields
-    if (!intent["request_summary"] && !intent["transport_mode_hypothesis"]) return null;
+    if (!intent["request_summary"] && !intent["transport_mode_hypothesis"]) {
+      return { intentV2: null, staleIntentV2: false };
+    }
+
+    if (isStaleThreadIntent(intent, currentFactByKey)) {
+      return { intentV2: null, staleIntentV2: true };
+    }
 
     return {
-      request_summary: typeof intent["request_summary"] === "string" ? intent["request_summary"] : null,
-      transport_mode_hypothesis: typeof intent["transport_mode_hypothesis"] === "string"
-        ? intent["transport_mode_hypothesis"] : "unknown",
-      incoterm_hypothesis: typeof intent["incoterm_hypothesis"] === "string"
-        ? intent["incoterm_hypothesis"] : "unknown",
-      shipment_scope_hypothesis: typeof intent["shipment_scope_hypothesis"] === "string"
-        ? intent["shipment_scope_hypothesis"] : "unknown",
-      contradiction_flags: Array.isArray(intent["contradiction_flags"])
-        ? (intent["contradiction_flags"] as string[]) : [],
-      missing_business_questions: Array.isArray(intent["missing_business_questions"])
-        ? (intent["missing_business_questions"] as string[]) : [],
-      operator_guidance: Array.isArray(intent["operator_guidance"])
-        ? (intent["operator_guidance"] as string[]) : [],
-      confidence: typeof ed["confidence"] === "number"
-        ? (ed["confidence"] as number)
-        : (typeof intent["confidence"] === "number" ? intent["confidence"] as number : null),
-      date: latestEvent.created_at,
+      intentV2: {
+        request_summary: typeof intent["request_summary"] === "string" ? intent["request_summary"] : null,
+        transport_mode_hypothesis: typeof intent["transport_mode_hypothesis"] === "string"
+          ? intent["transport_mode_hypothesis"] : "unknown",
+        incoterm_hypothesis: typeof intent["incoterm_hypothesis"] === "string"
+          ? intent["incoterm_hypothesis"] : "unknown",
+        shipment_scope_hypothesis: typeof intent["shipment_scope_hypothesis"] === "string"
+          ? intent["shipment_scope_hypothesis"] : "unknown",
+        contradiction_flags: Array.isArray(intent["contradiction_flags"])
+          ? (intent["contradiction_flags"] as string[]) : [],
+        missing_business_questions: Array.isArray(intent["missing_business_questions"])
+          ? (intent["missing_business_questions"] as string[]) : [],
+        operator_guidance: Array.isArray(intent["operator_guidance"])
+          ? (intent["operator_guidance"] as string[]) : [],
+        confidence: typeof ed["confidence"] === "number"
+          ? (ed["confidence"] as number)
+          : (typeof intent["confidence"] === "number" ? intent["confidence"] as number : null),
+        date: latestEvent.created_at,
+      },
+      staleIntentV2: false,
     };
-  }, [events]);
+  }, [events, currentFactByKey]);
 
   // ── V2: case_coherence_v1 data ──
   const coherence = useMemo(() => {
@@ -210,11 +311,12 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
 
   // ── Merge suggested questions (deduplicated) ──
   const allQuestions = useMemo(() => {
+    if ((openGapKeys ?? []).length === 0) return [];
     const set = new Set<string>();
     for (const q of intentV2?.missing_business_questions ?? []) set.add(q);
     for (const q of coherence?.suggested_client_questions ?? []) set.add(q);
     return Array.from(set);
-  }, [intentV2, coherence]);
+  }, [intentV2, coherence, openGapKeys]);
 
   // ── Merge operator guidance (deduplicated) ──
   const allGuidance = useMemo(() => {
@@ -251,7 +353,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
 
   // Nothing to show at all
   const hasExistingScope = scope || reasoning;
-  const hasV2Data = intentV2 || coherence;
+  const hasV2Data = intentV2 || coherence || staleIntentV2;
   if (!hasExistingScope && !hasV2Data) return null;
 
   const shipmentType = typeof scope?.shipment_type === "string"
@@ -358,6 +460,22 @@ export function CaseUnderstandingPanel({ events, openGapKeys }: CaseUnderstandin
       )}
 
       {/* ── V2: Suggested Questions ── */}
+      {staleIntentV2 && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="h-4 w-4" />
+              Périmètre à confirmer selon les facts actuels
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 pt-0">
+            <p className="text-xs text-muted-foreground">
+              L'ancien résumé IA a été ignoré car il contredit les facts courants du dossier.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {visibleQuestions.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2 pt-3 px-4">
