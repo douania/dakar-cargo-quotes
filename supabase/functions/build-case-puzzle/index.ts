@@ -344,6 +344,12 @@ interface SubjectGuardSignals {
   destination: string[];
 }
 
+interface SubjectGuardMatch {
+  matched: boolean;
+  reason?: string;
+  matchedSubject?: string;
+}
+
 const SUBJECT_GUARD_AIRPORT_KEYS = new Set([
   "routing.origin_airport",
   "routing.destination_airport",
@@ -373,13 +379,59 @@ function stringifySubjectGuardValue(value: unknown): string {
   return String(value);
 }
 
+function normalizeEmailSubjectForGuard(value: string | null | undefined): string {
+  return (value || "")
+    .replace(/^(?:\s*(?:subject|sujet|objet)\s*:\s*)+/i, "")
+    .replace(/^(?:\s*(?:re|fw|fwd)\s*:\s*)+/i, "")
+    .replace(/[\[\]()"']/g, " ")
+    .replace(/[._/\\]+/g, " ")
+    .replace(/\s*[-–—>]+\s*/g, " TO ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function getNormalizedEmailSubjectsForGuard(emails: any[]): string[] {
+  const subjects = new Set<string>();
+  for (const email of emails || []) {
+    const normalized = normalizeEmailSubjectForGuard(email?.subject);
+    if (normalized) subjects.add(normalized);
+  }
+  return Array.from(subjects);
+}
+
+function tokenSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(left.split(/\s+/).filter(token => token.length > 1));
+  const rightTokens = new Set(right.split(/\s+/).filter(token => token.length > 1));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) intersection++;
+  }
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return intersection / union;
+}
+
+function looksLikeShortRouteSubject(excerpt: string): boolean {
+  const compact = excerpt.replace(/\s+/g, " ").trim();
+  if (!compact || compact.length > 100 || /[.!?]{1,}/.test(compact)) return false;
+
+  const hasRouteSyntax =
+    /\b[\p{L}][\p{L}' -]{2,}\s+(?:to|vers|->|>)\s+[\p{L}][\p{L}' -]{2,}\b/iu.test(compact) ||
+    /\bfrom\s+[\p{L}][\p{L}' -]{2,}\s+to\s+[\p{L}][\p{L}' -]{2,}\b/iu.test(compact);
+  const hasSubjectFreightTerm = /\b(?:air\s*freight|airfreight|sea\s*freight|seafreight|fcl|lcl)\b/i.test(compact);
+
+  return hasRouteSyntax && (hasSubjectFreightTerm || compact.split(/\s+/).length <= 5);
+}
+
 function looksLikeSubjectOnlyExcerpt(sourceExcerpt: string | null | undefined): boolean {
   const excerpt = (sourceExcerpt || "").trim();
   if (!excerpt) return false;
 
   const lines = excerpt.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const compact = excerpt.replace(/\s+/g, " ").trim();
-  const subjectMarker = /\b(?:subject|sujet)\s*:/i.test(compact);
+  const subjectMarker = /\b(?:subject|sujet|objet)\s*:/i.test(compact);
   const replyForwardOnly = /^(?:re|fw|fwd)\s*:/i.test(compact);
 
   if (!subjectMarker && !replyForwardOnly) return false;
@@ -391,10 +443,49 @@ function looksLikeSubjectOnlyExcerpt(sourceExcerpt: string | null | undefined): 
   return nonSubjectLines.length === 0;
 }
 
+function getStaleEmailSubjectMatch(
+  sourceExcerpt: string | null | undefined,
+  emails: any[]
+): SubjectGuardMatch {
+  const excerpt = (sourceExcerpt || "").trim();
+  if (!excerpt) return { matched: false };
+
+  if (looksLikeSubjectOnlyExcerpt(excerpt)) {
+    return { matched: true, reason: "subject-marker" };
+  }
+
+  const lines = excerpt.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const compact = excerpt.replace(/\s+/g, " ").trim();
+  const normalizedExcerpt = normalizeEmailSubjectForGuard(compact);
+  const normalizedSubjects = getNormalizedEmailSubjectsForGuard(emails);
+
+  for (const subject of normalizedSubjects) {
+    if (!subject || !normalizedExcerpt) continue;
+    const exactOrContained =
+      normalizedExcerpt === subject ||
+      normalizedExcerpt.includes(subject) ||
+      (normalizedExcerpt.length >= 12 && subject.includes(normalizedExcerpt));
+    if (exactOrContained || tokenSimilarity(normalizedExcerpt, subject) >= 0.8) {
+      return { matched: true, reason: "email-subject-match", matchedSubject: subject };
+    }
+  }
+
+  if (lines.length === 1 && looksLikeShortRouteSubject(compact)) {
+    return { matched: true, reason: "short-route-subject" };
+  }
+
+  return { matched: false };
+}
+
+function looksLikeStaleEmailSubjectExcerpt(sourceExcerpt: string | null | undefined, emails: any[]): boolean {
+  return getStaleEmailSubjectMatch(sourceExcerpt, emails).matched;
+}
+
 function collectSubjectGuardSignals(
   extractedFacts: ExtractedFact[],
   fullAttachmentContext: string,
-  currentFacts: any[] = []
+  currentFacts: any[] = [],
+  emails: any[] = []
 ): SubjectGuardSignals {
   const signals: SubjectGuardSignals = { origin: [], destination: [] };
   const addSignal = (side: RoutingSide, signal: string) => {
@@ -404,7 +495,7 @@ function collectSubjectGuardSignals(
 
   for (const fact of extractedFacts) {
     if (!SUBJECT_GUARD_RELIABLE_ROUTING_KEYS.has(fact.key)) continue;
-    if (looksLikeSubjectOnlyExcerpt(fact.sourceExcerpt)) continue;
+    if (looksLikeStaleEmailSubjectExcerpt(fact.sourceExcerpt, emails)) continue;
     const side = routingSideForFactKey(fact.key);
     if (side) addSignal(side, `${fact.key}=${stringifySubjectGuardValue(fact.value)}`);
   }
@@ -440,12 +531,13 @@ function hasAirportCorroborationInAttachmentContext(value: unknown, fullAttachme
 function shouldBlockSubjectAirportFact(
   fact: ExtractedFact | any,
   fullAttachmentContext: string,
-  signals: SubjectGuardSignals
+  signals: SubjectGuardSignals,
+  emails: any[] = []
 ): boolean {
   if (!SUBJECT_GUARD_AIRPORT_KEYS.has(fact.key || fact.fact_key)) return false;
 
   const sourceExcerpt = fact.sourceExcerpt ?? fact.source_excerpt;
-  if (!looksLikeSubjectOnlyExcerpt(sourceExcerpt)) return false;
+  if (!looksLikeStaleEmailSubjectExcerpt(sourceExcerpt, emails)) return false;
 
   const side = routingSideForFactKey(fact.key || fact.fact_key);
   if (!side || signals[side].length === 0) return false;
@@ -457,15 +549,17 @@ function shouldBlockSubjectAirportFact(
 function filterSubjectContaminatedRoutingFacts(
   extractedFacts: ExtractedFact[],
   fullAttachmentContext: string,
-  currentFacts: any[] = []
+  currentFacts: any[] = [],
+  emails: any[] = []
 ): ExtractedFact[] {
-  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts);
+  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts, emails);
 
   return extractedFacts.filter(fact => {
-    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals)) return true;
+    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals, emails)) return true;
 
     const side = routingSideForFactKey(fact.key);
-    console.log(`[SUBJECT-GUARD] blocked ${fact.key} from stale subject; source_excerpt="${truncateSubjectGuardText(fact.sourceExcerpt)}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
+    const subjectMatch = getStaleEmailSubjectMatch(fact.sourceExcerpt, emails);
+    console.log(`[SUBJECT-GUARD] blocked ${fact.key} from stale subject; source_excerpt="${truncateSubjectGuardText(fact.sourceExcerpt)}"; matched_subject="${subjectMatch.matchedSubject || subjectMatch.reason || "n/a"}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
     return false;
   });
 }
@@ -475,16 +569,17 @@ async function deactivateSubjectContaminatedCurrentAirportFacts(
   caseId: string,
   currentFacts: any[],
   fullAttachmentContext: string,
-  extractedFacts: ExtractedFact[]
+  extractedFacts: ExtractedFact[],
+  emails: any[] = []
 ): Promise<number> {
-  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts);
+  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts, emails);
   let deactivated = 0;
 
   for (const fact of currentFacts || []) {
     if (!SUBJECT_GUARD_AIRPORT_KEYS.has(fact.fact_key)) continue;
     if (fact.source_type === "attachment_extracted" || MANUAL_PROTECTED_SOURCES.has(fact.source_type ?? "")) continue;
 
-    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals)) continue;
+    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals, emails)) continue;
 
     const { error } = await serviceClient
       .from("quote_facts")
@@ -498,7 +593,8 @@ async function deactivateSubjectContaminatedCurrentAirportFacts(
     }
 
     const side = routingSideForFactKey(fact.fact_key);
-    console.log(`[SUBJECT-GUARD] deactivated stale current airport fact ${fact.fact_key}; source_excerpt="${truncateSubjectGuardText(fact.source_excerpt)}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
+    const subjectMatch = getStaleEmailSubjectMatch(fact.source_excerpt, emails);
+    console.log(`[SUBJECT-GUARD] deactivated stale current airport fact ${fact.fact_key}; source_excerpt="${truncateSubjectGuardText(fact.source_excerpt)}"; matched_subject="${subjectMatch.matchedSubject || subjectMatch.reason || "n/a"}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
     deactivated++;
   }
 
@@ -3133,7 +3229,8 @@ Deno.serve(async (req) => {
     extractedFacts = filterSubjectContaminatedRoutingFacts(
       extractedFacts,
       fullAttachmentContext,
-      subjectGuardCurrentFacts || []
+      subjectGuardCurrentFacts || [],
+      emails
     );
 
     const subjectGuardDeactivatedFacts = await deactivateSubjectContaminatedCurrentAirportFacts(
@@ -3141,7 +3238,8 @@ Deno.serve(async (req) => {
       case_id,
       subjectGuardCurrentFacts || [],
       fullAttachmentContext,
-      extractedFacts
+      extractedFacts,
+      emails
     );
 
     // 8. Detect request type from content (include attachment text for Intake cases)
