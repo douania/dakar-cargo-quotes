@@ -337,6 +337,174 @@ interface ExtractedFact {
   isAssumption?: boolean;
 }
 
+type RoutingSide = "origin" | "destination";
+
+interface SubjectGuardSignals {
+  origin: string[];
+  destination: string[];
+}
+
+const SUBJECT_GUARD_AIRPORT_KEYS = new Set([
+  "routing.origin_airport",
+  "routing.destination_airport",
+]);
+
+const SUBJECT_GUARD_RELIABLE_ROUTING_KEYS = new Set([
+  "routing.origin_port",
+  "routing.origin_country",
+  "routing.destination_city",
+  "routing.destination_country",
+]);
+
+function truncateSubjectGuardText(value: string | null | undefined, max = 180): string {
+  const text = (value || "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function routingSideForFactKey(key: string): RoutingSide | null {
+  if (key.startsWith("routing.origin_")) return "origin";
+  if (key.startsWith("routing.destination_")) return "destination";
+  return null;
+}
+
+function stringifySubjectGuardValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function looksLikeSubjectOnlyExcerpt(sourceExcerpt: string | null | undefined): boolean {
+  const excerpt = (sourceExcerpt || "").trim();
+  if (!excerpt) return false;
+
+  const lines = excerpt.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const compact = excerpt.replace(/\s+/g, " ").trim();
+  const subjectMarker = /\b(?:subject|sujet)\s*:/i.test(compact);
+  const replyForwardOnly = /^(?:re|fw|fwd)\s*:/i.test(compact);
+
+  if (!subjectMarker && !replyForwardOnly) return false;
+  if (lines.length <= 2 && compact.length <= 240) return true;
+
+  const nonSubjectLines = lines.filter(line =>
+    !/^(?:subject|sujet|re|fw|fwd)\s*:/i.test(line)
+  );
+  return nonSubjectLines.length === 0;
+}
+
+function collectSubjectGuardSignals(
+  extractedFacts: ExtractedFact[],
+  fullAttachmentContext: string,
+  currentFacts: any[] = []
+): SubjectGuardSignals {
+  const signals: SubjectGuardSignals = { origin: [], destination: [] };
+  const addSignal = (side: RoutingSide, signal: string) => {
+    const trimmed = signal.trim();
+    if (trimmed && !signals[side].includes(trimmed)) signals[side].push(trimmed);
+  };
+
+  for (const fact of extractedFacts) {
+    if (!SUBJECT_GUARD_RELIABLE_ROUTING_KEYS.has(fact.key)) continue;
+    if (looksLikeSubjectOnlyExcerpt(fact.sourceExcerpt)) continue;
+    const side = routingSideForFactKey(fact.key);
+    if (side) addSignal(side, `${fact.key}=${stringifySubjectGuardValue(fact.value)}`);
+  }
+
+  for (const fact of currentFacts || []) {
+    if (fact?.source_type !== "attachment_extracted") continue;
+    if (!SUBJECT_GUARD_RELIABLE_ROUTING_KEYS.has(fact.fact_key)) continue;
+    const side = routingSideForFactKey(fact.fact_key);
+    const value = fact.value_text ?? fact.value_number ?? fact.value_json;
+    if (side) addSignal(side, `${fact.fact_key}=${stringifySubjectGuardValue(value)}`);
+  }
+
+  const context = (fullAttachmentContext || "").slice(0, 12000);
+  if (/\b(?:pick\s*up address|pickup address|origin|origine|shipper|port of loading)\b/i.test(context)) {
+    addSignal("origin", "attachment_context_origin_routing");
+  }
+  if (/\b(?:delivery address|destination|destinataire|consignee|port of discharge)\b/i.test(context)) {
+    addSignal("destination", "attachment_context_destination_routing");
+  }
+
+  return signals;
+}
+
+function hasAirportCorroborationInAttachmentContext(value: unknown, fullAttachmentContext: string): boolean {
+  const airportValue = stringifySubjectGuardValue(value).trim();
+  if (!airportValue || !fullAttachmentContext) return false;
+
+  const escaped = airportValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const airportNearValue = new RegExp(`\\b(?:airport|aeroport|aéroport)\\b.{0,80}\\b${escaped}\\b|\\b${escaped}\\b.{0,80}\\b(?:airport|aeroport|aéroport)\\b`, "i");
+  return airportNearValue.test(fullAttachmentContext);
+}
+
+function shouldBlockSubjectAirportFact(
+  fact: ExtractedFact | any,
+  fullAttachmentContext: string,
+  signals: SubjectGuardSignals
+): boolean {
+  if (!SUBJECT_GUARD_AIRPORT_KEYS.has(fact.key || fact.fact_key)) return false;
+
+  const sourceExcerpt = fact.sourceExcerpt ?? fact.source_excerpt;
+  if (!looksLikeSubjectOnlyExcerpt(sourceExcerpt)) return false;
+
+  const side = routingSideForFactKey(fact.key || fact.fact_key);
+  if (!side || signals[side].length === 0) return false;
+
+  const value = fact.value ?? fact.value_text ?? fact.value_number ?? fact.value_json;
+  return !hasAirportCorroborationInAttachmentContext(value, fullAttachmentContext);
+}
+
+function filterSubjectContaminatedRoutingFacts(
+  extractedFacts: ExtractedFact[],
+  fullAttachmentContext: string,
+  currentFacts: any[] = []
+): ExtractedFact[] {
+  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts);
+
+  return extractedFacts.filter(fact => {
+    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals)) return true;
+
+    const side = routingSideForFactKey(fact.key);
+    console.log(`[SUBJECT-GUARD] blocked ${fact.key} from stale subject; source_excerpt="${truncateSubjectGuardText(fact.sourceExcerpt)}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
+    return false;
+  });
+}
+
+async function deactivateSubjectContaminatedCurrentAirportFacts(
+  serviceClient: any,
+  caseId: string,
+  currentFacts: any[],
+  fullAttachmentContext: string,
+  extractedFacts: ExtractedFact[]
+): Promise<number> {
+  const signals = collectSubjectGuardSignals(extractedFacts, fullAttachmentContext, currentFacts);
+  let deactivated = 0;
+
+  for (const fact of currentFacts || []) {
+    if (!SUBJECT_GUARD_AIRPORT_KEYS.has(fact.fact_key)) continue;
+    if (fact.source_type === "attachment_extracted" || MANUAL_PROTECTED_SOURCES.has(fact.source_type ?? "")) continue;
+
+    if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals)) continue;
+
+    const { error } = await serviceClient
+      .from("quote_facts")
+      .update({ is_current: false, updated_at: new Date().toISOString() })
+      .eq("id", fact.id)
+      .eq("case_id", caseId);
+
+    if (error) {
+      console.error(`[SUBJECT-GUARD] failed to deactivate stale current airport fact ${fact.fact_key}:`, error.message);
+      continue;
+    }
+
+    const side = routingSideForFactKey(fact.fact_key);
+    console.log(`[SUBJECT-GUARD] deactivated stale current airport fact ${fact.fact_key}; source_excerpt="${truncateSubjectGuardText(fact.source_excerpt)}"; signals=${JSON.stringify(side ? signals[side] : [])}`);
+    deactivated++;
+  }
+
+  return deactivated;
+}
+
 // --- M3.4: Attachment-to-fact deterministic mapping ---
 const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: string; valueType: 'text' | 'number' }> = {
   // Format 1: extracted_info keys (packing lists, B/L)
@@ -2940,12 +3108,40 @@ Deno.serve(async (req) => {
       .join("\n\n");
 
     // 7. Call AI for fact extraction (uses INBOUND context only — SOURCE-GUARD-1)
-    const extractedFacts = await extractFactsWithAI(
+    let extractedFacts = await extractFactsWithAI(
       inboundThreadContext,
       fullAttachmentContext,
       emails,
       reloadedAttachments || [],
       lovableApiKey
+    );
+
+    const { data: subjectGuardCurrentFacts } = await serviceClient
+      .from("quote_facts")
+      .select("id, fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", [
+        "routing.origin_airport",
+        "routing.destination_airport",
+        "routing.origin_port",
+        "routing.origin_country",
+        "routing.destination_city",
+        "routing.destination_country",
+      ]);
+
+    extractedFacts = filterSubjectContaminatedRoutingFacts(
+      extractedFacts,
+      fullAttachmentContext,
+      subjectGuardCurrentFacts || []
+    );
+
+    const subjectGuardDeactivatedFacts = await deactivateSubjectContaminatedCurrentAirportFacts(
+      serviceClient,
+      case_id,
+      subjectGuardCurrentFacts || [],
+      fullAttachmentContext,
+      extractedFacts
     );
 
     // 8. Detect request type from content (include attachment text for Intake cases)
@@ -2984,6 +3180,7 @@ Deno.serve(async (req) => {
     let gapsIdentified = 0; // Declared early: used by doc-regex, HS Post-Attach, and Identify gaps
     let multiQuoteResult: { detected: boolean; stored: number; mode: string | null } | null = null;
     const factErrors: Array<{ key: string; error: string; isCritical: boolean }> = [];
+    factsUpdated += subjectGuardDeactivatedFacts;
     
     // Get mandatory facts for this request type to mark critical errors
     const mandatoryFactsForType = MANDATORY_FACTS[detectedType] || MANDATORY_FACTS.SEA_FCL_IMPORT;
