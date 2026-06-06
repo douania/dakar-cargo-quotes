@@ -959,6 +959,8 @@ interface AttachmentInfo {
 
 // Maximum attachment size to process (5MB) - aligned with import-thread
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+const INLINE_IMAGE_MIN_BYTES = 8000;
+const SIGNATURE_IMAGE_FILENAME_PATTERN = /(logo|signature|banner|footer|spacer|facebook|instagram|linkedin)/i;
 
 // Tokenizer for IMAP BODYSTRUCTURE
 function tokenizeBodyStructure(structure: string): string[] {
@@ -1241,18 +1243,30 @@ async function processEmailAttachments(
   
   for (const attachment of attachments) {
     try {
-      // Skip inline images (signatures, logos)
-      if (attachment.contentType.startsWith('image/') && attachment.filename.startsWith('image')) {
-        console.log(`[sync-emails/attachments] Skipping inline image: ${attachment.filename}`);
-        continue;
+      if (attachment.contentType.startsWith('image/')) {
+        const isTinyImage = attachment.size < INLINE_IMAGE_MIN_BYTES;
+        const hasSignatureFilename = SIGNATURE_IMAGE_FILENAME_PATTERN.test(attachment.filename);
+        if (isTinyImage || hasSignatureFilename) {
+          console.log(`[sync-emails/attachments] Skipping tiny/signature image: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes)`);
+          continue;
+        }
+
+        console.log(`[sync-emails/attachments] Keeping inline image candidate: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes, part ${attachment.partNumber})`);
       }
-      
+
       // Idempotency guard: check if attachment already exists for this email
-      const { data: existingAttachment, error: existingErr } = await supabase
+      let existingQuery = supabase
         .from('email_attachments')
-        .select('id, storage_path')
+        .select('id, storage_path, size')
         .eq('email_id', emailId)
-        .eq('filename', attachment.filename)
+        .eq('filename', attachment.filename);
+
+      if (attachment.size > 0) {
+        existingQuery = existingQuery.eq('size', attachment.size);
+      }
+
+      const { data: existingAttachment, error: existingErr } = await existingQuery
+        .limit(1)
         .maybeSingle();
       
       if (existingErr) {
