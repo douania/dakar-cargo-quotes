@@ -1182,6 +1182,12 @@ async function storeExtractedKnowledge(
 
 // Maximum attachment size to process (5MB) - prevents memory limit errors
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+const INLINE_IMAGE_MIN_BYTES = 8000;
+const SIGNATURE_IMAGE_FILENAME_PATTERN = /(logo|signature|banner|footer|spacer|facebook|instagram|linkedin)/i;
+
+function getAttachmentDedupKey(filename: string, size: number): string {
+  return size > 0 ? `${filename}|${size}` : filename;
+}
 
 async function processAttachment(
   client: IMAPClient,
@@ -1226,10 +1232,15 @@ async function processAttachment(
       return attachmentRecord ? { id: attachmentRecord.id, extractedText: '' } : null;
     }
     
-    // Skip inline images that are typically not relevant for analysis
-    if (attachment.contentType.startsWith('image/') && attachment.filename.startsWith('image')) {
-      console.log(`Skipping inline image: ${attachment.filename}`);
-      return null;
+    if (attachment.contentType.startsWith('image/')) {
+      const isTinyImage = attachment.size < INLINE_IMAGE_MIN_BYTES;
+      const hasSignatureFilename = SIGNATURE_IMAGE_FILENAME_PATTERN.test(attachment.filename);
+      if (isTinyImage || hasSignatureFilename) {
+        console.log(`Skipping tiny/signature image: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes)`);
+        return null;
+      }
+
+      console.log(`Keeping inline image candidate: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes, part ${attachment.partNumber})`);
     }
     
     // Download attachment content
@@ -1430,26 +1441,38 @@ serve(async (req) => {
         if (msg.attachments.length > 0) {
           const { data: existingAttachments } = await supabase
             .from('email_attachments')
-            .select('id, filename, storage_path')
+            .select('id, filename, storage_path, size')
             .eq('email_id', emailId);
           
-          const existingByFilename = new Map(
-            (existingAttachments || []).map((a: any) => [a.filename, a])
-          );
+          const existingByAttachmentKey = new Map<string, any>();
+          const ghostByFilename = new Map<string, any>();
+
+          for (const existingAttachment of existingAttachments || []) {
+            const dedupKey = getAttachmentDedupKey(existingAttachment.filename, existingAttachment.size || 0);
+            const current = existingByAttachmentKey.get(dedupKey);
+            if (!current || (current.storage_path !== null && existingAttachment.storage_path === null)) {
+              existingByAttachmentKey.set(dedupKey, existingAttachment);
+            }
+
+            if (existingAttachment.storage_path === null && !ghostByFilename.has(existingAttachment.filename)) {
+              ghostByFilename.set(existingAttachment.filename, existingAttachment);
+            }
+          }
           const missingAttachments = msg.attachments.filter(
             (a: AttachmentInfo) => {
-              const existing = existingByFilename.get(a.filename);
+              const existing = existingByAttachmentKey.get(getAttachmentDedupKey(a.filename, a.size));
               // Re-process if missing OR if previous attempt left a ghost record (no file in storage)
               return !existing || existing.storage_path === null;
             }
           );
 
           if (missingAttachments.length > 0) {
-            console.log(`Processing ${missingAttachments.length} missing/ghost attachment(s) for existing email ${emailId} (${existingByFilename.size} records in DB)`);
+            console.log(`Processing ${missingAttachments.length} missing/ghost attachment(s) for existing email ${emailId} (${existingByAttachmentKey.size} attachment key(s) in DB)`);
             
             for (const attachment of missingAttachments) {
-              const existing = existingByFilename.get(attachment.filename);
-              const existingId = existing?.storage_path === null ? existing.id : undefined;
+              const exactExisting = existingByAttachmentKey.get(getAttachmentDedupKey(attachment.filename, attachment.size));
+              const ghostExisting = exactExisting?.storage_path === null ? exactExisting : ghostByFilename.get(attachment.filename);
+              const existingId = ghostExisting?.storage_path === null ? ghostExisting.id : undefined;
               if (existingId) {
                 console.log(`Ghost record detected for ${attachment.filename} (id: ${existingId}) — will update in-place`);
               }
@@ -1467,7 +1490,7 @@ serve(async (req) => {
               }
             }
           } else {
-            console.log(`Email ${emailId}: all ${existingByFilename.size} attachment(s) already present with storage_path, skipping`);
+            console.log(`Email ${emailId}: all ${existingByAttachmentKey.size} attachment key(s) already present with storage_path, skipping`);
           }
         }
         
