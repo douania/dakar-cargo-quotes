@@ -14,6 +14,13 @@ RÈGLE FONDAMENTALE :
 "maritime import" ≠ "fret maritime à coter".
 Si le texte indique que le fret principal est déjà arrangé/payé par une autre partie, freight_scope DOIT être false.
 
+RÈGLES DE PRIORITÉ DES DONNÉES :
+- CONFIRMED_FACTS est la vérité actuelle du dossier.
+- En cas de conflit entre CONFIRMED_FACTS et le sujet/corps email, toujours suivre CONFIRMED_FACTS.
+- Les sujets email peuvent être obsolètes ou réutilisés depuis d'anciens dossiers.
+- Ne jamais conclure "Dakar -> Peking" ou "Dakar -> Pékin" si CONFIRMED_FACTS indiquent Suisse -> Sénégal.
+- Ne jamais mettre shipment_type="export" si CONFIRMED_FACTS indiquent une origine hors Sénégal et une destination Sénégal.
+
 Signaux clés à détecter :
 - "CIF Dakar", "CFR Dakar", "CIP Dakar" → fret déjà inclus, freight_scope = false
 - "customer paying up to port Dakar" → freight_scope = false
@@ -50,6 +57,99 @@ Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 // ── Max chars for previous context emails ──
 const PREV_EMAIL_MAX_CHARS = 500;
 const MAX_CONTEXT_EMAILS = 4;
+const TARGET_FACT_KEYS = [
+  "routing.origin_country",
+  "routing.origin_port",
+  "routing.origin_airport",
+  "routing.destination_country",
+  "routing.destination_city",
+  "routing.destination_port",
+  "routing.destination_airport",
+  "routing.incoterm",
+  "cargo.weight_kg",
+  "cargo.volume_cbm",
+  "cargo.pieces_count",
+  "cargo.description",
+  "service.package",
+  "contacts.client_company",
+  "contacts.client_email",
+];
+
+const FACT_LABELS: Record<string, string> = {
+  "routing.origin_country": "origin_country",
+  "routing.origin_port": "origin_port",
+  "routing.origin_airport": "origin_airport",
+  "routing.destination_country": "destination_country",
+  "routing.destination_city": "destination_city",
+  "routing.destination_port": "destination_port",
+  "routing.destination_airport": "destination_airport",
+  "routing.incoterm": "incoterm",
+  "cargo.weight_kg": "cargo_weight_kg",
+  "cargo.volume_cbm": "volume_cbm",
+  "cargo.pieces_count": "pieces_count",
+  "cargo.description": "cargo_description",
+  "service.package": "service_package",
+  "contacts.client_company": "client_company",
+  "contacts.client_email": "client_email",
+};
+
+type QuoteFact = {
+  fact_key: string;
+  value_text: string | null;
+  value_number: number | null;
+  value_json: unknown;
+  source_type: string | null;
+  source_excerpt: string | null;
+};
+
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function factValueAsString(fact: QuoteFact | undefined): string {
+  if (!fact) return "";
+  if (typeof fact.value_text === "string" && fact.value_text.trim()) return fact.value_text.trim();
+  if (typeof fact.value_number === "number") return String(fact.value_number);
+  if (typeof fact.value_json === "string" || typeof fact.value_json === "number" || typeof fact.value_json === "boolean") {
+    return String(fact.value_json);
+  }
+  if (fact.value_json && typeof fact.value_json === "object") {
+    const obj = fact.value_json as Record<string, unknown>;
+    if (typeof obj["value"] === "string" || typeof obj["value"] === "number") return String(obj["value"]);
+  }
+  return "";
+}
+
+function stableHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function buildConfirmedFactsBlock(facts: QuoteFact[]): string {
+  if (facts.length === 0) return "[CONFIRMED_FACTS]\n(none)";
+  const lines = facts.map((fact) => {
+    const label = FACT_LABELS[fact.fact_key] ?? fact.fact_key;
+    const source = fact.source_type ? ` source=${fact.source_type}` : "";
+    const excerpt = fact.source_excerpt ? ` excerpt=${JSON.stringify(fact.source_excerpt.slice(0, 180))}` : "";
+    return `${label}=${factValueAsString(fact)}${source}${excerpt}`;
+  });
+  return `[CONFIRMED_FACTS]\n${lines.join("\n")}`;
+}
+
+function subjectMentionsPeking(subject: string | null): boolean {
+  const normalized = normalizeText(subject);
+  return normalized.includes("peking")
+    || normalized.includes("pekin")
+    || normalized.includes("dakar to peking")
+    || normalized.includes("dakar a pekin");
+}
 
 serve(async (req: Request) => {
   const corsResp = handleCors(req);
@@ -59,8 +159,9 @@ serve(async (req: Request) => {
   if (auth instanceof Response) return auth;
 
   try {
-    const { case_id } = await req.json();
+    const { case_id, force_refresh } = await req.json();
     if (!case_id) return errorResponse("case_id is required", 400);
+    const forceRefresh = force_refresh === true;
 
     const authHeader = req.headers.get("Authorization")!;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -87,6 +188,26 @@ serve(async (req: Request) => {
       return errorResponse("Case not found or no thread linked", 404);
     }
 
+    const { data: quoteFacts, error: factsErr } = await userClient
+      .from("quote_facts")
+      .select("fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+      .eq("case_id", case_id)
+      .eq("is_current", true)
+      .in("fact_key", TARGET_FACT_KEYS);
+
+    if (factsErr) {
+      console.error("[analyze-service-scope] quote_facts load failed:", factsErr.message);
+      return errorResponse("Failed to load confirmed facts", 500);
+    }
+
+    const confirmedFacts = ((quoteFacts ?? []) as QuoteFact[])
+      .filter((fact) => factValueAsString(fact) !== "")
+      .sort((a, b) => TARGET_FACT_KEYS.indexOf(a.fact_key) - TARGET_FACT_KEYS.indexOf(b.fact_key));
+    const factsByKey = new Map(confirmedFacts.map((fact) => [fact.fact_key, factValueAsString(fact)]));
+    const factsHash = stableHash(
+      confirmedFacts.map((fact) => `${fact.fact_key}=${factValueAsString(fact)}`).join("|")
+    );
+
     // 2. Fetch emails from thread (most recent first)
     const { data: emails, error: emailsErr } = await userClient
       .from("emails")
@@ -101,6 +222,21 @@ serve(async (req: Request) => {
 
     const latestEmail = emails[0];
     const latestEmailId = latestEmail.id;
+    const originCountry = factsByKey.get("routing.origin_country") ?? "";
+    const originPort = factsByKey.get("routing.origin_port") ?? factsByKey.get("routing.origin_airport") ?? "";
+    const destinationCountry = factsByKey.get("routing.destination_country") ?? "";
+    const destinationCity = factsByKey.get("routing.destination_city")
+      ?? factsByKey.get("routing.destination_port")
+      ?? factsByKey.get("routing.destination_airport")
+      ?? "";
+    const incoterm = factsByKey.get("routing.incoterm") ?? "";
+    const staleSubject = subjectMentionsPeking(latestEmail.subject ?? null)
+      && normalizeText(originCountry).includes("switzerland")
+      && normalizeText(destinationCountry).includes("senegal");
+
+    console.log(
+      `[SCOPE-GROUND] facts_loaded=${confirmedFacts.length} origin=${originPort || originCountry || "unknown"} destination=${destinationCity || destinationCountry || "unknown"} incoterm=${incoterm || "unknown"} stale_subject=${staleSubject}`
+    );
 
     // 3. Dual idempotence check — both events for this email
     const { data: existingEvents } = await serviceClient
@@ -114,7 +250,7 @@ serve(async (req: Request) => {
       (existingEvents || []).map((e: { event_type: string }) => e.event_type)
     );
 
-    if (existingTypes.has("service_scope_v1") && existingTypes.has("case_reasoning_v1")) {
+    if (!forceRefresh && existingTypes.has("service_scope_v1") && existingTypes.has("case_reasoning_v1")) {
       // Both exist → full idempotent return
       const scopeEvent = existingEvents!.find(
         (e: { event_type: string }) => e.event_type === "service_scope_v1"
@@ -132,6 +268,10 @@ serve(async (req: Request) => {
     }
 
     // 4. Build structured prompt context
+    const confirmedFactsBlock = buildConfirmedFactsBlock(confirmedFacts);
+    const staleSubjectBlock = staleSubject
+      ? `\n\n[SUBJECT_LIKELY_STALE]\nEmail subject is likely stale/reused. Ignore the subject for route and shipment_type decisions. Use CONFIRMED_FACTS.`
+      : "";
     const latestBlock = [
       `[LATEST_EMAIL]`,
       `Sujet: ${latestEmail.subject || "(sans sujet)"}`,
@@ -149,7 +289,7 @@ serve(async (req: Request) => {
       previousBlock = `\n\n[PREVIOUS_CONTEXT]\n${lines.join("\n")}`;
     }
 
-    const userPrompt = `${latestBlock}${previousBlock}\n\nPriorité : fonder l'analyse sur LATEST_EMAIL. Utiliser PREVIOUS_CONTEXT uniquement pour clarifier des ambiguïtés.`;
+    const userPrompt = `${confirmedFactsBlock}${staleSubjectBlock}\n\n${latestBlock}${previousBlock}\n\nPriorité : fonder l'analyse sur CONFIRMED_FACTS. Utiliser LATEST_EMAIL et PREVIOUS_CONTEXT uniquement pour clarifier des ambiguïtés non résolues par les facts confirmés.`;
 
     // 5. Single AI call
     const aiResponse = await callAI(
@@ -184,10 +324,15 @@ serve(async (req: Request) => {
 
     // 6. Insert only missing events
     const created: string[] = [];
-    const scopeDedupeKey = `service_scope_v1:${case_id}:${latestEmailId}`;
-    const reasoningDedupeKey = `case_reasoning_v1:${case_id}:${latestEmailId}`;
+    const forceRefreshRunId = forceRefresh ? Date.now().toString(36) : "";
+    const scopeDedupeKey = forceRefresh
+      ? `service_scope_v1:${case_id}:${latestEmailId}:facts:${factsHash}:refresh:${forceRefreshRunId}`
+      : `service_scope_v1:${case_id}:${latestEmailId}`;
+    const reasoningDedupeKey = forceRefresh
+      ? `case_reasoning_v1:${case_id}:${latestEmailId}:facts:${factsHash}:refresh:${forceRefreshRunId}`
+      : `case_reasoning_v1:${case_id}:${latestEmailId}`;
 
-    if (!existingTypes.has("service_scope_v1")) {
+    if (forceRefresh || !existingTypes.has("service_scope_v1")) {
       const { error: scopeErr } = await serviceClient
         .from("case_timeline_events")
         .insert({
@@ -204,12 +349,12 @@ serve(async (req: Request) => {
 
       if (scopeErr) {
         console.error("[analyze-service-scope] scope insert failed:", scopeErr.message);
-        return errorResponse("Failed to insert service_scope_v1", 500);
+        return errorResponse(`Failed to insert service_scope_v1: ${scopeErr.message}`, 500);
       }
       created.push("service_scope_v1");
     }
 
-    if (!existingTypes.has("case_reasoning_v1")) {
+    if (forceRefresh || !existingTypes.has("case_reasoning_v1")) {
       const { error: reasoningErr } = await serviceClient
         .from("case_timeline_events")
         .insert({
@@ -226,7 +371,7 @@ serve(async (req: Request) => {
 
       if (reasoningErr) {
         console.error("[analyze-service-scope] reasoning insert failed:", reasoningErr.message);
-        return errorResponse("Failed to insert case_reasoning_v1", 500);
+        return errorResponse(`Failed to insert case_reasoning_v1: ${reasoningErr.message}`, 500);
       }
       created.push("case_reasoning_v1");
     }

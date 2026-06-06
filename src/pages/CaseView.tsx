@@ -340,7 +340,7 @@ export default function CaseView() {
     setIsServiceScopeAnalyzing(true);
     try {
       const { data, error } = await supabase.functions.invoke("analyze-service-scope", {
-        body: { case_id: caseId },
+        body: { case_id: caseId, force_refresh: true },
       });
 
       if (error) throw error;
