@@ -84,6 +84,10 @@ import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSumma
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 
+function formatPackageLabel(packageKey: string): string {
+  return packageKey.trim().replace(/_/g, " ");
+}
+
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -968,6 +972,13 @@ export default function CaseView() {
     (f) => f.fact_key === "contacts.client_name" || f.fact_key === "client_name"
   );
   const clientName = clientFact?.value_text || null;
+  const servicePackageFact = facts.find(
+    (f) => f.fact_key === "service.package" && f.is_current
+  );
+  const servicePackageLabel =
+    typeof servicePackageFact?.value_text === "string" && servicePackageFact.value_text.trim()
+      ? formatPackageLabel(servicePackageFact.value_text)
+      : null;
 
   // ── Loading state ──
   if (caseLoading) {
@@ -1029,7 +1040,10 @@ export default function CaseView() {
               {STATUS_LABELS[caseData.status] || caseData.status}
             </Badge>
             {caseData.request_type && (
-              <Badge variant="outline">{caseData.request_type}</Badge>
+              <Badge variant="outline">Mode technique : {caseData.request_type}</Badge>
+            )}
+            {servicePackageLabel && (
+              <Badge variant="outline">Package métier : {servicePackageLabel}</Badge>
             )}
             {/* Phase 16: Intent badge */}
             {(() => {
