@@ -986,7 +986,35 @@ export interface HsExtractionMatch {
   excerpt?: string;
 }
 
-function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
+type HsTokenMatch = {
+  raw: string;
+  digits: string;
+  index: number;
+  length: number;
+};
+
+const HS_TOKEN_REGEX = /(?<!\d)(\d{4}\.\d{2}(?:\.\d{2})?(?:\.\d{2})?|\d{4}\s+\d{2}(?:\s+\d{2})?(?:\s+\d{2})?|\d{10}|\d{8}|\d{6})(?!\d)/g;
+
+function extractHsTokenMatches(value: string): HsTokenMatch[] {
+  const out: HsTokenMatch[] = [];
+  const seen = new Set<string>();
+  for (const m of String(value || "").matchAll(HS_TOKEN_REGEX)) {
+    const raw = m[1];
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length !== 6 && digits.length !== 8 && digits.length !== 10) continue;
+    if (seen.has(digits)) continue;
+    seen.add(digits);
+    out.push({
+      raw,
+      digits,
+      index: m.index ?? 0,
+      length: m[0].length,
+    });
+  }
+  return out;
+}
+
+export function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
   const out: HsExtractionMatch[] = [];
   const seen = new Set<string>();
 
@@ -1015,9 +1043,16 @@ function extractHsCodesFromTextDetailed(text: string): HsExtractionMatch[] {
   for (const m of text.matchAll(/\(\s*(\d{6}|\d{8}|\d{10})\s*\)/g)) {
     push(m[1], "parenthesized", makeExcerpt(text, m.index ?? 0, m[0].length));
   }
-  // 2. Labels HS/SH (avec ou sans dots, 6/8/10 chiffres)
-  for (const m of text.matchAll(/\b(?:HS|SH)\s*(?:code)?\s*:?\s*(\d{4}[.\s]?\d{2}(?:[.\s]?\d{2})?(?:[.\s]?\d{2})?)/gi)) {
-    push(m[1], "hs_label", makeExcerpt(text, m.index ?? 0, m[0].length));
+  // 2. Labels HS/SH (avec ou sans dots, 6/8/10 chiffres), y compris plusieurs codes sur la ligne.
+  for (const lineMatch of text.matchAll(/[^\r\n]+/g)) {
+    const line = lineMatch[0];
+    const label = /\b(?:HS|SH)\s*(?:codes?)?\s*:?/i.exec(line);
+    if (!label) continue;
+    const afterLabel = line.slice(label.index + label[0].length);
+    const lineExcerpt = makeExcerpt(text, lineMatch.index ?? 0, line.length);
+    for (const token of extractHsTokenMatches(afterLabel)) {
+      push(token.raw, "hs_label", lineExcerpt);
+    }
   }
   // 3. "Code Douanier" — fournisseurs FR
   for (const m of text.matchAll(/Code\s*Douanier\s*:?\s*(\d{6,10})/gi)) {
@@ -1361,6 +1396,72 @@ async function handleSubTenHsSuggestion(
   });
 
   return { blocking: isBlocking, status: result.status };
+}
+
+export async function guardAiCargoHsCodeFact(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    rawHs: string;
+    cargoDescription?: string;
+    clientName?: string;
+    sourceExcerpt?: string;
+  },
+): Promise<
+  | { shouldWrite: true; code10: string; confidence: number; routedSourceDigits: string[] }
+  | { shouldWrite: false; routedSourceDigits: string[] }
+> {
+  const rawHs = String(args.rawHs || "");
+  const rawDigits = rawHs.replace(/\D/g, "");
+
+  if (rawDigits.length > 10) {
+    const tokens = extractHsTokenMatches(rawHs);
+    console.warn(`[HS Guard] Refused combined HS value (raw=${rawHs}, digits=${rawDigits.length}) — emitting suggestions`);
+    for (const token of tokens) {
+      await handleSubTenHsSuggestion(serviceClient, {
+        case_id: args.case_id,
+        source_digits: token.digits,
+        source_context: "hs_label",
+        origin: "ai_extraction",
+        cargoDescription: args.cargoDescription,
+        clientName: args.clientName,
+        sourceExcerpt: args.sourceExcerpt || rawHs,
+      });
+    }
+    if (!tokens.length) {
+      await ensureHsCodeGap(serviceClient, {
+        case_id: args.case_id,
+        is_blocking: true,
+        question_fr: `Valeur HS combinée "${rawHs}" non exploitable automatiquement. Veuillez confirmer le ou les codes HS 10 chiffres.`,
+        question_en: `Combined HS value "${rawHs}" cannot be used automatically. Please confirm the 10-digit HS code(s).`,
+      });
+    }
+    return { shouldWrite: false, routedSourceDigits: tokens.map((t) => t.digits) };
+  }
+
+  if (rawDigits.length < 10) {
+    // Source <10 chiffres → JAMAIS d'écriture cargo.hs_code. Suggestion + GAP.
+    console.warn(`[HS Guard] Refused sub-10 promotion (raw=${rawHs}, digits=${rawDigits.length}) — emitting suggestion`);
+    await handleSubTenHsSuggestion(serviceClient, {
+      case_id: args.case_id,
+      source_digits: rawDigits,
+      source_context: "hs_label",
+      origin: "ai_extraction",
+      cargoDescription: args.cargoDescription,
+      clientName: args.clientName,
+      sourceExcerpt: args.sourceExcerpt,
+    });
+    return { shouldWrite: false, routedSourceDigits: rawDigits ? [rawDigits] : [] };
+  }
+
+  const hsResult = await resolveSenegalHsCode(serviceClient, rawHs);
+  if (hsResult.status === "unique") {
+    console.log(`[HS Guard] Resolved ${rawHs} → ${hsResult.code10}`);
+    return { shouldWrite: true, code10: hsResult.code10, confidence: 1.0, routedSourceDigits: [] };
+  }
+
+  console.warn(`[HS Guard] Skipping cargo.hs_code injection: ${hsResult.status} for raw=${rawHs}`);
+  return { shouldWrite: false, routedSourceDigits: [] };
 }
 
 // --- Deterministic cargo value extraction from free text (regex) ---
@@ -3823,33 +3924,19 @@ Deno.serve(async (req) => {
         // --- HS Code guard: validate against hs_codes table before injection ---
         // DCQ-P0-HS10-SAFE: refuser toute promotion HS6/HS8 → HS10 (suggestion only).
         if (fact.key === "cargo.hs_code") {
-          const rawHs = String(fact.value);
-          const rawDigits = rawHs.replace(/\D/g, "");
-          if (rawDigits.length < 10) {
-            // Source <10 chiffres → JAMAIS d'écriture cargo.hs_code. Suggestion + GAP.
-            console.warn(`[HS Guard] Refused sub-10 promotion (raw=${rawHs}, digits=${rawDigits.length}) — emitting suggestion`);
-            await handleSubTenHsSuggestion(serviceClient, {
-              case_id,
-              source_digits: rawDigits,
-              source_context: "hs_label",
-              origin: "ai_extraction",
-              cargoDescription: hsRankingCargoDescription,
-              clientName: hsRankingClientName,
-              sourceExcerpt: (fact as any)?.sourceExcerpt || undefined,
-            });
+          const hsGuard = await guardAiCargoHsCodeFact(serviceClient, {
+            case_id,
+            rawHs: String(fact.value),
+            cargoDescription: hsRankingCargoDescription,
+            clientName: hsRankingClientName,
+            sourceExcerpt: (fact as any)?.sourceExcerpt || undefined,
+          });
+          if (!hsGuard.shouldWrite) {
             factsSkipped++;
             continue;
           }
-          const hsResult = await resolveSenegalHsCode(serviceClient, rawHs);
-          if (hsResult.status === "unique") {
-            fact.value = hsResult.code10;
-            fact.confidence = 1.0;
-            console.log(`[HS Guard] Resolved ${rawHs} → ${hsResult.code10}`);
-          } else {
-            console.warn(`[HS Guard] Skipping cargo.hs_code injection: ${hsResult.status} for raw=${rawHs}`);
-            factsSkipped++;
-            continue;
-          }
+          fact.value = hsGuard.code10;
+          fact.confidence = hsGuard.confidence;
         }
 
 
