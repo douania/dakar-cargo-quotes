@@ -1864,6 +1864,481 @@ function parseContainersFromText(raw: string): Array<{ type: string; quantity: n
   for (const c of out) merged.set(c.type, (merged.get(c.type) || 0) + c.quantity);
   return Array.from(merged.entries()).map(([type, quantity]) => ({ type, quantity }));
 }
+
+interface PerContainerWeightParse {
+  weightPerContainerKg: number;
+  sourceExcerpt: string;
+  confidence: number;
+}
+
+interface ContainerCountResult {
+  count: number | null;
+  ambiguous: boolean;
+}
+
+interface TotalWeightDerivation {
+  weightPerContainerKg: number;
+  totalWeightKg: number | null;
+  sourceExcerpt: string;
+  confidence: number;
+  needsTotalWeightConfirmation: boolean;
+}
+
+interface DestinationFreeTimeParse {
+  days: number;
+  sourceExcerpt: string;
+  confidence: number;
+}
+
+interface FinalDestinationTransitParse {
+  finalDestination: string | null;
+  transitViaPort: string | null;
+  sourceExcerpt: string;
+  confidence: number;
+}
+
+function cleanSingleLine(value: string): string {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function excerptAroundMatch(text: string, index: number, length: number, max = 180): string {
+  const raw = String(text || "");
+  const start = Math.max(0, index - 60);
+  const end = Math.min(raw.length, index + length + 80);
+  return cleanSingleLine(raw.slice(start, end)).slice(0, max);
+}
+
+function parseWeightUnitToKg(value: number, unit: string): number {
+  const normalized = unit.toLowerCase().replace(/\./g, "").trim();
+  if (normalized === "kg" || normalized === "kgs") return Math.round(value);
+  return Math.round(value * 1000);
+}
+
+export function parsePerContainerWeight(text: string): PerContainerWeightParse | null {
+  const source = String(text || "");
+  const re = /\b(\d+(?:[\s.,]\d+)?)\s*(m\.?\s*t\.?|mt|metric\s*tons?|tons?|tonnes?|t|kg|kgs)\s*(?:\/|\bper\b|\beach\b|\bpar\b)\s*(?:container|containers|cntr|ctr|conteneurs?|ctnrs?)\b/i;
+  const match = re.exec(source);
+  if (!match?.[1] || !match[2]) return null;
+
+  const parsed = parseRobustNumber(match[1]);
+  if (parsed == null || parsed <= 0) return null;
+
+  return {
+    weightPerContainerKg: parseWeightUnitToKg(parsed, match[2]),
+    sourceExcerpt: excerptAroundMatch(source, match.index, match[0].length),
+    confidence: 0.95,
+  };
+}
+
+export function countContainers(containersFact: unknown): ContainerCountResult {
+  const rawValue = containersFact && typeof containersFact === "object" && "value_json" in containersFact
+    ? (containersFact as any).value_json
+    : containersFact && typeof containersFact === "object" && "value" in containersFact
+      ? (containersFact as any).value
+      : containersFact;
+
+  let containers: Array<{ type?: unknown; quantity?: unknown }> = [];
+  if (Array.isArray(rawValue)) {
+    containers = rawValue as Array<{ type?: unknown; quantity?: unknown }>;
+  } else if (typeof rawValue === "string" && rawValue.trim()) {
+    containers = parseContainersFromText(rawValue);
+  } else {
+    return { count: null, ambiguous: true };
+  }
+
+  if (containers.length === 0) return { count: null, ambiguous: true };
+
+  let total = 0;
+  for (const c of containers) {
+    const qty = Number((c as any)?.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return { count: null, ambiguous: true };
+    total += qty;
+  }
+
+  return total > 0 ? { count: total, ambiguous: false } : { count: null, ambiguous: true };
+}
+
+export function deriveTotalWeightIfSafe(
+  perContainerWeight: PerContainerWeightParse | null,
+  containers: ContainerCountResult,
+): TotalWeightDerivation | null {
+  if (!perContainerWeight) return null;
+
+  const canCalculate = !containers.ambiguous && typeof containers.count === "number" && containers.count > 0;
+  return {
+    weightPerContainerKg: perContainerWeight.weightPerContainerKg,
+    totalWeightKg: canCalculate ? perContainerWeight.weightPerContainerKg * containers.count! : null,
+    sourceExcerpt: perContainerWeight.sourceExcerpt,
+    confidence: canCalculate ? 0.95 : 0.85,
+    needsTotalWeightConfirmation: !canCalculate,
+  };
+}
+
+export function parseDestinationFreeTime(text: string): DestinationFreeTimeParse | null {
+  const source = String(text || "");
+  const patterns = [
+    /\b(\d{1,3})\s*(?:days?|jours?)\s*(?:of\s*)?(?:free[-\s]?time|freetime)\b(?:[^.\n]{0,80}\b(?:destination|dest\.?|pod|discharge)\b)?/i,
+    /\b(?:free[-\s]?time|freetime)\b[^.\n]{0,80}\b(\d{1,3})\s*(?:days?|jours?)\b[^.\n]{0,80}\b(?:destination|dest\.?|pod|discharge)\b/i,
+  ];
+
+  for (const re of patterns) {
+    const match = re.exec(source);
+    if (!match?.[1]) continue;
+    const days = Number(match[1]);
+    if (!Number.isInteger(days) || days <= 0 || days > 180) continue;
+    const excerpt = excerptAroundMatch(source, match.index, match[0].length);
+    const confidence = /\b(?:destination|dest\.?|pod|discharge)\b/i.test(excerpt) ? 0.95 : 0.85;
+    return { days, sourceExcerpt: excerpt, confidence };
+  }
+
+  return null;
+}
+
+function hasDestinationFreeTimeSignal(text: string): boolean {
+  return /\b(?:free[-\s]?time|freetime)\b/i.test(text || "");
+}
+
+function normalizeTransitDestination(value: string): string | null {
+  const cleaned = cleanSingleLine(value)
+    .replace(/\b(?:as|because|since|cargo|is|are|will|be|intransit|in\s+transit)\b.*$/i, "")
+    .replace(/\b(?:via|through)\b.*$/i, "")
+    .replace(/[^A-Za-z\s.'-]+$/g, "")
+    .trim();
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 80) return null;
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function parseStructuredDestinationPort(text: string): string | null {
+  const source = String(text || "");
+  const match = /\bDestination\s+Port\s*:\s*([^\n,.;]+(?:\s+Port)?)\b/i.exec(source)
+    || /\bPOD\s*:\s*([^\n,.;]+(?:\s+Port)?)\b/i.exec(source);
+  const port = cleanSingleLine(match?.[1] || "");
+  if (!port || !/\bport\b/i.test(port)) return null;
+  return port.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function parseFinalDestinationTransit(text: string): FinalDestinationTransitParse | null {
+  const source = String(text || "");
+  const patterns = [
+    /\b(?:cargo\s+is\s+)?(?:in\s*transit|intransit)\s+(?:to|for|towards)\s+([^\n.;,]+)/i,
+    /\btransit\s+(?:to|for|towards)\s+([^\n.;,]+)/i,
+  ];
+
+  for (const re of patterns) {
+    const match = re.exec(source);
+    const finalDestination = normalizeTransitDestination(match?.[1] || "");
+    if (!match || !finalDestination) continue;
+    return {
+      finalDestination,
+      transitViaPort: parseStructuredDestinationPort(source),
+      sourceExcerpt: excerptAroundMatch(source, match.index, match[0].length),
+      confidence: 0.85,
+    };
+  }
+
+  return null;
+}
+
+function hasTransitFinalDestinationSignal(text: string): boolean {
+  return /\b(?:in\s*transit|intransit|transit\s+(?:to|for|towards))\b/i.test(text || "");
+}
+
+function hasStoredFactValue(row: any): boolean {
+  if (!row) return false;
+  if (row.value_number !== null && row.value_number !== undefined && Number.isFinite(Number(row.value_number))) return true;
+  if (row.value_text !== null && row.value_text !== undefined && String(row.value_text).trim().length > 0) return true;
+  if (row.value_json !== null && row.value_json !== undefined) {
+    if (Array.isArray(row.value_json)) return row.value_json.length > 0;
+    return true;
+  }
+  return false;
+}
+
+const FCL_DETERMINISTIC_FACT_SOURCE_TYPE = "ai_extraction";
+
+function fclDeterministicSourceExcerpt(sourceExcerpt: string): string {
+  const raw = cleanSingleLine(sourceExcerpt);
+  const prefixed = raw.startsWith("[deterministic_calc]")
+    ? raw
+    : `[deterministic_calc] ${raw}`;
+  return prefixed.slice(0, 500);
+}
+
+async function upsertDeterministicFact(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    fact_key: string;
+    fact_category: string;
+    value_text?: string | null;
+    value_number?: number | null;
+    value_json?: unknown | null;
+    source_email_id?: string | null;
+    source_excerpt: string;
+    confidence: number;
+  },
+): Promise<"added" | "updated" | "skipped"> {
+  const { data: existingFact } = await serviceClient
+    .from("quote_facts")
+    .select("id, value_text, value_number, value_json, source_type")
+    .eq("case_id", args.case_id)
+    .eq("fact_key", args.fact_key)
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (existingFact && hasStoredFactValue(existingFact) && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? "")) {
+    console.log(`[FCL constraints] Skipping ${args.fact_key}: protected source (${existingFact.source_type})`);
+    return "skipped";
+  }
+
+  const nextValue = args.value_json ?? args.value_number ?? args.value_text ?? null;
+  const existingValue = existingFact?.value_json ?? existingFact?.value_number ?? existingFact?.value_text ?? null;
+  if (existingFact && JSON.stringify(existingValue) === JSON.stringify(nextValue)) {
+    return "skipped";
+  }
+
+  const { error } = await serviceClient.rpc("supersede_fact", {
+    p_case_id: args.case_id,
+    p_fact_key: args.fact_key,
+    p_fact_category: args.fact_category,
+    p_value_text: args.value_text ?? null,
+    p_value_number: args.value_number ?? null,
+    p_value_json: args.value_json ?? null,
+    p_value_date: null,
+    p_source_type: FCL_DETERMINISTIC_FACT_SOURCE_TYPE,
+    p_source_email_id: args.source_email_id ?? null,
+    p_source_attachment_id: null,
+    p_source_excerpt: fclDeterministicSourceExcerpt(args.source_excerpt),
+    p_confidence: args.confidence,
+  });
+
+  if (error) {
+    console.warn(`[FCL constraints] Failed to upsert ${args.fact_key}: ${error.message}`);
+    return "skipped";
+  }
+
+  return existingFact ? "updated" : "added";
+}
+
+async function ensureDeterministicBlockingGap(
+  serviceClient: any,
+  args: {
+    case_id: string;
+    gap_key: string;
+    gap_category: string;
+    question_fr: string;
+    question_en: string;
+  },
+): Promise<boolean> {
+  const { data: existingGap } = await serviceClient
+    .from("quote_gaps")
+    .select("id, is_blocking")
+    .eq("case_id", args.case_id)
+    .eq("gap_key", args.gap_key)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (!existingGap?.id) {
+    await serviceClient.from("quote_gaps").insert({
+      case_id: args.case_id,
+      gap_key: args.gap_key,
+      gap_category: args.gap_category,
+      question_fr: args.question_fr,
+      question_en: args.question_en,
+      priority: "critical",
+      is_blocking: true,
+    });
+    return true;
+  }
+
+  if (existingGap.is_blocking === false) {
+    await serviceClient
+      .from("quote_gaps")
+      .update({ is_blocking: true, priority: "critical" })
+      .eq("id", existingGap.id);
+  }
+
+  return false;
+}
+
+async function clearUnsafePerContainerTotalIfNeeded(
+  serviceClient: any,
+  case_id: string,
+  perContainerWeightKg: number,
+): Promise<boolean> {
+  const { data: existingFact } = await serviceClient
+    .from("quote_facts")
+    .select("id, value_number, source_type, source_excerpt")
+    .eq("case_id", case_id)
+    .eq("fact_key", "cargo.weight_kg")
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (!existingFact || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? "")) return false;
+  const currentWeight = Number(existingFact.value_number);
+  const excerpt = String(existingFact.source_excerpt || "");
+  if (Number.isFinite(currentWeight) && currentWeight === perContainerWeightKg && /\bper\s*(?:container|cntr|ctr)\b/i.test(excerpt)) {
+    await serviceClient
+      .from("quote_facts")
+      .update({ is_current: false, updated_at: new Date().toISOString() })
+      .eq("id", existingFact.id);
+    console.log("[FCL constraints] Deactivated unsafe cargo.weight_kg copied from per-container weight");
+    return true;
+  }
+
+  return false;
+}
+
+export async function applyFclConstraintPostProcessing(args: {
+  case_id: string;
+  serviceClient: any;
+  text: string;
+  sourceEmailId?: string | null;
+}): Promise<{ added: number; updated: number; skipped: number; gapsIdentified: number; protectedGapKeys: Set<string> }> {
+  const result = { added: 0, updated: 0, skipped: 0, gapsIdentified: 0, protectedGapKeys: new Set<string>() };
+  const text = String(args.text || "");
+  if (!text.trim()) return result;
+
+  const { data: currentFacts } = await args.serviceClient
+    .from("quote_facts")
+    .select("fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+    .eq("case_id", args.case_id)
+    .eq("is_current", true)
+    .in("fact_key", [
+      "cargo.containers",
+      "cargo.weight_kg",
+      "cargo.weight_per_container_kg",
+      "pricing.destination_free_time_days",
+      "routing.final_destination",
+      "routing.transit_via_port",
+    ]);
+
+  const factMap = new Map<string, any>();
+  for (const row of currentFacts || []) factMap.set(row.fact_key, row);
+
+  const perContainer = parsePerContainerWeight(text);
+  if (perContainer) {
+    const containers = countContainers(factMap.get("cargo.containers"));
+    const derivation = deriveTotalWeightIfSafe(perContainer, containers);
+    if (derivation) {
+      const perContainerWrite = await upsertDeterministicFact(args.serviceClient, {
+        case_id: args.case_id,
+        fact_key: "cargo.weight_per_container_kg",
+        fact_category: "cargo",
+        value_number: derivation.weightPerContainerKg,
+        source_email_id: args.sourceEmailId ?? null,
+        source_excerpt: derivation.sourceExcerpt,
+        confidence: derivation.confidence,
+      });
+      if (perContainerWrite === "added") result.added++;
+      else if (perContainerWrite === "updated") result.updated++;
+      else result.skipped++;
+
+      if (derivation.totalWeightKg !== null) {
+        const totalExcerpt = `${derivation.sourceExcerpt}; containers=${containers.count}; total=${derivation.totalWeightKg} kg`;
+        const totalWrite = await upsertDeterministicFact(args.serviceClient, {
+          case_id: args.case_id,
+          fact_key: "cargo.weight_kg",
+          fact_category: "cargo",
+          value_number: derivation.totalWeightKg,
+          source_email_id: args.sourceEmailId ?? null,
+          source_excerpt: totalExcerpt.slice(0, 500),
+          confidence: 0.95,
+        });
+        if (totalWrite === "added") result.added++;
+        else if (totalWrite === "updated") result.updated++;
+        else result.skipped++;
+        console.log(`[FCL constraints] Derived total weight from per-container weight (${containers.count} containers)`);
+      } else {
+        const cleared = await clearUnsafePerContainerTotalIfNeeded(args.serviceClient, args.case_id, derivation.weightPerContainerKg);
+        if (cleared) result.updated++;
+        result.protectedGapKeys.add("cargo.weight_kg");
+        const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+          case_id: args.case_id,
+          gap_key: "cargo.weight_kg",
+          gap_category: "cargo",
+          question_fr: "Le poids est indique par conteneur, mais le nombre de conteneurs est absent ou ambigu. Veuillez confirmer le poids total ou le calcul a appliquer.",
+          question_en: "Weight is stated per container, but the number of containers is missing or ambiguous. Please confirm the total weight or the calculation to apply.",
+        });
+        if (created) result.gapsIdentified++;
+      }
+    }
+  }
+
+  const freeTime = parseDestinationFreeTime(text);
+  if (freeTime) {
+    const write = await upsertDeterministicFact(args.serviceClient, {
+      case_id: args.case_id,
+      fact_key: "pricing.destination_free_time_days",
+      fact_category: "pricing",
+      value_number: freeTime.days,
+      source_email_id: args.sourceEmailId ?? null,
+      source_excerpt: freeTime.sourceExcerpt,
+      confidence: freeTime.confidence,
+    });
+    if (write === "added") result.added++;
+    else if (write === "updated") result.updated++;
+    else result.skipped++;
+  } else if (hasDestinationFreeTimeSignal(text)) {
+    result.protectedGapKeys.add("pricing.destination_free_time_days");
+    const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+      case_id: args.case_id,
+      gap_key: "pricing.destination_free_time_days",
+      gap_category: "pricing",
+      question_fr: "Une demande de free time destination est detectee, mais le nombre de jours n'est pas exploitable. Veuillez confirmer le nombre de jours.",
+      question_en: "Destination free time is mentioned, but the number of days could not be extracted. Please confirm the number of days.",
+    });
+    if (created) result.gapsIdentified++;
+  }
+
+  const transit = parseFinalDestinationTransit(text);
+  if (transit?.finalDestination) {
+    const finalWrite = await upsertDeterministicFact(args.serviceClient, {
+      case_id: args.case_id,
+      fact_key: "routing.final_destination",
+      fact_category: "routing",
+      value_text: transit.finalDestination,
+      source_email_id: args.sourceEmailId ?? null,
+      source_excerpt: transit.sourceExcerpt,
+      confidence: transit.confidence,
+    });
+    if (finalWrite === "added") result.added++;
+    else if (finalWrite === "updated") result.updated++;
+    else result.skipped++;
+
+    if (transit.transitViaPort) {
+      const viaWrite = await upsertDeterministicFact(args.serviceClient, {
+        case_id: args.case_id,
+        fact_key: "routing.transit_via_port",
+        fact_category: "routing",
+        value_text: transit.transitViaPort,
+        source_email_id: args.sourceEmailId ?? null,
+        source_excerpt: transit.sourceExcerpt,
+        confidence: transit.confidence,
+      });
+      if (viaWrite === "added") result.added++;
+      else if (viaWrite === "updated") result.updated++;
+      else result.skipped++;
+    }
+  } else if (hasTransitFinalDestinationSignal(text)) {
+    result.protectedGapKeys.add("routing.final_destination");
+    const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+      case_id: args.case_id,
+      gap_key: "routing.final_destination",
+      gap_category: "routing",
+      question_fr: "Un transit vers une destination finale est detecte, mais la destination finale n'est pas exploitable. Veuillez confirmer la destination finale.",
+      question_en: "Transit to a final destination is mentioned, but the final destination could not be extracted. Please confirm the final destination.",
+    });
+    if (created) result.gapsIdentified++;
+  }
+
+  if (result.added + result.updated + result.gapsIdentified > 0) {
+    console.log(`[FCL constraints] post-process applied: added=${result.added}, updated=${result.updated}, gaps=${result.gapsIdentified}`);
+  }
+
+  return result;
+}
+
 function normalizeLocationKey(value: string): string {
   return String(value || '').toUpperCase().trim().replace(/\s+/g, ' ');
 }
@@ -2782,6 +3257,7 @@ async function injectAttachmentFacts(
   return result;
 }
 
+if (Deno.env.get("BUILD_CASE_PUZZLE_DISABLE_SERVE") !== "1") {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -4785,6 +5261,19 @@ Deno.serve(async (req) => {
       ? "EXPORT_SENEGAL"
       : detectedType;
 
+    // P0 FCL constraints: deterministic post-processing after AI/fallback/doc extraction, before gap analysis.
+    const deterministicConstraintContext = [inboundThreadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
+    const fclConstraintResult = await applyFclConstraintPostProcessing({
+      case_id,
+      serviceClient,
+      text: deterministicConstraintContext,
+      sourceEmailId: pickSourceEmailId(inboundEmails),
+    });
+    factsAdded += fclConstraintResult.added;
+    factsUpdated += fclConstraintResult.updated;
+    factsSkipped += fclConstraintResult.skipped;
+    gapsIdentified += fclConstraintResult.gapsIdentified;
+
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
       const { data: knownContacts } = await serviceClient
@@ -4986,6 +5475,7 @@ Deno.serve(async (req) => {
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
+      for (const k of fclConstraintResult.protectedGapKeys) mandatorySet.add(k);
       // P1: Protect clarification gap from orphan closure when ambiguity is active
       if (isAmbiguousLclFcl) mandatorySet.add("routing.shipment_mode_clarification");
 
@@ -5702,6 +6192,7 @@ Deno.serve(async (req) => {
     );
   }
 });
+}
 
 async function extractFactsWithAI(
   threadContext: string,
@@ -5915,7 +6406,7 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
         const parts = m.match(/(\d+)\s*x?\s*(20|40)\s*'?\s*(hc|dv|rf|gp|ot|fr)?/i);
         return {
           quantity: parseInt(parts?.[1] || "1"),
-          type: `${parts?.[2]}${(parts?.[3] || "DV").toUpperCase()}`,
+          type: `${parts?.[2]}${(parts?.[3] || "GP").toUpperCase()}`.replace("DV", "GP"),
         };
       });
       facts.push({
