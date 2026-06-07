@@ -2347,6 +2347,68 @@ export type Database = {
         }
         Relationships: []
       }
+      known_business_contact_channels: {
+        Row: {
+          business_contact_id: string
+          channel_type: string
+          confidence_level: string
+          contact_email: string | null
+          contact_label: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          last_verified_at: string | null
+          notes: string | null
+          portal_url: string | null
+          requires_account: boolean
+          service_types: string[]
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          business_contact_id: string
+          channel_type: string
+          confidence_level?: string
+          contact_email?: string | null
+          contact_label?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_verified_at?: string | null
+          notes?: string | null
+          portal_url?: string | null
+          requires_account?: boolean
+          service_types?: string[]
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          business_contact_id?: string
+          channel_type?: string
+          confidence_level?: string
+          contact_email?: string | null
+          contact_label?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_verified_at?: string | null
+          notes?: string | null
+          portal_url?: string | null
+          requires_account?: boolean
+          service_types?: string[]
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "known_business_contact_channels_business_contact_id_fkey"
+            columns: ["business_contact_id"]
+            isOneToOne: false
+            referencedRelation: "known_business_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       known_business_contacts: {
         Row: {
           client_code: string | null
