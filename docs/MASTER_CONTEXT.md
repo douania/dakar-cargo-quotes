@@ -756,7 +756,7 @@ Clé discriminante : `event_data.kind` (string).
 |---|---|---|
 | `reply_analysis_v1` | `analyze-reply-event` | Contient `analysis`, `model_meta`, `dedupe_key` |
 | `reply_draft_v1` | `generate-reply-draft` | Contient `draft_reply`, `dedupe_key` |
-| `quotation_email_draft_v1` | `create-quotation-email-draft` | ⚠ Pas de `dedupe_key` — watchlist TIMELINE-DEDUPE-1 |
+| `quotation_email_draft_v1` | `create-quotation-email-draft` | Contient `dedupe_key` — TIMELINE-DEDUPE-1 patched/deployed 2026-04-15 |
 
 Règle : tout nouveau producteur de `output_generated` **doit** écrire `event_data.kind` et `event_data.dedupe_key`.
 
