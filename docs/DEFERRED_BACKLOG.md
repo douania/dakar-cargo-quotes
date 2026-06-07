@@ -541,171 +541,6 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 
 ---
 
-## FLOW-FIX-1 — Normalisation pays + inférence port Sénégal
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | FLOW-FIX-1 |
-| **Catégorie** | Flow detection / Routing |
-| **Statut** | `done` |
-| **Priorité** | Critique |
-| **Phase d'origine** | FLOW-FIX-1 |
-| **Date** | 2026-04-09 |
-| **Déclencheur de réouverture** | (1) Étendre `COUNTRY_NAME_TO_ISO` en table DB pour maintenance sans redéploiement. (2) Étendre l'inférence port à d'autres pays mono-port (Gambie→Banjul, Guinée-Bissau→Bissau). |
-| **Recommandation** | Map `COUNTRY_NAME_TO_ISO` (~45 pays) ajoutée inline dans build-case-puzzle. À terme, migrer en table `country_aliases` pour éviter les redéploiements. L'inférence port est strictement limitée aux flows maritimes import vers SN. |
-
----
-
-## COCKPIT-11 — Scope fournisseur multi-postes
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-11 |
-| **Catégorie** | Communication partenaire |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-11 |
-| **Date** | 2026-04-09 |
-| **Déclencheur de réouverture** | COCKPIT-11 Phase 2 — pré-création assistée de demandes multiples depuis le scope détecté |
-| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). **11B livré** : agrégation multi-blocs avec déduplication. **11C livré** : PURPOSE_INCLUDES freight enrichi (8 items), origin_charges adapté SODATRA (sans customs clearance), promotion scope high/medium via `PROMOTION_LABELS`, `normalizeForDedup()` anti-doublons, `confidence ?? "medium"` backward compatible. **11D livré** : mapping cargo.containers (value_json) → clés synthétiques container_type/count/fcl_lcl, fallback value_number pour weight_kg/volume_cbm, support conteneurs hétérogènes, label "Poids total". Phase 2 : pré-création assistée de demandes multiples depuis le scope détecté. |
-
----
-
-## PACKAGE-FILTER-1 — Filtrage contextuel des services compatibles
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | PACKAGE-FILTER-1 |
-| **Catégorie** | UI / Service packages |
-| **Statut** | `done` |
-| **Priorité** | Moyenne |
-| **Phase d'origine** | PACKAGE-FILTER-1 |
-| **Date** | 2026-04-09 |
-| **Déclencheur de réouverture** | Ajout de nouveaux packages dans SERVICE_PACKAGES nécessitant une entrée dans PACKAGE_COMPATIBLE_EXTRAS |
-| **Recommandation** | Whitelist explicite par package dans `helpers.ts`. Fallback sur `isServiceRelevant()` si package inconnu. TRUCKING exclu de EXPORT_SENEGAL (service destination). Évolution future possible : filtrage dynamique par facts corridor/pays. |
-
----
-
-## COCKPIT-10 — Email partenaire professionnel
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-10 |
-| **Catégorie** | Communication partenaire |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-10 |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | COM-1A — si le format email nécessite ajustement post envoi réel |
-| **Recommandation** | Template déterministe partagé (src/lib + _shared). Variations par purpose. purpose_detail opérateur prioritaire. |
-
----
-
-## COCKPIT-9 Phase 2 — Offre retenue opérateur
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-9-P2 |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-9-P2 |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | COM-1A — envoi réel des demandes partenaires |
-| **Recommandation** | Migration is_selected/selected_at sur external_quote_requests. Edge function select-partner-request. Badge + bouton "Retenir" dans PartnerRequestsDetailView. Enrichissement de PartnerCollectionReadinessCard, NextActionBanner, PricingReadinessCard. |
-
----
-
-## COCKPIT-9 Phase 1 — Suffisance de collecte partenaire
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-9-P1 |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-9-P1 |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | COCKPIT-9 Phase 2 — notion persistée d'offre retenue opérateur |
-| **Recommandation** | Composant `PartnerCollectionReadinessCard` lecture seule. 2 queries. 4 verdicts (neutre/insuffisante/en cours/suffisante). Ligne "Offre retenue" placeholder. Placé au-dessus de PricingReadinessCard. |
-
----
-
-## COCKPIT-7C — Verdict de complétude avant pricing final
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-7C |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-7C |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | Si ajout de client_gap_requests dans le verdict |
-| **Recommandation** | Composant `PricingReadinessCard` lecture seule. 2 queries. Verdict 4 niveaux (Prêt/Provisoire/Incomplet/Neutre). Placé au-dessus de PricingLaunchPanel. |
-
----
-
-## COCKPIT-8 Phase 1 — Bandeau prochaine action prioritaire
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-8-P1 |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | COCKPIT-8 |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | Phase 2 (CTA + scroll vers section concernée) |
-| **Recommandation** | Composant `NextActionBanner` lecture seule. 6+2 queries. Hiérarchie 12 niveaux, STATUS_ORDER explicite. Placé avant CaseActionPlan. |
-
----
-
-## COCKPIT-7B — Vue détaillée par partenaire
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-7B |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Moyenne |
-| **Phase d'origine** | COCKPIT-7B |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | Si besoin d'actions inline (clôture, relance) depuis la vue détaillée |
-| **Recommandation** | Composant `PartnerRequestsDetailView` lecture seule. 2 queries (requests + facts). Badge hiérarchique. Suite logique : COCKPIT-7C (complétude avant pricing final). |
-
----
-
-## COCKPIT-7A — Vue synthétique "Offres attendues vs reçues"
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COCKPIT-7A |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `done` |
-| **Priorité** | Moyenne |
-| **Phase d'origine** | COCKPIT-7A |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | Si des compteurs supplémentaires sont nécessaires (ex: réponses attendues vs reçues par partenaire) |
-| **Recommandation** | Composant `PartnerRequestsSummary` lecture seule. 2 queries (requests + facts). Barre de progression clôturées/total. Suite logique : COCKPIT-7B (vue par partenaire). |
-
----
-
-## PRICING-GUARD — Garde-fou communication avant pricing
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | PRICING-GUARD |
-| **Catégorie** | Orchestration |
-| **Statut** | `done` |
-| **Priorité** | Haute |
-| **Phase d'origine** | PRICING-GUARD (post COCKPIT-6) |
-| **Date** | 2026-04-08 |
-| **Déclencheur de réouverture** | Si un guard backend supplémentaire est nécessaire dans `run-pricing` |
-| **Recommandation** | Implémenté en 3 volets : (1) auto-pricing conditionné par état des boucles comm, (2) warning ambre au pricing manuel via `PricingCommWarnings`, (3) badge "Provisoire" sur `PricingResultPanel`. Aucune modification de `run-pricing` (FROZEN respecté). Guard backend optionnel à évaluer après retour terrain. |
-
----
-
 ## EXPORT-QE-FROZEN — quotation-engine FROZEN produit encore des honoraires import sur dossiers export
 
 | Champ | Valeur |
@@ -957,20 +792,6 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
-## TIMELINE-DEDUPE-1 — quotation_email_draft_v1 sans dedupe_key ✅
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | TIMELINE-DEDUPE-1 |
-| **Catégorie** | Timeline contract / Idempotence |
-| **Statut** | `patched` (deployed 2026-04-15) |
-| **Priorité** | Basse |
-| **Phase d'origine** | P1-C |
-| **Date** | 2026-04-11 |
-| **Clôture** | `dedupe_key: quotation_email_draft_v1:${versionId}` ajouté dans `create-quotation-email-draft/index.ts` L370. Aligné sur le pattern canonique `{kind}:{id}` de `generate-reply-draft`. Aucune migration, aucun FROZEN touché. |
-
----
-
 ## P2-C-AIR-SCOPE — Garde-fou aérien non validé par signal réel
 
 | Champ | Valeur |
@@ -983,20 +804,6 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | **Date** | 2026-04-11 |
 | **Déclencheur de réouverture** | (1) Dossier aérien où le fret est hors scope (rare mais possible). (2) Ajout d'un champ `air_scope` dans `service_scope_v1`. |
 | **Recommandation** | Le garde-fou P2-C utilise `freightScope` de `service_scope_v1` pour bloquer `freight_rate` et `air_tariff` symétriquement. Mais `air_scope` n'existe pas encore comme champ distinct dans le payload de `analyze-service-scope`. Le garde-fou aérien est conservatif par symétrie mais non validé par un signal réel dédié. À terme, envisager un champ `air_scope` séparé si les cas aériens hors-scope deviennent fréquents. |
-
----
-
-## P2-D-LOT2 — Scope-driven dégradation NextActionBanner + ReadyActionsPanel
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | P2-D-LOT2 |
-| **Catégorie** | Cockpit opérateur |
-| **Statut** | `fermé` |
-| **Priorité** | Moyenne |
-| **Phase d'origine** | P2-D |
-| **Date de fermeture** | 2026-04-11 |
-| **Résolution** | Implémenté via `useQualifiedScopeGate(caseId)`. NextActionBanner step 8 : dépromotion "Confirmer le périmètre du dossier" (amber). ReadyActionsPanel step 8 : priorité "later". Seul `unconfirmed + scope_confirmed` déclenche. `out_of_scope` et `scope_absent` neutres. 1 query facts légère partagée ajoutée (7 keys). |
 
 ---
 
@@ -1045,21 +852,6 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
-## ATT-ERROR-RETRY — Mécanisme de reset pour relancer l'analyse des PJ en erreur terminale
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | ATT-ERROR-RETRY |
-| **Catégorie** | Email pipeline / Attachments |
-| **Statut** | `done` |
-| **Priorité** | Basse |
-| **Phase d'origine** | Stabilisation pipeline PJ (P0+P1) |
-| **Date clôture** | 2026-04-13 |
-| **Résolution** | RPC `reset_attachment_for_retry` (SECURITY DEFINER) remet la PJ en état vierge (`is_analyzed=false`, `analysis_claimed_at=null`, `extracted_text=null`, `extracted_data=null`) uniquement si `extracted_data->>'type' = 'error'`. Bouton "Relancer l'analyse" ajouté dans `EmailAttachments.tsx` pour statut `error` uniquement. `unsupported` et `skipped` restent non relançables. |
-| **Dette résiduelle pipeline PJ** | Observabilité des retries (compteur, historique), chemins parallèles d'analyse, et traçabilité enrichie des resets restent hors périmètre de ce lot. |
-
----
-
 ## COMPOSITE-DOC-2 — Exploitation de documents[] dans build-case-puzzle
 
 | Champ | Valeur |
@@ -1072,21 +864,6 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 | **Date** | 2026-04-14 |
 | **Déclencheur de réouverture** | Dès que COMPOSITE-DOC-1 est déployé et validé sur un PDF composite réel. |
 | **Recommandation** | Dans `build-case-puzzle`, exploiter `extracted_data.documents[]` pour un mapping différencié par `doc_type` : priorité de source par type documentaire (ex: `commercial_invoice` pour `cargo.value`, `bill_of_lading` pour `transport.bl_number`). Ne pas fusionner aveuglément les sous-documents. |
-
----
-
-## COMPOSITE-DOC-3 — Affichage UI des sous-documents
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COMPOSITE-DOC-3 |
-| **Catégorie** | UI / Case documents |
-| **Statut** | `done` — implémenté dans `AnalysisResultsDisplay.tsx` (section Collapsible avec doc_type/page_range/confidence/summary) |
-| **Priorité** | Moyenne |
-| **Phase d'origine** | COMPOSITE-DOC-1 |
-| **Date** | 2026-04-14 |
-| **Déclencheur de réouverture** | Quand COMPOSITE-DOC-2 est en place et que les sous-documents sont exploités dans les faits. |
-| **Recommandation** | Afficher dans `AnalysisResultsDisplay` et/ou `CaseDocumentsTab` les sous-documents détectés (`documents[]`) avec leur type, plage de pages, et résumé. Permettre à l'opérateur de voir la provenance des données extraites. |
 
 ---
 
@@ -1273,25 +1050,6 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 
 ---
 
-## LOT2-REV-A — Quarantaine Aksa Energy (CLOS)
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | LOT2-REV-A |
-| **Catégorie** | Pricing / Data Governance |
-| **Statut** | **CLOS — exécuté 2026-05-02** |
-| **Priorité** | P1 |
-| **Phase d'origine** | Lot 2 révisé |
-| **Date** | 2026-05-02 |
-| **Action** | 81 lignes `AKSA_ENERGY` mises en quarantaine : `is_active=false`, `evidence_level='historical_only'`, note de quarantaine idempotente. Aucune suppression physique. |
-| **Preflight** | 6 contrôles SELECT passés (avec `IS DISTINCT FROM`). |
-| **Post-migration** | 0 Aksa active, 81 quarantinées, 10 génériques intactes. |
-| **Smoke tests** | G7 PASS (0 fuite Aksa), G9 PASS (non-régression aérien), anti-fuite globale PASS. G6-REV non exécutable (blocking gap `pad_category` pré-existant sur `03ccf66d`). |
-| **Tests abandonnés** | G6 ancien (injection Aksa), G8 ancien (injection Velingara) — plus pertinents. |
-| **Décision CTO** | Les 81 lignes Aksa proviennent d'une cotation ponctuelle historique, pas d'un tarif client contractuel. Elles ne doivent plus alimenter le moteur de pricing. |
-
----
-
 ## LOT2-REV-B — Audit transport officiel Sénégal
 
 | Champ | Valeur |
@@ -1343,39 +1101,6 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 
 ---
 
-## R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER — Renforcement filtre evidence_level dans price-service-lines
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
-| **Catégorie** | Runtime / Edge Function / Data Governance |
-| **Statut** | `closed_applied_and_verified` (2026-05-02) |
-| **Priorité** | P2 — **CLOS** |
-| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
-| **Date** | 2026-05-02 |
-| **Constat initial** | `price-service-lines` L920 chargeait `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. |
-| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. |
-| **Vérification post-déploiement** | Deux runs authentifiés post-R2 : run #19 (`8ca8c2d3`) et run #20 (`465bf868`). Résultat : status success, 17 lignes, 1 260 000 XOF HT, 0 Aksa, 0 Taleb, 0 observed, TO_CONFIRM transport Kolda visible, aucune régression. |
-| **Alignement** | `price-service-lines` L920 est maintenant aligné avec `quotation-engine` L1709. Les deux fonctions filtrent `local_transport_rates` par `evidence_level IN ('official','validated_internal')`. |
-
----
-
-## R3-SMOKE-RUNTIME-POST-LOT3 — Smoke runtime contrôlé post-LOT3
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | R3-SMOKE-RUNTIME-POST-LOT3 |
-| **Catégorie** | Validation runtime / Smoke tests |
-| **Statut** | `closed_smoke_passed` (2026-05-02) |
-| **Priorité** | P0 — **CLOS** |
-| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
-| **Date** | 2026-05-02 |
-| **Exécution** | Deux `run-pricing` contrôlés lancés via edge function le 2026-05-02 : (1) SEA_FCL `29b96eec` → run #18, 17 lignes, 1 260 000 XOF HT, pricing_run_id `5543f158`. (2) AIR `01c3fbbc` → run #4, 8 lignes, 145 000 XOF HT, pricing_run_id `5db6a86d`. |
-| **Résultats** | ✅ 0 contamination Aksa (grep tariff_lines + engine_response). ✅ 0 contamination Taleb. ✅ 0 référence `observed`. ✅ Transport Kolda → montant null (TO_CONFIRM correct). ✅ DPW THC → montants officiels servis. ✅ Totaux cohérents. |
-| **Condition GO** | La condition obligatoire du GO conditionnel est satisfaite. Le paramétrage tarifaire peut continuer. |
-
----
-
 ## R4-DEMURRAGE-EVIDENCE-LEVEL-MISSING — Absence de colonne evidence_level sur demurrage_rates
 
 | Champ | Valeur |
@@ -1410,53 +1135,9 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 
 ---
 
-### DEFER-PAD-NST-2E-B-R2-CLOSED
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | `DEFER-PAD-NST-2E-B-R2` |
-| **Catégorie** | Data / Tarifs PAD |
-| **Statut** | ✅ CLOS — Corrigé le 2026-05-07 |
-| **Priorité** | P0 (était bloquant pour PAD-NST-2E-C-A runtime) |
-| **Phase d'origine** | PAD-NST-2E-B |
-| **Date** | 2026-05-07 |
-| **Constat** | La migration PAD-NST-2E-B initiale a importé 88 règles mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La tentative de correction R1 n'a jamais été appliquée (aucune migration dans le dépôt). |
-| **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
-| **Déclencheur de réouverture** | N/A — clos. |
-| **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. PAD-NST-2E-C-A clos le 2026-05-07 (plan documentaire validé côté CTO). |
-
----
-
-### DEFER-PAD-NST-2E-C-A-CLOSED
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | `DEFER-PAD-NST-2E-C-A` |
-| **Catégorie** | Architecture / Plan runtime |
-| **Statut** | ✅ CLOS — Accepté le 2026-05-07 |
-| **Priorité** | P1 |
-| **Phase d'origine** | PAD-NST-2E-B-R2 |
-| **Date** | 2026-05-07 |
-| **Constat** | Plan documentaire d'intégration runtime PAD-NST accepté côté CTO. Les corrections demandées (lookup alias exact validé uniquement, requête logique avec nst_level + nst_code + ORDER BY confidence DESC, tests documentés reformulés prudemment, audit log comme objectif futur, phases C-B à C-E chacune avec GO CTO séparé) ont été intégrées. |
-| **Résolution** | PAD-NST-2E-C-A clos. Document de plan : `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`. Aucun code, aucune migration, aucun runtime. |
-| **Déclencheur de réouverture** | N/A — clos. PAD-NST-2E-C-B déployé le 2026-05-08. |
-| **Recommandation** | C-B déployé. Ne pas lancer C-C sans GO CTO explicite. Ne pas patcher run-pricing. Ne pas modifier src/. |
-
-### DEFER-PAD-NST-2E-C-B-DEPLOYED
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | `DEFER-PAD-NST-2E-C-B` |
-| **Catégorie** | Runtime backend / Edge Function isolée |
-| **Statut** | ✅ DÉPLOYÉ — 2026-05-08 |
-| **Priorité** | P1 |
-| **Phase d'origine** | PAD-NST-2E-C-A |
-| **Date** | 2026-05-08 |
-| **Constat** | Edge Function `get-pad-nst-suggestions` déployée. Lecture SELECT isolée sur `pad_nst_recommendation_rules`. Auth via `requireUser`, client Supabase avec JWT utilisateur, RLS respectée. Aucun service role. POST uniquement, OPTIONS preflight, autres méthodes 405. Réponse `source_type=TO_CONFIRM`, `requires_operator_confirmation=true`. Aucun amount, aucun estimated_amount, aucun OFFICIAL. |
-| **Résolution** | Fonction déployée et vérifiée. Voir `docs/tariff-collection/pad/PAD_NST_2E_C_B_VERIFICATION_REPORT.md`. |
-| **Déclencheur de réouverture** | N/A — déployé. C-C nécessite GO CTO séparé. |
-| **Recommandation** | Ne pas lancer C-C sans GO CTO explicite. Ne pas brancher run-pricing. Ne pas modifier src/. |
-
+<!-- DEFER-PAD-NST-2E-B-R2-CLOSED : déplacé vers ## Archive — Lots clos (2026-06-07) -->
+<!-- DEFER-PAD-NST-2E-C-A-CLOSED : déplacé vers ## Archive — Lots clos (2026-06-07) -->
+<!-- DEFER-PAD-NST-2E-C-B-DEPLOYED : déplacé vers ## Archive — Lots clos (2026-06-07) -->
 ### DEFER-PAD-BAREME-2006-CSV-IMPORT-VALIDATOR-1-EDGE-FN
 
 | Champ | Valeur |
@@ -1579,34 +1260,8 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Recommandation** | Plan d'exécution documentaire approuvé. Exécution conditionnée aux critères GO §8 du plan. NO-GO → `MAP_3B_EXEC_BLOCKED_*` avec cause exacte (table existante, conflit fonction read/write, mismatch sécurité, régression RLS, lot concurrent, repo dirty). **MAPPING-TAX-CHAIN-0 reste ouvert.** |
 | **Mise à jour 2026-05-14** | Préflight read-only exécuté → verdict `MAP_3B_EXEC_BLOCKED_RLS_REGRESSION_ACCEPTED` : les policies INSERT/UPDATE réelles de `quote_facts` sont owner/assigned, alors que le SQL draft initial proposait un INSERT/UPDATE shared workspace via la fonction unique `has_case_access`. Patch documentaire appliqué : split `has_case_access` → `has_case_read_access` (shared workspace, SELECT) + `has_case_write_access` (owner/assigned, INSERT/UPDATE, aligné `quote_facts`). Policies renommées `ccc_insert_owner_assigned` / `ccc_update_owner_assigned`. Tests T5/T6/T7 du `MAP_3B_EXECUTION_PLAN.md` réécrits en conséquence. Aucune exécution DB. Verdict patch : `MAP_3B_RLS_DRAFT_ALIGNED_WITH_QUOTE_FACTS`. Divergence `SECURITY_CONTRACT.md` ↔ DB documentée en §4bis du plan migration ; réconciliation hors périmètre MAP-3/3b. |
 
-### MAP-5B — V10 RLS write denied (test non-owner) clos
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | `MAP-5B-V10-DEFERRED` |
-| **Catégorie** | Test E2E auth — V10 (UPDATE par user non owner / non assigned → 403 `rls_write_denied`) |
-| **Statut** | `✅ CLOS — 2026-05-14` |
-| **Priorité** | P3 |
-| **Phase d'origine** | MAP-5B |
-| **Date** | 2026-05-14 |
-| **Constat** | **Exécuté et validé.** EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 exécuté avec auto-confirm temporaire : création d'un user test authentifié (`phase15-v10b-1747230649@test.local`), appel EF avec JWT valide mais userId ≠ owner et ≠ assigned_to. Réponse : `HTTP 403 {"error":"forbidden","reason":"rls_write_denied"}` — comportement critique confirmé. Seed test resté inchangé (`status=suggested`, `is_current=true`, `validated_by=NULL`). Seed rollback exécuté (count=0). Auth restauré au snapshot initial (`auto_confirm_email=false`, `password_hibp_enabled=true`). Suppression manuelle des 3 users test effectuée côté UI Cloud. Verdict CTO accepté : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. |
-| **Déclencheur de réouverture** | — |
-| **Recommandation** | Aucune. V10 clos. MAP-5B dans son ensemble validé et accepté. |
-
-### MAP-5B-GLOBAL — Opérateur actions déployées et validées
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | `MAP-5B-GLOBAL` |
-| **Catégorie** | Edge Function `update-commodity-classification-candidate` — opérateur actions accept/reject |
-| **Statut** | `✅ OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED` |
-| **Priorité** | P1 |
-| **Phase d'origine** | MAP-5B |
-| **Date** | 2026-05-14 |
-| **Constat** | EF `update-commodity-classification-candidate` déployée. Actions opérateur `accept` et `reject` opérationnelles. V1–V9 validés (accept/reject idempotence, state conflict, garde état, payload update). V10 validé (403 `rls_write_denied` pour user non-owner / non-assigned). Aucun appel `run-pricing`. Aucune écriture `quote_facts`. Aucune écriture `case_facts` / `cargo.*` / `pricing_runs`. RLS write : `has_case_write_access` (owner/assigned). Auth : `requireUser` via `SUPABASE_ANON_KEY` + bearer token, aucun service_role. Idempotence stricte via `evidence.idempotency_key`. |
-| **Déclencheur de réouverture** | GO CTO explicite pour extension (ex. MAP-5C `supersede`, MAP-6 écriture downstream `quote_facts`). |
-| **Recommandation** | MAP-5B clos. Extensions futures : MAP-5C (supersede) et MAP-6 (propagation `quote_facts`) nécessitent chacune un GO CTO séparé. |
-
+<!-- MAP-5B : déplacé vers ## Archive — Lots clos (2026-06-07) -->
+<!-- MAP-5B-GLOBAL : déplacé vers ## Archive — Lots clos (2026-06-07) -->
 ### MAP-5C — Action `supersede` sur candidats classification
 
 | Champ | Valeur |
@@ -1662,3 +1317,368 @@ Les sujets reportés dans des conversations antérieures (pré-M18d) qui n'aurai
 | **Constat** | Document `docs/tariff-collection/pad/MAP_6_RPC_WRAPPER_DESIGN.md` livré (design-only). Précheck RP3 négatif sur `public.supersede_fact` (pas de GRANT EXECUTE pour `authenticated`). Option A (GRANT direct) rejetée par CTO : `supersede_fact` est `SECURITY DEFINER` générique sans `has_case_write_access`, sans whitelist `fact_key`, sans contrôle `source_type` — exposition ouvrirait une faille d'écriture sur `quote_facts`. Option C retenue : wrapper RPC dédié `public.propagate_classification_candidate_to_fact(p_candidate_id uuid, p_idempotency_key text) RETURNS jsonb`. `case_id` dérivé du candidat (jamais paramètre). Ordre strict : validation entrée → `pg_advisory_xact_lock` → `SELECT ... FOR UPDATE` → extraire `case_id` → `has_case_write_access` → état `accepted+is_current` → whitelist (cn8/hs6/hs10_uemoa/nhm/nst2007/nstr/pad_category ; pad_label refusé) → idempotence Niveau A (evidence + clé exigée) → replay Niveau B (`quote_facts` sans filtre `is_current`) → détection conflit clé → appel interne `supersede_fact` via `SELECT ... INTO` (correction PL/pgSQL) → UPDATE `candidate.evidence` → INSERT `case_timeline_events` (`event_type='manual_action'`, `action_code='CCC_PROPAGATED_TO_FACTS'`, `dedupe_key`) → retour `jsonb` typé. Erreurs métier en payload `{ ok:false, code }`, jamais `RAISE`. Atomicité native (toutes les écritures dans la même transaction RPC). `supersede_fact` reste **non-grantée** à `authenticated` — seul le wrapper aura `GRANT EXECUTE`. Aucun `service_role` côté Edge. |
 | **Déclencheur de réouverture** | GO CTO ouvrant le lot **MAP-6-EXEC-MIGRATION** (création wrapper + GRANT ciblé wrapper uniquement + tests T1–T14 incluant T12 test négatif `supersede_fact` non-grantée + T13a/b/c matrice auth/grants). |
 | **Recommandation** | Implémenter le wrapper avant toute exposition write côté `authenticated`. Aucun GRANT direct sur `supersede_fact`. Aucun `case_id` accepté en paramètre RPC ou EF. **MAPPING-TAX-CHAIN-0 reste ouvert.** Verdict : `MAP_6_RPC_WRAPPER_DESIGN_READY`. |
+
+
+---
+
+## Archive — Lots clos
+
+> Section créée le 2026-06-07 (Lot 2 archivage documentaire). Contenu intégral préservé, déplacé sans modification de cellule, de statut, de date ni de wording. Aucun renumérotage. Ordre conservé : sections autonomes (##) d'abord, puis sous-sections (###) PAD-NST-2E et MAP-5B avec marqueur HTML laissé à l'emplacement d'origine.
+
+## FLOW-FIX-1 — Normalisation pays + inférence port Sénégal
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | FLOW-FIX-1 |
+| **Catégorie** | Flow detection / Routing |
+| **Statut** | `done` |
+| **Priorité** | Critique |
+| **Phase d'origine** | FLOW-FIX-1 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | (1) Étendre `COUNTRY_NAME_TO_ISO` en table DB pour maintenance sans redéploiement. (2) Étendre l'inférence port à d'autres pays mono-port (Gambie→Banjul, Guinée-Bissau→Bissau). |
+| **Recommandation** | Map `COUNTRY_NAME_TO_ISO` (~45 pays) ajoutée inline dans build-case-puzzle. À terme, migrer en table `country_aliases` pour éviter les redéploiements. L'inférence port est strictement limitée aux flows maritimes import vers SN. |
+
+---
+
+## COCKPIT-11 — Scope fournisseur multi-postes
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-11 |
+| **Catégorie** | Communication partenaire |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-11 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | COCKPIT-11 Phase 2 — pré-création assistée de demandes multiples depuis le scope détecté |
+| **Recommandation** | Helper déterministe `derivePartnerRequestScope`. Facts structurés prioritaires sur texte brut. 4 blocs détectés (freight, origin, stuffing factory, stuffing CFS). **11B livré** : agrégation multi-blocs avec déduplication. **11C livré** : PURPOSE_INCLUDES freight enrichi (8 items), origin_charges adapté SODATRA (sans customs clearance), promotion scope high/medium via `PROMOTION_LABELS`, `normalizeForDedup()` anti-doublons, `confidence ?? "medium"` backward compatible. **11D livré** : mapping cargo.containers (value_json) → clés synthétiques container_type/count/fcl_lcl, fallback value_number pour weight_kg/volume_cbm, support conteneurs hétérogènes, label "Poids total". Phase 2 : pré-création assistée de demandes multiples depuis le scope détecté. |
+
+---
+
+## PACKAGE-FILTER-1 — Filtrage contextuel des services compatibles
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PACKAGE-FILTER-1 |
+| **Catégorie** | UI / Service packages |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | PACKAGE-FILTER-1 |
+| **Date** | 2026-04-09 |
+| **Déclencheur de réouverture** | Ajout de nouveaux packages dans SERVICE_PACKAGES nécessitant une entrée dans PACKAGE_COMPATIBLE_EXTRAS |
+| **Recommandation** | Whitelist explicite par package dans `helpers.ts`. Fallback sur `isServiceRelevant()` si package inconnu. TRUCKING exclu de EXPORT_SENEGAL (service destination). Évolution future possible : filtrage dynamique par facts corridor/pays. |
+
+---
+
+## COCKPIT-10 — Email partenaire professionnel
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-10 |
+| **Catégorie** | Communication partenaire |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-10 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COM-1A — si le format email nécessite ajustement post envoi réel |
+| **Recommandation** | Template déterministe partagé (src/lib + _shared). Variations par purpose. purpose_detail opérateur prioritaire. |
+
+---
+
+## COCKPIT-9 Phase 2 — Offre retenue opérateur
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-9-P2 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-9-P2 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COM-1A — envoi réel des demandes partenaires |
+| **Recommandation** | Migration is_selected/selected_at sur external_quote_requests. Edge function select-partner-request. Badge + bouton "Retenir" dans PartnerRequestsDetailView. Enrichissement de PartnerCollectionReadinessCard, NextActionBanner, PricingReadinessCard. |
+
+---
+
+## COCKPIT-9 Phase 1 — Suffisance de collecte partenaire
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-9-P1 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-9-P1 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | COCKPIT-9 Phase 2 — notion persistée d'offre retenue opérateur |
+| **Recommandation** | Composant `PartnerCollectionReadinessCard` lecture seule. 2 queries. 4 verdicts (neutre/insuffisante/en cours/suffisante). Ligne "Offre retenue" placeholder. Placé au-dessus de PricingReadinessCard. |
+
+---
+
+## COCKPIT-7C — Verdict de complétude avant pricing final
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7C |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-7C |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si ajout de client_gap_requests dans le verdict |
+| **Recommandation** | Composant `PricingReadinessCard` lecture seule. 2 queries. Verdict 4 niveaux (Prêt/Provisoire/Incomplet/Neutre). Placé au-dessus de PricingLaunchPanel. |
+
+---
+
+## COCKPIT-8 Phase 1 — Bandeau prochaine action prioritaire
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-8-P1 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | COCKPIT-8 |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Phase 2 (CTA + scroll vers section concernée) |
+| **Recommandation** | Composant `NextActionBanner` lecture seule. 6+2 queries. Hiérarchie 12 niveaux, STATUS_ORDER explicite. Placé avant CaseActionPlan. |
+
+---
+
+## COCKPIT-7B — Vue détaillée par partenaire
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7B |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COCKPIT-7B |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si besoin d'actions inline (clôture, relance) depuis la vue détaillée |
+| **Recommandation** | Composant `PartnerRequestsDetailView` lecture seule. 2 queries (requests + facts). Badge hiérarchique. Suite logique : COCKPIT-7C (complétude avant pricing final). |
+
+---
+
+## COCKPIT-7A — Vue synthétique "Offres attendues vs reçues"
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COCKPIT-7A |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `done` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COCKPIT-7A |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si des compteurs supplémentaires sont nécessaires (ex: réponses attendues vs reçues par partenaire) |
+| **Recommandation** | Composant `PartnerRequestsSummary` lecture seule. 2 queries (requests + facts). Barre de progression clôturées/total. Suite logique : COCKPIT-7B (vue par partenaire). |
+
+---
+
+## PRICING-GUARD — Garde-fou communication avant pricing
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | PRICING-GUARD |
+| **Catégorie** | Orchestration |
+| **Statut** | `done` |
+| **Priorité** | Haute |
+| **Phase d'origine** | PRICING-GUARD (post COCKPIT-6) |
+| **Date** | 2026-04-08 |
+| **Déclencheur de réouverture** | Si un guard backend supplémentaire est nécessaire dans `run-pricing` |
+| **Recommandation** | Implémenté en 3 volets : (1) auto-pricing conditionné par état des boucles comm, (2) warning ambre au pricing manuel via `PricingCommWarnings`, (3) badge "Provisoire" sur `PricingResultPanel`. Aucune modification de `run-pricing` (FROZEN respecté). Guard backend optionnel à évaluer après retour terrain. |
+
+---
+
+## TIMELINE-DEDUPE-1 — quotation_email_draft_v1 sans dedupe_key ✅
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | TIMELINE-DEDUPE-1 |
+| **Catégorie** | Timeline contract / Idempotence |
+| **Statut** | `patched` (deployed 2026-04-15) |
+| **Priorité** | Basse |
+| **Phase d'origine** | P1-C |
+| **Date** | 2026-04-11 |
+| **Clôture** | `dedupe_key: quotation_email_draft_v1:${versionId}` ajouté dans `create-quotation-email-draft/index.ts` L370. Aligné sur le pattern canonique `{kind}:{id}` de `generate-reply-draft`. Aucune migration, aucun FROZEN touché. |
+
+---
+
+## P2-D-LOT2 — Scope-driven dégradation NextActionBanner + ReadyActionsPanel
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | P2-D-LOT2 |
+| **Catégorie** | Cockpit opérateur |
+| **Statut** | `fermé` |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | P2-D |
+| **Date de fermeture** | 2026-04-11 |
+| **Résolution** | Implémenté via `useQualifiedScopeGate(caseId)`. NextActionBanner step 8 : dépromotion "Confirmer le périmètre du dossier" (amber). ReadyActionsPanel step 8 : priorité "later". Seul `unconfirmed + scope_confirmed` déclenche. `out_of_scope` et `scope_absent` neutres. 1 query facts légère partagée ajoutée (7 keys). |
+
+---
+
+## ATT-ERROR-RETRY — Mécanisme de reset pour relancer l'analyse des PJ en erreur terminale
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | ATT-ERROR-RETRY |
+| **Catégorie** | Email pipeline / Attachments |
+| **Statut** | `done` |
+| **Priorité** | Basse |
+| **Phase d'origine** | Stabilisation pipeline PJ (P0+P1) |
+| **Date clôture** | 2026-04-13 |
+| **Résolution** | RPC `reset_attachment_for_retry` (SECURITY DEFINER) remet la PJ en état vierge (`is_analyzed=false`, `analysis_claimed_at=null`, `extracted_text=null`, `extracted_data=null`) uniquement si `extracted_data->>'type' = 'error'`. Bouton "Relancer l'analyse" ajouté dans `EmailAttachments.tsx` pour statut `error` uniquement. `unsupported` et `skipped` restent non relançables. |
+| **Dette résiduelle pipeline PJ** | Observabilité des retries (compteur, historique), chemins parallèles d'analyse, et traçabilité enrichie des resets restent hors périmètre de ce lot. |
+
+---
+
+## COMPOSITE-DOC-3 — Affichage UI des sous-documents
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | COMPOSITE-DOC-3 |
+| **Catégorie** | UI / Case documents |
+| **Statut** | `done` — implémenté dans `AnalysisResultsDisplay.tsx` (section Collapsible avec doc_type/page_range/confidence/summary) |
+| **Priorité** | Moyenne |
+| **Phase d'origine** | COMPOSITE-DOC-1 |
+| **Date** | 2026-04-14 |
+| **Déclencheur de réouverture** | Quand COMPOSITE-DOC-2 est en place et que les sous-documents sont exploités dans les faits. |
+| **Recommandation** | Afficher dans `AnalysisResultsDisplay` et/ou `CaseDocumentsTab` les sous-documents détectés (`documents[]`) avec leur type, plage de pages, et résumé. Permettre à l'opérateur de voir la provenance des données extraites. |
+
+---
+
+## LOT2-REV-A — Quarantaine Aksa Energy (CLOS)
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | LOT2-REV-A |
+| **Catégorie** | Pricing / Data Governance |
+| **Statut** | **CLOS — exécuté 2026-05-02** |
+| **Priorité** | P1 |
+| **Phase d'origine** | Lot 2 révisé |
+| **Date** | 2026-05-02 |
+| **Action** | 81 lignes `AKSA_ENERGY` mises en quarantaine : `is_active=false`, `evidence_level='historical_only'`, note de quarantaine idempotente. Aucune suppression physique. |
+| **Preflight** | 6 contrôles SELECT passés (avec `IS DISTINCT FROM`). |
+| **Post-migration** | 0 Aksa active, 81 quarantinées, 10 génériques intactes. |
+| **Smoke tests** | G7 PASS (0 fuite Aksa), G9 PASS (non-régression aérien), anti-fuite globale PASS. G6-REV non exécutable (blocking gap `pad_category` pré-existant sur `03ccf66d`). |
+| **Tests abandonnés** | G6 ancien (injection Aksa), G8 ancien (injection Velingara) — plus pertinents. |
+| **Décision CTO** | Les 81 lignes Aksa proviennent d'une cotation ponctuelle historique, pas d'un tarif client contractuel. Elles ne doivent plus alimenter le moteur de pricing. |
+
+---
+
+## R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER — Renforcement filtre evidence_level dans price-service-lines
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R2-PSL-LOCAL-TRANSPORT-EVIDENCE-FILTER |
+| **Catégorie** | Runtime / Edge Function / Data Governance |
+| **Statut** | `closed_applied_and_verified` (2026-05-02) |
+| **Priorité** | P2 — **CLOS** |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Constat initial** | `price-service-lines` L920 chargeait `local_transport_rates` avec `.eq('is_active', true)` sans filtre `evidence_level` au niveau DB. |
+| **Action appliquée** | Ajout `.in('evidence_level', ['official','validated_internal'])` à L920 de `price-service-lines/index.ts`. Déployé immédiatement. |
+| **Vérification post-déploiement** | Deux runs authentifiés post-R2 : run #19 (`8ca8c2d3`) et run #20 (`465bf868`). Résultat : status success, 17 lignes, 1 260 000 XOF HT, 0 Aksa, 0 Taleb, 0 observed, TO_CONFIRM transport Kolda visible, aucune régression. |
+| **Alignement** | `price-service-lines` L920 est maintenant aligné avec `quotation-engine` L1709. Les deux fonctions filtrent `local_transport_rates` par `evidence_level IN ('official','validated_internal')`. |
+
+---
+
+## R3-SMOKE-RUNTIME-POST-LOT3 — Smoke runtime contrôlé post-LOT3
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | R3-SMOKE-RUNTIME-POST-LOT3 |
+| **Catégorie** | Validation runtime / Smoke tests |
+| **Statut** | `closed_smoke_passed` (2026-05-02) |
+| **Priorité** | P0 — **CLOS** |
+| **Phase d'origine** | POST-CLEANING-QUOTE-ENGINE-AUDIT (2026-05-02) |
+| **Date** | 2026-05-02 |
+| **Exécution** | Deux `run-pricing` contrôlés lancés via edge function le 2026-05-02 : (1) SEA_FCL `29b96eec` → run #18, 17 lignes, 1 260 000 XOF HT, pricing_run_id `5543f158`. (2) AIR `01c3fbbc` → run #4, 8 lignes, 145 000 XOF HT, pricing_run_id `5db6a86d`. |
+| **Résultats** | ✅ 0 contamination Aksa (grep tariff_lines + engine_response). ✅ 0 contamination Taleb. ✅ 0 référence `observed`. ✅ Transport Kolda → montant null (TO_CONFIRM correct). ✅ DPW THC → montants officiels servis. ✅ Totaux cohérents. |
+| **Condition GO** | La condition obligatoire du GO conditionnel est satisfaite. Le paramétrage tarifaire peut continuer. |
+
+---
+
+### DEFER-PAD-NST-2E-B-R2-CLOSED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-B-R2` |
+| **Catégorie** | Data / Tarifs PAD |
+| **Statut** | ✅ CLOS — Corrigé le 2026-05-07 |
+| **Priorité** | P0 (était bloquant pour PAD-NST-2E-C-A runtime) |
+| **Phase d'origine** | PAD-NST-2E-B |
+| **Date** | 2026-05-07 |
+| **Constat** | La migration PAD-NST-2E-B initiale a importé 88 règles mais pas les bonnes 88 (6 TIER-C incluses, 32 TIER-A/B manquantes). La tentative de correction R1 n'a jamais été appliquée (aucune migration dans le dépôt). |
+| **Résolution** | PAD-NST-2E-B-R2 : script Python `pad_nst_2e_b_r2_corrective.py` → SQL généré → migration data-only avec table temporaire `expected_rules` + 13 contrôles intégrés. Tous contrôles passent. |
+| **Déclencheur de réouverture** | N/A — clos. |
+| **Recommandation** | PAD-NST-2E-C-A runtime est maintenant débloqué. PAD-NST-2E-C-A clos le 2026-05-07 (plan documentaire validé côté CTO). |
+
+---
+
+### DEFER-PAD-NST-2E-C-A-CLOSED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-C-A` |
+| **Catégorie** | Architecture / Plan runtime |
+| **Statut** | ✅ CLOS — Accepté le 2026-05-07 |
+| **Priorité** | P1 |
+| **Phase d'origine** | PAD-NST-2E-B-R2 |
+| **Date** | 2026-05-07 |
+| **Constat** | Plan documentaire d'intégration runtime PAD-NST accepté côté CTO. Les corrections demandées (lookup alias exact validé uniquement, requête logique avec nst_level + nst_code + ORDER BY confidence DESC, tests documentés reformulés prudemment, audit log comme objectif futur, phases C-B à C-E chacune avec GO CTO séparé) ont été intégrées. |
+| **Résolution** | PAD-NST-2E-C-A clos. Document de plan : `docs/tariff-collection/pad/PAD_NST_2E_C_A_RUNTIME_PLAN.md`. Aucun code, aucune migration, aucun runtime. |
+| **Déclencheur de réouverture** | N/A — clos. PAD-NST-2E-C-B déployé le 2026-05-08. |
+| **Recommandation** | C-B déployé. Ne pas lancer C-C sans GO CTO explicite. Ne pas patcher run-pricing. Ne pas modifier src/. |
+
+---
+
+### DEFER-PAD-NST-2E-C-B-DEPLOYED
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `DEFER-PAD-NST-2E-C-B` |
+| **Catégorie** | Runtime backend / Edge Function isolée |
+| **Statut** | ✅ DÉPLOYÉ — 2026-05-08 |
+| **Priorité** | P1 |
+| **Phase d'origine** | PAD-NST-2E-C-A |
+| **Date** | 2026-05-08 |
+| **Constat** | Edge Function `get-pad-nst-suggestions` déployée. Lecture SELECT isolée sur `pad_nst_recommendation_rules`. Auth via `requireUser`, client Supabase avec JWT utilisateur, RLS respectée. Aucun service role. POST uniquement, OPTIONS preflight, autres méthodes 405. Réponse `source_type=TO_CONFIRM`, `requires_operator_confirmation=true`. Aucun amount, aucun estimated_amount, aucun OFFICIAL. |
+| **Résolution** | Fonction déployée et vérifiée. Voir `docs/tariff-collection/pad/PAD_NST_2E_C_B_VERIFICATION_REPORT.md`. |
+| **Déclencheur de réouverture** | N/A — déployé. C-C nécessite GO CTO séparé. |
+| **Recommandation** | Ne pas lancer C-C sans GO CTO explicite. Ne pas brancher run-pricing. Ne pas modifier src/. |
+
+---
+
+### MAP-5B — V10 RLS write denied (test non-owner) clos
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5B-V10-DEFERRED` |
+| **Catégorie** | Test E2E auth — V10 (UPDATE par user non owner / non assigned → 403 `rls_write_denied`) |
+| **Statut** | `✅ CLOS — 2026-05-14` |
+| **Priorité** | P3 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | **Exécuté et validé.** EF `update-commodity-classification-candidate` déployée et validée V1..V9 OK + rollback OK. V10 exécuté avec auto-confirm temporaire : création d'un user test authentifié (`phase15-v10b-1747230649@test.local`), appel EF avec JWT valide mais userId ≠ owner et ≠ assigned_to. Réponse : `HTTP 403 {"error":"forbidden","reason":"rls_write_denied"}` — comportement critique confirmé. Seed test resté inchangé (`status=suggested`, `is_current=true`, `validated_by=NULL`). Seed rollback exécuté (count=0). Auth restauré au snapshot initial (`auto_confirm_email=false`, `password_hibp_enabled=true`). Suppression manuelle des 3 users test effectuée côté UI Cloud. Verdict CTO accepté : `MAP_5B_V10_VALIDATED_403_RLS_WRITE_DENIED_TEST_USER_PENDING_MANUAL_DELETE_ACCEPTED`. |
+| **Déclencheur de réouverture** | — |
+| **Recommandation** | Aucune. V10 clos. MAP-5B dans son ensemble validé et accepté. |
+
+---
+
+### MAP-5B-GLOBAL — Opérateur actions déployées et validées
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `MAP-5B-GLOBAL` |
+| **Catégorie** | Edge Function `update-commodity-classification-candidate` — opérateur actions accept/reject |
+| **Statut** | `✅ OPERATOR_ACTIONS_DEPLOYED_VALIDATED_ACCEPTED` |
+| **Priorité** | P1 |
+| **Phase d'origine** | MAP-5B |
+| **Date** | 2026-05-14 |
+| **Constat** | EF `update-commodity-classification-candidate` déployée. Actions opérateur `accept` et `reject` opérationnelles. V1–V9 validés (accept/reject idempotence, state conflict, garde état, payload update). V10 validé (403 `rls_write_denied` pour user non-owner / non-assigned). Aucun appel `run-pricing`. Aucune écriture `quote_facts`. Aucune écriture `case_facts` / `cargo.*` / `pricing_runs`. RLS write : `has_case_write_access` (owner/assigned). Auth : `requireUser` via `SUPABASE_ANON_KEY` + bearer token, aucun service_role. Idempotence stricte via `evidence.idempotency_key`. |
+| **Déclencheur de réouverture** | GO CTO explicite pour extension (ex. MAP-5C `supersede`, MAP-6 écriture downstream `quote_facts`). |
+| **Recommandation** | MAP-5B clos. Extensions futures : MAP-5C (supersede) et MAP-6 (propagation `quote_facts`) nécessitent chacune un GO CTO séparé. |
+
+---
