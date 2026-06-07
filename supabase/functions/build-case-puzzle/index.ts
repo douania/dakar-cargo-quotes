@@ -246,6 +246,19 @@ const EXPORT_SENEGAL_BLOCKING_GAPS = new Set([
   "cargo.description",
 ]);
 
+export const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
+const EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS = new Set([
+  "cargo.freight_cost",
+  "cargo.freight_rate_per_kg",
+  "pricing.sea_freight",
+  "pricing.sea_freight_rate",
+  "sea_freight",
+]);
+const EXTERNAL_REQUEST_EXPLOITABLE_STATUSES = new Set([
+  "facts_validated",
+  "closed",
+]);
+
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
   "routing.incoterm": {
@@ -2436,6 +2449,231 @@ export async function applyFclConstraintPostProcessing(args: {
   if (result.added + result.updated + result.gapsIdentified > 0) {
     console.log(`[FCL constraints] post-process applied: added=${result.added}, updated=${result.updated}, gaps=${result.gapsIdentified}`);
   }
+
+  return result;
+}
+
+type ExportSeaFreightOrchestrationResult = {
+  gapCreated: boolean;
+  gapMaintained: boolean;
+  gapResolved: boolean;
+  requestCreated: boolean;
+  requestAlreadyExists: boolean;
+  coveredByPartnerFact: boolean;
+};
+
+function readFactText(facts: Array<Record<string, any>>, key: string): string {
+  const fact = facts.find((f) => f.fact_key === key);
+  if (!fact) return "";
+  if (fact.value_text != null && String(fact.value_text).trim()) return String(fact.value_text).trim();
+  if (fact.value_number != null) return String(fact.value_number).trim();
+  if (fact.value_json != null) return JSON.stringify(fact.value_json);
+  return "";
+}
+
+function formatContainerSummary(raw: unknown): string {
+  if (!Array.isArray(raw)) return "";
+  return raw
+    .map((c: any) => {
+      const quantity = Number(c?.quantity ?? c?.count ?? 1);
+      const type = String(c?.type ?? c?.container_type ?? "").trim();
+      if (!type) return "";
+      return `${Number.isFinite(quantity) && quantity > 0 ? quantity : 1}x${type}`;
+    })
+    .filter(Boolean)
+    .join(" + ");
+}
+
+function buildExportSeaFreightPurposeDetail(facts: Array<Record<string, any>>): string {
+  const containersFact = facts.find((f) => f.fact_key === "cargo.containers");
+  const containerSummary =
+    formatContainerSummary(containersFact?.value_json) ||
+    [
+      readFactText(facts, "cargo.container_count"),
+      readFactText(facts, "cargo.container_type"),
+    ].filter(Boolean).join("x");
+  const weight = readFactText(facts, "cargo.weight_kg");
+  const freeTime =
+    readFactText(facts, "pricing.destination_free_time_days") ||
+    readFactText(facts, "timing.destination_free_time_days");
+
+  const lines = [
+    ["Origine", readFactText(facts, "routing.origin_port")],
+    ["Destination", readFactText(facts, "routing.destination_port")],
+    ["Destination finale", readFactText(facts, "routing.final_destination")],
+    ["Incoterm", readFactText(facts, "routing.incoterm")],
+    ["Conteneurs", containerSummary],
+    ["Poids", weight ? `${weight} kg` : ""],
+    ["Free time destination", freeTime ? `${freeTime} jours` : ""],
+    ["Package", "EXPORT_SENEGAL"],
+    ["Service requis", "SEA_FREIGHT"],
+  ];
+
+  return lines
+    .filter(([, value]) => String(value ?? "").trim().length > 0)
+    .map(([label, value]) => `${label} : ${value}`)
+    .join("\n");
+}
+
+export async function ensureExportSeaFreightPartnerOrchestration(args: {
+  case_id: string;
+  serviceClient: any;
+  facts?: Array<Record<string, any>> | null;
+}): Promise<ExportSeaFreightOrchestrationResult> {
+  const result: ExportSeaFreightOrchestrationResult = {
+    gapCreated: false,
+    gapMaintained: false,
+    gapResolved: false,
+    requestCreated: false,
+    requestAlreadyExists: false,
+    coveredByPartnerFact: false,
+  };
+
+  const factKeys = [
+    "service.package",
+    "routing.origin_port",
+    "routing.destination_port",
+    "routing.final_destination",
+    "routing.incoterm",
+    "cargo.containers",
+    "cargo.container_count",
+    "cargo.container_type",
+    "cargo.weight_kg",
+    "pricing.destination_free_time_days",
+    "timing.destination_free_time_days",
+  ];
+
+  let facts = args.facts ?? null;
+  if (!facts) {
+    const { data, error } = await args.serviceClient
+      .from("quote_facts")
+      .select("fact_key, value_text, value_number, value_json")
+      .eq("case_id", args.case_id)
+      .eq("is_current", true)
+      .in("fact_key", factKeys);
+    if (error) {
+      console.warn("[EXPORT-SEA-FREIGHT] Failed to read facts:", error.message);
+      return result;
+    }
+    facts = data || [];
+  }
+
+  const servicePackage = readFactText(facts, "service.package").toUpperCase();
+  if (servicePackage !== "EXPORT_SENEGAL") return result;
+
+  const { data: freightRequests, error: reqErr } = await args.serviceClient
+    .from("external_quote_requests")
+    .select("id, status, purpose")
+    .eq("case_id", args.case_id)
+    .eq("purpose", "freight_rate");
+
+  if (reqErr) {
+    console.warn("[EXPORT-SEA-FREIGHT] Failed to read freight partner requests:", reqErr.message);
+    return result;
+  }
+
+  const requestRows = freightRequests || [];
+  const openFreightRequests = requestRows.filter((r: any) => r.status !== "closed");
+  const freightRequestIds = new Set(requestRows.map((r: any) => String(r.id)));
+
+  const { data: partnerFacts, error: factsErr } = await args.serviceClient
+    .from("external_quote_response_facts")
+    .select("id, request_id, fact_key, validation_status")
+    .eq("case_id", args.case_id);
+
+  if (factsErr) {
+    console.warn("[EXPORT-SEA-FREIGHT] Failed to read partner response facts:", factsErr.message);
+    return result;
+  }
+
+  const hasFreightFact = (partnerFacts || []).some((f: any) => {
+    const factKey = String(f.fact_key || "").trim();
+    const status = String(f.validation_status || "").trim();
+    if (status === "rejected") return false;
+    if (!EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS.has(factKey)) return false;
+    const requestId = String(f.request_id || "");
+    return freightRequestIds.size === 0 || freightRequestIds.has(requestId);
+  });
+
+  const hasExploitableRequest = requestRows.some((r: any) =>
+    EXTERNAL_REQUEST_EXPLOITABLE_STATUSES.has(String(r.status || "")),
+  );
+  const covered = hasFreightFact || hasExploitableRequest;
+  result.coveredByPartnerFact = covered;
+
+  const { data: existingGap } = await args.serviceClient
+    .from("quote_gaps")
+    .select("id")
+    .eq("case_id", args.case_id)
+    .eq("gap_key", EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (covered) {
+    if (existingGap?.id) {
+      await args.serviceClient
+        .from("quote_gaps")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("id", existingGap.id);
+      result.gapResolved = true;
+    }
+    return result;
+  }
+
+  if (existingGap?.id) {
+    result.gapMaintained = true;
+  } else {
+    await args.serviceClient.from("quote_gaps").insert({
+      case_id: args.case_id,
+      gap_key: EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+      gap_category: "pricing",
+      question_fr: "Une offre maritime partenaire est requise pour chiffrer le fret SEA_FREIGHT export.",
+      question_en: "A partner ocean freight quote is required before pricing export SEA_FREIGHT.",
+      priority: "critical",
+      is_blocking: true,
+    });
+    result.gapCreated = true;
+  }
+
+  if (openFreightRequests.length > 0) {
+    result.requestAlreadyExists = true;
+    return result;
+  }
+
+  const { data: inserted, error: insertErr } = await args.serviceClient
+    .from("external_quote_requests")
+    .insert({
+      case_id: args.case_id,
+      partner_name: "À définir",
+      partner_email: null,
+      purpose: "freight_rate",
+      purpose_detail: buildExportSeaFreightPurposeDetail(facts),
+      related_lot_index: null,
+      created_by: null,
+      status: "draft",
+    })
+    .select("id")
+    .single();
+
+  if (insertErr) {
+    console.warn("[EXPORT-SEA-FREIGHT] Failed to create freight_rate partner request:", insertErr.message);
+    return result;
+  }
+
+  result.requestCreated = true;
+  await args.serviceClient.from("case_timeline_events").insert({
+    case_id: args.case_id,
+    event_type: "external_request_created",
+    actor_type: "system",
+    new_value: "Demande partenaire auto: freight_rate (SEA_FREIGHT export)",
+    event_data: {
+      auto: true,
+      request_id: inserted?.id,
+      purpose: "freight_rate",
+      service_key: "SEA_FREIGHT",
+      gap_key: EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+    },
+  });
 
   return result;
 }
@@ -5487,6 +5725,12 @@ Deno.serve(async (req) => {
 
     const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
 
+    const exportSeaFreightOrchestration = await ensureExportSeaFreightPartnerOrchestration({
+      case_id,
+      serviceClient,
+    });
+    if (exportSeaFreightOrchestration.gapCreated) gapsIdentified++;
+
     // Phase 15.6: helpers for policy required keys
     const getText156 = (k: string) =>
       String((existingDbFacts || []).find((f: any) => f.fact_key === k)?.value_text ?? "").trim();
@@ -5560,6 +5804,7 @@ Deno.serve(async (req) => {
         "cargo.hs_code", "customs.regime_code",
         "cargo.freight_cost", "cargo.value",
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
+        EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
       for (const k of fclConstraintResult.protectedGapKeys) mandatorySet.add(k);
