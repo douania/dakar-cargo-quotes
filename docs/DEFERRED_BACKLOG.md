@@ -661,6 +661,7 @@ Mise à jour antérieure : 2026-04-25 (INFRA-PUBLISH-VITE-ENV-001 ouvert : écra
 
 ---
 
+## COCKPIT-7B — Vue détaillée par partenaire
 
 | Champ | Valeur |
 |-------|--------|
@@ -1104,20 +1105,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 
 ---
 
-## COMPOSITE-DOC-3 — Affichage UI des sous-documents
-
-| Champ | Valeur |
-|-------|--------|
-| **ID** | COMPOSITE-DOC-3 |
-| **Catégorie** | UI / Attachments |
-| **Statut** | `done` — fusionné avec l'entrée COMPOSITE-DOC-3 ci-dessus |
-| **Priorité** | Basse |
-| **Phase d'origine** | COMPOSITE-DOC-2 |
-| **Date** | 2026-04-14 |
-| **Déclencheur de réouverture** | Besoin opérateur de voir les sous-documents individuels d'un PDF composite dans l'UI. |
-| **Recommandation** | Ajouter un affichage des `documents[]` dans le panneau PJ du CaseView, avec type documentaire et page range. |
-
----
+<!-- COMPOSITE-DOC-3 (instance doublon supprimée le 2026-06-07 — contenu déjà représenté par l'entrée canonique COMPOSITE-DOC-3 ci-dessus, lignes ~1077-1088) -->
 
 ## FOB-FACT-KEY — Fact key canonique pour valeurs FOB
 
@@ -1203,7 +1191,7 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | QUOTE-QUALIFICATION-MODEL |
 | **Catégorie** | Contrat produit / Pricing output |
-| **Statut** | `in_progress` |
+| **Statut** | `partially_done / lot4_planned` (Lots 1–3 clos 2026-04-21 ; Lot 4 — Pilote DDP encore `planned`) |
 | **Priorité** | Haute |
 | **Phase d'origine** | QQM-1 |
 | **Date** | 2026-04-16 |
