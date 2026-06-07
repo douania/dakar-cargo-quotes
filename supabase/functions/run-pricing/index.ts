@@ -418,6 +418,65 @@ function resolveEffectiveServiceKeys(packageKey: string, overrides: ServiceOverr
   return result;
 }
 
+const PAD_SCOPE_SERVICE_KEYS = new Set([
+  'PORT_DAKAR_HANDLING',
+  'PAD_DROIT_PASSAGE',
+]);
+
+const PAD_CATEGORY_REQUIRED_MESSAGE =
+  "Catégorie PAD / droit de passage requise pour chiffrer le service portuaire inclus dans le devis.";
+
+function readFactValue(
+  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>,
+  factKey: string,
+): any {
+  const fact = (facts || []).find((f: any) => f?.fact_key === factKey);
+  return fact?.value_json ?? fact?.value_number ?? fact?.value_text ?? null;
+}
+
+function hasNonEmptyFactValue(
+  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>,
+  factKey: string,
+): boolean {
+  const value = readFactValue(facts, factKey);
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function resolvePadScopeBlocker(params: {
+  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>;
+  servicePackage: string;
+  effectiveServiceKeys?: string[];
+  incoterm: string;
+}): null | {
+  pricing_blockers: ['PAD_CATEGORY_REQUIRED'];
+  message: string;
+  scope_debug: { servicePackage: string; incoterm: string; effectiveServiceKeys: string[] };
+} {
+  const servicePackage = String(params.servicePackage || '').trim().toUpperCase();
+  const incoterm = String(params.incoterm || '').trim().toUpperCase();
+  const effectiveServiceKeys = (params.effectiveServiceKeys ?? resolveEffectiveServiceKeys(
+    servicePackage,
+    readOverridesFromFacts(params.facts || []),
+  )).map((key) => String(key || '').trim().toUpperCase()).filter(Boolean);
+
+  const padRequiredByScope = effectiveServiceKeys.some((key) => PAD_SCOPE_SERVICE_KEYS.has(key));
+  if (!padRequiredByScope) return null;
+
+  const hasPadCategory =
+    hasNonEmptyFactValue(params.facts || [], 'cargo.pad_category') ||
+    hasNonEmptyFactValue(params.facts || [], 'pricing.pad_category');
+  const padRate = Number(readFactValue(params.facts || [], 'cargo.pad_rate_fcfa_per_ton'));
+  const hasOfficialPadRate = Number.isFinite(padRate) && padRate > 0;
+
+  if (hasPadCategory && hasOfficialPadRate) return null;
+
+  return {
+    pricing_blockers: ['PAD_CATEGORY_REQUIRED'],
+    message: PAD_CATEGORY_REQUIRED_MESSAGE,
+    scope_debug: { servicePackage, incoterm, effectiveServiceKeys },
+  };
+}
+
 // ═══ P6: Canonical Pricing Line Metadata ═══
 
 /**
@@ -736,10 +795,18 @@ Deno.serve(async (req) => {
     // 4. Phase 15.6: Scope query — determine scopeWantsDuties BEFORE hard guard
     const { data: scopeFacts } = await serviceClient
       .from("quote_facts")
-      .select("fact_key, value_text")
+      .select("fact_key, value_text, value_number, value_json")
       .eq("case_id", case_id)
       .eq("is_current", true)
-      .in("fact_key", ["service.package", "routing.incoterm", "cargo.hs_code"]);
+      .in("fact_key", [
+        "service.package",
+        "service.overrides",
+        "routing.incoterm",
+        "cargo.hs_code",
+        "cargo.pad_category",
+        "pricing.pad_category",
+        "cargo.pad_rate_fcfa_per_ton",
+      ]);
 
     const servicePackageRaw = (scopeFacts || []).find((f: any) => f.fact_key === "service.package")?.value_text ?? "";
     const pkg = String(servicePackageRaw ?? "").trim().toUpperCase();
@@ -896,6 +963,16 @@ Deno.serve(async (req) => {
         const lotScopeWantsDuties = lotPkg.endsWith("_DDP") || lotPkg === "DDP" || lotIncoterm === "DDP";
 
         const lotBlockers: string[] = [];
+        const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
+        const lotPadBlocker = resolvePadScopeBlocker({
+          facts: mergedFacts,
+          servicePackage: lotPkg,
+          effectiveServiceKeys: lotEffectiveServiceKeys,
+          incoterm: lotIncoterm,
+        });
+        if (lotPadBlocker) {
+          lotBlockers.push("PAD_CATEGORY_REQUIRED");
+        }
 
         // HS code check
         if (lotScopeWantsDuties) {
@@ -1438,6 +1515,70 @@ Deno.serve(async (req) => {
           tariff_sources_count: allSources.length,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const effectiveServiceKeys = resolveEffectiveServiceKeys(pkg, readOverridesFromFacts(scopeFacts || []));
+    const padScopeBlocker = resolvePadScopeBlocker({
+      facts: scopeFacts || [],
+      servicePackage: pkg,
+      effectiveServiceKeys,
+      incoterm: incotermEarly,
+    });
+
+    if (padScopeBlocker) {
+      console.error("[COHERENCE] puzzle/pricing drift", {
+        case_id,
+        missing: "cargo.pad_category",
+        blocker: "PAD_CATEGORY_REQUIRED",
+        servicePackage: pkg,
+        incoterm: incotermEarly,
+        effectiveServiceKeys,
+      });
+
+      const { data: padBlockerRunNumber } = await serviceClient
+        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+      const padBlockerOutputs = {
+        pricing_blockers: padScopeBlocker.pricing_blockers,
+        message: padScopeBlocker.message,
+        scope: padScopeBlocker.scope_debug,
+        coherence_drift: true,
+      };
+
+      await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: padBlockerRunNumber || 1,
+          inputs_json: {
+            servicePackage: pkg,
+            incoterm: incotermEarly,
+            effectiveServiceKeys,
+          },
+          facts_snapshot: (scopeFacts || []).map((f: any) => ({
+            key: f.fact_key,
+            value_text: f.value_text,
+            value_number: f.value_number,
+            value_json: f.value_json,
+          })),
+          status: "blocked",
+          error_message: padScopeBlocker.message,
+          outputs_json: padBlockerOutputs,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
+      return new Response(
+        JSON.stringify({
+          pricing_blockers: padScopeBlocker.pricing_blockers,
+          message: padScopeBlocker.message,
+          run_number: padBlockerRunNumber || 1,
+          scope_debug: padScopeBlocker.scope_debug,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -3178,6 +3319,7 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         inputs.servicePackage = String(value);
         break;
       case "cargo.pad_category":
+      case "pricing.pad_category":
         inputs.padCategory = String(value);
         break;
       case "cargo.pad_rate_fcfa_per_ton":
