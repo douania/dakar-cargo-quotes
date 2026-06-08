@@ -124,6 +124,8 @@ interface PricingContext {
   caf_value: number | null; // Phase PRICING V2: CAF value from canonical fact cargo.caf_value
   client_code: string | null; // Phase PRICING V3.2: canonical fact client.code
   destination_city: string | null; // Phase V4.1: for local_transport_rates matching
+  pad_category: string | null; // PAD droit de passage category, cargo.* takes precedence over pricing.*
+  pad_rate_fcfa_per_ton: number | null;
 }
 
 interface PricedLine {
@@ -403,6 +405,12 @@ function buildPricingContext(
   // Phase V4.1: Extract destination_city for transport rate matching
   const destinationCity = factsMap.get("routing.destination_city")?.value_text || null;
 
+  const padCategory =
+    factsMap.get("cargo.pad_category")?.value_text?.trim().toUpperCase() ||
+    factsMap.get("pricing.pad_category")?.value_text?.trim().toUpperCase() ||
+    null;
+  const padRateFcfaPerTon = factsMap.get("cargo.pad_rate_fcfa_per_ton")?.value_number ?? null;
+
   return {
     scope,
     container_type: containerType,
@@ -417,6 +425,8 @@ function buildPricingContext(
     caf_value: cafValue,
     client_code: clientCode,
     destination_city: destinationCity,
+    pad_category: padCategory,
+    pad_rate_fcfa_per_ton: padRateFcfaPerTon,
   };
 }
 
@@ -691,6 +701,76 @@ async function findPortTariffFallback(
 }
 
 // ═══════════════════════════════════════════════════════════════
+async function findPadExportPortChargesFallback(
+  serviceClient: ReturnType<typeof createClient>,
+  serviceKey: string,
+  ctx: PricingContext,
+): Promise<{
+  rate: number;
+  currency: string;
+  source: string;
+  confidence: number;
+  explanation: string;
+  quantity_used: number;
+  unit_used: string;
+  conversion_used: string;
+} | null> {
+  if (serviceKey !== "PORT_CHARGES") return null;
+  if (ctx.scope !== "export") return null;
+
+  const isContainerized =
+    (Array.isArray(ctx.containers) && ctx.containers.length > 0) ||
+    !!ctx.container_type ||
+    (ctx.container_count != null && ctx.container_count > 0);
+  if (!isContainerized) return null;
+
+  const padCategory = ctx.pad_category?.trim().toUpperCase();
+  if (!padCategory) return null;
+
+  const existingPadRate = Number(ctx.pad_rate_fcfa_per_ton);
+  if (Number.isFinite(existingPadRate) && existingPadRate > 0) return null;
+
+  const weightKg = ctx.weight_kg;
+  if (!weightKg || weightKg <= 0) return null;
+
+  const today = new Date().toISOString().split("T")[0];
+  const { data, error } = await serviceClient
+    .from("port_tariffs")
+    .select("id, amount, unit, provider, category, operation_type, cargo_type, classification, effective_date, source_document, evidence_level")
+    .eq("provider", "PAD")
+    .eq("category", "DROIT_PASSAGE")
+    .eq("operation_type", "EXPORT")
+    .eq("cargo_type", "CONTENEUR")
+    .eq("classification", padCategory)
+    .eq("is_active", true)
+    .in("evidence_level", ["official", "validated_internal"])
+    .lte("effective_date", today)
+    .order("effective_date", { ascending: false })
+    .limit(1);
+
+  if (error || !data || data.length === 0) return null;
+
+  const row = data[0];
+  const unitPrice = Number(row.amount);
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) return null;
+
+  const tonnes = Math.ceil(weightKg / 1000);
+  const rate = Math.round(unitPrice * tonnes);
+  const currency = "XOF";
+  const evidenceLevel = String(row.evidence_level || "").toLowerCase();
+
+  return {
+    rate,
+    currency,
+    source: `port_tariffs:${row.provider}:${row.id.slice(0, 8)}`,
+    confidence: evidenceLevel === "official" ? 0.95 : 0.90,
+    explanation: `PAD DROIT_PASSAGE EXPORT CONTENEUR ${row.classification}, ${unitPrice} FCFA/t x ${tonnes} t`,
+    quantity_used: tonnes,
+    unit_used: "tonne",
+    conversion_used: `${weightKg}kg/1000=${tonnes}t`,
+  };
+}
+
 // Phase V3.3: PERCENTAGE resolver helper (CTO correction)
 // Re-executes downstream cascade WITHOUT client_override to find fallback price.
 // Returns raw rate (no modifiers, no min_price) or null.
@@ -1412,6 +1492,23 @@ Deno.serve(async (req) => {
           //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
           // Lot 1-B : alimenté également depuis le bloc catalogue via isCatalogPlaceholder
           //   (entrées FIXED 0 XOF avec description "Tarif à confirmer").
+          const padExportPortChargesFallback = await findPadExportPortChargesFallback(serviceClient, serviceKey, pricingCtx);
+          if (padExportPortChargesFallback) {
+            pricedLines.push({
+              id: line.id,
+              rate: padExportPortChargesFallback.rate,
+              currency: padExportPortChargesFallback.currency,
+              source: padExportPortChargesFallback.source,
+              confidence: padExportPortChargesFallback.confidence,
+              explanation: padExportPortChargesFallback.explanation,
+              quantity_used: padExportPortChargesFallback.quantity_used,
+              unit_used: padExportPortChargesFallback.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: padExportPortChargesFallback.conversion_used,
+            });
+            continue;
+          }
+
           const isExportPlaceholder =
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
