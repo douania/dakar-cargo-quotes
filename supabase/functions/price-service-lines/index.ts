@@ -349,9 +349,11 @@ function buildPricingContext(
   factsMap: Map<string, { value_text: string | null; value_json: unknown; value_number: number | null }>
 ): PricingContext {
   const flowType = factsMap.get("service.flow_type")?.value_text || "";
+  const servicePackage = factsMap.get("service.package")?.value_text?.trim().toUpperCase() || "";
   let scope = "import";
   if (/EXPORT/i.test(flowType)) scope = "export";
   else if (/TRANSIT/i.test(flowType)) scope = "transit";
+  else if (servicePackage === "EXPORT_SENEGAL") scope = "export";
 
   let containerType: string | null = null;
   let containerCount: number | null = null;
