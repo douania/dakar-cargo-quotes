@@ -126,6 +126,17 @@ type CreatePadV5CandidateResponse = {
 };
 
 /* PAD-V5 shadow — suggestion UI read-only */
+type CreatePadRecommendationCandidatesResponse = {
+  ok?: boolean;
+  idempotent?: boolean;
+  created_count?: number;
+  candidates?: CommodityClassificationCandidate[] | unknown[];
+  error?: string;
+  reason?: string;
+  details?: unknown;
+  message?: string;
+};
+
 type PadV5ShadowSuggestion = {
   id: string;
   row_key: string;
@@ -151,6 +162,12 @@ type PadV5ShadowSuggestion = {
 type PadIndicativeTariff = {
   amount: number;
   unit: string | null;
+};
+
+type PadExportScopeState = {
+  loading: boolean;
+  eligible: boolean;
+  reason: string | null;
 };
 
 type PropagateErrorCode =
@@ -244,6 +261,18 @@ const CREATE_PAD_V5_ERROR_TITLES: Record<string, string> = {
   state_conflict: "Un candidat courant existe déjà",
   internal_error: "Création du candidat impossible",
 };
+const CREATE_PAD_RECOMMENDATION_ERROR_TITLES: Record<string, string> = {
+  unauthorized: "Session expiree",
+  forbidden: "Acces refuse",
+  invalid_input: "Requete invalide",
+  scope_not_export: "Scope non export",
+  scope_not_container: "Conteneur absent",
+  pad_category_already_set: "Categorie PAD deja renseignee",
+  missing_cargo_description: "Description marchandise absente",
+  export_tariffs_not_found: "Bareme PAD export indisponible",
+  state_conflict: "Un candidat courant existe deja",
+  internal_error: "Creation des candidats impossible",
+};
 const PAD_V5_SELECT_COLUMNS = [
   "id",
   "row_key",
@@ -303,6 +332,14 @@ function isPadV5ShadowCandidate(candidate: CommodityClassificationCandidate | nu
   return candidate?.source === "pad_v5_shadow";
 }
 
+function isPadExportAiSuggestion(candidate: CommodityClassificationCandidate): boolean {
+  const evidence = getEvidence(candidate);
+  return candidate.candidate_kind === "pad_category"
+    && candidate.source === "ai_suggestion"
+    && evidence.operation_type === "EXPORT"
+    && evidence.cargo_type === "CONTENEUR";
+}
+
 function confidenceTierClass(c: number | null): string {
   if (c == null) return "bg-muted text-muted-foreground border-border";
   if (c >= 0.8) return "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300";
@@ -332,6 +369,12 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   const [padV5ErrorMsg, setPadV5ErrorMsg] = useState<string | null>(null);
   const [padIndicativeTariffs, setPadIndicativeTariffs] = useState<Record<string, PadIndicativeTariff>>({});
   const [creatingPadV5Id, setCreatingPadV5Id] = useState<string | null>(null);
+  const [padExportScope, setPadExportScope] = useState<PadExportScopeState>({
+    loading: false,
+    eligible: false,
+    reason: null,
+  });
+  const [creatingPadExportRecommendations, setCreatingPadExportRecommendations] = useState(false);
 
   // Filtres locaux (n'écrivent rien)
   const [kindFilter, setKindFilter] = useState<string>(ALL);
@@ -404,6 +447,54 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     if (!open) return;
     fetchCandidates();
   }, [open, fetchCandidates]);
+
+  useEffect(() => {
+    if (!open) {
+      setPadExportScope({ loading: false, eligible: false, reason: null });
+      return;
+    }
+
+    let cancelled = false;
+    const fetchPadExportScope = async () => {
+      setPadExportScope((prev) => ({ ...prev, loading: true }));
+      try {
+        const { data, error } = await supabase
+          .from("quote_facts")
+          .select("fact_key,value_text,value_json")
+          .eq("case_id", caseId)
+          .eq("is_current", true)
+          .in("fact_key", ["service.package", "cargo.containers", "cargo.pad_category"]);
+        if (error) throw error;
+
+        const rows = (data ?? []) as Array<{ fact_key: string; value_text: string | null; value_json: unknown }>;
+        const servicePackage = rows.find((row) => row.fact_key === "service.package")?.value_text?.trim().toUpperCase() ?? "";
+        const containersRaw = rows.find((row) => row.fact_key === "cargo.containers")?.value_json;
+        const padCategory = rows.find((row) => row.fact_key === "cargo.pad_category")?.value_text?.trim() ?? "";
+        const hasContainers = Array.isArray(containersRaw)
+          ? containersRaw.length > 0
+          : typeof containersRaw === "string"
+            ? containersRaw.trim().length > 0 && containersRaw.trim() !== "[]"
+            : containersRaw != null;
+
+        let reason: string | null = null;
+        if (servicePackage !== "EXPORT_SENEGAL") reason = "scope_not_export";
+        else if (!hasContainers) reason = "scope_not_container";
+        else if (padCategory) reason = "pad_category_already_set";
+
+        if (!cancelled) setPadExportScope({ loading: false, eligible: reason === null, reason });
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Erreur inconnue";
+          setPadExportScope({ loading: false, eligible: false, reason: msg });
+        }
+      }
+    };
+
+    void fetchPadExportScope();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, caseId]);
 
   useEffect(() => {
     if (!open || candidates.length === 0) {
@@ -762,6 +853,48 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     }
   }, [caseId, fetchCandidates]);
 
+  const createPadExportRecommendationCandidates = useCallback(async () => {
+    setCreatingPadExportRecommendations(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<CreatePadRecommendationCandidatesResponse>(
+        "create-pad-recommendation-candidates",
+        { body: { case_id: caseId } },
+      );
+
+      let payload = (data ?? null) as CreatePadRecommendationCandidatesResponse | null;
+      if (error) {
+        const fromErr = await readCreatePadV5ErrorPayload(error);
+        if (fromErr) payload = fromErr as CreatePadRecommendationCandidatesResponse;
+      }
+
+      if (error || !payload || payload.error || payload.ok !== true) {
+        const code = payload?.error ?? "internal_error";
+        toast({
+          title: CREATE_PAD_RECOMMENDATION_ERROR_TITLES[code] ?? "Creation des candidats impossible",
+          description: payload?.reason ?? payload?.message ?? (error instanceof Error ? error.message : undefined),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: payload.created_count && payload.created_count > 0
+          ? "Candidats PAD export crees"
+          : "Aucun nouveau candidat PAD export",
+        description: payload.idempotent ? "Candidats deja presents." : undefined,
+      });
+      setKindFilter(ALL);
+      setStatusFilter(ALL);
+      setIsCurrent(true);
+      await fetchCandidates({ kindFilter: ALL, statusFilter: ALL, isCurrent: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Creation des candidats impossible", description: msg, variant: "destructive" });
+    } finally {
+      setCreatingPadExportRecommendations(false);
+    }
+  }, [caseId, fetchCandidates]);
+
   const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
     setPendingId(candidate.id);
     const idemKey = `propagate:${candidate.id}`;
@@ -808,6 +941,14 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   }, [fetchCandidates]);
 
   const openPropagateDialog = (candidate: CommodityClassificationCandidate) => {
+    if (isPadExportAiSuggestion(candidate)) {
+      toast({
+        title: "Propagation PAD export bloquee",
+        description: "MAP-8B n'est pas export-safe.",
+        variant: "destructive",
+      });
+      return;
+    }
     setPropagateTarget(candidate);
   };
   const closePropagateDialog = () => {
@@ -899,6 +1040,34 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
             </div>
 
             {/* États */}
+            {padExportScope.eligible ? (
+              <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <span className="text-sm font-medium">Amorce PAD export conteneur</span>
+                    <Badge variant="outline" className="text-[10px]">suggested only</Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={creatingPadExportRecommendations || padExportScope.loading}
+                    onClick={() => void createPadExportRecommendationCandidates()}
+                  >
+                    {creatingPadExportRecommendations ? (
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="mr-2 h-3 w-3" />
+                    )}
+                    Creer candidats PAD export
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Cree 1 a 3 candidats a valider, sans propagation. La propagation PAD export reste bloquee tant que MAP-8B n'est pas export-safe.
+                </p>
+              </div>
+            ) : null}
+
             {state === "loading" && (
               <div className="space-y-2">
                 <Skeleton className="h-8 w-full" />
@@ -1094,8 +1263,9 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                       const propagated = getPropagatedFactId(c);
                       const propagatedAt = getPropagatedAt(c);
                       const propagatedFactKey = getPropagatedFactKey(c);
-                      const showPropagate = canPropagate(c);
+                      const showPropagate = canPropagate(c) && !isPadExportAiSuggestion(c);
                       const fromPadV5Shadow = isPadV5ShadowCandidate(c);
+                      const fromPadExportAi = isPadExportAiSuggestion(c);
                       const propagatedTooltip = propagated
                         ? [
                             propagatedFactKey ? `fact_key: ${propagatedFactKey}` : `fact_id: ${propagated}`,
@@ -1140,11 +1310,21 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                                   V5 SHADOW
                                 </Badge>
                               ) : null}
+                              {fromPadExportAi ? (
+                                <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                  EXPORT PAD
+                                </Badge>
+                              ) : null}
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">
                               <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
+                              {fromPadExportAi ? (
+                                <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                                  Propagation bloquee: MAP-8B non export-safe
+                                </p>
+                              ) : null}
                               {fromPadV5Shadow ? (
                                 <p className="text-[10px] text-amber-700 dark:text-amber-300">
                                   Suggestion V5 — vérifier avant validation
