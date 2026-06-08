@@ -340,6 +340,15 @@ function isPadExportAiSuggestion(candidate: CommodityClassificationCandidate): b
     && evidence.cargo_type === "CONTENEUR";
 }
 
+function isPadExportSafePropagationCandidate(candidate: CommodityClassificationCandidate): boolean {
+  const evidence = getEvidence(candidate);
+  return candidate.candidate_kind === "pad_category"
+    && candidate.source === "ai_suggestion"
+    && evidence.operation_type === "EXPORT"
+    && evidence.cargo_type === "CONTENEUR"
+    && evidence.map8b_export_safe === false;
+}
+
 function confidenceTierClass(c: number | null): string {
   if (c == null) return "bg-muted text-muted-foreground border-border";
   if (c >= 0.8) return "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300";
@@ -941,7 +950,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   }, [fetchCandidates]);
 
   const openPropagateDialog = (candidate: CommodityClassificationCandidate) => {
-    if (isPadExportAiSuggestion(candidate)) {
+    if (isPadExportAiSuggestion(candidate) && !isPadExportSafePropagationCandidate(candidate)) {
       toast({
         title: "Propagation PAD export bloquee",
         description: "MAP-8B n'est pas export-safe.",
@@ -1063,7 +1072,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Cree 1 a 3 candidats a valider, sans propagation. La propagation PAD export reste bloquee tant que MAP-8B n'est pas export-safe.
+                  Cree 1 a 3 candidats a valider, sans propagation. Les candidats créés restent à valider. Après acceptation, la propagation export-safe écrit uniquement cargo.pad_category, sans créer cargo.pad_rate_fcfa_per_ton.
                 </p>
               </div>
             ) : null}
@@ -1263,7 +1272,8 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                       const propagated = getPropagatedFactId(c);
                       const propagatedAt = getPropagatedAt(c);
                       const propagatedFactKey = getPropagatedFactKey(c);
-                      const showPropagate = canPropagate(c) && !isPadExportAiSuggestion(c);
+                      const padExportSafePropagationCandidate = isPadExportSafePropagationCandidate(c);
+                      const showPropagate = canPropagate(c) && (!isPadExportAiSuggestion(c) || padExportSafePropagationCandidate);
                       const fromPadV5Shadow = isPadV5ShadowCandidate(c);
                       const fromPadExportAi = isPadExportAiSuggestion(c);
                       const propagatedTooltip = propagated
@@ -1322,7 +1332,9 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                               <Badge variant="outline" className="text-[10px]">{c.source}</Badge>
                               {fromPadExportAi ? (
                                 <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                                  Propagation bloquee: MAP-8B non export-safe
+                                  {padExportSafePropagationCandidate
+                                    ? "Propagation export-safe: cargo.pad_category uniquement"
+                                    : "Propagation bloquee: MAP-8B non export-safe"}
                                 </p>
                               ) : null}
                               {fromPadV5Shadow ? (
@@ -1462,6 +1474,14 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                   <AlertDescription className="text-xs">
                     Candidat V5 shadow. La propagation écrit cargo.pad_category uniquement via le workflow MAP-6 existant.
                     Aucun run-pricing automatique. Aucun tarif ne doit être inféré depuis V5 ; port_tariffs reste la source pricing.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {isPadExportSafePropagationCandidate(propagateTarget) ? (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Propagation export-safe : écrit uniquement cargo.pad_category. Aucun cargo.pad_rate_fcfa_per_ton ne sera créé.
                   </AlertDescription>
                 </Alert>
               ) : null}
