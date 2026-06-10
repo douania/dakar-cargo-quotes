@@ -88,6 +88,33 @@ function formatPackageLabel(packageKey: string): string {
   return packageKey.trim().replace(/_/g, " ");
 }
 
+function formatContainersValue(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+
+  const parts = value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+
+    const container = item as Record<string, unknown>;
+    const type = typeof container.type === "string" ? container.type.trim() : "";
+    if (!type) return null;
+
+    const rawQuantity = container.quantity;
+    const quantity =
+      typeof rawQuantity === "number" && Number.isFinite(rawQuantity)
+        ? rawQuantity
+        : 1;
+    const cocSoc =
+      typeof container.coc_soc === "string" && container.coc_soc.trim()
+        ? ` (${container.coc_soc.trim().toUpperCase()})`
+        : "";
+
+    return `${quantity} × ${type}${cocSoc}`;
+  });
+
+  if (parts.some((part) => part === null)) return null;
+  return parts.join(", ");
+}
+
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -2255,6 +2282,10 @@ export default function CaseView() {
                                 const articles = fact.value_json as any[];
                                 const hsCount = new Set(articles.map((a: any) => a.hs_code).filter(Boolean)).size;
                                 return `${articles.length} article(s) — ${hsCount} HS`;
+                              }
+                              if (fact.fact_key === "cargo.containers") {
+                                const containersValue = formatContainersValue(fact.value_json);
+                                if (containersValue) return containersValue;
                               }
                               return fact.value_text ||
                                 (fact.value_number != null ? String(fact.value_number) : null) ||
