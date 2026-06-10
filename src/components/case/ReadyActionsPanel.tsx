@@ -149,6 +149,8 @@ const TYPE_COLORS: Record<string, string> = {
   internal: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
 };
 
+const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
+
 /* ─── Component ─── */
 
 export function ReadyActionsPanel({ caseId }: { caseId: string }) {
@@ -281,6 +283,22 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     const blockingGaps = gaps.filter((g: any) => g.is_blocking);
     if (blockingGaps.length > 0) {
       for (const gap of blockingGaps) {
+        if (gap.gap_key === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY) {
+          result.push({
+            type: "partner",
+            actionKey: "draft_partner",
+            priority: getPriority(),
+            title: "Préparer la demande partenaire freight_rate",
+            reason: "Gap bloquant : offre maritime partenaire requise",
+            target: "Partenaires",
+            status: "to_prepare",
+            nextStep: "Préparer et confirmer l'envoi aux partenaires",
+            icon: <FileText className="h-4 w-4 text-amber-600" />,
+            color: "amber",
+          });
+          continue;
+        }
+
         const gapRequest = clientGaps.find((r: any) => r.gap_key === gap.gap_key);
         const hasDraft = drafts.some((d: any) =>
           d?.dedupe_key?.includes(gap.gap_key) ||
