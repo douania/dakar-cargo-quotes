@@ -1012,6 +1012,14 @@ export default function CaseView() {
   }
 
   const completeness = caseData.puzzle_completeness ?? 0;
+  const requestType = String(caseData.request_type ?? "").toUpperCase();
+  const packageKey =
+    typeof servicePackageFact?.value_text === "string"
+      ? servicePackageFact.value_text.toUpperCase()
+      : "";
+  const hasDirectionConflict =
+    (requestType.includes("IMPORT") && packageKey.includes("EXPORT")) ||
+    (requestType.includes("EXPORT") && packageKey.includes("IMPORT"));
 
   return (
     <MainLayout>
@@ -1076,6 +1084,15 @@ export default function CaseView() {
             })()}
           </div>
         </div>
+
+        {hasDirectionConflict && (
+          <Alert className="mb-6 border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Conflit de direction détecté : le mode technique indique {requestType}, alors que le package métier indique {packageKey}. Vérifier le périmètre avant pricing.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Info bar */}
         <Card className="mb-6">
