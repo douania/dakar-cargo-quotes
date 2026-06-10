@@ -8,6 +8,8 @@
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -34,14 +36,37 @@ interface ActionResult {
   color: "amber" | "blue" | "emerald" | "red" | "muted";
 }
 
+const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
+
 /* ─── Component ─── */
 export function NextActionBanner({ caseId }: Props) {
   const { data, isLoading } = useCockpitState(caseId);
   const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
+  const { data: blockingGaps } = useQuery({
+    queryKey: ["next-action-banner", caseId],
+    staleTime: 30_000,
+    enabled: !!caseId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quote_gaps")
+        .select("gap_key")
+        .eq("case_id", caseId)
+        .eq("status", "open")
+        .eq("is_blocking", true);
+
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const blockingGapKeys = blockingGaps?.map((g) => g.gap_key) ?? [];
+  const hasOnlySeaFreightPartnerBlockingGap =
+    blockingGapKeys.length === 1 &&
+    blockingGapKeys[0] === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY;
 
   if (isLoading || !data) return null;
 
-  const result = computeAction(data, hasCriticalUnconfirmed);
+  const result = computeAction(data, hasCriticalUnconfirmed, hasOnlySeaFreightPartnerBlockingGap);
   if (!result) return null;
 
   const colorMap: Record<string, string> = {
@@ -77,12 +102,19 @@ function computeAction(d: {
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
   hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
   totalPartnerRequests: number;
-}, hasCriticalUnconfirmed: boolean): ActionResult | null {
+}, hasCriticalUnconfirmed: boolean, hasOnlySeaFreightPartnerBlockingGap: boolean): ActionResult | null {
 
   // Terminal
   if (TERMINAL_STATUSES.has(d.status)) return null;
 
   // 1 — Blocking gaps
+  if (hasOnlySeaFreightPartnerBlockingGap) return {
+    action: "Préparer la demande partenaire freight_rate",
+    blocker: "Offre maritime partenaire requise",
+    icon: <FileText className="h-4 w-4 text-amber-600" />,
+    color: "amber",
+  };
+
   if (d.blockingGapsCount > 0) return {
     action: `Résoudre ${d.blockingGapsCount} gap(s) bloquant(s)`,
     blocker: `${d.blockingGapsCount} gap(s) bloquant(s)`,
