@@ -382,7 +382,16 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
     // 4 — Draft partner requests
     const draftRequests = requests.filter((r: any) => r.status === "draft");
-    if (draftRequests.length > 0 && result.length < 4) {
+    const hasSeaFreightPartnerGapAction = result.some(
+      (a) =>
+        a.actionKey === "draft_partner" &&
+        a.title === "Préparer la demande partenaire freight_rate"
+    );
+    const shouldShowGenericDraftPartnerAction =
+      draftRequests.length > 0 &&
+      !(hasSeaFreightPartnerGapAction && draftRequests.length === 1);
+
+    if (shouldShowGenericDraftPartnerAction && result.length < 4) {
       result.push({
         type: "partner",
         actionKey: "draft_partner",
