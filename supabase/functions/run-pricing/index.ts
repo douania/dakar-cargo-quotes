@@ -53,7 +53,118 @@ interface PricingInputs {
   padRateFcfaPerTon?: number;
 }
 
-// ═══ P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts) ═══
+// Backend guard: pricing must not start while client or partner communication loops are still open.
+const OPEN_PARTNER_REQUEST_STATUSES = [
+  "draft",
+  "sent",
+  "response_received",
+  "response_analyzed",
+  "partially_validated",
+];
+const PENDING_PARTNER_FACT_STATUS = "proposed";
+const OPEN_CLIENT_GAP_REQUEST_STATUSES = ["drafted", "sent", "answered"];
+
+type OpenCommunicationLoopsRows = {
+  partnerRequests?: Array<{ id?: string | null }>;
+  partnerFacts?: Array<{ id?: string | null }>;
+  clientGapRequests?: Array<{ id?: string | null; gap_key?: string | null }>;
+  openGaps?: Array<{ gap_key?: string | null }>;
+};
+
+export type OpenCommunicationLoopsGuard = {
+  blocked: boolean;
+  open_partner_requests_count: number;
+  pending_partner_facts_count: number;
+  open_client_gap_requests_count: number;
+};
+
+type SupabaseQueryLike = {
+  select: (columns: string, options?: Record<string, unknown>) => SupabaseQueryLike;
+  eq: (column: string, value: unknown) => SupabaseQueryLike;
+  in: (column: string, values: string[]) => SupabaseQueryLike;
+  then: (
+    resolve: (value: { data: Array<Record<string, unknown>> | null; error: { message?: string } | null }) => void,
+    reject: (reason?: unknown) => void,
+  ) => void;
+};
+
+type SupabaseClientLike = {
+  from: (table: string) => SupabaseQueryLike;
+};
+
+export function buildOpenCommunicationLoopsGuard(
+  rows: OpenCommunicationLoopsRows,
+): OpenCommunicationLoopsGuard {
+  const openGapKeys = new Set(
+    (rows.openGaps || [])
+      .map((gap) => String(gap.gap_key || "").trim())
+      .filter(Boolean),
+  );
+  const openClientGapRequestsCount = (rows.clientGapRequests || []).filter((request) =>
+    openGapKeys.has(String(request.gap_key || "").trim()),
+  ).length;
+
+  const openPartnerRequestsCount = rows.partnerRequests?.length ?? 0;
+  const pendingPartnerFactsCount = rows.partnerFacts?.length ?? 0;
+
+  return {
+    blocked: openPartnerRequestsCount > 0 || pendingPartnerFactsCount > 0 || openClientGapRequestsCount > 0,
+    open_partner_requests_count: openPartnerRequestsCount,
+    pending_partner_facts_count: pendingPartnerFactsCount,
+    open_client_gap_requests_count: openClientGapRequestsCount,
+  };
+}
+
+export async function getOpenCommunicationLoopsGuard(
+  serviceClient: SupabaseClientLike,
+  caseId: string,
+): Promise<OpenCommunicationLoopsGuard> {
+  const [
+    partnerRequestsResult,
+    partnerFactsResult,
+    clientGapRequestsResult,
+    openGapsResult,
+  ] = await Promise.all([
+    serviceClient
+      .from("external_quote_requests")
+      .select("id")
+      .eq("case_id", caseId)
+      .in("status", OPEN_PARTNER_REQUEST_STATUSES),
+    serviceClient
+      .from("external_quote_response_facts")
+      .select("id")
+      .eq("case_id", caseId)
+      .eq("validation_status", PENDING_PARTNER_FACT_STATUS),
+    serviceClient
+      .from("client_gap_requests")
+      .select("id, gap_key")
+      .eq("case_id", caseId)
+      .in("status", OPEN_CLIENT_GAP_REQUEST_STATUSES),
+    serviceClient
+      .from("quote_gaps")
+      .select("gap_key")
+      .eq("case_id", caseId)
+      .eq("status", "open"),
+  ]);
+
+  const guardError =
+    partnerRequestsResult.error ||
+    partnerFactsResult.error ||
+    clientGapRequestsResult.error ||
+    openGapsResult.error;
+  if (guardError) {
+    throw new Error(`Failed to check open communication loops: ${guardError.message || "unknown error"}`);
+  }
+
+  return buildOpenCommunicationLoopsGuard({
+    partnerRequests: partnerRequestsResult.data || [],
+    partnerFacts: partnerFactsResult.data || [],
+    clientGapRequests: clientGapRequestsResult.data || [],
+    openGaps: openGapsResult.data || [],
+  });
+}
+
+// P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts)
 const SERVICE_PACKAGES: Record<string, string[]> = {
   DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
@@ -665,6 +776,7 @@ function canonicalizeLine(
   return { ...line, canonical };
 }
 
+if (Deno.env.get("RUN_PRICING_DISABLE_SERVE") !== "1") {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -842,6 +954,20 @@ Deno.serve(async (req) => {
     }
 
     // 4a-bis. P3b.1: Multi-lot orchestrator — per-lot pricing when structured lines exist
+    const openCommunicationLoopsGuard = await getOpenCommunicationLoopsGuard(serviceClient, case_id);
+    if (openCommunicationLoopsGuard.blocked) {
+      return new Response(
+        JSON.stringify({
+          error: "Open communication loops still pending",
+          open_partner_requests_count: openCommunicationLoopsGuard.open_partner_requests_count,
+          pending_partner_facts_count: openCommunicationLoopsGuard.pending_partner_facts_count,
+          open_client_gap_requests_count: openCommunicationLoopsGuard.open_client_gap_requests_count,
+          hint: "Close or validate pending client/partner communication loops before pricing",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { count: mlCount } = await serviceClient
       .from("quote_request_lines")
       .select("*", { count: "exact", head: true })
@@ -3172,6 +3298,7 @@ ${JSON.stringify(refPayload)}`;
     );
   }
 });
+}
 
 /**
  * CTO FIX: Rollback case status on pricing initialization failure

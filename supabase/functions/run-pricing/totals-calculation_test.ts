@@ -1,6 +1,10 @@
 import "https://deno.land/std@0.224.0/dotenv/load.ts";
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
+Deno.env.set("RUN_PRICING_DISABLE_SERVE", "1");
+
+const { getOpenCommunicationLoopsGuard } = await import("./index.ts");
+
 /**
  * PAD-TOTALS-1 Unit Tests
  * Tests the totals calculation logic for all 3 engine paths:
@@ -57,6 +61,138 @@ function computeTotals(engineTotals: any, tariffLines: any[]) {
 }
 
 // ── Test 1: Standard import with dap/ddp from engine ──
+type GuardRow = Record<string, unknown>;
+
+class GuardQueryBuilder {
+  private filters: Array<[string, unknown]> = [];
+  private inFilters: Array<[string, unknown[]]> = [];
+
+  constructor(private db: FakePricingGuardClient, private table: string) {}
+
+  select(_columns?: string, _options?: Record<string, unknown>) {
+    return this;
+  }
+
+  eq(column: string, value: unknown) {
+    this.filters.push([column, value]);
+    return this;
+  }
+
+  in(column: string, values: string[]) {
+    this.inFilters.push([column, values]);
+    return this;
+  }
+
+  then(
+    resolve: (value: { data: Array<Record<string, unknown>> | null; error: { message?: string } | null }) => void,
+    reject: (reason?: unknown) => void,
+  ) {
+    Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+  }
+
+  private rows(): GuardRow[] {
+    let rows: GuardRow[] = [];
+    if (this.table === "external_quote_requests") rows = this.db.partnerRequests;
+    else if (this.table === "external_quote_response_facts") rows = this.db.partnerFacts;
+    else if (this.table === "client_gap_requests") rows = this.db.clientGapRequests;
+    else if (this.table === "quote_gaps") rows = this.db.quoteGaps;
+
+    return rows.filter((row) => {
+      for (const [column, value] of this.filters) {
+        if (row[column] !== value) return false;
+      }
+      for (const [column, values] of this.inFilters) {
+        if (!values.includes(row[column])) return false;
+      }
+      return true;
+    });
+  }
+}
+
+class FakePricingGuardClient {
+  partnerRequests: GuardRow[] = [];
+  partnerFacts: GuardRow[] = [];
+  clientGapRequests: GuardRow[] = [];
+  quoteGaps: GuardRow[] = [];
+
+  from(table: string) {
+    return new GuardQueryBuilder(this, table);
+  }
+}
+
+function guardClient() {
+  return new FakePricingGuardClient();
+}
+
+Deno.test("open communication guard blocks draft partner requests", async () => {
+  const db = guardClient();
+  db.partnerRequests.push({ id: "req-draft", case_id: "case-1", status: "draft" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.open_partner_requests_count, 1);
+  assertEquals(guard.pending_partner_facts_count, 0);
+  assertEquals(guard.open_client_gap_requests_count, 0);
+});
+
+Deno.test("open communication guard blocks sent partner requests", async () => {
+  const db = guardClient();
+  db.partnerRequests.push({ id: "req-sent", case_id: "case-1", status: "sent" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.open_partner_requests_count, 1);
+});
+
+Deno.test("open communication guard blocks proposed partner facts", async () => {
+  const db = guardClient();
+  db.partnerFacts.push({ id: "fact-proposed", case_id: "case-1", validation_status: "proposed" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.pending_partner_facts_count, 1);
+});
+
+Deno.test("open communication guard allows terminal partner requests without proposed facts", async () => {
+  const db = guardClient();
+  db.partnerRequests.push(
+    { id: "req-validated", case_id: "case-1", status: "facts_validated" },
+    { id: "req-closed", case_id: "case-1", status: "closed" },
+  );
+  db.partnerFacts.push({ id: "fact-valid", case_id: "case-1", validation_status: "validated" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, false);
+  assertEquals(guard.open_partner_requests_count, 0);
+  assertEquals(guard.pending_partner_facts_count, 0);
+});
+
+Deno.test("open communication guard blocks active client requests linked to open gaps", async () => {
+  const db = guardClient();
+  db.clientGapRequests.push({ id: "client-req", case_id: "case-1", status: "sent", gap_key: "cargo.value" });
+  db.quoteGaps.push({ id: "gap-open", case_id: "case-1", status: "open", gap_key: "cargo.value" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.open_client_gap_requests_count, 1);
+});
+
+Deno.test("open communication guard ignores old client requests whose gap is resolved", async () => {
+  const db = guardClient();
+  db.clientGapRequests.push({ id: "client-req", case_id: "case-1", status: "sent", gap_key: "cargo.value" });
+  db.quoteGaps.push({ id: "gap-resolved", case_id: "case-1", status: "resolved", gap_key: "cargo.value" });
+
+  const guard = await getOpenCommunicationLoopsGuard(db, "case-1");
+
+  assertEquals(guard.blocked, false);
+  assertEquals(guard.open_client_gap_requests_count, 0);
+});
+
 Deno.test("Standard import: uses engine dap/ddp, includes enrichments", () => {
   const engineTotals = {
     honoraires: 1260000,
