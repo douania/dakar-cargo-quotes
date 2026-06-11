@@ -254,10 +254,6 @@ const EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS = new Set([
   "pricing.sea_freight_rate",
   "sea_freight",
 ]);
-const EXTERNAL_REQUEST_EXPLOITABLE_STATUSES = new Set([
-  "facts_validated",
-  "closed",
-]);
 
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
@@ -2595,10 +2591,7 @@ export async function ensureExportSeaFreightPartnerOrchestration(args: {
     return freightRequestIds.size === 0 || freightRequestIds.has(requestId);
   });
 
-  const hasExploitableRequest = requestRows.some((r: any) =>
-    EXTERNAL_REQUEST_EXPLOITABLE_STATUSES.has(String(r.status || "")),
-  );
-  const covered = hasFreightFact || hasExploitableRequest;
+  const covered = hasFreightFact;
   result.coveredByPartnerFact = covered;
 
   const { data: existingGap } = await args.serviceClient
