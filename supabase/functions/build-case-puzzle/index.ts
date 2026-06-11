@@ -2589,7 +2589,7 @@ export async function ensureExportSeaFreightPartnerOrchestration(args: {
   const hasFreightFact = (partnerFacts || []).some((f: any) => {
     const factKey = String(f.fact_key || "").trim();
     const status = String(f.validation_status || "").trim();
-    if (status === "rejected") return false;
+    if (status !== "validated") return false;
     if (!EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS.has(factKey)) return false;
     const requestId = String(f.request_id || "");
     return freightRequestIds.size === 0 || freightRequestIds.has(requestId);

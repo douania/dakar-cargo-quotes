@@ -256,7 +256,7 @@ Deno.test("export SEA_FREIGHT orchestration keeps gap but does not duplicate exi
   assertEquals(db.requests.length, 1);
 });
 
-Deno.test("export SEA_FREIGHT orchestration does not block when freight response fact is exploitable", async () => {
+Deno.test("export SEA_FREIGHT orchestration keeps blocking gap when freight response fact is only proposed", async () => {
   const db = new FakeServiceClient(exportFacts());
   db.requests.push({
     id: "req-freight",
@@ -274,6 +274,41 @@ Deno.test("export SEA_FREIGHT orchestration does not block when freight response
     request_id: "req-freight",
     fact_key: "cargo.freight_cost",
     validation_status: "proposed",
+  });
+
+  const result = await ensureExportSeaFreightPartnerOrchestration({
+    case_id: "case-export",
+    serviceClient: db,
+  });
+
+  assertEquals(result.coveredByPartnerFact, false);
+  assertEquals(result.gapCreated, true);
+  assertEquals(result.requestAlreadyExists, true);
+  assertEquals(result.requestCreated, false);
+  assertEquals(db.gaps.length, 1);
+  assertEquals(db.gaps[0].gap_key, EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY);
+  assertEquals(db.gaps[0].status, "open");
+  assertEquals(db.requests.length, 1);
+});
+
+Deno.test("export SEA_FREIGHT orchestration does not block when freight response fact is validated", async () => {
+  const db = new FakeServiceClient(exportFacts());
+  db.requests.push({
+    id: "req-freight",
+    case_id: "case-export",
+    partner_name: "Carrier",
+    partner_email: null,
+    purpose: "freight_rate",
+    purpose_detail: null,
+    status: "response_analyzed",
+    related_lot_index: null,
+  });
+  db.responseFacts.push({
+    id: "fact-partner-1",
+    case_id: "case-export",
+    request_id: "req-freight",
+    fact_key: "cargo.freight_cost",
+    validation_status: "validated",
   });
 
   const result = await ensureExportSeaFreightPartnerOrchestration({
