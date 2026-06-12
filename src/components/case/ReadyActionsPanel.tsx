@@ -37,10 +37,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
   computeSeaFreightPartnerAction,
   type FreightRateRequestLite,
   type SeaFreightPartnerActionKind,
-} from "./NextActionBanner";
+} from "@/lib/seaFreightPartnerAction";
 
 /* ─── Types ─── */
 
@@ -153,8 +154,6 @@ const TYPE_COLORS: Record<string, string> = {
   partner: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
   internal: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
 };
-
-const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
 
 /* ─── Component ─── */
 
