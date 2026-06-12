@@ -38,35 +38,183 @@ interface ActionResult {
 
 const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
 
+/* ─── UI-P1-PARTNER-REQUEST-STATE-LABEL-1 ───
+ * Pure helper: maps the real state of the freight_rate partner request(s)
+ * to the UI action shown for the SEA_FREIGHT blocking gap.
+ * Shared with ReadyActionsPanel to avoid label divergence. */
+
+export type SeaFreightPartnerActionKind =
+  | "prepare"
+  | "confirm_send"
+  | "waiting"
+  | "process_response"
+  | "validate_facts"
+  | "verify";
+
+export interface FreightRateRequestLite {
+  status: string | null;
+  email_sent_at: string | null;
+  purpose?: string | null;
+}
+
+export interface SeaFreightPartnerActionSpec {
+  kind: SeaFreightPartnerActionKind;
+  title: string;
+  status: "to_prepare" | "ready_to_send" | "waiting_response" | "to_execute";
+  nextStep: string;
+  reason: string;
+}
+
+/* Most advanced state wins when several freight_rate requests exist. */
+function freightRequestRank(r: FreightRateRequestLite): number {
+  switch (r.status) {
+    case "response_received":
+    case "response_analyzed":
+      return 6;
+    case "partially_validated":
+      return 5;
+    case "sent":
+      return r.email_sent_at ? 4 : 3;
+    case "draft":
+      return 2;
+    case "facts_validated":
+    case "closed":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+export function computeSeaFreightPartnerAction(
+  requests: FreightRateRequestLite[],
+): SeaFreightPartnerActionSpec {
+  const freightRequests = requests.filter((r) =>
+    r.purpose === undefined ? true : r.purpose === "freight_rate",
+  );
+
+  if (freightRequests.length === 0) {
+    return {
+      kind: "prepare",
+      title: "Préparer la demande partenaire freight_rate",
+      status: "to_prepare",
+      nextStep: "Créer une demande freight_rate puis l'envoyer au partenaire",
+      reason: "Gap bloquant : offre maritime partenaire requise",
+    };
+  }
+
+  const best = freightRequests.reduce((a, b) =>
+    freightRequestRank(b) > freightRequestRank(a) ? b : a,
+  );
+  const bestRank = freightRequestRank(best);
+
+  // Unknown status only → prefer a verification action over "Préparer".
+  if (bestRank === 0) {
+    return {
+      kind: "verify",
+      title: "Vérifier la cohérence de l'offre partenaire freight_rate",
+      status: "to_execute",
+      nextStep: "Relancer l'analyse ou vérifier pourquoi le gap partenaire reste ouvert",
+      reason: "Gap bloquant encore ouvert malgré une demande partenaire finalisée",
+    };
+  }
+
+  switch (best.status) {
+    case "draft":
+      return {
+        kind: "prepare",
+        title: "Préparer la demande partenaire freight_rate",
+        status: "to_prepare",
+        nextStep: "Compléter puis confirmer l'envoi aux partenaires",
+        reason: "Gap bloquant : offre maritime partenaire requise",
+      };
+    case "sent":
+      return best.email_sent_at
+        ? {
+            kind: "waiting",
+            title: "En attente de réponse partenaire freight_rate",
+            status: "waiting_response",
+            nextStep: "Attendre la réponse du partenaire",
+            reason: "Demande freight_rate envoyée — réponse partenaire attendue",
+          }
+        : {
+            kind: "confirm_send",
+            title: "Confirmer l'envoi de la demande partenaire freight_rate",
+            status: "ready_to_send",
+            nextStep: "Confirmer l'envoi, puis attendre la réponse partenaire",
+            reason: "Demande freight_rate préparée mais envoi non confirmé",
+          };
+    case "response_received":
+    case "response_analyzed":
+      return {
+        kind: "process_response",
+        title: "Traiter la réponse partenaire freight_rate",
+        status: "to_execute",
+        nextStep: "Analyser puis valider ou rejeter les faits proposés",
+        reason: "Réponse partenaire reçue — faits à traiter",
+      };
+    case "partially_validated":
+      return {
+        kind: "validate_facts",
+        title: "Valider les faits partenaire restants",
+        status: "to_execute",
+        nextStep: "Terminer la validation des faits partenaire",
+        reason: "Faits partenaire partiellement validés",
+      };
+    case "facts_validated":
+    case "closed":
+    default:
+      return {
+        kind: "verify",
+        title: "Vérifier la cohérence de l'offre partenaire freight_rate",
+        status: "to_execute",
+        nextStep: "Relancer l'analyse ou vérifier pourquoi le gap partenaire reste ouvert",
+        reason: "Gap bloquant encore ouvert malgré une demande partenaire finalisée",
+      };
+  }
+}
+
 /* ─── Component ─── */
 export function NextActionBanner({ caseId }: Props) {
   const { data, isLoading } = useCockpitState(caseId);
   const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
-  const { data: blockingGaps } = useQuery({
+  const { data: bannerData } = useQuery({
     queryKey: ["next-action-banner", caseId],
     staleTime: 30_000,
     enabled: !!caseId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("quote_gaps")
-        .select("gap_key")
-        .eq("case_id", caseId)
-        .eq("status", "open")
-        .eq("is_blocking", true);
+      const [gapsRes, reqRes] = await Promise.all([
+        supabase
+          .from("quote_gaps")
+          .select("gap_key")
+          .eq("case_id", caseId)
+          .eq("status", "open")
+          .eq("is_blocking", true),
+        supabase
+          .from("external_quote_requests")
+          .select("status, email_sent_at, purpose")
+          .eq("case_id", caseId),
+      ]);
 
-      if (error) throw error;
-      return data ?? [];
+      if (gapsRes.error) throw gapsRes.error;
+      return {
+        blockingGaps: gapsRes.data ?? [],
+        requests: (reqRes.data ?? []) as FreightRateRequestLite[],
+      };
     },
   });
 
-  const blockingGapKeys = blockingGaps?.map((g) => g.gap_key) ?? [];
+  const blockingGapKeys = bannerData?.blockingGaps.map((g) => g.gap_key) ?? [];
   const hasOnlySeaFreightPartnerBlockingGap =
     blockingGapKeys.length === 1 &&
     blockingGapKeys[0] === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY;
 
   if (isLoading || !data) return null;
 
-  const result = computeAction(data, hasCriticalUnconfirmed, hasOnlySeaFreightPartnerBlockingGap);
+  const seaFreightSpec = hasOnlySeaFreightPartnerBlockingGap
+    ? computeSeaFreightPartnerAction(bannerData?.requests ?? [])
+    : null;
+
+  const result = computeAction(data, hasCriticalUnconfirmed, seaFreightSpec);
   if (!result) return null;
 
   const colorMap: Record<string, string> = {
@@ -102,18 +250,29 @@ function computeAction(d: {
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
   hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
   totalPartnerRequests: number;
-}, hasCriticalUnconfirmed: boolean, hasOnlySeaFreightPartnerBlockingGap: boolean): ActionResult | null {
+}, hasCriticalUnconfirmed: boolean, seaFreightSpec: SeaFreightPartnerActionSpec | null): ActionResult | null {
 
   // Terminal
   if (TERMINAL_STATUSES.has(d.status)) return null;
 
   // 1 — Blocking gaps
-  if (hasOnlySeaFreightPartnerBlockingGap) return {
-    action: "Préparer la demande partenaire freight_rate",
-    blocker: "Offre maritime partenaire requise",
-    icon: <FileText className="h-4 w-4 text-amber-600" />,
-    color: "amber",
-  };
+  // UI-P1-PARTNER-REQUEST-STATE-LABEL-1: label reflects the real freight_rate request state.
+  if (seaFreightSpec) {
+    const iconMap: Record<SeaFreightPartnerActionKind, React.ReactNode> = {
+      prepare: <FileText className="h-4 w-4 text-amber-600" />,
+      confirm_send: <Send className="h-4 w-4 text-amber-600" />,
+      waiting: <Clock className="h-4 w-4 text-amber-600" />,
+      process_response: <ShieldCheck className="h-4 w-4 text-amber-600" />,
+      validate_facts: <ShieldCheck className="h-4 w-4 text-amber-600" />,
+      verify: <Search className="h-4 w-4 text-amber-600" />,
+    };
+    return {
+      action: seaFreightSpec.title,
+      blocker: seaFreightSpec.reason,
+      icon: iconMap[seaFreightSpec.kind],
+      color: "amber",
+    };
+  }
 
   if (d.blockingGapsCount > 0) return {
     action: `Résoudre ${d.blockingGapsCount} gap(s) bloquant(s)`,

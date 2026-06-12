@@ -36,6 +36,11 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  computeSeaFreightPartnerAction,
+  type FreightRateRequestLite,
+  type SeaFreightPartnerActionKind,
+} from "./NextActionBanner";
 
 /* ─── Types ─── */
 
@@ -187,7 +192,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             .order("created_at", { ascending: false }),
           supabase
             .from("external_quote_requests")
-            .select("id, status, email_sent_at, is_selected")
+            .select("id, status, email_sent_at, is_selected, purpose")
             .eq("case_id", caseId),
           supabase
             .from("external_quote_response_facts")
@@ -284,16 +289,38 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     if (blockingGaps.length > 0) {
       for (const gap of blockingGaps) {
         if (gap.gap_key === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY) {
+          // UI-P1-PARTNER-REQUEST-STATE-LABEL-1: reflect the real freight_rate
+          // request state instead of hardcoding "to_prepare".
+          const spec = computeSeaFreightPartnerAction(
+            requests as FreightRateRequestLite[],
+          );
+          const actionKeyMap: Record<SeaFreightPartnerActionKind, ActionKey> = {
+            prepare: "draft_partner",
+            confirm_send: "unsent_partner",
+            waiting: "unsent_partner",
+            process_response: "pending_facts",
+            validate_facts: "pending_facts",
+            verify: "select_partner",
+          };
+          const iconMap: Record<SeaFreightPartnerActionKind, React.ReactNode> = {
+            prepare: <FileText className="h-4 w-4 text-amber-600" />,
+            confirm_send: <Send className="h-4 w-4 text-amber-600" />,
+            waiting: <Search className="h-4 w-4 text-amber-600" />,
+            process_response: <ShieldCheck className="h-4 w-4 text-amber-600" />,
+            validate_facts: <ShieldCheck className="h-4 w-4 text-amber-600" />,
+            verify: <Search className="h-4 w-4 text-amber-600" />,
+          };
           result.push({
             type: "partner",
-            actionKey: "draft_partner",
-            priority: getPriority(),
-            title: "Préparer la demande partenaire freight_rate",
-            reason: "Gap bloquant : offre maritime partenaire requise",
+            actionKey: actionKeyMap[spec.kind],
+            priority: spec.kind === "waiting" ? "waiting" : getPriority(),
+            title: spec.title,
+            reason: spec.reason,
             target: "Partenaires",
-            status: "to_prepare",
-            nextStep: "Préparer et confirmer l'envoi aux partenaires",
-            icon: <FileText className="h-4 w-4 text-amber-600" />,
+            gapKey: EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+            status: spec.status,
+            nextStep: spec.nextStep,
+            icon: iconMap[spec.kind],
             color: "amber",
           });
           continue;
@@ -382,14 +409,14 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
     // 4 — Draft partner requests
     const draftRequests = requests.filter((r: any) => r.status === "draft");
-    const hasSeaFreightPartnerGapAction = result.some(
-      (a) =>
-        a.actionKey === "draft_partner" &&
-        a.title === "Préparer la demande partenaire freight_rate"
+    // UI-P1-PARTNER-REQUEST-STATE-LABEL-1: dedupe against the dynamic
+    // SEA_FREIGHT special action (identified by gapKey, not title).
+    const seaFreightSpecialAction = result.find(
+      (a) => a.type === "partner" && a.gapKey === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY
     );
     const shouldShowGenericDraftPartnerAction =
       draftRequests.length > 0 &&
-      !(hasSeaFreightPartnerGapAction && draftRequests.length === 1);
+      !(seaFreightSpecialAction?.status === "to_prepare" && draftRequests.length === 1);
 
     if (shouldShowGenericDraftPartnerAction && result.length < 4) {
       result.push({
@@ -410,7 +437,10 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     const unsentRequests = requests.filter(
       (r: any) => r.status === "sent" && !r.email_sent_at
     );
-    if (unsentRequests.length > 0 && result.length < 4) {
+    const shouldShowGenericUnsentPartnerAction =
+      unsentRequests.length > 0 &&
+      !(seaFreightSpecialAction?.status === "ready_to_send" && unsentRequests.length === 1);
+    if (shouldShowGenericUnsentPartnerAction && result.length < 4) {
       result.push({
         type: "partner",
         actionKey: "unsent_partner",
