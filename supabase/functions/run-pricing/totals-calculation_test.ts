@@ -3,7 +3,7 @@ import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.t
 
 Deno.env.set("RUN_PRICING_DISABLE_SERVE", "1");
 
-const { getOpenCommunicationLoopsGuard } = await import("./index.ts");
+const { buildSelectedPartnerOfferGuard, getOpenCommunicationLoopsGuard } = await import("./index.ts");
 
 /**
  * PAD-TOTALS-1 Unit Tests
@@ -191,6 +191,127 @@ Deno.test("open communication guard ignores old client requests whose gap is res
 
   assertEquals(guard.blocked, false);
   assertEquals(guard.open_client_gap_requests_count, 0);
+});
+
+Deno.test("selected partner offer guard allows cases without validated partner facts", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: false },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [],
+    currentQuoteFacts: [],
+  });
+
+  assertEquals(guard.blocked, false);
+});
+
+Deno.test("selected partner offer guard allows one validated request without selection", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [{ id: "req-a", is_selected: false }],
+    partnerFacts: [
+      {
+        request_id: "req-a",
+        fact_key: "cargo.freight_cost",
+        validation_status: "validated",
+        injected_fact_id: "qf-a-cost",
+      },
+    ],
+    currentQuoteFacts: [
+      { id: "qf-a-cost", fact_key: "cargo.freight_cost", source_type: "partner_response" },
+    ],
+  });
+
+  assertEquals(guard.blocked, false);
+});
+
+Deno.test("selected partner offer guard blocks multiple validated requests without selection", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: false },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [
+      { request_id: "req-a", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-a-cost" },
+      { request_id: "req-b", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-b-cost" },
+    ],
+    currentQuoteFacts: [],
+  });
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.reason, "missing_selected_partner_request");
+});
+
+Deno.test("selected partner offer guard allows current critical facts from selected request", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: true },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [
+      { request_id: "req-a", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-a-cost" },
+      { request_id: "req-b", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-b-cost" },
+    ],
+    currentQuoteFacts: [
+      { id: "qf-a-cost", fact_key: "cargo.freight_cost", source_type: "partner_response" },
+    ],
+  });
+
+  assertEquals(guard.blocked, false);
+});
+
+Deno.test("selected partner offer guard blocks current freight cost from non-selected request", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: true },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [
+      { request_id: "req-a", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-a-cost" },
+      { request_id: "req-b", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-b-cost" },
+    ],
+    currentQuoteFacts: [
+      { id: "qf-b-cost", fact_key: "cargo.freight_cost", source_type: "partner_response" },
+    ],
+  });
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.mismatched_fact_keys, ["cargo.freight_cost"]);
+});
+
+Deno.test("selected partner offer guard ignores non-critical facts from another request", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: true },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [
+      { request_id: "req-a", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-a-cost" },
+      { request_id: "req-b", fact_key: "cargo.dimensions", validation_status: "validated", injected_fact_id: "qf-b-dims" },
+    ],
+    currentQuoteFacts: [
+      { id: "qf-b-dims", fact_key: "cargo.dimensions", source_type: "partner_response" },
+    ],
+  });
+
+  assertEquals(guard.blocked, false);
+});
+
+Deno.test("selected partner offer guard blocks null injected critical fact in multi-offer context", () => {
+  const guard = buildSelectedPartnerOfferGuard({
+    partnerRequests: [
+      { id: "req-a", is_selected: true },
+      { id: "req-b", is_selected: false },
+    ],
+    partnerFacts: [
+      { request_id: "req-a", fact_key: "cargo.freight_currency", validation_status: "validated", injected_fact_id: null },
+      { request_id: "req-b", fact_key: "cargo.freight_cost", validation_status: "validated", injected_fact_id: "qf-b-cost" },
+    ],
+    currentQuoteFacts: [],
+  });
+
+  assertEquals(guard.blocked, true);
+  assertEquals(guard.mismatched_fact_keys, ["cargo.freight_currency"]);
 });
 
 Deno.test("Standard import: uses engine dap/ddp, includes enrichments", () => {

@@ -63,6 +63,16 @@ const OPEN_PARTNER_REQUEST_STATUSES = [
 ];
 const PENDING_PARTNER_FACT_STATUS = "proposed";
 const OPEN_CLIENT_GAP_REQUEST_STATUSES = ["drafted", "sent", "answered"];
+const VALIDATED_PARTNER_FACT_STATUS = "validated";
+const PARTNER_PRICING_CRITICAL_FACT_KEYS = [
+  "cargo.freight_cost",
+  "cargo.freight_currency",
+  "cargo.freight_rate_per_kg",
+  "pricing.sea_freight",
+  "pricing.sea_freight_rate",
+  "sea_freight",
+];
+const PARTNER_PRICING_CRITICAL_FACT_KEY_SET = new Set(PARTNER_PRICING_CRITICAL_FACT_KEYS);
 
 type OpenCommunicationLoopsRows = {
   partnerRequests?: Array<{ id?: string | null }>;
@@ -71,11 +81,31 @@ type OpenCommunicationLoopsRows = {
   openGaps?: Array<{ gap_key?: string | null }>;
 };
 
+type SelectedPartnerOfferRows = {
+  partnerRequests?: Array<{ id?: string | null; is_selected?: boolean | null }>;
+  partnerFacts?: Array<{
+    request_id?: string | null;
+    fact_key?: string | null;
+    validation_status?: string | null;
+    injected_fact_id?: string | null;
+  }>;
+  currentQuoteFacts?: Array<{ id?: string | null; fact_key?: string | null; source_type?: string | null }>;
+};
+
 export type OpenCommunicationLoopsGuard = {
   blocked: boolean;
   open_partner_requests_count: number;
   pending_partner_facts_count: number;
   open_client_gap_requests_count: number;
+};
+
+export type SelectedPartnerOfferGuard = {
+  blocked: boolean;
+  selected_partner_request_id: string | null;
+  selected_partner_request_ids: string[];
+  validated_partner_request_ids: string[];
+  mismatched_fact_keys: string[];
+  reason: string | null;
 };
 
 type SupabaseQueryLike = {
@@ -113,6 +143,99 @@ export function buildOpenCommunicationLoopsGuard(
     pending_partner_facts_count: pendingPartnerFactsCount,
     open_client_gap_requests_count: openClientGapRequestsCount,
   };
+}
+
+function cleanString(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+export function buildSelectedPartnerOfferGuard(
+  rows: SelectedPartnerOfferRows,
+): SelectedPartnerOfferGuard {
+  const validatedPartnerFacts = (rows.partnerFacts || []).filter((fact) =>
+    cleanString(fact.validation_status) === VALIDATED_PARTNER_FACT_STATUS
+  );
+  const validatedPartnerRequestIds = Array.from(new Set(
+    validatedPartnerFacts
+      .map((fact) => cleanString(fact.request_id))
+      .filter(Boolean),
+  )).sort();
+  const selectedPartnerRequestIds = Array.from(new Set(
+    (rows.partnerRequests || [])
+      .filter((request) => request.is_selected === true)
+      .map((request) => cleanString(request.id))
+      .filter(Boolean),
+  )).sort();
+  const selectedPartnerRequestId =
+    selectedPartnerRequestIds.length === 1 ? selectedPartnerRequestIds[0] : null;
+
+  const baseGuard: SelectedPartnerOfferGuard = {
+    blocked: false,
+    selected_partner_request_id: selectedPartnerRequestId,
+    selected_partner_request_ids: selectedPartnerRequestIds,
+    validated_partner_request_ids: validatedPartnerRequestIds,
+    mismatched_fact_keys: [],
+    reason: null,
+  };
+
+  if (validatedPartnerRequestIds.length === 0) {
+    return baseGuard;
+  }
+
+  const hasMultipleValidatedPartnerRequests = validatedPartnerRequestIds.length >= 2;
+  if (hasMultipleValidatedPartnerRequests && selectedPartnerRequestIds.length !== 1) {
+    return {
+      ...baseGuard,
+      blocked: true,
+      reason: selectedPartnerRequestIds.length === 0
+        ? "missing_selected_partner_request"
+        : "multiple_selected_partner_requests",
+    };
+  }
+
+  if (!selectedPartnerRequestId) {
+    return baseGuard;
+  }
+
+  const selectedInjectedFactIds = new Set<string>();
+  const mismatchedFactKeys = new Set<string>();
+
+  for (const fact of validatedPartnerFacts) {
+    const factKey = cleanString(fact.fact_key);
+    if (!PARTNER_PRICING_CRITICAL_FACT_KEY_SET.has(factKey)) continue;
+
+    const injectedFactId = cleanString(fact.injected_fact_id);
+    if (!injectedFactId && hasMultipleValidatedPartnerRequests) {
+      mismatchedFactKeys.add(factKey);
+      continue;
+    }
+
+    if (cleanString(fact.request_id) === selectedPartnerRequestId && injectedFactId) {
+      selectedInjectedFactIds.add(injectedFactId);
+    }
+  }
+
+  for (const quoteFact of rows.currentQuoteFacts || []) {
+    const factKey = cleanString(quoteFact.fact_key);
+    if (!PARTNER_PRICING_CRITICAL_FACT_KEY_SET.has(factKey)) continue;
+    if (cleanString(quoteFact.source_type) !== "partner_response") continue;
+
+    const quoteFactId = cleanString(quoteFact.id);
+    if (!quoteFactId || !selectedInjectedFactIds.has(quoteFactId)) {
+      mismatchedFactKeys.add(factKey);
+    }
+  }
+
+  if (mismatchedFactKeys.size > 0) {
+    return {
+      ...baseGuard,
+      blocked: true,
+      mismatched_fact_keys: Array.from(mismatchedFactKeys).sort(),
+      reason: "selected_partner_offer_mismatch",
+    };
+  }
+
+  return baseGuard;
 }
 
 export async function getOpenCommunicationLoopsGuard(
@@ -161,6 +284,48 @@ export async function getOpenCommunicationLoopsGuard(
     partnerFacts: partnerFactsResult.data || [],
     clientGapRequests: clientGapRequestsResult.data || [],
     openGaps: openGapsResult.data || [],
+  });
+}
+
+export async function getSelectedPartnerOfferGuard(
+  serviceClient: SupabaseClientLike,
+  caseId: string,
+): Promise<SelectedPartnerOfferGuard> {
+  const [
+    partnerRequestsResult,
+    partnerFactsResult,
+    currentQuoteFactsResult,
+  ] = await Promise.all([
+    serviceClient
+      .from("external_quote_requests")
+      .select("id, status, is_selected")
+      .eq("case_id", caseId),
+    serviceClient
+      .from("external_quote_response_facts")
+      .select("request_id, fact_key, validation_status, injected_fact_id")
+      .eq("case_id", caseId)
+      .eq("validation_status", VALIDATED_PARTNER_FACT_STATUS),
+    serviceClient
+      .from("quote_facts")
+      .select("id, fact_key, source_type")
+      .eq("case_id", caseId)
+      .eq("is_current", true)
+      .eq("source_type", "partner_response")
+      .in("fact_key", PARTNER_PRICING_CRITICAL_FACT_KEYS),
+  ]);
+
+  const guardError =
+    partnerRequestsResult.error ||
+    partnerFactsResult.error ||
+    currentQuoteFactsResult.error;
+  if (guardError) {
+    throw new Error(`Failed to check selected partner offer coherence: ${guardError.message || "unknown error"}`);
+  }
+
+  return buildSelectedPartnerOfferGuard({
+    partnerRequests: partnerRequestsResult.data || [],
+    partnerFacts: partnerFactsResult.data || [],
+    currentQuoteFacts: currentQuoteFactsResult.data || [],
   });
 }
 
@@ -963,6 +1128,22 @@ Deno.serve(async (req) => {
           pending_partner_facts_count: openCommunicationLoopsGuard.pending_partner_facts_count,
           open_client_gap_requests_count: openCommunicationLoopsGuard.open_client_gap_requests_count,
           hint: "Close or validate pending client/partner communication loops before pricing",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const selectedPartnerOfferGuard = await getSelectedPartnerOfferGuard(serviceClient, case_id);
+    if (selectedPartnerOfferGuard.blocked) {
+      return new Response(
+        JSON.stringify({
+          error: "Selected partner offer mismatch",
+          selected_partner_request_id: selectedPartnerOfferGuard.selected_partner_request_id,
+          selected_partner_request_ids: selectedPartnerOfferGuard.selected_partner_request_ids,
+          validated_partner_request_ids: selectedPartnerOfferGuard.validated_partner_request_ids,
+          mismatched_fact_keys: selectedPartnerOfferGuard.mismatched_fact_keys,
+          reason: selectedPartnerOfferGuard.reason,
+          hint: "Select the partner offer matching the validated pricing facts or revalidate the selected offer before pricing",
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
