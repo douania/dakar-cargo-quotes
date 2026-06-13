@@ -6,6 +6,10 @@
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import {
+  EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+  EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS,
+} from "../_shared/partner-gap-policy.ts";
 
 // --- SOURCE-GUARD-1: Identify outbound SODATRA emails ---
 const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
@@ -246,14 +250,10 @@ const EXPORT_SENEGAL_BLOCKING_GAPS = new Set([
   "cargo.description",
 ]);
 
-export const EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY = "pricing.sea_freight_partner_quote_required";
-const EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS = new Set([
-  "cargo.freight_cost",
-  "cargo.freight_rate_per_kg",
-  "pricing.sea_freight",
-  "pricing.sea_freight_rate",
-  "sea_freight",
-]);
+// EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY and EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS are now
+// centralized in ../_shared/partner-gap-policy.ts (imported above). Re-exported here to
+// preserve existing imports/tests that read the gap key from build-case-puzzle.
+export { EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY };
 
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
