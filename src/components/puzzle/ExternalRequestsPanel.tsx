@@ -168,6 +168,23 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
     enabled: !!threadId,
   });
 
+  // COM-2A (hors-thread): load metadata for suggested emails that may live outside this case's thread,
+  // so out-of-thread suggestions can still show sender / subject / date in the banner.
+  const suggestionEmailIds = Array.from(new Set(pendingSuggestions.map((s) => s.suggested_email_id))).sort();
+  const { data: suggestionEmails = [] } = useQuery({
+    queryKey: ["suggestion-emails-meta", caseId, suggestionEmailIds.join(",")],
+    queryFn: async () => {
+      if (suggestionEmailIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("emails")
+        .select("id, subject, from_address, received_at, thread_ref")
+        .in("id", suggestionEmailIds);
+      if (error) throw error;
+      return (data || []) as Array<{ id: string; subject: string | null; from_address: string; received_at: string | null; thread_ref: string | null }>;
+    },
+    enabled: suggestionEmailIds.length > 0,
+  });
+
   const toggleExpanded = (id: string) => {
     setExpandedRequests((prev) => {
       const next = new Set(prev);
@@ -437,7 +454,20 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     return (
                       <div className="space-y-1.5">
                         {pending.map((s) => {
-                          const matchedEmail = threadEmails.find((e) => e.id === s.suggested_email_id);
+                          const matchedEmail =
+                            suggestionEmails.find((e) => e.id === s.suggested_email_id) ??
+                            threadEmails.find((e) => e.id === s.suggested_email_id);
+                          const matchedThreadRef = (matchedEmail as { thread_ref?: string | null } | undefined)?.thread_ref;
+                          const isOutOfThread =
+                            !!threadId && !!matchedThreadRef && matchedThreadRef !== threadId;
+                          const matchedDate = matchedEmail?.received_at
+                            ? (() => {
+                                const ts = new Date(matchedEmail.received_at as string).getTime();
+                                return isNaN(ts)
+                                  ? null
+                                  : formatDistanceToNow(new Date(ts), { addSuffix: true, locale: fr });
+                              })()
+                            : null;
                           return (
                             <div key={s.id} className="flex items-center gap-2 p-2 rounded border border-primary/20 bg-primary/5 text-xs">
                               <Radar className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -456,9 +486,18 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                                   {s.confidence_level === "high" ? "Forte" : s.confidence_level === "medium" ? "Moyenne" : "Faible"}
                                   {" "}({s.score})
                                 </Badge>
+                                {isOutOfThread && (
+                                  <Badge
+                                    variant="outline"
+                                    className="ml-1.5 text-[10px] px-1.5 py-0 border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-400"
+                                  >
+                                    Hors thread
+                                  </Badge>
+                                )}
                                 {matchedEmail && (
                                   <span className="text-muted-foreground ml-1.5">
-                                    {matchedEmail.from_address.split("@")[0]} — {(matchedEmail.subject || "(sans sujet)").slice(0, 35)}
+                                    {matchedEmail.from_address} — {(matchedEmail.subject || "(sans sujet)").slice(0, 35)}
+                                    {matchedDate ? ` · ${matchedDate}` : ""}
                                   </span>
                                 )}
                                 {s.reasons.length > 0 && (

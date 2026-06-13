@@ -96,6 +96,81 @@ function scoreEmails(
   return { bestEmailId: bestId, score: bestScore, confidence, reasons: bestReasons };
 }
 
+// ---------- Out-of-thread matching (réponse hors thread / nouveau thread) ----------
+// Defensive address normalizer — extracts bare address from "Name <addr>" format
+function normalizeAddress(raw: string | null | undefined): string {
+  const s = String(raw || "").trim();
+  const m = s.match(/<([^>]+)>/);
+  return (m ? m[1] : s).trim().toLowerCase();
+}
+
+interface OutOfThreadEmail {
+  id: string;
+  subject: string | null;
+  from_address: string;
+  received_at: string | null;
+  thread_ref: string | null;
+  body_text: string | null;
+}
+
+// Sender is assumed already matched (exact partner_email) by the caller.
+// Scores corroborating signals; out-of-thread is intentionally conservative.
+function scoreOutOfThread(
+  request: { sent_at: string | null; purpose: string; purpose_detail: string | null },
+  email: OutOfThreadEmail,
+  caseId: string,
+): { score: number; confidence: "high" | "medium" | "low"; reasons: string[] } {
+  const reasons: string[] = ["Réponse hors thread détectée", "Expéditeur partenaire exact"];
+  let score = 50; // exact partner sender (gate validated by caller)
+
+  const sentTime = request.sent_at ? new Date(request.sent_at).getTime() : null;
+  const recvTime = email.received_at ? new Date(email.received_at).getTime() : null;
+  if (sentTime && recvTime && recvTime >= sentTime) {
+    score += 10;
+    reasons.push("Reçu après envoi");
+  }
+
+  // NOTE: quote_cases has no `reference` column — the dossier reference signal is case_id.slice(0,8).
+  const ref = caseId.slice(0, 8).toLowerCase();
+  const subjectLower = (email.subject || "").toLowerCase();
+  const bodyLower = (email.body_text || "").toLowerCase();
+  let refInSubject = false;
+  let refInBody = false;
+  if (ref && subjectLower.includes(ref)) {
+    score += 40;
+    refInSubject = true;
+    reasons.push("Référence dossier dans le sujet");
+  } else if (ref && bodyLower.includes(ref)) {
+    score += 25;
+    refInBody = true;
+    reasons.push("Référence dossier dans le corps");
+  }
+
+  const purposeKeywords = new Set([
+    ...extractKeywords(request.purpose),
+    ...extractKeywords(request.purpose_detail),
+  ]);
+  let hasPurpose = false;
+  if (purposeKeywords.size > 0) {
+    const subjectWords = extractKeywords(email.subject);
+    if (subjectWords.some((w) => purposeKeywords.has(w))) {
+      score += 15;
+      hasPurpose = true;
+      reasons.push("Sujet lié à la demande");
+    }
+  }
+
+  let confidence: "high" | "medium" | "low";
+  if (refInSubject) confidence = "high";
+  else if (refInBody || hasPurpose) confidence = "medium";
+  else {
+    confidence = "low";
+    reasons.push("Ambiguïté possible");
+  }
+
+  return { score, confidence, reasons };
+}
+
 // ---------- Handler ----------
 
 serve(async (req: Request) => {
@@ -138,11 +213,7 @@ serve(async (req: Request) => {
 
     // ---------- SCAN ----------
     if (action === "scan") {
-      if (!qc.thread_id) {
-        return jsonResponse({ suggestions: [], message: "No thread linked to case" });
-      }
-
-      // 1. Load open requests (sent or response_received)
+      // 1. Load open requests (sent or response_received) — independent of thread presence
       const { data: openRequests, error: reqErr } = await serviceClient
         .from("external_quote_requests")
         .select("id, partner_name, partner_email, purpose, purpose_detail, sent_at, status")
@@ -163,19 +234,7 @@ serve(async (req: Request) => {
         return jsonResponse({ suggestions: [], message: "No open requests with partner_email" });
       }
 
-      // 2. Load thread emails
-      const { data: threadEmails, error: emailErr } = await serviceClient
-        .from("emails")
-        .select("id, subject, from_address, received_at")
-        .eq("thread_ref", qc.thread_id)
-        .order("received_at", { ascending: false })
-        .limit(100);
-      if (emailErr) return errorResponse("Failed to load emails: " + emailErr.message, 500);
-      if (!threadEmails || threadEmails.length === 0) {
-        return jsonResponse({ suggestions: [], message: "No thread emails" });
-      }
-
-      // 3. Load already used email IDs in external_quote_responses
+      // 2. Load already used email IDs in external_quote_responses (shared exclusion)
       const { data: existingResponses } = await serviceClient
         .from("external_quote_responses")
         .select("source_email_id")
@@ -184,7 +243,7 @@ serve(async (req: Request) => {
         (existingResponses || []).map((r: { source_email_id: string | null }) => r.source_email_id).filter(Boolean) as string[]
       );
 
-      // 4. Load existing suggestions for this case (to avoid re-suggesting same pair)
+      // 3. Load existing suggestions for this case (to avoid re-suggesting same pair)
       const { data: existingSuggestions } = await serviceClient
         .from("partner_response_suggestions")
         .select("request_id, suggested_email_id")
@@ -195,42 +254,143 @@ serve(async (req: Request) => {
         )
       );
 
-      // 5. Score each request
       const created: Array<{ request_id: string; email_id: string; score: number; confidence: string }> = [];
 
-      for (const req of validRequests) {
-        const result = scoreEmails(req, threadEmails, usedEmailIds);
-        if (!result || !result.bestEmailId) continue;
+      // 4. INTRA-THREAD SCAN (existing behavior, unchanged) — requires a linked thread
+      if (qc.thread_id) {
+        const { data: threadEmails, error: emailErr } = await serviceClient
+          .from("emails")
+          .select("id, subject, from_address, received_at")
+          .eq("thread_ref", qc.thread_id)
+          .order("received_at", { ascending: false })
+          .limit(100);
+        if (emailErr) return errorResponse("Failed to load emails: " + emailErr.message, 500);
 
-        const pairKey = `${req.id}:${result.bestEmailId}`;
-        if (existingPairs.has(pairKey)) continue;
+        if (threadEmails && threadEmails.length > 0) {
+          for (const req of validRequests) {
+            const result = scoreEmails(req, threadEmails, usedEmailIds);
+            if (!result || !result.bestEmailId) continue;
 
-        // Upsert with ON CONFLICT DO NOTHING
-        const { error: insErr } = await serviceClient
-          .from("partner_response_suggestions")
-          .insert({
-            case_id,
-            request_id: req.id,
-            suggested_email_id: result.bestEmailId,
-            score: result.score,
-            confidence_level: result.confidence,
-            reasons: result.reasons,
-            suggestion_status: "pending",
-          });
+            const pairKey = `${req.id}:${result.bestEmailId}`;
+            if (existingPairs.has(pairKey)) continue;
 
-        if (insErr) {
-          // 23505 = unique violation → already exists, skip
-          if (insErr.code === "23505") continue;
-          console.warn("[auto-match] Insert failed:", insErr.message);
-          continue;
+            // Upsert with ON CONFLICT DO NOTHING
+            const { error: insErr } = await serviceClient
+              .from("partner_response_suggestions")
+              .insert({
+                case_id,
+                request_id: req.id,
+                suggested_email_id: result.bestEmailId,
+                score: result.score,
+                confidence_level: result.confidence,
+                reasons: result.reasons,
+                suggestion_status: "pending",
+              });
+
+            if (insErr) {
+              // 23505 = unique violation → already exists, skip
+              if (insErr.code === "23505") continue;
+              console.warn("[auto-match] Insert failed:", insErr.message);
+              continue;
+            }
+
+            created.push({
+              request_id: req.id,
+              email_id: result.bestEmailId,
+              score: result.score,
+              confidence: result.confidence,
+            });
+          }
         }
+      }
 
-        created.push({
-          request_id: req.id,
-          email_id: result.bestEmailId,
-          score: result.score,
-          confidence: result.confidence,
-        });
+      // 5. OUT-OF-THREAD SCAN (new) — partner responses landing in a different/new thread.
+      // Suggestions only, pending, no auto-merge, no auto-pricing.
+      const partnerEmailSet = new Set(
+        validRequests
+          .map((r) => normalizeAddress(r.partner_email))
+          .filter((e) => e.length > 0),
+      );
+      if (partnerEmailSet.size > 0) {
+        // Coarse lower time bound to keep candidates recent/plausible: earliest sent_at (fallback 90d).
+        const sentTimes = validRequests
+          .map((r) => (r.sent_at ? new Date(r.sent_at).getTime() : NaN))
+          .filter((t) => !isNaN(t));
+        const lowerBoundMs = sentTimes.length > 0
+          ? Math.min(...sentTimes)
+          : Date.now() - 90 * 24 * 60 * 60 * 1000;
+        const lowerBoundIso = new Date(lowerBoundMs).toISOString();
+
+        // ilike OR filter catches both "addr" and "Name <addr>" stored formats; code-level exact match below.
+        const orFilter = Array.from(partnerEmailSet)
+          .map((e) => `from_address.ilike.%${e}%`)
+          .join(",");
+
+        const { data: candidateEmails, error: oooErr } = await serviceClient
+          .from("emails")
+          .select("id, subject, from_address, received_at, thread_ref, body_text")
+          .or(orFilter)
+          .gte("received_at", lowerBoundIso)
+          .order("received_at", { ascending: false })
+          .limit(200);
+
+        if (oooErr) {
+          console.warn("[auto-match] out-of-thread email load failed:", oooErr.message);
+        } else if (candidateEmails && candidateEmails.length > 0) {
+          const suggestedThisScan = new Set<string>();
+          for (const email of candidateEmails as OutOfThreadEmail[]) {
+            if (usedEmailIds.has(email.id)) continue;
+            // Skip emails already in this case's thread (covered by the intra-thread scan above)
+            if (qc.thread_id && email.thread_ref && email.thread_ref === qc.thread_id) continue;
+            if (suggestedThisScan.has(email.id)) continue;
+
+            const sender = normalizeAddress(email.from_address);
+
+            // Pick the single best matching request for this email (avoid suggesting one email to many requests)
+            let best:
+              | { req: (typeof validRequests)[number]; score: number; confidence: "high" | "medium" | "low"; reasons: string[] }
+              | null = null;
+            for (const req of validRequests) {
+              if (normalizeAddress(req.partner_email) !== sender) continue;
+              const sentTime = req.sent_at ? new Date(req.sent_at).getTime() : null;
+              const recvTime = email.received_at ? new Date(email.received_at).getTime() : null;
+              if (sentTime && recvTime && recvTime < sentTime) continue;
+              if (existingPairs.has(`${req.id}:${email.id}`)) continue;
+
+              const scored = scoreOutOfThread(req, email, case_id);
+              if (!best || scored.score > best.score) {
+                best = { req, ...scored };
+              }
+            }
+            if (!best) continue;
+
+            const { error: insErr } = await serviceClient
+              .from("partner_response_suggestions")
+              .insert({
+                case_id,
+                request_id: best.req.id,
+                suggested_email_id: email.id,
+                score: best.score,
+                confidence_level: best.confidence,
+                reasons: best.reasons,
+                suggestion_status: "pending",
+              });
+
+            if (insErr) {
+              if (insErr.code === "23505") { suggestedThisScan.add(email.id); continue; }
+              console.warn("[auto-match] out-of-thread insert failed:", insErr.message);
+              continue;
+            }
+
+            suggestedThisScan.add(email.id);
+            created.push({
+              request_id: best.req.id,
+              email_id: email.id,
+              score: best.score,
+              confidence: best.confidence,
+            });
+          }
+        }
       }
 
       return jsonResponse({ suggestions: created, total_scanned: validRequests.length });
@@ -270,6 +430,8 @@ serve(async (req: Request) => {
             case_id,
             request_id: suggestion.request_id,
             email_id: suggestion.suggested_email_id,
+            // Authorize out-of-thread analysis for this confirmed suggestion only
+            suggestion_id,
           }),
         });
         if (!analyzeResp.ok) {

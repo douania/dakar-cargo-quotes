@@ -71,7 +71,7 @@ serve(async (req: Request) => {
   if (auth instanceof Response) return auth;
 
   try {
-    const { case_id, request_id, email_id } = await req.json();
+    const { case_id, request_id, email_id, suggestion_id } = await req.json();
     if (!case_id || !request_id || !email_id) {
       return errorResponse("case_id, request_id, email_id are required", 400);
     }
@@ -123,8 +123,30 @@ serve(async (req: Request) => {
     if (caseErr || !quoteCase) return errorResponse("Quote case not found", 404);
 
     if (quoteCase.thread_id && email.thread_ref && email.thread_ref !== quoteCase.thread_id) {
-      console.warn(`[analyze-partner-response] Thread mismatch: email.thread_ref=${email.thread_ref} vs case.thread_id=${quoteCase.thread_id}`);
-      return errorResponse("Email does not belong to this case's thread", 403);
+      // Out-of-thread is allowed ONLY when an operator-confirmed, still-pending suggestion
+      // matches this exact (case_id, request_id, email_id) triple. Otherwise keep refusing.
+      let outOfThreadAllowed = false;
+      if (suggestion_id) {
+        const { data: sug } = await serviceClient
+          .from("partner_response_suggestions")
+          .select("id, case_id, request_id, suggested_email_id, suggestion_status")
+          .eq("id", suggestion_id)
+          .maybeSingle();
+        if (
+          sug &&
+          sug.case_id === case_id &&
+          sug.request_id === request_id &&
+          sug.suggested_email_id === email_id &&
+          sug.suggestion_status === "pending"
+        ) {
+          outOfThreadAllowed = true;
+          console.log(`[analyze-partner-response] Out-of-thread analysis authorized via suggestion ${suggestion_id}`);
+        }
+      }
+      if (!outOfThreadAllowed) {
+        console.warn(`[analyze-partner-response] Thread mismatch: email.thread_ref=${email.thread_ref} vs case.thread_id=${quoteCase.thread_id}`);
+        return errorResponse("Email does not belong to this case's thread", 403);
+      }
     }
 
     // P0-1: Sender validation guard (strict equality)
