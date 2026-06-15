@@ -1622,46 +1622,151 @@ const EXCLUDED_THREAD_SUBJECTS = [
   'newsletter', 'webinar', 'conference invitation'
 ];
 
-// Déterminer si un fil est lié à une demande de cotation
+// ============ P0.1/P0.2 — QUALIFICATION STRICTE RFQ CLIENT ============
+
+// Seuil de mots-clés cotation pour un fil (aligné sur isQuotationRelated: >= 2)
+const THREAD_QUOTATION_KEYWORD_THRESHOLD = 2;
+
+// Sous-ensemble de mots-clés exprimant une DEMANDE explicite (vs vocabulaire
+// logistique générique présent aussi dans le marketing / les offres fournisseurs)
+const RFQ_REQUEST_KEYWORDS = [
+  'demande de cotation', 'request for quotation', 'rfq',
+  'demande de devis', 'request for quote',
+  'demande de prix', 'price request', 'pricing request',
+  'besoin de cotation', 'need a quote', 'quote request',
+  'transit request', 'trucking request', 'transport request',
+];
+
+// Rôles known_business_contacts qui ne peuvent PAS représenter un client RFQ
+const NON_CLIENT_RFQ_ROLES = ['supplier', 'partner', 'agent', 'internal'];
+
+// Détecter une adresse interne/SODATRA (cohérent avec determineThreadRoles)
+function isSodatraAddress(email: string): boolean {
+  return (email || '').toLowerCase().includes('@sodatra');
+}
+
+// Helper PUR (sans dépendance DB) : ce fil représente-t-il une demande de
+// cotation CLIENT défendable ? S'appuie sur le sujet normalisé, les emails du
+// fil et les rôles déjà résolus (threadRoles). Aucune lecture DB.
+function isLikelyClientRfqThread(
+  normalizedSubject: string,
+  threadEmails: EmailRecord[],
+  threadRoles: Pick<ThreadRoles, 'clientEmail' | 'partnerEmail' | 'ourRole' | 'participants'>
+): boolean {
+  if (!threadEmails || threadEmails.length === 0) return false;
+
+  // Texte agrégé : sujet normalisé + sujets/corps disponibles du fil
+  const aggregateText = [
+    normalizedSubject || '',
+    ...threadEmails.map(e => `${e.subject || ''} ${e.body_text || ''}`),
+  ].join(' ').toLowerCase();
+
+  // 1. Signal cotation suffisant (seuil strict > 1 mot-clé)
+  const keywordCount = QUOTATION_KEYWORDS.filter(kw => aggregateText.includes(kw.toLowerCase())).length;
+  if (keywordCount < THREAD_QUOTATION_KEYWORD_THRESHOLD) {
+    return false;
+  }
+
+  // 2. Direction : le premier email significatif ne doit pas être SODATRA -> externe
+  //    (sinon SODATRA est l'acheteur/demandeur, pas le prestataire sollicité)
+  const sorted = [...threadEmails].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+  );
+  const firstSignificant = sorted.find(e => isValidEmail((e.from_address || '').toLowerCase()));
+  if (firstSignificant) {
+    const recipients = [
+      ...(firstSignificant.to_addresses || []),
+      ...(firstSignificant.cc_addresses || []),
+    ].map(r => (r || '').toLowerCase());
+    const fromSodatra = isSodatraAddress(firstSignificant.from_address);
+    const hasExternalRecipient = recipients.some(r => isValidEmail(r) && !isSodatraAddress(r));
+    if (fromSodatra && hasExternalRecipient) {
+      return false;
+    }
+  }
+
+  // 3. Une demande entrante adressée à SODATRA par un externe doit exister
+  const externalInboundToSodatra = sorted.some(e => {
+    const from = (e.from_address || '').toLowerCase();
+    if (!isValidEmail(from) || isSodatraAddress(from)) return false;
+    const recipients = [
+      ...(e.to_addresses || []),
+      ...(e.cc_addresses || []),
+    ].map(r => (r || '').toLowerCase());
+    return recipients.some(r => isSodatraAddress(r));
+  });
+  if (!externalInboundToSodatra) {
+    return false;
+  }
+
+  // 4. Un client externe défendable doit exister (rôle non supplier/partner/agent/internal).
+  //    On ne promeut JAMAIS un fournisseur/partenaire/agent/interne en client par fallback.
+  const participants = threadRoles?.participants || [];
+  const defendableParticipant = participants.some(p =>
+    !isSodatraAddress(p.email) && !NON_CLIENT_RFQ_ROLES.includes(p.role)
+  );
+  const clientEmail = (threadRoles?.clientEmail || '').toLowerCase();
+  const clientParticipant = participants.find(p => p.email.toLowerCase() === clientEmail);
+  const clientEmailDefendable = !!clientEmail
+    && !isSodatraAddress(clientEmail)
+    && (!clientParticipant || !NON_CLIENT_RFQ_ROLES.includes(clientParticipant.role));
+  if (!defendableParticipant && !clientEmailDefendable) {
+    return false;
+  }
+
+  // 5. Signal de demande défendable :
+  //    - une demande explicite (RFQ_REQUEST_KEYWORDS), OU
+  //    - un client CONNU (known_business_contacts.default_role = client) expéditeur
+  //      avec un signal cotation suffisant (déjà validé en 1).
+  //    Cela préserve assist_partner quand un partenaire transmet une demande client
+  //    claire (mot-clé explicite présent), tout en rejetant le marketing/spam freight.
+  const hasExplicitRequest = RFQ_REQUEST_KEYWORDS.some(kw => aggregateText.includes(kw));
+  const hasKnownClientSender = sorted.some(e => {
+    const from = (e.from_address || '').toLowerCase();
+    const p = participants.find(x => x.email.toLowerCase() === from);
+    return !!p && p.isKnown && p.role === 'client';
+  });
+
+  return hasExplicitRequest || hasKnownClientSender;
+}
+
+// Déterminer si un fil est lié à une demande de cotation CLIENT
 function isQuotationThread(
   normalizedSubject: string,
-  threadEmails: EmailRecord[]
+  threadEmails: EmailRecord[],
+  threadRoles: Pick<ThreadRoles, 'clientEmail' | 'partnerEmail' | 'ourRole' | 'participants'>
 ): boolean {
   const subjectLower = normalizedSubject.toLowerCase();
-  
-  // Exclure si sujet dans la liste noire des fils
+
+  // Exclure si sujet dans la liste noire des fils (exclusion existante préservée)
   if (EXCLUDED_THREAD_SUBJECTS.some(excl => subjectLower.includes(excl.toLowerCase()))) {
     console.log(`Thread excluded - subject blacklisted: ${normalizedSubject}`);
     return false;
   }
-  
-  // Inclure si au moins un email du fil est une demande de cotation
-  // (basé sur les mots-clés - on réutilise la logique existante)
-  const hasQuotationEmail = threadEmails.some(email => {
-    const text = `${(email.subject || '').toLowerCase()} ${(email.body_text || '').toLowerCase()}`;
-    return QUOTATION_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
-  });
-  
-  if (hasQuotationEmail) {
-    console.log(`Thread included - has quotation keywords: ${normalizedSubject}`);
-    return true;
-  }
-  
-  // Exclure les fils des expéditeurs dans la liste noire
-  const hasOnlyBlacklistedSenders = threadEmails.every(email => {
+
+  // Exclure les fils dont TOUS les expéditeurs sont blacklistés (exclusion existante préservée)
+  const hasOnlyBlacklistedSenders = threadEmails.length > 0 && threadEmails.every(email => {
     const fromLower = email.from_address.toLowerCase();
     return EXCLUDED_SENDERS.some(sender => fromLower.includes(sender.toLowerCase()));
   });
-  
   if (hasOnlyBlacklistedSenders) {
     console.log(`Thread excluded - all senders blacklisted: ${normalizedSubject}`);
     return false;
   }
-  
-  // Par défaut, inclure si aucun critère d'exclusion n'est rempli
-  // (on préfère inclure les fils douteux pour ne pas rater de cotations)
-  return true;
+
+  // P0.1/P0.2 : ne classer en cotation que si un signal RFQ client est défendable.
+  // (Plus de "return true" par défaut sur les fils douteux.)
+  if (isLikelyClientRfqThread(normalizedSubject, threadEmails, threadRoles)) {
+    console.log(`Thread included - defendable client RFQ signal: ${normalizedSubject}`);
+    return true;
+  }
+
+  console.log(`Thread excluded - no defendable client RFQ signal: ${normalizedSubject}`);
+  return false;
 }
+
+// Exports pour tests ciblés (le serve principal est gardé par SYNC_EMAILS_DISABLE_SERVE)
+export { isLikelyClientRfqThread, isQuotationThread };
 
 // Créer ou mettre à jour un fil de discussion
 async function upsertEmailThread(
@@ -1712,8 +1817,8 @@ async function upsertEmailThread(
       company: p.company
     }));
     
-    // Déterminer si c'est un fil de cotation
-    const isQuotation = isQuotationThread(normalizedSubject, allEmails);
+    // Déterminer si c'est un fil de cotation (gate strict P0.1/P0.2)
+    const isQuotation = isQuotationThread(normalizedSubject, allEmails, threadRoles);
     
     const threadData: Record<string, unknown> = {
       subject_normalized: normalizedSubject,
@@ -1815,6 +1920,9 @@ async function upsertContact(
   }
 }
 
+// Garde testabilité (cohérent avec build-case-puzzle) : permet d'importer ce
+// module dans un test sans démarrer le serveur HTTP.
+if (Deno.env.get("SYNC_EMAILS_DISABLE_SERVE") !== "1") {
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -2106,3 +2214,4 @@ serve(async (req) => {
     );
   }
 });
+}
