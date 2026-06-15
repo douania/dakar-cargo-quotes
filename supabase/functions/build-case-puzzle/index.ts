@@ -255,6 +255,126 @@ const EXPORT_SENEGAL_BLOCKING_GAPS = new Set([
 // preserve existing imports/tests that read the gap key from build-case-puzzle.
 export { EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY };
 
+// ── P0-3: DCQ-EMAIL-ATTACHMENT-GATE — qualification des PJ décisives ──
+// Bloque le passage à READY_TO_PRICE si une PJ probablement décisive reste
+// non analysée / vide / en erreur après le best-effort analyze-attachments.
+// Helpers PURS (aucune dépendance DB), exportés pour tests ciblés.
+const DECISIVE_ATTACHMENT_GAP_KEY = "documentation.unanalyzed_decisive_attachment";
+
+interface DecisiveAttachmentInput {
+  filename?: string | null;
+  content_type?: string | null;
+  extracted_text?: string | null;
+  extracted_data?: unknown;
+  is_analyzed?: boolean | null;
+}
+
+// Noms/extensions techniques à NE JAMAIS considérer comme décisifs
+const NON_DECISIVE_FILENAME_PATTERN = /(^~\$)|(thumbs\.db$)|(\.ds_store$)|(\.tmp$)/i;
+// Assets de signature / habillage email
+const SIGNATURE_ASSET_PATTERN = /(logo|signature|banner|footer|spacer|facebook|instagram|linkedin|twitter|icon|avatar)/i;
+// Images inline génériques (image001.png, image_12.jpg, …) sans signal documentaire
+const GENERIC_INLINE_IMAGE_PATTERN = /^image[\s._-]?\d{2,}\.(png|jpe?g|gif|webp)$/i;
+
+// Mots-clés métier décisifs (substring)
+const DECISIVE_DOC_KEYWORDS = [
+  'cotation', 'quotation', 'quote', 'devis', 'offer', 'offre',
+  'proforma', 'pro forma', 'pro-forma',
+  'packing', 'packing list', 'colisage',
+  'invoice', 'facture', 'commercial invoice',
+  'bill of lading', 'connaissement',
+  'shipping instruction', 'shipment',
+  'tariff', 'tarif',
+];
+// Tokens courts sujets aux faux positifs → match par frontière de mot
+const DECISIVE_DOC_SHORT_TOKENS = ['rfq', 'pi', 'bl', 'rate'];
+
+function filenameHasDecisiveKeyword(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (DECISIVE_DOC_KEYWORDS.some((k) => lower.includes(k))) return true;
+  return DECISIVE_DOC_SHORT_TOKENS.some((tok) =>
+    new RegExp(`(^|[^a-z0-9])${tok}([^a-z0-9]|$)`, 'i').test(lower)
+  );
+}
+
+function attExtension(name: string): string {
+  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+
+// Une PJ est-elle probablement métier/décisive ?
+function isDecisiveAttachmentCandidate(att: DecisiveAttachmentInput): boolean {
+  const name = (att?.filename || '').trim();
+  const ct = (att?.content_type || '').toLowerCase();
+  if (!name && !ct) return false;
+
+  // Exclusions dures : fichiers techniques + assets de signature/logo
+  if (NON_DECISIVE_FILENAME_PATTERN.test(name)) return false;
+  if (SIGNATURE_ASSET_PATTERN.test(name)) return false;
+
+  const ext = attExtension(name);
+  const isPdf = ext === 'pdf' || ct.includes('pdf');
+  const isExcel =
+    ext === 'xls' || ext === 'xlsx' || ct.includes('spreadsheet') || ct.includes('excel');
+  const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(ext) || ct.startsWith('image/');
+
+  // PDF et Excel : décisifs par type
+  if (isPdf || isExcel) return true;
+
+  // Images documentaires : décisives uniquement si signal métier explicite
+  if (isImage) {
+    if (GENERIC_INLINE_IMAGE_PATTERN.test(name)) return false;
+    return filenameHasDecisiveKeyword(name);
+  }
+
+  // Autres types (unsupported non métier) : non bloquants
+  return false;
+}
+
+function attHasUsefulExtractedData(att: DecisiveAttachmentInput): boolean {
+  const d = att?.extracted_data as any;
+  if (!d || typeof d !== 'object') return false;
+  if (d.type === 'error') return false;
+  if (d.requires_reimport === true) return false;
+  return Object.keys(d).length > 0;
+}
+
+function attHasUsefulText(att: DecisiveAttachmentInput): boolean {
+  return typeof att?.extracted_text === 'string' && att.extracted_text.trim().length > 0;
+}
+
+// Une PJ décisive est-elle encore problématique (doit bloquer la tarification) ?
+function isAttachmentAnalysisBlocking(att: DecisiveAttachmentInput): boolean {
+  if (!isDecisiveAttachmentCandidate(att)) return false;
+  const d = att?.extracted_data as any;
+  if (!att?.is_analyzed) return true;
+  if (d && typeof d === 'object' && d.type === 'error') return true;
+  if (d && typeof d === 'object' && d.requires_reimport === true) return true;
+  if (!attHasUsefulText(att) && !attHasUsefulExtractedData(att)) return true;
+  return false;
+}
+
+// Décision PURE de réconciliation du gap (testable sans DB) :
+//  - problème + pas de gap ouvert → créer
+//  - problème + gap déjà ouvert   → no-op (idempotent, pas de doublon)
+//  - plus de problème + gap ouvert → résoudre
+//  - plus de problème + pas de gap → no-op
+type DecisiveGapAction = "create" | "resolve" | "noop";
+function decideDecisiveAttachmentGapAction(
+  problematicCount: number,
+  hasOpenGap: boolean
+): DecisiveGapAction {
+  if (problematicCount > 0) return hasOpenGap ? "noop" : "create";
+  return hasOpenGap ? "resolve" : "noop";
+}
+
+export {
+  isDecisiveAttachmentCandidate,
+  isAttachmentAnalysisBlocking,
+  decideDecisiveAttachmentGapAction,
+  DECISIVE_ATTACHMENT_GAP_KEY,
+};
+
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
   "routing.incoterm": {
@@ -5798,6 +5918,7 @@ Deno.serve(async (req) => {
         "cargo.freight_cost", "cargo.value",
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
         EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+        DECISIVE_ATTACHMENT_GAP_KEY, // P0-3: géré par son propre bloc, exclu de la fermeture orpheline
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
       for (const k of fclConstraintResult.protectedGapKeys) mandatorySet.add(k);
@@ -6230,6 +6351,83 @@ Deno.serve(async (req) => {
           gapsIdentified++;
           console.log("[P0] Created blocking gap: request.multi_lot_unresolved");
         }
+      }
+    }
+
+    // P0-3: Create blocking gap if a decisive attachment stays unanalyzed/empty/errored
+    // AFTER best-effort analyze + reload, BEFORE blockingGapsCount → bloque READY_TO_PRICE.
+    {
+      const problematicAtts = (reloadedAttachments || []).filter((a) =>
+        isAttachmentAnalysisBlocking(a)
+      );
+      const problematicNames = problematicAtts
+        .map((a) => a.filename)
+        .filter((n): n is string => typeof n === "string" && n.length > 0);
+
+      const { data: existingDocGap } = await serviceClient
+        .from("quote_gaps")
+        .select("id")
+        .eq("case_id", case_id)
+        .eq("gap_key", DECISIVE_ATTACHMENT_GAP_KEY)
+        .eq("status", "open")
+        .maybeSingle();
+
+      const gapAction = decideDecisiveAttachmentGapAction(
+        problematicNames.length,
+        !!existingDocGap?.id
+      );
+
+      if (gapAction === "create") {
+        {
+          const sample = problematicNames.slice(0, 5);
+          const more =
+            problematicNames.length > sample.length
+              ? ` (+${problematicNames.length - sample.length})`
+              : "";
+          const listed = sample.join(", ");
+          const { error: docGapErr } = await serviceClient.from("quote_gaps").insert({
+            case_id,
+            gap_key: DECISIVE_ATTACHMENT_GAP_KEY,
+            gap_category: "documentation",
+            question_fr: `Pièce(s) jointe(s) probablement décisive(s) non analysée(s) ou illisible(s) : ${listed}${more}. Merci de réimporter ou fournir un format lisible avant tarification.`,
+            question_en: `Likely decisive attachment(s) unanalyzed or unreadable: ${listed}${more}. Please re-import or provide a readable format before pricing.`,
+            priority: "critical",
+            is_blocking: true,
+            status: "open",
+          });
+          if (docGapErr) {
+            console.error("[P0-3] Failed to insert decisive-attachment blocking gap:", docGapErr.message);
+          } else {
+            gapsIdentified++;
+            console.log(`[P0-3] Created blocking gap: ${DECISIVE_ATTACHMENT_GAP_KEY} (${problematicNames.length} file(s))`);
+            await serviceClient.from("case_timeline_events").insert({
+              case_id,
+              event_type: "gap_identified",
+              event_data: {
+                gap_key: DECISIVE_ATTACHMENT_GAP_KEY,
+                filenames: sample,
+                reason: "decisive_attachment_unanalyzed",
+              },
+              actor_type: "system",
+            });
+          }
+        }
+      } else if (gapAction === "resolve" && existingDocGap?.id) {
+        // Plus aucune PJ décisive problématique → résoudre le gap obsolète
+        await serviceClient
+          .from("quote_gaps")
+          .update({ status: "resolved", resolved_at: new Date().toISOString() })
+          .eq("id", existingDocGap.id);
+        console.log(`[P0-3] Resolved stale gap: ${DECISIVE_ATTACHMENT_GAP_KEY}`);
+        await serviceClient.from("case_timeline_events").insert({
+          case_id,
+          event_type: "gap_resolved",
+          event_data: {
+            gap_key: DECISIVE_ATTACHMENT_GAP_KEY,
+            reason: "decisive_attachments_now_analyzed",
+          },
+          actor_type: "system",
+        });
       }
     }
 
