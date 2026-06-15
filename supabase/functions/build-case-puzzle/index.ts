@@ -2047,7 +2047,7 @@ Rules:
           meta_json: line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {},
         };
       })
-      .filter(Boolean);
+      .filter((line): line is NonNullable<typeof line> => line !== null);
 
     return validLines.length > 0 ? validLines : null;
   } catch (err) {
@@ -2671,7 +2671,7 @@ export async function ensureExportSeaFreightPartnerOrchestration(args: {
       console.warn("[EXPORT-SEA-FREIGHT] Failed to read facts:", error.message);
       return result;
     }
-    facts = data || [];
+    facts = (data as Record<string, any>[] | null) || [];
   }
 
   const servicePackage = readFactText(facts, "service.package").toUpperCase();
@@ -4693,8 +4693,8 @@ Deno.serve(async (req) => {
       const hsDigitsDoc = hsRawDocValue.replace(/\D/g, "");
 
       // P1 fix: detect if existing value is already a multi-HS CSV
-      const docTokens = hsRawDocValue.split(/[;,]/).map((c) => c.trim()).filter(Boolean);
-      const existingDocIsMultiCsv = docTokens.length > 1 && docTokens.every((c) => /^\d{10}$/.test(c));
+      const docTokens = hsRawDocValue.split(/[;,]/).map((c: string) => c.trim()).filter(Boolean);
+      const existingDocIsMultiCsv = docTokens.length > 1 && docTokens.every((c: string) => /^\d{10}$/.test(c));
       const hasDocsToScan = Array.isArray(caseDocuments) && caseDocuments.length > 0;
 
       let skipHsDocRegex = false;
@@ -4888,8 +4888,8 @@ Deno.serve(async (req) => {
       const hsDigitsEmail = hsRawEmailValue.replace(/\D/g, "");
 
       // P1 fix: detect if existing value is already a multi-HS CSV
-      const emailTokens = hsRawEmailValue.split(/[;,]/).map((c) => c.trim()).filter(Boolean);
-      const existingEmailIsMultiCsv = emailTokens.length > 1 && emailTokens.every((c) => /^\d{10}$/.test(c));
+      const emailTokens = hsRawEmailValue.split(/[;,]/).map((c: string) => c.trim()).filter(Boolean);
+      const existingEmailIsMultiCsv = emailTokens.length > 1 && emailTokens.every((c: string) => /^\d{10}$/.test(c));
       const hasEmailsToScan = Array.isArray(emails) && emails.length > 0;
 
       let skipHsEmailRegex = false;
