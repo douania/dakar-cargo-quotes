@@ -3255,14 +3255,25 @@ export async function applyLatestClientPiecesCountGuard(args: {
     currentPiecesCount: null as number | null,
   };
   const body = String(args.latestInboundBody || "");
-  if (!body.trim()) return result;
+  const bodyHead = body.replace(/\s+/g, " ").slice(0, 200);
+  console.log(
+    `[PIECES-COUNT-GUARD-DIAG] enter case_id=${args.case_id} body_len=${body.length} body_head=${JSON.stringify(bodyHead)}`,
+  );
+  if (!body.trim()) {
+    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: body empty`);
+    return result;
+  }
 
   // Explicit total from the latest inbound client body (reuses existing patterns).
   const clientBusTotal = extractExplicitBusTotalFromLatestInboundBody(body);
   result.clientBusTotal = clientBusTotal;
-  if (clientBusTotal === null || clientBusTotal <= 0) return result; // no explicit total → no-op
+  console.log(`[PIECES-COUNT-GUARD-DIAG] clientBusTotal=${clientBusTotal}`);
+  if (clientBusTotal === null || clientBusTotal <= 0) {
+    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: clientBusTotal null/0`);
+    return result;
+  }
 
-  const { data: existingFact } = await args.serviceClient
+  const { data: existingFact, error: factErr } = await args.serviceClient
     .from("quote_facts")
     .select("id, value_number, value_text, source_type, source_excerpt")
     .eq("case_id", args.case_id)
@@ -3270,46 +3281,69 @@ export async function applyLatestClientPiecesCountGuard(args: {
     .eq("is_current", true)
     .maybeSingle();
 
-  if (!existingFact?.id) return result; // nothing current to guard
+  console.log(
+    `[PIECES-COUNT-GUARD-DIAG] existingFact id=${existingFact?.id ?? null} value_number=${existingFact?.value_number ?? null} value_text=${existingFact?.value_text ?? null} source_type=${existingFact?.source_type ?? null} err=${factErr ? String(factErr.message || factErr) : "none"}`,
+  );
+
+  if (!existingFact?.id) {
+    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: no current pieces_count fact`);
+    return result;
+  }
 
   // Parse the current value from number OR text (this is the storage-agnostic fix).
   const currentVal = toFiniteNumber(existingFact.value_number ?? existingFact.value_text);
   result.currentPiecesCount = currentVal;
+  console.log(`[PIECES-COUNT-GUARD-DIAG] currentVal=${currentVal}`);
 
   // Already matches the explicit client total, or unparseable → no-op (never invent).
-  if (currentVal === null || currentVal === clientBusTotal) return result;
+  if (currentVal === null || currentVal === clientBusTotal) {
+    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: currentVal null or already matches clientBusTotal`);
+    return result;
+  }
 
   // Conflict detected → maintain an idempotent blocking gap with dynamic wording.
   const q = buildPiecesCountConflictQuestion(clientBusTotal, currentVal);
-  const created = await ensureDeterministicBlockingGap(args.serviceClient, {
-    case_id: args.case_id,
-    gap_key: PIECES_COUNT_CONFLICT_GAP_KEY,
-    gap_category: "cargo",
-    question_fr: q.fr,
-    question_en: q.en,
-  });
+  let created = false;
+  try {
+    created = await ensureDeterministicBlockingGap(args.serviceClient, {
+      case_id: args.case_id,
+      gap_key: PIECES_COUNT_CONFLICT_GAP_KEY,
+      gap_category: "cargo",
+      question_fr: q.fr,
+      question_en: q.en,
+    });
+  } catch (e) {
+    console.log(`[PIECES-COUNT-GUARD-DIAG] ensureDeterministicBlockingGap THREW: ${String((e as any)?.message || e)}`);
+  }
   if (created) result.gapsIdentified++;
+  console.log(`[PIECES-COUNT-GUARD-DIAG] createdGap=${created}`);
 
   // Deactivate only a non-protected current value. deactivateConflictingCargoFact
   // protects operator/manual_input and restricts to non-protected auto-extraction
   // sources (ai_extraction / attachment_extracted) — which covers the PDF-sourced fact.
   const source = existingFact.source_type ?? "";
+  let deactivated = false;
   if (MANUAL_PROTECTED_SOURCES.has(source)) {
     console.log(
       `[PIECES-COUNT-GUARD] client total=${clientBusTotal} != current pieces_count=${currentVal} from protected source '${source}' — gap raised, fact left untouched`,
     );
   } else {
-    const deactivated = await deactivateConflictingCargoFact(
-      args.serviceClient,
-      args.case_id,
-      "cargo.pieces_count",
-      (f) => {
-        const v = toFiniteNumber(f.value_number ?? f.value_text);
-        return v !== null && v !== clientBusTotal;
-      },
-    );
+    try {
+      deactivated = await deactivateConflictingCargoFact(
+        args.serviceClient,
+        args.case_id,
+        "cargo.pieces_count",
+        (f) => {
+          const v = toFiniteNumber(f.value_number ?? f.value_text);
+          return v !== null && v !== clientBusTotal;
+        },
+      );
+    } catch (e) {
+      console.log(`[PIECES-COUNT-GUARD-DIAG] deactivateConflictingCargoFact THREW: ${String((e as any)?.message || e)}`);
+    }
     if (deactivated) result.factsDeactivated++;
   }
+  console.log(`[PIECES-COUNT-GUARD-DIAG] deactivated=${deactivated}`);
 
   console.log(
     `[PIECES-COUNT-GUARD] applied: clientTotal=${clientBusTotal}, currentPiecesCount=${currentVal}, gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}`,
