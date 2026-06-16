@@ -2899,6 +2899,313 @@ export async function applyCargoConflictGuards(args: {
   return result;
 }
 
+// =====================================================================
+// EMAIL-DOC-PROVENANCE-GUARD-1
+// Prevent an OLD SODATRA quotation/PDF — attached to an internal/outbound
+// SODATRA email — from acting as an ACTIVE cargo source when the latest
+// inbound client email explicitly states a newer version of the request.
+//
+// Conservative by construction: a document is only treated as "historical
+// SODATRA quotation" when its owning email is SODATRA AND a quotation/offer/
+// proforma/duty-tax signal is present (a SODATRA email merely forwarding a
+// client document is NOT flagged). A cargo fact is only declassed when its
+// own source excerpt is traceable to such a document AND the latest client
+// body does NOT re-confirm that excerpt. Never writes a corrected value,
+// never touches operator/manual_input, never blocks routing/contact facts,
+// never blocks all SODATRA attachments. Pure helpers are unit-testable.
+// =====================================================================
+
+const DOC_PROVENANCE_GAP_KEY = "cargo.document_provenance_conflict";
+
+const DOC_PROVENANCE_GUARDED_CARGO_KEYS_ALWAYS = new Set([
+  "cargo.pieces_count",
+  "cargo.weight_kg",
+  "cargo.value",
+]);
+
+const DOC_PROVENANCE_GAP_QUESTION = {
+  fr: "Une ancienne cotation/PDF SODATRA a ete detectee comme source cargo alors que le dernier email client indique une demande mise a jour. Confirmer les donnees cargo (nombre, poids, valeur, conteneurs) a partir de la derniere demande client.",
+  en: "An old SODATRA quotation/PDF was detected as a cargo source while the latest client email states an updated request. Please confirm the cargo data (count, weight, value, containers) from the latest client request.",
+};
+
+// Explicit "the request has changed" signals in the latest inbound client body.
+const CLIENT_UPDATE_SIGNAL_PATTERNS: RegExp[] = [
+  /\bupdate[ds]?\b/i,
+  /\bincrease[d]?\s+to\b/i,
+  /\btotal\s+bus(?:es)?\s+count\b/i,
+  /\badditionally\b/i,
+  /\b(?:has|have)\s+been\s+added\b/i,
+  /\brevised\b/i,
+  /\bchanged\b/i,
+  /\binstead\b/i,
+  /\bignore\s+(?:the\s+)?previous\b/i,
+  /\bnow\b/i,
+];
+
+export function hasRecentClientUpdateSignal(text: string): boolean {
+  const t = String(text || "");
+  if (!t.trim()) return false;
+  return CLIENT_UPDATE_SIGNAL_PATTERNS.some((re) => re.test(t));
+}
+
+const QUOTATION_DOC_FILENAME_RE = /(quotation|cotation|devis|offer|offre|proforma|pro[\s_-]?forma|quote)/i;
+const QUOTATION_DOC_TEXT_RE =
+  /(quotation|cotation|devis|proforma|pro[\s_-]?forma|\boffer\b|\boffre\b|duty\s+and\s+tax|droits?\s+et\s+taxes?)/i;
+
+/**
+ * An attachment is a likely-historical SODATRA quotation ONLY when its owning
+ * email is SODATRA (internal/outbound) AND at least one quotation/offer/
+ * proforma/duty-tax signal appears in the filename or extracted text. SODATRA
+ * simply forwarding a client document (no quotation signal) is NOT flagged.
+ */
+export function looksLikeHistoricalSodatraQuotationDoc(input: {
+  ownerIsSodatra: boolean;
+  filename?: string | null;
+  extractedText?: string | null;
+}): boolean {
+  if (!input.ownerIsSodatra) return false;
+  const filename = String(input.filename || "");
+  const text = String(input.extractedText || "");
+  if (QUOTATION_DOC_FILENAME_RE.test(filename)) return true;
+  if (QUOTATION_DOC_TEXT_RE.test(text)) return true;
+  return false;
+}
+
+export function normalizeProvenanceText(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const DOC_PROVENANCE_MIN_EXCERPT_LEN = 8;
+
+/**
+ * True when a fact's source excerpt is found (normalized substring) inside one
+ * of the historical SODATRA quotation documents. Requires a minimum length to
+ * avoid trivial matches.
+ */
+export function excerptComesFromHistoricalDoc(
+  excerpt: string | null | undefined,
+  historicalDocTexts: string[],
+): boolean {
+  const normExcerpt = normalizeProvenanceText(excerpt || "");
+  if (normExcerpt.length < DOC_PROVENANCE_MIN_EXCERPT_LEN) return false;
+  return (historicalDocTexts || []).some((doc) => {
+    const normDoc = normalizeProvenanceText(doc);
+    return normDoc.length > 0 && normDoc.includes(normExcerpt);
+  });
+}
+
+/**
+ * cargo.pieces_count / weight_kg / value are always guarded. cargo.containers
+ * is guarded only when the latest client body shows an addition / distinct
+ * goods (so a client that merely re-confirms the same containers is not blocked).
+ */
+export function isDocProvenanceGuardedCargoKey(key: string, latestInboundBody: string): boolean {
+  if (DOC_PROVENANCE_GUARDED_CARGO_KEYS_ALWAYS.has(key)) return true;
+  if (key === "cargo.containers") {
+    const body = String(latestInboundBody || "");
+    return (
+      detectMixedCargoScopeFromBody(body) ||
+      /\b(?:additional|additionally|one\s+additional|extra)\b/i.test(body) ||
+      /\b(?:has|have)\s+been\s+added\b/i.test(body)
+    );
+  }
+  return false;
+}
+
+interface DocProvenanceCandidateFact {
+  key: string;
+  sourceExcerpt?: string | null;
+}
+
+interface DocProvenancePredicateCtx {
+  latestInboundBody: string;
+  historicalDocTexts: string[];
+  normBody: string;
+}
+
+/**
+ * Per-fact decision used by both the pre-write partition and the post-write
+ * orchestrator. A cargo fact is "historical-doc sourced" when its key is
+ * guarded, its excerpt is traceable to a historical SODATRA quotation doc, and
+ * the same excerpt is NOT echoed by the latest client body (client did not
+ * re-confirm it). Gating on update-signal / docs-present is the caller's job.
+ */
+function isHistoricalDocCargoFact(
+  fact: DocProvenanceCandidateFact,
+  ctx: DocProvenancePredicateCtx,
+): boolean {
+  if (!isDocProvenanceGuardedCargoKey(fact.key, ctx.latestInboundBody)) return false;
+  const excerpt = fact.sourceExcerpt || "";
+  if (!excerptComesFromHistoricalDoc(excerpt, ctx.historicalDocTexts)) return false;
+  const normExcerpt = normalizeProvenanceText(excerpt);
+  if (normExcerpt.length >= DOC_PROVENANCE_MIN_EXCERPT_LEN && ctx.normBody.includes(normExcerpt)) {
+    return false; // client re-confirmed this excerpt → keep it
+  }
+  return true;
+}
+
+/**
+ * Pure decision: returns the cargo fact keys that must NOT become active because
+ * they originate from a historical SODATRA quotation document while the latest
+ * client body explicitly signals an updated request. Returns [] unless BOTH an
+ * update signal and at least one historical doc are present.
+ */
+export function detectHistoricalDocCargoFacts(input: {
+  latestInboundBody: string;
+  historicalDocTexts: string[];
+  candidateFacts: DocProvenanceCandidateFact[];
+}): string[] {
+  const body = String(input.latestInboundBody || "");
+  if (!hasRecentClientUpdateSignal(body)) return [];
+  if (!input.historicalDocTexts || input.historicalDocTexts.length === 0) return [];
+  const ctx: DocProvenancePredicateCtx = {
+    latestInboundBody: body,
+    historicalDocTexts: input.historicalDocTexts,
+    normBody: normalizeProvenanceText(body),
+  };
+  const flagged = (input.candidateFacts || [])
+    .filter((f) => isHistoricalDocCargoFact(f, ctx))
+    .map((f) => f.key);
+  return [...new Set(flagged)];
+}
+
+/**
+ * Runtime helper: collect the extracted text of attachments that are likely a
+ * historical SODATRA quotation (owning email is SODATRA + quotation signal).
+ */
+function collectHistoricalSodatraQuotationDocTexts(
+  emails: any[],
+  attachments: any[],
+): string[] {
+  const emailById = new Map<string, any>();
+  for (const e of emails || []) emailById.set(e.id, e);
+  const texts: string[] = [];
+  for (const att of attachments || []) {
+    const owner = emailById.get(att.email_id);
+    const ownerIsSodatra = isSodatraEmail(owner?.from_address || "");
+    if (!ownerIsSodatra) continue;
+    const extractedText =
+      att.extracted_text || (att.extracted_data ? JSON.stringify(att.extracted_data) : "");
+    if (
+      looksLikeHistoricalSodatraQuotationDoc({
+        ownerIsSodatra,
+        filename: att.filename,
+        extractedText,
+      })
+    ) {
+      if (extractedText && String(extractedText).trim()) texts.push(String(extractedText));
+    }
+  }
+  return texts;
+}
+
+/**
+ * Pre-write partition: split AI-extracted facts into the ones to write (kept)
+ * and the cargo facts to drop because they come from a historical SODATRA
+ * quotation document while the client signalled an update. No-op (everything
+ * kept) unless gated by update-signal + historical docs present.
+ */
+function partitionCargoFactsByHistoricalDocProvenance(
+  facts: ExtractedFact[],
+  ctx: { latestInboundBody: string; historicalDocTexts: string[] },
+): { kept: ExtractedFact[]; dropped: ExtractedFact[] } {
+  const body = String(ctx.latestInboundBody || "");
+  if (!hasRecentClientUpdateSignal(body)) return { kept: facts, dropped: [] };
+  if (!ctx.historicalDocTexts || ctx.historicalDocTexts.length === 0) {
+    return { kept: facts, dropped: [] };
+  }
+  const pctx: DocProvenancePredicateCtx = {
+    latestInboundBody: body,
+    historicalDocTexts: ctx.historicalDocTexts,
+    normBody: normalizeProvenanceText(body),
+  };
+  const kept: ExtractedFact[] = [];
+  const dropped: ExtractedFact[] = [];
+  for (const f of facts) {
+    if (isHistoricalDocCargoFact({ key: f.key, sourceExcerpt: f.sourceExcerpt }, pctx)) {
+      dropped.push(f);
+    } else {
+      kept.push(f);
+    }
+  }
+  return { kept, dropped };
+}
+
+/**
+ * Post-write orchestrator: deactivates currently-active cargo facts that are
+ * traceable to a historical SODATRA quotation document (e.g. written by a prior
+ * build run) and raises an idempotent blocking gap. Reuses
+ * deactivateConflictingCargoFact (operator/manual_input always protected) and
+ * ensureDeterministicBlockingGap (idempotent gap). Never writes a value.
+ */
+export async function applyEmailDocProvenanceGuard(args: {
+  case_id: string;
+  serviceClient: any;
+  latestInboundBody: string;
+  historicalDocTexts: string[];
+  preWriteDroppedFactKeys?: string[];
+}): Promise<{ gapsIdentified: number; factsDeactivated: number; declassedKeys: string[] }> {
+  const result = { gapsIdentified: 0, factsDeactivated: 0, declassedKeys: [] as string[] };
+  const body = String(args.latestInboundBody || "");
+  const historicalDocTexts = args.historicalDocTexts || [];
+  const preDropped = args.preWriteDroppedFactKeys || [];
+
+  // Gate: explicit client update signal AND at least one historical SODATRA quotation doc.
+  if (!hasRecentClientUpdateSignal(body)) return result;
+  if (historicalDocTexts.length === 0) return result;
+
+  const { data: currentFactRows } = await args.serviceClient
+    .from("quote_facts")
+    .select("fact_key, value_text, value_number, source_type, source_excerpt")
+    .eq("case_id", args.case_id)
+    .eq("is_current", true)
+    .in("fact_key", ["cargo.pieces_count", "cargo.weight_kg", "cargo.value", "cargo.containers"]);
+
+  const pctx: DocProvenancePredicateCtx = {
+    latestInboundBody: body,
+    historicalDocTexts,
+    normBody: normalizeProvenanceText(body),
+  };
+
+  for (const row of currentFactRows || []) {
+    if (!isHistoricalDocCargoFact({ key: row.fact_key, sourceExcerpt: row.source_excerpt }, pctx)) {
+      continue;
+    }
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      row.fact_key,
+      (f) => isHistoricalDocCargoFact({ key: row.fact_key, sourceExcerpt: f.source_excerpt }, pctx),
+    );
+    if (deactivated) {
+      result.factsDeactivated++;
+      result.declassedKeys.push(row.fact_key);
+    }
+  }
+
+  const declassedSomething = result.factsDeactivated > 0 || preDropped.length > 0;
+  if (declassedSomething) {
+    const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+      case_id: args.case_id,
+      gap_key: DOC_PROVENANCE_GAP_KEY,
+      gap_category: "cargo",
+      question_fr: DOC_PROVENANCE_GAP_QUESTION.fr,
+      question_en: DOC_PROVENANCE_GAP_QUESTION.en,
+    });
+    if (created) result.gapsIdentified++;
+    if (result.declassedKeys.length === 0) result.declassedKeys.push(...preDropped);
+  }
+
+  console.log(
+    `[DOC-PROVENANCE-GUARD] applied: gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}, declassed=[${result.declassedKeys.join(", ")}], preDropped=[${preDropped.join(", ")}]`,
+  );
+  return result;
+}
+
 type ExportSeaFreightOrchestrationResult = {
   gapCreated: boolean;
   gapMaintained: boolean;
@@ -4593,7 +4900,32 @@ Deno.serve(async (req) => {
       console.log(`[SOURCE-GUARD-2] Total blocked: ${sg2Blocked} sensitive monetary fact(s)`);
     }
 
-    for (const fact of guardedFacts) {
+    // EMAIL-DOC-PROVENANCE-GUARD-1: identify likely-historical SODATRA quotation
+    // attachments and the latest inbound client body. Used to (a) drop cargo
+    // facts about to be written that come from such documents (pre-write) and
+    // (b) deactivate already-active ones + raise a blocking gap (post-write).
+    const docProvenanceHistoricalDocTexts = collectHistoricalSodatraQuotationDocTexts(
+      emails,
+      reloadedAttachments || [],
+    );
+    const docProvenanceLatestClientBody = extractPlainTextFromMime(
+      inboundEmails[inboundEmails.length - 1]?.body_text || "",
+    );
+    const docProvenanceDrop = partitionCargoFactsByHistoricalDocProvenance(guardedFacts, {
+      latestInboundBody: docProvenanceLatestClientBody,
+      historicalDocTexts: docProvenanceHistoricalDocTexts,
+    });
+    if (docProvenanceDrop.dropped.length > 0) {
+      console.log(
+        `[DOC-PROVENANCE-GUARD] Dropping ${docProvenanceDrop.dropped.length} cargo fact(s) sourced from historical SODATRA quotation attachment(s): ${docProvenanceDrop.dropped
+          .map((f) => f.key)
+          .join(", ")}`,
+      );
+      factsSkipped += docProvenanceDrop.dropped.length;
+    }
+    const factsToWrite = docProvenanceDrop.kept;
+
+    for (const fact of factsToWrite) {
       try {
         // --- CLIENT-COMPANY-GUARD: reject SODATRA as contacts.client_company ---
         if (fact.key === "contacts.client_company" && isSodatraCompanyName(fact.value)) {
@@ -6053,6 +6385,19 @@ Deno.serve(async (req) => {
     });
     factsUpdated += cargoConflictResult.factsDeactivated;
     gapsIdentified += cargoConflictResult.gapsIdentified;
+
+    // EMAIL-DOC-PROVENANCE-GUARD-1: deactivate already-active cargo facts traceable
+    // to a historical SODATRA quotation document and raise an idempotent blocking
+    // gap. Complements the pre-write drop above (covers facts written by prior runs).
+    const docProvenanceGuardResult = await applyEmailDocProvenanceGuard({
+      case_id,
+      serviceClient,
+      latestInboundBody: docProvenanceLatestClientBody,
+      historicalDocTexts: docProvenanceHistoricalDocTexts,
+      preWriteDroppedFactKeys: docProvenanceDrop.dropped.map((f) => f.key),
+    });
+    factsUpdated += docProvenanceGuardResult.factsDeactivated;
+    gapsIdentified += docProvenanceGuardResult.gapsIdentified;
 
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
