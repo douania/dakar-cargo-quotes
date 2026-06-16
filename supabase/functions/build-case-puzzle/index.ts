@@ -3206,6 +3206,117 @@ export async function applyEmailDocProvenanceGuard(args: {
   return result;
 }
 
+// =====================================================================
+// PIECES-COUNT-LATEST-CLIENT-GUARD-1
+// The latest explicit client bus total wins over any non-protected
+// cargo.pieces_count (e.g. a "5" extracted by ai_extraction/attachment from an
+// old PDF). Standalone safety net wired after the cargo-conflict and doc-
+// provenance guards.
+//
+// Why a dedicated guard: CARGO-CONFLICT-GUARD-GWC-1 DETECTS the conflict using
+// (value_number ?? value_text) but its DEACTIVATION predicate inspects
+// value_number only — so a pieces_count stored as value_text (value_number
+// null) survived as current while weight/value (excerpt-driven deactivation)
+// were declassed. This guard deactivates on value_number OR value_text, and is
+// independent of the fact's excerpt and of historical-document detection.
+//
+// Conservative: no-op when no explicit client total, when the value already
+// matches, when nothing is current, or when the source is operator/manual_input.
+// Never writes a corrected value. Never touches quote_request_lines, never
+// launches pricing.
+// =====================================================================
+
+const PIECES_COUNT_CONFLICT_GAP_KEY = "cargo.pieces_count_conflict";
+
+function buildPiecesCountConflictQuestion(
+  clientBusTotal: number,
+  currentVal: number,
+): { fr: string; en: string } {
+  return {
+    fr: `Le dernier email client indique un total explicite de ${clientBusTotal} bus, mais une autre source a produit ${currentVal} piece(s). Confirmer la quantite finale a coter.`,
+    en: `The latest client email states an explicit total of ${clientBusTotal} buses, but another source produced ${currentVal} piece(s). Please confirm the final quantity to quote.`,
+  };
+}
+
+export async function applyLatestClientPiecesCountGuard(args: {
+  case_id: string;
+  serviceClient: any;
+  latestInboundBody: string;
+}): Promise<{
+  gapsIdentified: number;
+  factsDeactivated: number;
+  clientBusTotal: number | null;
+  currentPiecesCount: number | null;
+}> {
+  const result = {
+    gapsIdentified: 0,
+    factsDeactivated: 0,
+    clientBusTotal: null as number | null,
+    currentPiecesCount: null as number | null,
+  };
+  const body = String(args.latestInboundBody || "");
+  if (!body.trim()) return result;
+
+  // Explicit total from the latest inbound client body (reuses existing patterns).
+  const clientBusTotal = extractExplicitBusTotalFromLatestInboundBody(body);
+  result.clientBusTotal = clientBusTotal;
+  if (clientBusTotal === null || clientBusTotal <= 0) return result; // no explicit total → no-op
+
+  const { data: existingFact } = await args.serviceClient
+    .from("quote_facts")
+    .select("id, value_number, value_text, source_type, source_excerpt")
+    .eq("case_id", args.case_id)
+    .eq("fact_key", "cargo.pieces_count")
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (!existingFact?.id) return result; // nothing current to guard
+
+  // Parse the current value from number OR text (this is the storage-agnostic fix).
+  const currentVal = toFiniteNumber(existingFact.value_number ?? existingFact.value_text);
+  result.currentPiecesCount = currentVal;
+
+  // Already matches the explicit client total, or unparseable → no-op (never invent).
+  if (currentVal === null || currentVal === clientBusTotal) return result;
+
+  // Conflict detected → maintain an idempotent blocking gap with dynamic wording.
+  const q = buildPiecesCountConflictQuestion(clientBusTotal, currentVal);
+  const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+    case_id: args.case_id,
+    gap_key: PIECES_COUNT_CONFLICT_GAP_KEY,
+    gap_category: "cargo",
+    question_fr: q.fr,
+    question_en: q.en,
+  });
+  if (created) result.gapsIdentified++;
+
+  // Deactivate only a non-protected current value. deactivateConflictingCargoFact
+  // protects operator/manual_input and restricts to non-protected auto-extraction
+  // sources (ai_extraction / attachment_extracted) — which covers the PDF-sourced fact.
+  const source = existingFact.source_type ?? "";
+  if (MANUAL_PROTECTED_SOURCES.has(source)) {
+    console.log(
+      `[PIECES-COUNT-GUARD] client total=${clientBusTotal} != current pieces_count=${currentVal} from protected source '${source}' — gap raised, fact left untouched`,
+    );
+  } else {
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      "cargo.pieces_count",
+      (f) => {
+        const v = toFiniteNumber(f.value_number ?? f.value_text);
+        return v !== null && v !== clientBusTotal;
+      },
+    );
+    if (deactivated) result.factsDeactivated++;
+  }
+
+  console.log(
+    `[PIECES-COUNT-GUARD] applied: clientTotal=${clientBusTotal}, currentPiecesCount=${currentVal}, gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}`,
+  );
+  return result;
+}
+
 type ExportSeaFreightOrchestrationResult = {
   gapCreated: boolean;
   gapMaintained: boolean;
@@ -6398,6 +6509,16 @@ Deno.serve(async (req) => {
     });
     factsUpdated += docProvenanceGuardResult.factsDeactivated;
     gapsIdentified += docProvenanceGuardResult.gapsIdentified;
+
+    // PIECES-COUNT-LATEST-CLIENT-GUARD-1: latest explicit client bus total wins
+    // over any non-protected cargo.pieces_count (storage-agnostic deactivation).
+    const piecesCountGuardResult = await applyLatestClientPiecesCountGuard({
+      case_id,
+      serviceClient,
+      latestInboundBody: latestInboundBodyForGuard,
+    });
+    factsUpdated += piecesCountGuardResult.factsDeactivated;
+    gapsIdentified += piecesCountGuardResult.gapsIdentified;
 
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
