@@ -85,12 +85,51 @@ const INTERNAL_DOC_TYPES = new Set([
 ]);
 
 // --- MIME Pre-Processing: strip base64/image noise before AI extraction ---
-function extractPlainTextFromMime(rawBody: string): string {
+export function extractPlainTextFromMime(rawBody: string): string {
   if (!rawBody) return "";
 
-  // 1. No MIME boundary → return truncated raw
+  // 1. No MIME boundary → if the body is raw base64 (no MIME headers), decode it;
+  //    otherwise return the truncated raw text unchanged. (EDGE-MIME-BASE64-FALLBACK-1:
+  //    ported from src/lib/email/extractPlainTextFromMime.ts; Deno-native TextDecoder.)
   const boundaryMatch = rawBody.match(/boundary="?([^"\s;]+)"?/i);
   if (!boundaryMatch) {
+    const stripped = rawBody.replace(/[\s\r\n]/g, "");
+    const looksLikeBase64 = /^[A-Za-z0-9+/=]{40,}$/.test(stripped.slice(0, 200));
+
+    if (looksLikeBase64) {
+      try {
+        // Keep only the leading valid base64 run (stop at first non-base64 char like - or _),
+        // aligned to 4-char blocks so atob never fails on a mid-stream truncation.
+        const b64Match = stripped.match(/^[A-Za-z0-9+/=]+/);
+        const validB64 = b64Match ? b64Match[0] : stripped;
+        const maxLen = Math.min(validB64.length, 8000);
+        const safeChunk = validB64.slice(0, Math.floor(maxLen / 4) * 4);
+        const bin = atob(safeChunk);
+        const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+        const decoded = new TextDecoder().decode(bytes);
+
+        // If the decoded payload is HTML, strip tags and simple entities.
+        if (decoded.includes("<html") || decoded.includes("<body") || decoded.includes("<div")) {
+          return decoded
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#039;/g, "'")
+            .replace(/&nbsp;/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 4000);
+        }
+        return decoded.slice(0, 4000);
+      } catch {
+        // Not valid base64 → fall through to raw truncation (unchanged behaviour).
+      }
+    }
+
     return rawBody.slice(0, 4000);
   }
 
@@ -3255,25 +3294,14 @@ export async function applyLatestClientPiecesCountGuard(args: {
     currentPiecesCount: null as number | null,
   };
   const body = String(args.latestInboundBody || "");
-  const bodyHead = body.replace(/\s+/g, " ").slice(0, 200);
-  console.log(
-    `[PIECES-COUNT-GUARD-DIAG] enter case_id=${args.case_id} body_len=${body.length} body_head=${JSON.stringify(bodyHead)}`,
-  );
-  if (!body.trim()) {
-    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: body empty`);
-    return result;
-  }
+  if (!body.trim()) return result;
 
   // Explicit total from the latest inbound client body (reuses existing patterns).
   const clientBusTotal = extractExplicitBusTotalFromLatestInboundBody(body);
   result.clientBusTotal = clientBusTotal;
-  console.log(`[PIECES-COUNT-GUARD-DIAG] clientBusTotal=${clientBusTotal}`);
-  if (clientBusTotal === null || clientBusTotal <= 0) {
-    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: clientBusTotal null/0`);
-    return result;
-  }
+  if (clientBusTotal === null || clientBusTotal <= 0) return result; // no explicit total → no-op
 
-  const { data: existingFact, error: factErr } = await args.serviceClient
+  const { data: existingFact } = await args.serviceClient
     .from("quote_facts")
     .select("id, value_number, value_text, source_type, source_excerpt")
     .eq("case_id", args.case_id)
@@ -3281,69 +3309,46 @@ export async function applyLatestClientPiecesCountGuard(args: {
     .eq("is_current", true)
     .maybeSingle();
 
-  console.log(
-    `[PIECES-COUNT-GUARD-DIAG] existingFact id=${existingFact?.id ?? null} value_number=${existingFact?.value_number ?? null} value_text=${existingFact?.value_text ?? null} source_type=${existingFact?.source_type ?? null} err=${factErr ? String(factErr.message || factErr) : "none"}`,
-  );
-
-  if (!existingFact?.id) {
-    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: no current pieces_count fact`);
-    return result;
-  }
+  if (!existingFact?.id) return result; // nothing current to guard
 
   // Parse the current value from number OR text (this is the storage-agnostic fix).
   const currentVal = toFiniteNumber(existingFact.value_number ?? existingFact.value_text);
   result.currentPiecesCount = currentVal;
-  console.log(`[PIECES-COUNT-GUARD-DIAG] currentVal=${currentVal}`);
 
   // Already matches the explicit client total, or unparseable → no-op (never invent).
-  if (currentVal === null || currentVal === clientBusTotal) {
-    console.log(`[PIECES-COUNT-GUARD-DIAG] early-return: currentVal null or already matches clientBusTotal`);
-    return result;
-  }
+  if (currentVal === null || currentVal === clientBusTotal) return result;
 
   // Conflict detected → maintain an idempotent blocking gap with dynamic wording.
   const q = buildPiecesCountConflictQuestion(clientBusTotal, currentVal);
-  let created = false;
-  try {
-    created = await ensureDeterministicBlockingGap(args.serviceClient, {
-      case_id: args.case_id,
-      gap_key: PIECES_COUNT_CONFLICT_GAP_KEY,
-      gap_category: "cargo",
-      question_fr: q.fr,
-      question_en: q.en,
-    });
-  } catch (e) {
-    console.log(`[PIECES-COUNT-GUARD-DIAG] ensureDeterministicBlockingGap THREW: ${String((e as any)?.message || e)}`);
-  }
+  const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+    case_id: args.case_id,
+    gap_key: PIECES_COUNT_CONFLICT_GAP_KEY,
+    gap_category: "cargo",
+    question_fr: q.fr,
+    question_en: q.en,
+  });
   if (created) result.gapsIdentified++;
-  console.log(`[PIECES-COUNT-GUARD-DIAG] createdGap=${created}`);
 
   // Deactivate only a non-protected current value. deactivateConflictingCargoFact
   // protects operator/manual_input and restricts to non-protected auto-extraction
   // sources (ai_extraction / attachment_extracted) — which covers the PDF-sourced fact.
   const source = existingFact.source_type ?? "";
-  let deactivated = false;
   if (MANUAL_PROTECTED_SOURCES.has(source)) {
     console.log(
       `[PIECES-COUNT-GUARD] client total=${clientBusTotal} != current pieces_count=${currentVal} from protected source '${source}' — gap raised, fact left untouched`,
     );
   } else {
-    try {
-      deactivated = await deactivateConflictingCargoFact(
-        args.serviceClient,
-        args.case_id,
-        "cargo.pieces_count",
-        (f) => {
-          const v = toFiniteNumber(f.value_number ?? f.value_text);
-          return v !== null && v !== clientBusTotal;
-        },
-      );
-    } catch (e) {
-      console.log(`[PIECES-COUNT-GUARD-DIAG] deactivateConflictingCargoFact THREW: ${String((e as any)?.message || e)}`);
-    }
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      "cargo.pieces_count",
+      (f) => {
+        const v = toFiniteNumber(f.value_number ?? f.value_text);
+        return v !== null && v !== clientBusTotal;
+      },
+    );
     if (deactivated) result.factsDeactivated++;
   }
-  console.log(`[PIECES-COUNT-GUARD-DIAG] deactivated=${deactivated}`);
 
   console.log(
     `[PIECES-COUNT-GUARD] applied: clientTotal=${clientBusTotal}, currentPiecesCount=${currentVal}, gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}`,
