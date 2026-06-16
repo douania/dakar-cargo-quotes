@@ -819,6 +819,10 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
   ],
   // Package-DDP micro-lot: variantes DDP (alias service-identiques des DAP).
   // La différence DAP/DDP reste portée par routing.incoterm + blockers DDP + logique customs.
+  IMPORT_PROJECT_DAP_DDP: [
+    { key: 'service.package', value: 'DDP_PROJECT_IMPORT', confidence: 0.7 },
+    { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
+  ],
   AIR_IMPORT_DDP: [
     { key: 'service.package', value: 'AIR_IMPORT_DDP', confidence: 0.7 },
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
@@ -828,6 +832,8 @@ const ASSUMPTION_RULES: Record<string, Array<{ key: string; value: string; confi
     { key: 'regulatory.dpi_expected', value: 'true', confidence: 0.6 },
   ],
 };
+
+export { ASSUMPTION_RULES };
 
 // --- COMPOSITE-DOC-2: Document-type priority table for documents[] pre-pass ---
 const DOC_TYPE_PRIORITY: Record<string, string[]> = {

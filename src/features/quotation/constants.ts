@@ -77,6 +77,9 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   // les blockers DDP et la logique customs/provisoire — pas par le contenu du package.
   AIR_IMPORT_DDP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_DDP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  // Import project DDP: alias service-identique de DAP_PROJECT_IMPORT.
+  // La sémantique DDP (droits/taxes inclus) est portée par routing.incoterm + customs.
+  DDP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
 };
 
 /**
