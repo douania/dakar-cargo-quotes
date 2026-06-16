@@ -2575,6 +2575,330 @@ export async function applyFclConstraintPostProcessing(args: {
   return result;
 }
 
+// =====================================================================
+// CARGO-CONFLICT-GUARD-GWC-1
+// Deterministic, idempotent guards that block a case when the latest
+// inbound client email body contradicts AI/attachment cargo facts, or
+// when a weight/value was extracted from a non-usable context (per-unit
+// weight treated as total, duty/tax amount treated as goods value).
+//
+// All detection logic lives in pure helpers below (no DB dependency) so
+// they are unit-testable. The async orchestrator only wires the pure
+// decision into idempotent gap creation + conservative fact cleanup.
+// =====================================================================
+
+interface CargoGuardFact {
+  key: string;
+  value?: string | number | null;
+  sourceExcerpt?: string | null;
+  sourceType?: string | null;
+}
+
+interface CargoConflictGuard {
+  gap_key: string;
+  gap_category: "cargo";
+  priority: "critical";
+  is_blocking: true;
+  question_fr: string;
+  question_en: string;
+  reason: string;
+}
+
+interface DetectCargoConflictGuardsInput {
+  latestInboundBody: string;
+  extractedFacts?: CargoGuardFact[];
+  currentFacts?: CargoGuardFact[];
+  existingOpenGapKeys?: string[];
+}
+
+const CARGO_GUARD_QUESTIONS: Record<string, { fr: string; en: string }> = {
+  "cargo.pieces_count_conflict": {
+    fr: "Le dernier email client indique 15 bus, mais une autre source a produit 5 pieces. Confirmer le nombre total de bus a coter.",
+    en: "The latest client email states 15 buses, but another source produced 5 pieces. Please confirm the total number of buses to quote.",
+  },
+  "cargo.weight_total_confirmation": {
+    fr: "Le poids detecte semble etre un poids unitaire ('per unit'). Confirmer le poids total cargo ou le poids unitaire et le nombre d'unites.",
+    en: "The detected weight looks like a per-unit weight ('per unit'). Please confirm the total cargo weight, or the unit weight and the number of units.",
+  },
+  "cargo.value_conflict": {
+    fr: "Un montant a ete detecte dans un contexte droits/taxes ('Duty and tax'). Confirmer la valeur marchandise declaree/CIF a utiliser.",
+    en: "An amount was detected in a duty/tax context ('Duty and tax'). Please confirm the declared/CIF goods value to use.",
+  },
+  "cargo.mixed_scope_confirmation": {
+    fr: "Le dernier email mentionne des bus et des conteneurs additionnels de materiel medical non-DGR. Separer ou confirmer les lignes cargo a coter.",
+    en: "The latest email mentions buses and additional containers of non-DGR medical equipment. Please separate or confirm the cargo lines to quote.",
+  },
+};
+
+/**
+ * Extract an explicit *total* bus count from the latest inbound client body.
+ * Returns null when no explicit number is associated with buses, or when the
+ * mention is ambiguous (several distinct un-qualified bus numbers).
+ * Subjects must not be passed here — only the email body.
+ */
+export function extractExplicitBusTotalFromLatestInboundBody(text: string): number | null {
+  const body = String(text || "");
+  if (!body.trim()) return null;
+
+  const strongPatterns: RegExp[] = [
+    /total\s+bus(?:es)?\s+count\s+(?:is|of|:|=|stands\s+at)?\s*(\d{1,4})/i,
+    /total\s+(?:of\s+)?(\d{1,4})\s+bus(?:es)?\b/i,
+    /bus(?:es)?\s+(?:count\s+)?(?:is|are|has\s+been|have\s+been)\s+(?:increase[d]?|increasing|updated|revised|changed|now)\s+to\s+(\d{1,4})/i,
+    /(?:increase[d]?|updated|revised|changed|now)\s+to\s+(\d{1,4})\s+bus(?:es)?\b/i,
+  ];
+  for (const re of strongPatterns) {
+    const m = body.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+
+  // Fallback: a single un-qualified "<n> bus(es)" mention.
+  const generic = [...body.matchAll(/(\d{1,4})\s*bus(?:es)?\b/gi)]
+    .map((m) => parseInt(m[1], 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const distinct = [...new Set(generic)];
+  if (distinct.length === 1) return distinct[0];
+  return null;
+}
+
+/**
+ * True when a weight excerpt is clearly a per-unit / per-vehicle measure
+ * (e.g. "12,320 kg per unit", "GVW each"), which must not be treated as a
+ * total cargo weight.
+ */
+export function looksLikePerUnitWeightExcerpt(excerpt: string): boolean {
+  const s = String(excerpt || "");
+  if (!s.trim()) return false;
+  return /\bper\s*(?:unit|bus|vehicle|piece|pc|set|pax)\b|\beach\b|\/\s*(?:unit|bus|vehicle|piece|pc)\b/i.test(s);
+}
+
+/**
+ * True when a value excerpt comes from a duty/tax computation context
+ * (e.g. "Duty and tax 8702090 (48.89% on CIF) = 146619") and therefore must
+ * not be treated as the declared goods value. A CIF mention alone does NOT
+ * trigger this — both "duty" and "tax" must be present.
+ */
+export function looksLikeDutyTaxValueExcerpt(excerpt: string): boolean {
+  const s = String(excerpt || "");
+  if (!s.trim()) return false;
+  const hasDuty = /\bdut(?:y|ies)\b/i.test(s);
+  const hasTax = /\btax(?:es)?\b/i.test(s);
+  return hasDuty && hasTax;
+}
+
+/**
+ * True when the latest inbound body clearly describes a mixed cargo scope:
+ * buses + additional container(s) + (non-DGR) medical equipment. Requires all
+ * three signals to avoid false positives.
+ */
+export function detectMixedCargoScopeFromBody(text: string): boolean {
+  const t = String(text || "");
+  if (!t.trim()) return false;
+  const hasBus = /\bbus(?:es)?\b/i.test(t);
+  const hasMedical = /\bmedical\s+equipment\b/i.test(t);
+  const hasAdditionalContainer =
+    /\badditional[^.\n]{0,40}\bcontainers?\b/i.test(t) ||
+    /\bcontainers?\b[^.\n]{0,40}\b(?:added|additional)\b/i.test(t) ||
+    /\bone\s+additional\b[^.\n]{0,40}\bcontainer\b/i.test(t);
+  return hasBus && hasMedical && hasAdditionalContainer;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Pure decision helper. Given the latest inbound client body and the cargo
+ * facts (extracted during this run and/or current in DB), returns the set of
+ * blocking guards to raise. Guards whose key is already in
+ * `existingOpenGapKeys` are filtered out so the helper is a no-op when the gap
+ * already exists. Never returns a corrected value — only the guards.
+ */
+export function detectCargoConflictGuards(input: DetectCargoConflictGuardsInput): CargoConflictGuard[] {
+  const body = String(input.latestInboundBody || "");
+  const extracted = input.extractedFacts || [];
+  const current = input.currentFacts || [];
+  const alreadyOpen = new Set(input.existingOpenGapKeys || []);
+
+  const getFact = (key: string): CargoGuardFact | undefined =>
+    extracted.find((f) => f.key === key) || current.find((f) => f.key === key);
+
+  const guards: CargoConflictGuard[] = [];
+  const push = (gap_key: string, reason: string) => {
+    const q = CARGO_GUARD_QUESTIONS[gap_key];
+    if (!q) return;
+    guards.push({
+      gap_key,
+      gap_category: "cargo",
+      priority: "critical",
+      is_blocking: true,
+      question_fr: q.fr,
+      question_en: q.en,
+      reason,
+    });
+  };
+
+  const busTotal = extractExplicitBusTotalFromLatestInboundBody(body);
+  const piecesFact = getFact("cargo.pieces_count");
+  const piecesVal = toFiniteNumber(piecesFact?.value);
+
+  // Guard 1: explicit client bus total contradicts extracted pieces_count.
+  if (busTotal !== null && piecesFact && piecesVal !== null && piecesVal !== busTotal) {
+    push("cargo.pieces_count_conflict", `body_bus_total=${busTotal} != pieces_count=${piecesVal}`);
+  }
+
+  // Guard 2: per-unit weight cannot be a total when several units are mentioned.
+  const weightFact = getFact("cargo.weight_kg");
+  const multipleUnits = (busTotal !== null && busTotal > 1) || (piecesVal !== null && piecesVal > 1);
+  if (weightFact && looksLikePerUnitWeightExcerpt(weightFact.sourceExcerpt ?? "") && multipleUnits) {
+    push("cargo.weight_total_confirmation", "per_unit_weight_with_multiple_units");
+  }
+
+  // Guard 3: amount taken from a duty/tax context is not the goods value.
+  const valueFact = getFact("cargo.value");
+  if (valueFact && looksLikeDutyTaxValueExcerpt(valueFact.sourceExcerpt ?? "")) {
+    push("cargo.value_conflict", "duty_tax_context_value");
+  }
+
+  // Guard 4: clearly mixed cargo scope in the latest inbound body.
+  if (detectMixedCargoScopeFromBody(body)) {
+    push("cargo.mixed_scope_confirmation", "bus_plus_additional_containers_plus_medical");
+  }
+
+  return guards.filter((g) => !alreadyOpen.has(g.gap_key));
+}
+
+const CARGO_GUARD_NON_PROTECTED_SOURCES = new Set(["ai_extraction", "attachment_extracted"]);
+
+/**
+ * Deactivate a single current cargo fact only when (a) the guard is certain,
+ * (b) the current fact comes from a non-protected source (ai_extraction /
+ * attachment_extracted), and (c) the current fact's own excerpt re-confirms
+ * the conflict. Never touches operator/manual_input. Never writes a value.
+ */
+async function deactivateConflictingCargoFact(
+  serviceClient: any,
+  case_id: string,
+  fact_key: string,
+  predicate: (fact: { value_number: number | null; value_text: string | null; source_excerpt: string | null }) => boolean,
+): Promise<boolean> {
+  const { data: existingFact } = await serviceClient
+    .from("quote_facts")
+    .select("id, value_number, value_text, source_type, source_excerpt")
+    .eq("case_id", case_id)
+    .eq("fact_key", fact_key)
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (!existingFact?.id) return false;
+  const source = existingFact.source_type ?? "";
+  if (MANUAL_PROTECTED_SOURCES.has(source)) return false;
+  if (!CARGO_GUARD_NON_PROTECTED_SOURCES.has(source)) return false;
+  if (!predicate({
+    value_number: existingFact.value_number ?? null,
+    value_text: existingFact.value_text ?? null,
+    source_excerpt: existingFact.source_excerpt ?? null,
+  })) {
+    return false;
+  }
+
+  await serviceClient
+    .from("quote_facts")
+    .update({ is_current: false, updated_at: new Date().toISOString() })
+    .eq("id", existingFact.id);
+  console.log(`[CARGO-CONFLICT-GUARD] Deactivated conflicting current fact ${fact_key} (source=${source})`);
+  return true;
+}
+
+/**
+ * Async orchestrator: runs the deterministic cargo-conflict guards against the
+ * latest inbound client body, creates idempotent blocking gaps, and
+ * conservatively deactivates clearly-conflicting non-protected facts. Never
+ * launches pricing, never writes a corrected value, never touches
+ * quote_request_lines.
+ */
+export async function applyCargoConflictGuards(args: {
+  case_id: string;
+  serviceClient: any;
+  latestInboundBody: string;
+}): Promise<{ gapsIdentified: number; factsDeactivated: number; guardKeys: string[] }> {
+  const result = { gapsIdentified: 0, factsDeactivated: 0, guardKeys: [] as string[] };
+  const body = String(args.latestInboundBody || "");
+  if (!body.trim()) return result;
+
+  const { data: currentFactRows } = await args.serviceClient
+    .from("quote_facts")
+    .select("fact_key, value_text, value_number, source_type, source_excerpt")
+    .eq("case_id", args.case_id)
+    .eq("is_current", true)
+    .in("fact_key", ["cargo.pieces_count", "cargo.weight_kg", "cargo.value", "cargo.containers"]);
+
+  const currentFacts: CargoGuardFact[] = (currentFactRows || []).map((row: any) => ({
+    key: row.fact_key,
+    value: row.value_number ?? row.value_text ?? null,
+    sourceExcerpt: row.source_excerpt ?? null,
+    sourceType: row.source_type ?? null,
+  }));
+
+  // Gap creation is deduplicated by ensureDeterministicBlockingGap, so no need
+  // to pre-filter by existing open gaps here.
+  const guards = detectCargoConflictGuards({ latestInboundBody: body, currentFacts });
+  if (guards.length === 0) return result;
+
+  for (const guard of guards) {
+    const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+      case_id: args.case_id,
+      gap_key: guard.gap_key,
+      gap_category: guard.gap_category,
+      question_fr: guard.question_fr,
+      question_en: guard.question_en,
+    });
+    if (created) result.gapsIdentified++;
+    result.guardKeys.push(guard.gap_key);
+  }
+
+  // Conservative cleanup of clearly-wrong non-protected current facts. Runs
+  // independently of gap existence so re-extracted conflicting facts do not
+  // resurface as current truth. Idempotent: only touches is_current=true rows.
+  const guardKeySet = new Set(guards.map((g) => g.gap_key));
+  const busTotal = extractExplicitBusTotalFromLatestInboundBody(body);
+
+  if (guardKeySet.has("cargo.pieces_count_conflict")) {
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      "cargo.pieces_count",
+      (f) => busTotal !== null && toFiniteNumber(f.value_number) !== null && toFiniteNumber(f.value_number) !== busTotal,
+    );
+    if (deactivated) result.factsDeactivated++;
+  }
+  if (guardKeySet.has("cargo.weight_total_confirmation")) {
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      "cargo.weight_kg",
+      (f) => looksLikePerUnitWeightExcerpt(f.source_excerpt ?? ""),
+    );
+    if (deactivated) result.factsDeactivated++;
+  }
+  if (guardKeySet.has("cargo.value_conflict")) {
+    const deactivated = await deactivateConflictingCargoFact(
+      args.serviceClient,
+      args.case_id,
+      "cargo.value",
+      (f) => looksLikeDutyTaxValueExcerpt(f.source_excerpt ?? ""),
+    );
+    if (deactivated) result.factsDeactivated++;
+  }
+
+  console.log(`[CARGO-CONFLICT-GUARD] applied: gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}, guards=[${result.guardKeys.join(", ")}]`);
+  return result;
+}
+
 type ExportSeaFreightOrchestrationResult = {
   gapCreated: boolean;
   gapMaintained: boolean;
@@ -5717,6 +6041,18 @@ Deno.serve(async (req) => {
     factsUpdated += fclConstraintResult.updated;
     factsSkipped += fclConstraintResult.skipped;
     gapsIdentified += fclConstraintResult.gapsIdentified;
+
+    // CARGO-CONFLICT-GUARD-GWC-1: deterministic guards driven by the latest
+    // inbound (non-SODATRA) client email body. Subjects are excluded — body only.
+    const latestInboundEmailForGuard = inboundEmails[inboundEmails.length - 1];
+    const latestInboundBodyForGuard = extractPlainTextFromMime(latestInboundEmailForGuard?.body_text || "");
+    const cargoConflictResult = await applyCargoConflictGuards({
+      case_id,
+      serviceClient,
+      latestInboundBody: latestInboundBodyForGuard,
+    });
+    factsUpdated += cargoConflictResult.factsDeactivated;
+    gapsIdentified += cargoConflictResult.gapsIdentified;
 
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
