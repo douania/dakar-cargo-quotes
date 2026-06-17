@@ -65,6 +65,169 @@ export type Database = {
         }
         Relationships: []
       }
+      cargo_equipment: {
+        Row: {
+          cargo_line_id: string | null
+          case_id: string
+          created_at: string | null
+          equipment_type: string
+          id: string
+          quantity: number
+          source_email_id: string | null
+          source_excerpt: string | null
+          source_quote_request_line_id: string | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          cargo_line_id?: string | null
+          case_id: string
+          created_at?: string | null
+          equipment_type: string
+          id?: string
+          quantity: number
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_quote_request_line_id?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          cargo_line_id?: string | null
+          case_id?: string
+          created_at?: string | null
+          equipment_type?: string
+          id?: string
+          quantity?: number
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_quote_request_line_id?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cargo_equipment_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cargo_equipment_line_case_fk"
+            columns: ["cargo_line_id", "case_id"]
+            isOneToOne: false
+            referencedRelation: "cargo_lines"
+            referencedColumns: ["id", "case_id"]
+          },
+          {
+            foreignKeyName: "cargo_equipment_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cargo_equipment_source_quote_request_line_id_fkey"
+            columns: ["source_quote_request_line_id"]
+            isOneToOne: false
+            referencedRelation: "quote_request_lines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cargo_lines: {
+        Row: {
+          case_id: string
+          created_at: string | null
+          description: string | null
+          hs_code: string | null
+          id: string
+          is_current: boolean
+          line_index: number
+          pieces_count: number | null
+          source_email_id: string | null
+          source_excerpt: string | null
+          source_quote_request_line_id: string | null
+          status: string
+          supersedes_cargo_line_id: string | null
+          updated_at: string | null
+          value_currency: string | null
+          value_number: number | null
+          volume_cbm: number | null
+          weight_kg: number | null
+        }
+        Insert: {
+          case_id: string
+          created_at?: string | null
+          description?: string | null
+          hs_code?: string | null
+          id?: string
+          is_current?: boolean
+          line_index: number
+          pieces_count?: number | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_quote_request_line_id?: string | null
+          status?: string
+          supersedes_cargo_line_id?: string | null
+          updated_at?: string | null
+          value_currency?: string | null
+          value_number?: number | null
+          volume_cbm?: number | null
+          weight_kg?: number | null
+        }
+        Update: {
+          case_id?: string
+          created_at?: string | null
+          description?: string | null
+          hs_code?: string | null
+          id?: string
+          is_current?: boolean
+          line_index?: number
+          pieces_count?: number | null
+          source_email_id?: string | null
+          source_excerpt?: string | null
+          source_quote_request_line_id?: string | null
+          status?: string
+          supersedes_cargo_line_id?: string | null
+          updated_at?: string | null
+          value_currency?: string | null
+          value_number?: number | null
+          volume_cbm?: number | null
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cargo_lines_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cargo_lines_source_email_id_fkey"
+            columns: ["source_email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cargo_lines_source_quote_request_line_id_fkey"
+            columns: ["source_quote_request_line_id"]
+            isOneToOne: false
+            referencedRelation: "quote_request_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cargo_lines_supersedes_cargo_line_id_fkey"
+            columns: ["supersedes_cargo_line_id"]
+            isOneToOne: false
+            referencedRelation: "cargo_lines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       carrier_billing_templates: {
         Row: {
           base_reference: string | null
