@@ -1667,11 +1667,18 @@ function extractCargoValueFromText(text: string): CargoValueExtraction {
 
   const lines = text.split(/\n/);
   for (const line of lines) {
-    // Currency detection BEFORE numeric check (so lines like "Total TTC Hors Options EUR" are captured)
+    // Currency detection BEFORE numeric check (so lines like "Total TTC Hors Options EUR" are captured).
+    // No currency-specific priority: a line's currency is adopted ONLY when that
+    // line is unambiguous (exactly one explicit currency). A line carrying several
+    // explicit currencies (e.g. both EUR and QAR) is skipped so a later,
+    // unambiguous line can set it -- never an arbitrary pick.
     if (!result.currency) {
-      if (/\bEUR\b/i.test(line)) result.currency = 'EUR';
-      else if (/\bUSD\b/i.test(line)) result.currency = 'USD';
-      else if (/\bXOF\b|\bFCFA\b/i.test(line)) result.currency = 'XOF';
+      const seen: string[] = [];
+      if (/\bQAR\b|\bQR\b|QATARI?\s*RIYALS?/i.test(line)) seen.push('QAR');
+      if (/\bEUR\b|\u20AC/i.test(line)) seen.push('EUR');
+      if (/\bUSD\b/i.test(line)) seen.push('USD');
+      if (/\bXOF\b|\bFCFA\b/i.test(line)) seen.push('XOF');
+      if (seen.length === 1) result.currency = seen[0];
     }
 
     // Take the LAST numeric amount on the line to avoid quantities/references
@@ -1959,6 +1966,28 @@ function pickSourceEmailId(emails: any[]): string | null {
   return emails[emails.length - 1]?.id || null;
 }
 
+/**
+ * THREAD-TEMPORAL-PROVENANCE-1 -- provenance email id for AI-extracted facts.
+ * The AI extraction context is built from INBOUND client emails only
+ * (SOURCE-GUARD-1), so a fact is attributed to the LATEST inbound client email
+ * by chronological order (sent_at asc) -- NOT to emails[0] (the oldest), and
+ * with NO is_quotation_request priority: a later client email supersedes an
+ * older one even if the older one carries the quotation-request flag. Returns
+ * null when there is no inbound email, so a fact is never falsely attributed to
+ * the first/oldest email. Generic, no commodity assumptions. Falls back to input
+ * order when sent_at is absent (callers pass emails sorted ascending).
+ */
+export function pickInboundProvenanceEmailId(emails: any[]): string | null {
+  const inbound = (emails || []).filter((e: any) => !isSodatraEmail(e?.from_address));
+  if (inbound.length === 0) return null;
+  const sorted = [...inbound].sort((a: any, b: any) => {
+    const ta = Date.parse(a?.sent_at ?? "") || 0;
+    const tb = Date.parse(b?.sent_at ?? "") || 0;
+    return ta - tb;
+  });
+  return sorted[sorted.length - 1]?.id ?? null;
+}
+
 const MULTI_QUOTE_ALLOWED_KEYS = new Set([
   "cargo.weight_kg", "cargo.volume_cbm", "cargo.description",
   "cargo.pieces_count", "cargo.hs_code", "cargo.dimensions",
@@ -2102,36 +2131,64 @@ Rules:
 }
 
 // --- P0 Fix: Parse container text into structured JSON ---
-function parseContainersFromText(raw: string): Array<{ type: string; quantity: number }> {
+/**
+ * Normalize a raw container-type suffix token into a canonical type code.
+ * Preserves existing behavior for GP/HC/HQ/DV/STD and adds special equipment:
+ * FR/FLAT RACK/FLATRACK -> FR, OT/OPEN TOP -> OT, RF/REEFER -> RF.
+ * Never collapses a special type (FR/OT/RF) into GP.
+ */
+function normalizeContainerSuffix(suffixRaw: string): string {
+  const x = (suffixRaw || "").toUpperCase().replace(/[\s.'-]+/g, "");
+  if (!x) return "GP";
+  if (x === "FR" || x === "FLATRACK") return "FR";
+  if (x === "OT" || x === "OPENTOP") return "OT";
+  if (x === "RF" || x === "REEFER" || x === "RH") return "RF";
+  if (x === "HC" || x === "HQ") return x; // preserved as-is (legacy behavior)
+  if (x === "DV" || x === "STD" || x === "GP") return "GP";
+  return "GP";
+}
+
+export function parseContainersFromText(raw: string): Array<{ type: string; quantity: number }> {
   const s = (raw || "").toUpperCase();
   const cleaned = s
     .replace(/\s+/g, " ")
-    .replace(/'/g, "'")
+    .replace(/[\u2018\u2019\u2032]/g, "'")
     .replace(/CONT(?:A)?INER(S)?/g, "")
     .replace(/CNTR(S)?/g, "")
     .trim();
 
-  const re = /(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)\s*(?:'|\s)?\s*(HC|HQ|DV|GP|STD)?/g;
+  // quantity x size [unit] [type]. Multi-word special types come first in the
+  // alternation so "FLAT RACK"/"OPEN TOP" win over the bare FR/OT tokens.
+  const re =
+    /(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)?/g;
   const out: Array<{ type: string; quantity: number }> = [];
   let m: RegExpExecArray | null;
 
   while ((m = re.exec(cleaned)) !== null) {
     const qty = Number(m[1]);
     const size = m[2];
-    const suffix = (m[3] || "").trim();
     if (!Number.isFinite(qty) || qty <= 0) continue;
-    let type = `${size}${suffix || "GP"}`;
-    type = type.replace("DV", "GP").replace("STD", "GP");
-    out.push({ type, quantity: qty });
+    out.push({ type: `${size}${normalizeContainerSuffix(m[3] || "")}`, quantity: qty });
   }
 
-  // Fallback: if we see "40HC" or "20" without qty, assume 1
+  // Fallback: a size mentioned without an explicit quantity (e.g. "40'FR",
+  // "40HC", "40 flat rack", "20"). The type may be directly attached to the
+  // size, so the pattern is anchored on the size rather than relying on a word
+  // boundary before the type - this keeps "40'FR" from degrading to "40GP".
   if (out.length === 0) {
-    const has40 = cleaned.includes("40");
-    const has20 = cleaned.includes("20");
-    const hasHC = cleaned.includes("HC") || cleaned.includes("HQ");
-    if (has40) out.push({ type: hasHC ? "40HC" : "40GP", quantity: 1 });
-    else if (has20) out.push({ type: "20GP", quantity: 1 });
+    const adjacent = cleaned.match(
+      /\b(20|40|45)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)\b/,
+    );
+    if (adjacent) {
+      out.push({ type: `${adjacent[1]}${normalizeContainerSuffix(adjacent[2])}`, quantity: 1 });
+    } else {
+      const has40 = cleaned.includes("40");
+      const has20 = cleaned.includes("20");
+      const has45 = cleaned.includes("45");
+      if (has40) out.push({ type: "40GP", quantity: 1 });
+      else if (has20) out.push({ type: "20GP", quantity: 1 });
+      else if (has45) out.push({ type: "45GP", quantity: 1 });
+    }
   }
 
   // Merge same types
@@ -3352,6 +3409,170 @@ export async function applyLatestClientPiecesCountGuard(args: {
 
   console.log(
     `[PIECES-COUNT-GUARD] applied: clientTotal=${clientBusTotal}, currentPiecesCount=${currentVal}, gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}`,
+  );
+  return result;
+}
+
+// =====================================================================
+// THREAD-TEMPORAL-PROVENANCE-1 (generic, commodity-agnostic)
+// A later inbound client email can amend or replace facts stated in an earlier
+// one. These helpers reconcile the *value currency* in that situation: when the
+// client thread states exactly one explicit currency, a DIFFERENT stored
+// currency from a non-manual source must not silently stand. Pure helpers are
+// unit-testable; the orchestrator only raises a blocking gap and removes the
+// clearly-superseded non-manual fact. Never converts, never invents a value.
+// No commodity-specific (bus/medical/etc.) or currency-specific rule.
+// =====================================================================
+
+// ISO-4217 currency tokens recognised in free client text (extensible vocabulary).
+const CLIENT_CURRENCY_TOKENS: Array<{ code: string; re: RegExp }> = [
+  { code: "QAR", re: /\bQAR\b|\bQR\b|QATARI?\s*RIYALS?/i },
+  { code: "EUR", re: /\bEUR\b|\u20AC|\bEUROS?\b/i },
+  { code: "USD", re: /\bUSD\b|\bUS\$|\$US\b/i },
+  { code: "XOF", re: /\bXOF\b|\bFCFA\b|\bCFA\b/i },
+  { code: "GBP", re: /\bGBP\b|\u00A3/i },
+  { code: "AED", re: /\bAED\b|\bDIRHAMS?\b/i },
+  { code: "SAR", re: /\bSAR\b|SAUDI\s*RIYALS?/i },
+  { code: "CNY", re: /\bCNY\b|\bRMB\b|\bYUAN\b/i },
+];
+
+/** Distinct explicit client currency codes present in the text (order-stable). */
+export function detectExplicitClientCurrencies(text: string): string[] {
+  const t = String(text || "");
+  if (!t.trim()) return [];
+  const out: string[] = [];
+  for (const { code, re } of CLIENT_CURRENCY_TOKENS) {
+    if (re.test(t) && !out.includes(code)) out.push(code);
+  }
+  return out;
+}
+
+/**
+ * Normalise a stored currency value (code or symbol) to an ISO-4217 code so it
+ * can be compared with a detected client currency. Returns null when unknown.
+ */
+export function normalizeCurrencyCode(raw: string): string | null {
+  const v = String(raw || "").toUpperCase().trim();
+  if (!v) return null;
+  if (v === "\u20AC") return "EUR";
+  if (v === "$") return "USD";
+  if (v === "\u00A3") return "GBP";
+  for (const { code, re } of CLIENT_CURRENCY_TOKENS) {
+    if (re.test(v)) return code;
+  }
+  return /^[A-Z]{3}$/.test(v) ? v : null;
+}
+
+/**
+ * Generic decision: the client thread states exactly ONE explicit currency and
+ * the stored value currency resolves to a DIFFERENT code -> the stored one is
+ * superseded by the client's explicit currency. Returns the client currency in
+ * that case, otherwise null (ambiguous / matching / unknown -> no-op). Currency
+ * agnostic: works for any ISO code, not just QAR<->EUR.
+ */
+export function resolveClientCurrencyOverride(
+  clientText: string,
+  storedCurrencyRaw: string | null | undefined,
+): string | null {
+  const clientCurrencies = detectExplicitClientCurrencies(clientText);
+  if (clientCurrencies.length !== 1) return null; // none or ambiguous -> no-op
+  const stored = normalizeCurrencyCode(storedCurrencyRaw ?? "");
+  if (!stored) return null;
+  return stored !== clientCurrencies[0] ? clientCurrencies[0] : null;
+}
+
+/**
+ * Decide which currency the client thread expresses, giving the latest inbound
+ * email precedence (a later email amends earlier ones):
+ *  - if the LATEST inbound text states exactly one explicit currency, it wins;
+ *  - else fall back to the whole thread only if IT has exactly one explicit
+ *    currency;
+ *  - otherwise (none, or ambiguous at both levels) return null -> conservative
+ *    no-op. Pure and currency-agnostic.
+ */
+export function resolveThreadClientCurrency(
+  latestInboundText: string,
+  fullThreadText: string,
+): string | null {
+  const latest = detectExplicitClientCurrencies(latestInboundText);
+  if (latest.length === 1) return latest[0];
+  const all = detectExplicitClientCurrencies(fullThreadText);
+  return all.length === 1 ? all[0] : null;
+}
+
+const VALUE_CURRENCY_CONFLICT_GAP_KEY = "cargo.value_currency_conflict";
+
+function buildValueCurrencyConflictQuestion(clientCurrency: string, storedCurrency: string): { fr: string; en: string } {
+  return {
+    fr: `Le dernier email client indique la valeur en ${clientCurrency}, mais la devise enregistree est ${storedCurrency}. Confirmer la devise et la valeur marchandise a coter (aucune conversion automatique).`,
+    en: `The latest client email states the value in ${clientCurrency}, but the stored currency is ${storedCurrency}. Please confirm the currency and the goods value to quote (no automatic conversion).`,
+  };
+}
+
+/**
+ * Generic value-currency reconciliation. The client currency is resolved with
+ * the LATEST inbound email taking precedence (resolveThreadClientCurrency): if
+ * it differs from the stored cargo.value_currency, the stored value must not
+ * silently stand -> raise a blocking confirmation gap and deactivate the stored
+ * currency when it comes from a non-manual source. If the latest inbound is
+ * ambiguous, fall back to the whole thread only when IT has a single explicit
+ * currency; otherwise no-op. Never overwrites operator/manual_input; never
+ * converts; never invents a value.
+ */
+export async function applyClientValueCurrencyGuard(args: {
+  case_id: string;
+  serviceClient: any;
+  latestInboundText: string;
+  fullThreadText: string;
+}): Promise<{ gapsIdentified: number; factsDeactivated: number; clientCurrencies: string[] }> {
+  const result = { gapsIdentified: 0, factsDeactivated: 0, clientCurrencies: [] as string[] };
+  const latestInboundText = String(args.latestInboundText || "");
+  const fullThreadText = String(args.fullThreadText || "");
+
+  // Latest inbound primes; else whole thread only if single; else no-op.
+  const clientCurrency = resolveThreadClientCurrency(latestInboundText, fullThreadText);
+  if (!clientCurrency) return result; // none or ambiguous at both levels -> no-op
+  result.clientCurrencies = [clientCurrency];
+
+  const { data: existingFact } = await args.serviceClient
+    .from("quote_facts")
+    .select("id, value_text, source_type")
+    .eq("case_id", args.case_id)
+    .eq("fact_key", "cargo.value_currency")
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (!existingFact?.id) return result; // nothing stored -> never invent a currency
+
+  const storedRaw = String(existingFact.value_text || "").trim();
+  const storedCode = normalizeCurrencyCode(storedRaw);
+  if (!storedCode || storedCode === clientCurrency) return result; // unknown / matching -> no-op
+
+  const source = existingFact.source_type ?? "";
+
+  const q = buildValueCurrencyConflictQuestion(clientCurrency, storedCode);
+  const created = await ensureDeterministicBlockingGap(args.serviceClient, {
+    case_id: args.case_id,
+    gap_key: VALUE_CURRENCY_CONFLICT_GAP_KEY,
+    gap_category: "cargo",
+    question_fr: q.fr,
+    question_en: q.en,
+  });
+  if (created) result.gapsIdentified++;
+
+  if (!MANUAL_PROTECTED_SOURCES.has(source)) {
+    await args.serviceClient
+      .from("quote_facts")
+      .update({ is_current: false, updated_at: new Date().toISOString() })
+      .eq("id", existingFact.id);
+    result.factsDeactivated++;
+    console.log(`[CURRENCY-GUARD] Deactivated stored value_currency=${storedCode} (source=${source}); client states ${clientCurrency}`);
+  } else {
+    console.log(`[CURRENCY-GUARD] value_currency=${storedCode} from protected source '${source}' - gap raised, fact left untouched`);
+  }
+
+  console.log(
+    `[CURRENCY-GUARD] applied: clientCurrencies=[${result.clientCurrencies.join(",")}], gaps=${result.gapsIdentified}, deactivated=${result.factsDeactivated}`,
   );
   return result;
 }
@@ -6559,6 +6780,21 @@ Deno.serve(async (req) => {
     factsUpdated += piecesCountGuardResult.factsDeactivated;
     gapsIdentified += piecesCountGuardResult.gapsIdentified;
 
+    // THREAD-TEMPORAL-PROVENANCE-1: generic value-currency reconciliation. The
+    // LATEST inbound body takes precedence for the client currency; if it is
+    // ambiguous, the whole inbound thread is used only when it carries a single
+    // explicit currency. When that client currency differs from a non-manual
+    // stored cargo.value_currency, deactivate the stored one and raise a blocking
+    // confirmation gap. Currency agnostic; never converts, never invents.
+    const currencyGuardResult = await applyClientValueCurrencyGuard({
+      case_id,
+      serviceClient,
+      latestInboundText: latestInboundBodyForGuard,
+      fullThreadText: inboundThreadContext,
+    });
+    factsUpdated += currencyGuardResult.factsDeactivated;
+    gapsIdentified += currencyGuardResult.gapsIdentified;
+
     // --- Phase client.code: Auto-inject client.code from known_business_contacts ---
     try {
       const { data: knownContacts } = await serviceClient
@@ -7687,6 +7923,12 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
       });
       const facts = Array.isArray(parsed?.facts) ? parsed.facts : [];
 
+      // THREAD-TEMPORAL-PROVENANCE-1: attribute AI facts to the latest relevant
+      // inbound client email (not emails[0], the oldest), so later emails that
+      // amend the request are credited correctly and SOURCE-GUARD-2 client
+      // checks stay valid. null when no inbound email exists (prudent).
+      const provenanceEmailId = pickInboundProvenanceEmailId(emails);
+
       // Enrich with source email IDs + V4.1.5: ensure JSON values are objects not strings
       return facts.map((f: any) => {
         let value = f.value;
@@ -7698,7 +7940,7 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
           ...f,
           value,
           sourceType: f.isAssumption ? "ai_assumption" : "ai_extraction",
-          sourceEmailId: emails[0]?.id,
+          sourceEmailId: provenanceEmailId,
         };
       });
     } catch {
