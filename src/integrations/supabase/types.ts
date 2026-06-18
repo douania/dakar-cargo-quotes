@@ -6382,6 +6382,38 @@ export type Database = {
         }
         Returns: string
       }
+      upsert_cargo_equipment: {
+        Args: {
+          p_cargo_line_id?: string
+          p_case_id: string
+          p_equipment_type?: string
+          p_quantity?: number
+          p_source_email_id?: string
+          p_source_excerpt?: string
+          p_source_quote_request_line_id?: string
+          p_status?: string
+        }
+        Returns: string
+      }
+      upsert_cargo_line: {
+        Args: {
+          p_case_id: string
+          p_description?: string
+          p_hs_code?: string
+          p_line_index: number
+          p_pieces_count?: number
+          p_source_email_id?: string
+          p_source_excerpt?: string
+          p_source_quote_request_line_id?: string
+          p_status?: string
+          p_supersedes_cargo_line_id?: string
+          p_value_currency?: string
+          p_value_number?: number
+          p_volume_cbm?: number
+          p_weight_kg?: number
+        }
+        Returns: string
+      }
       upsert_rate_limit_bucket: {
         Args: {
           p_function_name: string
