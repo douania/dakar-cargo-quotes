@@ -241,3 +241,6 @@ verify_jwt = false
 
 [functions.canonicalize-cargo-from-case]
 verify_jwt = false
+
+[functions.derive-cargo-canonical-payload]
+verify_jwt = false
