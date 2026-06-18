@@ -28,6 +28,12 @@ const {
   assessAttachments,
   isDecisiveAttachmentCandidate,
   normalizeCurrency,
+  // Phase 2-Q : dérivation depuis le dernier email entrant client.
+  deriveCargoPayloadFromLatestInboundEmail,
+  parseVehicleFlatRackRevision,
+  parseAdditionalMedicalEquipmentContainers,
+  hasRevisionTerms,
+  isSodatraEmail,
 } = await import("../derive-cargo-canonical-payload/index.ts");
 
 const VALID_CASE = "11111111-1111-1111-1111-111111111111";
@@ -376,4 +382,285 @@ Deno.test("2-O garde — pas de RPC, pas de service_role, pas d'appel direct wri
     false,
     "pas d'appel direct au writer (doit passer par le canonicalizer)",
   );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q — Dernier email entrant client comme source READ-ONLY additionnelle
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Cherche un item d'équipement (type+quantité) dans toutes les lignes cargo. */
+function findEquipment(
+  cargoLines: Array<{ equipment: Array<{ equipment_type: string; quantity: number }> }>,
+  type: string,
+  quantity: number,
+): boolean {
+  return cargoLines.some((l) =>
+    l.equipment.some((e) => e.equipment_type === type && e.quantity === quantity)
+  );
+}
+
+// ── Helpers purs : parseVehicleFlatRackRevision ────────────────────────────
+Deno.test("2-Q vfr — bus count + 40FR ⇒ inférence N × 40FR + warning", () => {
+  const r = parseVehicleFlatRackRevision(
+    "now the total bus count is 15 and the buses are transported in 40FR",
+  );
+  assertEquals(r.count, 15);
+  assertEquals(r.flatRackForVehicles, true);
+  assertEquals(r.inferred?.equipment_type, "40FR");
+  assertEquals(r.inferred?.quantity, 15);
+  assert(r.warnings.some((w) => w.includes("× 40FR") && /confirmation/i.test(w)));
+});
+
+Deno.test("2-Q vfr — 'buses increased to 15' + flat rack ⇒ 15 × 40FR", () => {
+  const r = parseVehicleFlatRackRevision("buses increased to 15, all on flat rack");
+  assertEquals(r.inferred?.quantity, 15);
+  assertEquals(r.inferred?.equipment_type, "40FR");
+});
+
+Deno.test("2-Q vfr — buses en 40FR SANS compte ⇒ aucune quantité inventée + warning", () => {
+  const r = parseVehicleFlatRackRevision("the buses are transported in 40FR");
+  assertEquals(r.count, null);
+  assertEquals(r.flatRackForVehicles, true);
+  assertEquals(r.inferred, null);
+  assert(r.warnings.some((w) => /no.*count|no quantity/i.test(w)));
+});
+
+Deno.test("2-Q vfr — '15 buses' SANS 40FR ⇒ pas d'inférence 40FR", () => {
+  const r = parseVehicleFlatRackRevision("we will ship 15 buses next week");
+  assertEquals(r.count, 15);
+  assertEquals(r.flatRackForVehicles, false);
+  assertEquals(r.inferred, null);
+  assertEquals(r.warnings.length, 0);
+});
+
+// ── Helpers purs : parseAdditionalMedicalEquipmentContainers ───────────────
+Deno.test("2-Q med — '1x 20' et '1x 40' ⇒ 20GP + 40GP, contexte médical", () => {
+  const r = parseAdditionalMedicalEquipmentContainers(
+    "additionally 1x 20 and 1x 40 container has been added for medical equipment non DGR",
+  );
+  assertEquals(r.medicalContext, true);
+  const twenty = r.equipment.find((e) => e.equipment_type === "20GP");
+  const forty = r.equipment.find((e) => e.equipment_type === "40GP");
+  assertEquals(twenty?.quantity, 1);
+  assertEquals(forty?.quantity, 1);
+  assertEquals(twenty?.status, "to_confirm");
+});
+
+Deno.test("2-Q med — forme texte 'one additional 20 ft' / 'one 40 ft'", () => {
+  const r = parseAdditionalMedicalEquipmentContainers(
+    "one additional 20 ft and one 40 ft container",
+  );
+  assertEquals(r.equipment.find((e) => e.equipment_type === "20GP")?.quantity, 1);
+  assertEquals(r.equipment.find((e) => e.equipment_type === "40GP")?.quantity, 1);
+});
+
+Deno.test("2-Q med — '40FR' ne doit PAS être lu comme conteneur 40GP", () => {
+  const r = parseAdditionalMedicalEquipmentContainers("buses in 40FR");
+  assertEquals(r.equipment.length, 0);
+});
+
+Deno.test("2-Q med — PAS de double comptage : '1x 20'' et 'one additional 20 ft' ⇒ 20GP=1", () => {
+  const r = parseAdditionalMedicalEquipmentContainers(
+    "additionally 1x 20' and 1x 40' container has been added and one additional 20 ft container & one 40 ft container (medical equipment) non DGR",
+  );
+  assertEquals(r.equipment.find((e) => e.equipment_type === "20GP")?.quantity, 1);
+  assertEquals(r.equipment.find((e) => e.equipment_type === "40GP")?.quantity, 1);
+});
+
+// ── Pattern complet réaliste (review fix) ──────────────────────────────────
+// Le signal flat-rack DOIT être explicite ("buses in 40FR") — un "40'" / "40 ft"
+// seul ne suffit jamais à inférer du 40FR.
+Deno.test("2-Q full — pattern complet : 40FR=15, 20GP=1, 40GP=1, sans double comptage", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-full",
+    subject: null,
+    body_text:
+      "now the total bus count is 15 and buses in 40FR. Additionally 1x 20' and 1x 40' " +
+      "container has been added. Bus is increase to 15 Buses and one additional 20 ft " +
+      "container & one 40 ft container (medical equipment) non DGR items",
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR (bus)");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP (medical)");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP (medical)");
+  // Anti double comptage : exactement un item 20GP et un item 40GP, quantité 1.
+  const all = r.cargo_lines.flatMap((l) => l.equipment);
+  assertEquals(all.filter((e) => e.equipment_type === "20GP").length, 1);
+  assertEquals(all.filter((e) => e.equipment_type === "40GP").length, 1);
+  assertEquals(all.find((e) => e.equipment_type === "20GP")?.quantity, 1);
+  assertEquals(all.find((e) => e.equipment_type === "40GP")?.quantity, 1);
+});
+
+// Test NÉGATIF : "40 ft" seul (sans signal FR explicite) ne doit PAS inférer 40FR.
+Deno.test("2-Q full — '40 ft' médical seul + bus count ⇒ AUCUN 40FR inféré (40GP possible)", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-neg",
+    subject: null,
+    body_text:
+      "now the total bus count is 15 and one additional 40 ft container for medical equipment",
+  });
+  // Aucune inférence flat-rack : pas de signal FR explicite tié au véhicule.
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR ne doit être inféré",
+  );
+  // Le conteneur 40 pieds reste comptabilisable comme 40GP (contexte médical).
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "40GP possible (médical)");
+});
+
+// ── hasRevisionTerms / isSodatraEmail ──────────────────────────────────────
+Deno.test("2-Q termes — révision détectée vs simple discussion", () => {
+  assertEquals(hasRevisionTerms("now the total bus count is 15"), true);
+  assertEquals(hasRevisionTerms("additionally 1x20 added"), true);
+  assertEquals(hasRevisionTerms("thanks for the quote, looks good"), false);
+});
+
+Deno.test("2-Q sodatra — exclut les domaines sortants SODATRA", () => {
+  assertEquals(isSodatraEmail("ops@sodatra.sn"), true);
+  assertEquals(isSodatraEmail("sales@sodatra.com"), true);
+  assertEquals(isSodatraEmail("client@example.com"), false);
+  assertEquals(isSodatraEmail(""), false);
+});
+
+// ── deriveCargoPayloadFromLatestInboundEmail (pur) ─────────────────────────
+Deno.test("2-Q test#4 — '1x20 et 1x40 medical equipment' ⇒ ligne médicale, pas de 40FR", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-med",
+    subject: "additional containers",
+    body_text: "additionally 1x20 and 1x40 container for medical equipment non DGR",
+  });
+  // Une ligne médicale dérivée (ou équipement non alloué) — ici contexte médical.
+  const medical = r.cargo_lines.find((l) => l.description === "Medical equipment non-DGR");
+  assert(medical, "ligne médicale attendue");
+  assert(findEquipment(r.cargo_lines, "20GP", 1));
+  assert(findEquipment(r.cargo_lines, "40GP", 1));
+  // Aucune inférence 40FR bus.
+  assertEquals(findEquipment(r.cargo_lines, "40FR", 1), false);
+  assert(r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")));
+  assertEquals(r.source_email_id, "email-med");
+});
+
+Deno.test("2-Q test#2 — 'buses in 40FR' sans compte ⇒ pas d'équipement véhicule inventé", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-2",
+    subject: null,
+    body_text: "the buses are transported in 40FR",
+  });
+  assertEquals(findEquipment(r.cargo_lines, "40FR", 1), false);
+  // Aucune ligne véhicule dérivée (pas de quantité).
+  assertEquals(r.cargo_lines.length, 0);
+  assert(r.warnings.some((w) => /no.*count|no quantity/i.test(w)));
+});
+
+Deno.test("2-Q test#3 — '15 buses' sans 40FR ⇒ pas d'invention 40FR", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-3",
+    subject: null,
+    body_text: "we will ship 15 buses",
+  });
+  assert(r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")));
+});
+
+// ── deriveCore : intégration de la source email (test#1) ───────────────────
+Deno.test("2-Q test#1 — deriveCore intègre la révision email (15 × 40FR + médical)", async () => {
+  let seenMode: unknown = null;
+  let seenAuth: string | null = null;
+  let seenSource: Record<string, unknown> | null = null;
+
+  const latestEmail = {
+    id: "email-latest",
+    subject: "Revised cargo",
+    body_text:
+      "Hello, now the total bus count is 15. The buses are transported in 40FR. " +
+      "Additionally 1x 20 and 1x 40 container has been added for medical equipment non DGR.",
+    sent_at: "2026-06-18T10:00:00Z",
+    from_address: "client@example.com",
+  };
+
+  const resp = await deriveCore({ case_id: VALID_CASE }, ORIGINAL_AUTH, CORR, {
+    verifyOwnership: ALWAYS_OWNER,
+    loadAttachments: () => Promise.resolve([]), // aucune source attachment
+    loadLatestInboundEmail: () => Promise.resolve(latestEmail),
+    callCanonicalizer: (body, authHeader) => {
+      seenMode = body.mode;
+      seenAuth = authHeader;
+      seenSource = body.source as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: true, mode: "dry_run", writer_payload: body.cargo_payload }),
+          { status: 200 },
+        ),
+      );
+    },
+  });
+
+  // Canonicalizer appelé en dry_run UNIQUEMENT + Authorization original transmis.
+  assertEquals(seenMode, "dry_run");
+  assertEquals(seenAuth, ORIGINAL_AUTH);
+  assertEquals(resp.status, 200);
+
+  const out = await resp.json();
+  assertEquals(out.ok, true);
+  const lines = out.derived_payload.cargo_payload.cargo_lines;
+  assert(lines.length >= 2, "au moins 2 lignes cargo");
+  assert(findEquipment(lines, "40FR", 15), "ligne bus : 15 × 40FR");
+
+  const medical = lines.find((l: { description: string | null }) =>
+    l.description === "Medical equipment non-DGR"
+  );
+  assert(medical, "ligne médicale attendue");
+  assert(findEquipment(lines, "20GP", 1), "médical : 1 × 20GP");
+  assert(findEquipment(lines, "40GP", 1), "médical : 1 × 40GP");
+
+  // Warning d'inférence explicite.
+  assert(
+    out.warnings.some((w: string) => w.includes("× 40FR") && /confirmation/i.test(w)),
+    "warning 15 × 40FR / operator confirmation",
+  );
+
+  // source_email_id pointe vers le dernier email entrant.
+  assertEquals(seenSource?.source_email_id, "email-latest");
+});
+
+Deno.test("2-Q merge — email sans terme de révision : warnings remontés mais cargo NON ajouté", async () => {
+  let seenLines: unknown[] = [];
+  const latestEmail = {
+    id: "email-norev",
+    subject: null,
+    // contient 40FR + bus + compte MAIS aucun terme de révision (update/now/...)
+    body_text: "for reference, 15 buses on 40FR",
+    sent_at: "2026-06-18T10:00:00Z",
+    from_address: "client@example.com",
+  };
+  const resp = await deriveCore({ case_id: VALID_CASE }, ORIGINAL_AUTH, CORR, {
+    verifyOwnership: ALWAYS_OWNER,
+    loadAttachments: () =>
+      Promise.resolve([
+        analyzedAttachment({ type: "invoice", articles: [{ description: "Pompe", quantity: 1, total: 100, currency: "EUR" }] }),
+      ]),
+    loadLatestInboundEmail: () => Promise.resolve(latestEmail),
+    callCanonicalizer: (body) => {
+      seenLines = (body.cargo_payload as { cargo_lines: unknown[] }).cargo_lines;
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true, mode: "dry_run" }), { status: 200 }),
+      );
+    },
+  });
+  assertEquals(resp.status, 200);
+  // Seule la ligne attachment subsiste (pas d'ajout email, faute de terme de révision).
+  assertEquals(seenLines.length, 1);
+  const out = await resp.json();
+  // Le warning d'inférence est tout de même remonté.
+  assert(out.warnings.some((w: string) => w.includes("× 40FR")));
+});
+
+Deno.test("2-Q rétro-compat — deriveCore sans loadLatestInboundEmail fonctionne", async () => {
+  const resp = await deriveCore({ case_id: VALID_CASE }, ORIGINAL_AUTH, CORR, {
+    verifyOwnership: ALWAYS_OWNER,
+    loadAttachments: () =>
+      Promise.resolve([
+        analyzedAttachment({ type: "invoice", articles: [{ description: "X", quantity: 1, total: 1, currency: "EUR" }] }),
+      ]),
+    callCanonicalizer: okCanonicalizer(),
+  });
+  assertEquals(resp.status, 200);
 });

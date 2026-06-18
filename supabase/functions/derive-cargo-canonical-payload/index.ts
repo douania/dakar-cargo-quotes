@@ -40,6 +40,18 @@ export interface AttachmentLike {
   extracted_data?: unknown;
 }
 
+/**
+ * Phase 2-Q — Source additionnelle READ-ONLY : dernier email entrant du thread.
+ * Forme minimale (lecture seule, jamais d'écriture).
+ */
+export interface EmailLike {
+  id: string;
+  subject?: string | null;
+  body_text?: string | null;
+  sent_at?: string | null;
+  from_address?: string | null;
+}
+
 export interface DerivedEquipment {
   equipment_type: string;
   quantity: number;
@@ -303,6 +315,244 @@ export function deriveCargoPayload(attachments: AttachmentLike[]): DerivedPayloa
   return { cargo_lines, unallocated_equipment, warnings, sources_used: sourcesUsed };
 }
 
+// ── Phase 2-Q : dernier email entrant client comme source additionnelle ──────
+
+// Convention projet (réplique locale ; AUCUN import de build-case-puzzle) :
+// les emails SODATRA sont sortants/internes → jamais une source de révision client.
+const SODATRA_DOMAINS = ["sodatra.sn", "sodatra.com"];
+export function isSodatraEmail(email: string): boolean {
+  const domain = (email || "").split("@")[1]?.toLowerCase();
+  return SODATRA_DOMAINS.some((d) => domain?.includes(d));
+}
+
+// Termes de révision : n'autorisent l'ajout du cargo dérivé d'email que si le
+// dernier email exprime une mise à jour explicite (et non une simple discussion).
+const REVISION_TERMS = [
+  "update", "increase", "additionally", "added", "now", "total bus count",
+];
+export function hasRevisionTerms(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return REVISION_TERMS.some((w) => t.includes(w));
+}
+
+// Vocabulaire véhicules / cargo roulant.
+const VEHICLE_RE = "(?:buses|bus|vehicles|vehicle|trucks|truck|cars|car)";
+
+function titleCase(word: string): string {
+  if (!word) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+/**
+ * Helper PUR : détecte une révision « N véhicules + véhicules en 40FR ».
+ * N'INFÈRE `N × 40FR` que si DEUX conditions sont réunies :
+ *   - un compte véhicule/bus EXPLICITE (N),
+ *   - une mention flat-rack/40FR liée aux véhicules/bus.
+ * Sinon : aucune quantité inventée (au plus un warning).
+ */
+export function parseVehicleFlatRackRevision(text: string): {
+  count: number | null;
+  flatRackForVehicles: boolean;
+  inferred: { equipment_type: string; quantity: number } | null;
+  description: string | null;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  const src = text || "";
+
+  // flat-rack / 40FR tié aux véhicules : EXIGE un signal FR explicite —
+  // "40FR", "40'FR", "40 FR", "FR" isolé, "flat rack", "flatrack".
+  // IMPORTANT : "40'", "40 ft/feet/foot" SEULS ne sont PAS une preuve de flat
+  // rack (un conteneur 40 pieds peut être GP/HC) → jamais d'inférence véhicule
+  // sans signal FR explicite. Le comptage 20GP/40GP reste géré séparément.
+  const flatRackPresent =
+    /40\s*'?\s*fr\b|\bfr\b|\bflat\s*-?\s*racks?\b|\bflatracks?\b/i.test(src);
+  const vehiclePresent = new RegExp(`\\b${VEHICLE_RE}\\b`, "i").test(src);
+  const flatRackForVehicles = flatRackPresent && vehiclePresent;
+
+  // Compte véhicule explicite (plusieurs formulations).
+  let count: number | null = null;
+  let vehicleWord: string | null = null;
+  let m: RegExpMatchArray | null;
+
+  // "total bus count is 15"
+  m = src.match(new RegExp(`total\\s+(${VEHICLE_RE})\\s+count\\s*(?:is|:|=)?\\s*(\\d+)`, "i"));
+  if (m) { vehicleWord = m[1]; count = parseInt(m[2], 10); }
+  // "bus is increase to 15", "buses increased to 15", "bus has been increased to 15"
+  if (count === null) {
+    m = src.match(new RegExp(`(${VEHICLE_RE})\\s+(?:is\\s+|are\\s+|has\\s+been\\s+|have\\s+been\\s+)?(?:increased|increase)\\s+to\\s+(\\d+)`, "i"));
+    if (m) { vehicleWord = m[1]; count = parseInt(m[2], 10); }
+  }
+  // "bus count is 15", "bus count: 15"
+  if (count === null) {
+    m = src.match(new RegExp(`(${VEHICLE_RE})\\s+count\\s*(?:is|:|=)?\\s*(\\d+)`, "i"));
+    if (m) { vehicleWord = m[1]; count = parseInt(m[2], 10); }
+  }
+  // "15 buses"
+  if (count === null) {
+    m = src.match(new RegExp(`(\\d+)\\s+(${VEHICLE_RE})\\b`, "i"));
+    if (m) { count = parseInt(m[1], 10); vehicleWord = m[2]; }
+  }
+
+  if (count !== null && (!Number.isFinite(count) || count <= 0)) count = null;
+
+  let inferred: { equipment_type: string; quantity: number } | null = null;
+  if (count !== null && flatRackForVehicles) {
+    inferred = { equipment_type: "40FR", quantity: count };
+    warnings.push(
+      `${count} × 40FR inferred from latest client email: explicit bus count + buses in 40FR. Operator confirmation required.`,
+    );
+  } else if (flatRackForVehicles && count === null) {
+    warnings.push(
+      "Vehicles/buses mentioned in 40FR but no explicit count found in latest client email: no quantity inferred. Operator confirmation required.",
+    );
+  }
+
+  const description = inferred ? titleCase(vehicleWord ?? "Vehicles") : null;
+  return { count, flatRackForVehicles, inferred, description, warnings };
+}
+
+/**
+ * Helper PUR : conteneurs additionnels (ex. équipement médical non-DGR).
+ *   - "1x 20", "1 x 20", "1 × 20", "1x 20'", "one additional 20 ft" → 20GP
+ *   - "1x 40", "1 x 40", "1 × 40", "1x 40'", "one 40 ft"           → 40GP
+ * Statut to_confirm.
+ *
+ * Anti double-comptage : un même conteneur peut être exprimé à la fois en forme
+ * compacte ("1x 20'") ET en forme texte ("one additional 20 ft") dans le même
+ * email. On compte chaque FAMILLE de patterns séparément puis on fusionne par
+ * taille via le MAXIMUM (fusion conservatrice), jamais la somme.
+ * `medicalContext` vrai si « medical equipment » / « non DGR » est proche.
+ */
+export function parseAdditionalMedicalEquipmentContainers(text: string): {
+  equipment: DerivedEquipment[];
+  medicalContext: boolean;
+} {
+  const src = text || "";
+  const medicalContext = /medical\s+equipment/i.test(src) || /non[\s-]*dgr/i.test(src);
+
+  // Famille A : forme compacte "1x20", "1 x 40", "1 × 20", "1x 40'"
+  const countsA: Record<string, number> = {};
+  const reA = /(\d+)\s*(?:x|×)\s*(20|40)\b/gi;
+  let mm: RegExpExecArray | null;
+  while ((mm = reA.exec(src)) !== null) {
+    const qty = parseInt(mm[1], 10);
+    if (Number.isFinite(qty) && qty > 0) countsA[mm[2]] = (countsA[mm[2]] ?? 0) + qty;
+  }
+
+  // Famille B : forme texte "one additional 20 ft", "one 40 ft"
+  const countsB: Record<string, number> = {};
+  const wordNum: Record<string, number> = { one: 1, two: 2, three: 3 };
+  const reB = /\b(one|two|three)\s+(?:additional\s+)?(20|40)\s*(?:ft|feet|foot|')/gi;
+  while ((mm = reB.exec(src)) !== null) {
+    const qty = wordNum[mm[1].toLowerCase()] ?? 0;
+    if (qty > 0) countsB[mm[2]] = (countsB[mm[2]] ?? 0) + qty;
+  }
+
+  // Fusion conservatrice par taille : MAX(A, B) — évite le double comptage.
+  const sizeMap: Record<string, string> = { "20": "20GP", "40": "40GP" };
+  const equipment: DerivedEquipment[] = [];
+  for (const size of ["20", "40"]) {
+    const qty = Math.max(countsA[size] ?? 0, countsB[size] ?? 0);
+    if (qty > 0) {
+      equipment.push({
+        equipment_type: sizeMap[size],
+        quantity: qty,
+        status: "to_confirm",
+        source_excerpt: null,
+      });
+    }
+  }
+  return { equipment, medicalContext };
+}
+
+/**
+ * Helper PUR : dérive un cargo_payload candidat depuis le dernier email entrant.
+ * Combine la révision véhicules/flat-rack et les conteneurs additionnels.
+ * Ne renvoie une contribution que si du cargo a réellement été dérivé.
+ */
+export function deriveCargoPayloadFromLatestInboundEmail(
+  email: EmailLike | null,
+): DerivedPayload & { source_email_id: string | null } {
+  const empty = {
+    cargo_lines: [] as DerivedCargoLine[],
+    unallocated_equipment: [] as DerivedEquipment[],
+    warnings: [] as string[],
+    sources_used: [] as Array<{ id: string; filename: string | null }>,
+    source_email_id: null as string | null,
+  };
+  if (!email) return empty;
+
+  const text = `${email.subject ?? ""}\n${email.body_text ?? ""}`;
+  if (!text.trim()) return empty;
+
+  const cargo_lines: DerivedCargoLine[] = [];
+  const unallocated_equipment: DerivedEquipment[] = [];
+  const warnings: string[] = [];
+  const excerpt = text.slice(0, MAX_SOURCE_EXCERPT_LEN);
+  let lineIndex = 0;
+  let contributed = false;
+
+  // 1. Révision véhicules + 40FR
+  const vfr = parseVehicleFlatRackRevision(text);
+  warnings.push(...vfr.warnings);
+  if (vfr.inferred) {
+    cargo_lines.push({
+      line_index: ++lineIndex,
+      status: "to_confirm",
+      description: vfr.description,
+      hs_code: null,
+      value_number: null,
+      value_currency: null,
+      weight_kg: null,
+      volume_cbm: null,
+      pieces_count: vfr.count,
+      equipment: [{
+        equipment_type: vfr.inferred.equipment_type,
+        quantity: vfr.inferred.quantity,
+        status: "to_confirm",
+        source_excerpt: excerpt,
+      }],
+    });
+    contributed = true;
+  }
+
+  // 2. Conteneurs additionnels (équipement médical non-DGR le cas échéant)
+  const med = parseAdditionalMedicalEquipmentContainers(text);
+  if (med.equipment.length > 0) {
+    if (med.medicalContext) {
+      cargo_lines.push({
+        line_index: ++lineIndex,
+        status: "to_confirm",
+        description: "Medical equipment non-DGR",
+        hs_code: null,
+        value_number: null,
+        value_currency: null,
+        weight_kg: null,
+        volume_cbm: null,
+        pieces_count: null,
+        equipment: med.equipment,
+      });
+    } else {
+      // Conservateur : pas de contexte médical → équipement non alloué.
+      unallocated_equipment.push(...med.equipment);
+    }
+    contributed = true;
+  }
+
+  const sources_used = contributed
+    ? [{ id: email.id, filename: email.subject ?? null }]
+    : [];
+
+  return {
+    cargo_lines,
+    unallocated_equipment,
+    warnings,
+    sources_used,
+    source_email_id: contributed ? email.id : null,
+  };
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -314,6 +564,8 @@ function jsonResponse(body: unknown, status: number): Response {
 export interface DeriveDeps {
   verifyOwnership: (caseId: string, authHeader: string) => Promise<boolean>;
   loadAttachments: (caseId: string, authHeader: string) => Promise<AttachmentLike[]>;
+  // Phase 2-Q : OPTIONNEL (rétro-compat tests existants). Dernier email entrant.
+  loadLatestInboundEmail?: (caseId: string, authHeader: string) => Promise<EmailLike | null>;
   callCanonicalizer: (
     body: Record<string, unknown>,
     authHeader: string,
@@ -366,8 +618,35 @@ export async function deriveCore(
     });
   }
 
-  // 5. Construction du payload dérivé
+  // 5. Construction du payload dérivé (attachments)
   const derived = deriveCargoPayload(attachments);
+
+  // 5-bis (Phase 2-Q). Source additionnelle READ-ONLY : dernier email entrant.
+  // Fusion CONSERVATRICE : on AJOUTE le cargo dérivé de l'email (sans jamais
+  // supprimer les données issues des attachments). Les warnings sont toujours
+  // remontés ; le cargo n'est ajouté que si l'email exprime une révision
+  // explicite (update/increase/additionally/added/now/total bus count).
+  let source_email_id: string | null = null;
+  if (deps.loadLatestInboundEmail) {
+    const latestEmail = await deps.loadLatestInboundEmail(case_id, authHeader);
+    if (latestEmail) {
+      const emailText = `${latestEmail.subject ?? ""}\n${latestEmail.body_text ?? ""}`;
+      const emailDerived = deriveCargoPayloadFromLatestInboundEmail(latestEmail);
+      // Warnings toujours remontés (préférer le warning à toute suppression).
+      derived.warnings.push(...emailDerived.warnings);
+      const emailHasCargo = emailDerived.cargo_lines.length > 0 ||
+        emailDerived.unallocated_equipment.length > 0;
+      if (emailHasCargo && hasRevisionTerms(emailText)) {
+        // Ré-indexation des line_index à la suite des lignes existantes.
+        for (const line of emailDerived.cargo_lines) {
+          derived.cargo_lines.push({ ...line, line_index: derived.cargo_lines.length + 1 });
+        }
+        derived.unallocated_equipment.push(...emailDerived.unallocated_equipment);
+        derived.sources_used.push(...emailDerived.sources_used);
+        source_email_id = emailDerived.source_email_id;
+      }
+    }
+  }
 
   if (derived.cargo_lines.length === 0 && derived.unallocated_equipment.length === 0) {
     return respondError({
@@ -381,7 +660,7 @@ export async function deriveCore(
   const firstSource = derived.sources_used[0];
   const sourceLabel = derived.sources_used.map((s) => s.filename ?? s.id).join(", ");
   const source = {
-    source_email_id: null as string | null,
+    source_email_id,
     source_quote_request_line_id: null as string | null,
     source_excerpt: sourceLabel
       ? `[derive-cargo] ${sourceLabel}`.slice(0, MAX_SOURCE_EXCERPT_LEN)
@@ -508,6 +787,38 @@ async function realLoadAttachments(caseId: string, authHeader: string): Promise<
   return (attachments ?? []) as AttachmentLike[];
 }
 
+/**
+ * Phase 2-Q — dernier email ENTRANT du thread (client), READ-ONLY, user-scoped.
+ * Exclut les emails SODATRA sortants/internes. Tri sent_at décroissant.
+ * Jamais de service_role, jamais d'écriture.
+ */
+async function realLoadLatestInboundEmail(
+  caseId: string,
+  authHeader: string,
+): Promise<EmailLike | null> {
+  const client = userClient(authHeader);
+
+  const { data: caseRow } = await client
+    .from("quote_cases")
+    .select("thread_id")
+    .eq("id", caseId)
+    .single();
+  const threadId = (caseRow as { thread_id?: string | null } | null)?.thread_id ?? null;
+  if (!threadId) return null;
+
+  const { data: emails } = await client
+    .from("emails")
+    .select("id, subject, body_text, sent_at, from_address")
+    .eq("thread_ref", threadId)
+    .order("sent_at", { ascending: false });
+
+  for (const e of (emails ?? []) as EmailLike[]) {
+    if (isSodatraEmail(e.from_address ?? "")) continue; // ignore les sortants SODATRA
+    return e;
+  }
+  return null;
+}
+
 async function realCallCanonicalizer(
   body: Record<string, unknown>,
   authHeader: string,
@@ -554,6 +865,7 @@ async function handler(req: Request): Promise<Response> {
     {
       verifyOwnership: realVerifyOwnership,
       loadAttachments: realLoadAttachments,
+      loadLatestInboundEmail: realLoadLatestInboundEmail,
       callCanonicalizer: realCallCanonicalizer,
     },
   );
