@@ -527,6 +527,40 @@ function looksLikeMime(body: string): boolean {
 }
 
 /**
+ * Patch D — Détecte un corps « encodé / artefact MIME » qui n'expose PAS de
+ * marqueur MIME explicite (pas de boundary/Content-Type) mais reste un payload
+ * base64-ish entrecoupé d'artefacts de séparateur ("--", "--___", "-", "_").
+ * Sur ces corps, looksLikeMime échoue ET le fallback base64 « nu » échoue (le
+ * charset strict rejette "-"/"_"), si bien que l'extraction n'était jamais
+ * tentée. Conservateur : exige un corps long, quasi exclusivement composé de
+ * caractères base64/artefacts/blancs, avec un long préfixe base64 OU un
+ * séparateur "--". L'acceptation finale reste verrouillée par les gardes fortes
+ * (différence matérielle + ratio imprimable + indicateur fort).
+ */
+function looksEncodedOrMimeArtifactBody(body: string): boolean {
+  const b = body.trim();
+  if (b.length <= 200) return false;
+
+  // Un base64 « nu » PUR est géré par le fallback Patch B (warning base64-decoded)
+  // → ne pas le détourner ici (préserve la distinction de warning).
+  const compact = b.replace(/\s+/g, "");
+  if (/^[A-Za-z0-9+/=]+$/.test(compact)) return false;
+
+  // Sinon : exiger un corps quasi exclusivement base64 + artefacts MIME/base64url
+  // (« - », « _ », blancs) — typiquement un payload encodé avec séparateurs.
+  let b64ish = 0;
+  for (const ch of b) {
+    if (/[A-Za-z0-9+/=_\-\s]/.test(ch)) b64ish++;
+  }
+  const ratio = b64ish / b.length;
+  if (ratio < 0.95) return false;
+
+  const longB64Prefix = /^[A-Za-z0-9+/=]{80,}/.test(b.replace(/^\s+/, ""));
+  const hasSeparator = b.includes("--");
+  return longB64Prefix || hasSeparator;
+}
+
+/**
  * Helper PUR (Phase 2-Q Patch B + C) — normalise subject+body_text du dernier
  * email entrant pour le parsing EN MÉMOIRE uniquement (aucune écriture DB).
  *
@@ -555,10 +589,12 @@ export function normalizeEmailTextForParsing(
     return { text: rawText, decoded: false, warning: null };
   }
 
-  // Patch C : extraction MIME (multipart / parties encodées) AVANT le fallback
-  // base64 « nu ». Gardée uniquement si elle produit un texte matériellement
+  // Patch C/D : extraction MIME (multipart / parties encodées / artefacts
+  // base64-ish) AVANT le fallback base64 « nu ». Déclenchée si le corps ressemble
+  // à du MIME (Patch C) OU à un payload encodé/artefact sans marqueur MIME
+  // explicite (Patch D). Gardée UNIQUEMENT si elle produit un texte matériellement
   // différent ET contenant un indicateur email/cargo fort.
-  if (looksLikeMime(rawBody)) {
+  if (looksLikeMime(rawBody) || looksEncodedOrMimeArtifactBody(rawBody)) {
     const extracted = extractPlainTextFromMime(rawBody);
     if (
       extracted &&

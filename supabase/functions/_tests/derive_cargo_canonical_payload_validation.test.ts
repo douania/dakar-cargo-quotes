@@ -957,3 +957,85 @@ Deno.test("2-Q MIME #7 — plain '40 ft medical' : pas de 40FR, 40GP possible (m
   );
   assert(findEquipment(r.cargo_lines, "40GP", 1), "40GP possible (contexte médical)");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q PATCH D — déclenchement relâché de l'extraction MIME/encodée
+// ════════════════════════════════════════════════════════════════════════════
+
+// Corps base64 long (cargo) suivi d'un artefact de séparateur non-base64.
+// Pas de marqueur MIME explicite ⇒ looksLikeMime échoue, et le fallback base64
+// « nu » échoue ("-"/"_" hors charset) : sans Patch D l'extraction n'était jamais
+// tentée.
+const BASE64_ARTIFACT_BODY = BASE64_EMAIL_BODY + "\n--___";
+
+// Corps base64-ish neutre LONG (> 200 chars) + artefact, sans indicateur cargo.
+const BASE64_NEUTRAL_LONG_ARTIFACT =
+  BASE64_NEUTRAL + BASE64_NEUTRAL + BASE64_NEUTRAL + "\n--___";
+
+// Test #1 — normalize décode un body base64 long avec artefact de séparateur.
+Deno.test("2-Q D #1 — artefact '--___' : body décodé en mémoire (warning + texte lisible)", () => {
+  const r = normalizeEmailTextForParsing(null, BASE64_ARTIFACT_BODY);
+  assertEquals(r.decoded, true);
+  assert(
+    r.warning !== null && /(MIME|base64)-decoded in memory/i.test(r.warning),
+    "warning decoded in memory",
+  );
+  assert(r.text.includes("total bus count is 15"), "total bus count is 15");
+  assert(r.text.includes("40'FR"), "40'FR");
+  assert(r.text.includes("medical equipment"), "medical equipment");
+});
+
+// Test #2 — dérivation cargo depuis le body avec artefact.
+Deno.test("2-Q D #2 — artefact '--___' : derive produit 40FR=15 + médical 20GP/40GP", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-artifact",
+    subject: null,
+    body_text: BASE64_ARTIFACT_BODY,
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR (bus)");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP (medical)");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP (medical)");
+  // Anti double comptage.
+  const all = r.cargo_lines.flatMap((l) => l.equipment);
+  assertEquals(all.filter((e) => e.equipment_type === "20GP").length, 1);
+  assertEquals(all.filter((e) => e.equipment_type === "40GP").length, 1);
+  assert(
+    r.warnings.some((w) => /decoded in memory/i.test(w)),
+    "warning decoded in memory",
+  );
+  assert(
+    r.warnings.some((w) => w.includes("× 40FR") && /confirmation/i.test(w)),
+    "warning 15 × 40FR / operator confirmation",
+  );
+});
+
+// Test #3 — body base64-ish neutre long + artefact, sans indicateur cargo/email.
+Deno.test("2-Q D #3 — artefact neutre : aucun décodage accepté, aucun cargo inventé", () => {
+  const norm = normalizeEmailTextForParsing(null, BASE64_NEUTRAL_LONG_ARTIFACT);
+  assertEquals(norm.decoded, false);
+  assertEquals(norm.warning, null);
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-artifact-neutral",
+    subject: null,
+    body_text: BASE64_NEUTRAL_LONG_ARTIFACT,
+  });
+  assertEquals(r.cargo_lines.length, 0);
+  assertEquals(r.unallocated_equipment.length, 0);
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré",
+  );
+});
+
+// Test #7 (Patch D) — plain '40 ft container medical' n'infère toujours pas 40FR.
+Deno.test("2-Q D #7 — plain '40 ft medical' : toujours pas de 40FR", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-plain40-d",
+    subject: null,
+    body_text: "15 buses and one additional 40 ft container for medical equipment non DGR",
+  });
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré depuis un simple '40 ft'",
+  );
+});
