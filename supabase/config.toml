@@ -235,3 +235,6 @@ verify_jwt = false
 
 [functions.carrier-billing-templates-admin]
 verify_jwt = false
+
+[functions.write-cargo-canonical]
+verify_jwt = false
