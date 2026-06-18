@@ -38,6 +38,11 @@ const {
   normalizeEmailTextForParsing,
 } = await import("../derive-cargo-canonical-payload/index.ts");
 
+// Phase 2-Q Patch C : helper d'extraction texte depuis un body MIME brut.
+const { extractPlainTextFromMime } = await import(
+  "../_shared/email-text-extraction.ts"
+);
+
 const VALID_CASE = "11111111-1111-1111-1111-111111111111";
 const ORIGINAL_AUTH = "Bearer original-user-token";
 const CORR = "00000000-0000-0000-0000-0000000000bb";
@@ -777,4 +782,178 @@ Deno.test("2-Q B64 #5 — plain '40 ft medical' (post-normalisation) n'infère p
     r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
     "aucun 40FR inféré depuis un simple '40 ft'",
   );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q PATCH C — extraction MIME/multipart EN MÉMOIRE du body_text
+// ════════════════════════════════════════════════════════════════════════════
+
+// text/plain base64 décodant vers le texte cargo (Dear Cherif / total bus count
+// is 15 / 1x 20' / 1x 40' / buses in 40'FR / medical equipment / non DGR).
+const MIME_PLAIN_B64 =
+  "RGVhciBDaGVyaWYsCgpXZSBnb3QgYW4gdXBkYXRlIGZyb20gY3VzdG9tZXIgdGhhdCBub3cgdGhl" +
+  "IHRvdGFsIGJ1cyBjb3VudCBpcyAxNQphbmQgYWRkaXRpb25hbGx5IDF4IDIwJyBhbmQgMXggNDAn" +
+  "IGNvbnRhaW5lciBoYXMgYmVlbiBhZGRlZCwgY291bGQKeW91IHBsZWFzZSB1cGRhdGUgdGhlIHJh" +
+  "dGVzIGFjY29yZGluZ2x5LiBBZGRpdGlvbmFsbHksIHdlIGFyZQp0cmFuc3BvcnRpbmcgYnVzZXMg" +
+  "aW4gNDAnRlIgKENhcnJpZXIgLSBDTUEgQ0dNKS4KCkJ1cyBpcyBpbmNyZWFzZSB0byAxNSBCdXNl" +
+  "cyBhbmQgb25lIGFkZGl0aW9uYWwgMjAgZnQgY29udGFpbmVyICYKb25lIDQwIGZ0IGNvbnRhaW5l" +
+  "ciAobWVkaWNhbCBlcXVpcG1lbnQpIG5vbiBER1IgaXRlbXMK";
+
+// text/html base64 décodant vers le même contenu cargo enveloppé en HTML.
+const MIME_HTML_B64 =
+  "PGh0bWw+PGJvZHk+PHA+RGVhciBDaGVyaWYsPC9wPjxwPm5vdyB0aGUgdG90YWwgYnVzIGNvdW50" +
+  "IGlzIDE1IGFuZCBidXNlcyBpbiA0MCdGUi48L3A+PHA+QWRkaXRpb25hbGx5IDF4IDIwJyBhbmQg" +
+  "MXggNDAnIGNvbnRhaW5lciBoYXMgYmVlbiBhZGRlZC4gQnVzIGlzIGluY3JlYXNlIHRvIDE1IEJ1" +
+  "c2VzIGFuZCBvbmUgYWRkaXRpb25hbCAyMCBmdCBjb250YWluZXIgJiBvbmUgNDAgZnQgY29udGFp" +
+  "bmVyIChtZWRpY2FsIGVxdWlwbWVudCkgbm9uIERHUiBpdGVtczwvcD48L2JvZHk+PC9odG1sPg==";
+
+// base64 neutre (prose sans indicateur cargo/email fort).
+const MIME_NEUTRAL_B64 =
+  "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4gTG9yZW0gaXBzdW0g" +
+  "ZG9sb3Igc2l0IGFtZXQsIHRoZSB3ZWF0aGVyIHRvZGF5IGlzIG5pY2UgYW5kIHN1bm55IGhlcmUu";
+
+function buildMimeMultipart(plainB64: string | null, htmlB64: string | null): string {
+  const lines = ['Content-Type: multipart/alternative; boundary="BOUND123"', ""];
+  if (plainB64 !== null) {
+    lines.push(
+      "--BOUND123",
+      'Content-Type: text/plain; charset="utf-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      plainB64,
+    );
+  }
+  if (htmlB64 !== null) {
+    lines.push(
+      "--BOUND123",
+      'Content-Type: text/html; charset="utf-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      htmlB64,
+    );
+  }
+  lines.push("--BOUND123--", "");
+  return lines.join("\n");
+}
+
+// Test #1 — helper MIME extrait la partie text/plain base64 d'un multipart.
+Deno.test("2-Q MIME #1 — extractPlainTextFromMime décode la partie text/plain base64", () => {
+  const mime = buildMimeMultipart(MIME_PLAIN_B64, MIME_HTML_B64);
+  const out = extractPlainTextFromMime(mime);
+  assert(out.includes("Dear Cherif"), "Dear Cherif");
+  assert(out.includes("total bus count is 15"), "total bus count is 15");
+  assert(out.includes("1x 20'"), "1x 20'");
+  assert(out.includes("1x 40'"), "1x 40'");
+  assert(out.includes("buses in 40'FR"), "buses in 40'FR");
+  assert(out.includes("medical equipment"), "medical equipment");
+  assert(out.includes("non DGR"), "non DGR");
+});
+
+// Test #2 — dérivation cargo depuis un body MIME multipart.
+Deno.test("2-Q MIME #2 — deriveCargoPayloadFromLatestInboundEmail décode le MIME et dérive le cargo", () => {
+  const mime = buildMimeMultipart(MIME_PLAIN_B64, MIME_HTML_B64);
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-mime",
+    subject: null,
+    body_text: mime,
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR (bus)");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP (medical)");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP (medical)");
+  // Anti double comptage.
+  const all = r.cargo_lines.flatMap((l) => l.equipment);
+  assertEquals(all.filter((e) => e.equipment_type === "20GP").length, 1);
+  assertEquals(all.filter((e) => e.equipment_type === "40GP").length, 1);
+  // Warnings : MIME-decoded + confirmation opérateur 15 × 40FR.
+  assert(
+    r.warnings.some((w) => /MIME-decoded in memory/i.test(w)),
+    "warning MIME-decoded in memory",
+  );
+  assert(
+    r.warnings.some((w) => w.includes("× 40FR") && /confirmation/i.test(w)),
+    "warning 15 × 40FR / operator confirmation",
+  );
+});
+
+// Test #3 — un body base64 « nu » conserve le comportement Patch B (warning base64).
+Deno.test("2-Q MIME #3 — base64 simple : fallback Patch B conservé (warning base64-decoded)", () => {
+  const norm = normalizeEmailTextForParsing(null, BASE64_EMAIL_BODY);
+  assertEquals(norm.decoded, true);
+  assert(
+    norm.warning !== null && /base64-decoded in memory/i.test(norm.warning),
+    "warning base64-decoded (pas MIME)",
+  );
+  assertEquals(/MIME-decoded/i.test(norm.warning ?? ""), false);
+});
+
+// Test #4 — un body déjà lisible n'est ni MIME ni base64 décodé.
+Deno.test("2-Q MIME #4 — body lisible : ni MIME ni base64 décodé", () => {
+  const readableBody =
+    "Hello, now the total bus count is 15 and buses in 40FR. Additionally 1x 20' " +
+    "and 1x 40' container for medical equipment non DGR.";
+  const norm = normalizeEmailTextForParsing(null, readableBody);
+  assertEquals(norm.decoded, false);
+  assertEquals(norm.warning, null);
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-readable-mime",
+    subject: null,
+    body_text: readableBody,
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15));
+  assertEquals(r.warnings.some((w) => /decoded in memory/i.test(w)), false);
+});
+
+// Test #5 — MIME html-only : HTML strippé, cargo dérivé.
+Deno.test("2-Q MIME #5 — MIME html-only : tags strippés, cargo dérivé", () => {
+  const mime = buildMimeMultipart(null, MIME_HTML_B64);
+  const norm = normalizeEmailTextForParsing(null, mime);
+  assertEquals(norm.decoded, true);
+  assert(norm.warning !== null && /MIME-decoded in memory/i.test(norm.warning));
+  // Aucune balise HTML résiduelle dans le texte extrait.
+  assertEquals(/<[a-z/][^>]*>/i.test(norm.text), false, "pas de balise HTML résiduelle");
+
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-html",
+    subject: null,
+    body_text: mime,
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP");
+});
+
+// Test #6 — MIME/base64-like sans indicateur : pas de throw, pas de cargo inventé.
+Deno.test("2-Q MIME #6 — MIME neutre : aucun cargo inventé, aucun 40FR", () => {
+  const mime = buildMimeMultipart(MIME_NEUTRAL_B64, null);
+  const norm = normalizeEmailTextForParsing(null, mime);
+  // Rien d'exploitable : pas d'indicateur fort → non retenu (decoded=false).
+  assertEquals(norm.decoded, false);
+  assertEquals(norm.warning, null);
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-mime-neutral",
+    subject: null,
+    body_text: mime,
+  });
+  assertEquals(r.cargo_lines.length, 0);
+  assertEquals(r.unallocated_equipment.length, 0);
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré",
+  );
+});
+
+// Test #7 — plain '15 buses + one additional 40 ft container medical' → pas de 40FR.
+Deno.test("2-Q MIME #7 — plain '40 ft medical' : pas de 40FR, 40GP possible (médical)", () => {
+  const body =
+    "15 buses and one additional 40 ft container for medical equipment non DGR";
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-plain40-mime",
+    subject: null,
+    body_text: body,
+  });
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré depuis un simple '40 ft'",
+  );
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "40GP possible (contexte médical)");
 });

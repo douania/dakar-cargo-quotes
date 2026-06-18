@@ -21,6 +21,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { getCorrelationId, respondError } from "../_shared/runtime.ts";
+// Phase 2-Q Patch C : extraction de texte lisible depuis un body_text MIME brut
+// (multipart, parties base64/quoted-printable, HTML strippé). Pur, en mémoire.
+import { extractPlainTextFromMime } from "../_shared/email-text-extraction.ts";
 
 const FUNCTION_NAME = "derive-cargo-canonical-payload";
 const CANONICALIZER_FUNCTION = "canonicalize-cargo-from-case";
@@ -514,16 +517,26 @@ function decodeBase64Utf8(b64: string): string | null {
   }
 }
 
+/** Indices qu'un body est un payload MIME (et non un simple base64 « nu »). */
+function looksLikeMime(body: string): boolean {
+  return (
+    /boundary\s*=/i.test(body) ||
+    /content-transfer-encoding:/i.test(body) ||
+    /content-type:\s*(?:multipart\/|text\/(?:plain|html))/i.test(body)
+  );
+}
+
 /**
- * Helper PUR (Phase 2-Q Patch B) — normalise subject+body_text du dernier email
- * entrant pour le parsing EN MÉMOIRE uniquement (aucune écriture DB).
+ * Helper PUR (Phase 2-Q Patch B + C) — normalise subject+body_text du dernier
+ * email entrant pour le parsing EN MÉMOIRE uniquement (aucune écriture DB).
  *
- * Conservateur :
+ * Conservateur, dans l'ordre :
  *   - corps vide ou déjà lisible (indicateur cargo/email présent) → inchangé ;
- *   - décodage tenté seulement si la chaîne ressemble fortement à du base64
- *     (longueur > 80, charset base64, longueur multiple de 4 après padding) ;
- *   - décodé retenu UNIQUEMENT s'il est majoritairement imprimable ET contient
- *     un indicateur email/cargo fort ;
+ *   - Patch C : si le corps ressemble à du MIME, extraction texte lisible
+ *     (multipart/base64/QP, HTML strippé) ; retenue UNIQUEMENT si le résultat
+ *     diffère matériellement du brut ET contient un indicateur fort ;
+ *   - Patch B : sinon, fallback base64 « nu » (charset base64, multiple de 4),
+ *     retenu si majoritairement imprimable ET indicateur fort ;
  *   - ne lève JAMAIS : tout échec retombe sur le texte original.
  */
 export function normalizeEmailTextForParsing(
@@ -540,6 +553,27 @@ export function normalizeEmailTextForParsing(
   // Déjà lisible → ne pas décoder.
   if (hasAnyIndicator(rawText, READABLE_INDICATORS)) {
     return { text: rawText, decoded: false, warning: null };
+  }
+
+  // Patch C : extraction MIME (multipart / parties encodées) AVANT le fallback
+  // base64 « nu ». Gardée uniquement si elle produit un texte matériellement
+  // différent ET contenant un indicateur email/cargo fort.
+  if (looksLikeMime(rawBody)) {
+    const extracted = extractPlainTextFromMime(rawBody);
+    if (
+      extracted &&
+      extracted.trim() !== trimmedBody &&
+      printableRatio(extracted) >= 0.8 &&
+      hasAnyIndicator(extracted, DECODED_STRONG_INDICATORS)
+    ) {
+      return {
+        text: `${subjectPart}\n${extracted}`,
+        decoded: true,
+        warning:
+          "Latest inbound email body_text was MIME-decoded in memory for preview parsing. No database write performed.",
+      };
+    }
+    // Échec/insuffisant → on poursuit avec le fallback base64 « nu » ci-dessous.
   }
 
   // Détection base64 conservatrice (corps sans blancs).
