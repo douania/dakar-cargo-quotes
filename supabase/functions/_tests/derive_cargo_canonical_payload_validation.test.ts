@@ -34,6 +34,8 @@ const {
   parseAdditionalMedicalEquipmentContainers,
   hasRevisionTerms,
   isSodatraEmail,
+  // Phase 2-Q Patch B : normalisation base64 du dernier email entrant.
+  normalizeEmailTextForParsing,
 } = await import("../derive-cargo-canonical-payload/index.ts");
 
 const VALID_CASE = "11111111-1111-1111-1111-111111111111";
@@ -663,4 +665,116 @@ Deno.test("2-Q rétro-compat — deriveCore sans loadLatestInboundEmail fonction
     callCanonicalizer: okCanonicalizer(),
   });
   assertEquals(resp.status, 200);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q PATCH B — décodage base64 EN MÉMOIRE du body_text du dernier email
+// ════════════════════════════════════════════════════════════════════════════
+
+// body_text = payload MIME base64 brut. Décode (en mémoire) vers :
+//   C0 - Public / Dear Cherif, ... total bus count is 15 ... 40'FR ...
+//   ... one 40 ft container (medical equipment) non DGR items
+const BASE64_EMAIL_BODY =
+  "QzAgLSBQdWJsaWMKCkRlYXIgQ2hlcmlmLAoKV2UgZ290IGFuIHVwZGF0ZSBmcm9tIGN1c3RvbWVy" +
+  "IHRoYXQgbm93IHRoZSB0b3RhbCBidXMgY291bnQgaXMgMTUKYW5kIGFkZGl0aW9uYWxseSAxeCAy" +
+  "MCcgYW5kIDF4IDQwJyBjb250YWluZXIgaGFzIGJlZW4gYWRkZWQsIGNvdWxkCnlvdSBwbGVhc2Ug" +
+  "dXBkYXRlIHRoZSByYXRlcyBhY2NvcmRpbmdseS4gQWRkaXRpb25hbGx5LCB3ZSBhcmUKdHJhbnNw" +
+  "b3J0aW5nIGJ1c2VzIGluIDQwJ0ZSIChDYXJyaWVyIC0gQ01BIENHTSkuCgpCdXMgaXMgaW5jcmVh" +
+  "c2UgdG8gMTUgQnVzZXMgYW5kIG9uZSBhZGRpdGlvbmFsIDIwIGZ0IGNvbnRhaW5lciAmCm9uZSA0" +
+  "MCBmdCBjb250YWluZXIgKG1lZGljYWwgZXF1aXBtZW50KSBub24gREdSIGl0ZW1zCg==";
+
+// base64 neutre (>80 chars, charset valide) décodant en prose sans indicateur
+// cargo/email fort → ne doit PAS être décodé (fallback).
+const BASE64_NEUTRAL =
+  "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4gTG9yZW0gaXBzdW0g" +
+  "ZG9sb3Igc2l0IGFtZXQsIHRoZSB3ZWF0aGVyIHRvZGF5IGlzIG5pY2UgYW5kIHN1bm55IGhlcmUu";
+
+// Test #1 — helper pur décode un body base64 réaliste.
+Deno.test("2-Q B64 #1 — normalizeEmailTextForParsing décode un body base64 réaliste", () => {
+  const r = normalizeEmailTextForParsing(null, BASE64_EMAIL_BODY);
+  assertEquals(r.decoded, true);
+  assert(r.text.includes("total bus count is 15"), "texte décodé contient le compte bus");
+  assert(r.text.includes("40'FR"), "texte décodé contient 40'FR");
+  assert(r.text.includes("medical equipment"), "texte décodé contient medical equipment");
+  assert(r.warning !== null && /base64-decoded in memory/i.test(r.warning));
+});
+
+// Test #2 — dérivation cargo depuis le body base64.
+Deno.test("2-Q B64 #2 — deriveCargoPayloadFromLatestInboundEmail décode et dérive le cargo", () => {
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-b64",
+    subject: null,
+    body_text: BASE64_EMAIL_BODY,
+  });
+  // 15 × 40FR (bus) + ligne médicale 20GP=1 / 40GP=1.
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR (bus)");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP (medical)");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP (medical)");
+  // Anti double comptage : exactement un item 20GP et un item 40GP.
+  const all = r.cargo_lines.flatMap((l) => l.equipment);
+  assertEquals(all.filter((e) => e.equipment_type === "20GP").length, 1);
+  assertEquals(all.filter((e) => e.equipment_type === "40GP").length, 1);
+  // Warnings : décodage base64 + confirmation opérateur 15 × 40FR.
+  assert(
+    r.warnings.some((w) => /base64-decoded in memory/i.test(w)),
+    "warning décodage base64 en mémoire",
+  );
+  assert(
+    r.warnings.some((w) => w.includes("× 40FR") && /confirmation/i.test(w)),
+    "warning 15 × 40FR / operator confirmation",
+  );
+});
+
+// Test #3 — un body déjà lisible ne doit PAS être décodé (même résultat cargo).
+Deno.test("2-Q B64 #3 — body lisible non décodé, même cargo qu'avant", () => {
+  const readableBody =
+    "now the total bus count is 15 and buses in 40FR. Additionally 1x 20' and 1x 40' " +
+    "container has been added. Bus is increase to 15 Buses and one additional 20 ft " +
+    "container & one 40 ft container (medical equipment) non DGR items";
+  const norm = normalizeEmailTextForParsing(null, readableBody);
+  assertEquals(norm.decoded, false);
+  assertEquals(norm.warning, null);
+
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-readable",
+    subject: null,
+    body_text: readableBody,
+  });
+  assert(findEquipment(r.cargo_lines, "40FR", 15), "15 × 40FR");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "1 × 20GP");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "1 × 40GP");
+  // Aucun warning de décodage (rien n'a été décodé).
+  assertEquals(r.warnings.some((w) => /base64-decoded/i.test(w)), false);
+});
+
+// Test #4 — chaîne base64-like mais non email/cargo : pas de throw, pas de décodage.
+Deno.test("2-Q B64 #4 — base64 neutre : fallback decoded=false, aucun cargo inventé", () => {
+  const norm = normalizeEmailTextForParsing(null, BASE64_NEUTRAL);
+  assertEquals(norm.decoded, false);
+  assertEquals(norm.warning, null);
+
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-neutral",
+    subject: null,
+    body_text: BASE64_NEUTRAL,
+  });
+  assertEquals(r.cargo_lines.length, 0);
+  assertEquals(r.unallocated_equipment.length, 0);
+  assertEquals(r.warnings.some((w) => /base64-decoded/i.test(w)), false);
+});
+
+// Test #5 — '15 buses + one additional 40 ft medical equipment' n'infère PAS 40FR.
+Deno.test("2-Q B64 #5 — plain '40 ft medical' (post-normalisation) n'infère pas 40FR", () => {
+  const body = "15 buses and one additional 40 ft container for medical equipment non DGR";
+  const norm = normalizeEmailTextForParsing(null, body);
+  assertEquals(norm.decoded, false); // déjà lisible (medical equipment / non dgr)
+  const r = deriveCargoPayloadFromLatestInboundEmail({
+    id: "email-plain40",
+    subject: null,
+    body_text: body,
+  });
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré depuis un simple '40 ft'",
+  );
 });

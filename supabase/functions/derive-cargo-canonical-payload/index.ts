@@ -466,6 +466,113 @@ export function parseAdditionalMedicalEquipmentContainers(text: string): {
   return { equipment, medicalContext };
 }
 
+// ── Phase 2-Q Patch B : normalisation base64 du dernier email entrant ───────
+// Le body_text du dernier email entrant peut arriver en payload MIME base64
+// brut (non décodé en UTF-8 à l'ingestion). On le décode alors EN MÉMOIRE pour
+// le preview de dérivation, sans JAMAIS réécrire la valeur décodée en base.
+
+// Indicateurs « déjà lisible » : si présents dans le texte brut, on ne décode
+// pas (texte cargo/email déjà exploitable).
+const READABLE_INDICATORS = [
+  "total bus count", "40fr", "40'fr", "flat rack", "flatrack",
+  "medical equipment", "non dgr", "dear", "hello", "container",
+];
+// Indicateurs FORTS exigés dans le texte DÉCODÉ pour accepter le décodage.
+const DECODED_STRONG_INDICATORS = [
+  "dear", "hello", "total bus count", "40fr", "40'fr",
+  "medical equipment", "non dgr", "container",
+];
+
+function hasAnyIndicator(text: string, indicators: string[]): boolean {
+  const t = text.toLowerCase();
+  return indicators.some((k) => t.includes(k));
+}
+
+/** Ratio de caractères imprimables (tab/LF/CR + >= 0x20, hors DEL). */
+function printableRatio(s: string): number {
+  const cps = [...s];
+  if (cps.length === 0) return 0;
+  let printable = 0;
+  for (const ch of cps) {
+    const code = ch.codePointAt(0)!;
+    if (code === 9 || code === 10 || code === 13 || (code >= 0x20 && code !== 0x7f)) {
+      printable++;
+    }
+  }
+  return printable / cps.length;
+}
+
+/** Décodage base64 → UTF-8 sûr (Deno/atob, sans Buffer). Ne lève jamais. */
+function decodeBase64Utf8(b64: string): string | null {
+  try {
+    if (typeof atob !== "function") return null;
+    const binary = atob(b64);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Helper PUR (Phase 2-Q Patch B) — normalise subject+body_text du dernier email
+ * entrant pour le parsing EN MÉMOIRE uniquement (aucune écriture DB).
+ *
+ * Conservateur :
+ *   - corps vide ou déjà lisible (indicateur cargo/email présent) → inchangé ;
+ *   - décodage tenté seulement si la chaîne ressemble fortement à du base64
+ *     (longueur > 80, charset base64, longueur multiple de 4 après padding) ;
+ *   - décodé retenu UNIQUEMENT s'il est majoritairement imprimable ET contient
+ *     un indicateur email/cargo fort ;
+ *   - ne lève JAMAIS : tout échec retombe sur le texte original.
+ */
+export function normalizeEmailTextForParsing(
+  subject: string | null | undefined,
+  bodyText: string | null | undefined,
+): { text: string; decoded: boolean; warning: string | null } {
+  const subjectPart = subject ?? "";
+  const rawBody = bodyText ?? "";
+  const rawText = `${subjectPart}\n${rawBody}`;
+
+  const trimmedBody = rawBody.trim();
+  if (!trimmedBody) return { text: rawText, decoded: false, warning: null };
+
+  // Déjà lisible → ne pas décoder.
+  if (hasAnyIndicator(rawText, READABLE_INDICATORS)) {
+    return { text: rawText, decoded: false, warning: null };
+  }
+
+  // Détection base64 conservatrice (corps sans blancs).
+  const compact = trimmedBody.replace(/\s+/g, "");
+  if (compact.length <= 80 || !/^[A-Za-z0-9+/=]+$/.test(compact)) {
+    return { text: rawText, decoded: false, warning: null };
+  }
+
+  // Normalisation du padding : longueur cible multiple de 4.
+  const unpadded = compact.replace(/=+$/, "");
+  const mod = unpadded.length % 4;
+  if (mod === 1) return { text: rawText, decoded: false, warning: null };
+  const padded = mod === 0 ? unpadded : unpadded + "=".repeat(4 - mod);
+
+  const decoded = decodeBase64Utf8(padded);
+  if (decoded === null) return { text: rawText, decoded: false, warning: null };
+
+  // Le décodé doit être lisible ET contenir un indicateur fort.
+  if (
+    printableRatio(decoded) < 0.8 ||
+    !hasAnyIndicator(decoded, DECODED_STRONG_INDICATORS)
+  ) {
+    return { text: rawText, decoded: false, warning: null };
+  }
+
+  return {
+    text: `${subjectPart}\n${decoded}`,
+    decoded: true,
+    warning:
+      "Latest inbound email body_text was base64-decoded in memory for preview parsing. No database write performed.",
+  };
+}
+
 /**
  * Helper PUR : dérive un cargo_payload candidat depuis le dernier email entrant.
  * Combine la révision véhicules/flat-rack et les conteneurs additionnels.
@@ -483,12 +590,20 @@ export function deriveCargoPayloadFromLatestInboundEmail(
   };
   if (!email) return empty;
 
-  const text = `${email.subject ?? ""}\n${email.body_text ?? ""}`;
+  // Phase 2-Q Patch B : normalisation base64 EN MÉMOIRE (aucune écriture DB).
+  const normalized = normalizeEmailTextForParsing(email.subject, email.body_text);
+  const text = normalized.text;
   if (!text.trim()) return empty;
 
   const cargo_lines: DerivedCargoLine[] = [];
   const unallocated_equipment: DerivedEquipment[] = [];
   const warnings: string[] = [];
+  // Le warning de décodage est remonté dès qu'un décodage a eu lieu (preview),
+  // indépendamment d'une contribution cargo effective.
+  if (normalized.decoded && normalized.warning) {
+    warnings.push(normalized.warning);
+  }
+  // source_excerpt : texte décodé si décodage (l'opérateur voit la source lisible).
   const excerpt = text.slice(0, MAX_SOURCE_EXCERPT_LEN);
   let lineIndex = 0;
   let contributed = false;
@@ -630,7 +745,12 @@ export async function deriveCore(
   if (deps.loadLatestInboundEmail) {
     const latestEmail = await deps.loadLatestInboundEmail(case_id, authHeader);
     if (latestEmail) {
-      const emailText = `${latestEmail.subject ?? ""}\n${latestEmail.body_text ?? ""}`;
+      // Phase 2-Q Patch B : texte normalisé (base64 décodé en mémoire si besoin)
+      // afin que la détection de termes de révision opère sur le texte lisible.
+      const emailText = normalizeEmailTextForParsing(
+        latestEmail.subject,
+        latestEmail.body_text,
+      ).text;
       const emailDerived = deriveCargoPayloadFromLatestInboundEmail(latestEmail);
       // Warnings toujours remontés (préférer le warning à toute suppression).
       derived.warnings.push(...emailDerived.warnings);
