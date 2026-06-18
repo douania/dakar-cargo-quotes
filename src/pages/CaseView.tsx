@@ -71,6 +71,7 @@ import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
+import { CargoCanonicalPreviewPanel } from "@/components/case/CargoCanonicalPreviewPanel";
 import { CommunicationSummaryCard } from "@/components/case/CommunicationSummaryCard";
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
@@ -1143,6 +1144,9 @@ export default function CaseView() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Phase 2-P : aperçu opérateur cargo canonique (dry-run, lecture seule) */}
+        {caseId && <CargoCanonicalPreviewPanel caseId={caseId} />}
 
         {/* ── Thread Intent Display ── */}
         {(() => {
