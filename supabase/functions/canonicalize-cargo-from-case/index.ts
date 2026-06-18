@@ -22,9 +22,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { getCorrelationId, respondError } from "../_shared/runtime.ts";
-// Réutilise la validation STRICTE du writer Phase 2-M comme source unique de
-// vérité : un payload accepté ici est garanti acceptable par write-cargo-canonical.
-import { validatePayload as validateWriterPayload } from "../write-cargo-canonical/index.ts";
+// Réutilise la validation STRICTE partagée (Phase 2-Q) comme source unique de
+// vérité : un payload accepté ici est garanti acceptable par write-cargo-canonical,
+// qui consomme exactement le même contrat. Import via _shared pour éviter toute
+// dépendance d'import inter-Edge-Functions (bundling Lovable Edge).
+import { validatePayload as validateWriterPayload } from "../_shared/cargo-payload-validation.ts";
 
 const FUNCTION_NAME = "canonicalize-cargo-from-case";
 const WRITER_FUNCTION = "write-cargo-canonical";
