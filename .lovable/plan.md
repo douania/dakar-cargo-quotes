@@ -1,53 +1,43 @@
-## PHASE 2-P — Runtime / UI Check (READ-ONLY)
+## Vérification post-adoption (read-only)
 
-**Statut : PASS (vérification statique) — PARTIAL (vérification visuelle live non exécutée, Plan Mode strict)**
+L'opérateur a cliqué "Confirmer l'adoption" manuellement sur le case `08f968c3-b5ff-4bc8-af78-0b81c2c9a7f7`. Je propose une vérification runtime read-only pour confirmer que l'adoption s'est correctement propagée, sans aucune écriture.
 
-### Faits observés (statique, source de vérité = repo)
+### Périmètre strict
+- Lecture DB uniquement via `supabase--read_query`
+- Aucune mutation, aucun déploiement, aucun patch
+- Aucun appel à `run-pricing`, `set-case-fact`, `write-cargo-canonical`, `canonicalize-cargo-from-case` (commit)
+- Playwright headless optionnel pour capture UI post-adoption
 
-- Composant présent : `src/components/case/CargoCanonicalPreviewPanel.tsx` (326 lignes).
-- Import dans `src/pages/CaseView.tsx` ligne 74.
-- Insertion ligne 1149, **juste après la Card d'info dossier** (fermée ligne 1146) et **avant le Thread Intent Display** (ligne 1151) → position conforme à la spec ("après l'info bar du dossier").
-- Rendu conditionnel `{caseId && <CargoCanonicalPreviewPanel caseId={caseId} />}` → pas de montage sans `caseId`.
+### Contrôles à exécuter
 
-### Vérifications du composant (lecture `CargoCanonicalPreviewPanel.tsx`)
+**A. Tables canoniques cargo**
+- `SELECT * FROM cargo_lines WHERE case_id = '08f968c3-...'` → lignes attendues (incl. Bus avec weight_kg / volume_cbm)
+- `SELECT * FROM cargo_equipment WHERE case_id = '08f968c3-...'` → équipements alloués/non-alloués
 
-| Critère | Résultat |
-|---|---|
-| Texte "Prévisualisation uniquement. Aucune donnée cargo canonique n'est écrite." | Présent (CardDescription) |
-| Bouton "Prévisualiser depuis les pièces jointes" | Présent (unique `<Button>` du panneau) |
-| Auto-trigger au montage | **Non** — `useState("idle")`, aucun `useEffect` déclencheur, action uniquement sur `onClick` |
-| Bouton commit/write/apply/save | **Aucun** — un seul `<Button>` dans le JSX |
-| Edge Function appelée | `derive-cargo-canonical-payload` uniquement |
-| Appels interdits (`write-cargo-canonical`, `canonicalize-cargo-from-case`) | **Aucun** (vérifié, pas de référence dans le fichier) |
-| UI cohérente avec Cards existantes | Oui — `Card`/`CardHeader`/`CardContent`, `Button`, `Badge`, `Alert`, `Table` shadcn standards |
+**B. Invariants doctrine `AUTO-PRICING-GUARD-BEFORE-CANONICAL-ADOPTION-1`**
+- `quote_facts` du case : aucune mutation de `cargo.*` côté facts (snapshot horodaté avant/après ne peut pas être fait, donc vérification structurelle : pas de nouveau `manual_input` ou `operator` fact créé par l'adoption)
+- `quote_gaps` : statuts inchangés (pas de résolution auto)
+- `pricing_results` / `quote_pricing_runs` : aucun run créé après l'adoption
 
-### Console logs preview (snapshot fourni)
+**C. Audit trail**
+- `SELECT * FROM cargo_canonical_adoptions` (ou table équivalente si existe) pour confirmer la trace d'adoption avec `derived_payload`, `source_email`, `sources_used`, `actor`
 
-- Seuls warnings React Router v7 (pré-existants, non liés à la Phase 2-P).
-- Aucune erreur runtime.
+**D. UI post-adoption (Playwright optionnel)**
+- Recharger `/case/08f968c3-...`, capturer l'état du panel : badge "Adopté", lignes affichées, bouton "Adopter" désactivé/masqué
+- Vérifier qu'aucun appel `/functions/v1/run-pricing` ou `set-case-fact` n'est déclenché par le rechargement
 
-### Vérification live non effectuée
+**E. Logs Edge**
+- `supabase--edge_function_logs` sur `canonicalize-cargo-from-case` pour confirmer un seul appel `mode=commit` récent, exit code OK
+- Vérifier absence de logs `write-cargo-canonical` (déprécié dans Patch F)
 
-Plan Mode interdit toute exécution Playwright/clic. La vérification visuelle réelle (ouverture d'un dossier dans CaseView, clic sur "Prévisualiser", affichage warnings/sources/cargo_lines/unallocated_equipment/canonicalize_status) **n'a pas été exécutée**. Aucune donnée DB lue, aucun appel Edge Function effectué.
+### Stop conditions
+- Si `cargo_lines` vide → FAIL (adoption non propagée)
+- Si `quote_facts` mutés ou `pricing_results` créé → FAIL (violation guard)
+- Si table audit absente → BLOCKED + rapport
 
-### Risques
-
-- Aucun risque code observé. Le panneau est strictement read-only côté UI : pas d'effet de bord au montage, pas de chemin d'écriture, pas d'invocation des fonctions de commit.
-- Risque résiduel (non vérifiable sans live click) : comportement réel de `derive-cargo-canonical-payload` côté Edge — hors scope Phase 2-P UI.
-
-### Recommandation
-
-**Aucun changement / aucun patch nécessaire.**
-
-Pour compléter en PASS total, exécuter en mode autorisé (lecture live uniquement) :
-1. Naviguer vers `/cases/:id` sur un dossier de test ayant des pièces jointes.
-2. Capture d'écran de la position du panneau.
-3. Un seul clic "Prévisualiser depuis les pièces jointes" → observer rendu (warnings, sources_used, cargo_lines, unallocated_equipment, canonicalize_status).
-4. Aucune autre interaction.
-
-Si CTO souhaite cette validation live, donner :
-**GO PHASE 2-P LIVE UI CHECK** (read-only Playwright + invoke unique de `derive-cargo-canonical-payload` via le bouton, aucun autre appel).
-
-### Stop condition
-
-Aucune modification requise. Aucun GO supplémentaire demandé pour patch.
+### Livrable
+- PASS / FAIL / BLOCKED
+- Snapshots SQL (cargo_lines, cargo_equipment, audit trail)
+- Logs Edge du commit
+- Screenshot UI post-adoption (si Playwright)
+- Confirmations : "Aucune mutation volontaire exécutée" / "Aucun pricing déclenché"
