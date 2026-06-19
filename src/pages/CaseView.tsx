@@ -1145,8 +1145,11 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
-        {/* Phase 2-P : aperçu opérateur cargo canonique (dry-run, lecture seule) */}
-        {caseId && <CargoCanonicalPreviewPanel caseId={caseId} />}
+        {/* Cargo canonique : preview dry-run (lecture seule) + adoption explicite
+            opérateur (commit). onAdopted rafraîchit le case après écriture. */}
+        {caseId && (
+          <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} />
+        )}
 
         {/* ── Thread Intent Display ── */}
         {(() => {

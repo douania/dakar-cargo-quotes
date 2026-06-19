@@ -1,19 +1,29 @@
 /**
- * MULTI-CARGO-LINES-ARCHITECTURE-1 — Phase 2-P
- * CargoCanonicalPreviewPanel — aperçu opérateur READ-ONLY (dry-run).
+ * MULTI-CARGO-LINES-ARCHITECTURE-1
+ * CargoCanonicalPreviewPanel — preview READ-ONLY + adoption explicite opérateur.
  *
- * Déclenche, sur action explicite uniquement, la dérivation cargo canonique
- * depuis les pièces jointes via l'Edge Function `derive-cargo-canonical-payload`
- * (qui appelle elle-même le canonicalizer en dry_run).
+ * Doctrine :
+ *   1. PREVIEW (lecture seule) — sur action explicite, dérive le cargo canonique
+ *      depuis les pièces jointes via `derive-cargo-canonical-payload` (qui appelle
+ *      lui-même le canonicalizer en dry_run). Rien n'est persisté.
+ *   2. ADOPTION (écriture cargo canonique uniquement) — sur confirmation opérateur
+ *      explicite, adopte le `derived_payload` déjà renvoyé par le dry-run réussi
+ *      en appelant `canonicalize-cargo-from-case` en mode "commit".
  *
- * Garde-fous (Phase 2-P) :
- *   - Appelle UNIQUEMENT `derive-cargo-canonical-payload`.
- *   - N'appelle jamais `write-cargo-canonical` ni `canonicalize-cargo-from-case`.
- *   - Aucun mode commit, aucune écriture DB, aucun déclenchement au montage.
- *   - Prévisualisation seule : rien n'est persisté.
+ * Garde-fous :
+ *   - Preview : appelle UNIQUEMENT `derive-cargo-canonical-payload`.
+ *   - Adoption : appelle UNIQUEMENT `canonicalize-cargo-from-case` (mode commit),
+ *     en réutilisant le `derived_payload` du dry-run (jamais de re-dérivation).
+ *   - N'appelle JAMAIS `write-cargo-canonical` directement depuis le frontend.
+ *   - N'appelle JAMAIS `run-pricing` ni `set-case-fact` ; n'écrit PAS quote_facts ;
+ *     ne résout PAS quote_gaps ; ne réutilise PAS saveGapAnswer.
+ *   - Cible d'écriture : cargo_lines / cargo_equipment uniquement.
+ *   - Confirmation opérateur obligatoire avant commit ; bouton désactivé pendant
+ *     l'appel ; aucun fallback d'écriture en cas d'erreur.
  */
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Card,
@@ -34,11 +44,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   AlertTriangle,
   Boxes,
   Eye,
   Info,
   Loader2,
+  PackageCheck,
   PackageSearch,
 } from "lucide-react";
 
@@ -63,15 +84,28 @@ interface CargoLineRow {
   equipment?: EquipmentRow[];
 }
 
+/** Source normalisée renvoyée dans derived_payload (réutilisée telle quelle au commit). */
+interface DerivedSource {
+  source_email_id: string | null;
+  source_quote_request_line_id: string | null;
+  source_excerpt: string | null;
+}
+
+interface DerivedCargoPayload {
+  cargo_lines?: CargoLineRow[];
+  unallocated_equipment?: EquipmentRow[];
+}
+
 interface DeriveResult {
   ok?: boolean;
   case_id?: string;
   error?: { code?: string; message?: string };
+  // derived_payload est renvoyé tel quel par le dry-run réussi et réutilisé
+  // INTÉGRALEMENT pour l'adoption (case_id + source + cargo_payload).
   derived_payload?: {
-    cargo_payload?: {
-      cargo_lines?: CargoLineRow[];
-      unallocated_equipment?: EquipmentRow[];
-    };
+    case_id?: string;
+    source?: DerivedSource;
+    cargo_payload?: DerivedCargoPayload;
   };
   canonicalize_dry_run?:
     | { ok?: boolean; error?: { code?: string; message?: string }; [k: string]: unknown }
@@ -87,10 +121,20 @@ type PanelState = "idle" | "loading" | "done" | "error";
 const fmt = (v: number | null | undefined): string =>
   v === null || v === undefined ? "—" : String(v);
 
-export function CargoCanonicalPreviewPanel({ caseId }: { caseId: string }) {
+export function CargoCanonicalPreviewPanel({
+  caseId,
+  onAdopted,
+}: {
+  caseId: string;
+  /** Appelé après une adoption réussie (refresh UI côté parent). */
+  onAdopted?: () => void;
+}) {
   const [state, setState] = useState<PanelState>("idle");
   const [result, setResult] = useState<DeriveResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Adoption explicite opérateur (commit) — distincte de la prévisualisation.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [adopting, setAdopting] = useState(false);
 
   async function handlePreview() {
     setState("loading");
@@ -135,6 +179,64 @@ export function CargoCanonicalPreviewPanel({ caseId }: { caseId: string }) {
     }
   }
 
+  /**
+   * Adoption explicite opérateur (commit). Réutilise INTÉGRALEMENT le
+   * derived_payload du dry-run réussi. SEUL appel autorisé :
+   * `canonicalize-cargo-from-case` en mode "commit". Aucune autre écriture
+   * (jamais write-cargo-canonical direct, run-pricing, set-case-fact,
+   * quote_facts, quote_gaps, saveGapAnswer). En cas d'erreur : aucun fallback.
+   */
+  async function handleAdopt() {
+    const derived = result?.derived_payload;
+    if (!derived?.case_id || !derived.source || !derived.cargo_payload) {
+      toast.error("Payload dérivé indisponible : relancez la prévisualisation.");
+      return;
+    }
+
+    setAdopting(true);
+    try {
+      const { error } = await supabase.functions.invoke(
+        "canonicalize-cargo-from-case",
+        {
+          body: {
+            case_id: derived.case_id,
+            mode: "commit",
+            source: derived.source,
+            cargo_payload: derived.cargo_payload,
+          },
+        },
+      );
+
+      if (error) {
+        // Aucun fallback d'écriture : on remonte l'erreur du canonicalizer.
+        let msg = error.message ?? "Échec de l'adoption du cargo canonique";
+        const ctx = (error as { context?: unknown }).context;
+        if (ctx && typeof (ctx as Response).json === "function") {
+          try {
+            const body = (await (ctx as Response).json()) as {
+              error?: { message?: string };
+            };
+            if (body?.error?.message) msg = body.error.message;
+          } catch {
+            /* conserver le message par défaut */
+          }
+        }
+        toast.error(msg);
+        return;
+      }
+
+      toast.success("Cargo canonique adopté (cargo_lines / cargo_equipment).");
+      setConfirmOpen(false);
+      onAdopted?.();
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Erreur inconnue lors de l'adoption",
+      );
+    } finally {
+      setAdopting(false);
+    }
+  }
+
   const cargoLines = result?.derived_payload?.cargo_payload?.cargo_lines ?? [];
   const unallocated = result?.derived_payload?.cargo_payload?.unallocated_equipment ?? [];
   const warnings = result?.warnings ?? [];
@@ -145,6 +247,16 @@ export function CargoCanonicalPreviewPanel({ caseId }: { caseId: string }) {
     canonDryRun && canonDryRun.ok === false ? canonDryRun.error ?? null : null;
   const topError = result && result.ok === false ? result.error ?? null : null;
   const canonOk = typeof canonStatus === "number" && canonStatus >= 200 && canonStatus < 300;
+  // Adoption proposée UNIQUEMENT après un dry-run 2xx sans erreur, et seulement si
+  // le derived_payload réutilisable (case_id + source + cargo_payload) est présent.
+  const derivedPayload = result?.derived_payload ?? null;
+  const canAdopt =
+    canonOk &&
+    !topError &&
+    !dryRunError &&
+    !!derivedPayload?.case_id &&
+    !!derivedPayload?.source &&
+    !!derivedPayload?.cargo_payload;
 
   return (
     <Card className="mb-6">
@@ -186,6 +298,60 @@ export function CargoCanonicalPreviewPanel({ caseId }: { caseId: string }) {
                 </Badge>
               )}
             </div>
+
+            {/* Adoption explicite opérateur — visible uniquement après dry-run 2xx. */}
+            {canAdopt && (
+              <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <Button
+                  variant="default"
+                  className="gap-2"
+                  disabled={adopting}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {adopting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PackageCheck className="h-4 w-4" />
+                  )}
+                  Adopter le cargo canonique
+                </Button>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Adopter le cargo canonique ?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2 text-sm">
+                        <p>
+                          Cette action écrit <strong>uniquement</strong> le cargo
+                          canonique.
+                        </p>
+                        <ul className="list-disc pl-5 space-y-0.5">
+                          <li>Cible : <strong>cargo_lines</strong> / <strong>cargo_equipment</strong>.</li>
+                          <li><strong>quote_facts</strong> ne sera pas modifié.</li>
+                          <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
+                          <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
+                        </ul>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={adopting}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={adopting}
+                      onClick={(e) => {
+                        // Empêche la fermeture auto : on pilote l'état pendant l'appel.
+                        e.preventDefault();
+                        void handleAdopt();
+                      }}
+                    >
+                      {adopting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      Confirmer l'adoption
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
 
             {topError && (
               <Alert variant="destructive">
