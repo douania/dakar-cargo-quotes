@@ -40,6 +40,10 @@ const {
   parseBusSpecsFromEmailText,
   findMostRelevantBusSpecsFromThread,
   deriveCargoPayloadFromInboundEmailThread,
+  // Phase 2-Q Patch F : enrichissement specs bus depuis les attachments analysés.
+  parseBusSpecsFromAttachmentText,
+  findBusSpecsFromAnalyzedAttachments,
+  enrichCargoPayloadFromAttachments,
 } = await import("../derive-cargo-canonical-payload/index.ts");
 
 // Phase 2-Q Patch C : helper d'extraction texte depuis un body MIME brut.
@@ -1353,5 +1357,240 @@ Deno.test("2-Q E #7 — email client réaliste (Hyundai) : 5 n'écrase pas 15, e
       /propagated from earlier client email/i.test(w) && /confirmation required/i.test(w)
     ),
     "warning de propagation specs + confirmation opérateur",
+  );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q PATCH F — enrichissement specs bus depuis les ATTACHMENTS analysés
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Runtime : 1 seul email dans le thread, specs bus ABSENTES de body_text mais
+// présentes dans email_attachments.extracted_text (PDF analysé). Le dernier
+// email fixe la quantité finale (15) ; la quantité documentaire de l'attachment
+// (5) ne doit JAMAIS écraser pieces_count.
+
+// Texte extrait réaliste du PDF "Hyundai Universe Passenger Bus.pdf".
+const ATTACHMENT_BUS_SPEC_TEXT = [
+  "Commodity - Buses / Quantity - 5",
+  "Make/Model: Hyundai Universe Passenger Bus",
+  "Length:12,030 mm / Width : 2,495 mm / Height : 3,385 mm",
+  "GVW (approx.): 12,320 kg per unit",
+].join("\n");
+
+const BUS_SPEC_PDF = {
+  id: "att-hyundai-pdf",
+  filename: "Hyundai Universe Passenger Bus.pdf",
+  content_type: "application/pdf",
+  is_analyzed: true,
+  // extracted_data non-null/non-error pour passer la gate, sans articles.
+  extracted_data: { type: "specification" },
+  extracted_text: ATTACHMENT_BUS_SPEC_TEXT,
+};
+
+// Test #1 — parseur pur attachment : dims + poids, quantité 5 NON finale.
+Deno.test("2-Q F #1 — parseBusSpecsFromAttachmentText : dims + GVW, quantité 5 documentaire", () => {
+  const s = parseBusSpecsFromAttachmentText(
+    ATTACHMENT_BUS_SPEC_TEXT,
+    "Hyundai Universe Passenger Bus.pdf",
+  );
+  assertEquals(s.unitWeightKg, 12320, "GVW per unit = 12320 kg");
+  assert(s.dimsM !== null, "dimensions parsées");
+  assertEquals(s.dimsM?.l, 12.03, "L = 12.03 m");
+  assertEquals(s.dimsM?.w, 2.495, "W = 2.495 m");
+  assertEquals(s.dimsM?.h, 3.385, "H = 3.385 m");
+  // Le parseur n'expose AUCUNE quantité (la quantité 5 reste documentaire).
+  assert(!("pieces_count" in (s as Record<string, unknown>)), "pas de quantité dans BusSpecs");
+});
+
+// Test #2 — deriveCore : dernier email (15) + attachment PDF (specs) en dry_run.
+Deno.test("2-Q F #2 — deriveCore : email 15 + attachment PDF ⇒ bus enrichi (184800 / 1524.004)", async () => {
+  let seenMode: unknown = null;
+  let seenSource: Record<string, unknown> | null = null;
+  let seenLines: Array<{
+    equipment: Array<{ equipment_type: string; quantity: number }>;
+    weight_kg: number | null;
+    volume_cbm: number | null;
+    pieces_count: number | null;
+    status: string;
+  }> = [];
+
+  const resp = await deriveCore({ case_id: VALID_CASE }, ORIGINAL_AUTH, CORR, {
+    verifyOwnership: ALWAYS_OWNER,
+    loadAttachments: () => Promise.resolve([BUS_SPEC_PDF]),
+    loadInboundEmails: () => Promise.resolve([LATEST_REVISION_EMAIL]),
+    callCanonicalizer: (body) => {
+      seenMode = body.mode;
+      seenSource = body.source as Record<string, unknown>;
+      seenLines = (body.cargo_payload as { cargo_lines: typeof seenLines }).cargo_lines;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: true, mode: "dry_run", writer_payload: body.cargo_payload }),
+          { status: 200 },
+        ),
+      );
+    },
+  });
+
+  assertEquals(seenMode, "dry_run", "canonicalizer en dry_run UNIQUEMENT");
+  assertEquals(resp.status, 200);
+
+  const busLine = findLineWithEquipment(seenLines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.pieces_count, 15, "pieces_count = 15 (jamais 5)");
+  assertEquals(busLine?.status, "to_confirm");
+  assert(findEquipment(seenLines, "40FR", 15), "40FR × 15");
+  assertEquals(busLine?.weight_kg, 184800, "poids = 12320 × 15");
+  assertEquals(busLine?.volume_cbm, 1524.004, "volume = 12.03×2.495×3.385 × 15");
+  // Ligne médicale inchangée.
+  assert(findEquipment(seenLines, "20GP", 1), "médical 1 × 20GP");
+  assert(findEquipment(seenLines, "40GP", 1), "médical 1 × 40GP");
+  // source_email_id reste le dernier email (pas l'attachment).
+  assertEquals(seenSource?.source_email_id, "email-latest-e");
+
+  const out = await resp.json();
+  assertEquals(out.ok, true);
+  assert(
+    out.warnings.some((w: string) =>
+      /propagated from PDF attachment/i.test(w) && /confirmation required/i.test(w)
+    ),
+    "warning de propagation depuis l'attachment PDF + confirmation",
+  );
+});
+
+// Test #3 — attachment avec mêmes dimensions mais SANS contexte bus ⇒ pas d'enrichissement.
+Deno.test("2-Q F #3 — dims identiques sans contexte bus : aucun enrichissement", () => {
+  const base = deriveCargoPayloadFromInboundEmailThread([LATEST_REVISION_EMAIL]);
+  const containerPdf = {
+    id: "att-container",
+    filename: "container-internal-specs.pdf",
+    content_type: "application/pdf",
+    is_analyzed: true,
+    extracted_data: { type: "specification" },
+    extracted_text:
+      "Container internal dimensions Length: 12,030 mm Width: 2,495 mm " +
+      "Height: 3,385 mm GVW: 12,320 kg",
+  };
+  const r = enrichCargoPayloadFromAttachments(base, [containerPdf]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.weight_kg, null, "poids non enrichi (pas de contexte bus)");
+  assertEquals(busLine?.volume_cbm, null, "volume non enrichi (pas de contexte bus)");
+  assertEquals(
+    r.warnings.some((w) => /propagated from PDF attachment/i.test(w)),
+    false,
+  );
+});
+
+// Test #4 — contexte bus mais GVW absent ⇒ politique conservatrice : aucun enrichissement.
+Deno.test("2-Q F #4 — contexte bus sans GVW : aucun enrichissement (4 signaux requis)", () => {
+  const noGvwText = [
+    "Make/Model: Hyundai Universe Passenger Bus",
+    "Length: 12,030 mm",
+    "Width: 2,495 mm",
+    "Height: 3,385 mm",
+  ].join("\n");
+  // Parseur pur : rien (GVW manquant).
+  const s = parseBusSpecsFromAttachmentText(noGvwText, "Hyundai Universe Passenger Bus.pdf");
+  assertEquals(s.dimsM, null);
+  assertEquals(s.unitWeightKg, null);
+
+  const base = deriveCargoPayloadFromInboundEmailThread([LATEST_REVISION_EMAIL]);
+  const r = enrichCargoPayloadFromAttachments(base, [
+    { ...BUS_SPEC_PDF, id: "att-nogvw", extracted_text: noGvwText },
+  ]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assertEquals(busLine?.weight_kg, null);
+  assertEquals(busLine?.volume_cbm, null);
+  assertEquals(
+    r.warnings.some((w) => /propagated from PDF attachment/i.test(w)),
+    false,
+    "aucun warning de propagation sans GVW",
+  );
+});
+
+// Test #5 — attachments en conflit (poids ET dimensions) ⇒ champs non enrichis + warnings.
+Deno.test("2-Q F #5 — attachments en conflit : bus non enrichi + warning conflit, 15 inchangé", () => {
+  const attA = { ...BUS_SPEC_PDF, id: "att-A", extracted_text: ATTACHMENT_BUS_SPEC_TEXT };
+  const attB = {
+    ...BUS_SPEC_PDF,
+    id: "att-B",
+    filename: "Hyundai bus alt.pdf",
+    extracted_text: [
+      "Make/Model: Hyundai Universe Passenger Bus",
+      "Length: 13,000 mm / Width : 2,550 mm / Height : 3,400 mm",
+      "GVW (approx.): 14,000 kg per unit",
+    ].join("\n"),
+  };
+  const res = findBusSpecsFromAnalyzedAttachments([attA, attB]);
+  assertEquals(res.spec, null, "aucune spec propagée (poids ET dims en conflit)");
+  assert(
+    res.warnings.some((w) => /conflicting bus unit weight/i.test(w)),
+    "warning conflit de poids",
+  );
+  assert(
+    res.warnings.some((w) => /conflicting bus dimensions/i.test(w)),
+    "warning conflit de dimensions",
+  );
+
+  const base = deriveCargoPayloadFromInboundEmailThread([LATEST_REVISION_EMAIL]);
+  const r = enrichCargoPayloadFromAttachments(base, [attA, attB]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assertEquals(busLine?.pieces_count, 15, "quantité finale toujours 15");
+  assertEquals(busLine?.weight_kg, null, "poids non enrichi (conflit)");
+  assertEquals(busLine?.volume_cbm, null, "volume non enrichi (conflit)");
+});
+
+// Test #6 — ne PAS écraser une valeur déjà enrichie par le thread email.
+Deno.test("2-Q F #6 — valeurs déjà enrichies (thread email) non écrasées par l'attachment", () => {
+  const earlierEmail = {
+    id: "email-earlier-f",
+    subject: "Initial request",
+    body_text: [
+      "Hyundai Universe Passenger Bus",
+      "Quantity: 5",
+      "Length: 12,030 mm",
+      "Width: 2,495 mm",
+      "Height: 3,385 mm",
+      "GVW approx.: 12,320 kg per unit",
+    ].join("\n"),
+    sent_at: "2026-06-08T08:00:00Z",
+    from_address: "client@example.com",
+  };
+  const base = deriveCargoPayloadFromInboundEmailThread([earlierEmail, LATEST_REVISION_EMAIL]);
+  const baseBus = findLineWithEquipment(base.cargo_lines, "40FR");
+  assertEquals(baseBus?.weight_kg, 184800, "pré-condition : déjà enrichi par email");
+
+  // Attachment avec un poids DIFFÉRENT ne doit PAS écraser la valeur email.
+  const attDiff = {
+    ...BUS_SPEC_PDF,
+    id: "att-diff",
+    extracted_text: [
+      "Make/Model: Hyundai Universe Passenger Bus",
+      "Length: 12,030 mm / Width : 2,495 mm / Height : 3,385 mm",
+      "GVW (approx.): 9,999 kg per unit",
+    ].join("\n"),
+  };
+  const r = enrichCargoPayloadFromAttachments(base, [attDiff]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assertEquals(busLine?.weight_kg, 184800, "valeur email conservée (non écrasée)");
+  assertEquals(busLine?.volume_cbm, 1524.004, "valeur email conservée (non écrasée)");
+});
+
+// Test #7 — plain "40 ft medical" : toujours pas de 40FR (contexte Patch F).
+Deno.test("2-Q F #7 — plain '40 ft medical' : pas de 40FR, attachment sans effet", () => {
+  const r = deriveCargoPayloadFromInboundEmailThread([
+    {
+      id: "e-plain40-f",
+      subject: null,
+      body_text:
+        "now 15 buses and one additional 40 ft container for medical equipment non DGR",
+      sent_at: "2026-06-18T10:00:00Z",
+      from_address: "client@example.com",
+    },
+  ]);
+  const enriched = enrichCargoPayloadFromAttachments(r, [BUS_SPEC_PDF]);
+  assert(
+    enriched.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré depuis un simple '40 ft'",
   );
 });

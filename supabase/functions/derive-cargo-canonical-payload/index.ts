@@ -41,6 +41,9 @@ export interface AttachmentLike {
   content_type?: string | null;
   is_analyzed?: boolean | null;
   extracted_data?: unknown;
+  // Phase 2-Q Patch F : texte extrait (OCR/PDF) déjà chargé par realLoadAttachments.
+  // Lecture seule, source READ-ONLY de specs bus stables (jamais d'écriture).
+  extracted_text?: string | null;
 }
 
 /**
@@ -1054,6 +1057,182 @@ export function deriveCargoPayloadFromInboundEmailThread(
   return { ...enriched, latestEmailText };
 }
 
+// ── Phase 2-Q Patch F : specs bus depuis le TEXTE des attachments analysés ────
+// Quand le dernier email fixe les quantités finales (15 × 40FR), un attachment
+// PDF analysé (extracted_text) peut fournir des specs bus STABLES (dimensions /
+// poids unitaire). La quantité documentaire de l'attachment (ex. 5) reste
+// purement documentaire et n'écrase JAMAIS pieces_count.
+//
+// Schéma : seuls weight_kg / volume_cbm sont supportés. Pas de champ dimensions
+// structuré → dims/modèle bruts uniquement en warning.
+
+// Contexte bus FORT exigé (filename OU texte) avant toute lecture de specs.
+const BUS_CONTEXT_RE = /hyundai|universe|passenger\s+bus|\bbus(?:es)?\b/i;
+
+/**
+ * Helper PUR : specs bus depuis le texte d'un attachment analysé.
+ * Politique conservatrice : exige un contexte bus FORT ET les 4 signaux
+ * explicites (Length, Width, Height, GVW/poids unitaire) dans le MÊME texte.
+ * Réutilise parseBusSpecsFromEmailText (mêmes garanties : unités, contexte
+ * véhicule, aucune invention). N'utilise PAS de dimensions de conteneur.
+ */
+export function parseBusSpecsFromAttachmentText(
+  text: string,
+  filename?: string | null,
+): BusSpecs {
+  const empty: BusSpecs = { model: null, dimsM: null, unitWeightKg: null };
+  const src = text || "";
+  if (src.trim().length === 0) return empty;
+
+  // Contexte bus FORT (filename ou texte) — anti dims génériques de conteneur.
+  const ctx = `${filename ?? ""}\n${src}`;
+  if (!BUS_CONTEXT_RE.test(ctx)) return empty;
+
+  // Exiger les 4 signaux explicites dans le même texte (sinon pas d'enrichissement).
+  const hasLength = /\blength\b/i.test(src);
+  const hasWidth = /\bwidth\b/i.test(src);
+  const hasHeight = /\bheight\b/i.test(src);
+  const hasWeight =
+    /\bgvw\b|gross\s+vehicle\s+weight|unit\s+weight|weight\s+per\s+unit/i.test(src);
+  if (!(hasLength && hasWidth && hasHeight && hasWeight)) return empty;
+
+  return parseBusSpecsFromEmailText(src);
+}
+
+/**
+ * Helper PUR : agrège les specs bus des attachments ANALYSÉS.
+ * Conservateur par champ : conflit de poids / dimensions ⇒ champ NON propagé +
+ * warning. Renvoie aussi l'id/filename de l'attachment source documentaire.
+ */
+export function findBusSpecsFromAnalyzedAttachments(attachments: AttachmentLike[]): {
+  spec:
+    | (BusSpecs & { sourceId: string; sourceFilename: string | null })
+    | null;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  const found: Array<{ id: string; filename: string | null; specs: BusSpecs }> = [];
+  for (const att of attachments ?? []) {
+    if (!att) continue;
+    // Attachment analysé uniquement (is_analyzed === true).
+    if (att.is_analyzed !== true) continue;
+    const text = typeof att.extracted_text === "string" ? att.extracted_text : "";
+    if (text.trim().length === 0) continue;
+    const specs = parseBusSpecsFromAttachmentText(text, att.filename ?? null);
+    if (specs.dimsM !== null || specs.unitWeightKg !== null) {
+      found.push({ id: att.id, filename: att.filename ?? null, specs });
+    }
+  }
+  if (found.length === 0) return { spec: null, warnings };
+
+  // Poids : valeurs distinctes. Conflit ⇒ non propagé (+warning).
+  const weights = uniqueNumbers(
+    found.map((f) => f.specs.unitWeightKg).filter((v): v is number => v !== null),
+  );
+  let unitWeightKg: number | null = null;
+  if (weights.length === 1) unitWeightKg = weights[0];
+  else if (weights.length > 1) {
+    warnings.push(
+      "Conflicting bus unit weight across analyzed attachments: weight not propagated. Operator confirmation required.",
+    );
+  }
+
+  // Dimensions : tuples distincts. Conflit ⇒ non propagé (+warning).
+  const dimList = found
+    .map((f) => f.specs.dimsM)
+    .filter((v): v is { l: number; w: number; h: number } => v !== null);
+  const dimKeys = uniqueStrings(dimList.map((d) => `${d.l}x${d.w}x${d.h}`));
+  let dimsM: { l: number; w: number; h: number } | null = null;
+  if (dimKeys.length === 1) dimsM = dimList[0];
+  else if (dimKeys.length > 1) {
+    warnings.push(
+      "Conflicting bus dimensions across analyzed attachments: dimensions not propagated. Operator confirmation required.",
+    );
+  }
+
+  if (unitWeightKg === null && dimsM === null) return { spec: null, warnings };
+
+  const model = found.map((f) => f.specs.model).find((m) => m !== null) ?? null;
+  const src = found.find((f) =>
+    (unitWeightKg !== null && f.specs.unitWeightKg === unitWeightKg) ||
+    (dimsM !== null && f.specs.dimsM !== null &&
+      f.specs.dimsM.l === dimsM.l && f.specs.dimsM.w === dimsM.w &&
+      f.specs.dimsM.h === dimsM.h)
+  ) ?? found[0];
+
+  return {
+    spec: { model, dimsM, unitWeightKg, sourceId: src.id, sourceFilename: src.filename },
+    warnings,
+  };
+}
+
+/**
+ * Helper PUR : enrichit la ligne bus d'un payload avec les specs des attachments
+ * analysés. Ne crée/supprime aucune ligne, ne modifie ni la quantité ni
+ * l'équipement ni le statut. N'écrase JAMAIS une valeur déjà présente (ex.
+ * enrichissement antérieur via thread email). Ajoute l'attachment source à
+ * sources_used SANS toucher source_email_id.
+ */
+export function enrichCargoPayloadFromAttachments(
+  base: DerivedPayload,
+  attachments: AttachmentLike[],
+): DerivedPayload {
+  const cargo_lines = base.cargo_lines.map((l) => ({ ...l, equipment: [...l.equipment] }));
+  const warnings = [...base.warnings];
+  const sources_used = [...base.sources_used];
+  const result: DerivedPayload = {
+    cargo_lines,
+    unallocated_equipment: [...base.unallocated_equipment],
+    warnings,
+    sources_used,
+  };
+
+  const busLine = cargo_lines.find(isBusCargoLine);
+  if (!busLine) return result;
+
+  const { spec, warnings: specWarnings } = findBusSpecsFromAnalyzedAttachments(attachments);
+  warnings.push(...specWarnings);
+  if (!spec) return result;
+
+  // Quantité FINALE issue de l'email (jamais la quantité documentaire attachment).
+  const pieces = busLine.pieces_count;
+  if (typeof pieces !== "number" || !Number.isFinite(pieces) || pieces <= 0) {
+    return result;
+  }
+
+  const details: string[] = [];
+  let enriched = false;
+
+  if (spec.unitWeightKg !== null && busLine.weight_kg === null) {
+    busLine.weight_kg = round3(spec.unitWeightKg * pieces);
+    details.push(`unit weight ${spec.unitWeightKg} kg × ${pieces}`);
+    enriched = true;
+  }
+  if (spec.dimsM !== null && busLine.volume_cbm === null) {
+    const { l, w, h } = spec.dimsM;
+    busLine.volume_cbm = round3(l * w * h * pieces);
+    details.push(`dimensions ${l}×${w}×${h} m × ${pieces}`);
+    enriched = true;
+  }
+
+  if (enriched) {
+    const fnLabel = spec.sourceFilename ? `"${spec.sourceFilename}"` : `id ${spec.sourceId}`;
+    const modelPart = spec.model ? ` Model: ${spec.model}.` : "";
+    warnings.push(
+      `Bus dimensions/weight propagated from PDF attachment ${fnLabel} to final ${pieces} buses. ` +
+        `Operator confirmation required.${modelPart}` +
+        ` Attachment quantity ignored for final count.` +
+        (details.length ? ` (${details.join("; ")})` : ""),
+    );
+    // Source documentaire additionnelle (id+filename), sans toucher source_email_id.
+    if (!sources_used.some((s) => s.id === spec.sourceId)) {
+      sources_used.push({ id: spec.sourceId, filename: spec.sourceFilename });
+    }
+  }
+
+  return result;
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -1171,6 +1350,17 @@ export async function deriveCore(
       source_email_id = emailDerived.source_email_id;
     }
   }
+
+  // 5-ter (Patch F). Enrichissement specs bus depuis le TEXTE des attachments
+  // analysés (extracted_text). S'applique UNIQUEMENT s'il existe déjà une ligne
+  // bus (issue de l'email) et n'écrase aucune valeur déjà enrichie. La quantité
+  // finale (pieces_count) reste pilotée par l'email — la quantité documentaire
+  // de l'attachment ne la modifie JAMAIS.
+  const attEnriched = enrichCargoPayloadFromAttachments(derived, attachments);
+  derived.cargo_lines = attEnriched.cargo_lines;
+  derived.unallocated_equipment = attEnriched.unallocated_equipment;
+  derived.warnings = attEnriched.warnings;
+  derived.sources_used = attEnriched.sources_used;
 
   if (derived.cargo_lines.length === 0 && derived.unallocated_equipment.length === 0) {
     return respondError({
