@@ -72,6 +72,7 @@ import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
 import { CargoCanonicalPreviewPanel } from "@/components/case/CargoCanonicalPreviewPanel";
+import { CargoCanonicalLegacyFactsSyncPanel } from "@/components/case/CargoCanonicalLegacyFactsSyncPanel";
 import { CommunicationSummaryCard } from "@/components/case/CommunicationSummaryCard";
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
@@ -1149,6 +1150,13 @@ export default function CaseView() {
             opérateur (commit). onAdopted rafraîchit le case après écriture. */}
         {caseId && (
           <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} />
+        )}
+
+        {/* Sync explicite cargo canonique → facts legacy (quote_facts uniquement).
+            Mécanisme distinct de l'adoption canonique ; ne lance pas le pricing.
+            onSynced rafraîchit case/facts/events/gaps (pas de pricingRefreshToken). */}
+        {caseId && (
+          <CargoCanonicalLegacyFactsSyncPanel caseId={caseId} onSynced={handleRefresh} />
         )}
 
         {/* ── Thread Intent Display ── */}

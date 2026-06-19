@@ -244,3 +244,6 @@ verify_jwt = false
 
 [functions.derive-cargo-canonical-payload]
 verify_jwt = false
+
+[functions.sync-canonical-cargo-to-legacy-facts]
+verify_jwt = false
