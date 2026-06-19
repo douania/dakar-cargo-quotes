@@ -36,6 +36,10 @@ const {
   isSodatraEmail,
   // Phase 2-Q Patch B : normalisation base64 du dernier email entrant.
   normalizeEmailTextForParsing,
+  // Phase 2-Q Patch E : enrichissement specs bus depuis le thread entrant.
+  parseBusSpecsFromEmailText,
+  findMostRelevantBusSpecsFromThread,
+  deriveCargoPayloadFromInboundEmailThread,
 } = await import("../derive-cargo-canonical-payload/index.ts");
 
 // Phase 2-Q Patch C : helper d'extraction texte depuis un body MIME brut.
@@ -1037,5 +1041,317 @@ Deno.test("2-Q D #7 — plain '40 ft medical' : toujours pas de 40FR", () => {
   assert(
     r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
     "aucun 40FR inféré depuis un simple '40 ft'",
+  );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 2-Q PATCH E — enrichissement specs bus depuis le THREAD entrant complet
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Règle métier : le DERNIER email pilote la quantité finale (15) et l'équipement
+// (40FR + médical). Les emails ANTÉRIEURS ne fournissent QUE des spécifications
+// stables (modèle / dimensions / poids unitaire). La quantité antérieure (5)
+// n'écrase JAMAIS la quantité finale (15).
+//
+// Schéma cargo canonique : weight_kg et volume_cbm sont supportés ; aucun champ
+// "dimensions" structuré n'existe → dims/modèle bruts uniquement en warning.
+
+/** Première ligne cargo contenant un équipement du type donné. */
+function findLineWithEquipment(
+  lines: Array<{ equipment: Array<{ equipment_type: string }> }>,
+  type: string,
+) {
+  return lines.find((l) => l.equipment.some((e) => e.equipment_type === type));
+}
+
+// Dernier email entrant (révision) : compte final 15, 40FR, médical 1×20 + 1×40.
+const LATEST_REVISION_EMAIL = {
+  id: "email-latest-e",
+  subject: "Revised cargo",
+  body_text:
+    "Hello, now the total bus count is 15. The buses are transported in 40FR. " +
+    "Additionally 1x 20 and 1x 40 container has been added for medical equipment non DGR.",
+  sent_at: "2026-06-18T10:00:00Z",
+  from_address: "client@example.com",
+};
+
+// Email antérieur : 5 bus + dimensions + GVW explicites (specs stables).
+const EARLIER_SPECS_EMAIL = {
+  id: "email-earlier-e",
+  subject: "Initial request",
+  body_text:
+    "We plan to ship 5 Hyundai Universe Passenger Bus. " +
+    "Each bus dimensions 12000 x 2500 x 3500 mm, GVW 18000 kg.",
+  sent_at: "2026-06-10T09:00:00Z",
+  from_address: "client@example.com",
+};
+
+// ── parseBusSpecsFromEmailText (pur) ───────────────────────────────────────
+Deno.test("2-Q E — parseBusSpecsFromEmailText : dims + poids explicites liés au bus", () => {
+  const s = parseBusSpecsFromEmailText(EARLIER_SPECS_EMAIL.body_text);
+  assertEquals(s.unitWeightKg, 18000);
+  assert(s.dimsM !== null, "dimensions parsées");
+  assertEquals(s.dimsM?.l, 12); // 12000 mm → 12 m
+  assertEquals(s.dimsM?.w, 2.5); // 2500 mm → 2.5 m
+  assertEquals(s.dimsM?.h, 3.5); // 3500 mm → 3.5 m
+  assert((s.model ?? "").includes("Hyundai"), "modèle documentaire capturé");
+});
+
+Deno.test("2-Q E — parseBusSpecsFromEmailText : dims de conteneur SANS contexte bus ⇒ rien", () => {
+  const s = parseBusSpecsFromEmailText(
+    "Container internal dimensions 12000 x 2350 x 2390 mm, payload 28000 kg.",
+  );
+  assertEquals(s.dimsM, null);
+  assertEquals(s.unitWeightKg, null);
+});
+
+// ── findMostRelevantBusSpecsFromThread (pur) ───────────────────────────────
+Deno.test("2-Q E — findMostRelevantBusSpecsFromThread : spec unique retenue", () => {
+  const { spec, warnings } = findMostRelevantBusSpecsFromThread([EARLIER_SPECS_EMAIL]);
+  assert(spec !== null, "spec trouvée");
+  assertEquals(spec?.unitWeightKg, 18000);
+  assertEquals(spec?.dimsM?.l, 12);
+  assertEquals(spec?.sourceEmailId, "email-earlier-e");
+  assertEquals(warnings.length, 0);
+});
+
+Deno.test("2-Q E — findMostRelevantBusSpecsFromThread : poids en CONFLIT ⇒ non propagé + warning", () => {
+  const a = { ...EARLIER_SPECS_EMAIL, id: "e-a", body_text: "5 Hyundai buses, GVW 18000 kg" };
+  const b = { ...EARLIER_SPECS_EMAIL, id: "e-b", body_text: "note: buses GVW 16000 kg" };
+  const { spec, warnings } = findMostRelevantBusSpecsFromThread([a, b]);
+  assertEquals(spec, null, "aucune spec propagée en cas de conflit pur");
+  assert(
+    warnings.some((w) => /conflicting bus unit weight/i.test(w)),
+    "warning de conflit de poids",
+  );
+});
+
+// ── deriveCargoPayloadFromInboundEmailThread (pur) ─────────────────────────
+// Test #1 — fusion thread : 15 conservé, 40FR=15, médical, bus enrichi.
+Deno.test("2-Q E #1 — thread complet : 15 × 40FR + médical + bus enrichi (poids/volume)", () => {
+  const r = deriveCargoPayloadFromInboundEmailThread([
+    EARLIER_SPECS_EMAIL,
+    LATEST_REVISION_EMAIL,
+  ]);
+  // Quantité finale pilotée par le dernier email : 15 (jamais 5).
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.pieces_count, 15, "pieces_count final = 15 (pas 5)");
+  assertEquals(busLine?.status, "to_confirm");
+  assert(
+    busLine?.equipment.some((e) => e.equipment_type === "40FR" && e.quantity === 15),
+    "40FR quantité 15",
+  );
+  // Enrichissement (champs schéma supportés uniquement) :
+  // weight_kg = 18000 × 15 = 270000 ; volume_cbm = 12×2.5×3.5×15 = 1575.
+  assertEquals(busLine?.weight_kg, 270000, "poids total = poids unitaire × 15");
+  assertEquals(busLine?.volume_cbm, 1575, "volume = L×W×H × 15");
+  // Ligne médicale 1×20GP + 1×40GP.
+  const medical = r.cargo_lines.find((l) => l.description === "Medical equipment non-DGR");
+  assert(medical, "ligne médicale présente");
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "médical 1 × 20GP");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "médical 1 × 40GP");
+  // Warning de propagation + confirmation opérateur.
+  assert(
+    r.warnings.some((w) =>
+      /propagated from earlier client email/i.test(w) && /confirmation required/i.test(w)
+    ),
+    "warning de propagation specs + confirmation opérateur",
+  );
+});
+
+// Test #2 — aucune spec antérieure : comportement Patch D inchangé.
+Deno.test("2-Q E #2 — dernier email seul (pas de specs antérieures) : Patch D inchangé", () => {
+  const r = deriveCargoPayloadFromInboundEmailThread([LATEST_REVISION_EMAIL]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.pieces_count, 15);
+  // Aucune valeur enrichie (pas de specs).
+  assertEquals(busLine?.weight_kg, null);
+  assertEquals(busLine?.volume_cbm, null);
+  assertEquals(
+    r.warnings.some((w) => /propagated from earlier client email/i.test(w)),
+    false,
+    "aucun warning de propagation sans specs antérieures",
+  );
+});
+
+// Test #3 — specs antérieures en conflit : pas d'enrichissement silencieux.
+Deno.test("2-Q E #3 — specs antérieures en conflit : bus NON enrichi + warning conflit", () => {
+  const a = {
+    ...EARLIER_SPECS_EMAIL,
+    id: "e-conf-a",
+    body_text: "5 Hyundai buses, GVW 18000 kg",
+    sent_at: "2026-06-09T09:00:00Z",
+  };
+  const b = {
+    ...EARLIER_SPECS_EMAIL,
+    id: "e-conf-b",
+    body_text: "correction: buses GVW 16000 kg",
+    sent_at: "2026-06-10T09:00:00Z",
+  };
+  const r = deriveCargoPayloadFromInboundEmailThread([a, b, LATEST_REVISION_EMAIL]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.pieces_count, 15, "quantité finale toujours 15");
+  assertEquals(busLine?.weight_kg, null, "poids non propagé en cas de conflit");
+  assert(
+    r.warnings.some((w) => /conflicting bus unit weight/i.test(w)),
+    "warning de conflit de poids",
+  );
+});
+
+// Test #4 — email antérieur quantité 5 SANS dims/poids : aucune surcharge, aucun enrichissement.
+Deno.test("2-Q E #4 — antérieur '5 buses' sans specs : 15 conservé, aucun enrichissement", () => {
+  const earlierNoSpecs = {
+    ...EARLIER_SPECS_EMAIL,
+    id: "e-nospecs",
+    body_text: "We will ship 5 buses next week, please advise.",
+  };
+  const r = deriveCargoPayloadFromInboundEmailThread([earlierNoSpecs, LATEST_REVISION_EMAIL]);
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  assertEquals(busLine?.pieces_count, 15, "quantité finale 15 (pas 5)");
+  assertEquals(busLine?.weight_kg, null);
+  assertEquals(busLine?.volume_cbm, null);
+  assertEquals(
+    r.warnings.some((w) => /propagated from earlier client email/i.test(w)),
+    false,
+  );
+});
+
+// Test #5 — plain '40 ft medical' au niveau thread : toujours pas de 40FR inféré.
+Deno.test("2-Q E #5 — thread : plain '40 ft medical' n'infère pas de 40FR", () => {
+  const r = deriveCargoPayloadFromInboundEmailThread([
+    {
+      id: "e-plain40",
+      subject: null,
+      body_text:
+        "now 15 buses and one additional 40 ft container for medical equipment non DGR",
+      sent_at: "2026-06-18T10:00:00Z",
+      from_address: "client@example.com",
+    },
+  ]);
+  assert(
+    r.cargo_lines.every((l) => l.equipment.every((e) => e.equipment_type !== "40FR")),
+    "aucun 40FR inféré depuis un simple '40 ft'",
+  );
+});
+
+// Test #6 — deriveCore intègre le thread (15 × 40FR + médical + enrichissement) en dry_run.
+Deno.test("2-Q E #6 — deriveCore via loadInboundEmails : enrichissement bus en dry_run", async () => {
+  let seenMode: unknown = null;
+  let seenSource: Record<string, unknown> | null = null;
+  let seenLines: Array<{
+    equipment: Array<{ equipment_type: string; quantity: number }>;
+    weight_kg: number | null;
+    volume_cbm: number | null;
+    pieces_count: number | null;
+  }> = [];
+
+  const resp = await deriveCore({ case_id: VALID_CASE }, ORIGINAL_AUTH, CORR, {
+    verifyOwnership: ALWAYS_OWNER,
+    loadAttachments: () => Promise.resolve([]),
+    loadInboundEmails: () => Promise.resolve([EARLIER_SPECS_EMAIL, LATEST_REVISION_EMAIL]),
+    callCanonicalizer: (body) => {
+      seenMode = body.mode;
+      seenSource = body.source as Record<string, unknown>;
+      seenLines = (body.cargo_payload as { cargo_lines: typeof seenLines }).cargo_lines;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: true, mode: "dry_run", writer_payload: body.cargo_payload }),
+          { status: 200 },
+        ),
+      );
+    },
+  });
+
+  assertEquals(seenMode, "dry_run");
+  assertEquals(resp.status, 200);
+
+  const busLine = findLineWithEquipment(seenLines, "40FR");
+  assert(busLine, "ligne bus présente dans le payload dry_run");
+  assertEquals(busLine?.pieces_count, 15);
+  assertEquals(busLine?.weight_kg, 270000);
+  assertEquals(busLine?.volume_cbm, 1575);
+  assert(findEquipment(seenLines, "40FR", 15), "40FR × 15");
+  assert(findEquipment(seenLines, "20GP", 1), "médical 1 × 20GP");
+  assert(findEquipment(seenLines, "40GP", 1), "médical 1 × 40GP");
+  // source_email_id pointe vers le dernier email (révision finale).
+  assertEquals(seenSource?.source_email_id, "email-latest-e");
+
+  const out = await resp.json();
+  assertEquals(out.ok, true);
+  assert(
+    out.warnings.some((w: string) => /propagated from earlier client email/i.test(w)),
+    "warning de propagation specs remonté",
+  );
+});
+
+// Test #7 — FORMAT EMAIL CLIENT RÉALISTE (premier email Hyundai, structure
+// étiquetée multi-lignes : Quantity / Length / Width / Height / GVW per unit).
+// La quantité antérieure (5) ne doit JAMAIS écraser la quantité finale (15).
+Deno.test("2-Q E #7 — email client réaliste (Hyundai) : 5 n'écrase pas 15, enrichissement exact", () => {
+  const earlierRealEmail = {
+    id: "email-hyundai-real",
+    subject: "RFQ - bus shipment",
+    body_text: [
+      "Hyundai Universe Passenger Bus",
+      "Quantity: 5",
+      "Length: 12,030 mm",
+      "Width: 2,495 mm",
+      "Height: 3,385 mm",
+      "GVW approx.: 12,320 kg per unit",
+    ].join("\n"),
+    sent_at: "2026-06-08T08:00:00Z",
+    from_address: "client@example.com",
+  };
+
+  // Specs parsées (helper pur) — valeurs explicites uniquement.
+  const specs = parseBusSpecsFromEmailText(earlierRealEmail.body_text);
+  assertEquals(specs.unitWeightKg, 12320, "poids unitaire 12320 kg (GVW per unit)");
+  assert(specs.dimsM !== null, "dimensions parsées");
+  assertEquals(specs.dimsM?.l, 12.03, "L = 12.03 m (12,030 mm)");
+  assertEquals(specs.dimsM?.w, 2.495, "W = 2.495 m (2,495 mm)");
+  assertEquals(specs.dimsM?.h, 3.385, "H = 3.385 m (3,385 mm)");
+
+  // Fusion thread : dernier email (révision) pilote la quantité finale = 15.
+  const r = deriveCargoPayloadFromInboundEmailThread([
+    earlierRealEmail,
+    LATEST_REVISION_EMAIL,
+  ]);
+
+  const busLine = findLineWithEquipment(r.cargo_lines, "40FR");
+  assert(busLine, "ligne bus présente");
+  // Quantité finale : 15 (jamais 5).
+  assertEquals(busLine?.pieces_count, 15, "pieces_count = 15 (pas 5)");
+  assertEquals(busLine?.status, "to_confirm", "statut reste to_confirm");
+  assert(
+    busLine?.equipment.some((e) => e.equipment_type === "40FR" && e.quantity === 15),
+    "40FR quantité 15",
+  );
+  // Enrichissement (champs schéma supportés) :
+  // weight_kg = 12320 × 15 = 184800 ; volume_cbm = 12.03×2.495×3.385×15 = 1524.004.
+  assertEquals(busLine?.weight_kg, 184800, "poids total = 12320 × 15");
+  assertEquals(busLine?.volume_cbm, 1524.004, "volume = L×W×H × 15 (round3)");
+
+  // Ligne médicale inchangée : 1×20GP + 1×40GP, et AUCUN 40FR sur le médical
+  // (plain '40 ft medical' n'infère pas 40FR).
+  const medical = r.cargo_lines.find((l) => l.description === "Medical equipment non-DGR");
+  assert(medical, "ligne médicale présente");
+  assertEquals(
+    medical?.equipment.every((e) => e.equipment_type !== "40FR"),
+    true,
+    "aucun 40FR sur la ligne médicale",
+  );
+  assert(findEquipment(r.cargo_lines, "20GP", 1), "médical 1 × 20GP");
+  assert(findEquipment(r.cargo_lines, "40GP", 1), "médical 1 × 40GP");
+
+  // Warning de propagation + confirmation opérateur.
+  assert(
+    r.warnings.some((w) =>
+      /propagated from earlier client email/i.test(w) && /confirmation required/i.test(w)
+    ),
+    "warning de propagation specs + confirmation opérateur",
   );
 });

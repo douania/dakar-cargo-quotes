@@ -738,6 +738,322 @@ export function deriveCargoPayloadFromLatestInboundEmail(
   };
 }
 
+// ── Phase 2-Q Patch E : enrichissement specs bus depuis le THREAD entrant ────
+// Règle métier : le DERNIER email entrant pilote les quantités/équipements
+// finaux (15 × 40FR + médical). Les emails ANTÉRIEURS ne fournissent QUE des
+// spécifications stables (modèle / dimensions / poids unitaire). On ne lit
+// JAMAIS la quantité antérieure (ex. 5) comme quantité finale.
+//
+// Schéma cargo canonique : seuls weight_kg et volume_cbm sont des champs
+// supportés (cf. _shared/cargo-payload-validation.ts). Aucun champ "dimensions"
+// structuré n'existe → les dimensions/modèle bruts ne sont JAMAIS inventés en
+// champs de schéma ; ils ne sont remontés que dans un warning documentaire.
+
+export interface BusSpecs {
+  model: string | null;
+  dimsM: { l: number; w: number; h: number } | null;
+  unitWeightKg: number | null;
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
+/** Parse "12,000" (séparateur milliers) / "12.5" / "2,5" (décimal) → nombre. */
+function parseLooseNumber(raw: string): number | null {
+  let s = raw.trim();
+  // "12,000" (virgule suivie de groupes de 3 chiffres, sans point) → milliers.
+  if (/^\d{1,3}(?:,\d{3})+$/.test(s)) s = s.replace(/,/g, "");
+  else s = s.replace(",", ".");
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Longueur → mètres selon l'unité (mm|cm|m). null si unité inconnue. */
+function lengthToMeters(value: number, unit: string): number | null {
+  const u = unit.toLowerCase();
+  if (u === "mm") return value / 1000;
+  if (u === "cm") return value / 100;
+  if (u === "m") return value;
+  return null;
+}
+
+/** Poids → kg selon l'unité (kg|t|ton(ne)s). null si unité inconnue. */
+function weightToKg(value: number, unit: string): number | null {
+  const u = unit.toLowerCase();
+  if (u === "kg" || u === "kgs") return value;
+  if (u === "t" || u === "ton" || u === "tons" || u === "tonne" || u === "tonnes") {
+    return value * 1000;
+  }
+  return null;
+}
+
+/** Dimension étiquetée "Length: 12 m" / "Width = 2.5 m" / "Height 3.5 m". */
+function matchLabeledLength(src: string, labelAlternation: string): number | null {
+  const re = new RegExp(
+    `\\b${labelAlternation}\\s*(?:[:=]|is)?\\s*(\\d[\\d.,]*)\\s*(mm|cm|m)\\b`,
+    "i",
+  );
+  const m = src.match(re);
+  if (!m) return null;
+  const val = parseLooseNumber(m[1]);
+  if (val === null || val <= 0) return null;
+  return lengthToMeters(val, m[2]);
+}
+
+/**
+ * Helper PUR : extrait les spécifications bus EXPLICITES d'un texte d'email.
+ * Ne lit JAMAIS de quantité (la quantité finale reste pilotée par le dernier
+ * email). N'INVENTE rien : uniquement des valeurs explicitement parsées ET
+ * clairement liées aux bus (contexte véhicule exigé pour éviter de capter des
+ * dimensions/poids de conteneurs).
+ */
+export function parseBusSpecsFromEmailText(text: string): BusSpecs {
+  const src = text || "";
+  const busContext = new RegExp(`\\b${VEHICLE_RE}\\b`, "i").test(src);
+  // Sans contexte véhicule explicite : aucune spec liée (anti dims conteneur).
+  if (!busContext) return { model: null, dimsM: null, unitWeightKg: null };
+
+  // ── Modèle (best-effort, documentaire) : "<Marque ...> [passenger] bus" ──
+  let model: string | null = null;
+  const mModel = src.match(
+    /\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3})\s+(?:[Pp]assenger\s+)?[Bb]us(?:es)?\b/,
+  );
+  if (mModel) model = `${mModel[1]} Bus`;
+
+  // ── Dimensions L×W×H clairement liées au bus ──
+  let dimsM: { l: number; w: number; h: number } | null = null;
+  // Forme compacte "12000 x 2500 x 3500 mm" (unité au moins sur le dernier).
+  const mCombined = src.match(
+    /(\d[\d.,]*)\s*(mm|cm|m)?\s*[x×*]\s*(\d[\d.,]*)\s*(mm|cm|m)?\s*[x×*]\s*(\d[\d.,]*)\s*(mm|cm|m)\b/i,
+  );
+  if (mCombined) {
+    const unit = mCombined[6];
+    const u1 = mCombined[2] || unit;
+    const u2 = mCombined[4] || unit;
+    const l = parseLooseNumber(mCombined[1]);
+    const w = parseLooseNumber(mCombined[3]);
+    const h = parseLooseNumber(mCombined[5]);
+    if (l !== null && w !== null && h !== null) {
+      const lm = lengthToMeters(l, u1);
+      const wm = lengthToMeters(w, u2);
+      const hm = lengthToMeters(h, unit);
+      if (
+        lm !== null && wm !== null && hm !== null &&
+        lm > 0 && wm > 0 && hm > 0
+      ) {
+        dimsM = { l: round3(lm), w: round3(wm), h: round3(hm) };
+      }
+    }
+  }
+  // Forme étiquetée Length/Width/Height (toutes trois exigées).
+  if (dimsM === null) {
+    const lm = matchLabeledLength(src, "(?:length|longueur|l)");
+    const wm = matchLabeledLength(src, "(?:width|largeur|w)");
+    const hm = matchLabeledLength(src, "(?:height|hauteur|h)");
+    if (lm !== null && wm !== null && hm !== null) {
+      dimsM = { l: round3(lm), w: round3(wm), h: round3(hm) };
+    }
+  }
+
+  // ── Poids unitaire / GVW clairement lié au bus ──
+  let unitWeightKg: number | null = null;
+  const mWeight = src.match(
+    /(?:gvw|gross\s+vehicle\s+weight|unit\s+weight|weight\s+per\s+unit|weight\s+each|curb\s+weight|kerb\s+weight)\b[^0-9]{0,20}(\d[\d.,]*)\s*(kg|kgs|tonnes?|tons?|t)\b/i,
+  );
+  if (mWeight) {
+    const val = parseLooseNumber(mWeight[1]);
+    if (val !== null) {
+      const kg = weightToKg(val, mWeight[2]);
+      if (kg !== null && kg > 0) unitWeightKg = round3(kg);
+    }
+  }
+
+  return { model, dimsM, unitWeightKg };
+}
+
+function uniqueNumbers(arr: number[]): number[] {
+  return [...new Set(arr)];
+}
+function uniqueStrings(arr: string[]): string[] {
+  return [...new Set(arr)];
+}
+
+/**
+ * Helper PUR : agrège les specs bus du thread (emails ANTÉRIEURS uniquement).
+ * Politique conservatrice par champ :
+ *   - poids unitaire : si une seule valeur distincte → retenue ; si plusieurs
+ *     valeurs en conflit → NON propagé + warning ;
+ *   - dimensions : idem (tuple L×W×H distinct).
+ * Aucune préférence "silencieuse" en cas de conflit.
+ */
+export function findMostRelevantBusSpecsFromThread(emails: EmailLike[]): {
+  spec: (BusSpecs & { sourceEmailId: string | null }) | null;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  const found: Array<{ id: string; specs: BusSpecs }> = [];
+  for (const e of emails ?? []) {
+    if (!e) continue;
+    const text = normalizeEmailTextForParsing(e.subject, e.body_text).text;
+    const specs = parseBusSpecsFromEmailText(text);
+    if (specs.dimsM !== null || specs.unitWeightKg !== null) {
+      found.push({ id: e.id, specs });
+    }
+  }
+  if (found.length === 0) return { spec: null, warnings };
+
+  // Poids : valeurs distinctes. Conflit ⇒ non propagé (+warning).
+  const weights = uniqueNumbers(
+    found.map((f) => f.specs.unitWeightKg).filter((v): v is number => v !== null),
+  );
+  let unitWeightKg: number | null = null;
+  if (weights.length === 1) unitWeightKg = weights[0];
+  else if (weights.length > 1) {
+    warnings.push(
+      "Conflicting bus unit weight across earlier client emails: weight not propagated. Operator confirmation required.",
+    );
+  }
+
+  // Dimensions : tuples distincts. Conflit ⇒ non propagé (+warning).
+  const dimList = found
+    .map((f) => f.specs.dimsM)
+    .filter((v): v is { l: number; w: number; h: number } => v !== null);
+  const dimKeys = uniqueStrings(dimList.map((d) => `${d.l}x${d.w}x${d.h}`));
+  let dimsM: { l: number; w: number; h: number } | null = null;
+  if (dimKeys.length === 1) dimsM = dimList[0];
+  else if (dimKeys.length > 1) {
+    warnings.push(
+      "Conflicting bus dimensions across earlier client emails: dimensions not propagated. Operator confirmation required.",
+    );
+  }
+
+  if (unitWeightKg === null && dimsM === null) return { spec: null, warnings };
+
+  const model = found.map((f) => f.specs.model).find((m) => m !== null) ?? null;
+  const sourceEmailId = found.find((f) =>
+    (unitWeightKg !== null && f.specs.unitWeightKg === unitWeightKg) ||
+    (dimsM !== null && f.specs.dimsM !== null &&
+      f.specs.dimsM.l === dimsM.l && f.specs.dimsM.w === dimsM.w &&
+      f.specs.dimsM.h === dimsM.h)
+  )?.id ?? found[0].id;
+
+  return { spec: { model, dimsM, unitWeightKg, sourceEmailId }, warnings };
+}
+
+/** Une ligne cargo correspond-elle au bus/véhicule (cible de l'enrichissement) ? */
+function isBusCargoLine(line: DerivedCargoLine): boolean {
+  if (line.equipment.some((e) => /fr$/i.test(e.equipment_type))) return true;
+  return new RegExp(`\\b${VEHICLE_RE}\\b`, "i").test(line.description ?? "");
+}
+
+/**
+ * Helper PUR : enrichit la ligne bus d'un payload de base (issu du DERNIER
+ * email) avec les specs stables des emails ANTÉRIEURS. Préserve quantité,
+ * équipement et statut du dernier email. N'écrase jamais une valeur existante.
+ * Calcule, si supporté par le schéma :
+ *   - weight_kg = poids unitaire × pieces_count (quantité FINALE),
+ *   - volume_cbm = L × W × H × pieces_count (après conversion en mètres).
+ * Les dimensions/modèle bruts ne vont QUE dans un warning (pas de champ schéma).
+ */
+export function enrichCargoPayloadFromInboundEmailThread(
+  base: DerivedPayload & { source_email_id: string | null },
+  earlierEmails: EmailLike[],
+): DerivedPayload & { source_email_id: string | null } {
+  // Clone défensif : ne jamais muter l'entrée.
+  const cargo_lines = base.cargo_lines.map((l) => ({ ...l, equipment: [...l.equipment] }));
+  const warnings = [...base.warnings];
+  const result = {
+    ...base,
+    cargo_lines,
+    unallocated_equipment: [...base.unallocated_equipment],
+    sources_used: [...base.sources_used],
+    warnings,
+  };
+
+  const busLine = cargo_lines.find(isBusCargoLine);
+  if (!busLine) return result;
+
+  const { spec, warnings: specWarnings } = findMostRelevantBusSpecsFromThread(earlierEmails);
+  warnings.push(...specWarnings);
+  if (!spec) return result;
+
+  // Quantité FINALE issue du dernier email (jamais la quantité antérieure).
+  const pieces = busLine.pieces_count;
+  if (typeof pieces !== "number" || !Number.isFinite(pieces) || pieces <= 0) {
+    return result;
+  }
+
+  const details: string[] = [];
+  let enriched = false;
+
+  if (spec.unitWeightKg !== null && busLine.weight_kg === null) {
+    busLine.weight_kg = round3(spec.unitWeightKg * pieces);
+    details.push(`unit weight ${spec.unitWeightKg} kg × ${pieces}`);
+    enriched = true;
+  }
+  if (spec.dimsM !== null && busLine.volume_cbm === null) {
+    const { l, w, h } = spec.dimsM;
+    busLine.volume_cbm = round3(l * w * h * pieces);
+    details.push(`dimensions ${l}×${w}×${h} m × ${pieces}`);
+    enriched = true;
+  }
+
+  if (enriched) {
+    const modelPart = spec.model ? ` Model: ${spec.model}.` : "";
+    const sourcePart = spec.sourceEmailId
+      ? ` Source earlier inbound email: ${spec.sourceEmailId}.`
+      : "";
+    warnings.push(
+      `Bus dimensions/weight propagated from earlier client email to final ${pieces} buses. ` +
+        `Operator confirmation required.${modelPart}${sourcePart}` +
+        (details.length ? ` (${details.join("; ")})` : ""),
+    );
+  }
+
+  return result;
+}
+
+function sentAtMs(e: EmailLike): number {
+  const t = e.sent_at ? Date.parse(e.sent_at) : NaN;
+  return Number.isFinite(t) ? t : -Infinity;
+}
+
+/**
+ * Helper PUR : dérive le cargo depuis le THREAD entrant complet.
+ *   - DERNIER email entrant → quantités/équipement finaux (Patch B/C/D).
+ *   - emails ANTÉRIEURS → enrichissement specs bus (dimensions/poids).
+ * Renvoie aussi latestEmailText pour que deriveCore applique la garde des
+ * termes de révision sur le DERNIER email (comportement inchangé).
+ */
+export function deriveCargoPayloadFromInboundEmailThread(
+  emails: EmailLike[],
+): DerivedPayload & { source_email_id: string | null; latestEmailText: string } {
+  const inbound = (emails ?? []).filter(
+    (e): e is EmailLike => !!e && !isSodatraEmail(e.from_address ?? ""),
+  );
+  if (inbound.length === 0) {
+    return {
+      cargo_lines: [],
+      unallocated_equipment: [],
+      warnings: [],
+      sources_used: [],
+      source_email_id: null,
+      latestEmailText: "",
+    };
+  }
+  // Chronologie : tri ascendant par sent_at (null = plus ancien, ordre stable).
+  const sorted = [...inbound].sort((a, b) => sentAtMs(a) - sentAtMs(b));
+  const latest = sorted[sorted.length - 1];
+  const earlier = sorted.slice(0, -1);
+
+  const base = deriveCargoPayloadFromLatestInboundEmail(latest);
+  const enriched = enrichCargoPayloadFromInboundEmailThread(base, earlier);
+  const latestEmailText = normalizeEmailTextForParsing(latest.subject, latest.body_text).text;
+
+  return { ...enriched, latestEmailText };
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -751,6 +1067,9 @@ export interface DeriveDeps {
   loadAttachments: (caseId: string, authHeader: string) => Promise<AttachmentLike[]>;
   // Phase 2-Q : OPTIONNEL (rétro-compat tests existants). Dernier email entrant.
   loadLatestInboundEmail?: (caseId: string, authHeader: string) => Promise<EmailLike | null>;
+  // Phase 2-Q Patch E : OPTIONNEL. Thread entrant complet (enrichissement specs
+  // bus depuis les emails antérieurs). Prioritaire sur loadLatestInboundEmail.
+  loadInboundEmails?: (caseId: string, authHeader: string) => Promise<EmailLike[]>;
   callCanonicalizer: (
     body: Record<string, unknown>,
     authHeader: string,
@@ -811,30 +1130,45 @@ export async function deriveCore(
   // supprimer les données issues des attachments). Les warnings sont toujours
   // remontés ; le cargo n'est ajouté que si l'email exprime une révision
   // explicite (update/increase/additionally/added/now/total bus count).
+  // Patch E : si le thread entrant complet est disponible (loadInboundEmails),
+  // on dérive le cargo final depuis le DERNIER email entrant ET on enrichit la
+  // ligne bus avec les specs (dimensions/poids) des emails ANTÉRIEURS. À défaut,
+  // comportement Patch B/C/D inchangé (dernier email seul).
   let source_email_id: string | null = null;
-  if (deps.loadLatestInboundEmail) {
+  let emailDerived: (DerivedPayload & { source_email_id: string | null }) | null = null;
+  let emailText = "";
+
+  if (deps.loadInboundEmails) {
+    const emails = await deps.loadInboundEmails(case_id, authHeader);
+    const threadDerived = deriveCargoPayloadFromInboundEmailThread(emails);
+    emailText = threadDerived.latestEmailText;
+    emailDerived = threadDerived;
+  } else if (deps.loadLatestInboundEmail) {
     const latestEmail = await deps.loadLatestInboundEmail(case_id, authHeader);
     if (latestEmail) {
       // Phase 2-Q Patch B : texte normalisé (base64 décodé en mémoire si besoin)
       // afin que la détection de termes de révision opère sur le texte lisible.
-      const emailText = normalizeEmailTextForParsing(
+      emailText = normalizeEmailTextForParsing(
         latestEmail.subject,
         latestEmail.body_text,
       ).text;
-      const emailDerived = deriveCargoPayloadFromLatestInboundEmail(latestEmail);
-      // Warnings toujours remontés (préférer le warning à toute suppression).
-      derived.warnings.push(...emailDerived.warnings);
-      const emailHasCargo = emailDerived.cargo_lines.length > 0 ||
-        emailDerived.unallocated_equipment.length > 0;
-      if (emailHasCargo && hasRevisionTerms(emailText)) {
-        // Ré-indexation des line_index à la suite des lignes existantes.
-        for (const line of emailDerived.cargo_lines) {
-          derived.cargo_lines.push({ ...line, line_index: derived.cargo_lines.length + 1 });
-        }
-        derived.unallocated_equipment.push(...emailDerived.unallocated_equipment);
-        derived.sources_used.push(...emailDerived.sources_used);
-        source_email_id = emailDerived.source_email_id;
+      emailDerived = deriveCargoPayloadFromLatestInboundEmail(latestEmail);
+    }
+  }
+
+  if (emailDerived) {
+    // Warnings toujours remontés (préférer le warning à toute suppression).
+    derived.warnings.push(...emailDerived.warnings);
+    const emailHasCargo = emailDerived.cargo_lines.length > 0 ||
+      emailDerived.unallocated_equipment.length > 0;
+    if (emailHasCargo && hasRevisionTerms(emailText)) {
+      // Ré-indexation des line_index à la suite des lignes existantes.
+      for (const line of emailDerived.cargo_lines) {
+        derived.cargo_lines.push({ ...line, line_index: derived.cargo_lines.length + 1 });
       }
+      derived.unallocated_equipment.push(...emailDerived.unallocated_equipment);
+      derived.sources_used.push(...emailDerived.sources_used);
+      source_email_id = emailDerived.source_email_id;
     }
   }
 
@@ -1009,6 +1343,37 @@ async function realLoadLatestInboundEmail(
   return null;
 }
 
+/**
+ * Phase 2-Q Patch E — emails ENTRANTS du thread (client), READ-ONLY, user-scoped.
+ * Exclut les emails SODATRA sortants/internes. Tri sent_at ascendant (chronologie),
+ * plafonné à 50 emails. Jamais de service_role, jamais d'écriture, jamais de RPC.
+ */
+async function realLoadInboundEmails(
+  caseId: string,
+  authHeader: string,
+): Promise<EmailLike[]> {
+  const client = userClient(authHeader);
+
+  const { data: caseRow } = await client
+    .from("quote_cases")
+    .select("thread_id")
+    .eq("id", caseId)
+    .single();
+  const threadId = (caseRow as { thread_id?: string | null } | null)?.thread_id ?? null;
+  if (!threadId) return [];
+
+  const { data: emails } = await client
+    .from("emails")
+    .select("id, subject, body_text, sent_at, from_address")
+    .eq("thread_ref", threadId)
+    .order("sent_at", { ascending: true })
+    .limit(50);
+
+  return ((emails ?? []) as EmailLike[]).filter(
+    (e) => !isSodatraEmail(e.from_address ?? ""),
+  );
+}
+
 async function realCallCanonicalizer(
   body: Record<string, unknown>,
   authHeader: string,
@@ -1055,6 +1420,9 @@ async function handler(req: Request): Promise<Response> {
     {
       verifyOwnership: realVerifyOwnership,
       loadAttachments: realLoadAttachments,
+      // Patch E : thread complet prioritaire (enrichissement specs bus). Le
+      // loader « dernier email seul » reste disponible comme fallback.
+      loadInboundEmails: realLoadInboundEmails,
       loadLatestInboundEmail: realLoadLatestInboundEmail,
       callCanonicalizer: realCallCanonicalizer,
     },
