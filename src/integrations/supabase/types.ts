@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_roles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       border_clearing_rates: {
         Row: {
           amount_20ft: number | null
@@ -6326,6 +6350,7 @@ export type Database = {
       }
       has_case_read_access: { Args: { _case_id: string }; Returns: boolean }
       has_case_write_access: { Args: { _case_id: string }; Returns: boolean }
+      has_pad_admin_role: { Args: never; Returns: boolean }
       insert_historical_quotation_atomic: {
         Args: { p_lines: Json; p_metadata?: Json; p_quotation: Json }
         Returns: string
