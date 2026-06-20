@@ -149,23 +149,60 @@ export default function CorrespondancesTab({ categories }: CorrespondancesTabPro
   });
 
   const validateMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { data: session } = await supabase.auth.getSession();
-      const userId = session?.session?.user?.id || null;
-      const { error } = await supabase
-        .from("commodity_designation_matches")
-        .update({
-          is_validated: true,
-          validated_by: userId,
-          validated_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-      if (error) throw error;
+    mutationFn: async (row: { id: string; commodity_category_id: string | null; source_reference: string | null }) => {
+      if (!row.commodity_category_id) {
+        throw new Error("Sélectionner une catégorie officielle avant de valider.");
+      }
+      const messages: Record<string, string> = {
+        PAD_ADMIN_REQUIRED: "Rôle PAD admin requis pour valider cette correspondance.",
+        PAD_ALIAS_COLLISION: "Collision PAD : ce terme est déjà lié à une autre catégorie.",
+        CDM_NORMALIZED_TERM_REQUIRED: "Terme normalisé manquant.",
+        TARGET_CATEGORY_NOT_FOUND: "Catégorie cible introuvable.",
+        TARGET_PAD_CATEGORY_REQUIRED: "La catégorie cible n'a pas de catégorie PAD.",
+      };
+      const toMsg = (code?: string) => code ? (messages[code] ?? "Validation impossible.") : "Validation impossible.";
+
+      const { data, error } = await supabase.functions.invoke("validate-pad-alias-enrichment", {
+        body: {
+          cdm_id: row.id,
+          commodity_category_id: row.commodity_category_id,
+          source_reference: row.source_reference ?? null,
+        },
+      });
+      if (error) {
+        const ctx = (error as { context?: Response }).context;
+        let code: string | undefined;
+        if (ctx) {
+          try {
+            const body = await ctx.json();
+            code = (body as { error?: string })?.error;
+          } catch {
+            // not JSON — ignore
+          }
+        }
+        throw new Error(toMsg(code));
+      }
+      const payload = data as { ok: boolean; status?: string; error?: string } | null;
+      if (!payload?.ok) {
+        throw new Error(toMsg(payload?.error));
+      }
+      return payload;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["commodity-designation-matches"] });
-      toast.success("Correspondance validée");
+      queryClient.invalidateQueries({ queryKey: ["pad-aliases"] });
+      const status = data?.status;
+      if (status === "created") {
+        toast.success("Correspondance validée et alias PAD créé");
+      } else if (status === "validated_existing") {
+        toast.success("Correspondance validée avec alias PAD existant");
+      } else if (status === "already_exists") {
+        toast.success("Alias PAD déjà existant");
+      } else {
+        toast.success("Correspondance validée");
+      }
     },
+    onError: (e) => toast.error("Erreur: " + (e as Error).message),
   });
 
   const deleteMutation = useMutation({
@@ -309,8 +346,9 @@ export default function CorrespondancesTab({ categories }: CorrespondancesTabPro
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => validateMutation.mutate(m.id)}
-                          disabled={validateMutation.isPending}
+                          onClick={() => validateMutation.mutate({ id: m.id, commodity_category_id: m.commodity_category_id, source_reference: m.source_reference })}
+                          disabled={validateMutation.isPending || !m.commodity_category_id}
+                          title={!m.commodity_category_id ? "Sélectionner une catégorie officielle avant de valider" : undefined}
                         >
                           <Check className="h-4 w-4" />
                         </Button>
