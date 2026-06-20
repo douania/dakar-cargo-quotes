@@ -150,6 +150,18 @@ type ProducePadCandidatesResponse = {
   details?: unknown;
 };
 
+/* PAD-ALIAS-ENRICHMENT-PIPELINE-1 / Phase B — proposition CDM review-only */
+type ProposePadAliasEnrichmentResponse = {
+  ok?: boolean;
+  case_id?: string;
+  created_count?: number;
+  idempotent?: boolean;
+  reason?: string;
+  proposal?: unknown;
+  error?: string;
+  details?: unknown;
+};
+
 type PadV5ShadowSuggestion = {
   id: string;
   row_key: string;
@@ -398,6 +410,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
   });
   const [creatingPadExportRecommendations, setCreatingPadExportRecommendations] = useState(false);
   const [producingPadFromDescription, setProducingPadFromDescription] = useState(false);
+  const [proposingPadAliasEnrichment, setProposingPadAliasEnrichment] = useState(false);
 
   // Filtres locaux (n'écrivent rien)
   const [kindFilter, setKindFilter] = useState<string>(ALL);
@@ -974,6 +987,59 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     }
   }, [caseId, fetchCandidates]);
 
+  // PAD-ALIAS-ENRICHMENT-PIPELINE-1 / Phase B — capture review-only (CDM).
+  // N'écrit aucun alias validé, aucun CCC, aucun fait, aucun pricing.
+  const proposePadAliasEnrichment = useCallback(async () => {
+    setProposingPadAliasEnrichment(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<ProposePadAliasEnrichmentResponse>(
+        "propose-pad-alias-enrichment",
+        { body: { case_id: caseId, mode: "unmatched_description_to_cdm" } },
+      );
+
+      let payload = (data ?? null) as ProposePadAliasEnrichmentResponse | null;
+      if (error) {
+        const fromErr = await readCreatePadV5ErrorPayload(error);
+        if (fromErr) payload = fromErr as ProposePadAliasEnrichmentResponse;
+      }
+
+      if (error || !payload || payload.ok !== true) {
+        const code = payload?.error;
+        toast({
+          title: code === "forbidden" ? "Accès refusé" : "Proposition d'alias PAD impossible",
+          description: code ?? (error instanceof Error ? error.message : undefined),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const created = payload.created_count ?? 0;
+      if (created > 0) {
+        toast({
+          title: "Proposition d'alias PAD créée",
+          description: "Review uniquement. Aucun alias validé, aucun pricing.",
+        });
+      } else if (payload.reason === "proposal_already_exists") {
+        toast({ title: "Proposition d'alias PAD déjà existante" });
+      } else if (payload.reason === "validated_alias_already_exists") {
+        toast({ title: "Un alias PAD validé existe déjà" });
+      } else if (payload.reason === "already_classified") {
+        toast({ title: "Dossier déjà classé PAD" });
+      } else if (payload.reason === "missing_cargo_description") {
+        toast({ title: "Description marchandise absente" });
+      } else {
+        toast({ title: "Aucune proposition d'alias PAD" });
+      }
+      // Pas de fetchCandidates : les propositions CDM ne sont pas des CCC.
+      // Aucun refresh pricing, aucune propagation.
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Proposition d'alias PAD impossible", description: msg, variant: "destructive" });
+    } finally {
+      setProposingPadAliasEnrichment(false);
+    }
+  }, [caseId]);
+
   const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
     setPendingId(candidate.id);
     const idemKey = `propagate:${candidate.id}`;
@@ -1126,23 +1192,40 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                   <span className="text-sm font-medium">Catégorie PAD depuis description</span>
                   <Badge variant="outline" className="text-[10px]">alias validé only</Badge>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={producingPadFromDescription}
-                  onClick={() => void producePadFromDescription()}
-                >
-                  {producingPadFromDescription ? (
-                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  ) : (
-                    <ListChecks className="mr-2 h-3 w-3" />
-                  )}
-                  Rechercher catégorie PAD depuis description
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={producingPadFromDescription}
+                    onClick={() => void producePadFromDescription()}
+                  >
+                    {producingPadFromDescription ? (
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                    ) : (
+                      <ListChecks className="mr-2 h-3 w-3" />
+                    )}
+                    Rechercher catégorie PAD depuis description
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={proposingPadAliasEnrichment}
+                    onClick={() => void proposePadAliasEnrichment()}
+                  >
+                    {proposingPadAliasEnrichment ? (
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Info className="mr-2 h-3 w-3" />
+                    )}
+                    Proposer enrichissement alias PAD
+                  </Button>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
                 Cherche un alias PAD validé correspondant exactement à cargo.description et crée un
                 candidat à valider. Aucun montant calculé, aucune propagation, aucun pricing.
+                {" "}Si aucun alias ne correspond, « Proposer enrichissement alias PAD » capture la
+                description comme proposition à valider (review only), sans alias validé ni pricing.
               </p>
             </div>
 
