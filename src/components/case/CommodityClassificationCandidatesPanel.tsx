@@ -137,6 +137,19 @@ type CreatePadRecommendationCandidatesResponse = {
   message?: string;
 };
 
+/* PAD-PRODUCER-UPSTREAM-1B — producteur alias validé (read facts, no amount) */
+type ProducePadCandidatesResponse = {
+  ok?: boolean;
+  case_id?: string;
+  mode?: string;
+  created_count?: number;
+  idempotent?: boolean;
+  reason?: string;
+  candidates?: CommodityClassificationCandidate[] | unknown[];
+  error?: string;
+  details?: unknown;
+};
+
 type PadV5ShadowSuggestion = {
   id: string;
   row_key: string;
@@ -384,6 +397,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     reason: null,
   });
   const [creatingPadExportRecommendations, setCreatingPadExportRecommendations] = useState(false);
+  const [producingPadFromDescription, setProducingPadFromDescription] = useState(false);
 
   // Filtres locaux (n'écrivent rien)
   const [kindFilter, setKindFilter] = useState<string>(ALL);
@@ -904,6 +918,62 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
     }
   }, [caseId, fetchCandidates]);
 
+  const producePadFromDescription = useCallback(async () => {
+    setProducingPadFromDescription(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<ProducePadCandidatesResponse>(
+        "produce-pad-classification-candidates",
+        { body: { case_id: caseId, mode: "validated_alias_only" } },
+      );
+
+      let payload = (data ?? null) as ProducePadCandidatesResponse | null;
+      if (error) {
+        const fromErr = await readCreatePadV5ErrorPayload(error);
+        if (fromErr) payload = fromErr as ProducePadCandidatesResponse;
+      }
+
+      if (error || !payload || payload.ok !== true) {
+        toast({
+          title: "Recherche PAD impossible",
+          description: payload?.error ?? (error instanceof Error ? error.message : undefined),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const created = payload.created_count ?? 0;
+      if (created > 0) {
+        toast({ title: "Candidat PAD créé à valider" });
+      } else if (payload.idempotent || payload.reason === "already_present") {
+        toast({ title: "Candidat PAD déjà présent", description: "Aucun changement (idempotent)." });
+      } else if (payload.reason === "no_validated_alias_match") {
+        toast({ title: "Aucun alias PAD validé ne correspond à la description actuelle." });
+      } else if (payload.reason === "alias_collision") {
+        toast({
+          title: "Plusieurs catégories PAD possibles",
+          description: "Collision d'alias : validation opérateur requise, aucun candidat créé.",
+        });
+      } else if (payload.reason === "already_classified") {
+        toast({ title: "Dossier déjà classé PAD", description: "Aucun candidat créé." });
+      } else if (payload.reason === "missing_cargo_description") {
+        toast({ title: "Description marchandise absente", description: "Aucun candidat créé." });
+      } else {
+        toast({ title: "Aucun nouveau candidat PAD" });
+      }
+
+      // Ne pas masquer les candidats existants : on rafraîchit sans propager.
+      setKindFilter(ALL);
+      setStatusFilter(ALL);
+      setIsCurrent(true);
+      await fetchCandidates({ kindFilter: ALL, statusFilter: ALL, isCurrent: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({ title: "Recherche PAD impossible", description: msg, variant: "destructive" });
+    } finally {
+      setProducingPadFromDescription(false);
+    }
+  }, [caseId, fetchCandidates]);
+
   const performPropagate = useCallback(async (candidate: CommodityClassificationCandidate) => {
     setPendingId(candidate.id);
     const idemKey = `propagate:${candidate.id}`;
@@ -1046,6 +1116,34 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 )}
                 Rafraîchir
               </Button>
+            </div>
+
+            {/* PAD-PRODUCER-UPSTREAM-1B — alias validé depuis cargo.description */}
+            <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Catégorie PAD depuis description</span>
+                  <Badge variant="outline" className="text-[10px]">alias validé only</Badge>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={producingPadFromDescription}
+                  onClick={() => void producePadFromDescription()}
+                >
+                  {producingPadFromDescription ? (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  ) : (
+                    <ListChecks className="mr-2 h-3 w-3" />
+                  )}
+                  Rechercher catégorie PAD depuis description
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Cherche un alias PAD validé correspondant exactement à cargo.description et crée un
+                candidat à valider. Aucun montant calculé, aucune propagation, aucun pricing.
+              </p>
             </div>
 
             {/* États */}
