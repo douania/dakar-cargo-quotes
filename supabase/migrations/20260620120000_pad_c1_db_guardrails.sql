@@ -20,7 +20,9 @@
 --
 -- Contraintes ajoutées :
 --   C1 — CDM : FK validated_by → auth.users(id) (NO ACTION, aligné PDA)
---   C2 — CDM : CHECK validation cohérente (is_validated → validated_by + validated_at)
+--   C2 — CDM : CHECK validation cohérente NOT VALID (historical rows grandfathered)
+--             TODO future phase : backfill audit CDM historique après doctrine CTO explicite,
+--             puis VALIDATE CONSTRAINT chk_cdm_validation_coherence.
 --   C3 — PDA : CHECK validation cohérente NOT VALID (seeds grandfathered)
 --   C4 — CDM : CHECK normalized_term non vide si non NULL
 --   C5 — PDA : CHECK normalized_term non vide
@@ -69,11 +71,18 @@ END;
 $$;
 
 -- =============================================================================
--- C2 — CDM : CHECK validation cohérente
+-- C2 — CDM : CHECK validation cohérente NOT VALID (historical rows grandfathered)
 --   is_validated IS NOT TRUE OR (validated_by IS NOT NULL AND validated_at IS NOT NULL)
 -- =============================================================================
 
 -- Diagnostic C2 : lignes CDM validées sans validated_by ou validated_at
+-- (INFORMATIF — ne stoppe pas la migration)
+--
+-- Audit runtime 2026-06-20 : 49 lignes CDM is_validated=true avec validated_by IS NULL
+-- ou validated_at IS NULL. Ces lignes historiques sont intentionnellement grandfathered —
+-- aucun validated_by fictif ou utilisateur système n'est introduit. La contrainte est
+-- ajoutée en NOT VALID afin de protéger les INSERT/UPDATE futurs sans invalider les
+-- lignes historiques existantes.
 DO $$
 DECLARE
   v_count bigint;
@@ -82,16 +91,13 @@ BEGIN
   FROM public.commodity_designation_matches
   WHERE is_validated = true
     AND (validated_by IS NULL OR validated_at IS NULL);
-  IF v_count > 0 THEN
-    RAISE EXCEPTION
-      '[PAD-C1] STOP — % ligne(s) CDM avec is_validated=true mais validated_by ou validated_at NULL. Backfill requis avant ajout CHECK.',
-      v_count;
-  END IF;
-  RAISE NOTICE '[PAD-C1] C2 precheck cohérence CDM : % violation(s) — OK', v_count;
+  RAISE NOTICE '[PAD-C1] C2 audit cohérence CDM : % ligne(s) is_validated=true avec validated_by/validated_at NULL (grandfathered, NOT VALID).', v_count;
 END;
 $$;
 
--- Ajout CHECK C2 (idempotent)
+-- Ajout CHECK C2 NOT VALID (idempotent)
+-- NOT VALID : les lignes historiques grandfathered ne sont pas scannées lors de
+-- l'ajout ; seuls les INSERT/UPDATE futurs seront vérifiés par cette contrainte.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -101,8 +107,9 @@ BEGIN
   ) THEN
     ALTER TABLE public.commodity_designation_matches
       ADD CONSTRAINT chk_cdm_validation_coherence
-      CHECK (is_validated IS NOT TRUE OR (validated_by IS NOT NULL AND validated_at IS NOT NULL));
-    RAISE NOTICE '[PAD-C1] C2 : CHECK chk_cdm_validation_coherence ajouté.';
+      CHECK (is_validated IS NOT TRUE OR (validated_by IS NOT NULL AND validated_at IS NOT NULL))
+      NOT VALID;
+    RAISE NOTICE '[PAD-C1] C2 : CHECK chk_cdm_validation_coherence ajouté (NOT VALID).';
   ELSE
     RAISE NOTICE '[PAD-C1] C2 : CHECK chk_cdm_validation_coherence déjà présent — skip.';
   END IF;
