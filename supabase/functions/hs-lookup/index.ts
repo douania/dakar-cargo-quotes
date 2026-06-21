@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
 
     if (code) {
       // Normalize the search code
-      const normalizedCode = code.replace(/[\.\s]/g, '');
+      const normalizedCode = code.replace(/[.\s]/g, '');
       query = query.or(`code.ilike.%${code}%,code_normalized.ilike.%${normalizedCode}%`);
     }
 

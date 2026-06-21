@@ -425,7 +425,7 @@ class IMAPSearchClient {
       const referencesMatch = headerBlock.match(/References:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
       const inReplyToMatch = headerBlock.match(/In-Reply-To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
       
-      let subject = decodeHeader(subjectMatch?.[1]?.trim() || '(Sans sujet)');
+      const subject = decodeHeader(subjectMatch?.[1]?.trim() || '(Sans sujet)');
       let from = fromMatch?.[1]?.trim() || '';
       const emailMatch = from.match(/<([^>]+)>/);
       if (emailMatch) from = emailMatch[1];
@@ -568,7 +568,7 @@ serve(async (req) => {
     const selectedSeqs = seqNums.length <= limit ? seqNums : seqNums.slice(-limit);
     
     // Fetch headers
-    let messages = await client.fetchHeaders(selectedSeqs);
+    const messages = await client.fetchHeaders(selectedSeqs);
     
     // Thread reconstruction by Message-ID/References
     if (reconstructThread && messages.length > 0) {

@@ -1771,7 +1771,7 @@ Réponds en JSON:
 
     // ============ FETCH LEARNED TARIFFS WITH CONTEXTUAL MATCHING ============
     // Build contextual query based on AI extracted data
-    let tariffQuery = supabase
+    const tariffQuery = supabase
       .from('learned_knowledge')
       .select('*')
       .eq('is_validated', true)
@@ -1794,8 +1794,8 @@ Réponds en JSON:
       .limit(100);
     
     // Smart filtering: prioritize tariffs matching context
-    let relevantTariffs: any[] = [];
-    let genericTariffs: any[] = [];
+    const relevantTariffs: any[] = [];
+    const genericTariffs: any[] = [];
     
     if (allKnowledge && allKnowledge.length > 0) {
       for (const k of allKnowledge) {
@@ -2618,7 +2618,7 @@ Réponds en JSON:
     sodatraFeesContext += `\nTOTAL SODATRA FEES: ${sodatraFeesSuggestion.total_suggested.toLocaleString('fr-FR')} FCFA\n`;
 
     // Build analysis context for AI (using AI-extracted data)
-    let analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE (AI-POWERED) ===
+    const analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE (AI-POWERED) ===
 📌 LANGUE DÉTECTÉE: ${aiExtracted.detected_language}
    → Tu DOIS répondre 100% en ${aiExtracted.detected_language === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
    

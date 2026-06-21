@@ -701,7 +701,7 @@ class SimpleIMAPClient {
     let lastError: unknown = null;
 
     for (const serverName of serverNameCandidates) {
-      console.log(`STARTTLS: trying TLS server name \"${serverName}\"`);
+      console.log(`STARTTLS: trying TLS server name "${serverName}"`);
 
       try {
         const tag = this.getTag();
@@ -732,7 +732,7 @@ class SimpleIMAPClient {
         return;
       } catch (e) {
         lastError = e;
-        console.error(`STARTTLS attempt failed for \"${serverName}\":`, e);
+        console.error(`STARTTLS attempt failed for "${serverName}":`, e);
         await this.reconnectPlain();
       }
     }
@@ -984,7 +984,7 @@ function tokenizeBodyStructure(structure: string): string[] {
     }
     if (/[A-Za-z0-9]/.test(ch)) {
       let end = i;
-      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) end++;
+      while (end < structure.length && /[A-Za-z0-9._-]/.test(structure[end])) end++;
       tokens.push(structure.substring(i, end));
       i = end;
       continue;
@@ -1115,7 +1115,7 @@ function extractBodyStructure(response: string): string {
   const start = upperResponse.indexOf(marker);
   if (start === -1) return '';
   let depth = 0;
-  let structureStart = start + marker.length;
+  const structureStart = start + marker.length;
   let structureEnd = structureStart;
   let started = false;
   for (let i = structureStart; i < response.length; i++) {
@@ -1443,8 +1443,8 @@ function extractProjectIdentifier(subject: string, bodyText: string): { projectI
     // Projets nommés explicitement
     { regex: /projet[:\s]+([^,.\n]{3,40})/i, weight: 8 },
     { regex: /project[:\s]+([^,.\n]{3,40})/i, weight: 8 },
-    { regex: /ref[:\s]+([A-Z0-9\-\/]{4,20})/i, weight: 7 },
-    { regex: /référence[:\s]+([A-Z0-9\-\/]{4,20})/i, weight: 7 },
+    { regex: /ref[:\s]+([A-Z0-9/-]{4,20})/i, weight: 7 },
+    { regex: /référence[:\s]+([A-Z0-9/-]{4,20})/i, weight: 7 },
     
     // Destinations spécifiques avec cargo
     { regex: /(ham\s*[-–]\s*dkr|hamburg\s*[-–to]+\s*dakar)/i, weight: 6 },

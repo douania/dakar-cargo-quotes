@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
       if (!code) continue;
 
       // Normalize code (remove dots, spaces, dashes)
-      const codeNormalized = code.replace(/[\.\s\-]/g, '');
+      const codeNormalized = code.replace(/[.\s-]/g, '');
       const chapter = parseInt(codeNormalized.substring(0, 2)) || 0;
 
     if (importMode === 'descriptions_only') {

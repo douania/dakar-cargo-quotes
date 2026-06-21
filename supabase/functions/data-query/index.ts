@@ -208,7 +208,7 @@ serve(async (req) => {
           );
         }
         
-        let { data: rate, error } = await supabase
+        const { data: rate, error } = await supabase
           .from('local_transport_rates')
           .select('*')
           .eq('is_active', true)

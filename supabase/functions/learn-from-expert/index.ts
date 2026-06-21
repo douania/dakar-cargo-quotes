@@ -132,7 +132,7 @@ serve(async (req) => {
     console.log(`Learning from expert: ${expertEmail}`);
 
     // Get or create expert profile
-    let { data: expert, error: expertError } = await supabase
+    const { data: expert, error: expertError } = await supabase
       .from('expert_profiles')
       .select('*')
       .eq('email', expertEmail)

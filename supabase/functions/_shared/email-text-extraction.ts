@@ -67,7 +67,7 @@ export function extractPlainTextFromMime(rawBody: string): string {
 
   // Normalisation MIME tolérante : restaure des newlines dans les contextes
   // d'en-tête lorsque le stockage a aplati les retours à la ligne.
-  let body = rawBody
+  const body = rawBody
     .replace(/(boundary="[^"]+")\s+(Content-Type:)/gi, "$1\n$2")
     .replace(/\s+(Content-Transfer-Encoding:)/gi, "\n$1")
     .replace(

@@ -902,7 +902,7 @@ async function loadThreadData(
   if (emailsError) throw emailsError;
 
   // Marquer les emails SOURCE avec source_type: 'thread_ref'
-  let allEmails: EnrichedEmail[] = (emails || []).map(e => ({
+  const allEmails: EnrichedEmail[] = (emails || []).map(e => ({
     ...e,
     source_type: 'thread_ref' as EmailSourceType
   }));

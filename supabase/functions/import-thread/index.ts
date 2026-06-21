@@ -410,7 +410,7 @@ function tokenizeBodyStructure(structure: string): string[] {
     // NIL or atom (unquoted word/number)
     if (/[A-Za-z0-9]/.test(ch)) {
       let end = i;
-      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) {
+      while (end < structure.length && /[A-Za-z0-9._-]/.test(structure[end])) {
         end++;
       }
       tokens.push(structure.substring(i, end));
@@ -600,7 +600,7 @@ function extractBodyStructure(response: string): string {
   if (start === -1) return '';
   
   let depth = 0;
-  let structureStart = start + marker.length;
+  const structureStart = start + marker.length;
   let structureEnd = structureStart;
   let started = false;
   
@@ -1329,7 +1329,7 @@ async function processAttachment(
     }
     
     // Analyze document content if it's a supported type
-    let extractedText = '';
+    const extractedText = '';
     const analyzableTypes = [
       'application/pdf',
       'application/vnd.ms-excel',

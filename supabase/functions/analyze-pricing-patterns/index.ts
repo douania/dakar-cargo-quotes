@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
     console.log(`Found ${existingKnowledge?.length || 0} existing knowledge items`);
     
     // 5. Build context for AI analysis
-    let contextData = {
+    const contextData = {
       emails: emails?.slice(0, 30).map(e => ({
         subject: e.subject,
         from: e.from_address,

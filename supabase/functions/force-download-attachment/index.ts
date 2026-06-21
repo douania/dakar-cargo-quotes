@@ -71,7 +71,7 @@ function tokenizeBodyStructure(structure: string): string[] {
     }
     if (/[A-Za-z0-9]/.test(ch)) {
       let end = i;
-      while (end < structure.length && /[A-Za-z0-9._\-]/.test(structure[end])) end++;
+      while (end < structure.length && /[A-Za-z0-9._-]/.test(structure[end])) end++;
       tokens.push(structure.substring(i, end));
       i = end;
       continue;
@@ -202,7 +202,7 @@ function extractBodyStructure(response: string): string {
   const start = upperResponse.indexOf(marker);
   if (start === -1) return '';
   let depth = 0;
-  let structureStart = start + marker.length;
+  const structureStart = start + marker.length;
   let structureEnd = structureStart;
   let started = false;
   for (let i = structureStart; i < response.length; i++) {

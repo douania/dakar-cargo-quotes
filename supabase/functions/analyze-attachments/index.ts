@@ -730,7 +730,7 @@ async function analyzeAttachmentInBackground(
       console.log(`[BG] Sending ${excelText.length} chars to AI with ${docType} prompt...`);
       
       // Build the appropriate prompt based on document type
-      let systemPrompt = promptConfig.systemPrompt;
+      const systemPrompt = promptConfig.systemPrompt;
       let userPrompt = '';
       
       if (docType === 'tariff') {
@@ -1404,7 +1404,7 @@ async function processAttachmentsLoop(
           console.log(`Excel parsed: ${excelSheets.length} sheets, ${excelText.length} chars. Sending to AI with ${docType} prompt...`);
           
           // Build the appropriate prompt based on document type
-          let systemPrompt = promptConfig.systemPrompt;
+          const systemPrompt = promptConfig.systemPrompt;
           let userPrompt = '';
           
           if (docType === 'tariff') {

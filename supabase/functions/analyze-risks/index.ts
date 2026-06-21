@@ -307,7 +307,7 @@ async function analyzeTimeRisk(
     }
 
     // Count weekends
-    let current = new Date(etaDate);
+    const current = new Date(etaDate);
     while (current <= endDate) {
       const dayOfWeek = current.getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) {

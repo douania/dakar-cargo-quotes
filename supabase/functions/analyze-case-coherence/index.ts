@@ -95,7 +95,7 @@ serve(async (req: Request) => {
     });
 
     // ── 1. Load latest thread_intent_v1 ──
-    let intentQuery = serviceClient
+    const intentQuery = serviceClient
       .from("case_timeline_events")
       .select("id, event_data, related_email_id")
       .eq("case_id", case_id)

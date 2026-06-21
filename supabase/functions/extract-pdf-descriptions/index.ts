@@ -17,7 +17,7 @@ interface ExtractedCode {
 // Normalize HS code: remove dots and leading zeros inconsistencies
 function normalizeCode(code: string): string {
   // Remove all dots and spaces
-  let normalized = code.replace(/[\.\s]/g, '');
+  let normalized = code.replace(/[.\s]/g, '');
   // Remove leading zeros if the result is longer than 10 digits
   // Standard HS codes are 10 digits
   if (normalized.length > 10) {
@@ -42,8 +42,8 @@ function extractCodesFromText(text: string): ExtractedCode[] {
   // Pattern for section headers like "0101" or "01.01"
   const headerPattern = /^(\d{2}(?:\.\d{2}){0,3})\s+[-–]\s*(.+)$/;
   
-  let currentDescription = '';
-  let currentCode = '';
+  const currentDescription = '';
+  const currentCode = '';
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();

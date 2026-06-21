@@ -682,7 +682,7 @@ async function fetchMaliZone(
   }
   
   // Try partial match
-  const destParts = destination.toUpperCase().split(/[\s,\-]+/);
+  const destParts = destination.toUpperCase().split(/[\s,-]+/);
   for (const part of destParts) {
     if (part.length < 3) continue;
     const { data } = await supabase
@@ -869,8 +869,8 @@ async function findSimilarHistoricalMaliTransport(
     const entryContainer = (entryData.container_type || entryData.containerType || '').toUpperCase();
     
     // Check if destination is similar (same city or nearby)
-    const destWords = destUpper.split(/[\s,\-]+/);
-    const entryWords = entryDest.split(/[\s,\-]+/);
+    const destWords = destUpper.split(/[\s,-]+/);
+    const entryWords = entryDest.split(/[\s,-]+/);
     const hasDestMatch = destWords.some((w: string) => entryWords.some((ew: string) => 
       w.length > 3 && ew.length > 3 && (w.includes(ew) || ew.includes(w))
     ));

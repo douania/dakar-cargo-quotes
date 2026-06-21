@@ -335,7 +335,7 @@ export function checkExceptionalTransport(dimensions: {
 // 5. CALCUL DES JOURS OUVRÉS PORT DE DAKAR
 // =====================================================
 export function calculateWorkingDays(startDate: Date, daysToAdd: number, holidays: string[] = []): Date {
-  let currentDate = new Date(startDate);
+  const currentDate = new Date(startDate);
   let addedDays = 0;
   
   while (addedDays < daysToAdd) {
