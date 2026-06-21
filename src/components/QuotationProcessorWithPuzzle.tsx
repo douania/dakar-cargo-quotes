@@ -211,7 +211,7 @@ export const QuotationProcessorWithPuzzle = forwardRef<HTMLDivElement, Props>(({
     
     // FALLBACK: If no operational lines, parse from draft body
     if (lines.length === 0 && result?.draft?.body) {
-      const regex = /[•\-]\s*(.+?):\s*([\d\s,]+)\s*FCFA/g;
+      const regex = /[•-]\s*(.+?):\s*([\d\s,]+)\s*FCFA/g;
       let match;
       while ((match = regex.exec(result.draft.body)) !== null) {
         const [, service, amountStr] = match;

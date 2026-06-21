@@ -355,7 +355,7 @@ export async function processQuotationRequest(
 ): Promise<QuotationProcessResult> {
   // Step 1: Import ALL emails via batching loop (P0-A)
   const MAX_IMPORT_ITERATIONS = 20;
-  let allImportedEmails: any[] = [];
+  const allImportedEmails: any[] = [];
   let currentUids = [...uids];
   let iteration = 0;
 

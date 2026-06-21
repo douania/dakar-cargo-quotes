@@ -554,7 +554,7 @@ export function FleetSuggestionResults({ items, onReset }: FleetSuggestionResult
         console.log('[optimize] Items envoyés (final fallback):', normalizedItems.length, normalizedItems);
         
         const firstAllocation = scenario.trucks[0];
-        let truckSpec = specs.find(s => s.name === firstAllocation?.truck_type) || specs[0] || SPECIAL_TRANSPORT_SPEC;
+        const truckSpec = specs.find(s => s.name === firstAllocation?.truck_type) || specs[0] || SPECIAL_TRANSPORT_SPEC;
         
         try {
           const optimResult = await runOptimization(normalizedItems, truckSpec, 'simple');

@@ -679,7 +679,7 @@ L'équipe SODATRA`;
     const removeKeys = new Set((overrides.remove ?? []).filter(k => ALL_SERVICE_KEYS.has(k)));
 
     // ── Garde-fou 3: Ordre stable + dédoublonnage ──
-    let finalKeys = baseServiceKeys.filter(k => !removeKeys.has(k));
+    const finalKeys = baseServiceKeys.filter(k => !removeKeys.has(k));
     for (const k of addKeys) {
       if (!finalKeys.includes(k)) finalKeys.push(k);
     }
@@ -1001,7 +1001,7 @@ L'équipe SODATRA`;
     const fromTwoHL = fromEmail.includes('2hl') || fromEmail.includes('2hlgroup');
     
     // Determine our role and the actors
-    let context: ProjectContext = {
+    const context: ProjectContext = {
       requesting_party: '',
       requesting_company: '',
       our_role: 'direct',

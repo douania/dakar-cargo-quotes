@@ -240,9 +240,9 @@ export default function Intake() {
     // ── ORIGIN (city) ─────────────────────────────────────────────────────
     const originPatterns = [
       /From\s+([A-Za-z][\w\s-]+?)\s+(?:To|to|→|-)/,
-      /Origin(?:e)?\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      /Origin(?:e)?\s*[:-]\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
       /Départ\s+(?:de|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      /Pickup\s+(?:from|at|location)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
+      /Pickup\s+(?:from|at|location)\s*[:-]?\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
     ];
     for (const pat of originPatterns) {
       const m = normalized.match(pat);
@@ -255,7 +255,7 @@ export default function Intake() {
     // ── ORIGIN PORT / POL ────────────────────────────────────────────────
     const polPatterns = [
       /(?:To|to|via)\s+([A-Za-z][\w\s-]+?)\s+(?:port|Port)\b/,
-      /(?:POL|Port\s+of\s+Loading)\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
+      /(?:POL|Port\s+of\s+Loading)\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
     ];
     for (const pat of polPatterns) {
       const m = normalized.match(pat);
@@ -267,7 +267,7 @@ export default function Intake() {
 
     // ── POD (Port of Discharge) ──────────────────────────────────────────
     const podMatch = normalized.match(
-      /(?:POD|Port\s+of\s+Discharge)\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i
+      /(?:POD|Port\s+of\s+Discharge)\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i
     );
     if (podMatch && podMatch[1]) {
       overrides.pod = cleanCaptured(podMatch[1]);
@@ -275,10 +275,10 @@ export default function Intake() {
 
     // ── FINAL DESTINATION (priority strong) ──────────────────────────────
     const finalDestPatterns = [
-      /Final\s+Place\s+of\s+Discharge[^:\n]*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
+      /Final\s+Place\s+of\s+Discharge[^:\n]*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
       /further\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?(?:\s+(?:City|Site|Town))?)(?:[.,;\n]|$)/i,
       /Deliveries?\s+up\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      /Final\s+destination\s*[:\-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.,;\n]|$)/i,
+      /Final\s+destination\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.,;\n]|$)/i,
     ];
     for (const pat of finalDestPatterns) {
       const m = normalized.match(pat);
@@ -371,7 +371,7 @@ export default function Intake() {
     const pod = textOverrides.pod ?? null;
 
     // Always filter missing_fields against available data
-    let result = filterMissingFields(data, mergedAnalysis, textOverrides);
+    const result = filterMissingFields(data, mergedAnalysis, textOverrides);
 
     if (containerCount >= 1 && (containerType === "20" || containerType === "40")) {
       // Filter out incorrect "colis lourd" assumptions

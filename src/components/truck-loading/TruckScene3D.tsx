@@ -189,9 +189,9 @@ function Scene({
 
         // Position du centre en Three.js (cm → m)
         // Mapping: API X -> Three.js X, API Y -> Three.js Z, API Z -> Three.js Y
-        let posX = cmToMeters(placement.position.x) + dimOnAxisX / 2;
-        let posY = cmToMeters(placement.position.z) + dimHeight / 2;
-        let posZ = cmToMeters(placement.position.y) + dimOnAxisZ / 2;
+        const posX = cmToMeters(placement.position.x) + dimOnAxisX / 2;
+        const posY = cmToMeters(placement.position.z) + dimHeight / 2;
+        const posZ = cmToMeters(placement.position.y) + dimOnAxisZ / 2;
         
         // CLAMPING de sécurité: empêcher les débordements visuels
         const clampedPosX = Math.max(dimOnAxisX / 2, Math.min(posX, containerLength - dimOnAxisX / 2));

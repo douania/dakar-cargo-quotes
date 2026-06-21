@@ -202,7 +202,7 @@ export const parseEmailBody = (body: string | null): Partial<ConsolidatedData> =
       const typeRaw = match[3].toLowerCase().replace(/\s+/g, ' ').trim();
       
       // Normalize container type
-      let containerType = containerTypeMap[typeRaw] || `${size}${typeRaw.toUpperCase().substring(0, 2)}`;
+      const containerType = containerTypeMap[typeRaw] || `${size}${typeRaw.toUpperCase().substring(0, 2)}`;
       
       // Check for OOG notes
       const hasOog = bodyLower.includes('oog') || bodyLower.includes('out of gauge') || 
