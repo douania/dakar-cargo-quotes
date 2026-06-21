@@ -10,6 +10,42 @@ import {
   normalizeGapKeys,
 } from "../_shared/client-gap-policy.ts";
 
+const INTERNAL_DOMAINS = ["sodatra.sn", "2hlgroup.com", "2hl.sn"];
+
+function isInternalEmail(fromAddress: string): boolean {
+  const lower = (fromAddress ?? "").toLowerCase();
+  return INTERNAL_DOMAINS.some((d) => lower.includes("@" + d));
+}
+
+function detectLanguage(text: string): "fr" | "en" {
+  const lower = text.toLowerCase();
+  let fr = 0;
+  let en = 0;
+  // French indicators
+  if (lower.includes("bonjour")) fr++;
+  if (lower.includes("cordialement")) fr++;
+  if (lower.includes("merci")) fr++;
+  if (lower.includes(" vous ")) fr++;
+  if (lower.includes(" nous ")) fr++;
+  if (lower.includes(" des ")) fr++;
+  if (lower.includes(" les ")) fr++;
+  if (lower.includes(" pour ")) fr++;
+  if (lower.includes("cotation")) fr++;
+  if (lower.includes("marchandise")) fr++;
+  // English indicators
+  if (lower.includes("dear ")) en++;
+  if (lower.includes("regards")) en++;
+  if (lower.includes("please")) en++;
+  if (lower.includes("thank you")) en++;
+  if (lower.includes(" the ")) en++;
+  if (lower.includes(" is ")) en++;
+  if (lower.includes(" are ")) en++;
+  if (lower.includes("freight")) en++;
+  if (lower.includes("shipment")) en++;
+  if (lower.includes("quotation")) en++;
+  return en > fr ? "en" : "fr";
+}
+
 serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
@@ -46,7 +82,7 @@ serve(async (req: Request) => {
   // ── Verify case access (RLS) ──
   const { data: caseRow, error: caseErr } = await userClient
     .from("quote_cases")
-    .select("id")
+    .select("id, thread_id")
     .eq("id", caseId)
     .maybeSingle();
   if (caseErr || !caseRow) {
@@ -111,6 +147,49 @@ serve(async (req: Request) => {
     });
   }
 
+  // ── Detect customer language (fr/en) ──
+  let customerLanguage: "fr" | "en" = "fr";
+  let languageSource = "fallback_fr";
+
+  {
+    let langText: string | null = null;
+
+    if (relatedEmailId) {
+      const { data: langEmail } = await userClient
+        .from("emails")
+        .select("from_address, subject, body_text")
+        .eq("id", relatedEmailId)
+        .maybeSingle();
+      if (langEmail && !isInternalEmail((langEmail as any).from_address ?? "")) {
+        langText = (langEmail as any).body_text || (langEmail as any).subject || null;
+        languageSource = "related_email";
+      }
+    }
+
+    if (!langText) {
+      const threadId = (caseRow as any).thread_id as string | null;
+      if (threadId) {
+        const { data: threadEmails } = await userClient
+          .from("emails")
+          .select("from_address, subject, body_text")
+          .eq("thread_ref", threadId)
+          .order("sent_at", { ascending: false })
+          .limit(20);
+        const externalEmail = (threadEmails ?? []).find(
+          (e: any) => !isInternalEmail(e.from_address ?? "")
+        );
+        if (externalEmail) {
+          langText = externalEmail.body_text || externalEmail.subject || null;
+          languageSource = "latest_external_thread_email";
+        }
+      }
+    }
+
+    if (langText) {
+      customerLanguage = detectLanguage(langText);
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════
   // P0-C: Deterministic branch for REQUEST_CLIENT_INFO_FOR_GAPS
   // Skips AI entirely — builds draft from gap policy whitelist
@@ -147,12 +226,28 @@ serve(async (req: Request) => {
       relevantGaps.map((g: Record<string, unknown>) => g["gap_key"] as string)
     );
     const questions = buildClientQuestionsFromGaps(
-      normalizedKeys.map((k) => ({ gap_key: k }))
+      normalizedKeys.map((k) => ({ gap_key: k })),
+      customerLanguage
     );
 
-    // 5. Build deterministic email
-    const draftSubject = "Informations complémentaires pour votre cotation";
-    const draftBody = `Bonjour,
+    // 5. Build deterministic email (language-aware)
+    const draftSubject = customerLanguage === "en"
+      ? "Additional information required for your quotation"
+      : "Informations complémentaires pour votre cotation";
+
+    const draftBody = customerLanguage === "en"
+      ? `Hello,
+
+To finalize your logistics quotation, we need a few additional details:
+
+${questions.map((q) => "- " + q).join("\n")}
+
+As soon as we receive this information, we will be able to finalize your quote promptly.
+
+Best regards,
+Quotation Team
+SODATRA`
+      : `Bonjour,
 
 Afin de finaliser votre cotation logistique, nous avons besoin de quelques informations complémentaires :
 
@@ -181,6 +276,8 @@ SODATRA`;
           draft_reply: draft,
           requested_gap_keys: normalizedKeys,
           deterministic: true,
+          customer_language: customerLanguage,
+          language_source: languageSource,
         },
       })
       .select("id")
@@ -288,10 +385,15 @@ SODATRA`;
   }
 
   // ── AI call ──
+  const langInstruction = customerLanguage === "en"
+    ? "Write the email reply draft strictly in English."
+    : "Rédige le brouillon de réponse email strictement en français.";
+
   const systemPrompt = `Tu es un assistant logistique professionnel chez SODATRA (transitaire/commissionnaire de transport au Sénégal).
-Génère un brouillon de réponse email en français, professionnel et court.
+${langInstruction}
+Génère un brouillon de réponse email professionnel et court.
 - Confirme la réception de la demande
-- Indique la prochaine étape (ex: "nous revenons vers vous avec un devis sous 24h")
+- Indique la prochaine étape (ex: "nous revenons vers vous avec un devis sous 24h" / "we will get back to you with a quote within 24h")
 - Ne pas inventer de chiffres, dates ou tarifs. Si une info manque, demande-la clairement.
 - Ton : professionnel, courtois, concis.
 
@@ -343,6 +445,8 @@ Aucun texte avant ou après le JSON.`;
           kind: "reply_draft_v1",
           draft_reply: draft,
           model_meta: { model: "google/gemini-2.5-flash", version: "v1" },
+          customer_language: customerLanguage,
+          language_source: languageSource,
         },
       });
 

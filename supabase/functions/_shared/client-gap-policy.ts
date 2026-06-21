@@ -41,18 +41,36 @@ const GAP_QUESTION_MAP: Record<string, string> = {
   "pricing.pad_category": "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables.",
 };
 
+const GAP_QUESTION_MAP_EN: Record<string, string> = {
+  "cargo.description": "Could you please specify the exact description of the goods?",
+  "cargo.value": "What is the total commercial value of the goods?",
+  "cargo.weight_kg": "What is the total gross weight of the goods (in kg)?",
+  "cargo.volume_cbm": "What is the total volume of the goods (CBM)?",
+  "cargo.hs_code": "Do you have the customs tariff code (HS code) for the goods?",
+  "cargo.pieces_count": "What is the exact number of packages/pieces?",
+  "routing.origin_port": "What is the port or airport of departure?",
+  "routing.destination_port": "What is the port or airport of destination?",
+  "routing.destination_city": "What is the final destination city for the goods?",
+  "routing.destination_country": "What is the final destination country?",
+  "routing.transport_mode": "Is the shipment by air, sea, or road?",
+  "pricing.pad_category": "Could you please specify the exact nature of the goods and the total gross weight? This information is required to determine the applicable port handling charges.",
+};
+
 /**
- * Build deterministic French questions from a list of gaps.
+ * Build deterministic questions from a list of gaps.
+ * language defaults to "fr" for backward compatibility.
  * Input gap_keys are sorted and deduplicated for stable output.
  */
 export function buildClientQuestionsFromGaps(
-  gaps: Array<{ gap_key: string }>
+  gaps: Array<{ gap_key: string }>,
+  language: "fr" | "en" = "fr"
 ): string[] {
+  const map = language === "en" ? GAP_QUESTION_MAP_EN : GAP_QUESTION_MAP;
   const uniqueKeys = [...new Set(gaps.map((g) => g.gap_key))].sort();
   const questions: string[] = [];
 
   for (const key of uniqueKeys) {
-    const q = GAP_QUESTION_MAP[key];
+    const q = map[key];
     if (q) questions.push(q);
   }
 
