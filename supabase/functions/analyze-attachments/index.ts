@@ -82,8 +82,10 @@ async function extractPdfText(uint8Array: Uint8Array): Promise<string> {
  */
 function normalizeText(text: string): string {
   return text
+    // eslint-disable-next-line no-control-regex -- intentional: strips null chars before DB write
     .replace(/\u0000/g, '')
     .replace(/\\u0000/g, '')
+    // eslint-disable-next-line no-control-regex -- intentional: strips non-printable control chars before DB write
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

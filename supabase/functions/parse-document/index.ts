@@ -80,7 +80,9 @@ serve(async (req) => {
     // Helper function to sanitize text for database storage
     const sanitizeText = (text: string): string => {
       return text
+        // eslint-disable-next-line no-control-regex -- intentional: strips null chars before DB write
         .replace(/\u0000/g, '') // Remove null characters
+        // eslint-disable-next-line no-control-regex -- intentional: strips non-printable control chars before DB write
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove control characters except newline, tab, carriage return
         .replace(/\\u0000/g, '') // Remove escaped null sequences
         .trim();

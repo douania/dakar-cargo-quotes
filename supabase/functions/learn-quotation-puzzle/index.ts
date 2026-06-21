@@ -375,9 +375,9 @@ serve(async (req) => {
       console.log(`[Puzzle] Created job ${newJob.id} for thread ${threadId}`);
 
       // Launch background worker (best-effort via waitUntil)
-      // @ts-ignore - EdgeRuntime is available in Deno Deploy
+      // @ts-expect-error - EdgeRuntime is available in Deno Deploy
       if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-        // @ts-ignore
+        // @ts-expect-error -- EdgeRuntime.waitUntil available in Deno Deploy
         EdgeRuntime.waitUntil(
           processAllPhases(supabase, lovableApiKey, newJob.id, threadId)
         );

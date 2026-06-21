@@ -40,7 +40,9 @@ const TEXT_EXTENSIONS = new Set(["txt", "csv", "md"]);
 
 const sanitizeText = (text: string): string =>
   text
+    // eslint-disable-next-line no-control-regex -- intentional: strips null chars before DB write
     .replace(/\u0000/g, "")
+    // eslint-disable-next-line no-control-regex -- intentional: strips non-printable control chars before DB write
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
     .replace(/\\u0000/g, "")
     .trim();

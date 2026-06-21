@@ -44,6 +44,7 @@ function sanitize(text: string): string {
     .replace(/\u00EE/g, 'i')           // î
     .replace(/\u00FB/g, 'u')           // û
     .replace(/\u00E7/g, 'c')           // ç
+    // eslint-disable-next-line no-control-regex -- intentional: rejects chars outside Latin-1 range for PDF safety
     .replace(/[^\x00-\xFF]/g, '?');    // catch-all: replace anything outside Latin-1
 }
 

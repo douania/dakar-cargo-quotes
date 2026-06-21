@@ -1608,10 +1608,11 @@ async function generateQuotationLines(
             amount = charge.default_amount * totalCnt;
           }
           break;
-        case 'PER_TEU':
+        case 'PER_TEU': {
           const totalEVP = containers.reduce((s, c) => s + (getEVPMultiplier(c.type) * c.quantity), 0);
           amount = charge.default_amount * totalEVP;
           break;
+        }
         case 'PER_BL':
           amount = charge.default_amount; // Assume 1 BL
           break;
