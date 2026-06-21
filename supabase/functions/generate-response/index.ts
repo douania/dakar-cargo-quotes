@@ -961,6 +961,98 @@ function detectEmailLanguage(body: string, subject: string): 'FR' | 'EN' {
   return frScore > enScore ? 'FR' : 'EN';
 }
 
+// ============ DOCTRINE-BASED TARGET LANGUAGE RESOLUTION ============
+type TargetLanguage = 'FR' | 'EN';
+
+interface TargetLanguageResolution {
+  targetLanguage: TargetLanguage;
+  source_kind: string;
+  source_email_id: string | null;
+  focal_role: string;
+}
+
+// Safe version: tie or empty → FR (never defaults to EN on ambiguity)
+function safeDetectEmailLanguage(body: string, subject: string): TargetLanguage {
+  const content = ((body || '') + ' ' + (subject || '')).toLowerCase();
+  const frenchWords = ['bonjour', 'cher', 'madame', 'monsieur', 'veuillez', 'merci',
+    'cordialement', 'pièce jointe', 'en attaché', 'prière de', 's\'il vous plaît',
+    'ci-joint', 'nous vous prions', 'salutations', 'meilleures', 'sincères',
+    'objet', 'demande', 'concernant', 'suite à', 'selon', 'notre offre'];
+  const englishWords = ['dear', 'please', 'kindly', 'attached', 'regards', 'thank you',
+    'find below', 'best regards', 'looking forward', 'further to', 'as per',
+    'herewith', 'enclosed', 'subject', 'request', 'concerning', 'following'];
+  const frScore = frenchWords.filter(w => content.includes(w)).length;
+  const enScore = englishWords.filter(w => content.includes(w)).length;
+  // Tie or no signal → FR (never return EN by default)
+  return enScore > frScore ? 'EN' : 'FR';
+}
+
+function resolveFocalRoleFromAddress(addr: string): 'internal' | 'partner' | 'unknown' {
+  const lower = (addr ?? '').toLowerCase();
+  if (lower.includes('@sodatra')) return 'internal';
+  if (lower.includes('2hl') || lower.includes('taleb')) return 'partner';
+  return 'unknown';
+}
+
+function resolveTargetLanguage(params: {
+  focalEmailId: string | null;
+  focalFromAddress: string;
+  focalBodyText: string;
+  focalSubject: string;
+  aiSenderRole: string;
+  threadEmails: Array<{ from_address: string; subject: string; body_text: string; sent_at: string }> | null;
+}): TargetLanguageResolution {
+  const { focalFromAddress, focalBodyText, focalSubject, aiSenderRole, threadEmails, focalEmailId } = params;
+
+  // Domain heuristics override AI-detected role
+  const domainRole = resolveFocalRoleFromAddress(focalFromAddress);
+  const focalRole = domainRole !== 'unknown' ? domainRole : (aiSenderRole || 'unknown');
+
+  // Rule 1 — Partner always gets FR (even if partner email is in EN)
+  if (focalRole === 'partner') {
+    return { targetLanguage: 'FR', source_kind: 'partner_default_fr', source_email_id: null, focal_role: focalRole };
+  }
+
+  // Rule 2 — Internal SODATRA always FR
+  if (focalRole === 'internal') {
+    return { targetLanguage: 'FR', source_kind: 'internal_default_fr', source_email_id: null, focal_role: focalRole };
+  }
+
+  // Rule 3 — Client: use last external email in thread, fallback to focal
+  if (focalRole === 'client') {
+    const externalEmails = (threadEmails ?? [])
+      .slice()
+      .sort((a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime())
+      .filter(e => resolveFocalRoleFromAddress(e.from_address) === 'unknown');
+
+    if (externalEmails.length > 0) {
+      const lastClient = externalEmails[0];
+      return {
+        targetLanguage: safeDetectEmailLanguage(lastClient.body_text, lastClient.subject),
+        source_kind: 'last_client_email',
+        source_email_id: null, // thread query does not select email id
+        focal_role: focalRole,
+      };
+    }
+
+    return {
+      targetLanguage: safeDetectEmailLanguage(focalBodyText, focalSubject),
+      source_kind: 'focal_client_email',
+      source_email_id: focalEmailId,
+      focal_role: focalRole,
+    };
+  }
+
+  // Rule 4 — Grouped client+partner: not representable in current payload → not guaranteed.
+  // Rule 5 — Unknown/external/supplier: detect from focal
+  return {
+    targetLanguage: safeDetectEmailLanguage(focalBodyText, focalSubject),
+    source_kind: 'focal_client_email',
+    source_email_id: focalEmailId,
+    focal_role: focalRole || 'unknown',
+  };
+}
+
 // Helper function to select the best expert based on email content
 function selectExpertForResponse(emailContent: string, subject: string): 'taleb' | 'cherif' {
   const douaneKeywords = ['douane', 'hs code', 'customs', 'dédouanement', 'tarif douanier', 'nomenclature', 'duty', 'tax', 'droits de douane', 'clearance', 'declaration'];
@@ -1296,13 +1388,35 @@ serve(async (req) => {
       });
     }
 
-    const { emailId, customInstructions, expertStyle, quotationData } = body as {
+    const { emailId, customInstructions, expertStyle, quotationData, reply_language_override } = body as {
       emailId?: string;
       customInstructions?: string;
       expertStyle?: string;
       quotationData?: Record<string, unknown>;
+      reply_language_override?: string;
     };
-    
+
+    // ── Strict validation of manual language override (no silent acceptance) ──
+    // undefined → AUTO (current detection behavior). Only 'AUTO' | 'FR' | 'EN' accepted.
+    // Validate the raw string FIRST, then assign after narrowing so the union type is sound.
+    const rawReplyLanguageOverride = reply_language_override ?? 'AUTO';
+    if (rawReplyLanguageOverride !== 'AUTO' && rawReplyLanguageOverride !== 'FR' && rawReplyLanguageOverride !== 'EN') {
+      // Non-blocking, non-sensitive log only (avoids the pre-existing logRuntimeEvent
+      // SupabaseClient typing error; rejection below is explicit and non-silent).
+      console.warn("[generate-response] invalid_reply_language_override", {
+        correlationId,
+        received: String(reply_language_override),
+      });
+
+      return respondError({
+        code: 'VALIDATION_FAILED',
+        message: "reply_language_override must be 'AUTO', 'FR' or 'EN'",
+        correlationId,
+      });
+    }
+
+    const replyLanguageOverride: 'AUTO' | 'FR' | 'EN' = rawReplyLanguageOverride;
+
     if (!LOVABLE_API_KEY) {
       return respondError({
         code: 'VALIDATION_FAILED',
@@ -2012,12 +2126,15 @@ Réponds en JSON:
       return 'EXTERNE';
     }
 
+    let threadEmailsForLang: Array<{ from_address: string; subject: string; body_text: string; sent_at: string }> | null = null;
     if (emailThreadId) {
       const { data: threadEmails } = await supabase
         .from('emails')
         .select('from_address, subject, body_text, sent_at')
         .eq('thread_id', emailThreadId)
         .order('sent_at', { ascending: true });
+
+      threadEmailsForLang = threadEmails ?? null;
 
       if (threadEmails && threadEmails.length > 1) {
         threadContext = '\n\n=== HISTORIQUE DU FIL (du plus ancien au plus récent) ===\n';
@@ -2028,6 +2145,22 @@ Réponds en JSON:
         }
       }
     }
+
+    // ── Resolve target language: doctrine overrides aiExtracted.detected_language ──
+    const langResolution = resolveTargetLanguage({
+      focalEmailId: emailId ?? null,
+      focalFromAddress: emailFromAddress,
+      focalBodyText: emailBodyText,
+      focalSubject: emailSubject,
+      aiSenderRole: aiExtracted.email_context?.sender_role ?? 'unknown',
+      threadEmails: threadEmailsForLang,
+    });
+    // Manual operator override is the FINAL authority over any AI/doctrine detection.
+    const overrideApplied = replyLanguageOverride === 'FR' || replyLanguageOverride === 'EN';
+    const targetLanguage: TargetLanguage = overrideApplied
+      ? (replyLanguageOverride as TargetLanguage)
+      : langResolution.targetLanguage;
+    const languageSourceKind = overrideApplied ? 'manual_override' : langResolution.source_kind;
 
     // ============ DETECT REGIME AND ADD LEGAL CONTEXT ============
     const emailContentForRegime = emailBodyText + ' ' + emailSubject;
@@ -2619,8 +2752,8 @@ Réponds en JSON:
 
     // Build analysis context for AI (using AI-extracted data)
     const analysisContext = `\n\n=== ANALYSE AUTOMATIQUE DE LA DEMANDE (AI-POWERED) ===
-📌 LANGUE DÉTECTÉE: ${aiExtracted.detected_language}
-   → Tu DOIS répondre 100% en ${aiExtracted.detected_language === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
+📌 LANGUE CIBLE: ${targetLanguage} (IA observée: ${aiExtracted.detected_language}, source: ${languageSourceKind})
+   → Tu DOIS répondre 100% en ${targetLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'}
    
 📌 TYPE DE DEMANDE: ${aiExtracted.request_type}
 📌 PEUT COTER MAINTENANT: ${aiExtracted.can_quote_now ? 'OUI' : 'NON - CONTEXTE INSUFFISANT'}
@@ -2707,7 +2840,7 @@ EXEMPLE DE STRUCTURE :
     // ============ BUILD PROMPT ============
     const userPrompt = `
 === PARAMÈTRES CRITIQUES ===
-detected_language: "${aiExtracted.detected_language}"
+detected_language: "${targetLanguage}"
 request_type: "${aiExtracted.request_type}"
 can_quote_now: ${aiExtracted.can_quote_now}
 transport_mode: "${aiExtracted.transport_mode}"
@@ -2742,7 +2875,7 @@ ${intentContext}
 ${customInstructions ? `INSTRUCTIONS SUPPLÉMENTAIRES: ${customInstructions}` : ''}
 
 RAPPELS CRITIQUES:
-1. 🌍 LANGUE: Réponds 100% en ${aiExtracted.detected_language === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'} - NE MÉLANGE PAS LES LANGUES
+1. 🌍 LANGUE: Réponds 100% en ${targetLanguage === 'FR' ? 'FRANÇAIS' : 'ANGLAIS'} - NE MÉLANGE PAS LES LANGUES
 2. 📋 SI can_quote_now = false: 
    - N'invente PAS de prix
    - Accuse réception (PI, demande)
@@ -2803,10 +2936,10 @@ RAPPELS CRITIQUES:
     }
 
     // Build the complete email body from structured response
-    const greeting = parsedResponse.greeting || (aiExtracted.detected_language === 'FR' ? 'Bonjour,' : 'Dear Sir/Madam,');
+    const greeting = parsedResponse.greeting || (targetLanguage === 'FR' ? 'Bonjour,' : 'Dear Sir/Madam,');
     const bodyShort = parsedResponse.body_short || parsedResponse.body || '';
     const delegation = parsedResponse.delegation ? `\n\n${parsedResponse.delegation}` : '';
-    const closing = parsedResponse.closing || (aiExtracted.detected_language === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
+    const closing = parsedResponse.closing || (targetLanguage === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
     const signature = parsedResponse.signature || 'Taleb HOBALLAH\n2HL Group';
     
     const fullBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
@@ -2831,7 +2964,7 @@ RAPPELS CRITIQUES:
       throw new Error("Erreur de création du brouillon");
     }
 
-    console.log(`Generated ${aiExtracted.detected_language} draft (type: ${aiExtracted.request_type}, canQuote: ${aiExtracted.can_quote_now}, transport: ${aiExtracted.transport_mode}):`, draft.id);
+    console.log(`Generated ${targetLanguage} draft (ai_lang: ${aiExtracted.detected_language}, override: ${replyLanguageOverride}, source: ${languageSourceKind}, type: ${aiExtracted.request_type}, canQuote: ${aiExtracted.can_quote_now}, transport: ${aiExtracted.transport_mode}):`, draft.id);
 
     // ============ GENERATE ATTACHMENT IF NEEDED ============
     let attachmentResult: any = null;
@@ -2898,10 +3031,20 @@ RAPPELS CRITIQUES:
       status: 'ok',
       httpStatus: 200,
       durationMs: Date.now() - startTime,
-      meta: { 
-        request_type: aiExtracted.request_type, 
+      meta: {
+        request_type: aiExtracted.request_type,
         transport_mode: aiExtracted.transport_mode,
-        can_quote_now: aiExtracted.can_quote_now 
+        can_quote_now: aiExtracted.can_quote_now,
+        language_source: {
+          focal_email_id: emailId ?? null,
+          source_email_id: langResolution.source_email_id,
+          focal_role: langResolution.focal_role,
+          source_kind: languageSourceKind,
+          language_override: replyLanguageOverride,
+          ai_detected_language: aiExtracted.detected_language,
+          target_language: targetLanguage,
+          overridden: targetLanguage !== aiExtracted.detected_language,
+        },
       },
     });
 
@@ -2909,7 +3052,11 @@ RAPPELS CRITIQUES:
       success: true,
       draft: draft,
       // Analysis fields
-      detected_language: aiExtracted.detected_language,
+      detected_language: targetLanguage,
+      ai_detected_language: aiExtracted.detected_language,
+      language_override: replyLanguageOverride,
+      target_language: targetLanguage,
+      language_source: languageSourceKind,
       request_type: aiExtracted.request_type,
       can_quote_now: aiExtracted.can_quote_now,
       clarification_questions: parsedResponse.clarification_questions || aiExtracted.questions_to_ask,

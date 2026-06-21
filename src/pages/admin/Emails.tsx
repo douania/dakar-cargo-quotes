@@ -20,6 +20,7 @@ import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
+import type { ReplyLanguageOverride } from '@/services/emailService';
 import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
 import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFromEmailButton';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
@@ -121,6 +122,8 @@ export default function Emails() {
   const [showGuidanceDialog, setShowGuidanceDialog] = useState(false);
   const [guidanceEmailId, setGuidanceEmailId] = useState<string | null>(null);
   const [guidanceEmailSubject, setGuidanceEmailSubject] = useState<string>('');
+  // LANGUAGE-OVERRIDE-PER-DRAFT-1: manual reply language (default AUTO = current behavior)
+  const [replyLanguage, setReplyLanguage] = useState<ReplyLanguageOverride>('AUTO');
   
   // Multi-selection state
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
@@ -365,7 +368,7 @@ export default function Emails() {
   const generateResponse = async (emailId: string, customInstructions?: string, expertStyle: ExpertStyle = 'auto') => {
     try {
       const { data, error } = await supabase.functions.invoke('generate-response', {
-        body: { emailId, customInstructions, expertStyle }
+        body: { emailId, customInstructions, expertStyle, reply_language_override: replyLanguage }
       });
 
       if (error) throw error;
@@ -1518,7 +1521,17 @@ export default function Emails() {
                   {/* Attachments */}
                   <EmailAttachments emailId={selectedEmail.id} />
                   
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <Select value={replyLanguage} onValueChange={(v) => setReplyLanguage(v as ReplyLanguageOverride)}>
+                      <SelectTrigger className="w-[130px]" title="Langue de la réponse">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AUTO">Auto</SelectItem>
+                        <SelectItem value="FR">Français</SelectItem>
+                        <SelectItem value="EN">English</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button onClick={() => {
                       setSelectedEmail(null);
                       openGuidanceDialog(selectedEmail.id, selectedEmail.subject || 'Sans objet');

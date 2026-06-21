@@ -104,6 +104,7 @@ import type {
 
 // Utilitaires de parsing
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
+import type { ReplyLanguageOverride } from '@/services/emailService';
 import { 
   decodeBase64Content,
   isInternalEmail,
@@ -154,6 +155,8 @@ export default function QuotationSheet() {
   
   const [isLoading, setIsLoading] = useState(!isNewQuotation);
   const [isGenerating, setIsGenerating] = useState(false);
+  // LANGUAGE-OVERRIDE-PER-DRAFT-1: manual reply language (default AUTO = current behavior)
+  const [replyLanguage, setReplyLanguage] = useState<ReplyLanguageOverride>('AUTO');
   const [isLearning, setIsLearning] = useState(false);
   const [threadEmails, setThreadEmails] = useState<ThreadEmail[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<ThreadEmail | null>(null);
@@ -1378,8 +1381,9 @@ L'équipe SODATRA`;
       // Générer aussi la réponse email (SEULEMENT si email source existe)
       if (!isNewQuotation && emailId) {
         const { data, error } = await supabase.functions.invoke('generate-response', {
-          body: { 
+          body: {
             emailId,
+            reply_language_override: replyLanguage,
             threadEmails: threadEmails.map(e => ({
               from: e.from_address,
               subject: e.subject,
@@ -1476,6 +1480,25 @@ L'équipe SODATRA`;
           needsAnalysis={needsAnalysis}
           isLegacyLocked={isLegacyLocked}
         />
+
+        {/* LANGUAGE-OVERRIDE-PER-DRAFT-1: langue de la réponse email générée */}
+        {!isNewQuotation && emailId && (
+          <div className="flex items-center gap-2 mt-2">
+            <Label htmlFor="reply-language" className="text-sm text-muted-foreground">
+              Langue de la réponse
+            </Label>
+            <Select value={replyLanguage} onValueChange={(v) => setReplyLanguage(v as ReplyLanguageOverride)}>
+              <SelectTrigger id="reply-language" className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="AUTO">Auto</SelectItem>
+                <SelectItem value="FR">Français</SelectItem>
+                <SelectItem value="EN">English</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Phase 8.7: Loader pendant chargement quote_case */}
         {!quotationCompleted && isLoadingQuoteCase && (

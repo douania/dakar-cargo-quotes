@@ -94,16 +94,20 @@ export async function learnFromEmail(emailId: string) {
 
 export type ExpertStyle = 'auto' | 'taleb' | 'cherif';
 
+// LANGUAGE-OVERRIDE-PER-DRAFT-1: manual reply language override (strictly typed)
+export type ReplyLanguageOverride = 'AUTO' | 'FR' | 'EN';
+
 export async function generateEmailResponse(
-  emailId: string, 
+  emailId: string,
   customInstructions?: string,
-  expertStyle: ExpertStyle = 'auto'
+  expertStyle: ExpertStyle = 'auto',
+  replyLanguageOverride: ReplyLanguageOverride = 'AUTO'
 ) {
   // Phase 14: Correlation header
   const correlationId = crypto.randomUUID();
-  
+
   const { data, error } = await supabase.functions.invoke('generate-response', {
-    body: { emailId, customInstructions, expertStyle },
+    body: { emailId, customInstructions, expertStyle, reply_language_override: replyLanguageOverride },
     headers: { 'x-correlation-id': correlationId }
   });
   
