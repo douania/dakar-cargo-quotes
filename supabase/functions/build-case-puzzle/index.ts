@@ -7002,6 +7002,13 @@ Deno.serve(async (req) => {
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
         EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
         DECISIVE_ATTACHMENT_GAP_KEY, // P0-3: géré par son propre bloc, exclu de la fermeture orpheline
+        // COMPOSITE-CARGO-GAP-AUTO-RESOLUTION-1 — gaps émis par
+        // detectCargoConflictGuards. Ils doivent survivre à la fermeture orpheline
+        // jusqu'à confirmation client/opérateur de l'ambiguïté composite.
+        "cargo.pieces_count_conflict",
+        "cargo.weight_total_confirmation",
+        "cargo.value_conflict",
+        "cargo.mixed_scope_confirmation",
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
       for (const k of fclConstraintResult.protectedGapKeys) mandatorySet.add(k);
