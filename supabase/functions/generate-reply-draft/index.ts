@@ -9,41 +9,16 @@ import {
   buildClientQuestionsFromGaps,
   normalizeGapKeys,
 } from "../_shared/client-gap-policy.ts";
+import {
+  detectLanguage,
+  normalizeTextForLanguageDetection,
+} from "../_shared/language-detection.ts";
 
 const INTERNAL_DOMAINS = ["sodatra.sn", "2hlgroup.com", "2hl.sn"];
 
 function isInternalEmail(fromAddress: string): boolean {
   const lower = (fromAddress ?? "").toLowerCase();
   return INTERNAL_DOMAINS.some((d) => lower.includes("@" + d));
-}
-
-function detectLanguage(text: string): "fr" | "en" {
-  const lower = text.toLowerCase();
-  let fr = 0;
-  let en = 0;
-  // French indicators
-  if (lower.includes("bonjour")) fr++;
-  if (lower.includes("cordialement")) fr++;
-  if (lower.includes("merci")) fr++;
-  if (lower.includes(" vous ")) fr++;
-  if (lower.includes(" nous ")) fr++;
-  if (lower.includes(" des ")) fr++;
-  if (lower.includes(" les ")) fr++;
-  if (lower.includes(" pour ")) fr++;
-  if (lower.includes("cotation")) fr++;
-  if (lower.includes("marchandise")) fr++;
-  // English indicators
-  if (lower.includes("dear ")) en++;
-  if (lower.includes("regards")) en++;
-  if (lower.includes("please")) en++;
-  if (lower.includes("thank you")) en++;
-  if (lower.includes(" the ")) en++;
-  if (lower.includes(" is ")) en++;
-  if (lower.includes(" are ")) en++;
-  if (lower.includes("freight")) en++;
-  if (lower.includes("shipment")) en++;
-  if (lower.includes("quotation")) en++;
-  return en > fr ? "en" : "fr";
 }
 
 serve(async (req: Request) => {
@@ -186,7 +161,10 @@ serve(async (req: Request) => {
     }
 
     if (langText) {
-      customerLanguage = detectLanguage(langText);
+      // Le corps stocké peut être MIME/base64 brut (ex: "QzAg...") : on le
+      // normalise pour restaurer les marqueurs de langue avant détection.
+      // Sinon detectLanguage ne voit aucun marqueur et retombe sur "fr".
+      customerLanguage = detectLanguage(normalizeTextForLanguageDetection(langText));
     }
   }
 
