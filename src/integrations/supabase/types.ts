@@ -4937,6 +4937,110 @@ export type Database = {
           },
         ]
       }
+      quote_scenario_assumptions: {
+        Row: {
+          assumed_fact_key: string | null
+          assumption_type: string
+          basis: string | null
+          case_id: string
+          client_gap_request_id: string | null
+          client_visible: boolean
+          created_at: string
+          created_by: string | null
+          gap_key: string | null
+          id: string
+          metadata: Json
+          promoted_fact_id: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          risk_level: string
+          scope_key: string
+          source_refs: Json
+          source_type: string
+          statement: string
+          status: string
+          superseded_by_assumption_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assumed_fact_key?: string | null
+          assumption_type: string
+          basis?: string | null
+          case_id: string
+          client_gap_request_id?: string | null
+          client_visible?: boolean
+          created_at?: string
+          created_by?: string | null
+          gap_key?: string | null
+          id?: string
+          metadata?: Json
+          promoted_fact_id?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          risk_level?: string
+          scope_key?: string
+          source_refs?: Json
+          source_type?: string
+          statement: string
+          status?: string
+          superseded_by_assumption_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assumed_fact_key?: string | null
+          assumption_type?: string
+          basis?: string | null
+          case_id?: string
+          client_gap_request_id?: string | null
+          client_visible?: boolean
+          created_at?: string
+          created_by?: string | null
+          gap_key?: string | null
+          id?: string
+          metadata?: Json
+          promoted_fact_id?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          risk_level?: string
+          scope_key?: string
+          source_refs?: Json
+          source_type?: string
+          statement?: string
+          status?: string
+          superseded_by_assumption_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_assumptions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_assumptions_client_gap_request_id_fkey"
+            columns: ["client_gap_request_id"]
+            isOneToOne: false
+            referencedRelation: "client_gap_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_assumptions_promoted_fact_id_fkey"
+            columns: ["promoted_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_assumptions_superseded_by_assumption_id_fkey"
+            columns: ["superseded_by_assumption_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_assumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_service_pricing: {
         Row: {
           case_id: string
