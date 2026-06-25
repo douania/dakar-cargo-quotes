@@ -77,6 +77,7 @@ import { CommunicationSummaryCard } from "@/components/case/CommunicationSummary
 import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
 import { ReadyActionsPanel } from "@/components/case/ReadyActionsPanel";
+import { QuoteScenarioAssumptionsPanel } from "@/components/case/QuoteScenarioAssumptionsPanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
@@ -1792,6 +1793,9 @@ export default function CaseView() {
           </Card>
           );
         })()}
+
+        {/* Phase PROVISIONAL-SCENARIO-QUOTES-UI-1A: read-only operator assumptions ledger */}
+        {caseId && <QuoteScenarioAssumptionsPanel caseId={caseId} />}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
