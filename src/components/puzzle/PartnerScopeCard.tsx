@@ -78,7 +78,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return data?.body_text ?? undefined;
+      return data?.body_text ?? "";
     },
     staleTime: 60_000,
   });
