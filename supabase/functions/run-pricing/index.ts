@@ -815,7 +815,7 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage' | 'enrichment_carrier_commission';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage' | 'enrichment_carrier_commission' | 'enrichment_carrier_charges';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
@@ -936,9 +936,75 @@ function canonicalizeLine(
     canonical.source_system = 'carrier_billing_templates';
     canonical.source_table = 'carrier_billing_templates';
     canonical.pricing_method = 'percentage_on_pad';
+  } else if (context.origin_layer === 'enrichment_carrier_charges') {
+    // Dynamic per carrier/charge_code — category is `${CARRIER}_${CHARGE_CODE}`
+    const serviceKey = typeof line?.category === 'string' ? line.category : null;
+    canonical.service_key = serviceKey;
+    canonical.dedup_group = serviceKey;
+    canonical.source_system = 'carrier_billing_templates';
+    canonical.source_table = 'carrier_billing_templates';
+    const srcType = normalizeSourceType(line?.source?.type);
+    canonical.pricing_method = srcType ? (SOURCE_TYPE_TO_METHOD[srcType] || null) : null;
   }
 
   return { ...line, canonical };
+}
+
+// Carrier port charge ambiguity guard (mirrored from quotation-engine/index.ts).
+// Blocks charges whose label/code overlaps with PAD_DROIT_PASSAGE to prevent double-counting.
+// HAPAG_LLOYD/TXI exception: validated_internal/official PER_BL 25000 — known firm carrier charge.
+export function isAmbiguousCarrierPortChargeBasic(charge: any): boolean {
+  const norm = (v: unknown): string => normalizePricingText(v).toUpperCase();
+  const carrier = norm(charge?.carrier);
+  const code = norm(charge?.charge_code);
+  const name = norm(charge?.charge_name);
+  const notes = norm(charge?.notes);
+  const evidenceLevel = norm(charge?.evidence_level);
+  const calcMethod = norm(charge?.calculation_method);
+  const defaultAmt = Number(charge?.default_amount);
+  const labelText = `${name} ${notes}`;
+
+  // HAPAG_LLOYD/TXI exception: firm validated carrier charge, not a PAD proxy
+  if (
+    carrier === 'HAPAG_LLOYD' &&
+    code === 'TXI' &&
+    ['OFFICIAL', 'VALIDATED_INTERNAL'].includes(evidenceLevel) &&
+    calcMethod === 'PER_BL' &&
+    defaultAmt === 25000
+  ) {
+    return false;
+  }
+
+  // Blocked charge codes
+  if ([
+    'TXI', 'XPV_20', 'XPV_40', 'PSX_20', 'PSX_40',
+    'PCD', 'PORT_TAX', 'PORT_DUES', 'PORT_CHARGES',
+  ].includes(code)) {
+    return true;
+  }
+
+  const ambiguousLabels = [
+    'PORT TAX', 'PORT DUES', 'PORT CHARGES', 'TAX IMPORT',
+    'TAXE PORT', 'TAXES PORT', 'TAXE DE PORT',
+    'DROIT PASSAGE', 'DROITS DE PASSAGE',
+    'TAXE PORTUAIRE', 'TAXES PORTUAIRES',
+    'REDEVANCE PORTUAIRE', 'REDEVANCES PORTUAIRES',
+    'PAD_DROIT_PASSAGE',
+  ];
+
+  const containsPortLabel = (text: string, phrase: string): boolean => {
+    const tokens = phrase.match(/[A-Z0-9]+/g);
+    if (!tokens?.length) return false;
+    const escaped = tokens.map((tok) => tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return new RegExp(`(^|[^A-Z0-9])${escaped.join('[^A-Z0-9]+')}(?=$|[^A-Z0-9])`).test(text);
+  };
+
+  if (ambiguousLabels.some((label) => containsPortLabel(name, label))) {
+    return true;
+  }
+
+  // COLL only blocked when port/tax wording appears in name or notes
+  return code === 'COLL' && ambiguousLabels.some((label) => containsPortLabel(labelText, label));
 }
 
 if (Deno.env.get("RUN_PRICING_DISABLE_SERVE") !== "1") {
@@ -3179,6 +3245,181 @@ ${JSON.stringify(refPayload)}`;
         }
       }
 
+      // ═══ Phase 3-C: Carrier Billing Charges Enrichment (ALL operation_type) ═══
+      // Corrects G2: operation_type='ALL' missed by quotation-engine strict filter.
+      // Mono-lot only — multi-lot returns before this point.
+      // CMA_CGM/COMM skipped: already enriched in Phase 3 PAD commission block.
+      // Ambiguous port charges skipped: would double-count PAD_DROIT_PASSAGE.
+      {
+        const carrierForEnrichment = normalizeCarrierCode(inputs.carrier);
+        const isCarrierEnrichmentEligible =
+          isMaritime &&
+          !isExportFlow &&
+          !isTransitLikeFlow(caseData, inputs, pkg) &&
+          !!carrierForEnrichment;
+
+        if (isCarrierEnrichmentEligible) {
+          try {
+            const { data: carrierTemplates, error: carrierTemplatesError } = await serviceClient
+              .from('carrier_billing_templates')
+              .select('carrier, charge_code, charge_name, calculation_method, default_amount, currency, operation_type, evidence_level, is_active, is_variable, base_reference, source_documents, notes')
+              .eq('carrier', carrierForEnrichment)
+              .eq('is_active', true)
+              .in('operation_type', ['IMPORT', 'ALL']);
+
+            if (carrierTemplatesError) throw carrierTemplatesError;
+
+            const enrichLines = engineResponse.lines || engineResponse.quotationLines || [];
+
+            // Engine line IDs for deduplication — engine uses 'carrier_${charge_code.lower}_N'
+            const engineLineIdSet = new Set<string>(
+              enrichLines.map((l: any) => String(l?.id || '')).filter(Boolean)
+            );
+
+            // Categories already enriched (defensive dedup)
+            const enrichedCategorySet = new Set<string>(
+              enrichLines.map((l: any) => String(l?.category || '')).filter(Boolean)
+            );
+
+            // Container quantities for PER_TEU / PER_CNT / PER_CONTAINER
+            const enrichContainers = inputs.containers || [];
+            const getTeuCount = (): number =>
+              enrichContainers.reduce((s: number, c: { type: string; quantity: number }) =>
+                s + (String(c.type || '').includes('40') ? 2 : 1) * c.quantity, 0);
+            const getCntCount = (): number =>
+              enrichContainers.reduce((s: number, c: { type: string; quantity: number }) => s + c.quantity, 0);
+
+            for (const t of (carrierTemplates || [])) {
+              const chargeCode = String(t.charge_code || '').trim().toUpperCase();
+              const car = normalizeCarrierCode(t.carrier);
+              const method = String(t.calculation_method || '').trim().toUpperCase();
+              const evl = String(t.evidence_level || '').trim().toLowerCase();
+              const isOfficialEvl = VALID_CARRIER_COMMISSION_EVIDENCE_LEVELS.has(evl);
+              const isVar = t.is_variable === true;
+              const amtRaw = t.default_amount;
+              const amt = Number(amtRaw ?? NaN);
+              const amtMissing = amtRaw === null || amtRaw === undefined || !Number.isFinite(amt) || amt <= 0;
+              const cur = String(t.currency || 'XOF').trim().toUpperCase();
+              const isXof = cur === 'XOF' || cur === 'FCFA';
+              const categoryKey = `${car}_${chargeCode}`;
+
+              // SKIP 1 — CMA_CGM/COMM: handled by Phase 3 PAD commission
+              if (car === 'CMA_CGM' && chargeCode === 'COMM') {
+                console.log('[CARRIER-ENRICH] Skip CMA_CGM/COMM — handled by Phase 3 PAD commission');
+                continue;
+              }
+
+              // SKIP 2 — already produced by engine (operation_type=IMPORT)
+              const engineIdPrefix = `carrier_${chargeCode.toLowerCase()}_`;
+              if ([...engineLineIdSet].some((id) => id.startsWith(engineIdPrefix))) {
+                console.log(`[CARRIER-ENRICH] Skip ${car}/${chargeCode} — already in engine lines`);
+                continue;
+              }
+
+              // SKIP 3 — category already enriched (defensive dedup)
+              if (enrichedCategorySet.has(categoryKey)) {
+                console.log(`[CARRIER-ENRICH] Skip ${car}/${chargeCode} — category ${categoryKey} already present`);
+                continue;
+              }
+
+              // SKIP 4 — ambiguous port/PAD charge (would double-count PAD_DROIT_PASSAGE)
+              if (isAmbiguousCarrierPortChargeBasic(t)) {
+                console.log(`[CARRIER-ENRICH] Skip ${car}/${chargeCode} — ambiguous port charge`);
+                continue;
+              }
+
+              // Determine line type and amount
+              let lineAmt = 0;
+              let srcType: string;
+              let toConfirmReason: string | null = null;
+
+              if (isVar) {
+                srcType = 'TO_CONFIRM';
+                toConfirmReason = 'is_variable=true';
+              } else if (amtMissing) {
+                srcType = 'TO_CONFIRM';
+                toConfirmReason = 'default_amount null ou invalide';
+              } else if (!isOfficialEvl) {
+                srcType = 'TO_CONFIRM';
+                toConfirmReason = `evidence_level="${evl}" (hors official/validated_internal)`;
+              } else if (!isXof) {
+                // Foreign currency — no conversion in run-pricing
+                srcType = 'TO_CONFIRM';
+                toConfirmReason = `currency="${cur}" — conversion non disponible dans run-pricing`;
+              } else {
+                // Firm candidate: official/validated_internal + XOF/FCFA + amount > 0 + !is_variable
+                switch (method) {
+                  case 'PER_BL':
+                    lineAmt = Math.round(amt);  // 1 BL mono-lot convention
+                    srcType = 'OFFICIAL';
+                    break;
+                  case 'PER_TEU': {
+                    const teu = getTeuCount();
+                    if (teu > 0) {
+                      lineAmt = Math.round(amt * teu);
+                      srcType = 'OFFICIAL';
+                    } else {
+                      srcType = 'TO_CONFIRM';
+                      toConfirmReason = 'PER_TEU — aucun conteneur (TEU=0)';
+                    }
+                    break;
+                  }
+                  case 'PER_CNT':
+                  case 'PER_CONTAINER': {
+                    const cnt = getCntCount();
+                    if (cnt > 0) {
+                      lineAmt = Math.round(amt * cnt);
+                      srcType = 'OFFICIAL';
+                    } else {
+                      srcType = 'TO_CONFIRM';
+                      toConfirmReason = 'PER_CNT/PER_CONTAINER — aucun conteneur (CNT=0)';
+                    }
+                    break;
+                  }
+                  case 'PERCENTAGE':
+                    srcType = 'TO_CONFIRM';
+                    toConfirmReason = `PERCENTAGE — V1 conservateur : aucun calcul ferme (base_reference="${t.base_reference || 'non défini'}")`;
+                    break;
+                  case 'PER_TONNE':
+                    srcType = 'TO_CONFIRM';
+                    toConfirmReason = 'PER_TONNE — montant variable ou non contractualisé';
+                    break;
+                  default:
+                    srcType = 'TO_CONFIRM';
+                    toConfirmReason = `méthode de calcul non gérée: ${method}`;
+                }
+              }
+
+              const lineLabel = String(t.charge_name || chargeCode);
+              const lineDesc = srcType === 'TO_CONFIRM'
+                ? `${lineLabel} — À confirmer : ${toConfirmReason}`
+                : `${lineLabel} (${car})`;
+
+              enrichLines.push(canonicalizeLine({
+                category: categoryKey,
+                label: lineLabel,
+                description: lineDesc,
+                amount: lineAmt,
+                currency: isXof ? 'XOF' : cur,
+                source: {
+                  type: srcType,
+                  reference: getSourceReferenceFromTemplate(t),
+                  confidence: srcType === 'TO_CONFIRM' ? 0 : 0.9,
+                  table: 'carrier_billing_templates',
+                },
+                isEditable: srcType === 'TO_CONFIRM',
+              }, { origin_layer: 'enrichment_carrier_charges' }));
+
+              console.log(`[CARRIER-ENRICH] ${car}/${chargeCode} → ${srcType}${lineAmt > 0 ? ` ${lineAmt} ${isXof ? 'XOF' : cur}` : (toConfirmReason ? ` (${toConfirmReason})` : '')}`);
+            }
+
+            engineResponse.lines = enrichLines;
+          } catch (carrierEnrichErr) {
+            console.warn('[CARRIER-ENRICH] Non-blocking error:', String(carrierEnrichErr));
+          }
+        }
+      }
+
     } catch (engineError: any) {
       console.error("Pricing engine error:", engineError);
 
@@ -3289,14 +3530,15 @@ ${JSON.stringify(refPayload)}`;
       ? rawDdp
       : engineDapComputed + engineDebours;
 
-    // Post-engine enrichment: PAD + terminal storage + carrier commission (non-TO_CONFIRM, amount > 0)
+    // Post-engine enrichment: PAD + terminal storage + carrier commission + carrier charges (non-TO_CONFIRM, amount > 0)
     const enrichmentAmount = tariffLines
       .filter((l: any) => {
         const layer = l.canonical?.origin_layer;
         if (
           layer !== 'enrichment_pad' &&
           layer !== 'enrichment_terminal_storage' &&
-          layer !== 'enrichment_carrier_commission'
+          layer !== 'enrichment_carrier_commission' &&
+          layer !== 'enrichment_carrier_charges'
         ) return false;
         const sourceType = String(l?.source?.type || '')
           .trim()
