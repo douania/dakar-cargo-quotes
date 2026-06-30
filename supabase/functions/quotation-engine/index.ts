@@ -1113,6 +1113,111 @@ function isAmbiguousCarrierPortCharge(charge: any): boolean {
   return code === 'COLL' && ambiguousPortLabels.some((label) => containsTokenAwarePhrase(labelText, label));
 }
 
+/**
+ * CARRIER_FEES_RUNTIME_SAFETY (Patch A) — pure decision helper.
+ *
+ * Decides whether a carrier_billing_templates charge may produce a firm auto-counted
+ * amount, or must be surfaced as an editable TO_CONFIRM line (amount=null, excluded
+ * from totals). It does NOT implement the PAD/commission engine, EUR conversion,
+ * per-carrier commissions or weight-based pricing — those belong to a later Patch B.
+ *
+ * Safe-direction rules:
+ *  - DG/IMO-labelled charge while the dossier is not declared DG/IMO -> TO_CONFIRM.
+ *  - Foreign currency (anything other than XOF/FCFA/CFA, incl. EUR & USD) -> TO_CONFIRM.
+ *  - PERCENTAGE -> TO_CONFIRM (never a flat amount).
+ *  - PER_TONNE -> TO_CONFIRM (not contracted in V1).
+ *  - Firm only when evidence is official/validated_internal, not variable, default_amount > 0.
+ *  - PER_CONTAINER is treated as an alias of PER_CNT.
+ *  - Any other / unknown method -> TO_CONFIRM (no more silent flat fallback).
+ */
+function evaluateCarrierChargeSafety(
+  charge: any,
+  metrics: { totalCnt: number; cnt20: number; cnt40: number; totalEVP: number; isIMO: boolean; isHazmat: boolean },
+): { status: 'FIRM'; amount: number } | { status: 'TO_CONFIRM'; note: string } {
+  const method = normalizeCarrierPortChargeText(charge?.calculation_method);
+  const currencyRaw = charge?.currency;
+  const currency = normalizeCarrierPortChargeText(currencyRaw);
+  const evidence = normalizeCarrierPortChargeText(charge?.evidence_level);
+  const code = normalizeCarrierPortChargeText(charge?.charge_code);
+  const name = normalizeCarrierPortChargeText(charge?.charge_name);
+  const defaultAmount = Number(charge?.default_amount);
+  const isVariable = charge?.is_variable === true;
+  const codeLabel = charge?.charge_code ?? 'UNKNOWN';
+
+  const toConfirm = (
+    note: string,
+  ): { status: 'TO_CONFIRM'; note: string } => ({ status: 'TO_CONFIRM', note });
+
+  // Rule 5 — DG/IMO handling applicability (firm only when dossier is declared DG/IMO).
+  const dgTokenPattern = /(^|[^A-Z0-9])(DG|DANGEROUS|HAZMAT|IMO|IMDG)(?=$|[^A-Z0-9])/;
+  const looksDG = dgTokenPattern.test(code) || dgTokenPattern.test(name);
+  if (looksDG && metrics.isIMO !== true && metrics.isHazmat !== true) {
+    return toConfirm(
+      `Carrier charge DG/IMO non confirmé: applicabilité dangerous/IMO à confirmer (dossier non déclaré DG/IMO). charge_code=${codeLabel}`,
+    );
+  }
+
+  // Rule 1 — Foreign currency (Patch A: EUR & USD both TO_CONFIRM, no conversion here).
+  if (!['XOF', 'FCFA', 'CFA'].includes(currency)) {
+    return toConfirm(
+      `Carrier charge devise étrangère (${currencyRaw ?? 'inconnue'}): conversion/validation requise avant montant ferme. charge_code=${codeLabel}`,
+    );
+  }
+
+  // Rule 3 — PERCENTAGE never becomes a flat amount.
+  if (method === 'PERCENTAGE') {
+    return toConfirm(
+      `Carrier charge PERCENTAGE: base de calcul requise, ne peut pas devenir un montant forfaitaire. charge_code=${codeLabel}`,
+    );
+  }
+
+  // Rule 4 — PER_TONNE not contracted in V1 (no dossier weight used in Patch A).
+  if (method === 'PER_TONNE') {
+    return toConfirm(
+      `Carrier charge PER_TONNE non contractualisée en V1: montant à confirmer. charge_code=${codeLabel}`,
+    );
+  }
+
+  // Shared firm-amount safety guards.
+  if (!['OFFICIAL', 'VALIDATED_INTERNAL'].includes(evidence)) {
+    return toConfirm(
+      `Carrier charge preuve insuffisante (official/validated_internal requis): montant à confirmer. charge_code=${codeLabel}`,
+    );
+  }
+  if (isVariable) {
+    return toConfirm(
+      `Carrier charge marquée variable: montant à confirmer. charge_code=${codeLabel}`,
+    );
+  }
+  if (!(defaultAmount > 0)) {
+    return toConfirm(
+      `Carrier charge montant par défaut absent ou nul: montant à confirmer. charge_code=${codeLabel}`,
+    );
+  }
+
+  // Rule 2 — PER_CONTAINER treated as alias of PER_CNT.
+  if (method === 'PER_CNT' || method === 'PER_CONTAINER') {
+    if (code.includes('_20') || code.includes('20')) {
+      return { status: 'FIRM', amount: defaultAmount * metrics.cnt20 };
+    }
+    if (code.includes('_40') || code.includes('40')) {
+      return { status: 'FIRM', amount: defaultAmount * metrics.cnt40 };
+    }
+    return { status: 'FIRM', amount: defaultAmount * metrics.totalCnt };
+  }
+  if (method === 'PER_TEU') {
+    return { status: 'FIRM', amount: defaultAmount * metrics.totalEVP };
+  }
+  if (method === 'PER_BL') {
+    return { status: 'FIRM', amount: defaultAmount };
+  }
+
+  // Unknown / unsafe method — no longer auto-counted as a flat amount.
+  return toConfirm(
+    `Carrier charge méthode non reconnue (${charge?.calculation_method ?? 'inconnue'}): montant à confirmer. charge_code=${codeLabel}`,
+  );
+}
+
 async function fetchBorderClearingRates(
   supabase: any,
   country: string,
@@ -1591,35 +1696,45 @@ async function generateQuotationLines(
         continue;
       }
 
-      let amount = 0;
-      
-      // Calculate based on method
-      switch (charge.calculation_method) {
-        case 'PER_CNT':
-          // Handle 20ft vs 40ft specific charges
-          if (charge.charge_code.includes('_20') || charge.charge_code.includes('20')) {
-            const cnt20 = containers.filter(c => !c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
-            amount = charge.default_amount * cnt20;
-          } else if (charge.charge_code.includes('_40') || charge.charge_code.includes('40')) {
-            const cnt40 = containers.filter(c => c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
-            amount = charge.default_amount * cnt40;
-          } else {
-            const totalCnt = containers.reduce((s, c) => s + c.quantity, 0);
-            amount = charge.default_amount * totalCnt;
-          }
-          break;
-        case 'PER_TEU': {
-          const totalEVP = containers.reduce((s, c) => s + (getEVPMultiplier(c.type) * c.quantity), 0);
-          amount = charge.default_amount * totalEVP;
-          break;
-        }
-        case 'PER_BL':
-          amount = charge.default_amount; // Assume 1 BL
-          break;
-        default:
-          amount = charge.default_amount;
+      // CARRIER_FEES_RUNTIME_SAFETY (Patch A): only auto-count carrier charges whose
+      // method, currency and applicability are safe. Unsafe charges become an editable
+      // TO_CONFIRM line with amount=null, which is naturally excluded from totals.
+      const totalCnt = containers.reduce((s, c) => s + c.quantity, 0);
+      const cnt20 = containers.filter(c => !c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
+      const cnt40 = containers.filter(c => c.type.includes('40')).reduce((s, c) => s + c.quantity, 0);
+      const totalEVP = containers.reduce((s, c) => s + (getEVPMultiplier(c.type) * c.quantity), 0);
+
+      const safety = evaluateCarrierChargeSafety(charge, {
+        totalCnt,
+        cnt20,
+        cnt40,
+        totalEVP,
+        isIMO: request.isIMO === true,
+        isHazmat: request.isHazmat === true,
+      });
+
+      if (safety.status === 'TO_CONFIRM') {
+        lines.push({
+          id: `carrier_${String(charge.charge_code || 'unknown').toLowerCase()}_to_confirm_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Compagnie Maritime',
+          description: charge.charge_name || charge.charge_code || 'Carrier charge to confirm',
+          amount: null,
+          currency: charge.currency || 'XOF',
+          source: {
+            type: 'TO_CONFIRM',
+            reference: safety.note,
+            confidence: 0
+          },
+          notes: safety.note,
+          isEditable: true
+        });
+        warnings.push(safety.note);
+        continue;
       }
-      
+
+      const amount = safety.amount;
+
       if (amount > 0) {
         lines.push({
           id: `carrier_${charge.charge_code.toLowerCase()}_${lines.length}`,
