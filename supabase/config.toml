@@ -247,3 +247,6 @@ verify_jwt = false
 
 [functions.sync-canonical-cargo-to-legacy-facts]
 verify_jwt = false
+
+[functions.maritime-fee-proposals]
+verify_jwt = false

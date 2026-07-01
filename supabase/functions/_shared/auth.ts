@@ -9,11 +9,11 @@
  * - Admin allowlist loaded from ADMIN_EMAIL_ALLOWLIST env var
  */
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type User } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "./cors.ts";
 
 export interface AuthResult {
-  user: { id: string; email?: string; [key: string]: unknown };
+  user: User;
   token: string;
 }
 
