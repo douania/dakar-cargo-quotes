@@ -49,6 +49,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PadNstSuggestionsPanel from "@/components/case/PadNstSuggestionsPanel";
+import MaritimeFeeProposalsPanel from "@/components/case/MaritimeFeeProposalsPanel";
 import CommodityClassificationCandidatesPanel from "@/components/case/CommodityClassificationCandidatesPanel";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
@@ -2131,6 +2132,10 @@ export default function CaseView() {
 
         {/* MAP-5A : lecture seule candidats classification */}
         <CommodityClassificationCandidatesPanel caseId={caseId!} />
+
+        {/* DCQ-MARITIME-FEES-RUNTIME-UI-B3 : propositions maritimes read-only,
+            zone opérateur — jamais mêlées au pricing ferme (proposal_only). */}
+        <MaritimeFeeProposalsPanel caseId={caseId!} />
 
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
