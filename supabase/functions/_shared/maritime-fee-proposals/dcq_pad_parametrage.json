@@ -1,0 +1,404 @@
+{
+  "_meta": {
+    "objet": "Paramétrage tarification taxe de port + frais consignataires — Dakar Cargo Quotes",
+    "source_bareme": "REDEVANCES_PORTUAIRES_2006 (PAD) + barèmes officiels carriers vérifiés : CMA CGM (PDF SENEGAL Local 2026), ONE (PDF 19-oct-2024), Hapag-Lloyd (PDF SN_LocalCharge), Maersk (page web). Validé contre facturation réelle 2025-2026.",
+    "devise": "XOF",
+    "statut": "BASE DE PARAMÉTRAGE — taux barème vérifiés; tonnage/catégorie restent à confirmer par pièce (doctrine: pas d'AUTO_COUNT)",
+    "avertissement": "calc_check valide l'arithmetique taux x tonnage, PAS la véracité du tonnage déclaré ni l'exactitude de la catégorie produit.",
+    "version": "2.0 (corroboration carriers intégrée)"
+  },
+  "conversions_devise": {
+    "EUR_XOF": 655.957,
+    "EUR_XOF_note": "Parité FIXE (XOF arrimé à l'EUR). Imprimée sur toutes les factures (ROE 655.9570).",
+    "USD_XOF": "VARIABLE",
+    "USD_XOF_note": "Taux du jour imprimé sur la facture (observé 576.68 le 2025-09-30; 580.64 le 2025-12-19). Ne pas figer.",
+    "XAF_XOF": 1.01788,
+    "XAF_XOF_note": "Observé sur facture surestaries Maersk; XAF et XOF sont normalement à parité — taux à confirmer par pièce."
+  },
+  "tva": {
+    "taux_standard": 0.18,
+    "exonere_0pct": [
+      "cargo_in_transit",
+      "timbre_b/l",
+      "certaines_taxes_de_port_en_transit"
+    ],
+    "note": "Grimaldi: code TVA 01=18% standard, 02=0% cargo in transit. La taxe de port import est à 18%."
+  },
+  "commission_debours": {
+    "_principe": "La commission n'est PAS uniforme : taux ET base varient selon la compagnie. À encoder par carrier.",
+    "par_compagnie": {
+      "CMA CGM": {
+        "taux": 0.028,
+        "base": "taxe_de_port",
+        "libelle": "Commission sur Débours",
+        "preuve": "PDF CMA: '2.8% based on taxe de port marchandises' + facture p48 (58068 x 2.8% = 1626)"
+      },
+      "ONE": {
+        "taux": 0.028,
+        "base": "fret + taxes_de_port",
+        "libelle": "Collection Fees",
+        "preuve": "PDF ONE: 'COLLECTION FEES (APPLIED ON FREIGHT AND PORT TAXES) 2.80%'. Non vu sur facture (pas de ONE dans le corpus)."
+      },
+      "Hapag-Lloyd": {
+        "taux": 0.035,
+        "base": "seafreight",
+        "libelle": "Collection Fee on Seafreight",
+        "preuve": "PDF Hapag: 'COLLECTION FEE ON SEAFREIGHT 3.5% % Of SEA'. Non vu sur facture."
+      },
+      "MSC": {
+        "taux": 0.028,
+        "base": "taxe_de_port",
+        "libelle": "HARBOUR TAX FEE (trompeur)",
+        "preuve": "Factures MSC: 2.8% x taxe de port (ex p93 813 = 2.8% x 29034). Pas de barème public MSC."
+      },
+      "GRIMALDI": {
+        "taux": 0.028,
+        "base": "taxe_de_port",
+        "libelle": "Commission sur dé",
+        "preuve": "Facture Grimaldi p75: base 38010, 2.80% = 1064."
+      },
+      "MAERSK": {
+        "taux": 0.0,
+        "base": null,
+        "libelle": null,
+        "preuve": "Aucune commission observée (factures + page web Maersk)."
+      }
+    },
+    "piege": "MSC 'HARBOUR TAX FEE' = cette commission, PAS une taxe de port. Ne jamais la compter comme PAD."
+  },
+  "taxe_de_port": {
+    "formule": "taxe_de_port = taux_PAD[categorie][sens][mode] * tonnage",
+    "unite_taux": "FCFA par tonne",
+    "arrondi_tonnage": {
+      "regle": "arrondi au-dessus",
+      "granularite_observee": "MSC ~0.1 t (ex. 11.276 t -> 11.30); CMA/Grimaldi tonne entière ou poids exact",
+      "note": "Granularité à confirmer par compagnie; ne pas supposer la tonne entière partout."
+    },
+    "routing_mode": {
+      "conteneurs": {
+        "condition": "marchandise expédiée EN CONTENEUR (quelle que soit sa nature)",
+        "compagnies_observees": [
+          "MSC",
+          "CMA CGM",
+          "MAERSK",
+          "Hapag-Lloyd",
+          "ONE"
+        ]
+      },
+      "conventionnel": {
+        "condition": "marchandise RoRo / roulante / conventionnelle (NON conteneurisée)",
+        "compagnies_observees": [
+          "GRIMALDI"
+        ]
+      }
+    },
+    "bareme_droits_passage": {
+      "_colonnes": [
+        "import_conteneurs",
+        "import_conventionnel",
+        "export_conteneurs",
+        "export_conventionnel"
+      ],
+      "_unite": "FCFA/tonne",
+      "T01": [
+        19239,
+        16288,
+        19003,
+        16288
+      ],
+      "T02": [
+        9678,
+        8144,
+        8852,
+        7672
+      ],
+      "T03": [
+        1416,
+        673,
+        1062,
+        354
+      ],
+      "T04": [
+        3069,
+        2325,
+        3010,
+        2325
+      ],
+      "T05": [
+        1180,
+        425,
+        1128,
+        437
+      ],
+      "T06": [
+        885,
+        212,
+        873,
+        165
+      ],
+      "T07": [
+        484,
+        408,
+        476,
+        401
+      ],
+      "T08": [
+        1062,
+        224,
+        1015,
+        212
+      ],
+      "T09": [
+        4367,
+        2715,
+        4344,
+        2715
+      ],
+      "T10": [
+        0,
+        0,
+        779,
+        97
+      ],
+      "T11": [
+        1770,
+        991,
+        1652,
+        991
+      ],
+      "T12": [
+        4780,
+        4072,
+        3187,
+        2361
+      ],
+      "T13": [
+        11803,
+        0,
+        0,
+        0
+      ],
+      "T14": [
+        4072,
+        3394,
+        4072,
+        3394
+      ],
+      "P01": [
+        28100,
+        27500,
+        28000,
+        27500
+      ],
+      "P02": [
+        2325,
+        1750,
+        2325,
+        1750
+      ],
+      "P03": [
+        13000,
+        12500,
+        13000,
+        12500
+      ],
+      "P04": [
+        1850,
+        1300,
+        1850,
+        1300
+      ],
+      "P05": [
+        3350,
+        2250,
+        3350,
+        2250
+      ],
+      "_note_P": "P01-P05 = produits de la pêche (P02 thonidés, P04 sardinelles/maquereau, P03 crevettes/mollusques, P05 pêche NDA). Confirmé PAD + Hapag (table THD import). ATTENTION: CMA CGM imprime des P ~moitié (P01 14000, P02 1162, P03 6500, P05 1675) -> divergence à confirmer (tarif pêche réduit ?).",
+      "_note_categories": "CMA & Hapag réimpriment T01-T14 import = PAD import à l'identique (confirmé sur PDF). Les DESCRIPTIONS de catégorie varient selon la compagnie -> le choix produit->catégorie reste un jugement opérateur."
+    },
+    "transit_conteneur": {
+      "_unite": "FCFA par conteneur (forfait, quelle que soit la marchandise)",
+      "C01_20pieds": 11000,
+      "C02_40pieds": 16500,
+      "C03_petit": 5500,
+      "transbordement_20pieds": 9000
+    },
+    "categories_produits_cles": {
+      "T02": "Cas général (la plupart des marchandises diverses, produits métallurgiques non ferreux, cosmétiques, textiles, machines-outils, véhicules roulier <1,5t et >2,5t, pièces détachées)",
+      "T04": "Produits sidérurgiques/métallurgiques de base, matériaux (taux conteneurs 3069 — utilisé par Maersk sur les factures observées)",
+      "T05": "Céréales (riz, maïs, mil, blé)",
+      "T09": "Véhicules roulier 1,5–2,5 t; véhicules de chantier/industriels; matériel de transport NDA (cas RoRo Grimaldi)",
+      "T12": "Matériaux de construction, carrelage, produits chimiques de base, autres produits minéraux, machines agricoles",
+      "T14": "Fil machine, bobines de tôles, feuillard, fer blanc",
+      "_ref": "Mapping NST complet dans REDEVANCES_PORTUAIRES_2006 (section 2.3). Catégorie = par PRODUIT."
+    }
+  },
+  "reconnaissance_lignes_facture": {
+    "_note": "Mapping libellé compagnie -> type de frais. Le même frais porte des libellés différents selon la compagnie.",
+    "taxe_de_port": {
+      "libelles": [
+        "TAXE DE PORT",
+        "Taxe de Port",
+        "TAXE DE PORT MARCH.EN TC IMPORT",
+        "Frais Additionnel Import"
+      ],
+      "cas_special_maersk": {
+        "libelle": "Frais Additionnel Import",
+        "regle": "= TAXE DE PORT déguisée. Sur la facture: Quantité = tonnage, Prix unitaire = taux PAD.",
+        "deduire_categorie": "categorie = lookup_inverse(prix_unitaire) dans bareme_droits_passage[*][import_conteneurs]",
+        "exemple": "988218 = 322 t x 3069 (T04); 82863 = 27 t x 3069 (T04)"
+      },
+      "categorie_si_taux_imprime": "Plusieurs factures impriment le taux (ex. CMA '6 RMT x 9678' = T02; Hapag '4780' = T12) -> catégorie déductible du taux."
+    },
+    "commission": {
+      "libelles": [
+        "HARBOUR TAX FEE",
+        "Commission sur Débours",
+        "Commission sur dé"
+      ],
+      "regle": "= 0.028 * taxe_de_port. NON PAD."
+    },
+    "timbre": {
+      "libelles": [
+        "TIMBRE BL",
+        "Timbre B/L",
+        "Stamp duty at destination",
+        "TIMBRE DE CONNAISSEMENT IMPORT",
+        "TIMBRE B/L"
+      ],
+      "montant_carrier_observe": 25000,
+      "note": "Timbre B/L compagnie = 25000 (MSC/CMA/Maersk/Grimaldi). NE PAS confondre avec le timbre fiscal des factures transitaires/groupage (≈1% ou montant faible)."
+    },
+    "manifeste": {
+      "libelles": [
+        "FRAIS CHARGEMENT ELECTRONIQUE MANIFESTE",
+        "Customs Manifest documentation Fee",
+        "FRAIS CHARGEMENT E"
+      ],
+      "montant_observe": {
+        "MSC": 550,
+        "CMA CGM": 600,
+        "ONE": 600
+      },
+      "note": "NE PAS comparer le manifeste (550/600) au frais de documentation/delivery (18000-21500): ce sont deux frais distincts (cause des faux 'DEVIATION')."
+    },
+    "documentation_delivery": {
+      "libelles": [
+        "Frais de Service de Consignation",
+        "Documentation fee - Destination",
+        "DELIVERY ORDER FEE",
+        "SEAWAY BILL FEE",
+        "Frais de service d"
+      ],
+      "montant_observe": {
+        "consignation": 18000,
+        "delivery_order": 5000,
+        "seaway_bill": 35000
+      }
+    },
+    "telex_release": {
+      "libelles": [
+        "Telex Rel. At Dest",
+        "TELEX RELEASE FEE"
+      ],
+      "montant_observe": {
+        "MSC": 35000,
+        "GRIMALDI": 15000,
+        "ONE": 25000
+      }
+    },
+    "isps_securite": {
+      "libelles": [
+        "ISPS COMMISSION",
+        "SURCHARGE SECURITE (ISPS-IMP)",
+        "Destinat. Terminal - ISPS",
+        "Local terminal recovery Charge"
+      ],
+      "devise": "souvent EUR (convertir x 655.957)"
+    },
+    "terminal_operator": {
+      "libelles": [
+        "ACCONAGE",
+        "MAGASINAGE",
+        "RELEVAGE",
+        "Mise-à-terre",
+        "MANUTENTION & SURCOÛT"
+      ],
+      "emetteurs": [
+        "DP World",
+        "TAL",
+        "GATL",
+        "SODATRA Shipping"
+      ],
+      "note": "Émis par le manutentionnaire/transitaire, PAS la compagnie maritime. Le champ 'carrier' doit distinguer émetteur vs ligne maritime."
+    },
+    "demurrage_surestaries": {
+      "libelles": [
+        "Demurrage Fee",
+        "DEMURRAGE IMPORT CHARGES",
+        "Surestaries"
+      ],
+      "formule": "jours_facturables x taux_jour_par_conteneur (palier/LEVEL), apres FREETIME",
+      "note": "Souvent en EUR ou XAF; statut proforma possible (montants estimatifs)."
+    }
+  },
+  "controles_qualite_avant_usage": {
+    "exclure": [
+      "pages_recap_fiscal (Maersk 'Spécification Taxes')",
+      "lignes_devise_DKK (doublons de devise)"
+    ],
+    "dedupliquer": "même BL + même empreinte de montants sur 2+ pages = même document (originale/duplicata/proforma/copie payée)",
+    "normaliser_devise": "XOF=FCFA=CFA=XAF=francs; convertir EUR/USD; refuser devise nulle",
+    "format_transitaire_HT_TVA_TTC": "Risque de capter la colonne TVA au lieu du HT (cas SODIMAX groupage) — re-extraire."
+  },
+  "baremes_carriers": {
+    "_statut": "Frais documentaires vérifiés contre PDF/page officiels (juin 2026).",
+    "taxe_de_port_carriers": "CMA, ONE, Hapag refacturent le barème PAD (T01-T14 import = PAD import). Hapag: utiliser table THD (import), PAS THO (export).",
+    "CMA CGM": {
+      "source": "PDF SENEGAL Local Charges 2026",
+      "timbre_bl_xof": 25000,
+      "manifest_fee_xof": 600,
+      "delivery_order_xof": 5000,
+      "frais_service_consignation_xof": 18000,
+      "frais_imprime_dd_xof": 1500,
+      "taxe_de_port": "barème PAD T01-T14 import (réimprimé à l'identique)"
+    },
+    "ONE": {
+      "source": "PDF SENEGAL Local Charges 19-oct-2024",
+      "delivery_order_xof": 18000,
+      "delivery_order_reissuance_xof": 10000,
+      "manifest_fee_xof": 600,
+      "telex_release_swb_xof": 25000,
+      "bl_stamp_xof": 25000,
+      "port_taxes": "renvoi explicite PAD point 2.3 (import)"
+    },
+    "Hapag-Lloyd": {
+      "source": "PDF SN_LocalCharge",
+      "destination_documentation_fee_xof": 18000,
+      "tax_import_timbre_xof": 25000,
+      "port_dues": "table THD (import) = PAD import ; THO = export (NE PAS confondre)",
+      "transit_import_20_xof": 11000,
+      "transit_import_40_xof": 16500,
+      "edo_guichet_unique_teu_xof": 4500
+    },
+    "MAERSK": {
+      "source": "page web maersk.com (mai 2026)",
+      "documentation_fee_destination_xof": 21500,
+      "document_stamp_tax_xof": 25000,
+      "container_mgt_20dry_eur": 15,
+      "port_dues": "renvoi barème PAD (= 'Frais Additionnel Import' sur facture)"
+    },
+    "MSC": {
+      "source": "pas de grille publique (tarifs via agent)",
+      "observe_sur_factures": {
+        "timbre_bl_xof": 25000,
+        "arrival_notice_xof": 18000,
+        "seaway_bill_xof": 35000,
+        "telex_release_xof": 35000,
+        "manifest_xof": 550,
+        "transmission_bad_xof": 5000
+      }
+    }
+  }
+}
