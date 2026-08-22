@@ -1,5 +1,5 @@
 -- Phase PROVISIONAL-SCENARIO-QUOTES — Migration 1 (additive, inertielle)
-create table public.quote_scenario_assumptions (
+create table if not exists public.quote_scenario_assumptions (
   id uuid primary key default gen_random_uuid(),
   case_id uuid not null references public.quote_cases(id) on delete cascade,
   scope_key text not null default 'case',
@@ -60,25 +60,42 @@ create table public.quote_scenario_assumptions (
     check (superseded_by_assumption_id is null or superseded_by_assumption_id <> id)
 );
 
-create unique index uq_quote_scenario_assumptions_active
+create unique index if not exists uq_quote_scenario_assumptions_active
   on public.quote_scenario_assumptions
     (case_id, scope_key, coalesce(gap_key, ''), coalesce(assumed_fact_key, ''))
   where status = 'active';
 
-create index idx_quote_scenario_assumptions_case_id
+create index if not exists idx_quote_scenario_assumptions_case_id
   on public.quote_scenario_assumptions(case_id);
-create index idx_quote_scenario_assumptions_case_status
+create index if not exists idx_quote_scenario_assumptions_case_status
   on public.quote_scenario_assumptions(case_id, status);
-create index idx_quote_scenario_assumptions_case_gap
+create index if not exists idx_quote_scenario_assumptions_case_gap
   on public.quote_scenario_assumptions(case_id, gap_key);
-create index idx_quote_scenario_assumptions_promoted_fact
+create index if not exists idx_quote_scenario_assumptions_promoted_fact
   on public.quote_scenario_assumptions(promoted_fact_id);
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger
+    where tgname = 'set_updated_at'
+      and tgrelid = 'public.quote_scenario_assumptions'::regclass
+  ) then
 create trigger set_updated_at before update on public.quote_scenario_assumptions
   for each row execute function public.update_updated_at_column();
+  end if;
+end $$;
 
 alter table public.quote_scenario_assumptions enable row level security;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'quote_scenario_assumptions'
+      and policyname = 'quote_scenario_assumptions_select'
+  ) then
 create policy "quote_scenario_assumptions_select"
   on public.quote_scenario_assumptions for select to authenticated
   using (exists (
@@ -86,7 +103,17 @@ create policy "quote_scenario_assumptions_select"
     where qc.id = case_id
       and (qc.created_by = auth.uid() or qc.assigned_to = auth.uid())
   ));
+  end if;
+end $$;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'quote_scenario_assumptions'
+      and policyname = 'quote_scenario_assumptions_insert'
+  ) then
 create policy "quote_scenario_assumptions_insert"
   on public.quote_scenario_assumptions for insert to authenticated
   with check (exists (
@@ -94,7 +121,17 @@ create policy "quote_scenario_assumptions_insert"
     where qc.id = case_id
       and (qc.created_by = auth.uid() or qc.assigned_to = auth.uid())
   ));
+  end if;
+end $$;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'quote_scenario_assumptions'
+      and policyname = 'quote_scenario_assumptions_update'
+  ) then
 create policy "quote_scenario_assumptions_update"
   on public.quote_scenario_assumptions for update to authenticated
   using (exists (
@@ -107,6 +144,8 @@ create policy "quote_scenario_assumptions_update"
     where qc.id = case_id
       and (qc.created_by = auth.uid() or qc.assigned_to = auth.uid())
   ));
+  end if;
+end $$;
 
 comment on table public.quote_scenario_assumptions is
   'Assumption ledger (Migration 1, additive, inertielle). Hypotheses operateur pour cotations provisoires par scenario. Doctrine: hypothese != fact; aucune fermeture auto de gap; client_confirmed != promoted_to_fact; aucune promotion automatique.';
