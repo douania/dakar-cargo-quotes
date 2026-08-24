@@ -278,7 +278,7 @@ Preuve runtime locale au 22 août 2026 : la version finale durcie de la migratio
 
 Ceci valide la **syntaxe**, la **mutation ciblée** et l'**idempotence** du bloc `DO`. Cela ne remplace pas encore un `supabase db reset` intégral : la chaîne complète des migrations Git, dans son ordre réel et avec le schéma complet, n'a pas été rejouée (CLI Supabase absente de l'environnement). Exécuter le reset complet dès qu'un environnement le permet.
 
-#### P0-D-2 — grille officielle de livraison et contrat débours (appliqué localement)
+#### P0-D-2 — grille officielle de livraison et contrat débours (PASS Git/Lovable via P0-D-3)
 
 Les deux PDF fournis par le responsable métier, `TARIFS DE LIVRAISONS DES CONTENEURS 20P.pdf` et `TARIFS DE LIVRAISONS DES CONTENEURS 40P.pdf`, ont été rapprochés avec l'état Lovable observé. Ils portent 30 destinations pour deux types de conteneurs, soit exactement 60 montants TTC. La doctrine métier explicitement confirmée est : **la livraison sous-traitée est un débours tiers tant que SODATRA n'exploite pas sa propre flotte**.
 
@@ -325,7 +325,7 @@ Barrières restantes avant toute promotion tarifaire :
 
 Conclusion historique de P0-D-2 : à la fin de ce sous-lot, le code était prêt à **représenter correctement** ces tarifs, mais les 60 lignes restaient volontairement non cotables. Les décisions métier et les protections techniques ajoutées par P0-D-3 lèvent ensuite ce blocage **localement seulement** ; aucune ligne Lovable n'est encore promue.
 
-#### P0-D-3 — sélection déterministe fail-closed et promotion des 60 lignes (PASS local, non appliqué à Lovable)
+#### P0-D-3 — sélection déterministe fail-closed et promotion des 60 lignes (PASS Git/Lovable)
 
 Décisions métier explicites du responsable SODATRA reçues le 24 août 2026 : les deux PDF constituent le barème en vigueur sans date d'expiration ; les 60 lignes sont approuvées pour promotion ; le transport local reste un débours fournisseur TTC sans commission ni TVA SODATRA additionnelle ; priorité au tarif exact ; la formule kilométrique ne sert qu'au contrôle de cohérence ; toute destination inconnue, non couverte ou ambiguë doit rendre `TO_CONFIRM` / `TARIF_TRANSPORT_A_CONFIRMER` avec un montant `null`.
 
@@ -384,7 +384,19 @@ Contrôle Lovable Cloud strictement en lecture seule du 24 août 2026, réalisé
 
 Verdict de précondition : l'état Lovable observé est exactement l'état à 10 lignes accepté par la migration de staging, puis par la migration de promotion. Cela prouve la compatibilité de l'instantané ; cela n'autorise pas l'application. L'ordre runtime sûr doit conserver une barrière non cotable : staging des 50 lignes manquantes en `inactive/to_confirm`, déploiement et vérification du résolveur fail-closed et du contrat débours, puis seulement promotion des 60 lignes et contrôles post-migration. Aucun intervalle ne doit exposer les 60 lignes actives à l'ancien résolveur du commit canonique.
 
-Reste à faire avant toute activation Lovable : refaire une vérification read-only courte immédiatement avant l'opération si l'instantané n'est plus contemporain, dérouler la recette sandbox de la barrière 5 de P0-D-2, figer le plan d'application et de vérification post-migration, puis obtenir un **GO CTO runtime explicite distinct**. Les migrations locales ne doivent pas être appliquées automatiquement.
+Exécution Git/Lovable contrôlée du 24 août 2026 :
+
+- les six lots P0-A à P0-D3 ont été commités atomiquement sur `work`, poussés et validés par la CI ; l'ajout Auth d'aperçu créé automatiquement par Lovable a été neutralisé par le revert traçable `a8983bdfff4ab99246796ca7e86ac7fd5838c999`, sans réécriture d'historique ;
+- la CI GitHub du commit final est entièrement verte : configuration des 91 Edge Functions, typecheck, 72 tests frontend, baseline Deno, 456 tests Deno locaux, baseline lint et build production ;
+- Lovable est `ready`, privé, non publié et synchronisé sur le même SHA `a8983bdfff4ab99246796ca7e86ac7fd5838c999` ; les six fichiers critiques du résolveur, du pricing et de la présentation PDF/email ont été comparés exactement entre Git et Lovable ;
+- les fonctions `quotation-engine`, `price-service-lines`, `run-pricing`, `create-quotation-email-draft`, `export-quotation-version-pdf` et `generate-quotation-version` ont été déployées avant l'activation des tarifs, sans publication publique ;
+- précontrôle live conforme : 91 lignes de transport local, dont les 10 lignes officielles attendues dans l'état `active/to_confirm`, 81 lignes hors périmètre, aucun doublon ni version déjà enregistrée ;
+- migration `20260823130000` appliquée puis enregistrée dans le ledger : 50 insertions inactives `to_confirm`, 10 lignes préexistantes conservées, 60 lignes dans la grille, 81 lignes hors périmètre inchangées et index d'unicité présent ;
+- migration `20260824120000` appliquée puis enregistrée dans le ledger : 60 lignes `active/validated_internal`, 30 en 20P et 30 en 40P, 10 dates `2026-03-30` et 50 dates `NULL` préservées, aucune date de fin, aucun attribut hors contrat et zéro clé non déterministe ;
+- rejeu live de la promotion : no-op confirmé, empreinte incluant `updated_at`, activation et preuve inchangée sur les 60 lignes ;
+- recette ciblée : 7 contrôles live PASS sur 20P, 40P, extrêmes de grille et destination inconnue ; 59 tests spécialisés PASS sur sélection fail-closed, DAP/DDP, double comptage, débours fournisseur TTC, commission nulle et présentation commerciale PDF/email ;
+- aucun email réel, aucune autre famille tarifaire activée, aucune publication publique et aucun résidu sandbox créé ;
+- limite explicite : le parcours UI authentifié complet n'a pas été exécuté, faute de session applicative disponible dans l'aperçu ou Chrome. Il reste dans le PACK P0-E et ne remet pas en cause la recette technique P0-D3.
 
 Premier blocage métier externe restant : validation/signature SODATRA du checklist `VALIDATION_RATE_CARDS_AND_CATALOGUE.md`, notamment les doublons BORDER/TRUCKING, la doctrine `EMPTY_RETURN`, l'anomalie à 0 XOF et les placeholders export.
 
@@ -393,7 +405,7 @@ Pour les familles autres que cette grille de livraison, ne corriger le moteur ni
 Travaux métier et données :
 
 1. Faire valider par SODATRA les 35 `pricing_rate_cards` actuellement `to_confirm`.
-2. Grille de livraison 20P/40P : validation métier et promotion locale terminées ; conserver l'application Lovable séparée, contrôlée et soumise à un GO runtime explicite.
+2. Grille de livraison 20P/40P : validation métier, déploiement fail-closed, staging et promotion Lovable terminés ; 60 lignes `validated_internal` sont actives, sans commission ni TVA SODATRA additionnelle.
 3. Maintenir les 81 tarifs `historical_only` hors pricing ferme.
 4. Obtenir ou confirmer les sources officielles manquantes : terminaux, frontières, demurrage transporteurs et services export concernés. La grille de livraison est classée `validated_internal`, conformément à sa preuve actuelle.
 5. Définir la date d'effet, la date d'expiration, la devise, le périmètre, la source et la preuve de validation de chaque tarif activé.
