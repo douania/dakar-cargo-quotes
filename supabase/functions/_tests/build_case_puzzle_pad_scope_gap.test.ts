@@ -127,7 +127,9 @@ Deno.test("4b - pricing.pad_category + taux positif => aucun blocage", () => {
 });
 
 // ─── 5. value_json / value_number / value_text ────────────────────────────
-// Même précédence que le garde existant: value_json ?? value_number ?? value_text.
+// Précédence du garde partagé: entre colonnes SCALAIRES, value_json ?? value_number ??
+// value_text ; un value_json objet/tableau (métadonnées de propagation MAP-7B/MAP-8B)
+// n'est jamais la valeur métier et n'écrase donc plus les colonnes scalaires.
 
 Deno.test("5 - categorie portee par value_json et taux par value_text", () => {
   const state = resolvePadScopeGapState([
@@ -157,6 +159,62 @@ Deno.test("5c - taux non numerique => blocage", () => {
     fact("cargo.pad_rate_fcfa_per_ton", { value_text: "n/a" }),
   ]);
   assertEquals(state.blocker?.pricing_blockers, ["PAD_CATEGORY_REQUIRED"]);
+});
+
+// ─── 5bis. Faits propagés MAP-7B / MAP-8B (formes runtime P0-E) ───────────
+// Le gap `pricing.pad_category` doit se résoudre quand la catégorie ET le tarif officiel
+// existent, même si leur value_json porte les métadonnées de propagation.
+
+const CATEGORY_PROPAGEE = fact("cargo.pad_category", {
+  value_text: "T02",
+  value_json: {
+    origin: "MAP-6",
+    propagated_from: "commodity_classification_candidates",
+    candidate_id: "6f6d1a1c-1f0b-4f4a-9c9a-2a2b3c4d5e6f",
+    propagation_idempotency_key: "pad-cat-6f6d1a1c",
+    operator_validated: true,
+  },
+});
+
+function tarifPropage(amount: unknown, valueText?: string): PadScopeFact {
+  return fact("cargo.pad_rate_fcfa_per_ton", {
+    value_number: amount,
+    value_text: valueText,
+    value_json: {
+      origin: "MAP-8B",
+      derived_from_fact_key: "cargo.pad_category",
+      pad_category: "T02",
+      tariff_source: { table: "port_tariffs", provider: "PAD", classification: "T02", amount: 9678 },
+      idempotency_key: "pad-rate-6f6d1a1c",
+    },
+  });
+}
+
+Deno.test("5d - categorie et tarif propages (metadonnees dans value_json) => aucun blocage", () => {
+  const state = resolvePadScopeGapState([
+    PKG_PAD,
+    INCOTERM_CIF,
+    CATEGORY_PROPAGEE,
+    tarifPropage(9678, "9678"),
+  ]);
+  assertEquals(state.blocker, null);
+});
+
+Deno.test("5e - categorie propagee seule (T02 sans tarif) => blocage", () => {
+  const state = resolvePadScopeGapState([PKG_PAD, INCOTERM_CIF, CATEGORY_PROPAGEE]);
+  assertEquals(state.blocker?.pricing_blockers, ["PAD_CATEGORY_REQUIRED"]);
+});
+
+Deno.test("5f - tarif propage seul (sans fait categorie) => blocage", () => {
+  const state = resolvePadScopeGapState([PKG_PAD, INCOTERM_CIF, tarifPropage(9678, "9678")]);
+  assertEquals(state.blocker?.pricing_blockers, ["PAD_CATEGORY_REQUIRED"]);
+});
+
+Deno.test("5g - tarif propage nul/negatif/invalide => blocage malgre tariff_source.amount", () => {
+  for (const tarif of [tarifPropage(0, "0"), tarifPropage(-9678, "-9678"), tarifPropage(null, "n/a"), tarifPropage(null, undefined)]) {
+    const state = resolvePadScopeGapState([PKG_PAD, INCOTERM_CIF, CATEGORY_PROPAGEE, tarif]);
+    assertEquals(state.blocker?.pricing_blockers, ["PAD_CATEGORY_REQUIRED"]);
+  }
 });
 
 // ─── 6. service.overrides add / remove ────────────────────────────────────

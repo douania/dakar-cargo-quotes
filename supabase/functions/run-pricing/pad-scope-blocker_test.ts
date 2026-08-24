@@ -1,10 +1,12 @@
 import { assertEquals, assertNotStrictEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 import {
+  hasNonEmptyFactValue,
   PAD_CATEGORY_REQUIRED_MESSAGE,
   PAD_SCOPE_SERVICE_KEYS,
   type PadScopeBlocker,
   type PadScopeFact,
+  readFactValue,
   resolvePadScopeBlocker,
 } from "../_shared/pad-scope-blocker.ts";
 
@@ -152,6 +154,137 @@ Deno.test("a category without a usable rate still returns PAD_CATEGORY_REQUIRED"
       `rate ${JSON.stringify(rateFacts)} must not be treated as an official PAD rate`,
     );
   }
+});
+
+// ── MAP-7B / MAP-8B propagated facts (P0-E runtime shapes) ──────────────────
+//
+// `supersede_fact` writes the business value in value_text / value_number and RESERVES
+// value_json for propagation metadata. Reading value_json first returned that object, so
+// a dossier with a materialised category AND official rate was still blocked.
+
+/** cargo.pad_category as written by the MAP-6/MAP-7B propagation RPC. */
+const CATEGORY_PROPAGATED = fact("cargo.pad_category", {
+  value_text: "T02",
+  value_json: {
+    origin: "MAP-6",
+    propagated_from: "commodity_classification_candidates",
+    candidate_id: "6f6d1a1c-1f0b-4f4a-9c9a-2a2b3c4d5e6f",
+    propagation_idempotency_key: "pad-cat-6f6d1a1c",
+    operator_validated: true,
+    scheme: null,
+  },
+});
+
+/** cargo.pad_rate_fcfa_per_ton as derived by MAP-8B from the category above. */
+function propagatedRate(amount: unknown, valueText?: string): PadScopeFact {
+  return fact("cargo.pad_rate_fcfa_per_ton", {
+    value_number: amount,
+    value_text: valueText,
+    value_json: {
+      origin: "MAP-8B",
+      derived_from_candidate_id: "6f6d1a1c-1f0b-4f4a-9c9a-2a2b3c4d5e6f",
+      derived_from_fact_key: "cargo.pad_category",
+      pad_category: "T02",
+      tariff_source: {
+        table: "port_tariffs",
+        provider: "PAD",
+        category: "DROIT_PASSAGE",
+        operation_type: "IMPORT",
+        cargo_type: "CONTENEUR",
+        classification: "T02",
+        unit: "tonne",
+        amount: 9678,
+      },
+      idempotency_key: "pad-rate-6f6d1a1c",
+    },
+  });
+}
+
+const RATE_PROPAGATED = propagatedRate(9678, "9678");
+
+Deno.test("propagated category + propagated official rate -> no blocker", () => {
+  assertEquals(resolve([CATEGORY_PROPAGATED, RATE_PROPAGATED]), null);
+});
+
+Deno.test("propagated pricing.pad_category is read the same way", () => {
+  const categoryPricing = fact("pricing.pad_category", {
+    value_text: "T02",
+    value_json: { origin: "MAP-6", operator_validated: true },
+  });
+  assertEquals(resolve([categoryPricing, RATE_PROPAGATED]), null);
+});
+
+Deno.test("propagated rate carried by value_text only is still read", () => {
+  assertEquals(resolve([CATEGORY_PROPAGATED, propagatedRate(null, "9678")]), null);
+});
+
+Deno.test("fail-closed is preserved on propagated facts", () => {
+  // Category alone (T02 propagated, no rate fact at all).
+  assertEquals(resolve([CATEGORY_PROPAGATED]), expectedBlocker(PAD_KEYS));
+  // Rate alone: the metadata names the category, that is not a category fact.
+  assertEquals(resolve([RATE_PROPAGATED]), expectedBlocker(PAD_KEYS));
+  // Unusable rates: `tariff_source.amount` in the metadata must NEVER rescue them.
+  const unusable = [
+    propagatedRate(0, "0"),
+    propagatedRate(-9678, "-9678"),
+    propagatedRate(null, "TO_CONFIRM"),
+    propagatedRate(null, ""),
+    propagatedRate(null, undefined), // metadata only, no scalar column
+  ];
+  for (const rate of unusable) {
+    assertEquals(
+      resolve([CATEGORY_PROPAGATED, rate]),
+      expectedBlocker(PAD_KEYS),
+      `propagated rate ${JSON.stringify(rate.value_number ?? rate.value_text ?? null)} must stay blocking`,
+    );
+  }
+  // Blank category with propagation metadata: the `pad_category` field of the rate
+  // metadata is not a substitute for the category fact.
+  assertEquals(
+    resolve([
+      fact("cargo.pad_category", { value_text: "   ", value_json: { origin: "MAP-6" } }),
+      RATE_PROPAGATED,
+    ]),
+    expectedBlocker(PAD_KEYS),
+  );
+});
+
+// ── Fact readers: business value vs. genuinely JSON facts ───────────────────
+
+Deno.test("readFactValue returns the business value, not the propagation metadata", () => {
+  assertEquals(readFactValue([CATEGORY_PROPAGATED], "cargo.pad_category"), "T02");
+  assertEquals(readFactValue([RATE_PROPAGATED], "cargo.pad_rate_fcfa_per_ton"), 9678);
+  assertEquals(readFactValue([], "cargo.pad_category"), null);
+  assertEquals(readFactValue([fact("cargo.pad_category")], "cargo.pad_category"), null);
+});
+
+Deno.test("readFactValue keeps genuinely JSON facts and the scalar precedence", () => {
+  // No scalar column: the JSON value itself is still returned as-is.
+  const overrides = { add: ["PORT_DAKAR_HANDLING"], remove: [] };
+  assertEquals(
+    readFactValue([fact("service.overrides", { value_json: overrides })], "service.overrides"),
+    overrides,
+  );
+  assertEquals(
+    readFactValue([fact("cargo.containers", { value_json: [{ type: "20DV", quantity: 1 }] })], "cargo.containers"),
+    [{ type: "20DV", quantity: 1 }],
+  );
+  // Between scalars, the historical order value_json > value_number > value_text stands.
+  assertEquals(
+    readFactValue([fact("k", { value_json: "A", value_number: 2, value_text: "B" })], "k"),
+    "A",
+  );
+  assertEquals(readFactValue([fact("k", { value_number: 2, value_text: "B" })], "k"), 2);
+});
+
+Deno.test("hasNonEmptyFactValue reads the textual business value only", () => {
+  assertEquals(hasNonEmptyFactValue([CATEGORY_PROPAGATED], "cargo.pad_category"), true);
+  assertEquals(hasNonEmptyFactValue([fact("k", { value_json: "T02" })], "k"), true);
+  // A metadata object alone is not a category; a number is not a category either.
+  assertEquals(hasNonEmptyFactValue([fact("k", { value_json: { origin: "MAP-6" } })], "k"), false);
+  assertEquals(hasNonEmptyFactValue([fact("k", { value_number: 2, value_json: { a: 1 } })], "k"), false);
+  assertEquals(hasNonEmptyFactValue([fact("k", { value_text: "  " })], "k"), false);
+  assertEquals(hasNonEmptyFactValue([], "k"), false);
 });
 
 // ── Normalisation ───────────────────────────────────────────────────────────
