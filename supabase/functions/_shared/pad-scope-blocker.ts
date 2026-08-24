@@ -3,7 +3,9 @@
  *
  * Holds ONLY the PAD decision: the service keys that put a scope in PAD range, the
  * operator-facing message, the two fact readers it needs and `resolvePadScopeBlocker`
- * itself. Package/override resolution stays in `index.ts` — both call sites already
+ * itself, plus the two PAD business values `run-pricing/buildPricingInputs` prices with
+ * (`readPadPricingInputs`) — the guard and the pricing path MUST read those facts
+ * identically. Package/override resolution stays in `index.ts` — both call sites already
  * compute `effectiveServiceKeys` there, so it is a REQUIRED input here rather than a
  * fallback recomputed from the facts.
  *
@@ -110,6 +112,65 @@ export function hasNonEmptyFactValue(
   return readTextFactValue(facts, factKey) !== null;
 }
 
+/**
+ * The PAD category the dossier is priced with: `cargo.pad_category` first, then
+ * `pricing.pad_category` (the gap key), read as a textual business value. `null` when no
+ * category fact carries one — the exact condition under which the guard below blocks.
+ */
+export function readPadCategory(facts: PadScopeFact[]): string | null {
+  return (
+    readTextFactValue(facts || [], 'cargo.pad_category') ??
+    readTextFactValue(facts || [], 'pricing.pad_category')
+  );
+}
+
+/**
+ * The official PAD rate in FCFA per tonne, or `null` when it is absent or unusable.
+ *
+ * Fail-closed by construction: a JSON metadata object, a boolean, a non-numeric string,
+ * zero, a negative or a non-finite value all yield `null`. `tariff_source.amount` inside
+ * the MAP-8B metadata is never mined — see `readFactValue`.
+ */
+export function readOfficialPadRate(facts: PadScopeFact[]): number | null {
+  const raw = readFactValue(facts || [], 'cargo.pad_rate_fcfa_per_ton');
+  const rate = typeof raw === 'number' || typeof raw === 'string' ? Number(raw) : Number.NaN;
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
+/** The two PAD fields `run-pricing` prices `PAD_DROIT_PASSAGE` with. */
+export type PadPricingInputs = {
+  padCategory?: string;
+  padRateFcfaPerTon?: number;
+};
+
+/**
+ * PAD pricing inputs derived from the fact set, for `run-pricing/buildPricingInputs`.
+ *
+ * `buildPricingInputs` reads every other fact through the generic
+ * `value_json ?? value_number ?? value_text`, which is correct for facts whose value
+ * really IS JSON (`cargo.containers`, `service.overrides`, …) but wrong for the two PAD
+ * keys: MAP-6/7B/8B propagate the business value in `value_text` / `value_number` and
+ * RESERVE `value_json` for propagation metadata, so the generic read yields the metadata
+ * OBJECT — `String(…)` → `"[object Object]"`, `Number(…)` → `NaN` — and the
+ * `PAD_DROIT_PASSAGE` line silently disappears from an otherwise successful run.
+ *
+ * A key is left UNSET (not set to a blank/`NaN` placeholder) when the fact carries no
+ * usable business value, so the PAD enrichment in `index.ts` — which requires a category
+ * AND a strictly positive rate — keeps failing closed on exactly the inputs
+ * `resolvePadScopeBlocker` blocks on. Both read through the same two functions above.
+ */
+export function readPadPricingInputs(facts: PadScopeFact[]): PadPricingInputs {
+  const inputs: PadPricingInputs = {};
+
+  const padCategory = readPadCategory(facts);
+  if (padCategory !== null) inputs.padCategory = padCategory;
+
+  const padRateFcfaPerTon = readOfficialPadRate(facts);
+  if (padRateFcfaPerTon !== null) inputs.padRateFcfaPerTon = padRateFcfaPerTon;
+
+  return inputs;
+}
+
 export function resolvePadScopeBlocker(params: {
   facts: PadScopeFact[];
   servicePackage: string;
@@ -125,16 +186,12 @@ export function resolvePadScopeBlocker(params: {
   const padRequiredByScope = effectiveServiceKeys.some((key) => PAD_SCOPE_SERVICE_KEYS.has(key));
   if (!padRequiredByScope) return null;
 
-  const hasPadCategory =
-    hasNonEmptyFactValue(params.facts || [], 'cargo.pad_category') ||
-    hasNonEmptyFactValue(params.facts || [], 'pricing.pad_category');
+  // Same two readers `buildPricingInputs` prices with, so the guard can never clear a
+  // dossier on values the pricing path would then fail to consume (and vice versa).
+  const hasPadCategory = readPadCategory(params.facts || []) !== null;
   // Numeric/textual business value only: a JSON object (propagation metadata) or a boolean
   // is not a tariff, and must not be coerced into one.
-  const padRateValue = readFactValue(params.facts || [], 'cargo.pad_rate_fcfa_per_ton');
-  const padRate = typeof padRateValue === 'number' || typeof padRateValue === 'string'
-    ? Number(padRateValue)
-    : Number.NaN;
-  const hasOfficialPadRate = Number.isFinite(padRate) && padRate > 0;
+  const hasOfficialPadRate = readOfficialPadRate(params.facts || []) !== null;
 
   if (hasPadCategory && hasOfficialPadRate) return null;
 

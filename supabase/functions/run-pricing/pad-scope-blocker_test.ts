@@ -7,6 +7,9 @@ import {
   type PadScopeBlocker,
   type PadScopeFact,
   readFactValue,
+  readOfficialPadRate,
+  readPadCategory,
+  readPadPricingInputs,
   resolvePadScopeBlocker,
 } from "../_shared/pad-scope-blocker.ts";
 
@@ -285,6 +288,149 @@ Deno.test("hasNonEmptyFactValue reads the textual business value only", () => {
   assertEquals(hasNonEmptyFactValue([fact("k", { value_number: 2, value_json: { a: 1 } })], "k"), false);
   assertEquals(hasNonEmptyFactValue([fact("k", { value_text: "  " })], "k"), false);
   assertEquals(hasNonEmptyFactValue([], "k"), false);
+});
+
+// ── PAD pricing inputs (buildPricingInputs) ─────────────────────────────────
+//
+// `run-pricing/buildPricingInputs` used the generic `value_json ?? value_number ??
+// value_text` for EVERY fact, PAD keys included. On the P0-E runtime shapes that returned
+// the MAP-7B / MAP-8B metadata object: padCategory became "[object Object]" and
+// padRateFcfaPerTon NaN, so the enrichment guard
+// `inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0`
+// never fired and the run completed "success" without its PAD_DROIT_PASSAGE line.
+// `readPadPricingInputs` is what that switch now delegates to.
+
+/** The generic reader `buildPricingInputs` still applies to every NON-PAD fact. */
+function genericValue(row: PadScopeFact): unknown {
+  return row.value_json ?? row.value_number ?? row.value_text;
+}
+
+/** Facts whose value legitimately IS JSON — they must keep going through the generic read. */
+const CONTAINERS = fact("cargo.containers", { value_json: [{ type: "40HC", quantity: 1 }] });
+const OVERRIDES = fact("service.overrides", { value_json: { add: ["PAD_DROIT_PASSAGE"], remove: [] } });
+const WEIGHT = fact("cargo.weight_kg", { value_number: 10000 });
+
+Deno.test("MAP-7B/MAP-8B runtime shapes produce the T02 / 9678 pricing inputs", () => {
+  assertEquals(readPadPricingInputs([CATEGORY_PROPAGATED, RATE_PROPAGATED]), {
+    padCategory: "T02",
+    padRateFcfaPerTon: 9678,
+  });
+  // Individually, on the exact rows the propagation writes.
+  assertEquals(readPadCategory([CATEGORY_PROPAGATED]), "T02");
+  assertEquals(readOfficialPadRate([RATE_PROPAGATED]), 9678);
+  // value_text-only rate (value_number never materialised) is read the same way.
+  assertEquals(readOfficialPadRate([propagatedRate(null, "9678")]), 9678);
+  assertEquals(readPadCategory([fact("pricing.pad_category", {
+    value_text: "T02",
+    value_json: { origin: "MAP-6", operator_validated: true },
+  })]), "T02");
+});
+
+Deno.test("the PAD line the fix restores: 10 t x 9678 = 96 780 FCFA", () => {
+  const facts = [CATEGORY_PROPAGATED, RATE_PROPAGATED, WEIGHT, CONTAINERS, OVERRIDES];
+  const inputs = readPadPricingInputs(facts);
+  const weightTonnes = Number(genericValue(WEIGHT)) / 1000; // buildPricingInputs: kg → tonnes
+
+  // The enrichment guard in run-pricing/index.ts, mirrored.
+  const enriches = !!inputs.padCategory &&
+    inputs.padRateFcfaPerTon != null &&
+    inputs.padRateFcfaPerTon > 0 &&
+    weightTonnes > 0;
+
+  assertEquals(enriches, true);
+  assertEquals(Math.round(inputs.padRateFcfaPerTon! * weightTonnes), 96780);
+  assertEquals(`Droit de passage PAD ${inputs.padCategory}`, "Droit de passage PAD T02");
+
+  // Regression witness: what the generic reader used to yield on the same two rows.
+  assertEquals(String(genericValue(CATEGORY_PROPAGATED)), "[object Object]");
+  assertEquals(Number.isNaN(Number(genericValue(RATE_PROPAGATED))), true);
+});
+
+Deno.test("non-PAD JSON facts are untouched by the PAD read", () => {
+  const facts = [CATEGORY_PROPAGATED, RATE_PROPAGATED, CONTAINERS, OVERRIDES, WEIGHT];
+  // Only the two PAD keys are claimed; nothing else leaks into the PAD inputs.
+  assertEquals(Object.keys(readPadPricingInputs(facts)), ["padCategory", "padRateFcfaPerTon"]);
+  // And the JSON facts still read as JSON, PAD facts present or not.
+  assertEquals(readFactValue(facts, "cargo.containers"), [{ type: "40HC", quantity: 1 }]);
+  assertEquals(readFactValue(facts, "service.overrides"), { add: ["PAD_DROIT_PASSAGE"], remove: [] });
+  assertEquals(genericValue(CONTAINERS), [{ type: "40HC", quantity: 1 }]);
+  assertEquals(genericValue(OVERRIDES), { add: ["PAD_DROIT_PASSAGE"], remove: [] });
+  assertEquals(readPadPricingInputs([CONTAINERS, OVERRIDES, WEIGHT]), {});
+});
+
+Deno.test("fail-closed: unusable PAD values leave the pricing keys UNSET", () => {
+  // Metadata object only, no scalar column beside it — on both keys.
+  assertEquals(
+    readPadPricingInputs([
+      fact("cargo.pad_category", { value_json: { origin: "MAP-6", operator_validated: true } }),
+      propagatedRate(null, undefined),
+    ]),
+    {},
+  );
+  // Rate values that must never become a tariff (incl. the metadata's tariff_source.amount).
+  for (const rate of [
+    propagatedRate(0, "0"),
+    propagatedRate(-9678, "-9678"),
+    propagatedRate(null, "TO_CONFIRM"),
+    propagatedRate(null, ""),
+    propagatedRate(Infinity, undefined),
+    fact("cargo.pad_rate_fcfa_per_ton", {}),
+  ]) {
+    assertEquals(
+      readPadPricingInputs([CATEGORY_PROPAGATED, rate]),
+      { padCategory: "T02" },
+      `rate ${JSON.stringify(rate.value_number ?? rate.value_text ?? null)} must stay unset`,
+    );
+  }
+  // Blank / non-textual categories: unset, never "null" / "undefined" / "2" strings.
+  for (const value of [{ value_text: "" }, { value_text: "   " }, { value_number: 2 }, {}]) {
+    assertEquals(
+      readPadPricingInputs([fact("cargo.pad_category", value), RATE_PROPAGATED]),
+      { padRateFcfaPerTon: 9678 },
+      `category ${JSON.stringify(value)} must stay unset`,
+    );
+  }
+});
+
+Deno.test("pricing inputs and the scope guard agree on every fixture", () => {
+  const cases: Array<PadScopeFact[]> = [
+    [CATEGORY_PROPAGATED, RATE_PROPAGATED],
+    [CATEGORY_CARGO, RATE_POSITIVE],
+    [CATEGORY_PRICING, RATE_POSITIVE],
+    [CATEGORY_PROPAGATED],
+    [RATE_PROPAGATED],
+    [CATEGORY_PROPAGATED, propagatedRate(0, "0")],
+    [fact("cargo.pad_category", { value_text: "  " }), RATE_PROPAGATED],
+    [],
+  ];
+  for (const facts of cases) {
+    const inputs = readPadPricingInputs(facts);
+    const priceable = inputs.padCategory != null && inputs.padRateFcfaPerTon != null;
+    assertEquals(
+      resolve(facts) === null,
+      priceable,
+      `guard and pricing inputs disagree on ${JSON.stringify(facts.map((f) => f.fact_key))}`,
+    );
+  }
+});
+
+Deno.test("category precedence is cargo then pricing, and the value is trimmed", () => {
+  assertEquals(
+    readPadCategory([
+      fact("cargo.pad_category", { value_text: " T02 " }),
+      fact("pricing.pad_category", { value_text: "P05" }),
+    ]),
+    "T02",
+  );
+  // Blank cargo category falls through to the pricing gap key.
+  assertEquals(
+    readPadCategory([
+      fact("cargo.pad_category", { value_text: "  ", value_json: { origin: "MAP-6" } }),
+      fact("pricing.pad_category", { value_text: "P05" }),
+    ]),
+    "P05",
+  );
+  assertEquals(readPadCategory([]), null);
 });
 
 // ── Normalisation ───────────────────────────────────────────────────────────

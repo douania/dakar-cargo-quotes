@@ -14,7 +14,7 @@ import {
   withLocalTransportDebours,
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
-import { resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
+import { readPadPricingInputs, resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
 // P5 helpers moved verbatim to _shared so build-case-puzzle computes the SAME
 // effectiveServiceKeys before calling resolvePadScopeBlocker (no doctrine change).
 import {
@@ -3762,15 +3762,19 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "service.package":
         inputs.servicePackage = String(value);
         break;
-      case "cargo.pad_category":
-      case "pricing.pad_category":
-        inputs.padCategory = String(value);
-        break;
-      case "cargo.pad_rate_fcfa_per_ton":
-        inputs.padRateFcfaPerTon = Number(value);
-        break;
     }
   }
+
+  // ═══ PAD: business value, not propagation metadata ═══
+  // The generic `value` above is correct for facts whose value really IS JSON
+  // (cargo.containers, cargo.articles_detail, …) but NOT for cargo.pad_category /
+  // cargo.pad_rate_fcfa_per_ton: MAP-6/7B/8B write the business value in value_text /
+  // value_number and reserve value_json for propagation metadata, so `value` was the
+  // metadata object → padCategory "[object Object]", padRateFcfaPerTon NaN, and the
+  // PAD_DROIT_PASSAGE line was dropped from a run that still reported success.
+  // Read here through the same readers as resolvePadScopeBlocker; the keys stay unset
+  // when no usable value exists, so the enrichment below still fails closed.
+  Object.assign(inputs, readPadPricingInputs(facts));
 
   // P8: Fallback — export dossiers have destination_port but not destination_city
   if (!inputs.finalDestination) {
