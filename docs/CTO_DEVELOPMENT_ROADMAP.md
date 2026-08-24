@@ -395,8 +395,8 @@ Exécution Git/Lovable contrôlée du 24 août 2026 :
 - migration `20260824120000` appliquée puis enregistrée dans le ledger : 60 lignes `active/validated_internal`, 30 en 20P et 30 en 40P, 10 dates `2026-03-30` et 50 dates `NULL` préservées, aucune date de fin, aucun attribut hors contrat et zéro clé non déterministe ;
 - rejeu live de la promotion : no-op confirmé, empreinte incluant `updated_at`, activation et preuve inchangée sur les 60 lignes ;
 - recette ciblée : 7 contrôles live PASS sur 20P, 40P, extrêmes de grille et destination inconnue ; 59 tests spécialisés PASS sur sélection fail-closed, DAP/DDP, double comptage, débours fournisseur TTC, commission nulle et présentation commerciale PDF/email ;
-- aucun email réel, aucune autre famille tarifaire activée, aucune publication publique et aucun résidu sandbox créé ;
-- limite explicite : le parcours UI authentifié complet n'a pas été exécuté, faute de session applicative disponible dans l'aperçu ou Chrome. Il reste dans le PACK P0-E et ne remet pas en cause la recette technique P0-D3.
+- aucun email réel, aucune autre famille tarifaire activée, aucune publication publique et aucun résidu sandbox créé pendant cette exécution ;
+- limite historique : le parcours UI authentifié complet n'était pas encore exécuté à la clôture de P0-D3. Le smoke authentifié décrit dans P0-E a ensuite confirmé le garde-fou PAD, sans permettre d'aller jusqu'à une version de devis faute de classification PAD matérialisée pour ce dossier sandbox ; la grille officielle était déjà intégrée.
 
 Premier blocage métier externe restant : validation/signature SODATRA du checklist `VALIDATION_RATE_CARDS_AND_CATALOGUE.md`, notamment les doublons BORDER/TRUCKING, la doctrine `EMPTY_RETURN`, l'anomalie à 0 XOF et les placeholders export.
 
@@ -419,6 +419,53 @@ Ce pack dépend d'un responsable métier SODATRA. Il ne peut pas être achevé p
 ### PACK P0-E — recette authentifiée de bout en bout
 
 Objectif : démontrer le parcours réel sur Lovable avant toute publication.
+
+Statut runtime au 24 août 2026 : **PARTIAL / STOP AUTH — smoke authentifié et fail-closed PAD prouvés ; la grille officielle, l'alias T02 et `produce-pad-classification-candidates` sont présents, mais `build-case-puzzle` reste sur l'ancienne version live et ne peut pas être redéployé par le panneau Cloud natif disponible**.
+
+Preuves vérifiées sur l'aperçu Lovable privé et non publié :
+
+- session applicative authentifiée avec un compte autorisé ; aucun dossier client existant n'a été modifié ;
+- création d'un dossier strictement fictif `SANDBOX-P0E-20260824`, puis sélection opérateur du package `DAP_PROJECT_IMPORT` et correction de la destination finale vers `Mbour` ;
+- observation d'une anomalie d'intake : une demande texte contenant `1 x 20 pieds` et `1 x 40 pieds` n'a conservé que le 20P, et `Dakar` a été retenu comme destination finale au lieu de `Mbour` ;
+- première analyse sans email ni document : échec explicite et traçable `No emails or documents found for this case`, sans effet de pricing ;
+- ajout d'une fixture sandbox non sensible avec texte déjà extrait, faute de sélection de fichier local disponible dans le contrôleur navigateur ; analyse réussie vers `NEED_INFO`, 40 % de complétude et trois gaps dont un bloquant ;
+- résolution du gap `cargo.description` par l'interface, reconstruction réussie vers `READY_TO_PRICE`, 80 % de complétude, 15 faits et un seul gap non bloquant `contacts.client_email` ;
+- deux tentatives de pricing — une automatique après résolution du gap puis une manuelle confirmée — toutes deux enregistrées `blocked` avec l'unique garde `PAD_CATEGORY_REQUIRED` et le message `Catégorie PAD / droit de passage requise pour chiffrer le service portuaire inclus dans le devis.` ;
+- les deux runs bloqués ont `tariff_lines = NULL`, `total_ht = NULL` et `total_ttc = NULL` ; aucune ligne `quote_service_pricing`, aucune version de devis, aucun PDF, aucun brouillon et aucun email n'ont été créés ;
+- nettoyage transactionnel strict du dossier sandbox et de sa fixture : zéro résidu dans `quote_cases`, `case_documents`, `quote_facts`, `quote_gaps`, `case_puzzle_jobs`, `case_timeline_events`, `pricing_runs`, `quote_service_pricing` et `quotation_versions` ; la fixture locale temporaire a également été supprimée.
+
+Correction locale vérifiée, non déployée sur Lovable :
+
+- le parseur texte de l'intake publie désormais tous les groupes conteneurs sous le contrat canonique `{ type, quantity }`, conserve le total, omet le type legacy lorsqu'il est mixte et reste fail-closed en cas de déclaration ambiguë ;
+- le port de déchargement reste distinct de la destination finale : le cas observé produit `Dakar` comme POD et `Mbour` comme destination ;
+- tests du cas runtime exact et des formats historiques : suite frontend complète portée à 107 tests PASS ; typecheck PASS ; configuration des 91 Edge Functions PASS ; baseline Deno inchangée à 65 erreurs connues dans 7 groupes ; 476 tests Deno PASS, 6 ignorés ; dette lint améliorée et verrouillée à 756 erreurs et 27 warnings ; build production PASS ;
+- aucun commit, push, déploiement, changement de donnée ou action runtime n'a été effectué pour cette correction. Une nouvelle recette Lovable restera obligatoire après déploiement autorisé.
+
+Reprise P0-E avec désignation officielle non ambiguë, vérifiée le 24 août 2026 :
+
+- le runtime contient bien l'alias validé officiel `PIECES DETACHEES DE MACHINES ET APPAREILS` → `T02`, référencé `REDEVANCES_PORTUAIRES_2006.pdf, Section 2.3.1, Page 15` ;
+- le barème PAD contient une ligne active IMPORT / CONTENEUR / T02 à `9 678 FCFA` par tonne, source `pdf_redevances_portuaires_2006`, sans date d'expiration ; une ancienne ligne identique inactive subsiste mais n'est pas éligible au pricing ;
+- une première saisie sandbox utilisant la syntaxe `1 x conteneur 20 pieds Dry` a révélé un désaccord live entre le parseur et le validateur de `cargo.containers` : le parseur live produisait un type nul, ensuite refusé par `set-case-fact` ; la variante est désormais couverte et corrigée localement ;
+- avec la syntaxe historique acceptée `1 conteneur 20' DV`, l'analyse a correctement extrait la désignation exacte, 10 000 kg, DAP, Mbour, Le Havre / Dakar et le package `DAP_PROJECT_IMPORT` ; le `build-case-puzzle` live non corrigé a néanmoins déclaré prématurément `READY_TO_PRICE` sans catégorie ni tarif PAD ;
+- le correctif local partage désormais la même résolution de périmètre de services entre `build-case-puzzle` et `run-pricing`, crée ou renforce idempotemment le gap bloquant `pricing.pad_category`, ne le résout qu'avec catégorie et tarif officiel positif, et interdit fail-closed `READY_TO_PRICE` si la garde PAD ne peut pas être lue ou écrite ;
+- avant son déploiement ultérieur, deux appels authentifiés au workflow opérateur `Rechercher catégorie PAD depuis description` avaient échoué en HTTP 404 avant création de candidat ; zéro candidat n'avait été créé pendant cette recette historique ;
+- le second dossier sandbox, sa fixture et toutes leurs dépendances ont été supprimés transactionnellement ; contrôle post-nettoyage à zéro sur dossiers, documents, faits, gaps, jobs, candidats, pricing, versions et lignes tarifaires ; seuls les événements runtime append-only restent disponibles comme trace forensique normale ;
+- aucun devis, PDF, brouillon, email, commit, push, déploiement ou publication n'a été produit par cette reprise.
+
+Condition de reprise P0-E : redéployer explicitement `build-case-puzzle` avec le correctif fail-closed déjà poussé, puis rejouer le même scénario sandbox avec `produce-pad-classification-candidates`, désormais actif. Aucun contournement par écriture directe de faits PAD n'est autorisé.
+
+Tentative de reprise Git/runtime du 24 août 2026 : **PARTIAL / STOP AUTH**.
+
+- les changements Auth Lovable `5b973677` / `23a433bd` ont été neutralisés chirurgicalement par `fbe21700`, sans autre modification Auth ;
+- le module pur `pad-scope-blocker.ts` a été déplacé sans changement de doctrine vers `_shared`, avec uniquement ses imports et tests concernés, puis commité sous `c54f507d` ; les deux commits ont été poussés sur `work` ;
+- CI complète verte : configuration des 91 Edge Functions, typecheck, 107 tests frontend, baseline Deno inchangée, 476 tests Deno avec 6 ignorés, baseline lint inchangée et build production ;
+- Lovable voit le commit et le nouvel import `../_shared/pad-scope-blocker.ts`, mais le runtime indique encore `build-case-puzzle` « Last updated 22 juin 2026 » ;
+- le panneau Cloud Lovable permet uniquement de consulter code et journaux de cette fonction, sans commande native de redéploiement ; le seul chemin disponible dans cette session est l'agent Lovable, déjà observé comme réinjectant automatiquement le changement Auth explicitement interdit ;
+- aucun nouveau message agent Lovable n'a donc été envoyé, aucun déploiement n'a été tenté, et aucune migration, donnée, recette sandbox, fonction supplémentaire, configuration, Auth, email ou publication n'a été modifié.
+
+Condition de déblocage : disposer d'une action Lovable native de redéploiement ciblé, ou d'un GO CTO élargi autorisant explicitement l'agent Lovable et la neutralisation chirurgicale de tout nouveau commit Auth automatique avant reprise de la recette sandbox. Le scénario ne doit pas être rejoué tant que `build-case-puzzle` corrigé n'est pas prouvé en ligne.
+
+Verdict intermédiaire : le garde-fou P0-B est maintenant prouvé directement dans le runtime authentifié et empêche bien tout mauvais devis. Le défaut d'extraction observé est corrigé et testé localement. Le blocage ne vient pas d'une grille PAD absente : le barème officiel PAD 2006 est déjà intégré. Il vient de l'absence, sur ce dossier, des faits `cargo.pad_category` et `cargo.pad_rate_fcfa_per_ton`. La description sandbox générique « pièces mécaniques » ne doit pas être classée automatiquement ; la doctrine documentée la considère ambiguë. La reprise de recette doit utiliser une désignation officielle non ambiguë ou une validation opérateur via le workflow de candidats existant.
 
 Parcours minimum :
 
