@@ -25,6 +25,12 @@ import { createIntake, type IntakeResponse } from "@/services/railwayApi";
 import { WORKFLOW_LABELS } from "@/features/quotation/constants";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  describeContainerPlan,
+  parseTextOverrides,
+  resolveContainerPlan,
+  toCanonicalContainers,
+} from "@/lib/intakeTextOverrides";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ACCEPTED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".jpg", ".jpeg", ".png", ".csv"];
@@ -162,156 +168,6 @@ export default function Intake() {
     }
   }
 
-  const FRENCH_NUMBERS: Record<string, number> = {
-    un: 1, une: 1, deux: 2, trois: 3, quatre: 4,
-    cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
-  };
-
-  // Apostrophe class: simple, typographic ’, prime ′, double-quote
-  const APOS = `['\\u2019\\u2032"]`;
-
-  /** Trim + drop trailing punctuation .,;: + cap length */
-  function cleanCaptured(value: string, max = 80): string {
-    return value.trim().replace(/[.,;:]+$/, "").trim().slice(0, max);
-  }
-
-  /**
-   * Parse operator text overrides.
-   *
-   * @test-manual DCQ-P0-WHATSAPP-RFQ-INTAKE-GAPS — RFQ KAS0032026
-   *   Input:
-   *     "From Pune To Nhava Sheva port, to Dakar (Senegal) and further to Kaolack City
-   *      Port of Discharge: Dakar Port, Senegal
-   *      Final Place of Discharge of Containers: Kaolack Site, Senegal
-   *      20 x 40' HC ..."
-   *   Expected overrides:
-   *     origin = "Pune"
-   *     origin_port = "Nhava Sheva"
-   *     pod = "Dakar Port, Senegal"
-   *     destination = "Kaolack Site, Senegal"   (NOT Dakar)
-   *     container_count = 20
-   *     container_type  = "40' HC"
-   *     requires_final_destination = true
-   *
-   * @test-manual Cas piège port-to-port pur:
-   *   "Sea quote: Port of Discharge: Dakar Port. 1x40HC."
-   *   → requires_final_destination=false, pod resolves route.destinations.
-   *
-   * @test-manual Cas piège inland sans extraction:
-   *   "Door delivery required. Port of Discharge: Dakar Port."
-   *   → requires_final_destination=true, destination=undefined.
-   *   route.destinations gap MUST remain (Dakar must NOT mask Kaolack/inland).
-   */
-  function parseTextOverrides(inputText: string): Record<string, any> {
-    const overrides: Record<string, any> = {};
-    // Normalize CRLF → LF for robust regex separators (WhatsApp / Gmail / Windows)
-    const normalized = inputText.replace(/\r\n/g, "\n");
-
-    // Pattern 1: digits — "1 conteneur 40'", "1 x 40HC", "20 x 40' HC", "20 x 40’ HC"
-    const containerMatch = normalized.match(
-      new RegExp(`(\\d+)\\s*(?:seul\\s+)?(?:conteneur|container|x)\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`, "i")
-    );
-    if (containerMatch) {
-      overrides.container_count = parseInt(containerMatch[1], 10);
-      if (containerMatch[2]) {
-        const size = containerMatch[2];
-        const type = containerMatch[3] || "";
-        overrides.container_type = size + "'" + (type ? " " + type.toUpperCase() : "");
-      }
-    }
-
-    // Pattern 2: French words — "un des huit conteneurs 40'"
-    if (overrides.container_count == null) {
-      const wordPattern = new RegExp(
-        `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
-        "i"
-      );
-      const wordMatch = normalized.match(wordPattern);
-      if (wordMatch) {
-        overrides.container_count = FRENCH_NUMBERS[wordMatch[1].toLowerCase()] ?? 1;
-        if (wordMatch[2]) {
-          const size = wordMatch[2];
-          const type = wordMatch[3] || "";
-          overrides.container_type = size + "'" + (type ? " " + type.toUpperCase() : "");
-        }
-      }
-    }
-
-    // ── ORIGIN (city) ─────────────────────────────────────────────────────
-    const originPatterns = [
-      /From\s+([A-Za-z][\w\s-]+?)\s+(?:To|to|→|-)/,
-      /Origin(?:e)?\s*[:-]\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      /Départ\s+(?:de|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      /Pickup\s+(?:from|at|location)\s*[:-]?\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-    ];
-    for (const pat of originPatterns) {
-      const m = normalized.match(pat);
-      if (m && m[1]) {
-        overrides.origin = cleanCaptured(m[1]);
-        break;
-      }
-    }
-
-    // ── ORIGIN PORT / POL ────────────────────────────────────────────────
-    const polPatterns = [
-      /(?:To|to|via)\s+([A-Za-z][\w\s-]+?)\s+(?:port|Port)\b/,
-      /(?:POL|Port\s+of\s+Loading)\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
-    ];
-    for (const pat of polPatterns) {
-      const m = normalized.match(pat);
-      if (m && m[1]) {
-        overrides.origin_port = cleanCaptured(m[1]);
-        break;
-      }
-    }
-
-    // ── POD (Port of Discharge) ──────────────────────────────────────────
-    const podMatch = normalized.match(
-      /(?:POD|Port\s+of\s+Discharge)\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i
-    );
-    if (podMatch && podMatch[1]) {
-      overrides.pod = cleanCaptured(podMatch[1]);
-    }
-
-    // ── FINAL DESTINATION (priority strong) ──────────────────────────────
-    const finalDestPatterns = [
-      /Final\s+Place\s+of\s+Discharge[^:\n]*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.;\n]|$)/i,
-      /further\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?(?:\s+(?:City|Site|Town))?)(?:[.,;\n]|$)/i,
-      /Deliveries?\s+up\s+to\s+([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      /Final\s+destination\s*[:-]\s*([A-Za-zÀ-ÿ0-9 ,-]+?)(?:[.,;\n]|$)/i,
-    ];
-    for (const pat of finalDestPatterns) {
-      const m = normalized.match(pat);
-      if (m && m[1]) {
-        overrides.destination = cleanCaptured(m[1]);
-        break;
-      }
-    }
-
-    // FR fallback patterns (kept as before)
-    if (!overrides.destination) {
-      const destPatterns = [
-        /Lieu\s+de\s+Livraison[^:\n]*:\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-        /(?:livraison|livrer|destination|lieu)\s*(?:a|à|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-        /(?:site|chantier)\s*(?:a|à|de|:)\s*([A-Za-zÀ-ÿ0-9 -]+?)(?:[.,;\n]|$)/i,
-      ];
-      for (const pat of destPatterns) {
-        const match = normalized.match(pat);
-        if (match && match[1]) {
-          overrides.destination = cleanCaptured(match[1]);
-          break;
-        }
-      }
-    }
-
-    // ── GUARD: requires_final_destination ────────────────────────────────
-    // If text mentions an inland delivery cue, POD/IA destination must NOT mask the gap.
-    overrides.requires_final_destination =
-      /final\s+place|further\s+to|deliveries?\s+up\s+to|door|site|chantier|livraison/i.test(normalized);
-
-    return overrides;
-  }
-
   // Mapping: Railway missing_field name -> resolver checking if data is available
   const FIELD_RESOLVERS: Record<string, (a: Record<string, any>, o: Record<string, any>) => boolean> = {
     "route.origins": (a, o) =>
@@ -326,7 +182,9 @@ export default function Intake() {
       // Otherwise: Railway/IA destination or POD acceptable as fallback
       return !!(a.destination || o.pod);
     },
-    "cargo.container_count": (a, o) => !!(o.container_count || a.container_count),
+    // Fail-closed: an ambiguous container declaration resolves nothing —
+    // the question must stay open rather than risk a wrong count.
+    "cargo.container_count": (a, o) => resolveContainerPlan(o, a).totalCount >= 1,
     "cargo.weight": (a, o) => !!(a.weight_kg),
     "cargo.commodity": (a, o) => !!(a.commodity || a.cargo_description),
     "cargo.incoterm": (a, o) => !!(a.incoterm || o.incoterm),
@@ -359,8 +217,7 @@ export default function Intake() {
     if (!analysis && Object.keys(textOverrides).length === 0) return data;
 
     const mergedAnalysis = analysis || {};
-    const containerCount = Number(textOverrides.container_count ?? mergedAnalysis.container_count) || 0;
-    const containerType = String(textOverrides.container_type ?? mergedAnalysis.container_type ?? "").replace(/[^0-9]/g, "");
+    const containerPlan = resolveContainerPlan(textOverrides, mergedAnalysis);
     const weightKg = Number(mergedAnalysis.weight_kg) || 0;
     const requiresFinal = !!textOverrides.requires_final_destination;
     // Safe destination for display: never show Dakar/IA when inland is expected but not extracted
@@ -373,20 +230,22 @@ export default function Intake() {
     // Always filter missing_fields against available data
     const result = filterMissingFields(data, mergedAnalysis, textOverrides);
 
-    if (containerCount >= 1 && (containerType === "20" || containerType === "40")) {
+    if (containerPlan.totalCount >= 1 && containerPlan.isFcl) {
       // Filter out incorrect "colis lourd" assumptions
       const filtered = (result.assumptions || []).filter(
         (a) => !/colis\s*lourd/i.test(a) && !/heavy.*cargo/i.test(a)
       );
 
       // Build smart FCL assumptions
-      const weightPerContainer = weightKg > 0 ? Math.round(weightKg / containerCount) : null;
+      const weightPerContainer = weightKg > 0 ? Math.round(weightKg / containerPlan.totalCount) : null;
       const weightInfo = weightPerContainer
         ? ` (poids total : ${weightKg.toLocaleString("fr-FR")} kg, soit ~${weightPerContainer.toLocaleString("fr-FR")} kg/conteneur)`
         : "";
 
+      // Detail every group: a mixed 20'/40' file must never be summarised
+      // by a single type.
       filtered.unshift(
-        `${containerCount} conteneur(s) ${containerType}' détecté(s)${weightInfo}`,
+        `${containerPlan.totalCount} conteneur(s) détecté(s) : ${describeContainerPlan(containerPlan)}${weightInfo}`,
         `Mode de transport : Maritime FCL`
       );
 
@@ -420,6 +279,11 @@ export default function Intake() {
 
     // No container info path — still surface route hints
     const assumptions = [...(result.assumptions || [])];
+    if (containerPlan.ambiguous) {
+      assumptions.push(
+        `⚠️ Conteneurs : déclarations multiples ambiguës dans le texte — aucun conteneur publié, préciser le détail`
+      );
+    }
     if (origin) assumptions.push(`📦 Origine : ${origin}`);
     if (originPort) assumptions.push(`🚢 Port d'embarquement (probable) : ${originPort}`);
     if (pod) assumptions.push(`⚓ Port de déchargement : ${pod}`);
@@ -465,8 +329,7 @@ export default function Intake() {
     textOverrides: Record<string, any>
   ): Promise<InjectFactsResult> {
     // Merge: text overrides > document analysis
-    const containerCount = Number(textOverrides.container_count ?? analysis.container_count) || 0;
-    const containerType = String(textOverrides.container_type ?? analysis.container_type ?? "");
+    const containerPlan = resolveContainerPlan(textOverrides, analysis);
     const weightKg = Number(analysis.weight_kg) || 0;
     // Guard: if inland final destination is required but not extracted locally,
     // do NOT inject mergedAnalysis.destination (e.g. Dakar) as routing.destination_city.
@@ -479,19 +342,18 @@ export default function Intake() {
     const facts: FactPayload[] = [];
     const criticalKeys = new Set<string>();
 
-    // Container facts (canonical + legacy compat)
-    if (containerCount >= 1) {
-      facts.push({ fact_key: "cargo.container_count", value_number: containerCount });
-      if (containerType) {
-        facts.push({ fact_key: "cargo.container_type", value_text: containerType });
+    // Container facts (canonical + legacy compat).
+    // An ambiguous declaration yields totalCount = 0 → nothing is published and
+    // the puzzle keeps asking the question (fail-closed).
+    if (containerPlan.totalCount >= 1) {
+      facts.push({ fact_key: "cargo.container_count", value_number: containerPlan.totalCount });
+      // Legacy single type only for a mono-type file: a mixed 20'/40' file has
+      // no honest single type, publishing one would be a lie.
+      if (containerPlan.legacyType) {
+        facts.push({ fact_key: "cargo.container_type", value_text: containerPlan.legacyType });
       }
-      // Canonical: cargo.containers as JSON array
-      const containersJson = [
-        {
-          count: containerCount,
-          type: containerType || null,
-        },
-      ];
+      // Canonical: cargo.containers as JSON array, one entry per declared group
+      const containersJson = toCanonicalContainers(containerPlan);
       facts.push({ fact_key: "cargo.containers", value_json: containersJson });
       criticalKeys.add("cargo.containers");
     }
@@ -501,7 +363,7 @@ export default function Intake() {
     }
 
     // service.mode (legacy compat for some UI paths)
-    if (containerType.includes("40") || containerType.includes("20")) {
+    if (containerPlan.isFcl) {
       facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
       // Canonical transport_mode (UI/runtime expects MARITIME — see SELECT_FACT_OPTIONS)
       facts.push({ fact_key: "routing.transport_mode", value_text: "MARITIME" });
