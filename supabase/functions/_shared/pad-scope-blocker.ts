@@ -9,7 +9,8 @@
  *
  * The behaviour is the behaviour of the previously inlined helper, unchanged: this
  * module exists to make the `PAD_CATEGORY_REQUIRED` branch directly testable, not to
- * revisit the doctrine. See `pad-scope-blocker_test.ts` for the contract it pins.
+ * revisit the doctrine. See `run-pricing/pad-scope-blocker_test.ts` for the contract
+ * it pins.
  */
 
 /** Shape of the fact rows `run-pricing` reads (a subset of `case_facts`). */

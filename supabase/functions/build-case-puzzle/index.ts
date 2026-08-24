@@ -14,7 +14,7 @@ import {
 import {
   type PadScopeFact,
   resolvePadScopeBlocker,
-} from "../run-pricing/pad-scope-blocker.ts";
+} from "../_shared/pad-scope-blocker.ts";
 import {
   readOverridesFromFacts,
   resolveEffectiveServiceKeys,

@@ -14,7 +14,7 @@ import {
   withLocalTransportDebours,
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
-import { resolvePadScopeBlocker } from "./pad-scope-blocker.ts";
+import { resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
 // P5 helpers moved verbatim to _shared so build-case-puzzle computes the SAME
 // effectiveServiceKeys before calling resolvePadScopeBlocker (no doctrine change).
 import {
@@ -630,7 +630,7 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
 // resolveEffectiveServiceKeys moved verbatim to ../_shared/service-scope.ts
 // (imported above) so build-case-puzzle resolves the identical scope.
 
-// PAD scope guard: extracted verbatim into ./pad-scope-blocker.ts (PACK P0-B) so the
+// PAD scope guard: extracted verbatim into ../_shared/pad-scope-blocker.ts (PACK P0-B) so the
 // PAD_CATEGORY_REQUIRED branch is directly testable. Both call sites below already
 // compute effectiveServiceKeys via resolveEffectiveServiceKeys + readOverridesFromFacts.
 

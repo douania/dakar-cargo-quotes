@@ -6,7 +6,7 @@ import {
   type PadScopeBlocker,
   type PadScopeFact,
   resolvePadScopeBlocker,
-} from "./pad-scope-blocker.ts";
+} from "../_shared/pad-scope-blocker.ts";
 
 /**
  * PACK P0-B — direct proof of the PAD_CATEGORY_REQUIRED guard.

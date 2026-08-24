@@ -28,7 +28,7 @@ import {
   PAD_CATEGORY_REQUIRED_MESSAGE,
   type PadScopeFact,
   resolvePadScopeBlocker,
-} from "../run-pricing/pad-scope-blocker.ts";
+} from "../_shared/pad-scope-blocker.ts";
 
 // Empêche le serveur de démarrer lors de l'import (pattern existant build-case-puzzle).
 Deno.env.set("BUILD_CASE_PUZZLE_DISABLE_SERVE", "1");
