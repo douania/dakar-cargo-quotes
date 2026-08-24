@@ -8,8 +8,15 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "lint:baseline": "node scripts/check-lint-baseline.mjs",
+    "check:function-config": "node scripts/check-edge-function-config.mjs",
     "preview": "vite preview",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck:deno": "node scripts/check-deno-type-baseline.mjs",
+    "test": "vitest run",
+    "test:deno": "deno test --allow-env --allow-read --no-check --no-lock --node-modules-dir=none --ignore=supabase/functions/_tests/eq1_m15b_smoke.test.ts,supabase/functions/_tests/m17c_thread_temporal_guards.test.ts,supabase/functions/_tests/pad_alias_smoke.test.ts,supabase/functions/_tests/pad_nom3_runtime_smoke.test.ts,supabase/functions/_tests/phase15_smoke_test.ts supabase/functions/",
+    "test:deno:live": "deno test --allow-env --allow-net --allow-read --no-check --no-lock --node-modules-dir=none supabase/functions/_tests/eq1_m15b_smoke.test.ts supabase/functions/_tests/m17c_thread_temporal_guards.test.ts supabase/functions/_tests/pad_alias_smoke.test.ts supabase/functions/_tests/pad_nom3_runtime_smoke.test.ts supabase/functions/_tests/phase15_smoke_test.ts",
+    "ci": "npm run check:function-config && npm run typecheck && npm run test && npm run typecheck:deno && npm run test:deno && npm run lint:baseline && npm run build"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",

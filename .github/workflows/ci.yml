@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [work]
+  pull_request:
+    branches: [work]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: function config / typecheck / vitest / deno / lint baseline / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # `npm ci` installs strictly from package-lock.json: no dependency drift.
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.5
+
+      # Cheapest gate, and the one guarding deployment config rather than code: every
+      # deployable edge function must have exactly one explicit `[functions.<name>]`
+      # section. Runs first so a config drift fails in seconds, before the long gates.
+      - name: Edge function config (config.toml <-> supabase/functions)
+        run: npm run check:function-config
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Frontend tests (Vitest)
+        run: npm test
+
+      # `test:deno` runs with --no-check, so type debt would otherwise be invisible.
+      # This gate re-runs the same selection with type-checking on and fails only when
+      # the known, pre-existing debt grows. See scripts/check-deno-type-baseline.mjs.
+      - name: Deno type baseline (non-aggravation gate)
+        run: npm run typecheck:deno
+
+      # Local-only Deno suite. The five live smoke tests under supabase/functions/_tests
+      # are excluded on purpose: they require SUPABASE_SERVICE_ROLE_KEY and a reachable
+      # Supabase runtime. See `npm run test:deno:live` to run them deliberately.
+      - name: Edge function tests (Deno, local only)
+        run: npm run test:deno
+
+      - name: Lint baseline (non-aggravation gate)
+        run: npm run lint:baseline
+
+      - name: Production build
+        run: npm run build

@@ -17,7 +17,7 @@ export async function invokeWithRetry(
 
       const result = await supabase.functions.invoke(fnName, {
         body,
-        // @ts-expect-error – AbortSignal accepted at runtime
+        // `signal` is a first-class FunctionInvokeOptions field since @supabase/functions-js v2.
         signal: controller.signal,
       });
 
