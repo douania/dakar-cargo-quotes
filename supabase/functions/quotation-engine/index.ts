@@ -3,6 +3,15 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase.ts";
 import { logRuntimeEvent, getCorrelationId } from "../_shared/runtime.ts";
 import {
+  isLocalTransportDebours,
+  withLocalTransportDebours,
+  type LocalTransportDeboursAccounting,
+} from "../_shared/local-transport-debours.ts";
+import {
+  LOCAL_TRANSPORT_EVIDENCE_WHITELIST,
+  resolveOfficialLocalTransportRate,
+} from "../_shared/local-transport-destination.ts";
+import {
   INCOTERMS_MATRIX,
   EVP_CONVERSION,
   DELIVERY_ZONES,
@@ -564,6 +573,7 @@ interface QuotationLine {
   notes?: string;
   isEditable: boolean;
   containerType?: string;
+  accounting?: LocalTransportDeboursAccounting;
 }
 
 interface QuotationResult {
@@ -575,6 +585,7 @@ interface QuotationResult {
     debours: number;
     border: number;
     terminal: number;
+    local_transport_debours_ttc: number;
     dap: number;
     ddp: number;
   };
@@ -1901,101 +1912,82 @@ async function generateQuotationLines(
       
     } else {
       // ===== NON-MALI TRANSPORT =====
+      // ─── STRUCTURAL_PATCH_ALLOWED (lot P0-D-3) ───────────────────────────
+      // Portée : ce seul bloc de résolution du transport local. Le reste du
+      // moteur reste FROZEN. L'ancien enchaînement « historique d'abord, sinon
+      // ilike('%terme%').limit(1) » pouvait servir arbitrairement le tarif
+      // d'une autre destination. Il est remplacé par la résolution pure, exacte
+      // et fail-closed partagée avec price-service-lines :
+      //   * le barème validé exact passe AVANT toute donnée historique ;
+      //   * une destination inconnue / non couverte / ambiguë donne
+      //     TO_CONFIRM avec un montant null — l'historique n'y produit plus
+      //     aucun montant ferme, il ne subsiste qu'en information non chiffrante.
+      // ZONE_MAPPING / CONTAINER_TYPE_MAPPING / normalize() (mapping par
+      // sous-chaîne, non déterministe) ne sont plus consommés par ce chemin.
+      const localTransportAsOf = new Date().toISOString().split('T')[0];
+      const { data: officialLocalRates } = await supabase
+        .from('local_transport_rates')
+        .select('*')
+        .eq('is_active', true)
+        .in('evidence_level', [...LOCAL_TRANSPORT_EVIDENCE_WHITELIST]);
+
       for (const container of containers) {
-        // Search historical tariffs for this destination
+        const localTransport = resolveOfficialLocalTransportRate(officialLocalRates ?? [], {
+          destination: request.finalDestination,
+          containerType: container.type,
+          clientCode: request.clientCode ?? null,
+          asOfDate: localTransportAsOf,
+        });
+
+        if (localTransport.status === 'RESOLVED') {
+          lines.push(withLocalTransportDebours({
+            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+            bloc: 'operationnel' as const,
+            category: 'Transport',
+            description: `Transport ${container.type} → ${localTransport.canonicalDestination}`,
+            amount: localTransport.amount * container.quantity,
+            currency: localTransport.currency || 'FCFA',
+            containerType: container.type,
+            source: {
+              type: 'OFFICIAL' as const,
+              reference: localTransport.rate.source_document || 'Grille transport local validée',
+              confidence: localTransport.rate.evidence_level === 'official' ? 0.95 : 0.85,
+            },
+            isEditable: true
+          }));
+          continue;
+        }
+
+        // Pas de tarif exact : l'historique est consultable mais ne chiffre plus.
         const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
           destination: request.finalDestination,
           cargoType: request.cargoType,
           transportMode: 'routier',
           serviceName: 'transport'
         });
-        
-        if (transportMatch) {
-          lines.push({
-            id: `transport_${container.type.toLowerCase()}_${lines.length}`,
-            bloc: 'operationnel',
-            category: 'Transport',
-            description: `Transport ${container.type} → ${request.finalDestination}`,
-            amount: transportMatch.tariff.matchedAmount * container.quantity,
-            currency: 'FCFA',
-            containerType: container.type,
-            source: {
-              type: 'HISTORICAL',
-              reference: `Historique ${new Date(transportMatch.tariff.created_at).toLocaleDateString('fr-FR')}`,
-              confidence: transportMatch.score / 100,
-              historicalMatch: {
-                originalDate: transportMatch.tariff.created_at,
-                originalRoute: transportMatch.tariff.data?.destination || request.finalDestination,
-                similarityScore: transportMatch.score
-              }
-            },
-            notes: transportMatch.warnings.join('. ') || undefined,
-            isEditable: true
-          });
-        } else {
-          // Zone mapping: resolve destination to tariff zone via includes()
-          const destKey = normalize(request.finalDestination || '');
-          const mappedZone = Object.entries(ZONE_MAPPING)
-            .sort((a, b) => b[0].length - a[0].length)
-            .find(([key]) => destKey.includes(key))?.[1];
-          const searchTerm = mappedZone || normalize(request.finalDestination?.split(' ')[0] || '');
+        const historicalHint = transportMatch
+          ? ` Information non chiffrante : un historique existe (${transportMatch.tariff.data?.destination || request.finalDestination}, score ${Math.round(transportMatch.score)}) — non retenu comme tarif.`
+          : '';
 
-          // Container type mapping: strict .eq() match
-          const sizePrefix = container.type?.slice(0, 2) || ''; // "20" or "40"
-          const mappedContainerType = CONTAINER_TYPE_MAPPING[sizePrefix];
-
-          let rateQuery = supabase
-            .from('local_transport_rates')
-            .select('*')
-            .eq('is_active', true)
-            .in('evidence_level', ['official', 'validated_internal'])
-            .ilike('destination', `%${searchTerm}%`);
-
-          if (mappedContainerType) {
-            rateQuery = rateQuery.eq('container_type', mappedContainerType);
-          }
-
-          const { data: localRates } = await rateQuery.limit(1);
-          
-          if (localRates && localRates.length > 0) {
-            const rate = localRates[0];
-            lines.push({
-              id: `transport_${container.type.toLowerCase()}_${lines.length}`,
-              bloc: 'operationnel',
-              category: 'Transport',
-              description: `Transport ${container.type} → ${rate.destination}`,
-              amount: rate.rate_amount * container.quantity,
-              currency: rate.rate_currency || 'FCFA',
-              containerType: container.type,
-              source: {
-                type: 'OFFICIAL',
-                reference: rate.source_document || 'Grille transport local validée',
-                confidence: rate.evidence_level === 'official' ? 0.95 : 0.85
-              },
-              isEditable: true
-            });
-          } else {
-            // No normative data — flag for human confirmation (no invented amount)
-            lines.push({
-              id: `transport_${container.type.toLowerCase()}_${lines.length}`,
-              bloc: 'operationnel',
-              category: 'Transport',
-              description: `Transport ${container.type} → ${request.finalDestination}`,
-              amount: null,
-              currency: 'FCFA',
-              containerType: container.type,
-              source: {
-                type: 'TO_CONFIRM',
-                reference: 'Aucune donnée normative — tarif non trouvé en base',
-                confidence: 0
-              },
-              notes: 'Aucune donnée normative — confirmation humaine requise. Contacter transporteur.',
-              isEditable: true
-            });
-            warnings.push(`Transport ${container.type}: aucune donnée normative pour ${request.finalDestination} — à confirmer`);
-          }
-        }
+        lines.push({
+          id: `transport_${container.type.toLowerCase()}_${lines.length}`,
+          bloc: 'operationnel',
+          category: 'Transport',
+          description: `Transport ${container.type} → ${request.finalDestination}`,
+          amount: null,
+          currency: 'FCFA',
+          containerType: container.type,
+          source: {
+            type: 'TO_CONFIRM',
+            reference: `${localTransport.code} — ${localTransport.reason}`,
+            confidence: 0
+          },
+          notes: `${localTransport.message} Confirmation humaine requise. Contacter transporteur.${historicalHint}`,
+          isEditable: true
+        });
+        warnings.push(`Transport ${container.type} → ${request.finalDestination}: ${localTransport.message} (${localTransport.reason})`);
       }
+      // ─── fin STRUCTURAL_PATCH_ALLOWED ────────────────────────────────────
     }
   }
   
@@ -2783,17 +2775,21 @@ Deno.serve(async (req) => {
         );
 
         // Calculer les totaux
+        const localTransportDeboursTtc = lines
+          .filter(l => isLocalTransportDebours(l) && l.amount)
+          .reduce((sum, line) => sum + (line.amount || 0), 0);
         const totals = {
-          operationnel: lines.filter(l => l.bloc === 'operationnel' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
+          operationnel: lines.filter(l => l.bloc === 'operationnel' && !isLocalTransportDebours(l) && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           honoraires: lines.filter(l => l.bloc === 'honoraires' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           debours: lines.filter(l => l.bloc === 'debours' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           border: lines.filter(l => l.bloc === 'border' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           terminal: lines.filter(l => l.bloc === 'terminal' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
+          local_transport_debours_ttc: localTransportDeboursTtc,
           dap: 0,
           ddp: 0
         };
         
-        totals.dap = totals.operationnel + totals.honoraires + totals.border + totals.terminal;
+        totals.dap = totals.operationnel + totals.honoraires + totals.border + totals.terminal + totals.local_transport_debours_ttc;
         totals.ddp = totals.dap + totals.debours;
         
         // Métadonnées — use DB-backed rules for consistency

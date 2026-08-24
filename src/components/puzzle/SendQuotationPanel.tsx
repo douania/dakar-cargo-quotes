@@ -122,6 +122,8 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
 
   const snapshot = selectedVersion?.snapshot as any;
   const totalHt = snapshot?.totals?.total_ht;
+  const totalPayable = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
+  const hasDetailedCommercialTotals = typeof snapshot?.totals?.subtotal_before_sodatra_vat === 'number';
   const currency = snapshot?.totals?.currency || 'XOF';
   const formatAmount = (amount: number) => new Intl.NumberFormat('fr-FR').format(amount);
 
@@ -192,11 +194,11 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
               <span className="font-medium">v{selectedVersion.version_number}</span>
             </div>
           )}
-          {totalHt !== undefined && (
+          {totalPayable !== undefined && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Total HT</span>
+              <span className="text-muted-foreground">{hasDetailedCommercialTotals ? 'Total à payer' : 'Total HT'}</span>
               <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                {formatAmount(totalHt)} {currency}
+                {formatAmount(totalPayable)} {currency}
               </span>
             </div>
           )}
@@ -446,9 +448,9 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
                     <p>
                       Vous êtes sur le point de marquer la <strong>version v{selectedVersion?.version_number}</strong> du devis comme envoyée.
                     </p>
-                    {totalHt !== undefined && (
+                    {totalPayable !== undefined && (
                       <p>
-                        Montant total HT : <strong>{formatAmount(totalHt)} {currency}</strong>
+                        {hasDetailedCommercialTotals ? 'Total à payer' : 'Montant total HT'} : <strong>{formatAmount(totalPayable)} {currency}</strong>
                       </p>
                     )}
                     {editTo.trim() && (

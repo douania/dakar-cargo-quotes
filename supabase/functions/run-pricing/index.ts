@@ -9,6 +9,12 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
+import {
+  isLocalTransportRateSource,
+  withLocalTransportDebours,
+} from "../_shared/local-transport-debours.ts";
+import { computeCommercialTotals } from "./commercial-totals.ts";
+import { resolvePadScopeBlocker } from "./pad-scope-blocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -694,64 +700,9 @@ function resolveEffectiveServiceKeys(packageKey: string, overrides: ServiceOverr
   return result;
 }
 
-const PAD_SCOPE_SERVICE_KEYS = new Set([
-  'PORT_DAKAR_HANDLING',
-  'PAD_DROIT_PASSAGE',
-]);
-
-const PAD_CATEGORY_REQUIRED_MESSAGE =
-  "Catégorie PAD / droit de passage requise pour chiffrer le service portuaire inclus dans le devis.";
-
-function readFactValue(
-  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>,
-  factKey: string,
-): any {
-  const fact = (facts || []).find((f: any) => f?.fact_key === factKey);
-  return fact?.value_json ?? fact?.value_number ?? fact?.value_text ?? null;
-}
-
-function hasNonEmptyFactValue(
-  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>,
-  factKey: string,
-): boolean {
-  const value = readFactValue(facts, factKey);
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-function resolvePadScopeBlocker(params: {
-  facts: Array<{ fact_key: string; value_json?: any; value_number?: any; value_text?: any }>;
-  servicePackage: string;
-  effectiveServiceKeys?: string[];
-  incoterm: string;
-}): null | {
-  pricing_blockers: ['PAD_CATEGORY_REQUIRED'];
-  message: string;
-  scope_debug: { servicePackage: string; incoterm: string; effectiveServiceKeys: string[] };
-} {
-  const servicePackage = String(params.servicePackage || '').trim().toUpperCase();
-  const incoterm = String(params.incoterm || '').trim().toUpperCase();
-  const effectiveServiceKeys = (params.effectiveServiceKeys ?? resolveEffectiveServiceKeys(
-    servicePackage,
-    readOverridesFromFacts(params.facts || []),
-  )).map((key) => String(key || '').trim().toUpperCase()).filter(Boolean);
-
-  const padRequiredByScope = effectiveServiceKeys.some((key) => PAD_SCOPE_SERVICE_KEYS.has(key));
-  if (!padRequiredByScope) return null;
-
-  const hasPadCategory =
-    hasNonEmptyFactValue(params.facts || [], 'cargo.pad_category') ||
-    hasNonEmptyFactValue(params.facts || [], 'pricing.pad_category');
-  const padRate = Number(readFactValue(params.facts || [], 'cargo.pad_rate_fcfa_per_ton'));
-  const hasOfficialPadRate = Number.isFinite(padRate) && padRate > 0;
-
-  if (hasPadCategory && hasOfficialPadRate) return null;
-
-  return {
-    pricing_blockers: ['PAD_CATEGORY_REQUIRED'],
-    message: PAD_CATEGORY_REQUIRED_MESSAGE,
-    scope_debug: { servicePackage, incoterm, effectiveServiceKeys },
-  };
-}
+// PAD scope guard: extracted verbatim into ./pad-scope-blocker.ts (PACK P0-B) so the
+// PAD_CATEGORY_REQUIRED branch is directly testable. Both call sites below already
+// compute effectiveServiceKeys via resolveEffectiveServiceKeys + readOverridesFromFacts.
 
 // ═══ P6: Canonical Pricing Line Metadata ═══
 
@@ -1517,7 +1468,15 @@ Deno.serve(async (req) => {
       const engineUrl = `${supabaseUrl}/functions/v1/quotation-engine`;
       const lotResults: Array<{
         lot_index: number; lot_label: string; lines: any[]; sources: any[];
-        totals: { ht: number; ttc: number; currency: string };
+        totals: {
+          ht: number; ttc: number; currency: string;
+          subtotal_before_sodatra_vat: number; total_payable: number;
+          honoraires_ht: number; honoraires_tva: number; honoraires_ttc: number;
+          operationnel: number; border: number; terminal: number;
+          debours_douaniers: number; debours_enrichment: number;
+          local_transport_debours_ttc: number; local_transport_commission: number;
+          debours_total: number; dap: number; ddp: number;
+        };
         engine_request: any; engine_response: any;
       }> = [];
 
@@ -1597,14 +1556,8 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Compute per-lot totals (same logic as mono-lot) — use let for export recalculation after P5
+          // Keep the raw engine totals until package enrichment is complete.
           const lotEngineTotals = lotEngineResponse.totals;
-          let lotHonorairesHt = lotEngineTotals?.honoraires ?? 0;
-          let lotDebours = lotEngineTotals?.debours ?? 0;
-          let lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
-          let lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
-          let lotTotalHt = lotHonorairesHt;
-          let lotTotalTtc = lotDebours + lotHonorairesTtc;
           const lotCurrency = lotEngineResponse.currency || "XOF";
 
           // Tag each line with lot_index and lot_label
@@ -1677,7 +1630,7 @@ Deno.serve(async (req) => {
                   for (const pl of pricedLines) {
                     const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                     const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                    taggedLines.push(canonicalizeLine({
+                    const packageLine = canonicalizeLine({
                       category: serviceKey,
                       label: label,
                       amount: pl.rate ?? 0,
@@ -1689,7 +1642,12 @@ Deno.serve(async (req) => {
                       explanation: pl.explanation || '',
                       lot_index: lc.lot_index,
                       lot_label: lc.lot_label,
-                    }, { origin_layer: 'package_enrichment' }));
+                    }, { origin_layer: 'package_enrichment' });
+                    taggedLines.push(
+                      isLocalTransportRateSource(pl.source)
+                        ? withLocalTransportDebours(packageLine)
+                        : packageLine,
+                    );
                   }
                   console.log(`[P5] Lot ${lc.lot_index}: merged ${pricedLines.length} priced service lines`);
                 } else {
@@ -1704,17 +1662,11 @@ Deno.serve(async (req) => {
           // ═══ EXPORT-GUARD: Recalculate totals + sources after P5 enrichment for export lots ═══
           if (isLotExportFlow && taggedLines.length > 0) {
             const exportClassification = classifyExportTotals(taggedLines);
-            lotHonorairesHt = exportClassification.honoraires;
-            lotDebours = exportClassification.debours; // always 0 for export
-            lotHonorairesTva = Math.round(lotHonorairesHt * 0.18);
-            lotHonorairesTtc = lotHonorairesHt + lotHonorairesTva;
-            lotTotalHt = lotHonorairesHt;
-            lotTotalTtc = lotDebours + lotHonorairesTtc;
 
             // Update lotEngineResponse.totals so downstream engine_response is coherent
             lotEngineResponse.totals = {
-              honoraires: lotHonorairesHt,
-              debours: lotDebours,
+              honoraires: exportClassification.honoraires,
+              debours: exportClassification.debours,
               operationnel: exportClassification.operationnel,
             };
 
@@ -1732,15 +1684,39 @@ Deno.serve(async (req) => {
               }
             }
 
-            console.log(`[EXPORT-GUARD] Lot ${lc.lot_index}: recalculated totals — honoraires=${lotHonorairesHt}, operationnel=${exportClassification.operationnel}, debours=0`);
+            console.log(`[EXPORT-GUARD] Lot ${lc.lot_index}: recalculated totals — honoraires=${exportClassification.honoraires}, operationnel=${exportClassification.operationnel}, debours=0`);
           }
+
+          const lotCommercialTotals = computeCommercialTotals({
+            engineTotals: lotEngineResponse.totals || lotEngineTotals,
+            lines: taggedLines,
+          });
 
           lotResults.push({
             lot_index: lc.lot_index,
             lot_label: lc.lot_label,
             lines: taggedLines,
             sources: Array.from(lotSourceMap.values()),
-            totals: { ht: lotTotalHt, ttc: lotTotalTtc, currency: lotCurrency },
+            totals: {
+              ht: lotCommercialTotals.totalHt,
+              ttc: lotCommercialTotals.totalTtc,
+              currency: lotCurrency,
+              subtotal_before_sodatra_vat: lotCommercialTotals.subtotalBeforeSodatraVat,
+              total_payable: lotCommercialTotals.totalPayable,
+              honoraires_ht: lotCommercialTotals.honorairesHt,
+              honoraires_tva: lotCommercialTotals.honorairesTva,
+              honoraires_ttc: lotCommercialTotals.honorairesTtc,
+              operationnel: lotCommercialTotals.operationnel,
+              border: lotCommercialTotals.border,
+              terminal: lotCommercialTotals.terminal,
+              debours_douaniers: lotCommercialTotals.deboursDouaniers,
+              debours_enrichment: lotCommercialTotals.deboursEnrichment,
+              local_transport_debours_ttc: lotCommercialTotals.localTransportDeboursTtc,
+              local_transport_commission: lotCommercialTotals.localTransportCommission,
+              debours_total: lotCommercialTotals.deboursTotal,
+              dap: lotCommercialTotals.dap,
+              ddp: lotCommercialTotals.ddp,
+            },
             engine_request: lotEngineParams,
             engine_response: lotEngineResponse,
           });
@@ -1793,6 +1769,11 @@ Deno.serve(async (req) => {
       const aggregatedHt = lotResults.reduce((sum, lr) => sum + lr.totals.ht, 0);
       const aggregatedTtc = lotResults.reduce((sum, lr) => sum + lr.totals.ttc, 0);
       const aggregatedCurrency = lotResults[0]?.totals.currency || "XOF";
+      const sumLotTotal = (key: keyof (typeof lotResults)[number]['totals']) =>
+        lotResults.reduce((sum, lot) => {
+          const value = lot.totals[key];
+          return sum + (typeof value === 'number' ? value : 0);
+        }, 0);
 
       const mlDurationMs = Date.now() - startTime;
 
@@ -1806,7 +1787,26 @@ Deno.serve(async (req) => {
           totals: lr.totals,
           duty_breakdown: lr.engine_response.duty_breakdown || [],
         })),
-        totals: { ht: aggregatedHt, ttc: aggregatedTtc, currency: aggregatedCurrency },
+        totals: {
+          ht: aggregatedHt,
+          ttc: aggregatedTtc,
+          currency: aggregatedCurrency,
+          subtotal_before_sodatra_vat: sumLotTotal('subtotal_before_sodatra_vat'),
+          total_payable: sumLotTotal('total_payable'),
+          honoraires_ht: sumLotTotal('honoraires_ht'),
+          honoraires_tva: sumLotTotal('honoraires_tva'),
+          honoraires_ttc: sumLotTotal('honoraires_ttc'),
+          operationnel: sumLotTotal('operationnel'),
+          border: sumLotTotal('border'),
+          terminal: sumLotTotal('terminal'),
+          debours_douaniers: sumLotTotal('debours_douaniers'),
+          debours_enrichment: sumLotTotal('debours_enrichment'),
+          local_transport_debours_ttc: sumLotTotal('local_transport_debours_ttc'),
+          local_transport_commission: sumLotTotal('local_transport_commission'),
+          debours_total: sumLotTotal('debours_total'),
+          dap: sumLotTotal('dap'),
+          ddp: sumLotTotal('ddp'),
+        },
         lines: allTaggedLines,
         metadata: {
           engine_version: lotResults[0]?.engine_response?.version || "v4",
@@ -2603,7 +2603,7 @@ Deno.serve(async (req) => {
               for (const pl of pricedLines) {
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                 const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
-                engineLines.push(canonicalizeLine({
+                const packageLine = canonicalizeLine({
                   category: serviceKey,
                   label: label,
                   amount: pl.rate ?? 0,
@@ -2613,7 +2613,12 @@ Deno.serve(async (req) => {
                   quantity: pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
-                }, { origin_layer: 'package_enrichment' }));
+                }, { origin_layer: 'package_enrichment' });
+                engineLines.push(
+                  isLocalTransportRateSource(pl.source)
+                    ? withLocalTransportDebours(packageLine)
+                    : packageLine,
+                );
               }
               // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
               engineResponse.lines = engineLines;
@@ -3507,59 +3512,12 @@ ${JSON.stringify(refPayload)}`;
     const engineTotals = engineResponse.totals;
     const incotermUpper = (inputs.incoterm || "").toUpperCase();
 
-    // ═══ PAD-TOTALS-1: Robust client-facing totals ═══
-    // Extract all engine bloc totals safely
-    const engineOperationnel = Number(engineTotals?.operationnel) || 0;
-    const engineHonoraires   = Number(engineTotals?.honoraires) || 0;
-    const engineDebours      = Number(engineTotals?.debours) || 0;
-    const engineBorder       = Number(engineTotals?.border) || 0;
-    const engineTerminal     = Number(engineTotals?.terminal) || 0;
-
-    // Robust DAP/DDP: use engine value if present and finite, otherwise reconstruct
-    // Three paths (provisional DDP L1708, export guard L1715/L1793) produce engineTotals without dap/ddp
-    const rawDap = Number(engineTotals?.dap);
-    const rawDdp = Number(engineTotals?.ddp);
-    const hasRawDap = engineTotals?.dap !== undefined && engineTotals?.dap !== null && Number.isFinite(rawDap);
-    const hasRawDdp = engineTotals?.ddp !== undefined && engineTotals?.ddp !== null && Number.isFinite(rawDdp);
-
-    const engineDapComputed = hasRawDap
-      ? rawDap
-      : engineOperationnel + engineHonoraires + engineBorder + engineTerminal;
-
-    const engineDdpComputed = hasRawDdp
-      ? rawDdp
-      : engineDapComputed + engineDebours;
-
-    // Post-engine enrichment: PAD + terminal storage + carrier commission + carrier charges (non-TO_CONFIRM, amount > 0)
-    const enrichmentAmount = tariffLines
-      .filter((l: any) => {
-        const layer = l.canonical?.origin_layer;
-        if (
-          layer !== 'enrichment_pad' &&
-          layer !== 'enrichment_terminal_storage' &&
-          layer !== 'enrichment_carrier_commission' &&
-          layer !== 'enrichment_carrier_charges'
-        ) return false;
-        const sourceType = String(l?.source?.type || '')
-          .trim()
-          .split('+')[0]
-          .split(':')[0]
-          .toUpperCase();
-        if (sourceType === 'TO_CONFIRM') return false;
-        const amt = Number(l.amount) || 0;
-        return amt > 0;
-      })
-      .reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0);
-
-    // TVA SODATRA: applies ONLY to honoraires, not to PAD/terminal/operationnel/border/debours
-    const TVA_RATE       = 0.18;
-    const honoraires_ht  = engineHonoraires;
-    const honoraires_tva = Math.round(honoraires_ht * TVA_RATE);
-    const honoraires_ttc = honoraires_ht + honoraires_tva;
-
-    // Client-facing totals
-    const totalHt  = engineDdpComputed + enrichmentAmount;
-    const totalTtc = totalHt + honoraires_tva;
+    // A single pure implementation is shared by runtime and unit tests.
+    // `totalHt` remains the legacy DB column name; the precise semantic is
+    // `subtotal_before_sodatra_vat` because supplier-TTC debours may be present.
+    const commercialTotals = computeCommercialTotals({ engineTotals, lines: tariffLines });
+    const totalHt = commercialTotals.totalHt;
+    const totalTtc = commercialTotals.totalTtc;
     const currency = engineResponse.currency || "XOF";
 
     const outputsJson = {
@@ -3568,21 +3526,27 @@ ${JSON.stringify(refPayload)}`;
       totals: {
         ht: totalHt,
         ttc: totalTtc,
-        honoraires_ht,
-        honoraires_tva,
-        honoraires_ttc,
-        operationnel: engineOperationnel,
-        border: engineBorder,
-        terminal: engineTerminal,
-        debours: engineDebours + enrichmentAmount,
-        debours_engine: engineDebours,
-        debours_enrichment: enrichmentAmount,
-        debours_total: engineDebours + enrichmentAmount,
-        dap: engineDapComputed,
-        ddp: engineDdpComputed,
-        dap_engine_raw: engineTotals?.dap ?? null,
-        ddp_engine_raw: engineTotals?.ddp ?? null,
-        enrichment_amount: enrichmentAmount,
+        subtotal_before_sodatra_vat: commercialTotals.subtotalBeforeSodatraVat,
+        total_payable: commercialTotals.totalPayable,
+        honoraires_ht: commercialTotals.honorairesHt,
+        honoraires_tva: commercialTotals.honorairesTva,
+        honoraires_ttc: commercialTotals.honorairesTtc,
+        operationnel: commercialTotals.operationnel,
+        border: commercialTotals.border,
+        terminal: commercialTotals.terminal,
+        // Legacy field retained for compatibility: customs/pass-through enrichments only.
+        debours: commercialTotals.deboursLegacy,
+        debours_engine: commercialTotals.deboursDouaniers,
+        debours_douaniers: commercialTotals.deboursDouaniers,
+        debours_enrichment: commercialTotals.deboursEnrichment,
+        local_transport_debours_ttc: commercialTotals.localTransportDeboursTtc,
+        local_transport_commission: commercialTotals.localTransportCommission,
+        debours_total: commercialTotals.deboursTotal,
+        dap: commercialTotals.dap,
+        ddp: commercialTotals.ddp,
+        dap_engine_raw: commercialTotals.dapEngineRaw,
+        ddp_engine_raw: commercialTotals.ddpEngineRaw,
+        enrichment_amount: commercialTotals.enrichmentAmount,
         currency,
         incoterm_applied:
           engineResponse.metadata?.normalized_incoterm

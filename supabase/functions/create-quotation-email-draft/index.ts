@@ -15,6 +15,7 @@ import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared
 import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 
 // ── Qualification types & helpers (Lot 3C — historical fallback) ─────────────
 
@@ -153,7 +154,8 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
   const destination = typeof inputsBlock?.destination === "string" ? inputsBlock.destination : null;
   const incoterm = typeof inputsBlock?.incoterm === "string" ? inputsBlock.incoterm : null;
   const totalHt = typeof totalsBlock?.total_ht === "number" ? totalsBlock.total_ht : null;
-  const currency = typeof totalsBlock?.currency === "string" ? totalsBlock.currency : "XOF";
+  const totalPresentation = resolveCommercialTotalPresentation(totalsBlock);
+  const currency = totalPresentation.currency;
 
   const parts: string[] = [];
 
@@ -183,8 +185,30 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
     parts.push(routeLine);
   }
 
-  // Total HT with qualification-aware label
-  if (totalHt !== null) {
+  // New snapshots distinguish supplier-TTC debours from SODATRA VAT. Legacy
+  // snapshots retain the historical HT wording below.
+  if (totalPresentation.isDetailed) {
+    parts.push("");
+    const subtotalQualifier = qualification.level === "firm"
+      ? ""
+      : qualification.level === "partial"
+      ? " partiel"
+      : qualification.firmTotalPolicy === "excludes_reserved_items"
+      ? " ferme (hors éléments en réserve)"
+      : " (sous réserve)";
+    parts.push(
+      `Sous-total avant TVA SODATRA${subtotalQualifier} : ${formatAmountFR(totalPresentation.subtotalBeforeSodatraVat)} ${currency}.`,
+    );
+    parts.push(
+      `TVA SODATRA sur honoraires : ${formatAmountFR(totalPresentation.honorairesVat || 0)} ${currency}.`,
+    );
+    parts.push(
+      `Total à payer${subtotalQualifier} : ${formatAmountFR(totalPresentation.totalPayable)} ${currency}.`,
+    );
+    if (qualification.level === "partial") {
+      parts.push("Ce montant couvre uniquement les prestations actuellement chiffrables.");
+    }
+  } else if (totalHt !== null) {
     parts.push("");
     if (qualification.level === "firm") {
       parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency}.`);
@@ -407,9 +431,21 @@ Deno.serve(async (req: Request) => {
   if (snapData?.is_multi_lot === true && Array.isArray(snapData.lots) && snapData.lots.length > 1) {
     isMultiLot = true;
     // deno-lint-ignore no-explicit-any
-    lotSummaryLines = snapData.lots.map((lot: any) =>
-      `  - ${lot.label || `Lot ${lot.lot_index}`}: ${formatAmountFR(lot.totals?.ht ?? 0)} ${lot.totals?.currency ?? 'XOF'} HT`
-    );
+    lotSummaryLines = snapData.lots.map((lot: any) => {
+      const lotPresentation = resolveCommercialTotalPresentation({
+        total_ht: lot.totals?.ht ?? lot.totals?.total_ht ?? 0,
+        total_ttc: lot.totals?.ttc ?? lot.totals?.total_ttc ?? lot.totals?.ht ?? 0,
+        subtotal_before_sodatra_vat: lot.totals?.subtotal_before_sodatra_vat,
+        total_payable: lot.totals?.total_payable,
+        honoraires_tva: lot.totals?.honoraires_tva,
+        currency: lot.totals?.currency ?? 'XOF',
+      });
+      const label = lotPresentation.isDetailed ? 'à payer' : 'HT';
+      const amount = lotPresentation.isDetailed
+        ? lotPresentation.totalPayable
+        : lotPresentation.subtotalBeforeSodatraVat;
+      return `  - ${lot.label || `Lot ${lot.lot_index}`}: ${formatAmountFR(amount)} ${lotPresentation.currency} ${label}`;
+    });
   } else if (Array.isArray(snapData?.raw_lines) && snapData.raw_lines.some((r: any) => r.lot_index != null)) {
     // Legacy fallback: derive lot count from raw_lines tags
     const lotLabels = new Map<number, string>();

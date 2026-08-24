@@ -166,6 +166,10 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
 
   const isMultiLot = !!(pricingRun.outputs_json as any)?.multi_lot;
   const lots: any[] = isMultiLot ? ((pricingRun.outputs_json as any)?.lots || []) : [];
+  const outputTotals = (pricingRun.outputs_json as any)?.totals || {};
+  const subtotalBeforeSodatraVat = Number(outputTotals.subtotal_before_sodatra_vat ?? pricingRun.total_ht) || 0;
+  const totalPayable = Number(outputTotals.total_payable ?? pricingRun.total_ttc ?? pricingRun.total_ht) || 0;
+  const hasDetailedCommercialTotals = typeof outputTotals.subtotal_before_sodatra_vat === 'number';
 
   const tariffLines = pricingRun.tariff_lines || [];
   const tariffSources = pricingRun.tariff_sources || [];
@@ -338,9 +342,14 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
           <div className="text-center">
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {formatAmount(pricingRun.total_ht)}
+              {formatAmount(totalPayable)}
             </p>
-            <p className="text-xs text-muted-foreground">Honoraires HT ({pricingRun.currency || 'XOF'})</p>
+            <p className="text-xs text-muted-foreground">Total à payer ({pricingRun.currency || 'XOF'})</p>
+            {hasDetailedCommercialTotals && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Sous-total avant TVA SODATRA : {formatAmount(subtotalBeforeSodatraVat)}
+              </p>
+            )}
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
@@ -727,7 +736,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
                   <p className="text-sm font-medium">Résumé :</p>
                   <ul className="text-sm text-muted-foreground mt-1 space-y-1">
                     <li>• {tariffLines.length} lignes tarifaires{isMultiLot ? ` (${lots.length} lots)` : ''}</li>
-                    <li>• Total HT : {formatAmount(pricingRun.total_ht)} {pricingRun.currency || 'XOF'}</li>
+                    <li>• Total à payer : {formatAmount(totalPayable)} {pricingRun.currency || 'XOF'}</li>
                     <li>• Statut : DRAFT (non envoyé au client)</li>
                   </ul>
                 </div>

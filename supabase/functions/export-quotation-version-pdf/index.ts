@@ -15,6 +15,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { handleCors } from "../_shared/cors.ts";
+import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import {
   getCorrelationId, respondOk, respondError, logRuntimeEvent,
   getStatusFromErrorCode, type ErrorCode,
@@ -478,15 +479,32 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   y -= sectionGap / 2;
 
   // === TOTAL ===
-  ensureSpace(bottomReserve + lineHeight * 6);
+  const totalPresentation = resolveCommercialTotalPresentation(snapshot.totals);
+  ensureSpace(bottomReserve + lineHeight * (totalPresentation.isDetailed ? 9 : 6));
   currentPage.drawLine({
     start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 1, color: primary,
   });
   y -= 5;
-  const totalLabel = getTotalLabel(qualification);
-  const totalText = sanitize(`${totalLabel}: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
-  currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
+  if (totalPresentation.isDetailed) {
+    const subtotalLabel = getTotalLabel(qualification).replace('TOTAL HT', 'SOUS-TOTAL AVANT TVA SODATRA');
+    currentPage.drawText(sanitize(`${subtotalLabel}: ${formatAmount(totalPresentation.subtotalBeforeSodatraVat)} ${totalPresentation.currency}`), {
+      x: margin, y, size: 10, font: fontBold, color: black,
+    });
+    y -= lineHeight;
+    currentPage.drawText(sanitize(`TVA SODATRA SUR HONORAIRES: ${formatAmount(totalPresentation.honorairesVat || 0)} ${totalPresentation.currency}`), {
+      x: margin, y, size: 10, font: font, color: black,
+    });
+    y -= lineHeight;
+    const payableLabel = getTotalLabel(qualification).replace('TOTAL HT', 'TOTAL A PAYER');
+    currentPage.drawText(sanitize(`${payableLabel}: ${formatAmount(totalPresentation.totalPayable)} ${totalPresentation.currency}`), {
+      x: margin, y, size: 14, font: fontBold, color: primary,
+    });
+  } else {
+    const totalLabel = getTotalLabel(qualification);
+    const totalText = sanitize(`${totalLabel}: ${formatAmount(snapshot.totals?.total_ht || 0)} ${snapshot.totals?.currency || 'XOF'}`);
+    currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
+  }
   y -= sectionGap;
 
   // === DRAFT FOOTER ===

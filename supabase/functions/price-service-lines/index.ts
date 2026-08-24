@@ -21,6 +21,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { resolveOfficialLocalTransportRate } from "../_shared/local-transport-destination.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -29,6 +30,10 @@ import {
   logRuntimeEvent,
 } from "../_shared/runtime.ts";
 import { requireUser } from "../_shared/auth.ts";
+import {
+  LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
+  type LocalTransportDeboursAccounting,
+} from "../_shared/local-transport-debours.ts";
 
 const FUNCTION_NAME = "price-service-lines";
 
@@ -139,6 +144,7 @@ interface PricedLine {
   unit_used: string;
   rule_id: string | null;
   conversion_used?: string;
+  accounting?: LocalTransportDeboursAccounting;
 }
 
 interface QuantityRule {
@@ -544,113 +550,51 @@ function findLocalTransportRate(
   // CTO Correction B: Transport routier conteneurisé n'existe pas en AIR
   if (isAirMode) return null;
 
-  const destCity = pricingCtx.destination_city;
-  if (!destCity) return null;
-
-  const destNorm = destCity.toUpperCase().trim();
-
-  // Phase V4.1.2: City-to-zone mapping for destinations
-  // that use zone-based naming in local_transport_rates
-  const CITY_TO_ZONE: Record<string, string> = {
-    "DAKAR": "FORFAIT ZONE 1 <18 KM",
-    "GUEDIAWAYE": "FORFAIT ZONE 1 <18 KM",
-    "PIKINE": "FORFAIT ZONE 1 <18 KM",
-    "RUFISQUE": "FORFAIT ZONE 1 <18 KM",
-    "DIAMNIADIO": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-    "SEIKHOTANE": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-    "POUT": "FORFAIT ZONE 2, SEIKHOTANE ET POUT",
-  };
-  const resolvedDest = CITY_TO_ZONE[destNorm] || destNorm;
-
-  // Temporal filter
-  const today = new Date().toISOString().split("T")[0];
-  const validRates = preloadedRates.filter(r =>
-    r.is_active &&
-    (!r.validity_start || r.validity_start <= today) &&
-    (!r.validity_end || r.validity_end >= today)
-  );
-
-  // ═══ Lot 2A : filtre client ═══
-  // Règle stricte (anti-fuite Aksa) :
-  //   - Si pricingCtx.client_code est NULL/absent  → ne JAMAIS matcher de ligne client-spécifique.
-  //   - Si pricingCtx.client_code est défini       → privilégier les rates de ce client.
-  //                                                   Fallback générique (NULL) toléré uniquement
-  //                                                   si AUCUN rate exact-client ne matche.
-  // Champ optionnel défensif : r.client_code peut être undefined si la colonne n'existe pas
-  // encore en base (fenêtre pré-déploiement migration) → traité comme null.
-  const ctxClientCode = (pricingCtx as { client_code?: string | null }).client_code ?? null;
-  const clientFiltered = validRates.filter(r => {
-    const rcc = r.client_code ?? null;
-    if (ctxClientCode === null) {
-      // Non-client-spécifique : zéro fuite vers les rates clients.
-      return rcc === null;
-    }
-    return rcc === ctxClientCode || rcc === null;
-  });
-  // Si match exact client existe, on exclut les génériques pour éviter ambiguïté.
-  const exactClientMatches = clientFiltered.filter(r => (r.client_code ?? null) === ctxClientCode);
-  const ratesToScan = (ctxClientCode !== null && exactClientMatches.length > 0)
-    ? exactClientMatches
-    : clientFiltered;
-
-  // Destination matching: exact first, then partial (single match only)
-  let candidates = ratesToScan.filter(r => r.destination.toUpperCase().trim() === resolvedDest);
-
-  if (candidates.length === 0) {
-    // Partial: destination DB contains the city OR city contains the destination DB
-    const partialMatches = ratesToScan.filter(r => {
-      const rDest = r.destination.toUpperCase().trim();
-      return rDest.includes(resolvedDest) || resolvedDest.includes(rDest);
-    });
-    // CTO adjustment: ambiguous partial matches → null (multiple destinations matched)
-    const uniqueDests = new Set(partialMatches.map(r => r.destination.toUpperCase().trim()));
-    if (uniqueDests.size === 1) {
-      candidates = partialMatches;
-    } else {
-      return null;
-    }
-  }
-
-  if (candidates.length === 0) return null;
-
-  // Container type matching with mapping
-  const ctxContainer = pricingCtx.container_type; // e.g. "20DV", "40DV", "40HC"
+  // CTO Correction A: pas de conteneur, ou LCL → aucun tarif conteneur applicable.
   if (isLCL) return null;
-  if (!ctxContainer) return null; // CTO Correction A: no container info → null
+  if (!pricingCtx.destination_city) return null;
+  if (!pricingCtx.container_type) return null;
 
-  const containerSearchTerms: string[] = [];
-  const ctNorm = ctxContainer.toUpperCase();
-  if (ctNorm.startsWith("20")) {
-    containerSearchTerms.push("20'", "20' DRY", "20'DRY");
-  } else if (ctNorm.startsWith("40")) {
-    containerSearchTerms.push("40'", "40' DRY", "40'DRY");
-  } else if (ctNorm.includes("LOW") || ctNorm.includes("FLAT")) {
-    containerSearchTerms.push("LOW BED", "LOWBED");
-  }
+  // ═══ Lot P0-D-3 : résolution partagée, exacte et fail-closed ═══
+  // Remplace le mapping ville→zone par sous-chaîne, le match partiel de
+  // destination et le premier-match conteneur. Le helper commun (également
+  // utilisé par quotation-engine) exige EXACTEMENT un candidat après
+  // destination canonique + conteneur exact + scope client + fenêtre de
+  // validité + whitelist de provenance ('official' / 'validated_internal',
+  // donc une ligne 'to_confirm' reste non servie). Zéro ou plusieurs
+  // candidats → null, ce qui déclenche le fallback TO_CONFIRM en aval (Lot 2C).
+  //
+  // Gardes anti-fuite client du Lot 2A conservées à l'identique et portées par
+  // le helper : sans client_code de contexte, aucune ligne client-spécifique
+  // n'est atteignable ; avec un client_code, l'exact prime sur le générique.
+  // Champ optionnel défensif : r.client_code peut être undefined si la colonne
+  // n'existe pas encore en base → traité comme null.
+  const ctxClientCode = (pricingCtx as { client_code?: string | null }).client_code ?? null;
+  const today = new Date().toISOString().split("T")[0];
 
-  const bestRate = candidates.find(r => {
-    const rct = r.container_type.toUpperCase().trim();
-    return containerSearchTerms.some(term => rct.includes(term));
+  const resolution = resolveOfficialLocalTransportRate(preloadedRates, {
+    destination: pricingCtx.destination_city,
+    containerType: pricingCtx.container_type,
+    clientCode: ctxClientCode,
+    asOfDate: today,
   });
 
-  if (!bestRate) return null;
-
-  // ═══ Lot 2A : garde-fou evidence_level ═══
-  // Une ligne `to_confirm` est un barème non validé : elle ne doit JAMAIS être servie comme
-  // tarif. Retourner null force le déclenchement du fallback TO_CONFIRM en aval (Lot 2C).
-  if ((bestRate.evidence_level ?? null) === 'to_confirm') {
-    console.log(`[LOT2A] generic to_confirm rate skipped (no tariff served): dest=${bestRate.destination}, container=${bestRate.container_type}`);
+  if (resolution.status !== "RESOLVED") {
+    console.log(
+      `[P0-D-3] local_transport not served (no exact validated tariff): dest=${JSON.stringify(pricingCtx.destination_city)}, container=${JSON.stringify(pricingCtx.container_type)}, ctx_client=${JSON.stringify(ctxClientCode)}, reason=${resolution.reason}, matches=${resolution.matchCount}`,
+    );
     return null;
   }
 
+  const bestRate = resolution.rate;
   console.log(`[LOT2A] local_transport_rate matched: client_code=${JSON.stringify(bestRate.client_code ?? null)}, dest=${bestRate.destination}, ctx_client=${JSON.stringify(ctxClientCode)}`);
 
   return {
-    rate: bestRate.rate_amount,
-    currency: bestRate.rate_currency || "XOF",
+    rate: resolution.amount,
+    currency: resolution.currency,
     source: `local_transport_rate`,
     confidence: 0.90,
-    explanation: `local_transport: dest=${bestRate.destination}, container=${bestRate.container_type}, provider=${bestRate.provider || "unknown"}, client_code=${bestRate.client_code ?? "generic"}, rate=${bestRate.rate_amount}`,
+    explanation: `local_transport: dest=${bestRate.destination}, container=${bestRate.container_type}, provider=${bestRate.provider || "unknown"}, client_code=${bestRate.client_code ?? "generic"}, rate=${resolution.amount}`,
   };
 }
 
@@ -796,6 +740,10 @@ async function resolveWithoutClientOverride(
   allCards: RateCardRow[],
   serviceClient: ReturnType<typeof createClient>,
   preloadedTransportRates: LocalTransportRate[] = [],
+  // Lot P0-D-3 : isLCL était consommé plus bas sans être reçu (identifiant hors
+  // portée, la variable est locale au handler). Passage explicite, sans autre
+  // changement de signature.
+  isLCL: boolean = false,
 ): Promise<{
   rate: number; source: string; confidence: number; explanation: string;
   quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string;
@@ -841,6 +789,24 @@ async function resolveWithoutClientOverride(
     }
   }
 
+  // 2.5 Lot P0-D-3 : transport conteneurisé — barème local exact prioritaire.
+  // Même règle que la cascade principale : pour TRUCKING / ON_CARRIAGE en SEA
+  // conteneurisé, ni le catalogue ni une rate card générique ne peut remplacer
+  // un barème local non résolu. Zéro / ambigu / inconnu ⇒ null immédiat.
+  const isContainerisedTransportService =
+    (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE") && !isAirMode && !isLCL;
+
+  if (isContainerisedTransportService) {
+    const transportFb = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
+    if (!transportFb) return null;
+    return {
+      rate: transportFb.rate, source: transportFb.source, confidence: transportFb.confidence,
+      explanation: `fallback ${transportFb.explanation}`,
+      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
+    };
+  }
+
   // 3. Catalogue SODATRA
   const catEntry = catalogue.get(serviceKey);
   const catMode = isAirMode ? "AIR" : "SEA";
@@ -855,17 +821,6 @@ async function resolveWithoutClientOverride(
     return {
       rate, source: "catalogue_sodatra", confidence: 0.95,
       explanation: `fallback catalogue: ${serviceKey}, base=${catEntry.base_price}`,
-      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
-      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
-    };
-  }
-
-  // 3.5 Phase V4.1: Local transport rates
-  const transportFb = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
-  if (transportFb) {
-    return {
-      rate: transportFb.rate, source: transportFb.source, confidence: transportFb.confidence,
-      explanation: `fallback ${transportFb.explanation}`,
       quantity_used: computed.quantity_used, unit_used: computed.unit_used,
       rule_id: computed.rule_id, conversion_used: computed.conversion_used,
     };
@@ -1172,7 +1127,7 @@ Deno.serve(async (req) => {
               const fallback = await resolveWithoutClientOverride(
                 serviceKey, computed, pricingCtx, isAirMode, currency,
                 customsTiers, catalogue, allCards, serviceClient,
-                preloadedTransportRates,
+                preloadedTransportRates, isLCL,
               );
 
               if (fallback) {
@@ -1226,6 +1181,71 @@ Deno.serve(async (req) => {
             }
           }
         }
+      }
+
+      // ═══ Lot P0-D-3 : transport conteneurisé — barème local exact prioritaire ═══
+      // Décision CTO : pour TRUCKING / ON_CARRIAGE en SEA conteneurisé, une fois
+      // l'éventuel client override contractuel ci-dessus épuisé, le barème local
+      // exact est prioritaire sur le catalogue ET sur les rate cards génériques.
+      // Non résolu (zéro candidat, ambiguïté, destination ou conteneur inconnu)
+      // ⇒ TO_CONFIRM immédiat, montant null : jamais un prix catalogue ni une
+      // rate card générique en remplacement. Le résolveur amont est exact et
+      // fail-closed (voir _shared/local-transport-destination.ts).
+      const isContainerisedTransportService =
+        (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE") && !isAirMode && !isLCL;
+
+      if (isContainerisedTransportService) {
+        const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
+
+        if (transportFallback) {
+          let lineTotal = transportFallback.rate;
+
+          // Apply active modifiers (comportement inchangé)
+          const appliedMods: string[] = [];
+          for (const mod of allModifiers) {
+            if (!activeModifierCodes.has(mod.modifier_code)) continue;
+            if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
+            if (mod.type === "FIXED") {
+              lineTotal += mod.value;
+              appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
+            } else if (mod.type === "PERCENT") {
+              lineTotal *= (1 + mod.value / 100);
+              appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
+            }
+          }
+          lineTotal = Math.round(lineTotal);
+
+          const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
+          pricedLines.push({
+            id: line.id,
+            rate: lineTotal,
+            currency: transportFallback.currency,
+            source: `local_transport_rate${modSuffix}`,
+            confidence: transportFallback.confidence,
+            explanation: transportFallback.explanation,
+            quantity_used: computed.quantity_used ?? 1,
+            unit_used: computed.unit_used,
+            rule_id: computed.rule_id,
+            conversion_used: computed.conversion_used,
+            accounting: LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
+          });
+          continue;
+        }
+
+        // Lot 2C : structure TO_CONFIRM existante, produite ici sans passer par
+        // le catalogue ni les rate cards.
+        const ctxClientCodeTransport = (pricingCtx as { client_code?: string | null }).client_code ?? null;
+        pricedLines.push({
+          id: line.id, rate: null, currency, source: "TO_CONFIRM",
+          confidence: 0,
+          explanation: `Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCodeTransport ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
+          quantity_used: computed.quantity_used,
+          unit_used: computed.unit_used,
+          rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
+        });
+        missing.push(serviceKey);
+        continue;
       }
 
       // ═══ Phase PRICING V2: Customs tier resolver (priority over catalogue for CUSTOMS_*) ═══
@@ -1417,42 +1437,6 @@ Deno.serve(async (req) => {
         continue; // Skip rate card fallback
       }
 
-      // ═══ Phase V4.1: Local transport rate resolver (between catalogue and rate card) ═══
-      const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
-      if (transportFallback) {
-        let lineTotal = transportFallback.rate;
-
-        // Apply active modifiers
-        const appliedMods: string[] = [];
-        for (const mod of allModifiers) {
-          if (!activeModifierCodes.has(mod.modifier_code)) continue;
-          if (mod.applies_to && mod.applies_to.length > 0 && !mod.applies_to.includes(serviceKey)) continue;
-          if (mod.type === "FIXED") {
-            lineTotal += mod.value;
-            appliedMods.push(`${mod.modifier_code}(+${mod.value})`);
-          } else if (mod.type === "PERCENT") {
-            lineTotal *= (1 + mod.value / 100);
-            appliedMods.push(`${mod.modifier_code}(${mod.value > 0 ? "+" : ""}${mod.value}%)`);
-          }
-        }
-        lineTotal = Math.round(lineTotal);
-
-        const modSuffix = appliedMods.length > 0 ? "+modifiers" : "";
-        pricedLines.push({
-          id: line.id,
-          rate: lineTotal,
-          currency: transportFallback.currency,
-          source: `local_transport_rate${modSuffix}`,
-          confidence: transportFallback.confidence,
-          explanation: transportFallback.explanation,
-          quantity_used: computed.quantity_used ?? 1,
-          unit_used: computed.unit_used,
-          rule_id: computed.rule_id,
-          conversion_used: computed.conversion_used,
-        });
-        continue;
-      }
-
       // ═══ P1-A: Progressive matching with scoring (fallback) ═══
       const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode, isLCL);
 
@@ -1515,34 +1499,15 @@ Deno.serve(async (req) => {
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
 
-          // ═══ Lot 2C : TRUCKING/ON_CARRIAGE non-Aksa sans tarif validé → TO_CONFIRM ═══
-          // Conditions cumulatives :
-          //   - serviceKey ∈ {TRUCKING, ON_CARRIAGE}
-          //   - mode SEA conteneurisé (pas AIR, pas LCL)
-          //   - aucun tarif servi en amont (transportFallback = null), soit parce que :
-          //       * le client n'a pas de barème dédié et les génériques sont en `to_confirm`
-          //       * la destination n'est couverte par aucune ligne validée
-          // Réutilise STRICTEMENT la structure source="TO_CONFIRM" du Lot 1 (rien de nouveau).
-          const isTransportNoTariff =
-            (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE") &&
-            !isAirMode && !isLCL;
-
+          // Lot P0-D-3 : la branche TO_CONFIRM transport du Lot 2C ne vit plus ici.
+          // TRUCKING / ON_CARRIAGE en SEA conteneurisé sont désormais tranchés en
+          // amont du catalogue et des rate cards, et ne peuvent plus atteindre
+          // cette cascade — la branche correspondante était devenue morte.
           if (isExportPlaceholder) {
             pricedLines.push({
               id: line.id, rate: null, currency, source: "TO_CONFIRM",
               confidence: 0,
               explanation: `Tarif export à confirmer : aucune grille tarifaire trouvée pour ${serviceKey}`,
-              quantity_used: computed.quantity_used,
-              unit_used: computed.unit_used,
-              rule_id: computed.rule_id,
-              conversion_used: computed.conversion_used,
-            });
-          } else if (isTransportNoTariff) {
-            const ctxClientCode = (pricingCtx as { client_code?: string | null }).client_code ?? null;
-            pricedLines.push({
-              id: line.id, rate: null, currency, source: "TO_CONFIRM",
-              confidence: 0,
-              explanation: `Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCode ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
               quantity_used: computed.quantity_used,
               unit_used: computed.unit_used,
               rule_id: computed.rule_id,

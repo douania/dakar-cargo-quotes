@@ -43,8 +43,20 @@ interface VersionSnapshotLot {
     unit_price: number;
     amount: number;
     currency: string;
+    source?: unknown;
+    canonical?: unknown;
+    accounting?: unknown;
   }>;
-  totals: { ht: number; ttc: number; currency: string };
+  totals: {
+    ht: number;
+    ttc: number;
+    currency: string;
+    subtotal_before_sodatra_vat?: number;
+    total_payable?: number;
+    honoraires_tva?: number;
+    local_transport_debours_ttc?: number;
+    local_transport_commission?: number;
+  };
   duty_breakdown?: any;
 }
 
@@ -90,11 +102,22 @@ interface VersionSnapshot {
     type?: string | null;
     category?: string | null;
     label?: string | null;
+    canonical?: unknown;
+    accounting?: unknown;
   }>;
   totals: {
     total_ht: number;
     total_ttc: number;
     currency: string;
+    subtotal_before_sodatra_vat?: number;
+    total_payable?: number;
+    honoraires_ht?: number;
+    honoraires_tva?: number;
+    honoraires_ttc?: number;
+    debours_douaniers?: number;
+    local_transport_debours_ttc?: number;
+    local_transport_commission?: number;
+    debours_total?: number;
   };
   sources: any[];
   is_multi_lot?: boolean;
@@ -290,6 +313,8 @@ Deno.serve(async (req) => {
     const factsSnapshot = pricingRun.facts_snapshot || {};
     const tariffLines = pricingRun.tariff_lines || [];
     const tariffSources = pricingRun.tariff_sources || [];
+    const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
+    const outputTotals = outputsJson?.totals as Record<string, any> | undefined;
 
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -336,18 +361,46 @@ Deno.serve(async (req) => {
           type: line.type ?? null,
           category: line.category ?? null,
           label: line.label ?? null,
+          canonical: line.canonical ?? null,
+          accounting: line.accounting ?? null,
         };
       }),
       totals: {
         total_ht: pricingRun.total_ht || 0,
         total_ttc: pricingRun.total_ttc || pricingRun.total_ht || 0,
         currency: pricingRun.currency || "XOF",
+        ...(typeof outputTotals?.subtotal_before_sodatra_vat === "number"
+          ? { subtotal_before_sodatra_vat: outputTotals.subtotal_before_sodatra_vat }
+          : {}),
+        ...(typeof outputTotals?.total_payable === "number"
+          ? { total_payable: outputTotals.total_payable }
+          : {}),
+        ...(typeof outputTotals?.honoraires_ht === "number"
+          ? { honoraires_ht: outputTotals.honoraires_ht }
+          : {}),
+        ...(typeof outputTotals?.honoraires_tva === "number"
+          ? { honoraires_tva: outputTotals.honoraires_tva }
+          : {}),
+        ...(typeof outputTotals?.honoraires_ttc === "number"
+          ? { honoraires_ttc: outputTotals.honoraires_ttc }
+          : {}),
+        ...(typeof outputTotals?.debours_douaniers === "number"
+          ? { debours_douaniers: outputTotals.debours_douaniers }
+          : {}),
+        ...(typeof outputTotals?.local_transport_debours_ttc === "number"
+          ? { local_transport_debours_ttc: outputTotals.local_transport_debours_ttc }
+          : {}),
+        ...(typeof outputTotals?.local_transport_commission === "number"
+          ? { local_transport_commission: outputTotals.local_transport_commission }
+          : {}),
+        ...(typeof outputTotals?.debours_total === "number"
+          ? { debours_total: outputTotals.debours_total }
+          : {}),
       },
       sources: tariffSources,
     };
 
     // ── Multi-lot enrichment from outputs_json ───────────
-    const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
     if (outputsJson?.multi_lot === true && Array.isArray(outputsJson.lots) && outputsJson.lots.length > 0) {
       snapshot.is_multi_lot = true;
       snapshot.lots = outputsJson.lots.map((lot: any) => ({
@@ -360,11 +413,29 @@ Deno.serve(async (req) => {
           unit_price: l.unit_price || l.rate || 0,
           amount: l.amount || l.total || 0,
           currency: l.currency || 'XOF',
+          source: l.source ?? null,
+          canonical: l.canonical ?? null,
+          accounting: l.accounting ?? null,
         })) : [],
         totals: {
           ht: lot.totals?.ht ?? lot.totals?.total_ht ?? 0,
           ttc: lot.totals?.ttc ?? lot.totals?.total_ttc ?? 0,
           currency: lot.totals?.currency ?? 'XOF',
+          ...(typeof lot.totals?.subtotal_before_sodatra_vat === 'number'
+            ? { subtotal_before_sodatra_vat: lot.totals.subtotal_before_sodatra_vat }
+            : {}),
+          ...(typeof lot.totals?.total_payable === 'number'
+            ? { total_payable: lot.totals.total_payable }
+            : {}),
+          ...(typeof lot.totals?.honoraires_tva === 'number'
+            ? { honoraires_tva: lot.totals.honoraires_tva }
+            : {}),
+          ...(typeof lot.totals?.local_transport_debours_ttc === 'number'
+            ? { local_transport_debours_ttc: lot.totals.local_transport_debours_ttc }
+            : {}),
+          ...(typeof lot.totals?.local_transport_commission === 'number'
+            ? { local_transport_commission: lot.totals.local_transport_commission }
+            : {}),
         },
         duty_breakdown: lot.duty_breakdown ?? null,
       }));

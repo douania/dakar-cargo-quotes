@@ -1,5 +1,7 @@
 import "https://deno.land/std@0.224.0/dotenv/load.ts";
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { LOCAL_TRANSPORT_DEBOURS_ACCOUNTING } from "../_shared/local-transport-debours.ts";
+import { computeCommercialTotals } from "./commercial-totals.ts";
 
 Deno.env.set("RUN_PRICING_DISABLE_SERVE", "1");
 
@@ -12,53 +14,6 @@ const { buildSelectedPartnerOfferGuard, getOpenCommunicationLoopsGuard } = await
  * 2. Export guard (no dap/ddp, has honoraires + operationnel)
  * 3. Provisional DDP (no dap/ddp, has honoraires + operationnel + debours=0)
  */
-
-// Extract the totals calculation logic (same as run-pricing L2480-2527)
-function computeTotals(engineTotals: any, tariffLines: any[]) {
-  const engineOperationnel = Number(engineTotals?.operationnel) || 0;
-  const engineHonoraires   = Number(engineTotals?.honoraires) || 0;
-  const engineDebours      = Number(engineTotals?.debours) || 0;
-  const engineBorder       = Number(engineTotals?.border) || 0;
-  const engineTerminal     = Number(engineTotals?.terminal) || 0;
-
-  const rawDap = Number(engineTotals?.dap);
-  const rawDdp = Number(engineTotals?.ddp);
-  const hasRawDap = engineTotals?.dap !== undefined && engineTotals?.dap !== null && Number.isFinite(rawDap);
-  const hasRawDdp = engineTotals?.ddp !== undefined && engineTotals?.ddp !== null && Number.isFinite(rawDdp);
-
-  const engineDapComputed = hasRawDap
-    ? rawDap
-    : engineOperationnel + engineHonoraires + engineBorder + engineTerminal;
-
-  const engineDdpComputed = hasRawDdp
-    ? rawDdp
-    : engineDapComputed + engineDebours;
-
-  const enrichmentAmount = tariffLines
-    .filter((l: any) => {
-      const layer = l.canonical?.origin_layer;
-      if (layer !== 'enrichment_pad' && layer !== 'enrichment_terminal_storage') return false;
-      const sourceType = String(l?.source?.type || '').trim().split('+')[0].split(':')[0].toUpperCase();
-      if (sourceType === 'TO_CONFIRM') return false;
-      return (Number(l.amount) || 0) > 0;
-    })
-    .reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0);
-
-  const TVA_RATE = 0.18;
-  const honoraires_ht = engineHonoraires;
-  const honoraires_tva = Math.round(honoraires_ht * TVA_RATE);
-
-  const totalHt  = engineDdpComputed + enrichmentAmount;
-  const totalTtc = totalHt + honoraires_tva;
-
-  return {
-    totalHt, totalTtc, honoraires_ht, honoraires_tva,
-    engineDapComputed, engineDdpComputed, enrichmentAmount,
-    debours: engineDebours + enrichmentAmount,
-    debours_engine: engineDebours,
-    debours_enrichment: enrichmentAmount,
-  };
-}
 
 // ── Test 1: Standard import with dap/ddp from engine ──
 type GuardRow = Record<string, unknown>;
@@ -329,13 +284,13 @@ Deno.test("Standard import: uses engine dap/ddp, includes enrichments", () => {
     { amount: 2227680, canonical: { origin_layer: 'enrichment_terminal_storage' }, source: { type: 'OFFICIAL' } },
   ];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
   assertEquals(result.totalHt, 3525000 + 4015200 + 2227680); // 9,767,880
   assertEquals(result.totalHt, 9767880);
-  assertEquals(result.honoraires_tva, Math.round(1260000 * 0.18)); // 226,800
+  assertEquals(result.honorairesTva, Math.round(1260000 * 0.18)); // 226,800
   assertEquals(result.totalTtc, 9767880 + 226800); // 9,994,680
-  assertEquals(result.debours, 0 + 4015200 + 2227680);
+  assertEquals(result.deboursLegacy, 0 + 4015200 + 2227680);
   console.log("✅ Standard import: total_ht =", result.totalHt);
 });
 
@@ -344,13 +299,13 @@ Deno.test("Export guard initial: reconstructs from zero — total_ht = 0 (correc
   const engineTotals = { honoraires: 0, debours: 0 };
   const tariffLines: any[] = [];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
   // With no lines and no engine values, total should be 0 — this is correct for initial export guard
   assertEquals(result.totalHt, 0);
   assertEquals(result.totalTtc, 0);
-  assertEquals(result.engineDapComputed, 0);
-  assertEquals(result.engineDdpComputed, 0);
+  assertEquals(result.dap, 0);
+  assertEquals(result.ddp, 0);
   console.log("✅ Export guard initial (empty): total_ht =", result.totalHt, "(expected 0)");
 });
 
@@ -363,15 +318,15 @@ Deno.test("Export guard enriched: reconstructs dap/ddp from blocs", () => {
   };
   const tariffLines: any[] = [];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
   // No dap/ddp → reconstruct: dap = operationnel + honoraires = 260000, ddp = dap + 0 = 260000
-  assertEquals(result.engineDapComputed, 260000);
-  assertEquals(result.engineDdpComputed, 260000);
+  assertEquals(result.dap, 260000);
+  assertEquals(result.ddp, 260000);
   assertEquals(result.totalHt, 260000);
   assert(result.totalHt > 0, "Export guard must NOT produce total_ht = 0");
-  assertEquals(result.honoraires_tva, Math.round(175000 * 0.18));
-  assertEquals(result.totalTtc, 260000 + result.honoraires_tva);
+  assertEquals(result.honorairesTva, Math.round(175000 * 0.18));
+  assertEquals(result.totalTtc, 260000 + result.honorairesTva);
   console.log("✅ Export guard enriched: total_ht =", result.totalHt);
 });
 
@@ -384,10 +339,10 @@ Deno.test("Provisional DDP: reconstructs dap/ddp from blocs", () => {
   };
   const tariffLines: any[] = [];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
-  assertEquals(result.engineDapComputed, 800000);
-  assertEquals(result.engineDdpComputed, 800000);
+  assertEquals(result.dap, 800000);
+  assertEquals(result.ddp, 800000);
   assertEquals(result.totalHt, 800000);
   assert(result.totalHt > 0, "Provisional DDP must NOT produce total_ht = 0");
   console.log("✅ Provisional DDP: total_ht =", result.totalHt);
@@ -402,7 +357,7 @@ Deno.test("TO_CONFIRM enrichment lines are excluded from totals", () => {
     { amount: 20000, canonical: { origin_layer: 'enrichment_terminal_storage' }, source: { type: 'to_confirm+note' } },
   ];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
   assertEquals(result.enrichmentAmount, 30000); // Only OFFICIAL line
   assertEquals(result.totalHt, 100000 + 30000);
@@ -418,12 +373,12 @@ Deno.test("Provisional DDP with nonzero debours reconstructs correctly", () => {
   };
   const tariffLines: any[] = [];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
-  assertEquals(result.engineDapComputed, 700000); // oper + honor
-  assertEquals(result.engineDdpComputed, 900000); // dap + debours
+  assertEquals(result.dap, 700000); // oper + honor
+  assertEquals(result.ddp, 900000); // dap + debours
   assertEquals(result.totalHt, 900000);
-  assertEquals(result.debours_engine, 200000);
+  assertEquals(result.deboursDouaniers, 200000);
   console.log("✅ Provisional DDP with debours: total_ht =", result.totalHt);
 });
 
@@ -438,11 +393,11 @@ Deno.test("Engine dap/ddp = 0 is treated as present (not reconstructed)", () => 
   };
   const tariffLines: any[] = [];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
   // dap=0 is finite → hasRawDap=true → use 0, NOT reconstruct
-  assertEquals(result.engineDapComputed, 0);
-  assertEquals(result.engineDdpComputed, 0);
+  assertEquals(result.dap, 0);
+  assertEquals(result.ddp, 0);
   assertEquals(result.totalHt, 0);
   console.log("✅ Engine dap=0: treated as present, total_ht = 0");
 });
@@ -454,10 +409,98 @@ Deno.test("Legacy debours field = debours_engine + enrichment", () => {
     { amount: 30000, canonical: { origin_layer: 'enrichment_pad' }, source: { type: 'OFFICIAL' } },
   ];
 
-  const result = computeTotals(engineTotals, tariffLines);
+  const result = computeCommercialTotals({ engineTotals, lines: tariffLines });
 
-  assertEquals(result.debours, 80000); // 50000 + 30000
-  assertEquals(result.debours_engine, 50000);
-  assertEquals(result.debours_enrichment, 30000);
-  console.log("✅ Legacy debours =", result.debours);
+  assertEquals(result.deboursLegacy, 80000); // 50000 + 30000
+  assertEquals(result.deboursDouaniers, 50000);
+  assertEquals(result.deboursEnrichment, 30000);
+  console.log("✅ Legacy debours =", result.deboursLegacy);
+});
+
+Deno.test("Local transport debours from engine stays in DAP and DDP exactly once", () => {
+  const result = computeCommercialTotals({
+    engineTotals: {
+      honoraires: 100000,
+      operationnel: 50000,
+      debours: 200000,
+      local_transport_debours_ttc: 82600,
+      dap: 232600,
+      ddp: 432600,
+    },
+    lines: [{
+      amount: 82600,
+      accounting: LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
+      canonical: { origin_layer: "engine_structural" },
+      source: { type: "OFFICIAL" },
+    }],
+  });
+
+  assertEquals(result.operationnel, 50000);
+  assertEquals(result.localTransportDeboursTtc, 82600);
+  assertEquals(result.dap, 232600);
+  assertEquals(result.ddp, 432600);
+  assertEquals(result.totalHt, 432600);
+  assertEquals(result.totalTtc, 450600);
+  assertEquals(result.localTransportCommission, 0);
+  assertEquals(result.deboursTotal, 282600);
+});
+
+Deno.test("P5 local transport debours is added once after raw engine DAP/DDP", () => {
+  const result = computeCommercialTotals({
+    engineTotals: {
+      honoraires: 100000,
+      operationnel: 50000,
+      debours: 200000,
+      dap: 150000,
+      ddp: 350000,
+    },
+    lines: [{
+      amount: 125080,
+      accounting: LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
+      canonical: { origin_layer: "package_enrichment" },
+      source: { type: "local_transport_rate" },
+    }],
+  });
+
+  assertEquals(result.localTransportDeboursTtc, 125080);
+  assertEquals(result.dap, 275080);
+  assertEquals(result.ddp, 475080);
+  assertEquals(result.totalHt, 475080);
+  assertEquals(result.totalTtc, 493080);
+  assertEquals(result.localTransportCommission, 0);
+});
+
+Deno.test("TO_CONFIRM local transport is excluded from every total", () => {
+  const result = computeCommercialTotals({
+    engineTotals: { honoraires: 100000, operationnel: 50000, debours: 0 },
+    lines: [{
+      amount: 999999,
+      accounting: LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
+      canonical: { origin_layer: "package_enrichment" },
+      source: { type: "TO_CONFIRM" },
+    }],
+  });
+
+  assertEquals(result.localTransportDeboursTtc, 0);
+  assertEquals(result.dap, 150000);
+  assertEquals(result.totalPayable, 168000);
+  assertEquals(result.localTransportCommission, 0);
+});
+
+Deno.test("Multi-lot aggregation preserves totals without adding a commission", () => {
+  const lots = [
+    computeCommercialTotals({
+      engineTotals: { honoraires: 100000, operationnel: 0, debours: 0, local_transport_debours_ttc: 82600 },
+      lines: [],
+    }),
+    computeCommercialTotals({
+      engineTotals: { honoraires: 150000, operationnel: 0, debours: 50000, local_transport_debours_ttc: 125080 },
+      lines: [],
+    }),
+  ];
+
+  assertEquals(lots.reduce((sum, lot) => sum + lot.totalHt, 0), 507680);
+  assertEquals(lots.reduce((sum, lot) => sum + lot.totalTtc, 0), 552680);
+  assertEquals(lots.reduce((sum, lot) => sum + lot.localTransportDeboursTtc, 0), 207680);
+  assertEquals(lots.reduce((sum, lot) => sum + lot.localTransportCommission, 0), 0);
 });
