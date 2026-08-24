@@ -10,6 +10,15 @@ import {
   EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
   EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS,
 } from "../_shared/partner-gap-policy.ts";
+// PAD-SCOPE-GAP: même décision pure et même résolution de périmètre que run-pricing.
+import {
+  type PadScopeFact,
+  resolvePadScopeBlocker,
+} from "../run-pricing/pad-scope-blocker.ts";
+import {
+  readOverridesFromFacts,
+  resolveEffectiveServiceKeys,
+} from "../_shared/service-scope.ts";
 
 // --- SOURCE-GUARD-1: Identify outbound SODATRA emails ---
 const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
@@ -413,6 +422,68 @@ export {
   decideDecisiveAttachmentGapAction,
   DECISIVE_ATTACHMENT_GAP_KEY,
 };
+
+// ── PAD-SCOPE-GAP : cohérence build-case-puzzle ↔ run-pricing ─────────────
+// run-pricing refuse de chiffrer (PAD_CATEGORY_REQUIRED) quand le périmètre
+// effectif contient un service portuaire PAD sans catégorie PAD et/ou sans
+// tarif officiel strictement positif. build-case-puzzle annonçait pourtant
+// READY_TO_PRICE dans cet état. On matérialise ici le même blocage, en
+// réutilisant la MÊME décision pure (resolvePadScopeBlocker) et la MÊME
+// résolution de périmètre (_shared/service-scope.ts) que run-pricing.
+// Aucune auto-classification : le gap est opérateur/pricing, fail-closed.
+const PAD_SCOPE_GAP_KEY = "pricing.pad_category";
+
+// Questions alignées mot pour mot sur ../_shared/client-gap-policy.ts
+// (GAP_QUESTION_MAP / GAP_QUESTION_MAP_EN, clé "pricing.pad_category").
+const PAD_SCOPE_GAP_QUESTION_FR =
+  "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables.";
+const PAD_SCOPE_GAP_QUESTION_EN =
+  "Could you please specify the exact nature of the goods and the total gross weight? This information is required to determine the applicable port handling charges.";
+
+/** Les mêmes clés que le SELECT de scope de run-pricing (index.ts §4). */
+const PAD_SCOPE_FACT_KEYS = [
+  "service.package",
+  "service.overrides",
+  "routing.incoterm",
+  "cargo.hs_code",
+  "cargo.pad_category",
+  "pricing.pad_category",
+  "cargo.pad_rate_fcfa_per_ton",
+];
+
+/**
+ * Rejoue, à l'identique, ce que run-pricing calcule avant d'appeler
+ * resolvePadScopeBlocker : servicePackage/incoterm depuis value_text, puis
+ * effectiveServiceKeys = resolveEffectiveServiceKeys(pkg, readOverridesFromFacts(facts)).
+ * Fonction PURE (aucune dépendance DB), exportée pour tests ciblés.
+ */
+function resolvePadScopeGapState(facts: PadScopeFact[]): {
+  servicePackage: string;
+  incoterm: string;
+  effectiveServiceKeys: string[];
+  blocker: ReturnType<typeof resolvePadScopeBlocker>;
+} {
+  const rows = facts || [];
+  const servicePackageRaw = rows.find((fact) => fact?.fact_key === "service.package")?.value_text ?? "";
+  const servicePackage = String(servicePackageRaw ?? "").trim().toUpperCase();
+  const incotermRaw = rows.find((fact) => fact?.fact_key === "routing.incoterm")?.value_text ?? "";
+  const incoterm = String(incotermRaw ?? "").trim().toUpperCase();
+
+  const effectiveServiceKeys = resolveEffectiveServiceKeys(
+    servicePackage,
+    readOverridesFromFacts(rows),
+  );
+  const blocker = resolvePadScopeBlocker({
+    facts: rows,
+    servicePackage,
+    effectiveServiceKeys,
+    incoterm,
+  });
+
+  return { servicePackage, incoterm, effectiveServiceKeys, blocker };
+}
+
+export { resolvePadScopeGapState, PAD_SCOPE_GAP_KEY, PAD_SCOPE_FACT_KEYS };
 
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
@@ -7371,6 +7442,11 @@ Deno.serve(async (req) => {
 
         let isValid = false;
         const gapKey = String(gap["gap_key"]);
+        // PAD-SCOPE-GAP: la présence du seul fait pricing.pad_category ne suffit
+        // pas à lever ce gap — run-pricing exige AUSSI un tarif PAD officiel
+        // strictement positif. La résolution est donc réservée au bloc
+        // PAD-SCOPE-GAP ci-dessous, qui applique le garde complet.
+        if (gapKey === PAD_SCOPE_GAP_KEY) continue;
         if (gapKey === "cargo.hs_code") {
           isValid = /^\d{10}$/.test(String(fact["value_text"] ?? "").trim());
         } else if (gapKey === "cargo.freight_cost") {
@@ -7521,6 +7597,135 @@ Deno.serve(async (req) => {
       }
     }
 
+    // PAD-SCOPE-GAP: matérialise le blocage PAD_CATEGORY_REQUIRED de run-pricing.
+    // Placé APRÈS le final sync (10b) — qui résoudrait le gap sur la seule présence
+    // d'un fait pricing.pad_category, sans exiger le tarif officiel — et AVANT le
+    // calcul de blockingGapsCount, donc avant toute décision READY_TO_PRICE.
+    let padScopeGuardFailed = false;
+    {
+      const { data: padScopeFacts, error: padScopeFactsError } = await serviceClient
+        .from("quote_facts")
+        .select("fact_key, value_text, value_number, value_json")
+        .eq("case_id", case_id)
+        .eq("is_current", true)
+        .in("fact_key", PAD_SCOPE_FACT_KEYS);
+
+      if (padScopeFactsError) {
+        // Fail-closed: sans lecture fiable des faits de scope, l'absence de blocage
+        // PAD n'est pas démontrable → on ne laisse pas passer READY_TO_PRICE.
+        padScopeGuardFailed = true;
+        console.error(
+          `[PAD-SCOPE-GAP] Failed to read scope facts for case ${case_id}: ${padScopeFactsError.message}`
+        );
+      } else {
+        const padScopeState = resolvePadScopeGapState((padScopeFacts || []) as PadScopeFact[]);
+
+        const { data: existingPadGap, error: existingPadGapError } = await serviceClient
+          .from("quote_gaps")
+          .select("id, is_blocking")
+          .eq("case_id", case_id)
+          .eq("gap_key", PAD_SCOPE_GAP_KEY)
+          .eq("status", "open")
+          .maybeSingle();
+
+        if (existingPadGapError) {
+          padScopeGuardFailed = true;
+          console.error(
+            `[PAD-SCOPE-GAP] Failed to read existing gap for case ${case_id}: ${existingPadGapError.message}`
+          );
+        } else if (padScopeState.blocker) {
+          if (!existingPadGap?.id) {
+            const { error: padGapInsertErr } = await serviceClient.from("quote_gaps").insert({
+              case_id,
+              gap_key: PAD_SCOPE_GAP_KEY,
+              gap_category: "pricing",
+              question_fr: PAD_SCOPE_GAP_QUESTION_FR,
+              question_en: PAD_SCOPE_GAP_QUESTION_EN,
+              // Même forme que le writer PAD-GAP-1 de run-pricing (gap_category
+              // "pricing", bloquant, priorité "high" — défaut de quote_gaps).
+              priority: "high",
+              is_blocking: true,
+              status: "open",
+            });
+            if (padGapInsertErr) {
+              // Fail-closed: le gap n'existe pas → il ne comptera pas dans
+              // blockingGapsCount, donc on bloque READY_TO_PRICE autrement.
+              padScopeGuardFailed = true;
+              console.error(
+                `[PAD-SCOPE-GAP] Failed to insert blocking gap for case ${case_id}: ${padGapInsertErr.message}`
+              );
+            } else {
+              gapsIdentified++;
+              console.log(
+                `[PAD-SCOPE-GAP] Created blocking gap ${PAD_SCOPE_GAP_KEY} (package=${padScopeState.servicePackage}, keys=${padScopeState.effectiveServiceKeys.join("|")})`
+              );
+              await serviceClient.from("case_timeline_events").insert({
+                case_id,
+                event_type: "gap_identified",
+                event_data: {
+                  gap_key: PAD_SCOPE_GAP_KEY,
+                  reason: "PAD_CATEGORY_REQUIRED",
+                  service_package: padScopeState.servicePackage,
+                  incoterm: padScopeState.incoterm,
+                  effective_service_keys: padScopeState.effectiveServiceKeys,
+                },
+                actor_type: "system",
+              });
+            }
+          } else if (existingPadGap.is_blocking === false) {
+            const { error: padGapUpgradeErr } = await serviceClient
+              .from("quote_gaps")
+              .update({ is_blocking: true, priority: "high" })
+              .eq("id", existingPadGap.id);
+            if (padGapUpgradeErr) {
+              padScopeGuardFailed = true;
+              console.error(
+                `[PAD-SCOPE-GAP] Failed to upgrade gap to blocking for case ${case_id}: ${padGapUpgradeErr.message}`
+              );
+            } else {
+              await serviceClient.from("case_timeline_events").insert({
+                case_id,
+                event_type: "gap_identified",
+                event_data: {
+                  gap_key: PAD_SCOPE_GAP_KEY,
+                  reason: "PAD_CATEGORY_REQUIRED — upgraded to blocking",
+                },
+                actor_type: "system",
+              });
+            }
+          }
+          // else: déjà ouvert + bloquant → no-op (idempotent)
+        } else if (existingPadGap?.id) {
+          // Catégorie PAD + tarif officiel strictement positif présents, ou scope
+          // hors PAD → le gap est obsolète, on le résout de façon idempotente.
+          await serviceClient
+            .from("quote_gaps")
+            .update({ status: "resolved", resolved_at: new Date().toISOString() })
+            .eq("id", existingPadGap.id);
+
+          await serviceClient
+            .from("client_gap_requests")
+            .update({ status: "cancelled" })
+            .eq("case_id", case_id)
+            .eq("gap_key", PAD_SCOPE_GAP_KEY)
+            .eq("status", "drafted");
+
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_resolved",
+            event_data: {
+              gap_key: PAD_SCOPE_GAP_KEY,
+              reason: "pad_scope_satisfied",
+              service_package: padScopeState.servicePackage,
+              effective_service_keys: padScopeState.effectiveServiceKeys,
+            },
+            actor_type: "system",
+          });
+          console.log(`[PAD-SCOPE-GAP] Resolved stale gap ${PAD_SCOPE_GAP_KEY}`);
+        }
+      }
+    }
+
     // 11. Calculate completeness
     const { count: currentFactsCount } = await serviceClient
       .from("quote_facts")
@@ -7559,6 +7764,9 @@ Deno.serve(async (req) => {
         const ambiguitySignals: string[] = [];
         if (detectedType === "UNKNOWN") ambiguitySignals.push("UNKNOWN_FLOW_TYPE");
         if (isAmbiguousLclFcl) ambiguitySignals.push("AMBIGUOUS_LCL_FCL");
+        // PAD-SCOPE-GAP fail-closed: garde PAD non concluante (lecture ou écriture
+        // du gap en échec) → jamais READY_TO_PRICE.
+        if (padScopeGuardFailed) ambiguitySignals.push("PAD_SCOPE_GUARD_ERROR");
 
         // Check critical fact exists in DB
         const { data: criticalFacts, error: criticalFactsError } = await serviceClient

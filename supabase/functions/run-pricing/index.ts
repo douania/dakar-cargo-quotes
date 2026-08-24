@@ -15,6 +15,14 @@ import {
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
 import { resolvePadScopeBlocker } from "./pad-scope-blocker.ts";
+// P5 helpers moved verbatim to _shared so build-case-puzzle computes the SAME
+// effectiveServiceKeys before calling resolvePadScopeBlocker (no doctrine change).
+import {
+  PACKAGE_SERVICE_DEFAULT_UNITS,
+  readOverridesFromFacts,
+  resolveEffectiveServiceKeys,
+  SERVICE_PACKAGES,
+} from "../_shared/service-scope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -336,21 +344,7 @@ export async function getSelectedPartnerOfferGuard(
 }
 
 // P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts)
-const SERVICE_PACKAGES: Record<string, string[]> = {
-  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
-  TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
-  EXPORT_SENEGAL: ['PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT', 'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY'],
-  BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
-  AIR_IMPORT_DAP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-  LCL_IMPORT_DAP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-  TRANSIT_REGIONAL_VIA_DAKAR: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'CUSTOMS_DAKAR', 'AGENCY'],
-  DAP_PROJECT_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
-  AIR_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT', 'AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-  LCL_IMPORT_EXW: ['PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT', 'PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-  // Package-DDP micro-lot: alias service-identique des variantes DAP.
-  AIR_IMPORT_DDP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-  LCL_IMPORT_DDP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
-};
+// → moved verbatim to ../_shared/service-scope.ts, imported above.
 
 // ═══ EXPORT-GUARD: Classification convention (Option A — provisoire) ═══
 // AGENCY = honoraires SODATRA (soumis TVA 18%)
@@ -375,33 +369,7 @@ function classifyExportTotals(lines: any[]): { honoraires: number; operationnel:
 }
 
 // P5: Default units per service_key (aligned with service_quantity_rules)
-const PACKAGE_SERVICE_DEFAULT_UNITS: Record<string, string> = {
-  PICKUP_ORIGIN: 'forfait',
-  PRE_CARRIAGE: 'voyage',
-  SEA_FREIGHT: 'EVP',
-  AIR_FREIGHT: 'kg',
-  AIR_HANDLING: 'forfait',
-  CUSTOMS_DAKAR: 'forfait',
-  TRUCKING: 'voyage',
-  AGENCY: 'forfait',
-  DTHC: 'forfait',
-  EMPTY_RETURN: 'forfait',
-  PORT_DAKAR_HANDLING: 'forfait',
-  PORT_CHARGES: 'forfait',
-  CUSTOMS_EXPORT: 'forfait',
-  DISCHARGE: 'forfait',
-  SURVEY: 'forfait',
-  BORDER_FEES: 'forfait',
-  CUSTOMS_BAMAKO: 'forfait',
-  ON_CARRIAGE: 'voyage',
-  // P7: Export-specific service units
-  THC_EXPORT: 'EVP',
-  DOCUMENTATION_BL: 'BL',
-  VGM_WEIGHING: 'EVP',
-  STUFFING_FACTORY: 'EVP',
-  STUFFING_CFS: 'EVP',
-  EMPTY_REPO: 'EVP',
-};
+// → moved verbatim to ../_shared/service-scope.ts, imported above.
 
 // P5.1: Human-readable labels for service keys (static, no DB call)
 const SERVICE_KEY_LABELS: Record<string, string> = {
@@ -658,47 +626,9 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
 }
 
 // ═══ P5: Service overrides helpers ═══
-
-type ServiceOverrides = { add: string[]; remove: string[] };
-
-const ALL_KNOWN_SERVICE_KEYS = new Set(Object.keys(PACKAGE_SERVICE_DEFAULT_UNITS));
-
-function readOverridesFromFacts(
-  facts: Record<string, any> | Array<{ fact_key: string; value_json?: any; value_text?: string }>,
-): ServiceOverrides {
-  const empty: ServiceOverrides = { add: [], remove: [] };
-  try {
-    let raw: any = null;
-    if (Array.isArray(facts)) {
-      const f = facts.find((f: any) => f.fact_key === 'service.overrides');
-      raw = f?.value_json ?? f?.value_text ?? null;
-    } else if (facts && typeof facts === 'object') {
-      raw = (facts as any)['service.overrides']?.value_json
-        ?? (facts as any)['service.overrides']?.value_text ?? null;
-    }
-    if (!raw) return empty;
-    let parsed = raw;
-    if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return empty; } }
-    if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return empty; } }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
-    const sanitize = (arr: unknown): string[] => {
-      if (!Array.isArray(arr)) return [];
-      return arr.filter((v): v is string => typeof v === 'string')
-        .map(v => v.trim().toUpperCase())
-        .filter(v => v && ALL_KNOWN_SERVICE_KEYS.has(v));
-    };
-    return { add: sanitize(parsed.add), remove: sanitize(parsed.remove) };
-  } catch { return empty; }
-}
-
-function resolveEffectiveServiceKeys(packageKey: string, overrides: ServiceOverrides): string[] {
-  const base = SERVICE_PACKAGES[packageKey];
-  if (!base) return [];
-  const removeSet = new Set(overrides.remove);
-  const result = base.filter(k => !removeSet.has(k));
-  for (const k of overrides.add) { if (!result.includes(k)) result.push(k); }
-  return result;
-}
+// ServiceOverrides / ALL_KNOWN_SERVICE_KEYS / readOverridesFromFacts /
+// resolveEffectiveServiceKeys moved verbatim to ../_shared/service-scope.ts
+// (imported above) so build-case-puzzle resolves the identical scope.
 
 // PAD scope guard: extracted verbatim into ./pad-scope-blocker.ts (PACK P0-B) so the
 // PAD_CATEGORY_REQUIRED branch is directly testable. Both call sites below already
