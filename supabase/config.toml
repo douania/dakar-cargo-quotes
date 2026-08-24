@@ -250,3 +250,36 @@ verify_jwt = false
 
 [functions.maritime-fee-proposals]
 verify_jwt = false
+
+# P0-C — PAD/classification functions that were deployable without an explicit
+# section. Same doctrine as every other function here: verify_jwt = false for
+# ES256 signing-keys compatibility, application-level auth enforced in code
+# (requireUser, or inline getUser under the caller JWT). See docs/SECURITY_CONTRACT.md.
+# Enforced by `npm run check:function-config`.
+
+[functions.create-pad-recommendation-candidates]
+verify_jwt = false
+
+[functions.get-commodity-classification-candidates]
+verify_jwt = false
+
+[functions.get-pad-nst-suggestions]
+verify_jwt = false
+
+[functions.produce-pad-classification-candidates]
+verify_jwt = false
+
+[functions.propagate-classification-candidate-to-facts]
+verify_jwt = false
+
+[functions.propose-pad-alias-enrichment]
+verify_jwt = false
+
+[functions.recommend-pad-category]
+verify_jwt = false
+
+[functions.update-commodity-classification-candidate]
+verify_jwt = false
+
+[functions.validate-pad-alias-enrichment]
+verify_jwt = false
