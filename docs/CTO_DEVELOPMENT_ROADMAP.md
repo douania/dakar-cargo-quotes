@@ -23,7 +23,7 @@ La reconstruction et la réconciliation des migrations sont terminées. Le chant
 - Source statique principale : GitHub, branche `work`.
 - Runtime canonique : Lovable Cloud.
 - Projet Lovable : `c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef` (`dakotation-pro` / Dakar Cargo Quotes).
-- Commit Git, `origin/work` et Lovable observé : `6913c297ceb1ebaab7119b8fd0ddccc0a243831e`.
+- Dernier code applicatif vérifié pour le lecteur PAD : `419ba486b2f55aa750b331cf03fdba0dfe29b68f` ; HEAD de contrôle après neutralisation du commit Auth automatique Lovable : `4f4135ac`.
 - Preview observée : `https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app`.
 - État Lovable observé : projet privé, prêt, authentification visible, non publié.
 
@@ -420,7 +420,7 @@ Ce pack dépend d'un responsable métier SODATRA. Il ne peut pas être achevé p
 
 Objectif : démontrer le parcours réel sur Lovable avant toute publication.
 
-Statut runtime au 24 août 2026 : **PARTIAL / STOP AUTH — smoke authentifié et fail-closed PAD prouvés ; la grille officielle, l'alias T02 et `produce-pad-classification-candidates` sont présents, mais `build-case-puzzle` reste sur l'ancienne version live et ne peut pas être redéployé par le panneau Cloud natif disponible**.
+Statut runtime au 24 août 2026 : **PARTIAL — chaîne PAD T02 → READY_TO_PRICE et ligne PAD ferme prouvées ; le devis complet, sa version, son PDF et son brouillon restent bloqués jusqu'à l'arbitrage du `PORT_DAKAR_HANDLING` encore `no_match / TO_CONFIRM`**.
 
 Preuves vérifiées sur l'aperçu Lovable privé et non publié :
 
@@ -466,6 +466,23 @@ Tentative de reprise Git/runtime du 24 août 2026 : **PARTIAL / STOP AUTH**.
 Condition de déblocage : disposer d'une action Lovable native de redéploiement ciblé, ou d'un GO CTO élargi autorisant explicitement l'agent Lovable et la neutralisation chirurgicale de tout nouveau commit Auth automatique avant reprise de la recette sandbox. Le scénario ne doit pas être rejoué tant que `build-case-puzzle` corrigé n'est pas prouvé en ligne.
 
 Verdict intermédiaire : le garde-fou P0-B est maintenant prouvé directement dans le runtime authentifié et empêche bien tout mauvais devis. Le défaut d'extraction observé est corrigé et testé localement. Le blocage ne vient pas d'une grille PAD absente : le barème officiel PAD 2006 est déjà intégré. Il vient de l'absence, sur ce dossier, des faits `cargo.pad_category` et `cargo.pad_rate_fcfa_per_ton`. La description sandbox générique « pièces mécaniques » ne doit pas être classée automatiquement ; la doctrine documentée la considère ambiguë. La reprise de recette doit utiliser une désignation officielle non ambiguë ou une validation opérateur via le workflow de candidats existant.
+
+Clôture du lot lecteur PAD et recette sandbox R3 du 24 août 2026 : **PASS ciblé / P0-E reste PARTIAL**.
+
+- `build-case-puzzle` et `run-pricing` ont été déployées de manière ciblée sur l'aperçu privé ; aucune publication publique, migration, autre fonction ou email n'a été exécuté.
+- Le scénario `SANDBOX-P0E-20260824-R3` a utilisé `1 conteneur 20' DV`, 10 000 kg, `PIÈCES DÉTACHÉES DE MACHINES ET APPAREILS`, DAP, Le Havre → Dakar → Mbour et le package `DAP_PROJECT_IMPORT`.
+- L'analyse initiale a correctement créé le gap bloquant `pricing.pad_category`. Le workflow d'alias validé a produit un candidat unique `T02`, source officielle `REDEVANCES_PORTUAIRES_2006.pdf, Section 2.3.1, Page 15`.
+- La boîte native de confirmation du navigateur de test n'a pas pu être pilotée de façon fiable. La transition `suggested → accepted` a donc été rejouée sous le rôle `authenticated`, l'identité du propriétaire du dossier et les RLS réelles, avec gardes strictes sur dossier/candidat/source/T02 et clé d'idempotence ; la propagation a ensuite utilisé la RPC officielle `propagate_classification_candidate_to_fact`.
+- Les facts runtime exacts ont été vérifiés : `cargo.pad_category = T02` dans `value_text` avec métadonnées MAP-7B dans `value_json`, et `cargo.pad_rate_fcfa_per_ton = 9 678` dans `value_number`/`value_text` avec métadonnées MAP-8B dans `value_json`.
+- Le rejeu de `build-case-puzzle` a résolu le gap PAD, conservé uniquement `contacts.client_email` comme gap non bloquant et produit `READY_TO_PRICE`, 80 % de complétude, sans erreur.
+- Un premier pricing sandbox a révélé un second défaut du même lecteur : `buildPricingInputs` lisait encore l'objet `value_json` avant les scalaires, terminait `success` mais omettait la ligne PAD. Ce run de test n'a produit ni version, PDF, brouillon, email ou diffusion.
+- Le correctif chirurgical `419ba486` fait consommer aux entrées du moteur les mêmes valeurs métier que le garde PAD, sans modifier la lecture JSON des autres facts. CI complète : 91 configurations Edge PASS, typecheck PASS, 107 tests frontend PASS, baseline Deno inchangée à 65 erreurs/7 groupes, 493 tests Deno PASS et 6 ignorés, lint 756 erreurs/27 warnings sans aggravation, build production PASS.
+- Après redéploiement de la seule fonction `run-pricing`, le run 2 a produit exactement une ligne officielle `PAD_DROIT_PASSAGE` de `96 780 FCFA` (`10 t × 9 678`), sans double comptage. Le total HT est passé de `390 200` à `486 980 FCFA` et le TTC de `417 200` à `513 980 FCFA`, soit un delta exact de `96 780` sans TVA additionnelle.
+- Le transport officiel 20P vers Mbour est resté `165 200 FCFA`, classé `DEBOURS_TIERS`, base fournisseur TTC, sans TVA SODATRA et avec commission locale égale à zéro.
+- Lovable a réinjecté deux fois son changement Auth automatique limité à `client.ts` et `previewAuthStorage.ts`. Les merges ont été neutralisés immédiatement par les reverts autorisés `87803eea` puis `4f4135ac`; l'arbre final après chaque revert est identique au code applicatif attendu.
+- Nettoyage transactionnel final vérifié : zéro résidu pour le dossier R3 dans toutes les tables publiques portant `case_id`, et zéro sur le document, le candidat, les facts propagés, les runs de pricing et `storage.objects`.
+
+Risque restant avant de poursuivre P0-E : le service package `PORT_DAKAR_HANDLING` sort encore une ligne `0 XOF`, source `no_match`, explication « Aucun tarif trouvé — à confirmer », tandis que DTHC et PAD sont déjà comptés séparément. Un audit read-only doit déterminer s'il s'agit d'un service distinct manquant ou d'un doublon de périmètre avant toute version de devis, PDF ou envoi.
 
 Parcours minimum :
 
