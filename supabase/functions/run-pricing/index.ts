@@ -10,6 +10,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
 import {
+  isLocalTransportDebours,
   isLocalTransportRateSource,
   withLocalTransportDebours,
 } from "../_shared/local-transport-debours.ts";
@@ -33,6 +34,7 @@ import {
   PACKAGE_SERVICE_DEFAULT_UNITS,
   readOverridesFromFacts,
   resolveEffectiveServiceKeys,
+  resolveExplicitlyRemovedServiceKeys,
   SERVICE_PACKAGES,
 } from "../_shared/service-scope.ts";
 
@@ -422,6 +424,10 @@ const ENGINE_CATEGORY_TO_SERVICE_KEY: Record<string, string> = {
   'Douane': 'CUSTOMS_DAKAR',
   'Transport': 'TRUCKING',
   'Transport Mali': 'TRUCKING',
+  // SCOPE-REMOVE: border-clearing lines (bloc 'border', quotation-engine §6
+  // "BORDER CLEARING (Mali)", table border_clearing_rates) ARE the catalogue
+  // service BORDER_FEES ('Frais frontière') carried by the transit packages.
+  'Frontière Mali': 'BORDER_FEES',
   // P5.4: Agency sub-components
   'Suivi': 'AGENCY',
   'Administratif': 'AGENCY',
@@ -877,7 +883,7 @@ function getSourceReferenceFromTemplate(template: any): string {
  * Idempotent: if line.canonical already exists, returns the line unchanged.
  * Conservative: uses null when truth is uncertain.
  */
-function canonicalizeLine(
+export function canonicalizeLine(
   line: any,
   context: { origin_layer: CanonicalBlock['origin_layer'] },
 ): any {
@@ -953,6 +959,151 @@ function canonicalizeLine(
   }
 
   return { ...line, canonical };
+}
+
+// ═══ SCOPE-REMOVE: explicit service removals on engine structural lines ═══
+// STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md. GO CTO 2026-08-25
+// (lot SCOPE-REMOVE): proven business defect — services explicitly present in
+// `service.overrides.remove` resurfaced in the final structural lines. Bounded
+// diff (this helper + its two call sites + the Frontière Mali mapping), no
+// tariff or commercial doctrine touched, idempotent, pinned by
+// explicit-service-removal_test.ts.
+
+/** Engine totals buckets that are pure sums of lines by `bloc` (quotation-engine). */
+const ENGINE_TOTALS_BLOC_KEYS = new Set(['operationnel', 'honoraires', 'debours', 'border', 'terminal']);
+
+/** Minimal structural view of a canonicalized line — only what the removal reads. */
+interface ScopeRemovalLine {
+  amount?: number | null;
+  bloc?: string;
+  canonical?: {
+    service_key?: string | null;
+    origin_layer?: string;
+  } | null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * SCOPE-REMOVE — drops the structural lines whose service the operator has
+ * EXPLICITLY removed (`service.overrides.remove`, add wins — see
+ * `resolveExplicitlyRemovedServiceKeys`) and subtracts the dropped amounts from
+ * the raw engine totals by replaying the engine's own bucket arithmetic
+ * (quotation-engine sums lines by `bloc`, local-transport débours in their
+ * dedicated bucket, then dap = Σ non-debours buckets and ddp = dap + debours).
+ *
+ * Fail-closed by construction:
+ * - only `canonical.origin_layer === 'engine_structural'` lines are candidates;
+ * - a `canonical.service_key === null` line is NEVER dropped (« Droits &
+ *   Taxes », Port (PAD), Magasinage… — débours and mandatory charges stay);
+ * - empty removal set or no matching line → lines and totals pass through;
+ * - a removed line whose amount is not a finite non-zero number weighed 0 in
+ *   the engine totals: it leaves without delta and without requiring a bucket;
+ * - once at least one FIRM line must leave, a COHERENT totals adjustment is
+ *   mandatory: every firm removed line needs a finite adjustable bucket
+ *   (local-transport → `local_transport_debours_ttc`, or its legacy bloc when
+ *   that bucket is absent; any other line → its known bloc). Otherwise the
+ *   helper throws `SCOPE_REMOVE_TOTALS_INCOHERENT` so run-pricing fails and
+ *   rolls back instead of quoting partially adjusted numbers. `dap`/`ddp`
+ *   stay optional (legacy shape) and are adjusted only when present.
+ *
+ * Idempotent: a second application removes nothing and subtracts 0.
+ */
+export const SCOPE_REMOVE_TOTALS_INCOHERENT = 'SCOPE_REMOVE_TOTALS_INCOHERENT';
+
+export function applyExplicitServiceRemovals(
+  lines: ScopeRemovalLine[],
+  engineTotals: unknown,
+  removedKeys: Set<string>,
+): { keptLines: ScopeRemovalLine[]; removedLines: ScopeRemovalLine[]; adjustedTotals: unknown } {
+  const safeLines = Array.isArray(lines) ? lines : [];
+  if (!(removedKeys instanceof Set) || removedKeys.size === 0) {
+    return { keptLines: safeLines, removedLines: [], adjustedTotals: engineTotals };
+  }
+
+  const keptLines: ScopeRemovalLine[] = [];
+  const removedLines: ScopeRemovalLine[] = [];
+  for (const line of safeLines) {
+    const serviceKey = line?.canonical?.service_key;
+    const isRemovable =
+      line?.canonical?.origin_layer === 'engine_structural' &&
+      typeof serviceKey === 'string' &&
+      serviceKey !== '' &&
+      removedKeys.has(serviceKey);
+    (isRemovable ? removedLines : keptLines).push(line);
+  }
+
+  // A line whose amount is not a finite non-zero number weighed 0 in the engine
+  // totals: it may leave without delta and without requiring a bucket.
+  const firmRemovedLines = removedLines.filter((line) => {
+    const amount = Number(line?.amount);
+    return Number.isFinite(amount) && amount !== 0;
+  });
+  if (removedLines.length === 0 || firmRemovedLines.length === 0) {
+    return { keptLines, removedLines, adjustedTotals: engineTotals };
+  }
+
+  // Fail-closed: from here on a coherent totals adjustment is MANDATORY — a
+  // partially adjusted quote (lines dropped, amounts kept) must never exist.
+  if (!isPlainRecord(engineTotals)) {
+    throw new Error(
+      `${SCOPE_REMOVE_TOTALS_INCOHERENT}: engine totals are not a record while ` +
+        `${firmRemovedLines.length} firm structural line(s) must leave the totals`,
+    );
+  }
+
+  const adjustedTotals: Record<string, unknown> = { ...engineTotals };
+  const isFiniteTotal = (v: unknown): boolean =>
+    v !== undefined && v !== null && Number.isFinite(Number(v));
+  // Mirror of computeCommercialTotals' old-engine compatibility read: without the
+  // dedicated bucket, local-transport débours were counted inside their bloc.
+  const hasLocalTransportBucket = isFiniteTotal(adjustedTotals.local_transport_debours_ttc);
+
+  let dapDelta = 0;
+  let deboursDelta = 0;
+  for (const line of firmRemovedLines) {
+    const amount = Number(line?.amount);
+    const blocValue = line?.bloc;
+    const bloc = typeof blocValue === 'string' ? blocValue : '';
+
+    let bucketKey: string;
+    if (isLocalTransportDebours(line)) {
+      bucketKey = hasLocalTransportBucket
+        ? 'local_transport_debours_ttc'
+        : (ENGINE_TOTALS_BLOC_KEYS.has(bloc) ? bloc : 'operationnel');
+    } else if (ENGINE_TOTALS_BLOC_KEYS.has(bloc)) {
+      bucketKey = bloc;
+    } else {
+      throw new Error(
+        `${SCOPE_REMOVE_TOTALS_INCOHERENT}: removed line '${line?.canonical?.service_key}' ` +
+          `carries unknown bloc '${bloc}' — no adjustable bucket`,
+      );
+    }
+
+    if (!isFiniteTotal(adjustedTotals[bucketKey])) {
+      throw new Error(
+        `${SCOPE_REMOVE_TOTALS_INCOHERENT}: bucket '${bucketKey}' is not a finite total ` +
+          `while removing '${line?.canonical?.service_key}' (${amount})`,
+      );
+    }
+    adjustedTotals[bucketKey] = Number(adjustedTotals[bucketKey]) - amount;
+    if (bucketKey === 'debours') deboursDelta += amount;
+    else dapDelta += amount;
+  }
+
+  // dap/ddp are closing sums in the engine (dap = Σ non-debours buckets,
+  // ddp = dap + debours): subtract the same deltas instead of rebuilding the
+  // sums, so a shape missing some buckets can never be corrupted.
+  if (isFiniteTotal(adjustedTotals.dap)) {
+    adjustedTotals.dap = Number(adjustedTotals.dap) - dapDelta;
+  }
+  if (isFiniteTotal(adjustedTotals.ddp)) {
+    adjustedTotals.ddp = Number(adjustedTotals.ddp) - dapDelta - deboursDelta;
+  }
+
+  return { keptLines, removedLines, adjustedTotals };
 }
 
 // Carrier port charge ambiguity guard (mirrored from quotation-engine/index.ts).
@@ -1617,8 +1768,30 @@ Deno.serve(async (req) => {
 
           lotEngineResponse = await engineRes.json();
           } // end else (non-export)
-          const lotLines = (lotEngineResponse.lines || lotEngineResponse.quotationLines || [])
+          const lotCanonicalLines = (lotEngineResponse.lines || lotEngineResponse.quotationLines || [])
             .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
+
+          // SCOPE-REMOVE: same helper as mono-lot — services explicitly removed via
+          // `service.overrides.remove` (add wins) leave the structural lines AND the
+          // raw engine totals HERE, before sources, coverage, enrichment and totals.
+          const lotRemovedServiceKeys = resolveExplicitlyRemovedServiceKeys(
+            readOverridesFromFacts(lc.mergedFacts),
+          );
+          const lotScopeRemoval = applyExplicitServiceRemovals(
+            lotCanonicalLines, lotEngineResponse.totals, lotRemovedServiceKeys,
+          );
+          if (lotScopeRemoval.removedLines.length > 0) {
+            console.log(
+              `[SCOPE-REMOVE] Lot ${lc.lot_index}: dropped ${lotScopeRemoval.removedLines.length} structural line(s): ${lotScopeRemoval.removedLines.map((l) => `${l?.canonical?.service_key}=${l?.amount ?? 'null'}`).join(', ')}`,
+            );
+          }
+          // Same precedent as EXPORT-GUARD below: keep engine_response coherent
+          // with what the run actually prices downstream (reading the kept lines
+          // back through the response keeps downstream typing identical to the
+          // engine payload).
+          lotEngineResponse.lines = lotScopeRemoval.keptLines;
+          lotEngineResponse.totals = lotScopeRemoval.adjustedTotals;
+          const lotLines = lotEngineResponse.lines;
 
           // Build tariff sources for this lot
           const lotSourceMap = new Map<string, any>();
@@ -2705,10 +2878,30 @@ Deno.serve(async (req) => {
 
       engineResponse = await engineRes.json();
       // Fix CTO: construire tariffSources depuis les lignes (le moteur ne renvoie pas de champ global)
-      const rawLines = (engineResponse.lines || engineResponse.quotationLines || [])
+      const monoCanonicalLines = (engineResponse.lines || engineResponse.quotationLines || [])
         .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
+
+      // SCOPE-REMOVE: services explicitly removed via `service.overrides.remove`
+      // (add wins) leave the structural lines AND the raw engine totals HERE,
+      // before sources, coverage, enrichment and totals. Lines with a null
+      // canonical.service_key (Droits & Taxes, Port (PAD), …) are never candidates.
+      const monoRemovedServiceKeys = resolveExplicitlyRemovedServiceKeys(
+        readOverridesFromFacts(facts || []),
+      );
+      const monoScopeRemoval = applyExplicitServiceRemovals(
+        monoCanonicalLines, engineResponse.totals, monoRemovedServiceKeys,
+      );
+      if (monoScopeRemoval.removedLines.length > 0) {
+        console.log(
+          `[SCOPE-REMOVE] Mono-lot: dropped ${monoScopeRemoval.removedLines.length} structural line(s): ${monoScopeRemoval.removedLines.map((l) => `${l?.canonical?.service_key}=${l?.amount ?? 'null'}`).join(', ')}`,
+        );
+      }
+      engineResponse.totals = monoScopeRemoval.adjustedTotals;
       // P6: store canonicalized lines back so downstream code uses them
-      engineResponse.lines = rawLines;
+      // (reading them back through the response keeps downstream typing
+      // identical to the engine payload).
+      engineResponse.lines = monoScopeRemoval.keptLines;
+      const rawLines = engineResponse.lines;
       const sourceMap = new Map<string, any>();
       for (const line of rawLines) {
         if (line.source?.reference && line.source?.type !== 'TO_CONFIRM') {

@@ -115,3 +115,30 @@ export function resolveEffectiveServiceKeys(packageKey: string, overrides: Servi
   for (const k of overrides.add) { if (!result.includes(k)) result.push(k); }
   return result;
 }
+
+/**
+ * SCOPE-REMOVE: the service keys the operator has EXPLICITLY removed from scope.
+ *
+ * Exact complement of `resolveEffectiveServiceKeys`, same "add wins" doctrine: a
+ * key present in BOTH `add` and `remove` stays in scope there, so it must not be
+ * reported as removed here. This guarantees `removed ∩ effective = ∅` for every
+ * package — which is what lets run-pricing drop structural lines without the P5
+ * enrichment (bounded by the effective scope) ever re-adding them.
+ *
+ * Defensive on shape, strictly: if `overrides` is missing or EITHER `add` or
+ * `remove` is not an array, the WHOLE resolution is an empty set. With a
+ * malformed `add` the add-wins protection cannot be evaluated, so nothing may
+ * be removed (fail-closed: an over-quote stays visible, never a silent drop).
+ * Non-string entries inside otherwise valid arrays are ignored.
+ */
+export function resolveExplicitlyRemovedServiceKeys(
+  overrides: ServiceOverrides | null | undefined,
+): Set<string> {
+  if (!overrides || !Array.isArray(overrides.add) || !Array.isArray(overrides.remove)) {
+    return new Set();
+  }
+  const addSet = new Set(overrides.add.filter((k) => typeof k === 'string'));
+  return new Set(
+    overrides.remove.filter((k): k is string => typeof k === 'string' && k !== '' && !addSet.has(k)),
+  );
+}
