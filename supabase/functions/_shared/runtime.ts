@@ -223,7 +223,7 @@ function truncateMeta(meta?: JsonObject): JsonObject | undefined {
  * Uses service role client for insert.
  */
 export async function logRuntimeEvent(
-  serviceClient: { from: (table: string) => { insert: (data: unknown) => Promise<{ error: unknown }> } },
+  serviceClient: { from: (table: string) => { insert: (data: unknown) => PromiseLike<{ error: unknown }> } },
   entry: RuntimeEventEntry
 ): Promise<void> {
   try {
