@@ -319,6 +319,64 @@ Deno.test("dry 20 and dry 40 variants map to the exact DB spelling", () => {
   }
 });
 
+Deno.test("the standard 'Dry Van' wording maps to the exact DB spelling", () => {
+  // Régression : un runtime émettant la désignation ISO complète ("20' Dry Van")
+  // était refusé en CONTAINER_UNSUPPORTED alors que la grille stocke "20' Dry".
+  for (
+    const raw of [
+      "20' Dry Van",
+      "20 Dry Van",
+      "20' dry van",
+      "20FT Dry Van",
+      "20ft dry van",
+    ]
+  ) {
+    assertEquals(
+      resolveCanonicalLocalTransportContainerType(raw),
+      LOCAL_TRANSPORT_CONTAINER_20,
+      `raw ${raw}`,
+    );
+  }
+  for (
+    const raw of [
+      "40' Dry Van",
+      "40 Dry Van",
+      "40' dry van",
+      "40FT Dry Van",
+      "40HC Dry Van",
+    ]
+  ) {
+    assertEquals(
+      resolveCanonicalLocalTransportContainerType(raw),
+      LOCAL_TRANSPORT_CONTAINER_40,
+      `raw ${raw}`,
+    );
+  }
+});
+
+Deno.test("the 'Van' wording never widens the grid to a special or unsized type", () => {
+  for (
+    const raw of [
+      "Van",
+      "Dry Van",
+      "45' Dry Van",
+      "20' Reefer Van",
+      "20RF Dry Van",
+      "20' Open Top Van",
+      "20' Flat Rack Van",
+      "20' Tank Van",
+      "LCL Dry Van",
+      "20' Dry Van Reefer",
+    ]
+  ) {
+    assertEquals(
+      resolveCanonicalLocalTransportContainerType(raw),
+      null,
+      `raw ${raw} must not resolve to a grid container`,
+    );
+  }
+});
+
 Deno.test("non-dry and out-of-grid equipment is never invented", () => {
   for (
     const raw of [
@@ -381,6 +439,41 @@ Deno.test("a composite component resolves onto the composite row", () => {
   assertEquals(result.status, "RESOLVED");
   if (result.status !== "RESOLVED") return;
   assertEquals(result.amount, 834260);
+});
+
+Deno.test("a MBOUR 20' Dry tariff is served verbatim from a Dry Van runtime input", () => {
+  // Montant officiel MBOUR 20P du barème stagé (migration 20260823130000).
+  const mbour = rate({ destination: "MBOUR", rate_amount: 165200 });
+  const result = resolveOfficialLocalTransportRate([mbour, rate()], {
+    destination: "Mbour",
+    containerType: "20' Dry Van",
+    clientCode: null,
+    asOfDate: TODAY,
+  });
+  assertEquals(result.status, "RESOLVED");
+  if (result.status !== "RESOLVED") return;
+  assertEquals(result.canonicalDestination, "MBOUR");
+  assertEquals(result.canonicalContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+  assertEquals(result.amount, 165200);
+  assertEquals(result.currency, "XOF");
+  // Le montant vient de la ligne officielle elle-même, pas d'un repli.
+  assertEquals(result.rate, mbour);
+  assertEquals(
+    result.rate.source_document,
+    OFFICIAL_LOCAL_TRANSPORT_SOURCE_DOCUMENT,
+  );
+
+  // Le même dossier avec un équipement hors barème reste fail-closed.
+  const special = resolveOfficialLocalTransportRate([mbour, rate()], {
+    destination: "Mbour",
+    containerType: "20' Reefer Van",
+    clientCode: null,
+    asOfDate: TODAY,
+  });
+  assertEquals(special.status, "TO_CONFIRM");
+  if (special.status !== "TO_CONFIRM") return;
+  assertEquals(special.reason, "CONTAINER_UNSUPPORTED");
+  assertEquals(special.amount, null);
 });
 
 Deno.test("zero candidate yields TO_CONFIRM with a null amount", () => {

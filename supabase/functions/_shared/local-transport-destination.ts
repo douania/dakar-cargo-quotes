@@ -103,29 +103,39 @@ export const LOCAL_TRANSPORT_DESTINATION_ALIASES: Readonly<
  * Variantes de conteneur explicitement reconnues. Clés = forme normalisée
  * (majuscules, sans ponctuation). Toute forme absente (reefer, flat rack, open
  * top, tank, 45', LCL, low bed…) reste non résolue : pas de taille inventée.
+ *
+ * Les clés `…DRYVAN` sont le pendant strict des clés `…DRY` : "Dry Van" est la
+ * désignation ISO courante du conteneur sec standard, que certains runtimes
+ * émettent en toutes lettres ("20' Dry Van"). Elles sont énumérées une à une,
+ * jamais dérivées par suffixe : aucune autre famille n'en hérite.
  */
 export const LOCAL_TRANSPORT_CONTAINER_ALIASES: Readonly<
   Record<string, string>
 > = Object.freeze({
   "20": LOCAL_TRANSPORT_CONTAINER_20,
   "20DRY": LOCAL_TRANSPORT_CONTAINER_20,
+  "20DRYVAN": LOCAL_TRANSPORT_CONTAINER_20,
   "20DV": LOCAL_TRANSPORT_CONTAINER_20,
   "20DC": LOCAL_TRANSPORT_CONTAINER_20,
   "20GP": LOCAL_TRANSPORT_CONTAINER_20,
   "20STD": LOCAL_TRANSPORT_CONTAINER_20,
   "20FT": LOCAL_TRANSPORT_CONTAINER_20,
   "20FTDRY": LOCAL_TRANSPORT_CONTAINER_20,
+  "20FTDRYVAN": LOCAL_TRANSPORT_CONTAINER_20,
   "40": LOCAL_TRANSPORT_CONTAINER_40,
   "40DRY": LOCAL_TRANSPORT_CONTAINER_40,
+  "40DRYVAN": LOCAL_TRANSPORT_CONTAINER_40,
   "40DV": LOCAL_TRANSPORT_CONTAINER_40,
   "40DC": LOCAL_TRANSPORT_CONTAINER_40,
   "40GP": LOCAL_TRANSPORT_CONTAINER_40,
   "40STD": LOCAL_TRANSPORT_CONTAINER_40,
   "40FT": LOCAL_TRANSPORT_CONTAINER_40,
   "40FTDRY": LOCAL_TRANSPORT_CONTAINER_40,
+  "40FTDRYVAN": LOCAL_TRANSPORT_CONTAINER_40,
   "40HC": LOCAL_TRANSPORT_CONTAINER_40,
   "40HQ": LOCAL_TRANSPORT_CONTAINER_40,
   "40HCDRY": LOCAL_TRANSPORT_CONTAINER_40,
+  "40HCDRYVAN": LOCAL_TRANSPORT_CONTAINER_40,
   "40FTHC": LOCAL_TRANSPORT_CONTAINER_40,
 });
 
