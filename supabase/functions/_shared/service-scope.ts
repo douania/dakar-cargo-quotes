@@ -24,6 +24,12 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   // Package-DDP micro-lot: alias service-identique des variantes DAP.
   AIR_IMPORT_DDP: ['AIR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   LCL_IMPORT_DDP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
+  // Import project DDP: alias service-identique de DAP_PROJECT_IMPORT — parité stricte avec
+  // src/features/quotation/constants.ts, où la clé existait déjà. Sans elle, un dossier
+  // DDP_PROJECT_IMPORT résolvait un périmètre VIDE côté backend: le garde PAD ne voyait plus
+  // PORT_DAKAR_HANDLING et laissait passer un chiffrage sans catégorie/tarif PAD (fail-open).
+  // La sémantique DDP (droits/taxes) reste portée par routing.incoterm + customs, pas ici.
+  DDP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
 };
 
 // P5: Default units per service_key (aligned with service_quantity_rules)

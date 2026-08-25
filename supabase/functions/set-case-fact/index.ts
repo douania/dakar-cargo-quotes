@@ -9,6 +9,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { getCorrelationId, respondOk, respondError, logRuntimeEvent } from "../_shared/runtime.ts";
+import {
+  normalizeTerminalOperationFactWrite,
+  TERMINAL_OPERATION_MODE_FACT_KEY,
+} from "../_shared/terminal-operation-mode.ts";
 
 // ── Strict whitelist ──
 const ALLOWED_FACT_KEYS = new Set([
@@ -32,6 +36,10 @@ const ALLOWED_FACT_KEYS = new Set([
   "routing.origin_country",
   "routing.origin_port",
   "routing.transport_mode",
+  // TERMINAL-GAP (doctrine 2026-08-25) : LOLO = DP World, RORO/CONRO = Dakar
+  // Terminal. Sans cette entrée l'allowlist bloquait la seule saisie sécurisée du
+  // fait, et le gap correspondant serait inextinguible.
+  TERMINAL_OPERATION_MODE_FACT_KEY,
   "cargo.containers",
   "service.mode",
   "service.package",
@@ -104,6 +112,25 @@ Deno.serve(async (req) => {
         httpStatus: 400, durationMs: Date.now() - startMs,
       });
       return resp;
+    }
+
+    // TERMINAL-GAP: payload textuel unique, validé et canonicalisé AVANT le RPC.
+    // Un payload multi-colonnes serait ambigu pour les lecteurs de quote_facts.
+    let canonicalValueText = value_text;
+    if (fact_key === TERMINAL_OPERATION_MODE_FACT_KEY) {
+      const normalizedMode = normalizeTerminalOperationFactWrite({
+        value_text,
+        value_number,
+        value_json,
+      });
+      if (!normalizedMode) {
+        return respondError({
+          code: "VALIDATION_FAILED",
+          message: `${TERMINAL_OPERATION_MODE_FACT_KEY} accepte uniquement une valeur texte LOLO, RORO ou CONRO, sans value_number ni value_json`,
+          correlationId,
+        });
+      }
+      canonicalValueText = normalizedMode;
     }
 
     // 4b-bis. Structural validation for cargo.containers (DCQ-P0-INTAKE-FACTS-PERSISTENCE v5)
@@ -220,7 +247,7 @@ Deno.serve(async (req) => {
       p_case_id: case_id,
       p_fact_key: fact_key,
       p_fact_category: factCategory,
-      p_value_text: value_text ?? null,
+      p_value_text: canonicalValueText ?? null,
       p_value_number: value_number ?? null,
       p_value_json: value_json ?? null,
       p_source_type: "manual_input",
@@ -281,7 +308,7 @@ Deno.serve(async (req) => {
       actor_type: "operator",
       actor_user_id: userId,
       related_fact_id: factId,
-      event_data: { fact_key, value_text, value_number, source: "set-case-fact" },
+      event_data: { fact_key, value_text: canonicalValueText, value_number, source: "set-case-fact" },
     });
 
     // 9. Success

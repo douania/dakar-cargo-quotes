@@ -21,6 +21,16 @@ export const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: s
     { value: "MARITIME", label: "Maritime" },
     { value: "ROUTE", label: "Route" },
   ],
+  /**
+   * Mode d'opération terminal — saisie explicite, jamais déduite du transporteur.
+   * Valeurs strictes attendues par supabase/functions/_shared/terminal-operation-mode.ts :
+   * toute autre chaîne laisse run-pricing bloqué sur TERMINAL_OPERATION_MODE_REQUIRED.
+   */
+  "routing.terminal_operation_mode": [
+    { value: "LOLO", label: "LoLo — terminal à conteneurs (DP World)" },
+    { value: "RORO", label: "RoRo — navire roulier (Dakar Terminal)" },
+    { value: "CONRO", label: "ConRo — roulier + conteneurs (Dakar Terminal)" },
+  ],
 };
 
 /** P1a — Global fact keys ambiguous on multi-lot cases */
@@ -29,6 +39,9 @@ export const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
   "cargo.pieces_count",
   "cargo.description",
   "service.package",
+  // Le moteur multi-lot exige une valeur déclarée par lot et ignore volontairement
+  // ce fait global : le badge avertit l'opérateur qu'il ne résout pas les lots.
+  "routing.terminal_operation_mode",
 ]);
 
 /**
@@ -66,6 +79,7 @@ export const EDITABLE_FACT_KEYS = new Set([
   "cargo.freight_currency",
   "cargo.freight_exchange_rate",
   "routing.transport_mode",
+  "routing.terminal_operation_mode",
   "cargo.pad_category",
   "cargo.pad_rate_fcfa_per_ton",
 ]);

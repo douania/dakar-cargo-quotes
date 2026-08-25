@@ -638,12 +638,12 @@ Cela inclut les décisions formulées comme :
 |-------|--------|
 | **ID** | TARIFF-COHERENCE-1-DEBT |
 | **Catégorie** | Pricing / Déduplication |
-| **Statut** | `deferred` |
+| **Statut** | `local_patch_verified — runtime pending` |
 | **Priorité** | Moyenne |
 | **Phase d'origine** | TARIFF-COHERENCE-1 |
 | **Date** | 2026-04-09 |
-| **Déclencheur de réouverture** | Validation métier confirmant si PORT_DAKAR_HANDLING (15K) est un poste distinct ou un doublon du THC import DPW (930K). |
-| **Recommandation** | Ne pas fusionner PORT_DAKAR_HANDLING dans le dedup_group TERMINAL_HANDLING tant que la doctrine métier n'est pas arbitrée. Si doublon confirmé, ajouter `'PORT_DAKAR_HANDLING': 'TERMINAL_HANDLING'` dans DEDUP_GROUP_MAP. Si poste distinct, documenter la différence et conserver séparé. |
+| **Déclencheur de réouverture** | Déploiement Git/runtime du patch local vérifié le 2026-08-25, puis recette sandbox prouvant l'absence de ligne générique. Nouvelle source officielle Dakar Terminal si un trafic RoRo/ConRo doit être chiffré. |
+| **Recommandation** | Doctrine arbitrée le 2026-08-25 : `PORT_DAKAR_HANDLING` est conservé uniquement comme marqueur historique de périmètre PAD et ne doit jamais être envoyé à `price-service-lines`. Le devis conserve séparément `PAD_DROIT_PASSAGE` et DTHC. Ne pas fusionner les montants par simple `dedup_group` et ne pas inventer de montant RoRo/ConRo. Patch local + tests complets PASS ; runtime non modifié. |
 
 
 ---
@@ -704,7 +704,8 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |----|-----------|--------|----------|----------------|------|---------------------------|----------------|
 | PAD-IA | PAD matching IA | `deferred` | moyenne | PAD-1 | 2026-04-04 | Quand le dictionnaire d'alias PAD atteint ses limites de couverture (>20% de descriptions non résolues) | Implémenter un fallback IA similaire au magasinage (Phase PAD-2), avec validation opérateur obligatoire |
 | PAD-ADMIN-UI | UI admin alias PAD | `closed` | — | PAD-1 | 2026-04-04 | ✅ Livré — onglet "Alias PAD" dans CommodityCategories.tsx, enrichissement T14 (6 alias), total 57 alias | Aucune action requise |
-| PAD-MULTI-LOT | PAD multi-lot | `deferred` | basse | Phase 3 | 2026-04-02 | Quand un dossier multi-lot nécessite des catégories PAD différentes par lot | Extension du schéma quote_gaps et des facts par lot |
+| PAD-MULTI-LOT | PAD multi-lot | `deferred — fail-closed local` | basse | Phase 3 | 2026-04-02 | Un dossier multi-lot nécessite des catégories ou taux PAD propres à chaque lot | Depuis le patch local vérifié du 2026-08-25, un lot PAD est bloqué par `PAD_CATEGORY_REQUIRED` puis `PAD_MULTI_LOT_UNSUPPORTED` ; runtime non déployé. Lever ce garde seulement avec extension du schéma, facts, gaps et calcul PAD par lot, plus tests d'absence de sous-chiffrage. |
+| TERMINAL-DAKAR-RATE | Barème manutention Dakar Terminal (RoRo/ConRo) absent du référentiel | `deferred — fail-closed local` | haute | P0-E | 2026-08-25 | Obtention d'un barème officiel Dakar Terminal ou d'une pro forma représentative validée, permettant de chiffrer un trafic RoRo/ConRo | Depuis le patch local vérifié du 2026-08-25, un périmètre contenant DTHC dont `routing.terminal_operation_mode` vaut `RORO` ou `CONRO` est bloqué par `DAKAR_TERMINAL_RATE_REQUIRED` avant tout chiffrage ; runtime non déployé. Ne jamais lever ce garde en réutilisant un tarif DP World, un tarif PAD ou un montant estimé : la source doit être prouvée et tracée avant d'ouvrir le chemin de calcul, qui n'existe pas encore. |
 | PAD-T06-T08-T10-T11 | Audit référentiel catégories PAD absentes (T06, T08, T10, T11) | `deferred` | moyenne | PAD-1 | 2026-04-05 | Non-matchs réels en exploitation montrant des descriptions relevant de ces catégories | Mini-audit : vérifier dans les données existantes (commodity_designation_matches, emails, quotations) si ces catégories sont un oubli ou un choix de périmètre volontaire |
 | PAD-GRIMALDI-T09 | Écart tarif PAD Grimaldi : facture 2 715 XOF/t vs DB 4 367 XOF/t — régime RORO à clarifier | donnée | `pending_validation` | moyenne | Blind-F1.0 | 2026-04-05 | Clarification obtenue de Grimaldi/PAD ou 2e facture Grimaldi avec même code pour comparer | Ne pas modifier le tarif T09 sans preuve formelle. Écart peut être dû à régime RORO spécifique, tarif négocié, ou classification facture différente |
 | CARRIER-CMACGM-TEMPLATES | Templates carrier billing CMA CGM — 4 templates corrigés et activés | carrier | `closed` | P0 | Blind-F1.0 | 2026-04-05 | — | **DONE.** ISPS_TERM (8.85 EUR), LOC_TERM (11.50 EUR), TBL (25 000 XOF), SVC (18 000 XOF) corrigés, activés, source_documents tracés (D5/D6 blind audit). Recheck post-patch : ALL_MATCH sur D5 et D6. Réserve : montants dérivés de 2 factures, reclassables en `is_variable` si 3e dossier contredit |
@@ -759,12 +760,12 @@ Note : AGENCY (frais agence) est dans le package mais déjà géré par la grill
 |-------|--------|
 | **ID** | PORT-DAKAR-HANDLING-AUDIT |
 | **Catégorie** | Pricing / Tariff validation |
-| **Statut** | `ouvert` |
+| **Statut** | `doctrine_closed — terminal_guard_local_verified — runtime blocked — tarif Dakar Terminal manquant` |
 | **Priorité** | Moyenne |
 | **Phase d'origine** | PRICING-AUDIT-1 |
 | **Date** | 2026-04-10 |
-| **Déclencheur de réouverture** | (1) Retour métier sur la légitimité du poste PORT_DAKAR_HANDLING distinct de THC IMPORT. (2) Confiance actuelle = 69% (faible). (3) Le commentaire L302 dans run-pricing exclut explicitement ce poste du dedup DTHC en attendant validation. |
-| **Recommandation** | Ne pas supprimer le poste. Attendre validation métier explicite avant de l'inclure ou l'exclure définitivement. Le `dedup_group` est `PORT_DAKAR_HANDLING` (distinct de `TERMINAL_HANDLING` pour DTHC), donc pas de doublon technique, mais la justification métier reste à confirmer. |
+| **Déclencheur de réouverture** | (1) ✅ Fait/gap canonique `routing.terminal_operation_mode` (`LOLO`/`RORO`/`CONRO`) livré localement le 2026-08-25, sans migration. (2) ✅ Garde fail-closed + 59 tests dédiés : `TERMINAL_OPERATION_MODE_REQUIRED` si le mode manque ou est invalide, `DAKAR_TERMINAL_RATE_REQUIRED` sur RoRo/ConRo ; écriture manuelle canonicalisée et payload multi-colonnes refusé. (3) ⛔ **Reste ouvert** : obtention d'un barème officiel/pro forma Dakar Terminal, seul déblocage possible d'un chiffrage RoRo/ConRo. (4) ⛔ **Reste ouvert** : déploiement coordonné `run-pricing` + `build-case-puzzle` + `set-case-fact` et recette P0-E. |
+| **Recommandation** | Arbitrage métier + recherche officielle terminés le 2026-08-25 : ne pas produire de poste générique supplémentaire. `PORT_DAKAR_HANDLING` reste un marqueur de scope pour le garde PAD, exclu de l'enrichissement générique ; `PAD_DROIT_PASSAGE` et DTHC restent séparés. DP World = terminal LoLo ; Dakar Terminal = RoRo/ConRo, conteneur FCL transporté par ce navire compris. Le mode d'opération est désormais porté par le fait canonique `routing.terminal_operation_mode`, saisi explicitement (`set-case-fact` + liste de choix CaseView) et jamais déduit du transporteur ni d'un synonyme (`RO-RO`, `ROULIER`… restent invalides donc bloquants). Aucun mécanisme de source/tarif Dakar Terminal n'est créé : le lot est fail-closed uniquement. Déployer les trois fonctions ensemble — le garde sans l'allowlist rendrait le gap inextinguible. Patch local et CI complète PASS ; aucun runtime modifié. |
 
 ---
 

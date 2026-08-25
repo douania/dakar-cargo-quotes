@@ -14,7 +14,19 @@ import {
   withLocalTransportDebours,
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
-import { readPadPricingInputs, resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
+import {
+  PAD_SCOPE_SERVICE_KEYS,
+  type PadScopeFact,
+  readPadPricingInputs,
+  resolvePadScopeBlocker,
+} from "../_shared/pad-scope-blocker.ts";
+// Garde terminal (doctrine 2026-08-25) : décision PURE et partagée, cf. le module.
+import {
+  resolveTerminalOperationBlockers,
+  TERMINAL_OPERATION_MODE_FACT_KEY,
+  terminalOperationBlockerMessage,
+  type TerminalScopeFact,
+} from "../_shared/terminal-operation-mode.ts";
 // P5 helpers moved verbatim to _shared so build-case-puzzle computes the SAME
 // effectiveServiceKeys before calling resolvePadScopeBlocker (no doctrine change).
 import {
@@ -634,6 +646,117 @@ function inferCoveredServiceDiagnostics(engineLines: any[]): {
 // PAD_CATEGORY_REQUIRED branch is directly testable. Both call sites below already
 // compute effectiveServiceKeys via resolveEffectiveServiceKeys + readOverridesFromFacts.
 
+/** Normalisation used by BOTH PAD helpers below, so they can never disagree on a key. */
+function isPadScopeMarker(key: unknown): boolean {
+  return PAD_SCOPE_SERVICE_KEYS.has(String(key ?? '').trim().toUpperCase());
+}
+
+/**
+ * P0-E — service keys that must NEVER be sent to `price-service-lines`.
+ *
+ * `PAD_SCOPE_SERVICE_KEYS` (`PORT_DAKAR_HANDLING`, `PAD_DROIT_PASSAGE`) are the historical
+ * MARKERS that put a scope in PAD range; they are not catalogue services. The PAD redevance
+ * is a separate charge, priced once and only once further down this file by the
+ * `enrichment_pad` block, from the official `cargo.pad_category` / `cargo.pad_rate_fcfa_per_ton`
+ * facts. `price-service-lines` holds no PAD tariff, so enriching those keys can only append a
+ * 0 XOF / `no_match` line that sits next to the official `PAD_DROIT_PASSAGE` line AND next to
+ * DTHC — the destination terminal handling, a distinct service left untouched here.
+ *
+ * The filter applies to the ENRICHMENT list only. `resolvePadScopeBlocker` keeps receiving the
+ * UNFILTERED `effectiveServiceKeys` at both of its call sites, so a scope in PAD range without
+ * category and strictly positive official rate still fails closed on `PAD_CATEGORY_REQUIRED`.
+ * `PAD_DROIT_PASSAGE` is filtered defensively: it is absent from `PACKAGE_SERVICE_DEFAULT_UNITS`
+ * today, hence unreachable through `service.overrides.add`, but a future package must not be
+ * able to reintroduce a second PAD line through this path.
+ *
+ * MULTI-LOT: dropping the 0 XOF marker line is only safe because the `enrichment_pad` block
+ * replaces it — and that block is MONO-LOT. In multi-lot the run returns long before it, so a
+ * PAD-scoped lot would otherwise end with NO PAD charge at all. `resolvePadBlockersForLot`
+ * below closes exactly that hole; the two must be read together.
+ */
+export function excludePadScopeKeysForEnrichment(serviceKeys: string[]): string[] {
+  return (serviceKeys ?? []).filter((key) => !isPadScopeMarker(key));
+}
+
+/**
+ * Does this scope owe a PAD redevance? Exact complement of the enrichment filter above:
+ * a key stripped from the enrichment list is a key that puts the lot in PAD range.
+ */
+export function scopeRequiresPadPricing(serviceKeys: string[]): boolean {
+  return (serviceKeys ?? []).some(isPadScopeMarker);
+}
+
+/** Stable blocker code: PAD range reached in multi-lot, where no per-lot PAD line exists. */
+export const PAD_MULTI_LOT_UNSUPPORTED = 'PAD_MULTI_LOT_UNSUPPORTED';
+
+/**
+ * P0-E — the PAD blockers of ONE lot, fail-closed by construction.
+ *
+ * `resolvePadScopeBlocker` alone is NOT sufficient in multi-lot mode. It answers a mono-lot
+ * question — "can the `enrichment_pad` block price this scope?" — and clears as soon as the
+ * GLOBAL `cargo.pad_category` + `cargo.pad_rate_fcfa_per_ton` facts are materialised. But those
+ * facts are global, not per-lot, and `enrichment_pad` sits on the mono-lot path only (the
+ * multi-lot branch returns before it). So a cleared guard in multi-lot means: PAD range
+ * reached, no `PAD_DROIT_PASSAGE` line will ever be appended for this lot.
+ *
+ * Before the enrichment filter above, that gap was papered over by a bogus 0 XOF / `no_match`
+ * `PORT_DAKAR_HANDLING` line from `price-service-lines` — visible, but worth zero. Removing it
+ * without this guard would turn a wrong line into a SILENT under-charge, so the ordering here
+ * is deliberate:
+ *
+ *   - scope out of PAD range              → `[]`, nothing changes for that lot;
+ *   - scope in PAD range, facts missing   → `['PAD_CATEGORY_REQUIRED']` (unchanged behaviour);
+ *   - scope in PAD range, facts complete  → `['PAD_MULTI_LOT_UNSUPPORTED']`, the new fail-closed
+ *     branch, to be REPLACED (not merely deleted) the day a per-lot PAD computation lands.
+ *
+ * Pure: no I/O, no ordering dependency, safe to call per lot.
+ */
+export function resolvePadBlockersForLot(params: {
+  facts: PadScopeFact[];
+  servicePackage: string;
+  effectiveServiceKeys: string[];
+  incoterm: string;
+}): string[] {
+  const scopeBlocker = resolvePadScopeBlocker(params);
+  if (scopeBlocker) return [...scopeBlocker.pricing_blockers];
+  if (scopeRequiresPadPricing(params.effectiveServiceKeys)) return [PAD_MULTI_LOT_UNSUPPORTED];
+  return [];
+}
+
+/**
+ * TERMINAL-GUARD, côté multi-lot — les faits DÉCLARÉS PAR LE LOT, jamais le global.
+ *
+ * `mergeFactsForLot` fait descendre les faits globaux dans chaque lot, ce qui est le
+ * bon défaut pour un poids ou un incoterm mais serait FAUX ici : le mode d'opération
+ * terminal est une propriété du navire/terminal qui traite CE lot. Un dossier mixte
+ * (un lot conteneur LoLo chez DP World + un lot roulant chez Dakar Terminal) verrait
+ * sinon le mode global `LOLO` autoriser silencieusement le chemin DTHC de DP World
+ * pour le lot roulant. On ne déduit donc pas le mode global comme mode du lot : un lot
+ * qui ne déclare pas le sien tombe sur `TERMINAL_OPERATION_MODE_REQUIRED`.
+ *
+ * Codes identiques au mono-lot (`TERMINAL_OPERATION_MODE_REQUIRED` /
+ * `DAKAR_TERMINAL_RATE_REQUIRED`) : un seul vocabulaire de blocage, quel que soit le
+ * mode d'exécution. Pur, non mutant, sans I/O.
+ */
+export function resolveTerminalBlockersForLot(params: {
+  lotExtractedFacts: Array<{ key?: string; value?: unknown }>;
+  effectiveServiceKeys: string[];
+}): string[] {
+  // Seule la clé du mode est extraite, et seulement si le lot porte une VALEUR
+  // textuelle : tout le reste (nombre, objet, absence) reste invalide donc bloquant.
+  const lotDeclaredFacts: TerminalScopeFact[] = (params.lotExtractedFacts ?? [])
+    .filter((lf) => lf?.key === TERMINAL_OPERATION_MODE_FACT_KEY)
+    .map((lf) => ({
+      fact_key: TERMINAL_OPERATION_MODE_FACT_KEY,
+      value_text: typeof lf?.value === "string" ? lf.value : null,
+    }));
+
+  return resolveTerminalOperationBlockers({
+    facts: lotDeclaredFacts,
+    effectiveServiceKeys: params.effectiveServiceKeys,
+  });
+}
+
 // ═══ P6: Canonical Pricing Line Metadata ═══
 
 /**
@@ -652,7 +775,8 @@ const DEDUP_GROUP_MAP: Record<string, string> = {
   'TRUCKING': 'TRUCKING',
   'ON_CARRIAGE': 'ON_CARRIAGE',
   'PRE_CARRIAGE': 'PRE_CARRIAGE',
-  // TARIFF-COHERENCE-1: Terminal handling dedup (DTHC only, PORT_DAKAR_HANDLING intentionally excluded pending business validation)
+  // TARIFF-COHERENCE-1: DTHC remains terminal handling. PORT_DAKAR_HANDLING
+  // is a non-billable PAD scope marker filtered before generic enrichment.
   'DTHC': 'TERMINAL_HANDLING',
   // P7: Export-specific dedup groups
   'THC_EXPORT': 'THC_EXPORT',
@@ -1030,6 +1154,10 @@ Deno.serve(async (req) => {
         "cargo.pad_category",
         "pricing.pad_category",
         "cargo.pad_rate_fcfa_per_ton",
+        // Garde terminal : sans cette clé le SELECT ne la remonterait pas et le
+        // garde lirait un mode toujours absent, donc bloquerait tous les
+        // périmètres DTHC — y compris ceux correctement renseignés.
+        TERMINAL_OPERATION_MODE_FACT_KEY,
       ]);
 
     const servicePackageRaw = (scopeFacts || []).find((f: any) => f.fact_key === "service.package")?.value_text ?? "";
@@ -1218,15 +1346,34 @@ Deno.serve(async (req) => {
 
         const lotBlockers: string[] = [];
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
-        const lotPadBlocker = resolvePadScopeBlocker({
+        // P0-E: fail-closed. PAD_CATEGORY_REQUIRED when the PAD facts are missing (unchanged),
+        // PAD_MULTI_LOT_UNSUPPORTED when they are present — the cargo.pad_* facts are GLOBAL and
+        // the enrichment_pad block is mono-lot, so no PAD line would ever be produced per lot.
+        const lotPadBlockers = resolvePadBlockersForLot({
           facts: mergedFacts,
           servicePackage: lotPkg,
           effectiveServiceKeys: lotEffectiveServiceKeys,
           incoterm: lotIncoterm,
         });
-        if (lotPadBlocker) {
-          lotBlockers.push("PAD_CATEGORY_REQUIRED");
+        if (lotPadBlockers.includes(PAD_MULTI_LOT_UNSUPPORTED)) {
+          console.warn(
+            `[P0-E][multi-lot ${lotIndex}] ${PAD_MULTI_LOT_UNSUPPORTED}: scope ${lotPkg} in PAD range (${lotEffectiveServiceKeys.join(', ')}) but no per-lot PAD computation exists — blocking instead of under-charging.`,
+          );
         }
+        lotBlockers.push(...lotPadBlockers);
+
+        // TERMINAL-GUARD multi-lot : mêmes codes qu'en mono-lot, sur les faits
+        // DÉCLARÉS PAR LE LOT uniquement — le mode global n'est pas propagé.
+        const lotTerminalBlockers = resolveTerminalBlockersForLot({
+          lotExtractedFacts: extractedFacts,
+          effectiveServiceKeys: lotEffectiveServiceKeys,
+        });
+        if (lotTerminalBlockers.length > 0) {
+          console.warn(
+            `[TERMINAL-GUARD][multi-lot ${lotIndex}] ${lotTerminalBlockers.join(', ')}: scope ${lotPkg} (${lotEffectiveServiceKeys.join(', ')}) — opérateur terminal ou barème Dakar Terminal indéterminé pour ce lot.`,
+          );
+        }
+        lotBlockers.push(...lotTerminalBlockers);
 
         // HS code check
         if (lotScopeWantsDuties) {
@@ -1505,7 +1652,16 @@ Deno.serve(async (req) => {
               const lotEffectiveKeys = resolveEffectiveServiceKeys(lotPackageKey, lotOverrides);
               const lotCoverage = inferCoveredServiceDiagnostics(lotLines);
               const lotCoveredKeys = lotCoverage.covered;
-              const lotMissingKeys = lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k));
+              // P0-E: the PAD markers never go to price-service-lines (see
+              // excludePadScopeKeysForEnrichment). lotEffectiveKeys stays unfiltered above,
+              // where the per-lot PAD guard reads it.
+              // Reaching this point with a PAD-scoped lot is impossible: resolvePadBlockersForLot
+              // has already blocked the whole run (PAD_CATEGORY_REQUIRED or
+              // PAD_MULTI_LOT_UNSUPPORTED). The filter therefore removes a line that was worth
+              // 0 XOF, never a charge the run still owed.
+              const lotMissingKeys = excludePadScopeKeysForEnrichment(
+                lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k)),
+              );
 
               console.log(
                 `[P5] Lot ${lc.lot_index}: categories=${lotCoverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(lotCoveredKeys).join(', ') || 'none'}; missing=${lotMissingKeys.join(', ') || 'none'}${lotCoverage.matchedByDescription.length ? `; desc_fallback=${lotCoverage.matchedByDescription.join(' | ')}` : ''}`,
@@ -1885,6 +2041,77 @@ Deno.serve(async (req) => {
       );
     }
 
+    // 4a-ter. TERMINAL-GUARD — qui manutentionne ? (doctrine 2026-08-25)
+    //
+    // Placé APRÈS le garde PAD (les deux périmètres se recouvrent : quand les deux
+    // manquent, `PAD_CATEGORY_REQUIRED` reste le premier code retourné, comportement
+    // historique inchangé) et AVANT tout chiffrage — aucune ligne, aucun appel
+    // price-service-lines, aucun moteur n'est atteint depuis ici.
+    //
+    // Hors périmètre DTHC : `resolveTerminalOperationBlockers` renvoie `[]` et ce
+    // bloc est un no-op strict. Aucun package aérien ni export ne porte `DTHC`.
+    const terminalScopeFacts = (scopeFacts || []) as TerminalScopeFact[];
+    const terminalBlockers = resolveTerminalOperationBlockers({
+      facts: terminalScopeFacts,
+      effectiveServiceKeys,
+    });
+
+    if (terminalBlockers.length > 0) {
+      const terminalMessage = terminalOperationBlockerMessage(terminalBlockers);
+      console.error("[TERMINAL-GUARD] terminal operator undetermined", {
+        case_id,
+        blockers: terminalBlockers,
+        servicePackage: pkg,
+        incoterm: incotermEarly,
+        effectiveServiceKeys,
+      });
+
+      const { data: terminalBlockerRunNumber } = await serviceClient
+        .rpc('get_next_pricing_run_number', { p_case_id: case_id });
+
+      const terminalBlockerOutputs = {
+        pricing_blockers: terminalBlockers,
+        message: terminalMessage,
+        scope: { servicePackage: pkg, incoterm: incotermEarly, effectiveServiceKeys },
+        coherence_drift: true,
+      };
+
+      await serviceClient
+        .from("pricing_runs")
+        .insert({
+          case_id,
+          run_number: terminalBlockerRunNumber || 1,
+          inputs_json: {
+            servicePackage: pkg,
+            incoterm: incotermEarly,
+            effectiveServiceKeys,
+          },
+          facts_snapshot: terminalScopeFacts.map((f) => ({
+            key: f.fact_key,
+            value_text: f.value_text,
+            value_number: f.value_number,
+            value_json: f.value_json,
+          })),
+          status: "blocked",
+          error_message: terminalMessage,
+          outputs_json: terminalBlockerOutputs,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          created_by: userId,
+        });
+
+      return new Response(
+        JSON.stringify({
+          pricing_blockers: terminalBlockers,
+          message: terminalMessage,
+          run_number: terminalBlockerRunNumber || 1,
+          scope_debug: { servicePackage: pkg, incoterm: incotermEarly, effectiveServiceKeys },
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 4b. Coherence check — HS Code (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
       const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
@@ -2236,7 +2463,11 @@ Deno.serve(async (req) => {
         if (provisionalPackageKey && SERVICE_PACKAGES[provisionalPackageKey]) {
           const overrides = readOverridesFromFacts(facts || []);
           const effectiveKeys = resolveEffectiveServiceKeys(provisionalPackageKey, overrides);
-          const firmKeys = effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k));
+          // P0-E: customs excluded (provisional DDP doctrine) AND the PAD markers excluded
+          // from the enrichment — the PAD redevance keeps its own official line.
+          const firmKeys = excludePadScopeKeysForEnrichment(
+            effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k)),
+          );
 
           console.log(`[PROVISIONAL-DDP-GUARD] Enriching ${firmKeys.length} firm service keys (excluded customs: ${effectiveKeys.filter(k => CUSTOMS_SERVICE_KEYS.has(k)).join(', ')})`);
 
@@ -2332,7 +2563,11 @@ Deno.serve(async (req) => {
         const exportPackageKey = (inputs.servicePackage || '').trim().toUpperCase();
         if (exportPackageKey && SERVICE_PACKAGES[exportPackageKey]) {
           const overrides = readOverridesFromFacts(facts || []);
-          const effectiveKeys = resolveEffectiveServiceKeys(exportPackageKey, overrides);
+          // P0-E: defensive — no EXPORT_* package carries a PAD marker today, but
+          // `service.overrides.add` accepts PORT_DAKAR_HANDLING on any package.
+          const effectiveKeys = excludePadScopeKeysForEnrichment(
+            resolveEffectiveServiceKeys(exportPackageKey, overrides),
+          );
 
           console.log(`[EXPORT-GUARD] Mono-lot: enriching ${effectiveKeys.length} export service keys via price-service-lines: ${effectiveKeys.join(', ')}`);
 
@@ -2497,7 +2732,12 @@ Deno.serve(async (req) => {
           const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
           const coverage = inferCoveredServiceDiagnostics(engineResponse.lines || engineResponse.quotationLines || []);
           const coveredKeys = coverage.covered;
-          const missingKeys = effectiveKeys.filter(k => !coveredKeys.has(k));
+          // P0-E: the PAD markers never go to price-service-lines (see
+          // excludePadScopeKeysForEnrichment). effectiveServiceKeys computed earlier for
+          // resolvePadScopeBlocker is a distinct, unfiltered list — the guard is untouched.
+          const missingKeys = excludePadScopeKeysForEnrichment(
+            effectiveKeys.filter(k => !coveredKeys.has(k)),
+          );
 
           console.log(
             `[P5] Mono-lot: categories=${coverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(coveredKeys).join(', ') || 'none'}; missing=${missingKeys.join(', ') || 'none'}${coverage.matchedByDescription.length ? `; desc_fallback=${coverage.matchedByDescription.join(' | ')}` : ''}`,
@@ -2826,6 +3066,10 @@ Deno.serve(async (req) => {
 
       // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
       // Multi-lot: skipped — cargo.pad_* are global facts, not per-lot. Extension future requise.
+      // P0-E: ce bloc est l'UNIQUE producteur de la ligne PAD officielle. Le multi-lot retourne
+      // bien avant, donc un lot en périmètre PAD y est bloqué en amont par
+      // resolvePadBlockersForLot (PAD_MULTI_LOT_UNSUPPORTED). Implémenter le PAD par lot = lever
+      // ce blocker ET ajouter ici l'équivalent multi-lot, jamais l'un sans l'autre.
       if (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0) {
         const weightTonnes = inputs.cargoWeight || 0;
         if (weightTonnes > 0) {

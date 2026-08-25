@@ -19,6 +19,14 @@ import {
   readOverridesFromFacts,
   resolveEffectiveServiceKeys,
 } from "../_shared/service-scope.ts";
+// TERMINAL-GAP: même décision pure que le garde de run-pricing (doctrine 2026-08-25).
+import {
+  requiresTerminalOperationModeGap,
+  TERMINAL_OPERATION_MODE_FACT_KEY,
+  TERMINAL_OPERATION_MODE_GAP_QUESTION_EN,
+  TERMINAL_OPERATION_MODE_GAP_QUESTION_FR,
+  type TerminalScopeFact,
+} from "../_shared/terminal-operation-mode.ts";
 
 // --- SOURCE-GUARD-1: Identify outbound SODATRA emails ---
 const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
@@ -484,6 +492,62 @@ function resolvePadScopeGapState(facts: PadScopeFact[]): {
 }
 
 export { resolvePadScopeGapState, PAD_SCOPE_GAP_KEY, PAD_SCOPE_FACT_KEYS };
+
+// ── TERMINAL-GAP : cohérence build-case-puzzle ↔ run-pricing ──────────────
+// run-pricing refuse de chiffrer (TERMINAL_OPERATION_MODE_REQUIRED) quand le
+// périmètre effectif contient DTHC sans mode d'opération terminal valide. Sans
+// ce bloc, build-case-puzzle annoncerait READY_TO_PRICE dans cet état. On
+// matérialise donc le MÊME manque, avec la MÊME décision pure et la MÊME
+// résolution de périmètre. Aucune auto-classification : le gap est opérateur.
+//
+// Le gap porte la clé du FAIT lui-même, pour que sa saisie (set-case-fact ou UI
+// CaseView) le referme par le chemin existant. Un périmètre RoRo/ConRo
+// correctement déclaré n'ouvre PAS ce gap : le fait est là et valide, c'est le
+// barème Dakar Terminal qui manque — un autre sujet, bloqué côté chiffrage.
+const TERMINAL_MODE_GAP_KEY = TERMINAL_OPERATION_MODE_FACT_KEY;
+
+/** Les seules clés nécessaires au périmètre + au mode. */
+const TERMINAL_SCOPE_FACT_KEYS = [
+  "service.package",
+  "service.overrides",
+  TERMINAL_OPERATION_MODE_FACT_KEY,
+];
+
+/**
+ * Rejoue, à l'identique, ce que run-pricing calcule avant d'appeler
+ * resolveTerminalOperationBlockers. Fonction PURE, exportée pour tests ciblés.
+ */
+function resolveTerminalModeGapState(facts: TerminalScopeFact[]): {
+  servicePackage: string;
+  effectiveServiceKeys: string[];
+  gapRequired: boolean;
+} {
+  const rows = facts || [];
+  const servicePackageRaw = rows.find((fact) => fact?.fact_key === "service.package")?.value_text ?? "";
+  const servicePackage = String(servicePackageRaw ?? "").trim().toUpperCase();
+
+  // `readOverridesFromFacts` attend un `value_text` textuel ; `TerminalScopeFact`
+  // le type `unknown` (une colonne de fait peut porter n'importe quoi). On projette
+  // explicitement plutôt que de forcer le type, pour ne rien coercer au passage.
+  const overrideRows = rows.map((fact) => ({
+    fact_key: fact.fact_key,
+    value_json: fact.value_json,
+    value_text: typeof fact.value_text === "string" ? fact.value_text : undefined,
+  }));
+
+  const effectiveServiceKeys = resolveEffectiveServiceKeys(
+    servicePackage,
+    readOverridesFromFacts(overrideRows),
+  );
+
+  return {
+    servicePackage,
+    effectiveServiceKeys,
+    gapRequired: requiresTerminalOperationModeGap({ facts: rows, effectiveServiceKeys }),
+  };
+}
+
+export { resolveTerminalModeGapState, TERMINAL_MODE_GAP_KEY, TERMINAL_SCOPE_FACT_KEYS };
 
 // Gap questions
 const GAP_QUESTIONS: Record<string, { fr: string; en: string; priority: string; category: string }> = {
@@ -7071,6 +7135,7 @@ Deno.serve(async (req) => {
         "cargo.hs_code", "customs.regime_code",
         "cargo.freight_cost", "cargo.value",
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
+        TERMINAL_MODE_GAP_KEY, // TERMINAL-GAP: géré par son propre bloc, exclu de la fermeture orpheline
         EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
         DECISIVE_ATTACHMENT_GAP_KEY, // P0-3: géré par son propre bloc, exclu de la fermeture orpheline
         // COMPOSITE-CARGO-GAP-AUTO-RESOLUTION-1 — gaps émis par
@@ -7447,6 +7512,10 @@ Deno.serve(async (req) => {
         // strictement positif. La résolution est donc réservée au bloc
         // PAD-SCOPE-GAP ci-dessous, qui applique le garde complet.
         if (gapKey === PAD_SCOPE_GAP_KEY) continue;
+        // TERMINAL-GAP: la seule PRÉSENCE du fait ne suffit pas — une valeur hors
+        // {LOLO, RORO, CONRO} laisse run-pricing bloqué. La résolution est donc
+        // réservée au bloc TERMINAL-GAP ci-dessous, qui valide la valeur.
+        if (gapKey === TERMINAL_MODE_GAP_KEY) continue;
         if (gapKey === "cargo.hs_code") {
           isValid = /^\d{10}$/.test(String(fact["value_text"] ?? "").trim());
         } else if (gapKey === "cargo.freight_cost") {
@@ -7726,6 +7795,134 @@ Deno.serve(async (req) => {
       }
     }
 
+    // TERMINAL-GAP: matérialise le blocage TERMINAL_OPERATION_MODE_REQUIRED de
+    // run-pricing. Placé APRÈS le final sync (10b) — qui résoudrait le gap sur la
+    // seule présence du fait, sans valider la valeur — et AVANT le calcul de
+    // blockingGapsCount, donc avant toute décision READY_TO_PRICE.
+    // Requête de scope indépendante : le bloc PAD ci-dessus reste inchangé.
+    let terminalGapGuardFailed = false;
+    {
+      const { data: terminalScopeFacts, error: terminalScopeFactsError } = await serviceClient
+        .from("quote_facts")
+        .select("fact_key, value_text, value_number, value_json")
+        .eq("case_id", case_id)
+        .eq("is_current", true)
+        .in("fact_key", TERMINAL_SCOPE_FACT_KEYS);
+
+      if (terminalScopeFactsError) {
+        // Fail-closed: sans lecture fiable du périmètre, l'absence de blocage
+        // terminal n'est pas démontrable → pas de READY_TO_PRICE.
+        terminalGapGuardFailed = true;
+        console.error(
+          `[TERMINAL-GAP] Failed to read scope facts for case ${case_id}: ${terminalScopeFactsError.message}`
+        );
+      } else {
+        const terminalState = resolveTerminalModeGapState(
+          (terminalScopeFacts || []) as TerminalScopeFact[]
+        );
+
+        const { data: existingTerminalGap, error: existingTerminalGapError } = await serviceClient
+          .from("quote_gaps")
+          .select("id, is_blocking")
+          .eq("case_id", case_id)
+          .eq("gap_key", TERMINAL_MODE_GAP_KEY)
+          .eq("status", "open")
+          .maybeSingle();
+
+        if (existingTerminalGapError) {
+          terminalGapGuardFailed = true;
+          console.error(
+            `[TERMINAL-GAP] Failed to read existing gap for case ${case_id}: ${existingTerminalGapError.message}`
+          );
+        } else if (terminalState.gapRequired) {
+          if (!existingTerminalGap?.id) {
+            const { error: terminalGapInsertErr } = await serviceClient.from("quote_gaps").insert({
+              case_id,
+              gap_key: TERMINAL_MODE_GAP_KEY,
+              gap_category: "routing",
+              question_fr: TERMINAL_OPERATION_MODE_GAP_QUESTION_FR,
+              question_en: TERMINAL_OPERATION_MODE_GAP_QUESTION_EN,
+              priority: "high",
+              is_blocking: true,
+              status: "open",
+            });
+            if (terminalGapInsertErr) {
+              // Fail-closed: le gap n'existe pas → il ne comptera pas dans
+              // blockingGapsCount, donc on bloque READY_TO_PRICE autrement.
+              terminalGapGuardFailed = true;
+              console.error(
+                `[TERMINAL-GAP] Failed to insert blocking gap for case ${case_id}: ${terminalGapInsertErr.message}`
+              );
+            } else {
+              gapsIdentified++;
+              console.log(
+                `[TERMINAL-GAP] Created blocking gap ${TERMINAL_MODE_GAP_KEY} (package=${terminalState.servicePackage}, keys=${terminalState.effectiveServiceKeys.join("|")})`
+              );
+              await serviceClient.from("case_timeline_events").insert({
+                case_id,
+                event_type: "gap_identified",
+                event_data: {
+                  gap_key: TERMINAL_MODE_GAP_KEY,
+                  reason: "TERMINAL_OPERATION_MODE_REQUIRED",
+                  service_package: terminalState.servicePackage,
+                  effective_service_keys: terminalState.effectiveServiceKeys,
+                },
+                actor_type: "system",
+              });
+            }
+          } else if (existingTerminalGap.is_blocking === false) {
+            const { error: terminalGapUpgradeErr } = await serviceClient
+              .from("quote_gaps")
+              .update({ is_blocking: true, priority: "high" })
+              .eq("id", existingTerminalGap.id);
+            if (terminalGapUpgradeErr) {
+              terminalGapGuardFailed = true;
+              console.error(
+                `[TERMINAL-GAP] Failed to upgrade gap to blocking for case ${case_id}: ${terminalGapUpgradeErr.message}`
+              );
+            } else {
+              await serviceClient.from("case_timeline_events").insert({
+                case_id,
+                event_type: "gap_identified",
+                event_data: {
+                  gap_key: TERMINAL_MODE_GAP_KEY,
+                  reason: "TERMINAL_OPERATION_MODE_REQUIRED — upgraded to blocking",
+                },
+                actor_type: "system",
+              });
+            }
+          }
+          // else: déjà ouvert + bloquant → no-op (idempotent)
+        } else if (existingTerminalGap?.id) {
+          // Mode valide, ou périmètre hors DTHC → le gap est obsolète.
+          await serviceClient
+            .from("quote_gaps")
+            .update({ status: "resolved", resolved_at: new Date().toISOString() })
+            .eq("id", existingTerminalGap.id);
+
+          await serviceClient
+            .from("client_gap_requests")
+            .update({ status: "cancelled" })
+            .eq("case_id", case_id)
+            .eq("gap_key", TERMINAL_MODE_GAP_KEY)
+            .eq("status", "drafted");
+
+          await serviceClient.from("case_timeline_events").insert({
+            case_id,
+            event_type: "gap_resolved",
+            event_data: {
+              gap_key: TERMINAL_MODE_GAP_KEY,
+              reason: "terminal_operation_mode_satisfied",
+              service_package: terminalState.servicePackage,
+              effective_service_keys: terminalState.effectiveServiceKeys,
+            },
+            actor_type: "system",
+          });
+          console.log(`[TERMINAL-GAP] Resolved stale gap ${TERMINAL_MODE_GAP_KEY}`);
+        }
+      }
+    }
+
     // 11. Calculate completeness
     const { count: currentFactsCount } = await serviceClient
       .from("quote_facts")
@@ -7767,6 +7964,8 @@ Deno.serve(async (req) => {
         // PAD-SCOPE-GAP fail-closed: garde PAD non concluante (lecture ou écriture
         // du gap en échec) → jamais READY_TO_PRICE.
         if (padScopeGuardFailed) ambiguitySignals.push("PAD_SCOPE_GUARD_ERROR");
+        // TERMINAL-GAP fail-closed: garde terminal non concluante → jamais READY_TO_PRICE.
+        if (terminalGapGuardFailed) ambiguitySignals.push("TERMINAL_MODE_GUARD_ERROR");
 
         // Check critical fact exists in DB
         const { data: criticalFacts, error: criticalFactsError } = await serviceClient

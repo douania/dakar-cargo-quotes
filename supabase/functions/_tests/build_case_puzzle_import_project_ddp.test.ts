@@ -6,6 +6,12 @@ const { ASSUMPTION_RULES } = await import("../build-case-puzzle/index.ts");
 const { SERVICE_PACKAGES } = await import(
   "../../../src/features/quotation/constants.ts"
 );
+// P0-E: the backend resolves its scope from _shared/service-scope.ts, not from the
+// frontend constant. The two maps must stay identical or run-pricing / build-case-puzzle
+// silently resolve an EMPTY scope for a package the UI happily injects.
+const { SERVICE_PACKAGES: SHARED_SERVICE_PACKAGES } = await import(
+  "../_shared/service-scope.ts"
+);
 
 // Mirror of the incoterm-aware switch in applyAssumptionRules (P3a / Package-DDP).
 // Pure resolution: given the detected flow + incoterm, which package is injected?
@@ -62,4 +68,32 @@ Deno.test("SERVICE_PACKAGES exposes DDP_PROJECT_IMPORT services", () => {
     SERVICE_PACKAGES["DDP_PROJECT_IMPORT"],
     SERVICE_PACKAGES["DAP_PROJECT_IMPORT"],
   );
+});
+
+Deno.test("P0-E: _shared/service-scope exposes DDP_PROJECT_IMPORT identically", () => {
+  assert(
+    Array.isArray(SHARED_SERVICE_PACKAGES["DDP_PROJECT_IMPORT"]),
+    "DDP_PROJECT_IMPORT must be defined in _shared/service-scope.ts",
+  );
+  assertEquals(
+    SHARED_SERVICE_PACKAGES["DDP_PROJECT_IMPORT"],
+    SERVICE_PACKAGES["DDP_PROJECT_IMPORT"],
+  );
+  assertEquals(
+    SHARED_SERVICE_PACKAGES["DDP_PROJECT_IMPORT"],
+    SHARED_SERVICE_PACKAGES["DAP_PROJECT_IMPORT"],
+  );
+});
+
+Deno.test("P0-E: frontend and shared SERVICE_PACKAGES do not diverge", () => {
+  const frontKeys = Object.keys(SERVICE_PACKAGES).sort();
+  const sharedKeys = Object.keys(SHARED_SERVICE_PACKAGES).sort();
+  assertEquals(sharedKeys, frontKeys, "package key sets drifted");
+  for (const key of frontKeys) {
+    assertEquals(
+      SHARED_SERVICE_PACKAGES[key],
+      SERVICE_PACKAGES[key],
+      `service composition drifted for ${key}`,
+    );
+  }
 });
