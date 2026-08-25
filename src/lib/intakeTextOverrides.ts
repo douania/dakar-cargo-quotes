@@ -34,6 +34,13 @@
  *   → requires_final_destination=true, destination=undefined.
  *   route.destinations gap MUST remain (Dakar must NOT mask Kaolack/inland).
  *
+ * @test-manual DCQ — extraction Excel structurée (champ;valeur):
+ *   "container_count;1
+ *    container_type;20' Dry Van (20 DV)"
+ *   → AUCUN override conteneur : "container_type" est un libellé de champ, pas
+ *     le mot métier "container". L'analyse document reste seule source et publie
+ *     [{ type: "20' Dry Van (20 DV)", quantity: 1 }] — jamais un type null.
+ *
  * @test-manual DCQ-P0-E — dossier mixte 20'/40' avec livraison inland:
  *   "... Port de destination : Dakar. Livraison finale : Mbour, Sénégal.
  *    Conteneurs : 1 x 20 pieds Dry et 1 x 40 pieds Dry. ..."
@@ -101,6 +108,25 @@ const CONTAINER_QUALIFIERS: Record<string, string> = {
 };
 
 const QUALIFIER_ALTERNATION = Object.keys(CONTAINER_QUALIFIERS).join("|");
+
+/**
+ * Frontière de fin du mot métier "conteneur"/"container".
+ *
+ * Les extractions structurées (Excel champ;valeur, formulaires, JSON aplati)
+ * charrient des LIBELLÉS — `container_type`, `container_count`,
+ * `containers_total` — qui ne déclarent aucun conteneur. Sans cette frontière,
+ * la ligne "container_count;1" suivie de "container_type;…" rapproche le "1"
+ * (valeur de la ligne précédente) du mot "container" du libellé suivant : le
+ * parsing publie alors un override `container_count` SANS type, qui prime sur
+ * une analyse document fiable et dégrade le groupe en `type: null`.
+ *
+ * Lookahead PUR : il ne consomme rien (le pluriel reste géré par le motif
+ * appelant, donc aucune capture n'est déplacée). Il refuse une lettre ou un
+ * underscore accolés au mot — "container_type", "containers_total",
+ * "containership" — mais accepte un chiffre : la sténographie naturelle
+ * "1 conteneur40'" reste reconnue, comme "1 conteneur" et "2 containers".
+ */
+const CONTAINER_WORD_END = "(?=s?(?:[^_A-Za-zÀ-ÿ]|$))";
 
 /**
  * Groupe conteneur explicite : quantité + connecteur + taille (+ unité, apostrophe, type).
@@ -298,9 +324,16 @@ export function parseTextOverrides(inputText: string): IntakeTextOverrides {
   }
 
   // Pattern 2 : quantité sans taille — "1 conteneur", "2 containers".
+  // CONTAINER_WORD_END est indispensable ici : aucune taille n'est exigée après
+  // le mot, donc c'est le seul rempart contre un libellé structuré
+  // ("…;1\ncontainer_type;…") lu comme une déclaration de conteneurs.
   if (overrides.container_count == null && !overrides.containers_ambiguous) {
     const countOnly = normalized.match(
-      new RegExp(`(\\d+)\\s*(?:seul\\s+)?(?:conteneur|container|x)\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`, "i"),
+      new RegExp(
+        `(\\d+)\\s*(?:seul\\s+)?(?:(?:conteneur|container)${CONTAINER_WORD_END}|x)\\s*` +
+          `(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
+        "i",
+      ),
     );
     if (countOnly) {
       const count = parseInt(countOnly[1], 10);
@@ -316,7 +349,7 @@ export function parseTextOverrides(inputText: string): IntakeTextOverrides {
   // Pattern 3 : nombres en toutes lettres — "un des huit conteneurs 40'"
   if (overrides.container_count == null && !overrides.containers_ambiguous) {
     const wordPattern = new RegExp(
-      `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
+      `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?${CONTAINER_WORD_END}\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
       "i",
     );
     const wordMatch = normalized.match(wordPattern);

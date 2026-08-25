@@ -31,6 +31,16 @@ const KAS_TEXT = [
   "20 x 40' HC to be delivered on site",
 ].join("\n");
 
+/**
+ * Texte de régression : extraction Excel structurée "champ;valeur", reproduite
+ * à l'identique. Le "1" est la VALEUR de container_count ; le mot "container"
+ * de la ligne suivante n'est qu'un LIBELLÉ de champ.
+ */
+const EXCEL_STRUCTURED_TEXT = ["container_count;1", "container_type;20' Dry Van (20 DV)"].join("\n");
+
+/** Analyse document fiable associée à cette extraction. */
+const EXCEL_ANALYSIS = { container_count: 1, container_type: "20' Dry Van (20 DV)" };
+
 describe("parseTextOverrides — régression P0-E (dossier mixte 20'/40')", () => {
   const overrides = parseTextOverrides(P0E_TEXT);
 
@@ -147,6 +157,23 @@ describe("parseTextOverrides — formats conteneurs documentés (non-régression
     expect(o.container_type).toBeUndefined();
   });
 
+  it('"1 conteneur" / "1 container" nus restent reconnus', () => {
+    const fr = parseTextOverrides("Merci de coter 1 conteneur au départ de Dakar.");
+    expect(fr.container_count).toBe(1);
+    expect(fr.container_type).toBeUndefined();
+
+    const en = parseTextOverrides("Please quote 1 container ex Dakar.");
+    expect(en.container_count).toBe(1);
+    expect(en.container_type).toBeUndefined();
+  });
+
+  it('"1 x 20" sans unité → 1 × 20\'', () => {
+    const o = parseTextOverrides("Cotation pour 1 x 20 au départ de Dakar.");
+    expect(o.container_count).toBe(1);
+    expect(o.container_type).toBe("20'");
+    expect(o.containers).toEqual([{ count: 1, type: "20'" }]);
+  });
+
   it("CRLF Windows/WhatsApp sans effet sur l'extraction", () => {
     const o = parseTextOverrides("Conteneurs :\r\n1 x 20 pieds Dry et 1 x 40 pieds Dry.\r\n");
     expect(o.containers).toEqual([
@@ -154,6 +181,45 @@ describe("parseTextOverrides — formats conteneurs documentés (non-régression
       { count: 1, type: "40' Dry" },
     ]);
     expect(o.container_count).toBe(2);
+  });
+});
+
+describe("parseTextOverrides — libellés structurés (extraction Excel champ;valeur)", () => {
+  const overrides = parseTextOverrides(EXCEL_STRUCTURED_TEXT);
+
+  it("ne prend pas le libellé container_type pour le mot métier container", () => {
+    expect(overrides.container_count).toBeUndefined();
+    expect(overrides.container_type).toBeUndefined();
+    expect(overrides.containers).toBeUndefined();
+    expect(overrides.containers_ambiguous).toBeUndefined();
+  });
+
+  it("laisse l'analyse document publier un conteneur TYPÉ — jamais type null", () => {
+    const plan = resolveContainerPlan(overrides, EXCEL_ANALYSIS);
+    expect(plan.groups).toEqual([{ count: 1, type: "20' Dry Van (20 DV)" }]);
+    expect(plan.totalCount).toBe(1);
+    expect(plan.legacyType).toBe("20' Dry Van (20 DV)");
+    expect(plan.isFcl).toBe(true);
+    expect(plan.ambiguous).toBe(false);
+  });
+
+  it("produit un payload canonique acceptable par set-case-fact", () => {
+    const canonical = toCanonicalContainers(resolveContainerPlan(overrides, EXCEL_ANALYSIS));
+    expect(canonical).toEqual([{ type: "20' Dry Van (20 DV)", quantity: 1 }]);
+    expect(canonical.every((c) => c.type !== null)).toBe(true);
+  });
+
+  it("même immunité en CRLF Windows", () => {
+    const o = parseTextOverrides("container_count;1\r\ncontainer_type;20' Dry Van (20 DV)\r\n");
+    expect(o.container_count).toBeUndefined();
+    expect(o.containers).toBeUndefined();
+  });
+
+  it("immunité étendue aux autres libellés de champ conteneurs", () => {
+    const o = parseTextOverrides("containers_total;2\nconteneur_type;40 HC");
+    expect(o.container_count).toBeUndefined();
+    expect(o.containers).toBeUndefined();
+    expect(o.containers_ambiguous).toBeUndefined();
   });
 });
 
