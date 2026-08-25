@@ -35,16 +35,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Baseline captured on 2026-08-22 with Deno 2.9.5: 65 diagnostics
- * (45 TS2339, 18 TS2345, 2 TS2352) across six files.
+ * Baseline lowered on 2026-09-22: 49 diagnostics (45 TS2339, 2 TS2345, 2 TS2352)
+ * after fixing PromiseLike + insert param types in _shared/runtime.ts, which
+ * eliminated 16 TS2345 errors in sync-canonical-cargo-to-legacy-facts and
+ * write-cargo-canonical.
  */
-const BASELINE_TOTAL = 65;
+const BASELINE_TOTAL = 49;
 const BASELINE = {
   'TS2339|supabase/functions/_tests/derive_cargo_canonical_payload_validation.test.ts': 38,
   'TS2339|supabase/functions/_tests/sync_canonical_cargo_to_legacy_facts.test.ts': 7,
   'TS2345|supabase/functions/run-pricing/index.ts': 2,
-  'TS2345|supabase/functions/sync-canonical-cargo-to-legacy-facts/index.ts': 9,
-  'TS2345|supabase/functions/write-cargo-canonical/index.ts': 7,
   'TS2352|supabase/functions/_tests/canonicalize_cargo_from_case_validation.test.ts': 1,
   'TS2352|supabase/functions/_tests/derive_cargo_canonical_payload_validation.test.ts': 1,
 };
