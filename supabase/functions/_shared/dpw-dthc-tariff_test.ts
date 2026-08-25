@@ -16,6 +16,7 @@ import {
   type DpwDthcFamily,
   type DpwDthcResolutionInput,
   type DpwDthcTariffRow,
+  normalizeDthcContainerType,
   normalizeDthcLabel,
   resolveDpwDthcTariff,
   resolveDthcContainerBasis,
@@ -112,6 +113,31 @@ Deno.test("DTHC: désignation validée, 20 pieds = 155 000 FCFA", () => {
     155000,
     "std-01",
   ]);
+});
+
+Deno.test("DTHC: aliases intake secs explicites résolvent sans heuristique", () => {
+  const cases = [
+    ["20' Dry", "20DV", 1, 155000],
+    ["40' Dry", "40DV", 2, 310000],
+    ["20' Dry Van (20 DV)", "20DV", 1, 155000],
+  ] as const;
+
+  for (const [input, canonical, evpQuantity, amount] of cases) {
+    assertEquals(normalizeDthcContainerType(input), canonical, input);
+    const r = resolve(LIVE, [{ type: input, quantity: 1 }]);
+    assertEquals(r.status, "RESOLVED", input);
+    if (r.status !== "RESOLVED") continue;
+    assertEquals([r.evpQuantity, r.amount], [evpQuantity, amount], input);
+  }
+});
+
+Deno.test("DTHC: tailles seules et lookalikes restent fail-closed", () => {
+  for (const type of ["20'", "40'", "20' Dry Cargo", "40' Dry Cargo", "20DRYVAN20GP"]) {
+    const r = resolve(LIVE, [{ type, quantity: 1 }]);
+    assertEquals(r.status, "TO_CONFIRM", type);
+    if (r.status !== "TO_CONFIRM") continue;
+    assertEquals([r.reason, r.amount], ["CONTAINER_TYPE_UNSUPPORTED", null], type);
+  }
 });
 
 Deno.test("DTHC: désignation validée, 40 pieds = 310 000 FCFA (2 EVP)", () => {

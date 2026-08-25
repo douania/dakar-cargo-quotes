@@ -156,14 +156,29 @@ function hasDangerousToken(description: unknown): boolean {
   return normalized.split(" ").some((token) => DANGEROUS_TOKENS.includes(token));
 }
 
-/** Majuscules, ponctuation et espaces retirées : "20' DV" -> "20DV". */
+/**
+ * Alias fermés des libellés non ambigus déjà émis par l'intake. Les tailles
+ * seules (`20'`, `40'`) restent volontairement hors profil : elles ne disent
+ * pas si l'équipement est dry, reefer ou spécial.
+ */
+const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
+  "20DRY": "20DV",
+  "40DRY": "40DV",
+  "20DRYVAN20DV": "20DV",
+};
+
+/**
+ * Majuscules, ponctuation et espaces retirés, puis alias intake exact appliqué :
+ * "20' DV" -> "20DV", "20' Dry" -> "20DV". Aucun rapprochement partiel.
+ */
 export function normalizeDthcContainerType(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  return raw
+  const normalized = raw
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "");
+  return DTHC_CONTAINER_TYPE_ALIASES[normalized] ?? normalized;
 }
 
 /** `source_document` peut porter une localisation ("…pdf, Page 4") : seul le document compte. */
