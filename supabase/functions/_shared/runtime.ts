@@ -268,7 +268,7 @@ const DEFAULT_RATE_LIMITS: Record<string, { limit: number; windowSeconds: number
  * Returns { allowed: true } if under limit, otherwise { allowed: false, retryAfterMs }.
  */
 export async function checkRateLimit(
-  serviceClient: { rpc: (fn: string, params: unknown) => Promise<{ data: unknown; error: unknown }> },
+  serviceClient: { rpc: (fn: string, params: unknown) => PromiseLike<{ data: unknown; error: unknown }> },
   userId: string,
   functionName: string,
   customLimit?: number,
