@@ -223,7 +223,10 @@ function truncateMeta(meta?: JsonObject): JsonObject | undefined {
  * Uses service role client for insert.
  */
 export async function logRuntimeEvent(
-  serviceClient: { from: (table: string) => { insert: (data: unknown) => PromiseLike<{ error: unknown }> } },
+  // data is typed `any` because SupabaseClient's insert expects RejectExcessProperties,
+  // whose generic instantiation makes `unknown` fail strict contravariance. The actual
+  // value is always a well-formed runtime_events row object built in this function.
+  serviceClient: { from: (table: string) => { insert: (data: any) => PromiseLike<{ error: unknown }> } },
   entry: RuntimeEventEntry
 ): Promise<void> {
   try {
