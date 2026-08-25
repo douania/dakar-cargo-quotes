@@ -11,6 +11,7 @@ import {
   LOCAL_TRANSPORT_EVIDENCE_WHITELIST,
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
+import { resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import {
   INCOTERMS_MATRIX,
   EVP_CONVERSION,
@@ -1549,31 +1550,36 @@ async function generateQuotationLines(
   
   for (const container of containers) {
     const is40 = container.type.toUpperCase().includes('40');
-    const evpMultiplier = getEVPMultiplier(container.type);
     const cargoType = is40 ? 'CONTENEUR_40' : 'CONTENEUR_20';
-    
-    // Find THC tariff for this container
-    const thcTariff = thcTariffs.find(t => 
-      t.cargo_type === cargoType || 
-      t.classification?.includes(container.type.slice(0, 2))
-    );
-    
-    if (thcTariff) {
+
+    // DTHC-1 (exception FROZEN limitée à ce bloc) : le premier-match sur
+    // cargo_type CONTENEUR_20/40 servait la ligne Transbordement à 75 000 FCFA.
+    // La sélection passe par le même résolveur fail-closed que price-service-lines,
+    // qui rend un montant DÉJÀ multiplié par les EVP — pas de getEVPMultiplier ici.
+    const dthc = resolveDpwDthcTariff(thcTariffs, {
+      scope: effectiveOperationType === 'IMPORT' ? 'import' : String(effectiveOperationType).toLowerCase(),
+      containers: [{ type: container.type, quantity: container.quantity }],
+      cargoDescription: request.cargoDescription,
+      isDangerous: request.isIMO === true || request.isHazmat === true,
+      asOfDate: new Date().toISOString().split('T')[0],
+    });
+
+    if (dthc.status === 'RESOLVED') {
       lines.push({
         id: `thc_${container.type.toLowerCase()}_${lines.length}`,
         bloc: 'operationnel',
         category: 'Terminal (DPW)',
         description: `THC ${effectiveOperationType} ${container.type}`,
-        amount: thcTariff.amount * evpMultiplier * container.quantity,
+        amount: dthc.amount,
         currency: 'FCFA',
         unit: 'EVP',
-        quantity: evpMultiplier * container.quantity,
+        quantity: dthc.evpQuantity,
         containerType: container.type,
         source: {
           type: 'OFFICIAL',
-          reference: thcTariff.source_document || 'DP World Dakar 2025',
+          reference: dthc.tariff.source_document || 'DP World Dakar 2025',
           confidence: 1.0,
-          validUntil: thcTariff.expiry_date
+          validUntil: dthc.tariff.expiry_date
         },
         isEditable: false
       });
@@ -1589,15 +1595,15 @@ async function generateQuotationLines(
         containerType: container.type,
         source: {
           type: 'TO_CONFIRM',
-          reference: 'THC non trouvé en base — aucune donnée normative',
+          reference: `${dthc.code}/${dthc.reason}`,
           confidence: 0
         },
-        notes: 'Aucune donnée normative — confirmation humaine requise. Vérifier avec DPW.',
+        notes: `${dthc.message} Confirmation humaine requise auprès de DPW.`,
         isEditable: true
       });
-      warnings.push(`THC ${container.type} non trouvé en base — à confirmer avec DPW`);
+      warnings.push(`THC ${container.type} non résolu (${dthc.reason}) — à confirmer avec DPW`);
     }
-    
+
     // Relevage for transit
     if (isTransit) {
       const relevageTariff = dpwAdditionalTariffs.find(t => 

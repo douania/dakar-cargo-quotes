@@ -5,7 +5,9 @@
  * NO LLM — pure rate card matching with progressive fallback.
  * 
  * T3: Quantity computed from service_quantity_rules + unit_conversions tables
- * T3: Fallback to port_tariffs for DTHC when no rate card match
+ * DTHC-1: DTHC resolved from the canonical DP World grid (port_tariffs,
+ *         DPW_TARIFS_2025_0001.pdf) before catalogue and rate cards, via the
+ *         fail-closed resolver in _shared/dpw-dthc-tariff.ts
  * 
  * P0-1: Canonical service_key with whitelist
  * P0-2: Deterministic quantity via DB rules (no silent assumption)
@@ -22,6 +24,12 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
 import { resolveOfficialLocalTransportRate } from "../_shared/local-transport-destination.ts";
+import {
+  DPW_DTHC_EVIDENCE_WHITELIST,
+  DPW_DTHC_PROVIDERS,
+  resolveDpwDthcTariff,
+  type DpwDthcTariffRow,
+} from "../_shared/dpw-dthc-tariff.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -131,6 +139,7 @@ interface PricingContext {
   destination_city: string | null; // Phase V4.1: for local_transport_rates matching
   pad_category: string | null; // PAD droit de passage category, cargo.* takes precedence over pricing.*
   pad_rate_fcfa_per_ton: number | null;
+  cargo_description: string | null; // DTHC-1: canonical fact cargo.description
 }
 
 interface PricedLine {
@@ -435,6 +444,9 @@ function buildPricingContext(
     destination_city: destinationCity,
     pad_category: padCategory,
     pad_rate_fcfa_per_ton: padRateFcfaPerTon,
+    // DTHC-1 : désignation marchandise, seule entrée qui permet de trancher la
+    // famille DTHC d'un conteneur sec.
+    cargo_description: factsMap.get("cargo.description")?.value_text ?? null,
   };
 }
 
@@ -599,54 +611,11 @@ function findLocalTransportRate(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// T3: FALLBACK PORT_TARIFFS FOR DTHC
+// DTHC-1 : `findPortTariffFallback` a été retiré. Il servait `data[0]` d'un
+// `ilike("category","%THC%")` sans distinguer import plein, transbordement ni
+// conteneur vide. La sélection vit désormais dans `_shared/dpw-dthc-tariff.ts`.
 // ═══════════════════════════════════════════════════════════════
 
-async function findPortTariffFallback(
-  serviceClient: ReturnType<typeof createClient>,
-  serviceKey: string,
-  ctx: PricingContext,
-): Promise<{ rate: number; currency: string; source: string; confidence: number; explanation: string } | null> {
-  // Only DTHC triggers port_tariffs fallback
-  if (serviceKey !== "DTHC") return null;
-
-  const today = new Date().toISOString().split("T")[0];
-  const operationType = ctx.scope === "export" ? "Export" : "Import";
-
-  // [Lot 1 — Provenance whitelist] DPW THC : sources officielles uniquement.
-  const { data, error } = await serviceClient
-    .from("port_tariffs")
-    .select("*")
-    .eq("provider", "DPW")
-    .ilike("category", "%THC%")
-    .eq("is_active", true)
-    .eq("operation_type", operationType)
-    .in("evidence_level", ["official", "validated_internal"])
-    .lte("effective_date", today)
-    .order("effective_date", { ascending: false })
-    .limit(5);
-
-  if (error || !data || data.length === 0) return null;
-
-  // Pick best match by container type/classification
-  let bestRow = data[0];
-  if (ctx.container_type) {
-    const ctMatch = data.find((r) =>
-      r.classification?.toUpperCase().includes(ctx.container_type!.replace(/[^0-9A-Z]/g, ""))
-    );
-    if (ctMatch) bestRow = ctMatch;
-  }
-
-  return {
-    rate: bestRow.amount,
-    currency: normalizeCurrency(bestRow.currency || "XOF") || "XOF",
-    source: `port_tariffs:${bestRow.provider}:${bestRow.id.slice(0, 8)}`,
-    confidence: 0.85,
-    explanation: `fallback port_tariffs DPW THC ${operationType} ${bestRow.classification || ""}, effective=${bestRow.effective_date}`,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════
 async function findPadExportPortChargesFallback(
   serviceClient: ReturnType<typeof createClient>,
   serviceKey: string,
@@ -738,12 +707,14 @@ async function resolveWithoutClientOverride(
   }>,
   catalogue: Map<string, any>,
   allCards: RateCardRow[],
-  serviceClient: ReturnType<typeof createClient>,
+  // DTHC-1 : `serviceClient` retiré — la seule étape qui interrogeait la base
+  // (`findPortTariffFallback`) a disparu au profit du résolveur pur.
   preloadedTransportRates: LocalTransportRate[] = [],
   // Lot P0-D-3 : isLCL était consommé plus bas sans être reçu (identifiant hors
   // portée, la variable est locale au handler). Passage explicite, sans autre
   // changement de signature.
   isLCL: boolean = false,
+  preloadedDthcTariffs: DpwDthcTariffRow[] = [],
 ): Promise<{
   rate: number; source: string; confidence: number; explanation: string;
   quantity_used: number; unit_used: string; rule_id: string | null; conversion_used?: string;
@@ -807,6 +778,28 @@ async function resolveWithoutClientOverride(
     };
   }
 
+  // 2.6 DTHC-1 : même règle que la cascade principale — la grille DP World
+  // canonique prime sur le catalogue et les rate cards. Non résolu ⇒ null.
+  if (serviceKey === "DTHC") {
+    const dthc = resolveDpwDthcTariff(preloadedDthcTariffs, {
+      scope: pricingCtx.scope,
+      containers: pricingCtx.containers,
+      cargoDescription: pricingCtx.cargo_description,
+      asOfDate: new Date().toISOString().split("T")[0],
+    });
+    if (dthc.status !== "RESOLVED") return null;
+    return {
+      rate: dthc.amount,
+      source: `port_tariffs:DPW:${String(dthc.tariff.id ?? "").slice(0, 8)}`,
+      confidence: 0.95,
+      explanation: `fallback DTHC DP World ${dthc.family}: ${dthc.baseUnitAmount}/EVP x ${dthc.evpQuantity} EVP = ${dthc.amount}`,
+      quantity_used: dthc.evpQuantity,
+      unit_used: "EVP",
+      rule_id: computed.rule_id,
+      conversion_used: computed.conversion_used,
+    };
+  }
+
   // 3. Catalogue SODATRA
   const catEntry = catalogue.get(serviceKey);
   const catMode = isAirMode ? "AIR" : "SEA";
@@ -837,17 +830,8 @@ async function resolveWithoutClientOverride(
     };
   }
 
-  // 5. Port tariff
-  const ptFallback = await findPortTariffFallback(serviceClient, serviceKey, pricingCtx);
-  if (ptFallback) {
-    return {
-      rate: ptFallback.rate, source: ptFallback.source, confidence: ptFallback.confidence,
-      explanation: `fallback port_tariff: ${ptFallback.explanation}`,
-      quantity_used: computed.quantity_used, unit_used: computed.unit_used,
-      rule_id: computed.rule_id, conversion_used: computed.conversion_used,
-    };
-  }
-
+  // 5. DTHC-1 : l'étape « port tariff » a été retirée. Le seul service qu'elle
+  // servait était `DTHC`, désormais tranché en 2.6 par la grille canonique.
   return null;
 }
 
@@ -936,7 +920,7 @@ Deno.serve(async (req) => {
     console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult, dthcTariffsResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       // [LOT3-A] Provenance filter: only consume rate cards with status='active'.
@@ -955,6 +939,14 @@ Deno.serve(async (req) => {
       serviceClient.from("pricing_client_overrides").select("*").eq("active", true),
       // Phase V4.1: Preload local transport rates (avoid N+1 queries)
       serviceClient.from("local_transport_rates").select("*").eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
+      // DTHC-1 : grille DP World. Requête large et non ordonnée (ni `.limit()`,
+      // ni `.order()`, ni `ilike`) — la sélection appartient au résolveur pur.
+      serviceClient
+        .from("port_tariffs")
+        .select("*")
+        .in("provider", [...DPW_DTHC_PROVIDERS])
+        .eq("is_active", true)
+        .in("evidence_level", [...DPW_DTHC_EVIDENCE_WHITELIST]),
     ]);
 
     // Phase PRICING V2: Customs tiers array
@@ -996,6 +988,15 @@ Deno.serve(async (req) => {
     const allCards: RateCardRow[] = rateCardsResult.data || [];
     // Phase V4.1: Preloaded transport rates for in-memory matching
     const preloadedTransportRates = (transportRatesResult.data || []) as LocalTransportRate[];
+    // DTHC-1 : une erreur de chargement laisse la grille vide, donc TO_CONFIRM
+    // plutôt qu'un montant. Tracée pour ne pas être muette.
+    if (dthcTariffsResult.error) {
+      structuredLog({
+        level: "error", service: FUNCTION_NAME, op: "load_dthc_tariffs",
+        correlationId, errorCode: "UPSTREAM_DB_ERROR",
+      });
+    }
+    const preloadedDthcTariffs = (dthcTariffsResult.data || []) as DpwDthcTariffRow[];
 
     if (rateCardsResult.error) {
       structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
@@ -1126,8 +1127,8 @@ Deno.serve(async (req) => {
               // Phase V3.3: Percentage override — resolve fallback then apply %
               const fallback = await resolveWithoutClientOverride(
                 serviceKey, computed, pricingCtx, isAirMode, currency,
-                customsTiers, catalogue, allCards, serviceClient,
-                preloadedTransportRates, isLCL,
+                customsTiers, catalogue, allCards,
+                preloadedTransportRates, isLCL, preloadedDthcTariffs,
               );
 
               if (fallback) {
@@ -1239,6 +1240,52 @@ Deno.serve(async (req) => {
           id: line.id, rate: null, currency, source: "TO_CONFIRM",
           confidence: 0,
           explanation: `Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCodeTransport ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
+          quantity_used: computed.quantity_used,
+          unit_used: computed.unit_used,
+          rule_id: computed.rule_id,
+          conversion_used: computed.conversion_used,
+        });
+        missing.push(serviceKey);
+        continue;
+      }
+
+      // ═══ DTHC-1 : grille DP World canonique, prioritaire sur catalogue et rate cards ═══
+      // Le client override contractuel ci-dessus reste prioritaire et n'est pas touché.
+      // Le résolveur rend le montant de ligne DÉJÀ multiplié par les EVP ; non résolu
+      // ⇒ TO_CONFIRM immédiat, montant null.
+      if (serviceKey === "DTHC") {
+        const dthc = resolveDpwDthcTariff(preloadedDthcTariffs, {
+          scope: pricingCtx.scope,
+          containers: pricingCtx.containers,
+          cargoDescription: pricingCtx.cargo_description,
+          asOfDate: new Date().toISOString().split("T")[0],
+        });
+
+        if (dthc.status === "RESOLVED") {
+          const surcharge = dthc.surchargePercent > 0 ? `+${dthc.surchargePercent}%` : "";
+          pricedLines.push({
+            id: line.id,
+            rate: dthc.amount,
+            currency: "XOF",
+            source: `port_tariffs:DPW:${String(dthc.tariff.id ?? "").slice(0, 8)}`,
+            confidence: 0.95,
+            explanation:
+              `DTHC DP World ${dthc.family}: ${dthc.baseUnitAmount}/EVP${surcharge} x ${dthc.evpQuantity} EVP (${dthc.detail}) = ${dthc.amount}, effective=${dthc.tariff.effective_date}`,
+            quantity_used: dthc.evpQuantity,
+            unit_used: "EVP",
+            rule_id: computed.rule_id,
+            conversion_used: dthc.detail,
+          });
+          continue;
+        }
+
+        console.log(
+          `[DTHC-1] not served: reason=${dthc.reason}, family=${dthc.family ?? "?"}, evp=${dthc.evpQuantity ?? "?"}, matches=${dthc.matchCount}`,
+        );
+        pricedLines.push({
+          id: line.id, rate: null, currency, source: "TO_CONFIRM",
+          confidence: 0,
+          explanation: `${dthc.message} (${dthc.code}/${dthc.reason})`,
           quantity_used: computed.quantity_used,
           unit_used: computed.unit_used,
           rule_id: computed.rule_id,
@@ -1454,20 +1501,21 @@ Deno.serve(async (req) => {
           conversion_used: computed.conversion_used,
         });
       } else {
-        // T3: Fallback port_tariffs for DTHC
-        const fallback = await findPortTariffFallback(serviceClient, serviceKey, pricingCtx);
-        if (fallback) {
+        // DTHC-1 : le fallback port_tariffs a été retiré d'ici. `DTHC` est tranché
+        // en amont et ne peut plus atteindre cette cascade.
+        const padExportPortChargesFallback = await findPadExportPortChargesFallback(serviceClient, serviceKey, pricingCtx);
+        if (padExportPortChargesFallback) {
           pricedLines.push({
             id: line.id,
-            rate: fallback.rate,
-            currency: fallback.currency,
-            source: fallback.source,
-            confidence: fallback.confidence,
-            explanation: fallback.explanation,
-            quantity_used: computed.quantity_used,
-            unit_used: computed.unit_used,
+            rate: padExportPortChargesFallback.rate,
+            currency: padExportPortChargesFallback.currency,
+            source: padExportPortChargesFallback.source,
+            confidence: padExportPortChargesFallback.confidence,
+            explanation: padExportPortChargesFallback.explanation,
+            quantity_used: padExportPortChargesFallback.quantity_used,
+            unit_used: padExportPortChargesFallback.unit_used,
             rule_id: computed.rule_id,
-            conversion_used: computed.conversion_used,
+            conversion_used: padExportPortChargesFallback.conversion_used,
           });
         } else {
           // ═══ Lot 1 : Export placeholder → TO_CONFIRM (signal runtime uniquement) ═══
@@ -1478,23 +1526,6 @@ Deno.serve(async (req) => {
           //   - missing_quantity n'est PAS converti (cas distinct, donnée manquante)
           // Lot 1-B : alimenté également depuis le bloc catalogue via isCatalogPlaceholder
           //   (entrées FIXED 0 XOF avec description "Tarif à confirmer").
-          const padExportPortChargesFallback = await findPadExportPortChargesFallback(serviceClient, serviceKey, pricingCtx);
-          if (padExportPortChargesFallback) {
-            pricedLines.push({
-              id: line.id,
-              rate: padExportPortChargesFallback.rate,
-              currency: padExportPortChargesFallback.currency,
-              source: padExportPortChargesFallback.source,
-              confidence: padExportPortChargesFallback.confidence,
-              explanation: padExportPortChargesFallback.explanation,
-              quantity_used: padExportPortChargesFallback.quantity_used,
-              unit_used: padExportPortChargesFallback.unit_used,
-              rule_id: computed.rule_id,
-              conversion_used: padExportPortChargesFallback.conversion_used,
-            });
-            continue;
-          }
-
           const isExportPlaceholder =
             pricingCtx.scope === "export" &&
             EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey);
