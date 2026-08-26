@@ -13,6 +13,12 @@ import {
 } from "../_shared/local-transport-destination.ts";
 import { resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import {
+  resolveDemurrageEquipment,
+  resolveDemurragePendingProvenance,
+  selectDemurrageRate,
+  type DemurrageRateSelection,
+} from "./demurrage-selection.ts";
+import {
   INCOTERMS_MATRIX,
   EVP_CONVERSION,
   DELIVERY_ZONES,
@@ -2276,27 +2282,35 @@ async function generateQuotationLines(
   // =====================================================
   
   if (request.cargoType?.toLowerCase().includes('conteneur') || containers.length > 0) {
-    const detectedCarrier = carrier?.toUpperCase() || null;
-    const containerTypeForDemurrage = containers.length > 0 ? containers[0].type : '20DV';
-    const is40Dem = containerTypeForDemurrage.toUpperCase().includes('40');
-    const demContainerFilter = is40Dem ? '40' : '20';
-    
-    let demurrageQuery = supabase
-      .from('demurrage_rates')
-      .select('*')
-      .eq('is_active', true)
-      .ilike('container_type', `%${demContainerFilter}%`);
-    
-    if (detectedCarrier) {
-      demurrageQuery = demurrageQuery.or(`carrier.ilike.%${detectedCarrier}%,carrier.eq.GENERIC`);
+    const detectedCarrier = typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
+
+    // [FAIL-CLOSED surestaries] Le couple armateur/type ISO doit être exact.
+    // Aucun défaut 20DV, rapprochement par taille, sous-chaîne ou premier résultat.
+    const equipment = resolveDemurrageEquipment(containers);
+    let demSelection: DemurrageRateSelection = {
+      row: null,
+      matchKind: null,
+      reason: equipment.reason || (!detectedCarrier
+        ? 'Armateur non détecté — sélection d’un barème de surestaries interdite'
+        : null),
+    };
+
+    if (equipment.containerType && detectedCarrier) {
+      const { data: demurrageData } = await supabase
+        .from('demurrage_rates')
+        .select('*')
+        .eq('is_active', true)
+        .eq('container_type', equipment.containerType)
+        .order('carrier', { ascending: true })
+        .limit(100);
+
+      demSelection = selectDemurrageRate(demurrageData, detectedCarrier, equipment.containerType);
     }
-    
-    const { data: demurrageData } = await demurrageQuery.order('carrier', { ascending: true }).limit(3);
-    
-    if (demurrageData && demurrageData.length > 0) {
-      // Prefer carrier-specific over GENERIC
-      const bestMatch = demurrageData.find(d => detectedCarrier && d.carrier.toUpperCase().includes(detectedCarrier)) || demurrageData[0];
-      
+
+    if (demSelection.row) {
+      const bestMatch = demSelection.row;
+      const demCarrierLabel = bestMatch.carrier;
+
       // ===== TIERS RESOLUTION: tiers réels d'abord, fallback legacy ensuite =====
       // [LOT3-A] Provenance filter: exclude observed/to_confirm tiers (e.g. 2 MSC invoice tiers).
       const { data: tiersRows } = await supabase
@@ -2323,21 +2337,20 @@ async function generateQuotationLines(
           return `${range}: ${t.rate_per_day.toLocaleString()} ${t.currency}/j`;
         }).join(' | ');
 
-        demDescription = `Surestaries ${bestMatch.carrier} (franchise ${freeDays}j) — ${paliersDesc}`;
+        demDescription = `Surestaries ${demCarrierLabel} (franchise ${freeDays}j) — ${paliersDesc}`;
         demCurrency = tiers[0].currency;
 
-        // Source: priorité tier > parent > fallback texte
+        // Le barème peut être officiel, mais le montant reste inconnu tant que
+        // la durée réelle de séjour n'est pas fournie. La ligne doit donc rester
+        // TO_CONFIRM et ne jamais devenir un faux zéro ferme dans le devis/PDF.
         const evidenceLevel = tiers[0].evidence_level || 'to_confirm';
-        demSourceType = evidenceLevel === 'official' ? 'OFFICIAL'
-                      : evidenceLevel === 'observed' ? 'OBSERVED'
-                      : 'TO_CONFIRM';
+        const pendingProvenance = resolveDemurragePendingProvenance(evidenceLevel);
+        demSourceType = pendingProvenance.type;
         demSourceRef = tiers[0].source_document || bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`;
-        demConfidence = evidenceLevel === 'official' ? 0.9
-                      : evidenceLevel === 'observed' ? 0.8
-                      : 0.7;
-        demNotes = `Barème réel (${tiers.length} palier(s)). Montant final dépend du temps réel de séjour.`;
+        demConfidence = pendingProvenance.confidence;
+        demNotes = `Barème ${evidenceLevel} (${tiers.length} palier(s)). Montant à confirmer selon le temps réel de séjour.`;
 
-        console.log(`[quotation-engine §8c] demurrage TIERS carrier=${bestMatch.carrier} tiers=${tiers.length} currency=${demCurrency} evidence=${evidenceLevel}`);
+        console.log(`[quotation-engine §8c] demurrage TIERS carrier=${bestMatch.carrier} match=${demSelection.matchKind} tiers=${tiers.length} currency=${demCurrency} evidence=${evidenceLevel}`);
       } else {
         // Fallback legacy — colonnes day_1_7_rate, day_8_14_rate, day_15_plus_rate
         // NOTE: Ce fallback est un filet de compatibilité, pas une vérité métier.
@@ -2347,14 +2360,14 @@ async function generateQuotationLines(
           `Jour 15+: ${bestMatch.day_15_plus_rate} ${bestMatch.currency}/jour`
         ].join(' | ');
 
-        demDescription = `Surestaries ${bestMatch.carrier} (franchise ${freeDays}j, puis ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour)`;
+        demDescription = `Surestaries ${demCarrierLabel} (franchise ${freeDays}j, puis ${bestMatch.day_1_7_rate} ${bestMatch.currency}/jour)`;
         demCurrency = bestMatch.currency || 'USD'; // Fallback legacy — pas une vérité métier
         demSourceType = 'TO_CONFIRM';
         demSourceRef = bestMatch.source_document || `${bestMatch.carrier} Demurrage Schedule`;
         demConfidence = 0.7;
         demNotes = `Toujours à confirmer (dépend du temps réel). Paliers legacy: ${paliers}`;
 
-        console.log(`[quotation-engine §8c] demurrage LEGACY FALLBACK carrier=${bestMatch.carrier} tiers=0 currency=${demCurrency}`);
+        console.log(`[quotation-engine §8c] demurrage LEGACY FALLBACK carrier=${bestMatch.carrier} match=${demSelection.matchKind} tiers=0 currency=${demCurrency}`);
       }
 
       lines.push({
@@ -2373,6 +2386,10 @@ async function generateQuotationLines(
         isEditable: true
       });
     } else {
+      // [FAIL-CLOSED surestaries] Sélection refusée (taille/armateur inconnus ou
+      // ambigus, ou aucune donnée) → ligne TO_CONFIRM explicite, jamais un barème arbitraire.
+      const failClosedReason = demSelection.reason || 'Aucune donnée de surestaries en base';
+      console.log(`[quotation-engine §8c] demurrage FAIL-CLOSED reason="${failClosedReason}"`);
       lines.push({
         id: 'demurrage_estimate',
         bloc: 'operationnel',
@@ -2382,10 +2399,10 @@ async function generateQuotationLines(
         currency: 'USD',
         source: {
           type: 'TO_CONFIRM',
-          reference: 'Aucune donnée de surestaries en base',
+          reference: failClosedReason,
           confidence: 0
         },
-        notes: 'Aucune donnée normative — contacter armateur pour grille de surestaries.',
+        notes: `${failClosedReason} — contacter l'armateur pour la grille de surestaries.`,
         isEditable: true
       });
     }
