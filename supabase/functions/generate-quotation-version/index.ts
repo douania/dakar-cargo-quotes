@@ -32,6 +32,13 @@ const FUNCTION_NAME = "generate-quotation-version";
 // Lot 3D-1 — QQM source de vérité snapshot (helper pur testable)
 import { resolveSnapshotQualification } from "./qqm-resolver.ts";
 
+// P0-E — normalisation déterministe pricing_run → snapshot (helper pur testable)
+import {
+  normalizeLinePricing,
+  resolveSnapshotClient,
+  resolveSnapshotInputs,
+} from "./snapshot-normalizer.ts";
+
 // Snapshot structure for immutable storage
 interface VersionSnapshotLot {
   lot_index: number;
@@ -334,27 +341,21 @@ Deno.serve(async (req) => {
           tariffLines,
         ),
       },
-      inputs: {
-        origin: inputs.origin || factsSnapshot.origin || null,
-        destination: inputs.destination || factsSnapshot.destination || null,
-        incoterm: inputs.incoterm || factsSnapshot.incoterm || null,
-        containers: inputs.containers || factsSnapshot.containers || [],
-        cargo_weight: inputs.cargo_weight || factsSnapshot.cargo_weight || null,
-        cargo_volume: inputs.cargo_volume || factsSnapshot.cargo_volume || null,
-      },
-      client: {
-        email: factsSnapshot.client_email || inputs.client_email || null,
-        company: factsSnapshot.client_company || inputs.client_company || null,
-      },
+      // P0-E: facts_snapshot est un TABLEAU {key, value_*} et inputs_json est
+      // camelCase (originPort, cargoWeight, clientEmail, ...) — résolution
+      // déterministe outputs_json > inputs camelCase > facts tableau > legacy
+      // snake_case via helper pur (zéros valides préservés, pas de ||).
+      inputs: resolveSnapshotInputs(inputs, factsSnapshot, outputsJson),
+      client: resolveSnapshotClient(inputs, factsSnapshot, outputsJson),
       raw_lines: tariffLines,
       lines: tariffLines.map((line: any, idx: number) => {
         const serviceCode = line.service_code || line.charge_code || `LINE_${idx + 1}`;
         return {
           service_code: serviceCode,
           description: line.description || line.charge_name || line.label || line.category || serviceCode,
-          quantity: line.quantity || 1,
-          unit_price: line.unit_price || line.rate || 0,
-          amount: line.amount || line.total || 0,
+          // P0-E: unitPrice (camelCase) > unit_price > rate ; fallback
+          // amount/quantity seulement sans prix explicite et quantity > 0.
+          ...normalizeLinePricing(line),
           currency: line.currency || "XOF",
           // Lot 4-A-ter: preserve metadata so PDF drawLine() can detect TO_CONFIRM/reserve lines
           source: line.source ?? null,
@@ -409,9 +410,8 @@ Deno.serve(async (req) => {
         lines: Array.isArray(lot.lines) ? lot.lines.map((l: any) => ({
           service_code: l.service_code || l.charge_code || 'LINE',
           description: l.description || l.charge_name || null,
-          quantity: l.quantity || 1,
-          unit_price: l.unit_price || l.rate || 0,
-          amount: l.amount || l.total || 0,
+          // P0-E: même normalisation prix que les lignes mono-lot
+          ...normalizeLinePricing(l),
           currency: l.currency || 'XOF',
           source: l.source ?? null,
           canonical: l.canonical ?? null,
