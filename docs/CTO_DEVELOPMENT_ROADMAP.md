@@ -12,9 +12,9 @@ Il sert à :
 - définir les tests, risques, conditions d'arrêt et autorisations nécessaires ;
 - permettre à une nouvelle session de reprendre sans dépendre de l'historique d'une conversation.
 
-Statut produit au 22 août 2026 : **PARTIAL — NO-GO pour une production générale**.
+Statut produit au 28 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 ; GO pour démarrer P1-A2 localement ; NO-GO maintenu pour une production générale**.
 
-La reconstruction et la réconciliation des migrations sont terminées. Le chantier suivant est le P0 technique décrit ci-dessous.
+La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
 
 ## 2. Sources de vérité et règles d'autorité
 
@@ -23,7 +23,7 @@ La reconstruction et la réconciliation des migrations sont terminées. Le chant
 - Source statique principale : GitHub, branche `work`.
 - Runtime canonique : Lovable Cloud.
 - Projet Lovable : `c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef` (`dakotation-pro` / Dakar Cargo Quotes).
-- Dernier code applicatif vérifié pour le lecteur PAD : `419ba486b2f55aa750b331cf03fdba0dfe29b68f` ; HEAD de contrôle après neutralisation du commit Auth automatique Lovable : `4f4135ac`.
+- État applicatif Git/Lovable vérifié le 28 août 2026 : dépôt local `work`, `origin/work` et Lovable alignés sur `b89d363fde65d2de482870dcf6a9700ddad7a894` ; seul le présent suivi documentaire est modifié localement. Le commit automatique `d1633447` régénère exclusivement les types Supabase correspondant à la migration P1-A1, et son merge Lovable `b89d363f` est accepté comme mécanisme bénin et déterministe.
 - Preview observée : `https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app`.
 - État Lovable observé : projet privé, prêt, authentification visible, non publié.
 
@@ -420,7 +420,7 @@ Ce pack dépend d'un responsable métier SODATRA. Il ne peut pas être achevé p
 
 Objectif : démontrer le parcours réel sur Lovable avant toute publication.
 
-Statut runtime au 24 août 2026 : **PARTIAL — chaîne PAD T02 → READY_TO_PRICE et ligne PAD ferme prouvées ; le devis complet, sa version, son PDF et son brouillon restent bloqués jusqu'à l'arbitrage du `PORT_DAKAR_HANDLING` encore `no_match / TO_CONFIRM`**.
+Statut runtime au 26 août 2026 : **PASS CIBLÉ LoLo — parcours authentifié complet jusqu'au brouillon non envoyé, contrôles Auth/RLS et nettoyage intégral vérifiés ; aucun email réel ni publication**.
 
 Preuves vérifiées sur l'aperçu Lovable privé et non publié :
 
@@ -506,7 +506,23 @@ Le prérequis « fait/gap explicite + garde fail-closed » posé ci-dessus est l
 - **Sûreté de périmètre** : le garde ne s'arme que sur la clé `DTHC`. Aucun package aérien ni export du catalogue ne la porte (`EXPORT_SENEGAL` porte `THC_EXPORT`, distinct) — épinglé par test. L'air, l'export et tout périmètre hors DTHC sont strictement inchangés.
 - Preuves locales indépendantes : 91 configurations Edge Functions PASS, typecheck frontend PASS, 107 tests frontend PASS, **583 tests Deno hermétiques PASS et 6 ignorés** (dont 59 nouveaux tests terminal), baseline Deno inchangée à 65 diagnostics/7 groupes, lint inchangé à 756 erreurs/27 warnings, build production PASS. `git diff --check` PASS. Aucun `deno.lock` généré. Les 15 smokes live sont volontairement hors de la gate locale : ils requièrent des clés/runtime externes et n'ont pas été utilisés pour conclure ce PASS.
 
-Condition de reprise P0-E : le prérequis « fait/gap + garde fail-closed + tests » est désormais satisfait localement. Restent requis avant tout commit/push ou déploiement, sous GO CTO Git/runtime distinct : déploiement coordonné de `run-pricing`, `build-case-puzzle` et `set-case-fact` (les trois vont ensemble — déployer le garde sans l'allowlist rendrait le gap inextinguible), puis recette sandbox mono-lot. Le résultat attendu reste une ligne PAD officielle unique, un DTHC sourcé auprès du bon opérateur, aucune ligne `PORT_DAKAR_HANDLING` et aucun montant Dakar Terminal inventé. Les scénarios PAD multi-lots restent explicitement bloqués, et tout trafic RoRo/ConRo reste bloqué tant qu'un barème officiel ou une pro forma Dakar Terminal validée n'est pas obtenu.
+Condition de reprise P0-E historique, satisfaite par la clôture ci-dessous : le prérequis « fait/gap + garde fail-closed + tests » était satisfait localement. Restait alors requis, sous GO CTO Git/runtime distinct, le déploiement coordonné de `run-pricing`, `build-case-puzzle` et `set-case-fact`, puis une recette sandbox mono-lot. Le résultat attendu était une ligne PAD officielle unique, un DTHC sourcé auprès du bon opérateur, aucune ligne `PORT_DAKAR_HANDLING` et aucun montant Dakar Terminal inventé. Les scénarios PAD multi-lots restent explicitement bloqués, et tout trafic RoRo/ConRo reste bloqué tant qu'un barème officiel ou une pro forma Dakar Terminal validée n'est pas obtenu.
+
+#### Clôture P0-E LoLo du 26 août 2026 : **PASS CIBLÉ / NETTOYAGE PASS**
+
+- État statique et runtime avant recette : `work`, `origin/work` et Lovable alignés sur `0407766f3fdb0cb061511ac32b0483528df81f3a` ; Lovable `ready`, privé et non publié.
+- Dossier sandbox non sensible `SANDBOX-P0E-FINAL-20260826`, créé depuis un CSV temporaire de 435 octets avec une adresse `example.invalid`. Parcours réel : intake documentaire, extraction, gaps, validation opérateur du mode terminal `LOLO`, candidat PAD officiel `T02`, propagation canonique, reconstruction à 100 % sans gap, ajustement du périmètre de services, pricing, version, PDF et brouillon standard.
+- Le candidat unique `T02` provenait de l'alias validé et de `REDEVANCES_PORTUAIRES_2006.pdf, Section 2.3.1, Page 15`. La boîte native de confirmation restant non pilotable de façon fiable, l'acceptation a suivi le fallback déjà audité : rôle `authenticated`, identité exacte du propriétaire, RLS réelles, cardinalité/source/catégorie strictement gardées, clé d'idempotence, puis RPC canonique `propagate_classification_candidate_to_fact`. Aucun fait PAD n'a été écrit directement.
+- `service.overrides` a retiré exactement `TRUCKING`, `EMPTY_RETURN` et `CUSTOMS_DAKAR`. Le marqueur générique `PORT_DAKAR_HANDLING` n'a produit aucune ligne tarifaire ; DTHC est resté dans le périmètre LoLo.
+- Pricing Run `#1` réussi avec 8 lignes : DTHC DP World officiel `155 000 XOF` depuis `DPW_TARIFS_2025_0001.pdf`, PAD T02 officiel `96 780 XOF`, frais SODATRA `35 000 + 25 000 + 15 000 XOF`, magasinage informatif nul, surestaries et droits/taxes conservés avec montant `NULL / À confirmer`. Total lignes et sous-total avant TVA SODATRA `326 780 XOF`, TVA SODATRA `13 500 XOF`, total ferme à payer hors réserves `340 280 XOF`. Aucun transport local, retour vide, dédouanement Dakar ou montant générique de manutention n'a réapparu.
+- Version immuable v1 créée depuis ce run, qualification provisoire et politique de total ferme excluant les postes réservés. Un PDF brouillon unique de 3 179 octets a été enregistré avec le SHA-256 `357aa436b6e5eca807f7cdbd215ec2d50aedc37aaac9984c6373aa87ca2083d5` ; son rendu visuel reprenait les montants, sources, réserves, route et mentions non contractuelles attendus.
+- Brouillon email standard créé avec le destinataire sandbox, un sujet et un corps non vides, `ai_generated = false`, statut `draft` et `sent_at = NULL`. Le bouton « Marquer comme envoyé » n'a pas été utilisé ; aucun email n'a été envoyé.
+- Auth/RLS : les neuf tables critiques du parcours contrôlées ont RLS active et leurs policies présentes. Sous `anon`, le dossier, ses faits, runs, versions et brouillon étaient tous invisibles. Sous l'identité propriétaire authentifiée, dossier, PDF et brouillon étaient lisibles. Sous une autre identité authentifiée, la lecture d'équipe du dossier était autorisée par doctrine, mais `has_case_write_access = false` et le PDF/brouillon privés restaient invisibles.
+- Inventaire Auth observé : cinq comptes actifs, dont trois confirmés ; un compte `sodatra.sn` porte `pad_admin`, trois comptes sont sur le domaine sandbox `test.local`, et un compte confirmé hors domaine SODATRA n'a pas de rôle applicatif. Comme les policies `*_select_team` donnent la lecture métier à tout compte `authenticated`, l'identité et la nécessité des comptes confirmés hors domaine doivent être validées avant toute production générale. Aucun compte ni rôle n'a été modifié pendant cette recette.
+- Nettoyage final strict : brouillon, document PDF, version et lignes, run, faits, gaps, candidat, jobs, timeline, document source et dossier supprimés ; zéro ligne résiduelle dans toutes les tables publiques portant `case_id` contrôlées et zéro objet sous les deux préfixes sandbox dans `storage.objects`. Le fichier CSV temporaire hors dépôt a également été supprimé.
+- Deux anomalies UI non bloquantes sont conservées au backlog : le toast de création affiche parfois `vundefined` alors que la version persistée est correctement v1 ; l'ouverture du PDF a créé deux onglets navigateur alors qu'un seul document existait en base et dans le stockage. Aucun défaut tarifaire, doublon de donnée ou réapparition de service retiré n'a été observé.
+
+Verdict de fin de P0 : **PASS technique et GO pour P1-A local / GO pilote privé limité au LoLo et aux tarifs explicitement éligibles / NO-GO production générale**. Le NO-GO général protège la gouvernance Auth non encore arbitrée, les familles tarifaires restant `to_confirm` ou historiques, le RoRo/ConRo sans source Dakar Terminal et les scénarios multi-lots PAD encore volontairement bloqués. P1-A peut commencer localement sans activer ces périmètres ni modifier le runtime de production.
 
 Parcours minimum :
 
@@ -518,7 +534,7 @@ Parcours minimum :
 6. création et sélection d'une version de devis ;
 7. rendu imprimable/PDF ;
 8. création d'un brouillon email ;
-9. envoi contrôlé à une adresse de test autorisée ;
+9. création et revue d'un brouillon non envoyé ; tout test d'envoi réel exige un GO runtime distinct et une adresse de test explicitement autorisée ;
 10. vérification de l'audit trail et de l'absence de doublons après réexécution.
 
 Conditions : compte de test autorisé, dossier sandbox clairement identifié, données non sensibles, plan de nettoyage validé et GO CTO runtime explicite.
@@ -529,13 +545,29 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 
 ### PACK P1-A — scénarios et hypothèses opérateur
 
-État actuel : table et panneau en lecture seule présents ; aucune hypothèse enregistrée dans le runtime observé.
+État au 28 août 2026 : **P1-A1 PASS Git + Lovable runtime ; P1-A2 à P1-A5 restent à développer**.
 
-À développer :
+#### P1-A1 — ledger d'hypothèses durci : **PASS / NETTOYAGE PASS**
 
-- création et modification contrôlée d'hypothèses ;
-- statuts, révisions, supersession et résolution ;
-- validation opérateur et visibilité client ;
+- Commit applicatif atomique `e9ff9ce8a87e6e1995f0cf2f25b06bfd8ed8a08b`, puis régénération automatique bénigne des types Supabase `d1633447` et merge Lovable `b89d363fde65d2de482870dcf6a9700ddad7a894` ; Git local, `origin/work` et Lovable alignés.
+- Migration `20260828120000_harden_quote_scenario_assumptions_p1a.sql` appliquée et enregistrée sur Lovable. Elle ajoute les valeurs typées, la chaîne de supersession, les contraintes inter-dossiers, le registre append-only d'idempotence, les privilèges minimaux et la RPC atomique `manage_scenario_assumption`.
+- Edge Function `manage-scenario-assumption` déployée seule depuis le SHA canonique. Probes non mutantes : `OPTIONS` à 200 et appel sans autorisation à 401. Preview privée reconstruite ; aucun autre runtime, Auth, tarif, pricing, email ou publication touché.
+- UI opérateur passée d'un panneau en lecture seule à des mutations explicites : création, révision, confirmation client et réfutation. Aucune promotion en fact dans ce lot et aucun pricing.
+- Preuves locales : typecheck PASS ; 128 tests frontend PASS ; 694 tests Deno PASS et 6 ignorés ; baseline Deno inchangée à 65 diagnostics/7 groupes ; lint baseline inchangée à 756 erreurs/27 warnings ; build production PASS ; preuve PostgreSQL 17.6 réelle PASS.
+- Recette authentifiée sandbox : `create → revise → confirm_client` visible dans l'UI, lien de supersession réciproque valide, puis `refute` sur une seconde hypothèse. Trois états terminaux observés : une ligne `superseded`, une `client_confirmed`, une `refuted`.
+- Idempotence runtime : le rejeu de la même clé et du même fingerprint retourne le même `assumption_id` avec `idempotent_replay = true`, une seule ligne de mutation et un seul événement ; le même identifiant avec un fingerprint différent est refusé par `IDEMPOTENCY_CONFLICT`.
+- Protections runtime : mutation inter-dossiers refusée par `FORBIDDEN_CROSS_CASE` ; promotion vers `quote_facts` refusée par `PROMOTION_NOT_ALLOWED` ; zéro `quote_fact` créé ; identités obligatoires présentes ; aucune policy d'écriture directe ; `authenticated` n'a ni INSERT/UPDATE/DELETE ni EXECUTE sur la RPC ; `service_role` n'a pas de mutation directe sur la table et dispose uniquement de l'EXECUTE RPC ; RLS active sur le ledger et le registre.
+- Nettoyage final strict : les deux dossiers sandbox, les trois hypothèses, les cinq mutations et les cinq événements ont été supprimés par cascade gardée ; zéro ligne résiduelle pour leurs identifiants.
+
+#### Suite canonique P1-A
+
+- **P1-A2 — objet scénario** : périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
+- **P1-A3 — promotion explicite** : RPC atomique, provenance complète et garde par type de fait ; aucun automatisme.
+- **P1-A4 — pricing isolé par scénario** : exception FROZEN explicite, aucun écrit dans `quote_facts`, double total et provenance.
+- **P1-A5 — versions/PDF/email** : scénario, hypothèses et réserves visibles, puis recette sandbox sans email réel.
+
+Périmètre restant :
+
 - promotion explicite hypothèse vers fait, avec provenance ;
 - interdiction de promotion automatique ;
 - objets de scénario identifiables et versionnés ;
@@ -656,7 +688,7 @@ Ordre recommandé, chaque pack nécessitant son propre périmètre et son GO CTO
 4. **P0-D** — validation des référentiels tarifaires. Volet technique P0-D-1 (reconstruction Git de la quarantaine live) appliqué ; volet métier en parallèle organisationnel uniquement si aucun patch technique concurrent n'est appliqué.
 5. **P0-E** — recette authentifiée de bout en bout.
 6. Verdict CTO de fin de P0 : GO/NO-GO pilote, distinct d'un GO publication.
-7. **P1-A** — scénarios et hypothèses.
+7. **P1-A** — scénarios et hypothèses : P1-A1 terminé ; prochain lot P1-A2.
 8. **P1-B** — confirmation des propositions maritimes.
 9. **P1-C** — conception puis implémentation de `final_request_state`.
 10. **P1-D** — médiation backend, un parcours à la fois.
