@@ -4940,13 +4940,15 @@ export type Database = {
       quote_scenario_assumptions: {
         Row: {
           assumed_fact_key: string | null
+          assumed_value: Json | null
+          assumed_value_type: string | null
           assumption_type: string
           basis: string | null
           case_id: string
           client_gap_request_id: string | null
           client_visible: boolean
           created_at: string
-          created_by: string | null
+          created_by: string
           gap_key: string | null
           id: string
           metadata: Json
@@ -4959,18 +4961,21 @@ export type Database = {
           source_type: string
           statement: string
           status: string
+          supersedes_assumption_id: string | null
           superseded_by_assumption_id: string | null
           updated_at: string
         }
         Insert: {
           assumed_fact_key?: string | null
+          assumed_value?: Json | null
+          assumed_value_type?: string | null
           assumption_type: string
           basis?: string | null
           case_id: string
           client_gap_request_id?: string | null
           client_visible?: boolean
           created_at?: string
-          created_by?: string | null
+          created_by: string
           gap_key?: string | null
           id?: string
           metadata?: Json
@@ -4983,18 +4988,21 @@ export type Database = {
           source_type?: string
           statement: string
           status?: string
+          supersedes_assumption_id?: string | null
           superseded_by_assumption_id?: string | null
           updated_at?: string
         }
         Update: {
           assumed_fact_key?: string | null
+          assumed_value?: Json | null
+          assumed_value_type?: string | null
           assumption_type?: string
           basis?: string | null
           case_id?: string
           client_gap_request_id?: string | null
           client_visible?: boolean
           created_at?: string
-          created_by?: string | null
+          created_by?: string
           gap_key?: string | null
           id?: string
           metadata?: Json
@@ -5007,6 +5015,7 @@ export type Database = {
           source_type?: string
           statement?: string
           status?: string
+          supersedes_assumption_id?: string | null
           superseded_by_assumption_id?: string | null
           updated_at?: string
         }
@@ -5035,6 +5044,13 @@ export type Database = {
           {
             foreignKeyName: "quote_scenario_assumptions_superseded_by_assumption_id_fkey"
             columns: ["superseded_by_assumption_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_assumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_assumptions_supersedes_assumption_id_fkey"
+            columns: ["supersedes_assumption_id"]
             isOneToOne: false
             referencedRelation: "quote_scenario_assumptions"
             referencedColumns: ["id"]
@@ -6469,6 +6485,31 @@ export type Database = {
           p_version_number: number
         }
         Returns: string
+      }
+      manage_scenario_assumption: {
+        Args: {
+          p_actor_user_id: string
+          p_assumed_fact_key?: string
+          p_assumed_value?: Json
+          p_assumed_value_type?: string
+          p_assumption_id?: string
+          p_assumption_type?: string
+          p_basis?: string
+          p_case_id: string
+          p_client_gap_request_id?: string
+          p_client_visible?: boolean
+          p_gap_key?: string
+          p_idempotency_key: string
+          p_metadata?: Json
+          p_operation: string
+          p_request_fingerprint: string
+          p_risk_level?: string
+          p_scope_key?: string
+          p_source_refs?: Json
+          p_source_type?: string
+          p_statement?: string
+        }
+        Returns: Json
       }
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
