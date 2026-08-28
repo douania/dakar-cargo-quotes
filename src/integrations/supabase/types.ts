@@ -4937,6 +4937,57 @@ export type Database = {
           },
         ]
       }
+      quote_scenario_assumption_mutations: {
+        Row: {
+          actor_user_id: string
+          assumption_id: string
+          case_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          operation: string
+          request_fingerprint: string
+          result_status: string
+        }
+        Insert: {
+          actor_user_id: string
+          assumption_id: string
+          case_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          operation: string
+          request_fingerprint: string
+          result_status: string
+        }
+        Update: {
+          actor_user_id?: string
+          assumption_id?: string
+          case_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          operation?: string
+          request_fingerprint?: string
+          result_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_assumption_mutations_assumption_id_fkey"
+            columns: ["assumption_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_assumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_assumption_mutations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_scenario_assumptions: {
         Row: {
           assumed_fact_key: string | null
@@ -4961,8 +5012,8 @@ export type Database = {
           source_type: string
           statement: string
           status: string
-          supersedes_assumption_id: string | null
           superseded_by_assumption_id: string | null
+          supersedes_assumption_id: string | null
           updated_at: string
         }
         Insert: {
@@ -4988,8 +5039,8 @@ export type Database = {
           source_type?: string
           statement: string
           status?: string
-          supersedes_assumption_id?: string | null
           superseded_by_assumption_id?: string | null
+          supersedes_assumption_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -5015,8 +5066,8 @@ export type Database = {
           source_type?: string
           statement?: string
           status?: string
-          supersedes_assumption_id?: string | null
           superseded_by_assumption_id?: string | null
+          supersedes_assumption_id?: string | null
           updated_at?: string
         }
         Relationships: [
