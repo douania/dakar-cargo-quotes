@@ -4704,6 +4704,105 @@ export type Database = {
           },
         ]
       }
+      quote_fact_promotions: {
+        Row: {
+          actor_user_id: string
+          assumption_id: string
+          assumption_status_before: string
+          attested: boolean
+          case_id: string
+          created_at: string
+          fact_category: string
+          fact_key: string
+          id: string
+          idempotency_key: string
+          promoted_fact_id: string
+          promoted_value: Json
+          promotion_basis: string
+          request_fingerprint: string
+          scenario_id: string | null
+          scenario_scope_hash: string | null
+          superseded_fact_id: string | null
+          value_type: string
+        }
+        Insert: {
+          actor_user_id: string
+          assumption_id: string
+          assumption_status_before: string
+          attested: boolean
+          case_id: string
+          created_at?: string
+          fact_category: string
+          fact_key: string
+          id?: string
+          idempotency_key: string
+          promoted_fact_id: string
+          promoted_value: Json
+          promotion_basis: string
+          request_fingerprint: string
+          scenario_id?: string | null
+          scenario_scope_hash?: string | null
+          superseded_fact_id?: string | null
+          value_type: string
+        }
+        Update: {
+          actor_user_id?: string
+          assumption_id?: string
+          assumption_status_before?: string
+          attested?: boolean
+          case_id?: string
+          created_at?: string
+          fact_category?: string
+          fact_key?: string
+          id?: string
+          idempotency_key?: string
+          promoted_fact_id?: string
+          promoted_value?: Json
+          promotion_basis?: string
+          request_fingerprint?: string
+          scenario_id?: string | null
+          scenario_scope_hash?: string | null
+          superseded_fact_id?: string | null
+          value_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_fact_promotions_assumption_id_fkey"
+            columns: ["assumption_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_assumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_fact_promotions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_fact_promotions_promoted_fact_id_fkey"
+            columns: ["promoted_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_fact_promotions_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_fact_promotions_superseded_fact_id_fkey"
+            columns: ["superseded_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_facts: {
         Row: {
           case_id: string
@@ -6833,9 +6932,49 @@ export type Database = {
         Args: { owner_user_id: string }
         Returns: string
       }
+      promote_scenario_assumption: {
+        Args: {
+          p_actor_user_id: string
+          p_assumption_id: string
+          p_attested: boolean
+          p_case_id: string
+          p_expect_no_current_fact: boolean
+          p_expected_assumption_status: string
+          p_expected_current_fact_id?: string
+          p_expected_scope_hash?: string
+          p_expected_value: Json
+          p_expected_value_type: string
+          p_fact_key: string
+          p_idempotency_key: string
+          p_promotion_basis: string
+          p_request_fingerprint: string
+          p_scenario_id?: string
+        }
+        Returns: Json
+      }
       propagate_classification_candidate_to_fact: {
         Args: { p_candidate_id: string; p_idempotency_key: string }
         Returns: Json
+      }
+      quote_fact_promotion_allowlist: {
+        Args: never
+        Returns: {
+          allowed_values: string[]
+          fact_category: string
+          fact_key: string
+          integer_only: boolean
+          max_value: number
+          min_value: number
+          value_type: string
+        }[]
+      }
+      quote_fact_promotion_monetary_token: {
+        Args: { p_key: string }
+        Returns: boolean
+      }
+      quote_fact_promotion_violation: {
+        Args: { p_fact_key: string; p_value: Json; p_value_type: string }
+        Returns: string
       }
       quote_scenario_cargo_unit_violation: {
         Args: { p_path: string; p_unit: Json }
