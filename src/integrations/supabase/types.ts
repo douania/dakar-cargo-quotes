@@ -5108,6 +5108,255 @@ export type Database = {
           },
         ]
       }
+      quote_scenario_links: {
+        Row: {
+          assumption_id: string | null
+          case_id: string
+          created_at: string
+          created_by: string
+          id: string
+          open_point_key: string | null
+          reserve_code: string | null
+          scenario_id: string
+        }
+        Insert: {
+          assumption_id?: string | null
+          case_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          open_point_key?: string | null
+          reserve_code?: string | null
+          scenario_id: string
+        }
+        Update: {
+          assumption_id?: string | null
+          case_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          open_point_key?: string | null
+          reserve_code?: string | null
+          scenario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_links_assumption_id_fkey"
+            columns: ["assumption_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_assumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_links_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_links_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_scenario_mutations: {
+        Row: {
+          actor_user_id: string
+          case_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          operation: string
+          outcome: string
+          request_fingerprint: string
+          result_status: string
+          scenario_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          case_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          operation: string
+          outcome: string
+          request_fingerprint: string
+          result_status: string
+          scenario_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          case_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          operation?: string
+          outcome?: string
+          request_fingerprint?: string
+          result_status?: string
+          scenario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_mutations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_mutations_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_scenario_selections: {
+        Row: {
+          case_id: string
+          id: string
+          release_reason: string | null
+          released_at: string | null
+          released_by: string | null
+          scenario_id: string
+          selected_at: string
+          selected_by: string
+        }
+        Insert: {
+          case_id: string
+          id?: string
+          release_reason?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          scenario_id: string
+          selected_at?: string
+          selected_by: string
+        }
+        Update: {
+          case_id?: string
+          id?: string
+          release_reason?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          scenario_id?: string
+          selected_at?: string
+          selected_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_selections_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_selections_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_scenarios: {
+        Row: {
+          blocked_reason: string | null
+          case_id: string
+          created_at: string
+          created_by: string
+          id: string
+          open_points: Json
+          resolved_at: string | null
+          resolved_by: string | null
+          revision_no: number
+          revision_reason: string | null
+          root_scenario_id: string
+          scope_hash: string
+          scope_snapshot: Json
+          status: string
+          superseded_by_scenario_id: string | null
+          supersedes_scenario_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          blocked_reason?: string | null
+          case_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          open_points: Json
+          resolved_at?: string | null
+          resolved_by?: string | null
+          revision_no: number
+          revision_reason?: string | null
+          root_scenario_id: string
+          scope_hash: string
+          scope_snapshot: Json
+          status?: string
+          superseded_by_scenario_id?: string | null
+          supersedes_scenario_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          blocked_reason?: string | null
+          case_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          open_points?: Json
+          resolved_at?: string | null
+          resolved_by?: string | null
+          revision_no?: number
+          revision_reason?: string | null
+          root_scenario_id?: string
+          scope_hash?: string
+          scope_snapshot?: Json
+          status?: string
+          superseded_by_scenario_id?: string | null
+          supersedes_scenario_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenarios_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenarios_root_scenario_id_fkey"
+            columns: ["root_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenarios_superseded_by_scenario_id_fkey"
+            columns: ["superseded_by_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenarios_supersedes_scenario_id_fkey"
+            columns: ["supersedes_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_service_pricing: {
         Row: {
           case_id: string
@@ -6537,6 +6786,24 @@ export type Database = {
         }
         Returns: string
       }
+      manage_quote_scenario: {
+        Args: {
+          p_actor_user_id: string
+          p_blocked_reason?: string
+          p_case_id: string
+          p_idempotency_key: string
+          p_links?: Json
+          p_open_points?: Json
+          p_operation: string
+          p_request_fingerprint: string
+          p_revision_reason?: string
+          p_scenario_id?: string
+          p_scope_snapshot?: Json
+          p_status?: string
+          p_title?: string
+        }
+        Returns: Json
+      }
       manage_scenario_assumption: {
         Args: {
           p_actor_user_id: string
@@ -6569,6 +6836,47 @@ export type Database = {
       propagate_classification_candidate_to_fact: {
         Args: { p_candidate_id: string; p_idempotency_key: string }
         Returns: Json
+      }
+      quote_scenario_cargo_unit_violation: {
+        Args: { p_path: string; p_unit: Json }
+        Returns: string
+      }
+      quote_scenario_derive_open_points: {
+        Args: { p_snapshot: Json }
+        Returns: Json
+      }
+      quote_scenario_is_enum: {
+        Args: { p_allowed: string[]; p_value: Json }
+        Returns: boolean
+      }
+      quote_scenario_is_int: {
+        Args: { p_max: number; p_min: number; p_value: Json }
+        Returns: boolean
+      }
+      quote_scenario_is_ref: { Args: { p_value: Json }; Returns: boolean }
+      quote_scenario_monetary_token: {
+        Args: { p_key: string }
+        Returns: boolean
+      }
+      quote_scenario_open_point: {
+        Args: { p_code: string; p_ref: string }
+        Returns: Json
+      }
+      quote_scenario_place_violation: {
+        Args: { p_path: string; p_place: Json }
+        Returns: string
+      }
+      quote_scenario_scope_violation: {
+        Args: { p_snapshot: Json }
+        Returns: string
+      }
+      quote_scenario_snapshot_violation: {
+        Args: { p_depth?: number; p_node: Json }
+        Returns: string
+      }
+      quote_scenario_unknown_key: {
+        Args: { p_allowed: string[]; p_node: Json }
+        Returns: string
       }
       release_attachment_claim: {
         Args: { p_attachment_id: string; p_claim_ts: string }
