@@ -5316,6 +5316,182 @@ export type Database = {
           },
         ]
       }
+      quote_scenario_pricing_mutations: {
+        Row: {
+          actor_user_id: string
+          case_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          outcome: string
+          pricing_run_id: string
+          request_fingerprint: string
+          scenario_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          case_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          outcome: string
+          pricing_run_id: string
+          request_fingerprint: string
+          scenario_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          case_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          outcome?: string
+          pricing_run_id?: string
+          request_fingerprint?: string
+          scenario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_pricing_mutations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_pricing_mutations_pricing_run_id_fkey"
+            columns: ["pricing_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_pricing_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_pricing_mutations_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_scenario_pricing_runs: {
+        Row: {
+          assumptions_snapshot: Json
+          blockers: Json
+          case_id: string
+          completed_at: string
+          created_by: string
+          currency: string
+          duration_ms: number
+          engine_request: Json | null
+          engine_response: Json | null
+          facts_snapshot: Json
+          firm_total_ht: number | null
+          firm_total_ttc: number | null
+          id: string
+          indicative_total_ht: number | null
+          indicative_total_ttc: number | null
+          inputs_json: Json
+          overlay_json: Json
+          qualification: string
+          request_fingerprint: string
+          reservations: Json
+          run_seq: number
+          scenario_id: string
+          scenario_scope_hash: string
+          scenario_snapshot: Json
+          started_at: string
+          status: string
+          superseded_by_run_id: string | null
+          tariff_lines: Json
+          tariff_sources: Json
+        }
+        Insert: {
+          assumptions_snapshot: Json
+          blockers?: Json
+          case_id: string
+          completed_at?: string
+          created_by: string
+          currency?: string
+          duration_ms?: number
+          engine_request?: Json | null
+          engine_response?: Json | null
+          facts_snapshot: Json
+          firm_total_ht?: number | null
+          firm_total_ttc?: number | null
+          id?: string
+          indicative_total_ht?: number | null
+          indicative_total_ttc?: number | null
+          inputs_json: Json
+          overlay_json: Json
+          qualification: string
+          request_fingerprint: string
+          reservations?: Json
+          run_seq: number
+          scenario_id: string
+          scenario_scope_hash: string
+          scenario_snapshot: Json
+          started_at?: string
+          status: string
+          superseded_by_run_id?: string | null
+          tariff_lines?: Json
+          tariff_sources?: Json
+        }
+        Update: {
+          assumptions_snapshot?: Json
+          blockers?: Json
+          case_id?: string
+          completed_at?: string
+          created_by?: string
+          currency?: string
+          duration_ms?: number
+          engine_request?: Json | null
+          engine_response?: Json | null
+          facts_snapshot?: Json
+          firm_total_ht?: number | null
+          firm_total_ttc?: number | null
+          id?: string
+          indicative_total_ht?: number | null
+          indicative_total_ttc?: number | null
+          inputs_json?: Json
+          overlay_json?: Json
+          qualification?: string
+          request_fingerprint?: string
+          reservations?: Json
+          run_seq?: number
+          scenario_id?: string
+          scenario_scope_hash?: string
+          scenario_snapshot?: Json
+          started_at?: string
+          status?: string
+          superseded_by_run_id?: string | null
+          tariff_lines?: Json
+          tariff_sources?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_pricing_runs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_pricing_runs_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_pricing_superseded_by_fkey"
+            columns: ["superseded_by_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_pricing_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_scenario_selections: {
         Row: {
           case_id: string
@@ -7016,6 +7192,18 @@ export type Database = {
       quote_scenario_unknown_key: {
         Args: { p_allowed: string[]; p_node: Json }
         Returns: string
+      }
+      record_quote_scenario_pricing_run: {
+        Args: {
+          p_actor_user_id: string
+          p_case_id: string
+          p_expected_scope_hash: string
+          p_idempotency_key: string
+          p_request_fingerprint: string
+          p_result: Json
+          p_scenario_id: string
+        }
+        Returns: Json
       }
       release_attachment_claim: {
         Args: { p_attachment_id: string; p_claim_ts: string }
