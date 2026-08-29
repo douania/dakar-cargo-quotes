@@ -4,17 +4,21 @@
  * Remplace le panneau LECTURE SEULE de PROVISIONAL-SCENARIO-QUOTES-UI-1A.
  *
  * Doctrine (docs/PROVISIONAL_SCENARIO_QUOTES.md) :
- *   - hypothèse ≠ fact : ce panneau ne promeut RIEN vers quote_facts ;
+ *   - hypothèse ≠ fact : rien n'est promu automatiquement ;
  *   - client_confirmed ≠ promoted_to_fact ;
  *   - aucune suppression, aucun pricing, aucun total.
  *
  * Garde-fous (UI) :
  *   - AUCUNE écriture directe : pas de .insert/.update/.upsert/.delete/.rpc.
  *     Le rôle `authenticated` n'a d'ailleurs plus que SELECT sur la table
- *     (migration 20260828120000). La seule mutation possible est l'invocation
- *     de l'Edge Function `manage-scenario-assumption`.
- *   - Les 4 opérations proposées sont exactement celles autorisées en P1-A1 :
+ *     (migration 20260828120000). Les seules mutations possibles sont
+ *     l'invocation des Edge Functions `manage-scenario-assumption` (P1-A1) et
+ *     `promote-scenario-assumption` (P1-A3).
+ *   - Les 4 transitions proposées sont exactement celles autorisées en P1-A1 :
  *     créer, réviser, confirmer côté client, réfuter.
+ *   - P1-A3 ajoute la promotion, EXPLICITE et UNITAIRE : une hypothèse à la
+ *     fois, via un dialogue d'attestation. Aucune action de masse, aucune
+ *     dé-promotion, aucune clé monétaire ou tarifaire promouvable.
  *   - Les contrôles de saisie ici ne sont qu'un confort : l'autorité est la RPC
  *     service_role-only et les contraintes de la table.
  */
@@ -44,7 +48,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Check, Lightbulb, Link2, Loader2, Pencil, Plus, X } from "lucide-react";
+import { Check, Lightbulb, Link2, Loader2, Pencil, Plus, ShieldCheck, X } from "lucide-react";
+import {
+  AssumptionPromotionDialog,
+  type PromotableAssumption,
+} from "@/components/case/AssumptionPromotionDialog";
+import { canPromote } from "@/lib/factPromotion";
 import {
   allowedActionsForStatus,
   ASSUMPTION_RISK_LEVELS,
@@ -425,6 +434,9 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
   const [reviseTargetId, setReviseTargetId] = useState<string | null>(null);
   const [draft, setDraft] = useState<AssumptionDraft>(emptyDraft);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // P1-A3 : promotion EXPLICITE et UNITAIRE. Une seule hypothèse à la fois ;
+  // aucune action de masse n'existe dans ce panneau.
+  const [promotionTarget, setPromotionTarget] = useState<PromotableAssumption | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["quote-scenario-assumptions", caseId],
@@ -574,8 +586,9 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Ce sont des hypothèses, pas des facts confirmés. Aucune n'est promue en fact
-              ici et aucune n'entre dans un calcul de prix.
+              Ce sont des hypothèses, pas des facts confirmés : aucune n'entre dans un calcul
+              de prix. Une promotion en fact reste possible, mais jamais automatique — un geste
+              explicite et attesté, hypothèse par hypothèse.
             </p>
           </div>
           {formMode === "none" ? (
@@ -621,6 +634,10 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
           const showMetadata = hasObjectKeys(a.metadata);
           const actions = allowedActionsForStatus(a.status);
           const isPending = submitting && pendingId === a.id;
+          // Promouvoir reste possible depuis `client_confirmed`, que
+          // `allowedActionsForStatus` (transitions P1-A1) laisse sans action :
+          // compatibilité client et promotion sont deux gestes distincts.
+          const promotable = canPromote(a.status, a.assumed_value_type, a.assumed_fact_key);
 
           if (formMode === "revise" && reviseTargetId === a.id) {
             return (
@@ -719,8 +736,30 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
                 <span>{formatLocalDate(a.created_at)}</span>
               </div>
 
-              {actions.length > 0 && formMode === "none" ? (
+              {(actions.length > 0 || promotable) && formMode === "none" ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
+                  {promotable ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[11px] border-violet-300 text-violet-800 hover:bg-violet-100"
+                      disabled={submitting}
+                      onClick={() =>
+                        setPromotionTarget({
+                          id: a.id,
+                          status: a.status,
+                          statement: a.statement,
+                          assumed_value: a.assumed_value,
+                          assumed_value_type: a.assumed_value_type,
+                          assumed_fact_key: a.assumed_fact_key,
+                          scope_key: a.scope_key,
+                        })
+                      }
+                    >
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      Promouvoir en fait
+                    </Button>
+                  ) : null}
                   {actions.map((action) => (
                     <Button
                       key={action}
@@ -750,6 +789,15 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
           );
         })}
       </CardContent>
+
+      {/* Promotion unitaire : le dialogue ne connaît qu'UNE hypothèse à la fois. */}
+      <AssumptionPromotionDialog
+        caseId={caseId}
+        assumption={promotionTarget}
+        onOpenChange={(open) => {
+          if (!open) setPromotionTarget(null);
+        }}
+      />
     </Card>
   );
 }

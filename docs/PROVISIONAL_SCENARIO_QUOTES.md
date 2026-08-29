@@ -319,9 +319,9 @@ Les codes HS, valeurs, droits et taxes ne sont **pas** connus.
 > Les phases ci-dessous sont une **proposition de séquencement doctrinal**. Aucune n'est engagée sans GO CTO explicite. Aucune n'est réputée réalisée tant qu'elle n'est pas inscrite dans `docs/MASTER_CONTEXT.md` avec ses artefacts réels.
 
 - **Phase 0 — Doctrine (ce document)** : poser le vocabulaire, les principes et les interdictions. *Documentation uniquement.*
-- **Phase 1 — Hypothèses tracées** : matérialiser l'assumption ledger comme objet de premier rang (hypothèses opérateur explicites, réversibles, liées aux gaps), au-delà de la timeline `assumption_applied` actuelle.
-- **Phase 2 — Scénarios comme objets** : représenter explicitement un scénario provisoire (périmètre, hypothèses, réserves, statut) au-dessus de la structure multi-lot existante.
-- **Phase 3 — Promotion explicite** : flux opérateur de promotion hypothèse → fact (avec validation, traçabilité, et garde anti-promotion automatique).
+- **Phase 1 — Hypothèses tracées** : **PASS Git + Lovable runtime** avec P1-A1 ; ledger typé, révisions, états terminaux et mutations contrôlées.
+- **Phase 2 — Scénarios comme objets** : **PASS Git + Lovable runtime** avec P1-A2 ; périmètre immuable, révisions, sélection, liens et comparaison, sans pricing.
+- **Phase 3 — Promotion explicite** : **PASS local, Git/Lovable en attente** avec P1-A3 ; flux opérateur unitaire et attesté, allowlist non monétaire, RPC atomique, provenance et garde anti-promotion automatique.
 - **Phase 4 — Cotation finale par périmètre** : passage `provisional → firm` périmètre par périmètre, dossier complet débloqué uniquement quand tous les périmètres sont fermes.
 
 Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, zones FROZEN intactes (`quotation-engine`, `build-case-puzzle`, `set-case-fact`, pricing logic), idempotence, traçabilité et intégrité des données.
@@ -332,9 +332,9 @@ Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, z
 
 Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce document) lorsqu'ils seront engagés :
 
-- **Assumption ledger de premier rang** — modèle de données dédié aux hypothèses opérateur réversibles.
-- **Objet « scénario provisoire »** — représentation explicite au-dessus du multi-lot.
-- **Flux de promotion hypothèse → fact** — UI + edge function, validation humaine obligatoire, garde anti-auto-promotion.
+- **Assumption ledger de premier rang** — livré par P1-A1 ; extensions futures seulement sous lot distinct.
+- **Objet « scénario provisoire »** — livré par P1-A2 ; pricing isolé encore traité en Phase 4/P1-A4.
+- **Flux de promotion hypothèse → fact** — livré localement par P1-A3 ; publication et recette sandbox encore requises.
 - **Propagation contrôlée inter-périmètres** — règles si une confirmation sur un périmètre éclaire une hypothèse analogue ailleurs (par défaut : aucune propagation implicite).
 - **Reservation reason codes étendus** — au-delà de la whitelist initiale, si de nouveaux types de réserve apparaissent.
 - **Déblocage progressif du dossier complet** — sémantique d'agrégation des statuts de scénarios vers le statut du dossier.

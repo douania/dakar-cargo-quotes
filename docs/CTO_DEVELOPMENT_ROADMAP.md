@@ -12,7 +12,7 @@ Il sert à :
 - définir les tests, risques, conditions d'arrêt et autorisations nécessaires ;
 - permettre à une nouvelle session de reprendre sans dépendre de l'historique d'une conversation.
 
-Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée, de P1-A1 et de P1-A2 Git + Lovable runtime ; audit P1-A3 PASS read-only ; NO-GO maintenu pour une production générale**.
+Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée, de P1-A1 et de P1-A2 Git + Lovable runtime ; P1-A3 PASS local, publication Git/Lovable en attente ; NO-GO maintenu pour une production générale**.
 
 La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. P1-A2 fournit désormais sur Git et Lovable l'objet scénario versionné, sa sélection et sa comparaison, sans pricing ni promotion ; sa recette authentifiée et son nettoyage sont PASS. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
 
@@ -545,7 +545,7 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 
 ### PACK P1-A — scénarios et hypothèses opérateur
 
-État au 29 août 2026 : **P1-A1 et P1-A2 PASS Git + Lovable runtime avec nettoyage ; audit P1-A3 PASS read-only ; P1-A3 à P1-A5 restent à développer**.
+État au 29 août 2026 : **P1-A1 et P1-A2 PASS Git + Lovable runtime avec nettoyage ; P1-A3 PASS local sans commit, push ni runtime ; P1-A4 et P1-A5 restent à développer**.
 
 #### P1-A1 — ledger d'hypothèses durci : **PASS / NETTOYAGE PASS**
 
@@ -578,22 +578,30 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Invariants métier : trois scénarios chaînés 1→2→3 ; les révisions 1 et 2 sont `superseded`, la révision 3 reste `draft` ; changement de hash uniquement lors du changement réel de périmètre. Zéro `quote_fact`, zéro `pricing_run` et zéro `quotation_version` pour la recette.
 - Nettoyage final strict : suppression exacte des deux dossiers sandbox et cascade vérifiée sur toutes les tables publiques portant `case_id` ou `quote_case_id`. **Zéro résidu dans 27 tables contrôlées**. Aucun email, tarif, Auth, déploiement supplémentaire ou publication publique.
 
-Audit P1-A3 read-only du 29 août 2026 : **PASS sous arbitrages CTO**. Unité recommandée : une hypothèse par promotion explicite, jamais un périmètre complet ; allowlist descriptive fermée et sans clé monétaire ; RPC service-role-only atomique et idempotente ; registre append-only et timeline ; provenance dans `value_json`; écriture du fait avec `source_type='manual_input'` afin de conserver la protection existante contre l'écrasement par `build-case-puzzle`. Aucun pricing, aucune promotion automatique et aucun composant FROZEN à modifier. Avant patch, valider explicitement l'exclusion des clés monétaires, l'effet indirect de résolution au prochain `build-case-puzzle` et l'absence de dé-promotion en P1-A3.
+#### P1-A3 — promotion explicite hypothèse → fait : **PASS LOCAL / GIT ET RUNTIME EN ATTENTE**
+
+- Migration locale `20260829120000_promote_scenario_assumption_p1a3.sql` : registre `quote_fact_promotions` deny-all et append-only hors cascade de rétention, allowlist fermée, RPC atomique service-role-only, RLS, privilèges minimaux, idempotence forte, contrôle inter-dossiers et journalisation transactionnelle.
+- La promotion est strictement unitaire, humaine et attestée. L'hypothèse doit être `active` ou `client_confirmed`, déclarer exactement son `assumed_fact_key`, et viser cette même clé. Aucune promotion automatique, de masse ou réversible n'existe.
+- Toute clé monétaire ou tarifaire, tout JSON à montant imbriqué, `service.mode`, `service.package`, `service.overrides`, HS et PAD sont exclus. Les valeurs restantes sont bornées par type, longueur, précision et vocabulaire canonique.
+- Une hypothèse liée à plusieurs scénarios vivants est bloquée par `SCENARIO_CONTEXT_AMBIGUOUS` : ni l'UI ni la RPC ne choisissent arbitrairement un contexte. Un scénario unique est attesté par son identifiant et son `scope_hash` exact.
+- L'Edge Function locale `promote-scenario-assumption` exige Auth, prouve l'accès au dossier sous JWT/RLS avant toute élévation service-role, calcule le fingerprint côté serveur et n'appelle qu'une RPC atomique. L'UI relit le fait courant et le contexte de scénario avant d'autoriser l'attestation ; une relance du même geste logique réutilise sa clé d'idempotence.
+- Le fait est écrit par `supersede_fact` avec `source_type='manual_input'` et `confidence=1.0`, ce qui conserve la protection existante contre l'écrasement par `build-case-puzzle`. La provenance complète réside dans le registre de promotion, la timeline et `source_excerpt` — pas dans `quote_facts.value_json`, car plusieurs lecteurs métier donnent priorité à `value_json` et y placer des métadonnées altérerait la valeur métier/pricing.
+- Aucune écriture n'est faite dans `quote_gaps`, `client_gap_requests`, scénarios, pricing, versions, tarifs, PDF ou emails. Un gap éventuellement devenu résolu ne sera constaté qu'au prochain `build-case-puzzle` explicite ; aucun composant FROZEN n'a été modifié.
+- Contre-revue locale : 94 configurations Edge PASS ; double typecheck PASS ; **211 tests frontend PASS**, dont 28 P1-A3 ; baseline Deno inchangée à 65 diagnostics/7 groupes ; **753 tests Deno PASS et 6 ignorés**, dont 20 P1-A3 ; lint baseline inchangée à 756 erreurs/27 warnings ; build production PASS avec les avertissements de bundle préexistants.
+- PostgreSQL local : premier reset ayant correctement détecté une syntaxe `CASE` fautive, correction chirurgicale, puis **reset intégral des 209 migrations PASS**. Assertions transactionnelles PASS pour promotion nominale, rejeu, conflit d'idempotence, refus inter-dossiers, refus monétaire, absence de clé cible, registre immuable, RLS/privilèges, absence de pricing/version et cascade de nettoyage sans résidu. Garde multi-scénarios testée séparément : zéro fait et zéro promotion lors du refus. Deux appels réellement concurrents avec la même clé ont produit exactement une promotion, un fait et un événement ; l'un a créé et l'autre a rejoué, puis la fixture a été nettoyée sans résidu.
+- État d'autorité : branche locale `work`, aucun commit P1-A3, aucun push, aucune migration Lovable, aucun déploiement Edge/frontend et aucune donnée runtime modifiée. Un GO CTO Git+runtime distinct reste obligatoire.
 
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
-- **P1-A3 — promotion explicite** : RPC atomique, provenance complète et garde par type de fait ; aucun automatisme.
+- **P1-A3 — promotion explicite** : PASS local ; publication Git/Lovable et recette sandbox encore requises.
 - **P1-A4 — pricing isolé par scénario** : exception FROZEN explicite, aucun écrit dans `quote_facts`, double total et provenance.
 - **P1-A5 — versions/PDF/email** : scénario, hypothèses et réserves visibles, puis recette sandbox sans email réel.
 
 Périmètre restant :
 
-- promotion explicite hypothèse vers fait, avec provenance ;
-- interdiction de promotion automatique ;
-- objets de scénario identifiables et versionnés ;
+- publication Git/Lovable et recette sandbox de la promotion explicite ;
 - pricing par scénario sans contamination des faits canoniques ;
-- comparaison de scénarios ;
 - génération PDF/email identifiant clairement hypothèses, exclusions et scénario choisi.
 
 Tests obligatoires : RLS, rôles, idempotence, concurrence, provenance, supersession, absence d'écriture automatique dans `quote_facts`, isolation entre scénarios.
@@ -709,7 +717,7 @@ Ordre recommandé, chaque pack nécessitant son propre périmètre et son GO CTO
 4. **P0-D** — validation des référentiels tarifaires. Volet technique P0-D-1 (reconstruction Git de la quarantaine live) appliqué ; volet métier en parallèle organisationnel uniquement si aucun patch technique concurrent n'est appliqué.
 5. **P0-E** — recette authentifiée de bout en bout.
 6. Verdict CTO de fin de P0 : GO/NO-GO pilote, distinct d'un GO publication.
-7. **P1-A** — scénarios et hypothèses : P1-A1 et P1-A2 terminés et recettés ; audit P1-A3 PASS read-only, patch non démarré.
+7. **P1-A** — scénarios et hypothèses : P1-A1 et P1-A2 terminés et recettés ; P1-A3 PASS local, publication/recette en attente ; P1-A4 puis P1-A5 à traiter ensuite.
 8. **P1-B** — confirmation des propositions maritimes.
 9. **P1-C** — conception puis implémentation de `final_request_state`.
 10. **P1-D** — médiation backend, un parcours à la fois.
