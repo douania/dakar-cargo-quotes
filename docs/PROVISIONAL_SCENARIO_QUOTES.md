@@ -321,10 +321,11 @@ Les codes HS, valeurs, droits et taxes ne sont **pas** connus.
 - **Phase 0 — Doctrine (ce document)** : poser le vocabulaire, les principes et les interdictions. *Documentation uniquement.*
 - **Phase 1 — Hypothèses tracées** : **PASS Git + Lovable runtime** avec P1-A1 ; ledger typé, révisions, états terminaux et mutations contrôlées.
 - **Phase 2 — Scénarios comme objets** : **PASS Git + Lovable runtime** avec P1-A2 ; périmètre immuable, révisions, sélection, liens et comparaison, sans pricing.
-- **Phase 3 — Promotion explicite** : **PASS local, Git/Lovable en attente** avec P1-A3 ; flux opérateur unitaire et attesté, allowlist non monétaire, RPC atomique, provenance et garde anti-promotion automatique.
-- **Phase 4 — Cotation finale par périmètre** : passage `provisional → firm` périmètre par périmètre, dossier complet débloqué uniquement quand tous les périmètres sont fermes.
+- **Phase 3 — Promotion explicite** : **PASS Git + Lovable runtime** avec P1-A3 ; flux opérateur unitaire et attesté, allowlist non monétaire, RPC atomique, provenance et garde anti-promotion automatique.
+- **Phase 4a — Pricing isolé par scénario** : **PASS local, Git/Lovable en attente** avec P1-A4 ; ledger séparé, double total, provenance, idempotence, aucune contamination des faits ou du pricing canonique et aucune qualification `firm`.
+- **Phase 4b — Cotation finale par périmètre** : reste à développer après la recette P1-A4 ; passage `provisional → firm` périmètre par périmètre, dossier complet débloqué uniquement quand tous les périmètres sont fermes.
 
-Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, zones FROZEN intactes (`quotation-engine`, `build-case-puzzle`, `set-case-fact`, pricing logic), idempotence, traçabilité et intégrité des données.
+Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, zones FROZEN intactes (`quotation-engine`, `run-pricing`, `build-case-puzzle`, `set-case-fact`), idempotence, traçabilité et intégrité des données.
 
 ---
 
@@ -333,8 +334,8 @@ Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, z
 Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce document) lorsqu'ils seront engagés :
 
 - **Assumption ledger de premier rang** — livré par P1-A1 ; extensions futures seulement sous lot distinct.
-- **Objet « scénario provisoire »** — livré par P1-A2 ; pricing isolé encore traité en Phase 4/P1-A4.
-- **Flux de promotion hypothèse → fact** — livré localement par P1-A3 ; publication et recette sandbox encore requises.
+- **Objet « scénario provisoire »** — livré par P1-A2 ; pricing isolé livré localement par P1-A4, publication et recette Lovable encore requises.
+- **Flux de promotion hypothèse → fact** — livré et recetté par P1-A3.
 - **Propagation contrôlée inter-périmètres** — règles si une confirmation sur un périmètre éclaire une hypothèse analogue ailleurs (par défaut : aucune propagation implicite).
 - **Reservation reason codes étendus** — au-delà de la whitelist initiale, si de nouveaux types de réserve apparaissent.
 - **Déblocage progressif du dossier complet** — sémantique d'agrégation des statuts de scénarios vers le statut du dossier.
@@ -355,16 +356,19 @@ Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce do
 - ✅ supporte le **multi-lot** (détection, pricing par lot, sortie multi-lot) ;
 - ✅ trace certaines **hypothèses appliquées** via la timeline (`assumption_applied`) ;
 - ✅ protège contre la **contamination des facts** (SOURCE-GUARD) et interdit l'**auto-update des facts** et l'**auto-send**.
+- ✅ représente un **scénario provisoire opérateur** comme un objet de premier rang et versionné (P1-A2, Git + Lovable) ;
+- ✅ tient un **assumption ledger réversible** et offre une promotion humaine, unitaire et attestée vers un fait non monétaire (P1-A1/P1-A3, Git + Lovable) ;
+- 🧪 calcule localement un **pricing isolé par scénario** dans un ledger distinct, sans modifier `quote_facts`, `pricing_runs` ni l'état du dossier (P1-A4, non publié).
 
-En revanche, **le système ne sait PAS encore** (cible doctrinale, non livrée) :
+En revanche, **le système ne sait PAS encore** :
 
-- ❌ représenter un **scénario provisoire opérateur** comme un objet de premier rang (périmètre + hypothèses + réserves + statut) distinct du simple lot ;
-- ❌ tenir un **assumption ledger réversible** liant hypothèses ↔ gaps ↔ scénarios avec statuts `active / confirmed / refuted` ;
-- ❌ offrir un **flux explicite de promotion hypothèse → fact** distinct des promotions de gaps existantes ;
-- ❌ gérer la **révision versionnée de scénarios** (`superseded`) au sens de cette doctrine ;
+- ❌ publier et exécuter P1-A4 sur Lovable ; le chemin monétaire réussi reste à recetter avec une fixture sandbox complète ;
+- ❌ produire une version, un PDF ou un email identifiant le scénario, les hypothèses, les exclusions et les réserves (P1-A5) ;
+- ❌ qualifier automatiquement un scénario `firm` ; P1-A4 est volontairement borné à `provisional`, `partial` ou `blocked` ;
+- ❌ rapprocher sûrement un périmètre multi-lot P1-A2 de plusieurs `quote_request_lines` sans une identité métier déterministe ; le comportement actuel est fail-closed ;
 - ❌ piloter un **déblocage progressif périmètre par périmètre** du dossier complet basé sur les statuts de scénarios.
 
-> Conséquence pratique : tant que ces capacités ne sont pas livrées et inscrites dans `MASTER_CONTEXT.md`, la doctrine s'applique **manuellement, sous discipline opérateur**, en s'appuyant sur les briques existantes (qualification de version, réserves, gaps, multi-lot, timeline). Aucune capacité décrite ici ne doit être présentée comme automatique.
+> Conséquence pratique : P1-A4 reste une capacité **locale non disponible aux opérateurs** tant que son commit, sa migration, son Edge Function, son frontend et sa recette Lovable n'ont pas été autorisés et vérifiés. Aucune cotation de scénario ne doit être présentée comme ferme et P1-A5 ne doit pas être engagé avant cette recette.
 
 ---
 

@@ -292,3 +292,6 @@ verify_jwt = false
 
 [functions.promote-scenario-assumption]
 verify_jwt = false
+
+[functions.run-scenario-pricing]
+verify_jwt = false

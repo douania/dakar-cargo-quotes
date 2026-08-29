@@ -1,17 +1,17 @@
 /**
- * Phase P1-A2 — Panneau des scénarios de périmètre.
+ * Phases P1-A2 à P1-A4 — périmètres et estimations isolées par scénario.
  *
  * Rend l'objet « scénario » OPÉRABLE : lister, créer, réviser (nouvelle
- * version), sélectionner et comparer. Rien d'autre.
+ * version), sélectionner, comparer et lancer une estimation isolée.
  *
  * Doctrine (docs/PROVISIONAL_SCENARIO_QUOTES.md) :
- *   - un scénario décrit un PÉRIMÈTRE, jamais un prix : aucun montant n'est
- *     affiché, calculé ni demandé ici ;
+ *   - le périmètre reste immuable ; le résultat P1-A4 vit dans un ledger
+ *     parallèle et n'écrit jamais dans quote_facts ni dans le pricing canonique ;
  *   - un scénario est IMMUABLE : réviser crée une nouvelle version et remplace
  *     l'ancienne, sans jamais la modifier ;
  *   - sélectionner est un acte SÉPARÉ du périmètre (table historisée) ;
- *   - RoRo et ConRo sont DESCRIPTIFS : ils sont saisissables sans déclencher la
- *     moindre garde tarifaire ;
+ *   - RoRo et ConRo restent descriptifs et sont bloqués fail-closed tant que le
+ *     moteur isolé ne sait pas les chiffrer ;
  *   - les points ouverts sont DÉRIVÉS du périmètre par la base, jamais déclarés.
  *
  * Garde-fous (UI) :
@@ -19,9 +19,9 @@
  *     Le rôle `authenticated` n'a que SELECT sur ces tables (migration
  *     20260828200000) ; la seule mutation possible est l'invocation de l'Edge
  *     Function `manage-quote-scenario`.
- *   - Les 3 opérations proposées sont exactement celles autorisées en P1-A2 :
- *     créer, réviser, sélectionner. Aucune promotion, aucune finalisation,
- *     aucun pricing, aucune suppression.
+ *   - créer/réviser/sélectionner passent par manage-quote-scenario ; estimer
+ *     passe par run-scenario-pricing. Aucune promotion, finalisation,
+ *     version/PDF/email ou suppression.
  *   - Les contrôles de saisie ne sont qu'un confort : l'autorité est la RPC
  *     service_role-only et les contraintes de la table.
  */
@@ -49,6 +49,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertTriangle,
   ArrowRight,
+  Calculator,
   Check,
   GitCompare,
   Layers,
@@ -119,6 +120,17 @@ import {
   type TransportMode,
   type UnitKind,
 } from "@/lib/quoteScenarios";
+import {
+  countScenarioAssumptions,
+  formatScenarioPricingAmount,
+  latestScenarioPricingRuns,
+  readScenarioPricingCodes,
+  readScenarioPricingEdgeData,
+  SCENARIO_PRICING_QUALIFICATION_LABELS,
+  SCENARIO_PRICING_STATUS_LABELS,
+  scenarioPricingMutationSignature,
+  type ScenarioPricingRunSummary,
+} from "@/lib/scenarioPricing";
 
 type QuoteScenario = Database["public"]["Tables"]["quote_scenarios"]["Row"];
 type QuoteScenarioLink = Database["public"]["Tables"]["quote_scenario_links"]["Row"];
@@ -131,7 +143,7 @@ interface QuoteScenariosPanelProps {
 
 const SCENARIO_COLUMNS =
   "id, case_id, root_scenario_id, revision_no, supersedes_scenario_id, " +
-  "superseded_by_scenario_id, status, title, scope_snapshot, open_points, " +
+  "superseded_by_scenario_id, status, title, scope_snapshot, scope_hash, open_points, " +
   "blocked_reason, revision_reason, created_at, updated_at";
 
 const LINK_COLUMNS = "id, scenario_id, assumption_id, reserve_code, open_point_key, created_at";
@@ -139,10 +151,35 @@ const LINK_COLUMNS = "id, scenario_id, assumption_id, reserve_code, open_point_k
 const SELECTION_COLUMNS =
   "id, scenario_id, selected_at, released_at, release_reason";
 
+const SCENARIO_PRICING_COLUMNS =
+  "id, scenario_id, run_seq, status, qualification, blockers, reservations, " +
+  "assumptions_snapshot, firm_total_ht, firm_total_ttc, indicative_total_ht, " +
+  "indicative_total_ttc, currency, completed_at";
+
+interface ScenarioPricingSelectBuilder extends PromiseLike<{
+  data: unknown[] | null;
+  error: { message?: string } | null;
+}> {
+  select(columns: string): ScenarioPricingSelectBuilder;
+  eq(column: string, value: string): ScenarioPricingSelectBuilder;
+  order(column: string, options: { ascending: boolean }): ScenarioPricingSelectBuilder;
+}
+
+const scenarioPricingReader = supabase as unknown as {
+  from(relation: string): ScenarioPricingSelectBuilder;
+};
+
 const STATUS_CLASSES: Record<string, string> = {
   draft: "bg-slate-100 text-slate-800 border-slate-200",
   blocked: "bg-red-100 text-red-800 border-red-200",
   superseded: "bg-amber-100 text-amber-800 border-amber-200",
+};
+
+const PRICING_STATUS_CLASSES: Record<string, string> = {
+  success: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  blocked: "bg-amber-50 text-amber-900 border-amber-200",
+  failed: "bg-red-50 text-red-800 border-red-200",
+  superseded: "bg-slate-50 text-slate-700 border-slate-200",
 };
 
 function errorMessage(err: unknown): string | null {
@@ -981,10 +1018,12 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
   // nouvelle création/révision. La clé reste associée au contenu logique exact
   // jusqu'au succès ; modifier le formulaire produit une autre signature.
   const mutationKeys = useRef(new Map<string, string>());
+  const pricingMutationKeys = useRef(new Map<string, string>());
   const [formMode, setFormMode] = useState<"none" | "create" | "revise">("none");
   const [reviseTargetId, setReviseTargetId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ScenarioDraft>(emptyScenarioDraft);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingPricingId, setPendingPricingId] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState<string>(NO_SCENARIO);
   const [compareRightId, setCompareRightId] = useState<string>(NO_SCENARIO);
 
@@ -1048,10 +1087,32 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     },
   });
 
+  const pricingRunsQuery = useQuery({
+    queryKey: ["quote-scenario-pricing-runs", caseId],
+    staleTime: 30_000,
+    enabled: !!caseId,
+    queryFn: async () => {
+      // La migration P1-A4 est locale dans ce lot ; les types Supabase générés
+      // ne sont régénérés qu'après application canonique. Ce lecteur minimal
+      // reste strictement SELECT et le résultat est validé par notre type local.
+      const { data, error } = await scenarioPricingReader
+        .from("quote_scenario_pricing_runs")
+        .select(SCENARIO_PRICING_COLUMNS)
+        .eq("case_id", caseId)
+        .order("run_seq", { ascending: false });
+      if (error) throw new Error(error.message ?? "Estimations de scénario indisponibles");
+      return (data ?? []) as unknown as ScenarioPricingRunSummary[];
+    },
+  });
+
   const scenarios = useMemo(() => scenariosQuery.data ?? [], [scenariosQuery.data]);
   const links = useMemo(() => linksQuery.data ?? [], [linksQuery.data]);
   const selections = useMemo(() => selectionsQuery.data ?? [], [selectionsQuery.data]);
   const assumptions = useMemo(() => assumptionsQuery.data ?? [], [assumptionsQuery.data]);
+  const latestPricingByScenario = useMemo(
+    () => latestScenarioPricingRuns(pricingRunsQuery.data ?? []),
+    [pricingRunsQuery.data],
+  );
 
   const linksByScenario = useMemo(() => {
     const map = new Map<string, QuoteScenarioLink[]>();
@@ -1146,6 +1207,52 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     onSettled: () => setPendingId(null),
   });
 
+  const pricingMutation = useMutation({
+    mutationFn: async (input: {
+      scenarioId: string;
+      scopeHash: string;
+      idempotencyKey: string;
+      mutationSignature: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("run-scenario-pricing", {
+        body: {
+          case_id: caseId,
+          scenario_id: input.scenarioId,
+          expected_scope_hash: input.scopeHash,
+          idempotency_key: input.idempotencyKey,
+        },
+      });
+      if (error) {
+        const detail = await readEdgeErrorMessage(error);
+        throw new Error(detail ?? error.message ?? "Estimation isolée refusée");
+      }
+      const parsed = readScenarioPricingEdgeData(data);
+      if (!parsed) throw new Error("Réponse d'estimation isolée invalide");
+      return parsed;
+    },
+    onSuccess: async (data, variables) => {
+      pricingMutationKeys.current.delete(variables.mutationSignature);
+      if (data.status === "success") {
+        toast.success(
+          data.qualification === "partial"
+            ? "Estimation partielle enregistrée avec réserves."
+            : "Estimation provisoire enregistrée.",
+        );
+      } else if (data.status === "blocked") {
+        toast.warning("Estimation bloquée sans produire de montant.");
+      } else {
+        toast.error("Le moteur n'a pas produit d'estimation.");
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ["quote-scenario-pricing-runs", caseId],
+      });
+    },
+    onError: (err: unknown) => {
+      toast.error(errorMessage(err) ?? "Estimation isolée refusée");
+    },
+    onSettled: () => setPendingPricingId(null),
+  });
+
   const submitting = mutation.isPending;
 
   const mutationIdentity = (
@@ -1224,6 +1331,22 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     });
   };
 
+  const runScenarioPricing = (scenario: QuoteScenario) => {
+    const signature = scenarioPricingMutationSignature(caseId, scenario.id, scenario.scope_hash);
+    let idempotencyKey = pricingMutationKeys.current.get(signature);
+    if (!idempotencyKey) {
+      idempotencyKey = crypto.randomUUID();
+      pricingMutationKeys.current.set(signature, idempotencyKey);
+    }
+    setPendingPricingId(scenario.id);
+    pricingMutation.mutate({
+      scenarioId: scenario.id,
+      scopeHash: scenario.scope_hash,
+      idempotencyKey,
+      mutationSignature: signature,
+    });
+  };
+
   const compareLeft = compareLeftId === NO_SCENARIO ? null : scenarioById.get(compareLeftId);
   const compareRight = compareRightId === NO_SCENARIO ? null : scenarioById.get(compareRightId);
 
@@ -1262,8 +1385,8 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Un scénario décrit un périmètre, pas une offre. Réviser crée une nouvelle version ;
-              sélectionner est un acte séparé.
+              Un scénario décrit un périmètre. Son estimation reste provisoire, isolée du
+              dossier canonique et ne constitue jamais une offre.
             </p>
           </div>
           {formMode === "none" ? (
@@ -1284,10 +1407,18 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
         <Alert className="border-amber-200 bg-amber-50/60">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
           <AlertDescription className="text-[11px] text-amber-900">
-            Aucun prix n'est calculé ici. Ce panneau ne produit ni estimation, ni offre, ni
-            promotion, ni document : il ne décrit que des périmètres.
+            Les montants affichés sont des estimations internes provisoires. Ils ne modifient
+            ni les faits, ni le pricing canonique et ne peuvent générer ni version, PDF ou email.
           </AlertDescription>
         </Alert>
+
+        {pricingRunsQuery.error ? (
+          <Alert className="border-red-200 bg-red-50/60">
+            <AlertDescription className="text-[11px] text-red-800">
+              Les estimations isolées sont indisponibles — {errorMessage(pricingRunsQuery.error)}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {formMode !== "none" ? (
           <ScenarioForm
@@ -1359,8 +1490,13 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
           const scenarioLinks = linksByScenario.get(scenario.id) ?? [];
           const isSelected = openSelection?.scenario_id === scenario.id;
           const isPending = submitting && pendingId === scenario.id;
+          const isPricingPending = pricingMutation.isPending && pendingPricingId === scenario.id;
           const revisable = canReviseScenario(scenario);
           const selectable = canSelectScenario(scenario);
+          const latestPricing = latestPricingByScenario.get(scenario.id) ?? null;
+          const canPriceScenario = isSelected &&
+            !["blocked", "superseded", "promoted_to_final"].includes(scenario.status) &&
+            !scenario.superseded_by_scenario_id;
           const fields = projectScopeFields(scenario.scope_snapshot);
           const headline = fields
             .filter((f) =>
@@ -1470,16 +1606,86 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
                 </div>
               ) : null}
 
+              {latestPricing ? (
+                <div className="mt-2 rounded-md border border-violet-200 bg-violet-50/40 p-2 space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Calculator className="h-3.5 w-3.5 text-violet-700" />
+                      <span className="text-[11px] font-medium text-violet-950">
+                        Estimation isolée · exécution {latestPricing.run_seq}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${PRICING_STATUS_CLASSES[latestPricing.status] ?? ""}`}
+                      >
+                        {SCENARIO_PRICING_STATUS_LABELS[latestPricing.status]}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {SCENARIO_PRICING_QUALIFICATION_LABELS[latestPricing.qualification]}
+                      </Badge>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatLocalDate(latestPricing.completed_at)}
+                    </span>
+                  </div>
+
+                  {latestPricing.status === "success" ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div className="rounded border border-emerald-200 bg-white/70 p-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Socle ferme démontré
+                        </p>
+                        <p className="font-medium text-emerald-800">
+                          HT {formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}
+                          {" · "}TTC {formatScenarioPricingAmount(latestPricing.firm_total_ttc, latestPricing.currency)}
+                        </p>
+                      </div>
+                      <div className="rounded border border-violet-200 bg-white/70 p-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Total indicatif avec hypothèses
+                        </p>
+                        <p className="font-medium text-violet-900">
+                          HT {formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)}
+                          {" · "}TTC {formatScenarioPricingAmount(latestPricing.indicative_total_ttc, latestPricing.currency)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(() => {
+                    const blockers = readScenarioPricingCodes(latestPricing.blockers);
+                    const reservations = readScenarioPricingCodes(latestPricing.reservations);
+                    const codes = Array.from(new Set([...blockers, ...reservations]));
+                    return codes.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {codes.map((code) => (
+                          <Badge key={code} variant="outline" className="text-[10px] bg-white/70">
+                            {code}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+
+                  <p className="text-[10px] text-muted-foreground">
+                    {countScenarioAssumptions(latestPricing.assumptions_snapshot)} hypothèse(s) appliquée(s).
+                    Résultat interne uniquement : aucune version, aucun PDF, aucun email.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                 <span>Créé le {formatLocalDate(scenario.created_at)}</span>
                 {scenario.supersedes_scenario_id ? <span>Révision d'une version antérieure</span> : null}
                 {isSelected && openSelection ? (
                   <span>Sélectionné le {formatLocalDate(openSelection.selected_at)}</span>
                 ) : null}
-                <span>Aucun prix calculé</span>
+                <span>
+                  {latestPricing ? "Estimation isolée disponible" : "Aucune estimation isolée"}
+                </span>
               </div>
 
-              {formMode === "none" && (revisable || selectable) ? (
+              {formMode === "none" && (revisable || selectable || canPriceScenario) ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {revisable ? (
                     <Button
@@ -1507,6 +1713,22 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
                         <Check className="h-3 w-3 mr-1" />
                       )}
                       Sélectionner
+                    </Button>
+                  ) : null}
+                  {canPriceScenario ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[11px] border-violet-300 text-violet-800"
+                      disabled={submitting || pricingMutation.isPending || pricingRunsQuery.isLoading}
+                      onClick={() => runScenarioPricing(scenario)}
+                    >
+                      {isPricingPending ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Calculator className="h-3 w-3 mr-1" />
+                      )}
+                      Estimer isolément
                     </Button>
                   ) : null}
                 </div>
