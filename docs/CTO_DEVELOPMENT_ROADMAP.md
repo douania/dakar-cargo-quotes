@@ -12,9 +12,9 @@ Il sert à :
 - définir les tests, risques, conditions d'arrêt et autorisations nécessaires ;
 - permettre à une nouvelle session de reprendre sans dépendre de l'historique d'une conversation.
 
-Statut produit au 28 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 ; GO pour démarrer P1-A2 localement ; NO-GO maintenu pour une production générale**.
+Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée, de P1-A1 et de P1-A2 Git + Lovable runtime ; audit P1-A3 PASS read-only ; NO-GO maintenu pour une production générale**.
 
-La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
+La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. P1-A2 fournit désormais sur Git et Lovable l'objet scénario versionné, sa sélection et sa comparaison, sans pricing ni promotion ; sa recette authentifiée et son nettoyage sont PASS. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
 
 ## 2. Sources de vérité et règles d'autorité
 
@@ -23,7 +23,7 @@ La reconstruction et la réconciliation des migrations sont terminées. Le parco
 - Source statique principale : GitHub, branche `work`.
 - Runtime canonique : Lovable Cloud.
 - Projet Lovable : `c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef` (`dakotation-pro` / Dakar Cargo Quotes).
-- État applicatif Git/Lovable vérifié le 28 août 2026 : dépôt local `work`, `origin/work` et Lovable alignés sur `b89d363fde65d2de482870dcf6a9700ddad7a894` ; seul le présent suivi documentaire est modifié localement. Le commit automatique `d1633447` régénère exclusivement les types Supabase correspondant à la migration P1-A1, et son merge Lovable `b89d363f` est accepté comme mécanisme bénin et déterministe.
+- État applicatif Git/Lovable vérifié le 29 août 2026 : P1-A2 a été commité/poussé sous `856db09929abe0d4f1c5f5297fae3da17d3fddf9`. La génération Lovable prématurée `6a708984`/`5ec097b7` a d'abord retiré les types P1-A2 parce que le schéma live n'était pas encore migré. Après application de la migration exacte, Lovable a régénéré les types cohérents sous `7aef67d3` puis le merge `a590c21c22f87f2d1a5590dfc1e64a291014e643`. Hors présente mise à jour documentaire, dépôt local `work`, `origin/work` et Lovable sont alignés sur `a590c21c`.
 - Preview observée : `https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app`.
 - État Lovable observé : projet privé, prêt, authentification visible, non publié.
 
@@ -545,7 +545,7 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 
 ### PACK P1-A — scénarios et hypothèses opérateur
 
-État au 28 août 2026 : **P1-A1 PASS Git + Lovable runtime ; P1-A2 à P1-A5 restent à développer**.
+État au 29 août 2026 : **P1-A1 et P1-A2 PASS Git + Lovable runtime avec nettoyage ; audit P1-A3 PASS read-only ; P1-A3 à P1-A5 restent à développer**.
 
 #### P1-A1 — ledger d'hypothèses durci : **PASS / NETTOYAGE PASS**
 
@@ -559,9 +559,30 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Protections runtime : mutation inter-dossiers refusée par `FORBIDDEN_CROSS_CASE` ; promotion vers `quote_facts` refusée par `PROMOTION_NOT_ALLOWED` ; zéro `quote_fact` créé ; identités obligatoires présentes ; aucune policy d'écriture directe ; `authenticated` n'a ni INSERT/UPDATE/DELETE ni EXECUTE sur la RPC ; `service_role` n'a pas de mutation directe sur la table et dispose uniquement de l'EXECUTE RPC ; RLS active sur le ledger et le registre.
 - Nettoyage final strict : les deux dossiers sandbox, les trois hypothèses, les cinq mutations et les cinq événements ont été supprimés par cascade gardée ; zéro ligne résiduelle pour leurs identifiants.
 
+#### P1-A2 — objet scénario versionné : **PASS GIT + LOVABLE RUNTIME / NETTOYAGE PASS**
+
+- Nouvelle migration locale `20260828200000_create_quote_scenarios_p1a2.sql` : tables `quote_scenarios`, `quote_scenario_links`, `quote_scenario_selections` et registre append-only `quote_scenario_mutations` ; périmètre immuable et hashé, chaîne de révision/supersession, au plus une sélection ouverte par dossier, RLS et privilèges minimaux.
+- Schéma de périmètre fermé v1 vérifié aux trois niveaux frontend, Edge et PostgreSQL : vocabulaire borné, 1 à 12 lots, références métier anonymes, aucune clé monétaire, aucun UUID métier, aucun décimal, aucune clé inconnue. Les points ouverts sont dérivés par la base et ne peuvent pas être forgés par le client ou l'Edge Function.
+- Nouvelle Edge Function locale `manage-quote-scenario`, seule voie d'écriture : Auth obligatoire, contrôle du dossier sous JWT/RLS avant élévation service-role, validation stricte, fingerprint serveur, RPC atomique service-role-only. Opérations P1-A2 exclusivement : `create`, `revise`, `select`.
+- Nouveau panneau opérateur : saisie structurée des périmètres air, maritime, route et multimodal ; LoLo/RoRo/ConRo purement descriptifs ; création, révision immuable, sélection séparée, comparaison lisible par `unit_ref`, hypothèses/réserves liées et points ouverts persistés. Aucune écriture directe Supabase, aucun dump JSON libre, aucun bouton de pricing, promotion, finalisation, devis, PDF ou email.
+- Idempotence UI renforcée pendant la contre-revue : une relance après réponse réseau perdue réutilise la même clé tant que l'opération, la cible et le contenu logique n'ont pas changé ; une modification produit une nouvelle identité de mutation.
+- Six profils anonymisés représentatifs verrouillés par tests : FCL LoLo, aérien, réexport, transit multimodal/multi-destination, dangereux et cross-trade. Aucun email, nom client, pièce jointe ou donnée réelle n'est conservé dans les fixtures.
+- Preuves locales avant et après réconciliation Git/Lovable : reset complet des 208 migrations PASS ; 93 configurations Edge PASS ; typecheck frontend PASS ; **183 tests frontend PASS**, dont 55 P1-A2 ; baseline Deno inchangée à 65 diagnostics/7 groupes ; **733 tests Deno PASS et 6 ignorés**, dont 39 P1-A2 ; lint baseline inchangée à 756 erreurs/27 warnings ; build production PASS avec l'avertissement de taille de bundle préexistant.
+- Probes PostgreSQL 17.6 réelles : création/rejeu idempotent, révision sur une nouvelle ligne, supersession réciproque, libération de la sélection sans sélection automatique du successeur, nouvelle sélection, refus inter-dossiers et refus de réviser une version remplacée. Deux appels réellement concurrents avec la même clé ont produit exactement un scénario, une mutation et un événement. Toutes les fixtures ont été annulées ou supprimées ; compteurs résiduels à zéro.
+- Publication Git : commit atomique `856db09929abe0d4f1c5f5297fae3da17d3fddf9` poussé sur `work` après CI et contre-revue Claude Code Opus xhigh PASS.
+- Migration Lovable : version exacte `20260828200000` appliquée en transaction depuis le fichier Git de **100 014 octets**, SHA-256 `44446cbf2b14b2d7f432aa4c9a170e91031a3bb8dc2b683d5f064f8b50c26842`, puis enregistrée avec son SQL complet dans `supabase_migrations.schema_migrations`. Présence vérifiée des quatre tables, des validateurs, de la RPC, de la RLS et des privilèges minimaux.
+- Déploiement Lovable limité à `manage-quote-scenario` : `OPTIONS` retourne 200 et `GET` non authentifié retourne 401. Le projet reste privé et non publié. La régénération de types post-migration `7aef67d3`/`a590c21c` restaure les tables P1-A2 et ajoute les signatures des validateurs, sans autre fichier applicatif.
+- Recette authentifiée Chrome : création d'une révision 1 LoLo ; révision 2 sur une nouvelle ligne avec supersession immuable ; sélection séparée ; comparaison identique ; révision 3 ajoutant l'alternative de destination `dest-b` ; comparaison affichant précisément `Destination · Alternatives` ; libération automatique de l'ancienne sélection par `superseded_by_revision` ; sélection séparée de la révision 3. À chaque étape, l'UI affiche explicitement `Aucun prix calculé`.
+- Idempotence runtime : rejeu du `select` avec la même clé et le même fingerprint retournant `idempotent_replay=true` sans nouvelle mutation ; même clé avec un fingerprint différent rejetée par `IDEMPOTENCY_CONFLICT`. Registre final avant nettoyage : 1 `create`, 2 `revise`, 2 `select`, chaque opération avec une clé distincte.
+- Isolation runtime : insertion de sélection reliant le deuxième dossier sandbox au scénario du premier rejetée par `FORBIDDEN_CROSS_CASE`. RLS active sur les quatre tables ; `authenticated` dispose de SELECT mais d'aucun INSERT/UPDATE/DELETE et n'a pas EXECUTE sur la RPC ; `service_role` possède l'EXECUTE RPC.
+- Invariants métier : trois scénarios chaînés 1→2→3 ; les révisions 1 et 2 sont `superseded`, la révision 3 reste `draft` ; changement de hash uniquement lors du changement réel de périmètre. Zéro `quote_fact`, zéro `pricing_run` et zéro `quotation_version` pour la recette.
+- Nettoyage final strict : suppression exacte des deux dossiers sandbox et cascade vérifiée sur toutes les tables publiques portant `case_id` ou `quote_case_id`. **Zéro résidu dans 27 tables contrôlées**. Aucun email, tarif, Auth, déploiement supplémentaire ou publication publique.
+
+Audit P1-A3 read-only du 29 août 2026 : **PASS sous arbitrages CTO**. Unité recommandée : une hypothèse par promotion explicite, jamais un périmètre complet ; allowlist descriptive fermée et sans clé monétaire ; RPC service-role-only atomique et idempotente ; registre append-only et timeline ; provenance dans `value_json`; écriture du fait avec `source_type='manual_input'` afin de conserver la protection existante contre l'écrasement par `build-case-puzzle`. Aucun pricing, aucune promotion automatique et aucun composant FROZEN à modifier. Avant patch, valider explicitement l'exclusion des clés monétaires, l'effet indirect de résolution au prochain `build-case-puzzle` et l'absence de dé-promotion en P1-A3.
+
 #### Suite canonique P1-A
 
-- **P1-A2 — objet scénario** : périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
+- **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
 - **P1-A3 — promotion explicite** : RPC atomique, provenance complète et garde par type de fait ; aucun automatisme.
 - **P1-A4 — pricing isolé par scénario** : exception FROZEN explicite, aucun écrit dans `quote_facts`, double total et provenance.
 - **P1-A5 — versions/PDF/email** : scénario, hypothèses et réserves visibles, puis recette sandbox sans email réel.
@@ -688,7 +709,7 @@ Ordre recommandé, chaque pack nécessitant son propre périmètre et son GO CTO
 4. **P0-D** — validation des référentiels tarifaires. Volet technique P0-D-1 (reconstruction Git de la quarantaine live) appliqué ; volet métier en parallèle organisationnel uniquement si aucun patch technique concurrent n'est appliqué.
 5. **P0-E** — recette authentifiée de bout en bout.
 6. Verdict CTO de fin de P0 : GO/NO-GO pilote, distinct d'un GO publication.
-7. **P1-A** — scénarios et hypothèses : P1-A1 terminé ; prochain lot P1-A2.
+7. **P1-A** — scénarios et hypothèses : P1-A1 et P1-A2 terminés et recettés ; audit P1-A3 PASS read-only, patch non démarré.
 8. **P1-B** — confirmation des propositions maritimes.
 9. **P1-C** — conception puis implémentation de `final_request_state`.
 10. **P1-D** — médiation backend, un parcours à la fois.
