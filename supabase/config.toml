@@ -286,3 +286,6 @@ verify_jwt = false
 
 [functions.manage-scenario-assumption]
 verify_jwt = false
+
+[functions.manage-quote-scenario]
+verify_jwt = false

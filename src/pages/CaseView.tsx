@@ -79,6 +79,7 @@ import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
 import { ReadyActionsPanel } from "@/components/case/ReadyActionsPanel";
 import { QuoteScenarioAssumptionsPanel } from "@/components/case/QuoteScenarioAssumptionsPanel";
+import { QuoteScenariosPanel } from "@/components/case/QuoteScenariosPanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
@@ -1797,6 +1798,9 @@ export default function CaseView() {
 
         {/* Phase PROVISIONAL-SCENARIO-QUOTES-UI-1A: read-only operator assumptions ledger */}
         {caseId && <QuoteScenarioAssumptionsPanel caseId={caseId} />}
+
+        {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
+        {caseId && <QuoteScenariosPanel caseId={caseId} />}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
