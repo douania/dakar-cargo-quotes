@@ -30,6 +30,21 @@ export interface ScenarioPricingEdgeData {
   idempotent_replay: boolean;
 }
 
+export interface ScenarioQuotationOutputSummary {
+  id: string;
+  scenario_pricing_run_id: string;
+  snapshot: unknown;
+  created_at: string;
+}
+
+export interface ScenarioQuotationOutputEdgeData {
+  version_id: string;
+  version_number: number;
+  scenario_reference: string;
+  qualification: "provisional" | "partial";
+  idempotent_replay: boolean;
+}
+
 export const SCENARIO_PRICING_STATUS_LABELS: Record<ScenarioPricingStatus, string> = {
   success: "Calcul terminé",
   blocked: "Calcul bloqué",
@@ -52,6 +67,20 @@ export function scenarioPricingMutationSignature(
   scopeHash: string,
 ): string {
   return `${caseId}:${scenarioId}:${scopeHash}`;
+}
+
+export function scenarioOutputMutationSignature(
+  caseId: string,
+  scenarioId: string,
+  pricingRunId: string,
+): string {
+  return `${caseId}:${scenarioId}:${pricingRunId}:output`;
+}
+
+export function scenarioOutputsByPricingRun(
+  outputs: ScenarioQuotationOutputSummary[],
+): Map<string, ScenarioQuotationOutputSummary> {
+  return new Map((outputs ?? []).map((output) => [output.scenario_pricing_run_id, output]));
 }
 
 export function latestScenarioPricingRuns(
@@ -114,6 +143,28 @@ export function readScenarioPricingEdgeData(raw: unknown): ScenarioPricingEdgeDa
     status: data.status as ScenarioPricingEdgeData["status"],
     qualification: data.qualification as ScenarioPricingQualification,
     blockers: readScenarioPricingCodes(data.blockers),
+    idempotent_replay: data.idempotent_replay === true,
+  };
+}
+
+export function readScenarioOutputEdgeData(raw: unknown): ScenarioQuotationOutputEdgeData | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const envelope = raw as { ok?: unknown; data?: unknown };
+  if (envelope.ok !== true || typeof envelope.data !== "object" || envelope.data === null) {
+    return null;
+  }
+  const data = envelope.data as Record<string, unknown>;
+  if (
+    typeof data.version_id !== "string" ||
+    typeof data.version_number !== "number" || data.version_number >= 0 ||
+    typeof data.scenario_reference !== "string" ||
+    !["provisional", "partial"].includes(String(data.qualification))
+  ) return null;
+  return {
+    version_id: data.version_id,
+    version_number: data.version_number,
+    scenario_reference: data.scenario_reference,
+    qualification: data.qualification as "provisional" | "partial",
     idempotent_replay: data.idempotent_replay === true,
   };
 }

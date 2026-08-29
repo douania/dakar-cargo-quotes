@@ -17,6 +17,10 @@ import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import {
+  isScenarioOutputSnapshot,
+  readScenarioOutputContext,
+} from "../_shared/scenario-output.ts";
+import {
   getCorrelationId, respondOk, respondError, logRuntimeEvent,
   getStatusFromErrorCode, type ErrorCode,
 } from "../_shared/runtime.ts";
@@ -47,6 +51,27 @@ function sanitize(text: string): string {
     .replace(/\u00E7/g, 'c')           // ç
     // eslint-disable-next-line no-control-regex -- intentional: rejects chars outside Latin-1 range for PDF safety
     .replace(/[^\x00-\xFF]/g, '?');    // catch-all: replace anything outside Latin-1
+}
+
+function wrapPdfText(text: string, maxChars = 92): string[] {
+  const words = sanitize(text).trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const originalWord of words) {
+    let word = originalWord;
+    if (current && current.length + 1 + word.length > maxChars) {
+      lines.push(current);
+      current = "";
+    }
+    while (word.length > maxChars) {
+      lines.push(word.slice(0, maxChars));
+      word = word.slice(maxChars);
+    }
+    current = current ? `${current} ${word}` : word;
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [""];
 }
 
 function formatAmount(amount: number): string {
@@ -211,6 +236,7 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   const primary = rgb(0.1, 0.3, 0.6);
   const draftRed = rgb(0.8, 0.2, 0.2);
   const lotBg = rgb(0.93, 0.95, 0.98);
+  const scenarioContext = readScenarioOutputContext(snapshot);
 
   // Column positions for services table
   const colService = margin;
@@ -299,15 +325,20 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   y -= lineHeight;
 
   const shortId = caseId.substring(0, 8).toUpperCase();
-  currentPage.drawText(sanitize(`DEVIS N° QC-${shortId}`), {
+  const documentTitle = scenarioContext
+    ? `ESTIMATION DE SCENARIO ${scenarioContext.reference}`
+    : `DEVIS N° QC-${shortId}`;
+  currentPage.drawText(sanitize(documentTitle), {
     x: margin, y, size: 14, font: fontBold, color: black,
   });
 
-  const versionText = `v${snapshot.meta?.version_number || 1}`;
-  currentPage.drawText(`[${versionText}]`, {
-    x: PAGE_W - margin - 140, y, size: 10, font: fontBold, color: primary,
-  });
-  currentPage.drawText('[DRAFT]', {
+  if (!scenarioContext) {
+    const versionText = `v${snapshot.meta?.version_number || 1}`;
+    currentPage.drawText(`[${versionText}]`, {
+      x: PAGE_W - margin - 140, y, size: 10, font: fontBold, color: primary,
+    });
+  }
+  currentPage.drawText(scenarioContext ? '[TRAVAIL]' : '[DRAFT]', {
     x: PAGE_W - margin - 80, y, size: 12, font: fontBold, color: draftRed,
   });
   y -= lineHeight;
@@ -322,7 +353,24 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
   const amberColor = rgb(0.85, 0.55, 0.0);
   const qualGray = rgb(0.45, 0.45, 0.55);
 
-  if (qualification.level === "provisional") {
+  if (scenarioContext) {
+    ensureSpace(lineHeight * 3 + 10);
+    currentPage.drawRectangle({
+      x: margin, y: y - lineHeight * 2 - 5, width: PAGE_W - 2 * margin, height: lineHeight * 2 + 10,
+      color: rgb(1, 0.93, 0.86),
+    });
+    currentPage.drawText(
+      scenarioContext.qualification === "partial"
+        ? 'ESTIMATION DE SCENARIO PARTIELLE - NON FERME'
+        : 'ESTIMATION DE SCENARIO PROVISOIRE - NON FERME',
+      { x: margin + 5, y, size: 11, font: fontBold, color: draftRed },
+    );
+    y -= lineHeight;
+    currentPage.drawText('Document de travail : ne constitue pas une offre definitive.', {
+      x: margin + 5, y, size: 9, font, color: draftRed,
+    });
+    y -= sectionGap;
+  } else if (qualification.level === "provisional") {
     ensureSpace(lineHeight * 3 + 10);
     currentPage.drawRectangle({
       x: margin, y: y - lineHeight * 2 - 5, width: PAGE_W - 2 * margin, height: lineHeight * 2 + 10,
@@ -351,6 +399,37 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     // firm — discreet label
     currentPage.drawText('Qualification : Devis ferme', { x: margin, y, size: 8, font, color: gray });
     y -= sectionGap;
+  }
+
+  if (scenarioContext) {
+    ensureSpace(lineHeight * 8);
+    currentPage.drawText('SCENARIO ET RESERVES', {
+      x: margin, y, size: 11, font: fontBold, color: primary,
+    });
+    y -= lineHeight;
+    currentPage.drawText(sanitize(`${scenarioContext.title} - revision ${scenarioContext.revisionNo} - calcul ${scenarioContext.runSeq}`), {
+      x: margin, y, size: 9, font, color: black,
+    });
+    y -= lineHeight;
+
+    const drawScenarioList = (heading: string, values: string[]) => {
+      if (values.length === 0) return;
+      ensureSpace(lineHeight * 2);
+      currentPage.drawText(sanitize(heading), { x: margin, y, size: 9, font: fontBold, color: gray });
+      y -= lineHeight;
+      for (const value of values) {
+        const wrapped = wrapPdfText(`- ${value}`);
+        for (const line of wrapped) {
+          ensureSpace(lineHeight);
+          currentPage.drawText(line, { x: margin + 10, y, size: 8, font, color: black });
+          y -= lineHeight;
+        }
+      }
+    };
+    drawScenarioList('Hypotheses appliquees', scenarioContext.assumptions);
+    drawScenarioList('Elements sous reserve', scenarioContext.reservations);
+    drawScenarioList('Elements exclus du socle documente', scenarioContext.exclusions);
+    y -= sectionGap / 2;
   }
 
   // === CLIENT ===
@@ -486,7 +565,23 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     thickness: 1, color: primary,
   });
   y -= 5;
-  if (totalPresentation.isDetailed) {
+  if (scenarioContext) {
+    currentPage.drawText(sanitize(`SOCLE DOCUMENTE HT: ${formatAmount(scenarioContext.firmTotalHt)} ${scenarioContext.currency}`), {
+      x: margin, y, size: 10, font: fontBold, color: black,
+    });
+    y -= lineHeight;
+    currentPage.drawText(sanitize(`SOCLE DOCUMENTE TTC: ${formatAmount(scenarioContext.firmTotalTtc)} ${scenarioContext.currency}`), {
+      x: margin, y, size: 10, font: fontBold, color: black,
+    });
+    y -= lineHeight;
+    currentPage.drawText(sanitize(`TOTAL INDICATIF HT (NON FERME): ${formatAmount(scenarioContext.indicativeTotalHt)} ${scenarioContext.currency}`), {
+      x: margin, y, size: 11, font: fontBold, color: draftRed,
+    });
+    y -= lineHeight;
+    currentPage.drawText(sanitize(`TOTAL INDICATIF TTC (NON FERME): ${formatAmount(scenarioContext.indicativeTotalTtc)} ${scenarioContext.currency}`), {
+      x: margin, y, size: 12, font: fontBold, color: draftRed,
+    });
+  } else if (totalPresentation.isDetailed) {
     const subtotalLabel = getTotalLabel(qualification).replace('TOTAL HT', 'SOUS-TOTAL AVANT TVA SODATRA');
     currentPage.drawText(sanitize(`${subtotalLabel}: ${formatAmount(totalPresentation.subtotalBeforeSodatraVat)} ${totalPresentation.currency}`), {
       x: margin, y, size: 10, font: fontBold, color: black,
@@ -514,11 +609,15 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     thickness: 2, color: draftRed,
   });
   y -= 5;
-  currentPage.drawText('*** DRAFT - DOCUMENT DE TRAVAIL ***', {
+  currentPage.drawText(scenarioContext
+    ? '*** ESTIMATION DE SCENARIO - DOCUMENT DE TRAVAIL ***'
+    : '*** DRAFT - DOCUMENT DE TRAVAIL ***', {
     x: margin, y, size: 12, font: fontBold, color: draftRed,
   });
   y -= lineHeight;
-  currentPage.drawText('Non contractuel - A valider avant envoi au client', {
+  currentPage.drawText(scenarioContext
+    ? 'Non contractuel - Ne pas presenter comme une offre ferme'
+    : 'Non contractuel - A valider avant envoi au client', {
     x: margin, y, size: 10, font: fontBold, color: draftRed,
   });
   y -= lineHeight;
@@ -599,7 +698,7 @@ Deno.serve(async (req) => {
     // --- Load version via userClient (RLS ownership check) ---
     const { data: version, error: versionError } = await userClient
       .from('quotation_versions')
-      .select('id, case_id, version_number, status, snapshot')
+      .select('id, case_id, version_number, status, snapshot, source_kind, scenario_pricing_run_id')
       .eq('id', version_id)
       .maybeSingle();
 
@@ -640,9 +739,21 @@ Deno.serve(async (req) => {
       return respondError({ code: 'VALIDATION_FAILED', message: 'Quote case not found', correlationId });
     }
 
-    // Phase 19B C3: Allow QUOTED_VERSIONED and SENT (SENT = read-only idempotent)
+    const scenarioContext = readScenarioOutputContext(version.snapshot);
+    const isScenarioOutput = version.source_kind === 'scenario';
+    if (isScenarioOutput !== isScenarioOutputSnapshot(version.snapshot) ||
+        (isScenarioOutput && !scenarioContext)) {
+      return respondError({
+        code: 'CONFLICT_INVALID_STATE',
+        message: 'Scenario output provenance or snapshot is invalid',
+        correlationId,
+      });
+    }
+
+    // Canonical PDF keeps its historical FSM. A scenario output stays outside
+    // that FSM, but must still point to the latest live successful scenario run.
     const ALLOWED_EXPORT_STATUSES = ['QUOTED_VERSIONED', 'SENT'];
-    if (!ALLOWED_EXPORT_STATUSES.includes(caseData.status)) {
+    if (!isScenarioOutput && !ALLOWED_EXPORT_STATUSES.includes(caseData.status)) {
       await logRuntimeEvent(serviceClient, {
         correlationId, functionName: FUNCTION_NAME, op: 'guard_fsm',
         userId, status: 'fatal_error', errorCode: 'CONFLICT_INVALID_STATE',
@@ -654,6 +765,18 @@ Deno.serve(async (req) => {
         message: `Case status must be one of ${ALLOWED_EXPORT_STATUSES.join(', ')}, got ${caseData.status}`,
         correlationId,
       });
+    }
+
+    if (isScenarioOutput) {
+      const { error: scenarioCurrentError } = await serviceClient
+        .rpc('assert_scenario_quotation_version_current', { p_version_id: version.id });
+      if (scenarioCurrentError) {
+        return respondError({
+          code: 'CONFLICT_INVALID_STATE',
+          message: 'Scenario output is stale, superseded, changed or no longer selected',
+          correlationId,
+        });
+      }
     }
 
     // --- Snapshot check ---
@@ -708,7 +831,7 @@ Deno.serve(async (req) => {
     }
 
     // Phase 19B C3-A: SENT without existing doc = cannot generate new PDF
-    if (caseData.status === 'SENT') {
+    if (!isScenarioOutput && caseData.status === 'SENT') {
       await logRuntimeEvent(serviceClient, {
         correlationId, functionName: FUNCTION_NAME, op: 'guard_sent_generation',
         userId, status: 'fatal_error', errorCode: 'CONFLICT_INVALID_STATE',
@@ -728,7 +851,10 @@ Deno.serve(async (req) => {
 
     // Storage path (versioned, non-overwriting)
     const timestamp = Date.now();
-    const filePath = `QC-${version.case_id}/v${version.version_number}/draft-${timestamp}.pdf`;
+    const safeScenarioRef = scenarioContext?.reference.replace(/[^A-Za-z0-9_-]/g, '_');
+    const filePath = scenarioContext
+      ? `QC-${version.case_id}/scenarios/${safeScenarioRef}/draft-${timestamp}.pdf`
+      : `QC-${version.case_id}/v${version.version_number}/draft-${timestamp}.pdf`;
 
     // --- Upload to storage ---
     const { error: uploadError } = await serviceClient.storage

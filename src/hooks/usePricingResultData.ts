@@ -58,6 +58,17 @@ interface UsePricingResultDataReturn {
   refetchPricingRun: () => Promise<void>;
 }
 
+function isScenarioOutputSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const meta = (value as Record<string, unknown>).meta;
+  return Boolean(
+    meta &&
+    typeof meta === 'object' &&
+    !Array.isArray(meta) &&
+    (meta as Record<string, unknown>).source_kind === 'scenario'
+  );
+}
+
 export function usePricingResultData(caseId: string | undefined, refreshToken?: number): UsePricingResultDataReturn {
   const [pricingRun, setPricingRun] = useState<PricingRun | null>(null);
   const [versions, setVersions] = useState<QuotationVersion[]>([]);
@@ -108,7 +119,11 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
         .order('version_number', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setVersions(data || []);
+      // P1-A5 : les sorties de travail scénario partagent l'enveloppe DB pour
+      // PDF/email mais ne sont jamais des versions canoniques sélectionnables.
+      setVersions((data || []).filter((version) =>
+        !isScenarioOutputSnapshot(version.snapshot)
+      ));
     } catch (err) {
       console.error('Error loading versions:', err);
       setError(err instanceof Error ? err.message : 'Failed to load versions');

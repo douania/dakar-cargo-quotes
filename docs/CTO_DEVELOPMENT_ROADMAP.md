@@ -12,9 +12,9 @@ Il sert à :
 - définir les tests, risques, conditions d'arrêt et autorisations nécessaires ;
 - permettre à une nouvelle session de reprendre sans dépendre de l'historique d'une conversation.
 
-Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 à P1-A3 Git + Lovable runtime avec nettoyage ; P1-A4 PASS local non publié ; NO-GO maintenu pour une production générale**.
+Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 à P1-A4 Git + Lovable runtime avec nettoyage ; P1-A5 PASS local non publié ; NO-GO maintenu pour une production générale**.
 
-La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. P1-A2 fournit sur Git et Lovable l'objet scénario versionné, sa sélection et sa comparaison, sans pricing. P1-A3 ajoute la promotion explicite, unitaire et attestée d'une hypothèse vers un fait non monétaire ; sa recette authentifiée, ses refus fail-closed et son nettoyage sont PASS. P1-A4 fournit localement un ledger et un calcul de pricing isolés par scénario, sans contamination des faits ni du pricing canonique ; sa publication Git/Lovable et sa recette monétaire restent à autoriser. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
+La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. P1-A2 fournit sur Git et Lovable l'objet scénario versionné, sa sélection et sa comparaison, sans pricing. P1-A3 ajoute la promotion explicite, unitaire et attestée d'une hypothèse vers un fait non monétaire. P1-A4 fournit sur Git et Lovable un ledger et un calcul de pricing isolés par scénario, sans contamination des faits ni du pricing canonique. P1-A5 fournit localement des sorties de travail versionnées, PDF et brouillons non envoyés qui exposent le scénario, les hypothèses, exclusions, réserves et doubles totaux sans jamais devenir un devis canonique ou ferme ; sa publication et sa recette Lovable restent à autoriser. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
 
 ## 2. Sources de vérité et règles d'autorité
 
@@ -23,7 +23,7 @@ La reconstruction et la réconciliation des migrations sont terminées. Le parco
 - Source statique principale : GitHub, branche `work`.
 - Runtime canonique : Lovable Cloud.
 - Projet Lovable : `c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef` (`dakotation-pro` / Dakar Cargo Quotes).
-- État applicatif Git/Lovable vérifié le 29 août 2026 : P1-A3 a été commité/poussé sous `7c131870a6882c06faddce19e3a8017353f82eff`. Après application de la migration exacte, Lovable a régénéré uniquement les types de `quote_fact_promotions` et des RPC P1-A3 sous `d28be610`, puis créé le merge bénin `f37d3b66491e9f5b78f91c2d66934fdc20977331`. Le commit documentaire `62be6aa510e5f4eec9d1b6fe4364e8eccfeea2ac` a ensuite enregistré la recette P1-A3. Hors modifications locales P1-A4, dépôt local `work`, `origin/work` et Lovable ont été vérifiés alignés sur `62be6aa5`.
+- État applicatif Git/Lovable vérifié le 29 août 2026 avant P1-A5 : dépôt local `work`, `origin/work` et Lovable alignés sur `986052a78b953b3e4be1702610921c8a17d908d6`, qui clôt la recette P1-A4. Les modifications P1-A5 décrites ci-dessous sont uniquement locales et non commitées.
 - Preview observée : `https://id-preview--c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef.lovable.app`.
 - État Lovable observé : projet privé, prêt, authentification visible, non publié.
 
@@ -545,7 +545,7 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 
 ### PACK P1-A — scénarios et hypothèses opérateur
 
-État au 29 août 2026 : **P1-A1, P1-A2 et P1-A3 PASS Git + Lovable runtime avec nettoyage ; P1-A4 PASS local non publié ; P1-A5 reste à développer**.
+État au 29 août 2026 : **P1-A1 à P1-A4 PASS Git + Lovable runtime avec nettoyage ; P1-A5 PASS local non publié**.
 
 #### P1-A1 — ledger d'hypothèses durci : **PASS / NETTOYAGE PASS**
 
@@ -618,16 +618,28 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Nettoyage final strict : les deux fils et dossiers fictifs, leurs faits, lignes de demande, scénarios, sélections, mutations et runs isolés ont été supprimés. Le FK live met `quote_cases.thread_id` à `NULL` lors de la suppression du fil ; la suppression gardée des deux dossiers fixes a donc été exécutée séparément. Contrôle dynamique de **29 tables** portant `case_id` ou `quote_case_id` : zéro résidu ; zéro fil, email ou scénario restant.
 - État d'autorité à la clôture runtime : branche locale `work`, `origin/work` et Lovable alignés sur `859d9fe9c30a3253af0ed14d6801b0392afeae50` avant le commit documentaire final ; worktree applicatif propre, preview privée et projet non publié.
 
+#### P1-A5 — versions/PDF/brouillons de scénario : **PASS LOCAL / NON PUBLIÉ**
+
+- Migration locale `20260829230000_create_scenario_outputs_p1a5.sql` : extension additive de `quotation_versions` avec provenance canonique/scénario mutuellement exclusive, registre d'idempotence interne deny-all, RPC de création atomique service-role-only et RPC de réattestation de fraîcheur. Une sortie scénario reste immuable, `draft`, non sélectionnable et non ferme.
+- Les numéros commerciaux canoniques restent positifs et ignorent les sorties scénario. Les sorties de travail utilisent un espace technique négatif distinct : aucune concurrence ne peut consommer ou collisionner un numéro de devis canonique.
+- Nouvelle Edge Function locale `generate-scenario-quotation-version` : Auth obligatoire, contrôle d'accès JWT/RLS avant élévation, scénario vivant sélectionné et `scope_hash` exact, dernier run réussi obligatoire, fingerprint serveur et idempotence forte. Toute évolution des faits, hypothèses, sélection ou scénario rend la sortie obsolète et bloque aussi son rejeu.
+- PDF et brouillon non envoyé relisent la provenance et réattestent la fraîcheur avant chaque usage. Ils affichent la référence et le titre du scénario, les hypothèses, exclusions, réserves, total ferme et total indicatif, avec une mention forte de document de travail non contractuel. L'enrichissement IA du brouillon scénario est refusé afin de préserver un contenu déterministe.
+- `send-quotation` refuse explicitement toute version dont `source_kind` n'est pas `canonical`. `select_quotation_version` et les triggers SQL bloquent également sélection, mutation ou promotion d'une sortie scénario. L'UI propose création, PDF et brouillon non envoyé, mais aucune action d'envoi.
+- Les listes de versions canoniques filtrent les sorties scénario. Aucun changement d'état du dossier, aucun écrit dans `quote_facts`, `pricing_runs` ou les tarifs, et aucun email réel. Les composants FROZEN `quotation-engine`, `run-pricing`, `build-case-puzzle` et `set-case-fact` sont intacts.
+- Preuves locales finales : **96 configurations Edge PASS** ; typecheck frontend PASS ; **218 tests frontend PASS** ; baseline Deno inchangée à 65 diagnostics/7 groupes ; **771 tests Deno PASS, 0 échec et 6 ignorés** ; lint baseline inchangée à 756 erreurs/27 warnings ; build production PASS avec l'avertissement de taille de bundle préexistant.
+- PostgreSQL local : reset intégral incluant la migration P1-A5 PASS. Assertions transactionnelles PASS pour forme de sortie, doubles totaux, lignes `TO_CONFIRM`, non-sélection, état dossier inchangé, absence de pricing/faits canoniques, idempotence, fraîcheur stricte, RLS/privilèges et nettoyage. Deux appels réellement concurrents ont produit exactement une version, une mutation et un événement ; résultats `false/true`, numéro scénario `-1`, prochain numéro canonique `1`, puis zéro résidu.
+- Claude Code Opus xhigh a été sollicité pour le patch principal mais sa limite de session était atteinte ; il n'a effectué aucune modification. Le patch local a été appliqué par Codex puis contre-revu et testé. Aucun commit, push, migration Lovable, déploiement, donnée runtime, email ou publication n'a été effectué.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
 - **P1-A3 — promotion explicite** : PASS Git + Lovable runtime et nettoyage ; flux unitaire, attesté, idempotent et non monétaire vérifié.
 - **P1-A4 — pricing isolé par scénario** : PASS Git + Lovable runtime et nettoyage ; aucun composant FROZEN modifié, aucun écrit dans `quote_facts` ni le pricing canonique, double total et provenance, mono-lot monétaire et multi-lot fail-closed recettés.
-- **P1-A5 — versions/PDF/email** : scénario, hypothèses et réserves visibles, puis recette sandbox sans email réel.
+- **P1-A5 — versions/PDF/email** : PASS local non publié ; sorties de travail non fermes, hypothèses/exclusions/réserves et doubles totaux visibles, envoi interdit.
 
 Périmètre restant :
 
-- **P1-A5 peut commencer** : génération de version/PDF/email identifiant clairement le scénario choisi, les hypothèses, exclusions et réserves, sans transformer un résultat provisoire ou partiel en offre ferme.
+- **P1-A5 doit être publié et recetté sous un GO CTO Git+runtime distinct** : commit/push atomique, migration Lovable exacte, déploiement limité aux fonctions concernées et au frontend privé, puis recette sandbox d'un résultat partiel et d'un résultat bloqué, création de brouillon sans envoi, refus d'envoi et nettoyage intégral.
 
 Tests obligatoires : RLS, rôles, idempotence, concurrence, provenance, supersession, absence d'écriture automatique dans `quote_facts`, isolation entre scénarios.
 
@@ -742,7 +754,7 @@ Ordre recommandé, chaque pack nécessitant son propre périmètre et son GO CTO
 4. **P0-D** — validation des référentiels tarifaires. Volet technique P0-D-1 (reconstruction Git de la quarantaine live) appliqué ; volet métier en parallèle organisationnel uniquement si aucun patch technique concurrent n'est appliqué.
 5. **P0-E** — recette authentifiée de bout en bout.
 6. Verdict CTO de fin de P0 : GO/NO-GO pilote, distinct d'un GO publication.
-7. **P1-A** — scénarios et hypothèses : P1-A1 à P1-A3 terminés et recettés ; P1-A4 PASS local à publier/recetter ; P1-A5 à traiter seulement après cette recette.
+7. **P1-A** — scénarios et hypothèses : P1-A1 à P1-A4 terminés et recettés ; P1-A5 PASS local à publier et recetter avant P1-B.
 8. **P1-B** — confirmation des propositions maritimes.
 9. **P1-C** — conception puis implémentation de `final_request_state`.
 10. **P1-D** — médiation backend, un parcours à la fois.

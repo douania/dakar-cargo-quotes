@@ -295,3 +295,6 @@ verify_jwt = false
 
 [functions.run-scenario-pricing]
 verify_jwt = false
+
+[functions.generate-scenario-quotation-version]
+verify_jwt = false

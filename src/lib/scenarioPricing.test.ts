@@ -4,6 +4,9 @@ import {
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
   readScenarioPricingEdgeData,
+  readScenarioOutputEdgeData,
+  scenarioOutputMutationSignature,
+  scenarioOutputsByPricingRun,
   scenarioPricingMutationSignature,
   type ScenarioPricingRunSummary,
 } from "./scenarioPricing";
@@ -77,5 +80,43 @@ describe("scenarioPricing P1-A4", () => {
   it("présente le XOF sans décimales et garde l'absence explicite", () => {
     expect(formatScenarioPricingAmount(null)).toBe("—");
     expect(formatScenarioPricingAmount(125000)).toContain("125");
+  });
+
+  it("indexe une sortie documentaire par run et lie son idempotence au run", () => {
+    const outputs = scenarioOutputsByPricingRun([{
+      id: "version-1",
+      scenario_pricing_run_id: "run-1",
+      snapshot: {},
+      created_at: "2026-08-29T23:00:00Z",
+    }]);
+    expect(outputs.get("run-1")?.id).toBe("version-1");
+    expect(scenarioOutputMutationSignature("case", "scenario", "run"))
+      .toBe("case:scenario:run:output");
+  });
+
+  it("valide la réponse de création d'une sortie non ferme", () => {
+    expect(readScenarioOutputEdgeData({
+      ok: true,
+      data: {
+        version_id: "version-1",
+        version_number: -1,
+        scenario_reference: "SC-ABC-R1-E2",
+        qualification: "partial",
+        idempotent_replay: false,
+      },
+    })).toMatchObject({ version_id: "version-1", qualification: "partial" });
+    expect(readScenarioOutputEdgeData({
+      ok: true,
+      data: {
+        version_id: "version-1",
+        version_number: 1,
+        scenario_reference: "SC-ABC-R1-E2",
+        qualification: "partial",
+      },
+    })).toBeNull();
+    expect(readScenarioOutputEdgeData({
+      ok: true,
+      data: { version_id: "version-1", qualification: "firm" },
+    })).toBeNull();
   });
 });

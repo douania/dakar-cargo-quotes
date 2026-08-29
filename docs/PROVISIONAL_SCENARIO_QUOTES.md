@@ -322,8 +322,9 @@ Les codes HS, valeurs, droits et taxes ne sont **pas** connus.
 - **Phase 1 — Hypothèses tracées** : **PASS Git + Lovable runtime** avec P1-A1 ; ledger typé, révisions, états terminaux et mutations contrôlées.
 - **Phase 2 — Scénarios comme objets** : **PASS Git + Lovable runtime** avec P1-A2 ; périmètre immuable, révisions, sélection, liens et comparaison, sans pricing.
 - **Phase 3 — Promotion explicite** : **PASS Git + Lovable runtime** avec P1-A3 ; flux opérateur unitaire et attesté, allowlist non monétaire, RPC atomique, provenance et garde anti-promotion automatique.
-- **Phase 4a — Pricing isolé par scénario** : **PASS local, Git/Lovable en attente** avec P1-A4 ; ledger séparé, double total, provenance, idempotence, aucune contamination des faits ou du pricing canonique et aucune qualification `firm`.
-- **Phase 4b — Cotation finale par périmètre** : reste à développer après la recette P1-A4 ; passage `provisional → firm` périmètre par périmètre, dossier complet débloqué uniquement quand tous les périmètres sont fermes.
+- **Phase 4a — Pricing isolé par scénario** : **PASS Git + Lovable runtime** avec P1-A4 ; ledger séparé, double total, provenance, idempotence, aucune contamination des faits ou du pricing canonique et aucune qualification `firm`.
+- **Phase 4b — Sorties de travail scénario** : **PASS local, Git/Lovable en attente** avec P1-A5 ; version immuable non sélectionnable, PDF et brouillon non envoyé exposant scénario, hypothèses, exclusions, réserves et doubles totaux, avec envoi explicitement interdit.
+- **Phase 5 — Cotation finale par périmètre** : reste à concevoir ; passage `provisional → firm` périmètre par périmètre, dossier complet débloqué uniquement quand tous les périmètres sont fermes.
 
 Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, zones FROZEN intactes (`quotation-engine`, `run-pricing`, `build-case-puzzle`, `set-case-fact`), idempotence, traçabilité et intégrité des données.
 
@@ -359,15 +360,16 @@ Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce do
 - ✅ représente un **scénario provisoire opérateur** comme un objet de premier rang et versionné (P1-A2, Git + Lovable) ;
 - ✅ tient un **assumption ledger réversible** et offre une promotion humaine, unitaire et attestée vers un fait non monétaire (P1-A1/P1-A3, Git + Lovable) ;
 - ✅ calcule sur Lovable un **pricing isolé par scénario** dans un ledger distinct, sans modifier `quote_facts`, `pricing_runs` ni l'état du dossier (P1-A4, Git + runtime privé recettés).
+- ✅ produit localement une **sortie de travail scénario** versionnée, un PDF et un brouillon non envoyé explicitant hypothèses, exclusions, réserves et doubles totaux, sans possibilité de sélection ou d'envoi (P1-A5 local, non publié).
 
 En revanche, **le système ne sait PAS encore** :
 
-- ❌ produire une version, un PDF ou un email identifiant le scénario, les hypothèses, les exclusions et les réserves (P1-A5) ;
+- ❌ utiliser ces sorties P1-A5 sur Lovable tant que la migration, les fonctions et le frontend n'ont pas été publiés puis recettés sous un GO CTO distinct ;
 - ❌ qualifier automatiquement un scénario `firm` ; P1-A4 est volontairement borné à `provisional`, `partial` ou `blocked` ;
 - ❌ rapprocher sûrement un périmètre multi-lot P1-A2 de plusieurs `quote_request_lines` sans une identité métier déterministe ; le comportement actuel est fail-closed ;
 - ❌ piloter un **déblocage progressif périmètre par périmètre** du dossier complet basé sur les statuts de scénarios.
 
-> Conséquence pratique : P1-A4 est disponible dans la preview privée pour une estimation interne isolée. Aucune cotation de scénario ne doit être présentée comme ferme. P1-A5 peut maintenant être engagé, mais doit préserver explicitement la qualification `provisional` / `partial` / `blocked` et interdire tout PDF ou email ambigu.
+> Conséquence pratique : P1-A4 est disponible dans la preview privée pour une estimation interne isolée. P1-A5 est PASS local mais absent du runtime Lovable. Aucune cotation de scénario ne doit être présentée comme ferme et aucun email de scénario ne peut être envoyé.
 
 ---
 

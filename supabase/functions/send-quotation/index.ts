@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     // 8. Load version via serviceClient
     const { data: versionData, error: versionError } = await serviceClient
       .from("quotation_versions")
-      .select("id, case_id, is_selected")
+      .select("id, case_id, is_selected, source_kind")
       .eq("id", version_id)
       .single();
 
@@ -150,6 +150,14 @@ Deno.serve(async (req) => {
     }
     if (versionData.case_id !== case_id) {
       return await fail(serviceClient, "VALIDATION_FAILED", "Version does not belong to this case", correlationId, t0, userId, { version_id, case_id });
+    }
+    if (versionData.source_kind !== "canonical") {
+      return await fail(
+        serviceClient,
+        "CONFLICT_INVALID_STATE",
+        "A scenario work output can never be marked as a sent quotation",
+        correlationId, t0, userId, { version_id, source_kind: versionData.source_kind },
+      );
     }
     if (!versionData.is_selected) {
       return await fail(serviceClient, "VALIDATION_FAILED", "Version is not the selected one", correlationId, t0, userId, { version_id });

@@ -16,6 +16,12 @@ import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
+import {
+  buildScenarioEmailBody,
+  buildScenarioEmailSubject,
+  isScenarioOutputSnapshot,
+  readScenarioOutputContext,
+} from "../_shared/scenario-output.ts";
 
 // ── Qualification types & helpers (Lot 3C — historical fallback) ─────────────
 
@@ -360,11 +366,14 @@ Deno.serve(async (req: Request) => {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false },
   });
+  const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false },
+  });
 
   // 4. Load quotation_versions via userClient (RLS)
   const { data: version, error: versionError } = await userClient
     .from("quotation_versions")
-    .select("id, version_number, snapshot, case_id")
+    .select("id, version_number, snapshot, case_id, source_kind, scenario_pricing_run_id")
     .eq("id", versionId)
     .eq("case_id", caseId)
     .maybeSingle();
@@ -375,6 +384,30 @@ Deno.serve(async (req: Request) => {
   }
   if (!version) {
     return errorResponse("Quotation version not found for this case", 404);
+  }
+
+  const snapshot = version.snapshot as Record<string, unknown> | null;
+  const scenarioContext = readScenarioOutputContext(snapshot);
+  const isScenarioOutput = version.source_kind === "scenario";
+  if (isScenarioOutput !== isScenarioOutputSnapshot(snapshot) ||
+      (isScenarioOutput && !scenarioContext)) {
+    return errorResponse("Scenario output provenance or snapshot is invalid", 409);
+  }
+  if (isScenarioOutput && useAiEnrichment) {
+    return errorResponse(
+      "AI enrichment is disabled for scenario drafts; deterministic reservations are mandatory",
+      409,
+    );
+  }
+  if (isScenarioOutput) {
+    const { error: scenarioCurrentError } = await serviceClient
+      .rpc("assert_scenario_quotation_version_current", { p_version_id: version.id });
+    if (scenarioCurrentError) {
+      return errorResponse(
+        "Scenario output is stale, superseded, changed or no longer selected",
+        409,
+      );
+    }
   }
 
   // 5. Idempotence check via userClient
@@ -391,7 +424,6 @@ Deno.serve(async (req: Request) => {
   }
 
   // 6. Extract client email: snapshot first, then fallback to email_threads
-  const snapshot = version.snapshot as Record<string, unknown> | null;
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   let clientEmailFinal = typeof clientBlock?.email === "string" ? clientBlock.email : null;
 
@@ -469,15 +501,13 @@ Deno.serve(async (req: Request) => {
   const qualSubjectWord = qualification.level === "provisional" ? "devis provisoire"
     : qualification.level === "partial" ? "offre partielle"
     : "devis";
-  const subject = isMultiLot
+  const subject = scenarioContext
+    ? buildScenarioEmailSubject(scenarioContext)
+    : isMultiLot
     ? `Votre ${qualSubjectWord} SODATRA - version v${version.version_number} (${lotCount} lots)`
     : `Votre ${qualSubjectWord} SODATRA - version v${version.version_number}`;
 
   // --- PDF detection via serviceClient (RLS owner-only on quotation_documents) ---
-  const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false },
-  });
-
   const { data: pdfDoc } = await serviceClient
     .from("quotation_documents")
     .select("id")
@@ -489,7 +519,9 @@ Deno.serve(async (req: Request) => {
   const hasPdf = !!pdfDoc;
 
   // --- Body text generation (A4.1 deterministic + A4.2 optional AI + Lot 3C qualification) ---
-  const deterministicBody = buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf, qualification);
+  const deterministicBody = scenarioContext
+    ? buildScenarioEmailBody(snapshot, scenarioContext, hasPdf)
+    : buildDeterministicBody(snapshot, version.version_number, isMultiLot, lotSummaryLines, hasPdf, qualification);
   let finalBody = deterministicBody;
   let generationMode: "ai" | "deterministic" = "deterministic";
 
@@ -571,11 +603,13 @@ Deno.serve(async (req: Request) => {
       actor_user_id: user.id,
       actor_type: "user",
       event_data: {
-        kind: "quotation_email_draft_v1",
+        kind: scenarioContext ? "scenario_email_draft_v1" : "quotation_email_draft_v1",
         dedupe_key: `quotation_email_draft_v1:${versionId}`,
         draft_id: newDraft.id,
         version_id: versionId,
         generation_mode: generationMode,
+        source_kind: scenarioContext ? "scenario" : "canonical",
+        scenario_reference: scenarioContext?.reference ?? null,
       },
     });
   } catch (e) {

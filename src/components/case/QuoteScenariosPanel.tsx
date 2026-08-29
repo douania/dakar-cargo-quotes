@@ -51,9 +51,12 @@ import {
   ArrowRight,
   Calculator,
   Check,
+  FileDown,
+  FileText,
   GitCompare,
   Layers,
   Loader2,
+  Mail,
   Pencil,
   Plus,
   X,
@@ -126,9 +129,13 @@ import {
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
   readScenarioPricingEdgeData,
+  readScenarioOutputEdgeData,
   SCENARIO_PRICING_QUALIFICATION_LABELS,
   SCENARIO_PRICING_STATUS_LABELS,
+  scenarioOutputMutationSignature,
+  scenarioOutputsByPricingRun,
   scenarioPricingMutationSignature,
+  type ScenarioQuotationOutputSummary,
   type ScenarioPricingRunSummary,
 } from "@/lib/scenarioPricing";
 
@@ -155,6 +162,9 @@ const SCENARIO_PRICING_COLUMNS =
   "id, scenario_id, run_seq, status, qualification, blockers, reservations, " +
   "assumptions_snapshot, firm_total_ht, firm_total_ttc, indicative_total_ht, " +
   "indicative_total_ttc, currency, completed_at";
+
+const SCENARIO_OUTPUT_COLUMNS =
+  "id, scenario_pricing_run_id, snapshot, created_at";
 
 interface ScenarioPricingSelectBuilder extends PromiseLike<{
   data: unknown[] | null;
@@ -1019,11 +1029,13 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
   // jusqu'au succès ; modifier le formulaire produit une autre signature.
   const mutationKeys = useRef(new Map<string, string>());
   const pricingMutationKeys = useRef(new Map<string, string>());
+  const outputMutationKeys = useRef(new Map<string, string>());
   const [formMode, setFormMode] = useState<"none" | "create" | "revise">("none");
   const [reviseTargetId, setReviseTargetId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ScenarioDraft>(emptyScenarioDraft);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [pendingPricingId, setPendingPricingId] = useState<string | null>(null);
+  const [pendingOutputAction, setPendingOutputAction] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState<string>(NO_SCENARIO);
   const [compareRightId, setCompareRightId] = useState<string>(NO_SCENARIO);
 
@@ -1105,6 +1117,22 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     },
   });
 
+  const scenarioOutputsQuery = useQuery({
+    queryKey: ["quote-scenario-outputs", caseId],
+    staleTime: 30_000,
+    enabled: !!caseId,
+    queryFn: async () => {
+      const { data, error } = await scenarioPricingReader
+        .from("quotation_versions")
+        .select(SCENARIO_OUTPUT_COLUMNS)
+        .eq("case_id", caseId)
+        .eq("source_kind", "scenario")
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message ?? "Sorties de scénario indisponibles");
+      return (data ?? []) as unknown as ScenarioQuotationOutputSummary[];
+    },
+  });
+
   const scenarios = useMemo(() => scenariosQuery.data ?? [], [scenariosQuery.data]);
   const links = useMemo(() => linksQuery.data ?? [], [linksQuery.data]);
   const selections = useMemo(() => selectionsQuery.data ?? [], [selectionsQuery.data]);
@@ -1112,6 +1140,10 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
   const latestPricingByScenario = useMemo(
     () => latestScenarioPricingRuns(pricingRunsQuery.data ?? []),
     [pricingRunsQuery.data],
+  );
+  const outputsByPricingRun = useMemo(
+    () => scenarioOutputsByPricingRun(scenarioOutputsQuery.data ?? []),
+    [scenarioOutputsQuery.data],
   );
 
   const linksByScenario = useMemo(() => {
@@ -1253,6 +1285,48 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     onSettled: () => setPendingPricingId(null),
   });
 
+  const outputMutation = useMutation({
+    mutationFn: async (input: {
+      scenarioId: string;
+      pricingRunId: string;
+      scopeHash: string;
+      idempotencyKey: string;
+      mutationSignature: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke(
+        "generate-scenario-quotation-version",
+        {
+          body: {
+            case_id: caseId,
+            scenario_id: input.scenarioId,
+            scenario_pricing_run_id: input.pricingRunId,
+            expected_scope_hash: input.scopeHash,
+            idempotency_key: input.idempotencyKey,
+          },
+        },
+      );
+      if (error) {
+        const detail = await readEdgeErrorMessage(error);
+        throw new Error(detail ?? error.message ?? "Création de sortie refusée");
+      }
+      const parsed = readScenarioOutputEdgeData(data);
+      if (!parsed) throw new Error("Réponse de création de sortie invalide");
+      return parsed;
+    },
+    onSuccess: async (data, variables) => {
+      outputMutationKeys.current.delete(variables.mutationSignature);
+      toast.success(
+        data.idempotent_replay ? "Sortie de travail existante récupérée" : "Sortie de travail créée",
+        { description: `${data.scenario_reference} — jamais sélectionnée comme devis canonique.` },
+      );
+      await scenarioOutputsQuery.refetch();
+    },
+    onError: (err: unknown) => {
+      toast.error(errorMessage(err) ?? "Création de sortie refusée");
+    },
+    onSettled: () => setPendingOutputAction(null),
+  });
+
   const submitting = mutation.isPending;
 
   const mutationIdentity = (
@@ -1347,6 +1421,66 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     });
   };
 
+  const createScenarioOutput = (
+    scenario: QuoteScenario,
+    pricingRun: ScenarioPricingRunSummary,
+  ) => {
+    const signature = scenarioOutputMutationSignature(caseId, scenario.id, pricingRun.id);
+    let idempotencyKey = outputMutationKeys.current.get(signature);
+    if (!idempotencyKey) {
+      idempotencyKey = crypto.randomUUID();
+      outputMutationKeys.current.set(signature, idempotencyKey);
+    }
+    setPendingOutputAction(`create:${pricingRun.id}`);
+    outputMutation.mutate({
+      scenarioId: scenario.id,
+      pricingRunId: pricingRun.id,
+      scopeHash: scenario.scope_hash,
+      idempotencyKey,
+      mutationSignature: signature,
+    });
+  };
+
+  const exportScenarioPdf = async (output: ScenarioQuotationOutputSummary) => {
+    setPendingOutputAction(`pdf:${output.id}`);
+    try {
+      const { data, error } = await supabase.functions.invoke("export-quotation-version-pdf", {
+        body: { version_id: output.id },
+      });
+      if (error) {
+        const detail = await readEdgeErrorMessage(error);
+        throw new Error(detail ?? error.message ?? "Export PDF refusé");
+      }
+      const payload = data?.ok === true ? data.data : data;
+      if (!payload?.url) throw new Error("URL PDF absente");
+      window.open(payload.url, "_blank");
+      toast.success(payload.idempotent ? "PDF scénario existant ouvert" : "PDF scénario généré");
+    } catch (err) {
+      toast.error(errorMessage(err) ?? "Export PDF refusé");
+    } finally {
+      setPendingOutputAction(null);
+    }
+  };
+
+  const createScenarioEmailDraft = async (output: ScenarioQuotationOutputSummary) => {
+    setPendingOutputAction(`email:${output.id}`);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-quotation-email-draft", {
+        body: { case_id: caseId, version_id: output.id, use_ai_enrichment: false },
+      });
+      if (error) {
+        const detail = await readEdgeErrorMessage(error);
+        throw new Error(detail ?? error.message ?? "Brouillon scénario refusé");
+      }
+      if (!data?.ok) throw new Error("Réponse brouillon invalide");
+      toast.success(data.idempotent ? "Brouillon scénario existant récupéré" : "Brouillon scénario non envoyé créé");
+    } catch (err) {
+      toast.error(errorMessage(err) ?? "Brouillon scénario refusé");
+    } finally {
+      setPendingOutputAction(null);
+    }
+  };
+
   const compareLeft = compareLeftId === NO_SCENARIO ? null : scenarioById.get(compareLeftId);
   const compareRight = compareRightId === NO_SCENARIO ? null : scenarioById.get(compareRightId);
 
@@ -1407,8 +1541,9 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
         <Alert className="border-amber-200 bg-amber-50/60">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
           <AlertDescription className="text-[11px] text-amber-900">
-            Les montants affichés sont des estimations internes provisoires. Ils ne modifient
-            ni les faits, ni le pricing canonique et ne peuvent générer ni version, PDF ou email.
+            Les montants affichés sont des estimations internes non fermes. Une sortie de travail
+            peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne
+            modifie ni les faits, ni le pricing ou le devis canonique.
           </AlertDescription>
         </Alert>
 
@@ -1416,6 +1551,14 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
           <Alert className="border-red-200 bg-red-50/60">
             <AlertDescription className="text-[11px] text-red-800">
               Les estimations isolées sont indisponibles — {errorMessage(pricingRunsQuery.error)}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {scenarioOutputsQuery.error ? (
+          <Alert className="border-red-200 bg-red-50/60">
+            <AlertDescription className="text-[11px] text-red-800">
+              Les sorties de scénario sont indisponibles — {errorMessage(scenarioOutputsQuery.error)}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1494,6 +1637,9 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
           const revisable = canReviseScenario(scenario);
           const selectable = canSelectScenario(scenario);
           const latestPricing = latestPricingByScenario.get(scenario.id) ?? null;
+          const scenarioOutput = latestPricing
+            ? outputsByPricingRun.get(latestPricing.id) ?? null
+            : null;
           const canPriceScenario = isSelected &&
             !["blocked", "superseded", "promoted_to_final"].includes(scenario.status) &&
             !scenario.superseded_by_scenario_id;
@@ -1669,8 +1815,60 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
 
                   <p className="text-[10px] text-muted-foreground">
                     {countScenarioAssumptions(latestPricing.assumptions_snapshot)} hypothèse(s) appliquée(s).
-                    Résultat interne uniquement : aucune version, aucun PDF, aucun email.
+                    Toute sortie reste non ferme, non sélectionnable et sans envoi automatique.
                   </p>
+
+                  {latestPricing.status === "success" && isSelected ? (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {!scenarioOutput ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[11px] border-violet-300 text-violet-800"
+                          disabled={!!pendingOutputAction || outputMutation.isPending}
+                          onClick={() => createScenarioOutput(scenario, latestPricing)}
+                        >
+                          {pendingOutputAction === `create:${latestPricing.id}` ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <FileText className="h-3 w-3 mr-1" />
+                          )}
+                          Créer sortie de travail
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[11px]"
+                            disabled={!!pendingOutputAction}
+                            onClick={() => exportScenarioPdf(scenarioOutput)}
+                          >
+                            {pendingOutputAction === `pdf:${scenarioOutput.id}` ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <FileDown className="h-3 w-3 mr-1" />
+                            )}
+                            PDF scénario
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[11px]"
+                            disabled={!!pendingOutputAction}
+                            onClick={() => createScenarioEmailDraft(scenarioOutput)}
+                          >
+                            {pendingOutputAction === `email:${scenarioOutput.id}` ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Mail className="h-3 w-3 mr-1" />
+                            )}
+                            Brouillon non envoyé
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
