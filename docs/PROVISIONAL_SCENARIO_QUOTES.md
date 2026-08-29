@@ -334,7 +334,7 @@ Chaque phase devra respecter : périmètre réduit, corrections chirurgicales, z
 Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce document) lorsqu'ils seront engagés :
 
 - **Assumption ledger de premier rang** — livré par P1-A1 ; extensions futures seulement sous lot distinct.
-- **Objet « scénario provisoire »** — livré par P1-A2 ; pricing isolé livré localement par P1-A4, publication et recette Lovable encore requises.
+- **Objet « scénario provisoire »** — livré par P1-A2 ; pricing isolé P1-A4 publié et recetté sur Lovable, avec mono-lot partiel et multi-lot fail-closed vérifiés.
 - **Flux de promotion hypothèse → fact** — livré et recetté par P1-A3.
 - **Propagation contrôlée inter-périmètres** — règles si une confirmation sur un périmètre éclaire une hypothèse analogue ailleurs (par défaut : aucune propagation implicite).
 - **Reservation reason codes étendus** — au-delà de la whitelist initiale, si de nouveaux types de réserve apparaissent.
@@ -358,17 +358,16 @@ Sujets à inscrire / arbitrer dans `docs/DEFERRED_BACKLOG.md` (et non dans ce do
 - ✅ protège contre la **contamination des facts** (SOURCE-GUARD) et interdit l'**auto-update des facts** et l'**auto-send**.
 - ✅ représente un **scénario provisoire opérateur** comme un objet de premier rang et versionné (P1-A2, Git + Lovable) ;
 - ✅ tient un **assumption ledger réversible** et offre une promotion humaine, unitaire et attestée vers un fait non monétaire (P1-A1/P1-A3, Git + Lovable) ;
-- 🧪 calcule localement un **pricing isolé par scénario** dans un ledger distinct, sans modifier `quote_facts`, `pricing_runs` ni l'état du dossier (P1-A4, non publié).
+- ✅ calcule sur Lovable un **pricing isolé par scénario** dans un ledger distinct, sans modifier `quote_facts`, `pricing_runs` ni l'état du dossier (P1-A4, Git + runtime privé recettés).
 
 En revanche, **le système ne sait PAS encore** :
 
-- ❌ publier et exécuter P1-A4 sur Lovable ; le chemin monétaire réussi reste à recetter avec une fixture sandbox complète ;
 - ❌ produire une version, un PDF ou un email identifiant le scénario, les hypothèses, les exclusions et les réserves (P1-A5) ;
 - ❌ qualifier automatiquement un scénario `firm` ; P1-A4 est volontairement borné à `provisional`, `partial` ou `blocked` ;
 - ❌ rapprocher sûrement un périmètre multi-lot P1-A2 de plusieurs `quote_request_lines` sans une identité métier déterministe ; le comportement actuel est fail-closed ;
 - ❌ piloter un **déblocage progressif périmètre par périmètre** du dossier complet basé sur les statuts de scénarios.
 
-> Conséquence pratique : P1-A4 reste une capacité **locale non disponible aux opérateurs** tant que son commit, sa migration, son Edge Function, son frontend et sa recette Lovable n'ont pas été autorisés et vérifiés. Aucune cotation de scénario ne doit être présentée comme ferme et P1-A5 ne doit pas être engagé avant cette recette.
+> Conséquence pratique : P1-A4 est disponible dans la preview privée pour une estimation interne isolée. Aucune cotation de scénario ne doit être présentée comme ferme. P1-A5 peut maintenant être engagé, mais doit préserver explicitement la qualification `provisional` / `partial` / `blocked` et interdire tout PDF ou email ambigu.
 
 ---
 
