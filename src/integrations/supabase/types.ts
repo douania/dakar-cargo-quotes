@@ -4594,8 +4594,10 @@ export type Database = {
           created_by: string | null
           id: string
           is_selected: boolean
-          pricing_run_id: string
+          pricing_run_id: string | null
+          scenario_pricing_run_id: string | null
           snapshot: Json
+          source_kind: string
           status: string
           version_number: number
         }
@@ -4605,8 +4607,10 @@ export type Database = {
           created_by?: string | null
           id?: string
           is_selected?: boolean
-          pricing_run_id: string
+          pricing_run_id?: string | null
+          scenario_pricing_run_id?: string | null
           snapshot: Json
+          source_kind?: string
           status?: string
           version_number?: number
         }
@@ -4616,8 +4620,10 @@ export type Database = {
           created_by?: string | null
           id?: string
           is_selected?: boolean
-          pricing_run_id?: string
+          pricing_run_id?: string | null
+          scenario_pricing_run_id?: string | null
           snapshot?: Json
+          source_kind?: string
           status?: string
           version_number?: number
         }
@@ -4634,6 +4640,13 @@ export type Database = {
             columns: ["pricing_run_id"]
             isOneToOne: false
             referencedRelation: "pricing_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotation_versions_scenario_pricing_run_id_fkey"
+            columns: ["scenario_pricing_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenario_pricing_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -5312,6 +5325,71 @@ export type Database = {
             columns: ["scenario_id"]
             isOneToOne: false
             referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_scenario_output_mutations: {
+        Row: {
+          actor_user_id: string
+          case_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          quotation_version_id: string
+          request_fingerprint: string
+          scenario_id: string
+          scenario_pricing_run_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          case_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          quotation_version_id: string
+          request_fingerprint: string
+          scenario_id: string
+          scenario_pricing_run_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          case_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          quotation_version_id?: string
+          request_fingerprint?: string
+          scenario_id?: string
+          scenario_pricing_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_scenario_output_mutations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_output_mutations_quotation_version_id_fkey"
+            columns: ["quotation_version_id"]
+            isOneToOne: true
+            referencedRelation: "quotation_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_output_mutations_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_scenario_output_mutations_scenario_pricing_run_id_fkey"
+            columns: ["scenario_pricing_run_id"]
+            isOneToOne: true
+            referencedRelation: "quote_scenario_pricing_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -6990,6 +7068,10 @@ export type Database = {
       }
     }
     Functions: {
+      assert_scenario_quotation_version_current: {
+        Args: { p_version_id: string }
+        Returns: Json
+      }
       check_quotation_ownership_status: {
         Args: never
         Returns: {
@@ -7013,6 +7095,17 @@ export type Database = {
           p_proposal_id: string
           p_selected_key: string
           p_user_id?: string
+        }
+        Returns: Json
+      }
+      create_scenario_quotation_version: {
+        Args: {
+          p_actor_user_id: string
+          p_case_id: string
+          p_expected_scope_hash: string
+          p_idempotency_key: string
+          p_scenario_id: string
+          p_scenario_pricing_run_id: string
         }
         Returns: Json
       }
