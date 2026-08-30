@@ -14,7 +14,7 @@ Il sert à :
 
 Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 à P1-A5 Git + Lovable runtime avec nettoyage ; NO-GO maintenu pour une production générale**.
 
-Mise à jour locale du 30 août 2026 : les quatre défauts de reprise P1-B sont corrigés et contre-vérifiés localement (234 tests frontend, 837 tests Deno et SQL isolé). P1-B reste non publié et non recetté sur Lovable ; voir la section P1-B avant toute reprise. Aucun GO de production générale n'est donné.
+Mise à jour du 30 août 2026 : P1-B est publié sur Git (`148f1bc5`, CI complète verte), sa migration est appliquée sur Lovable et son lecteur est déployé. **STOP de déploiement partiel** : `manage-maritime-fee-decision` échoue au bundling de l'import cross-fonction ; `run-pricing` n'a pas été redéployée et la recette sandbox n'a pas commencé. Les types générés Lovable sont acceptés après inspection et alignement sur `9d63697b`. P1-B n'est pas validé runtime et P1-C n'a pas commencé. Voir la section P1-B avant toute reprise. Aucun GO de production générale n'est donné.
 
 La reconstruction et la réconciliation des migrations sont terminées. Le parcours authentifié LoLo a été prouvé jusqu'au brouillon non envoyé puis intégralement nettoyé. P1-A2 fournit sur Git et Lovable l'objet scénario versionné, sa sélection et sa comparaison, sans pricing. P1-A3 ajoute la promotion explicite, unitaire et attestée d'une hypothèse vers un fait non monétaire. P1-A4 fournit sur Git et Lovable un ledger et un calcul de pricing isolés par scénario, sans contamination des faits ni du pricing canonique. P1-A5 fournit sur Git et Lovable des sorties de travail versionnées, PDF et brouillons non envoyés qui exposent le scénario, les hypothèses, exclusions, réserves et doubles totaux sans jamais devenir un devis canonique ou ferme ; la recette runtime partielle/bloquée, l'idempotence, la non-sélection, l'absence d'envoi et le nettoyage intégral sont prouvés. La production générale reste conditionnée par la gouvernance des comptes Auth et par la validation des familles tarifaires encore hors du périmètre ferme ; RoRo/ConRo reste fail-closed sans barème Dakar Terminal vérifié.
 
@@ -651,7 +651,7 @@ Tests obligatoires : RLS, rôles, idempotence, concurrence, provenance, superses
 
 ### PACK P1-B — intégration humaine des propositions de frais maritimes
 
-État actuel : moteur et UI `proposal_only`, `amount = null`, suggestions jamais comptées.
+État initial de l'audit : moteur et UI `proposal_only`, `amount = null`, suggestions jamais comptées. État courant : voir le verdict daté en fin de cette section ; P1-B est en déploiement partiel bloqué, pas validé runtime.
 
 À développer :
 
@@ -718,6 +718,28 @@ Livraison locale :
 - Aucun commit, push, migration Lovable, déploiement, email ou changement de donnée live. Les tests Windows/Node 24 locaux ne remplacent pas une CI distante propre ni la recette Lovable.
 
 **Reprise obligatoire :** conserver le lot local ; obtenir un GO Git+runtime distinct avant publication coordonnée B0/B1/B2. Recontrôler Git/Lovable et l'absence de migration live, inspecter le lot complet et ses bundles Edge, prévoir rollback et recette sandbox (TTC exact, PAD conservé, retrait/rejet/révocation, reprise réseau, changement de transporteur, multi-lots bloqué, versions/PDF/brouillon sans envoi), puis nettoyage. P1-C vient après cette validation, pas avant.
+
+#### P1-B — publication Git et STOP du déploiement, 30 août 2026
+
+**Verdict : PARTIAL — Git et migration livrés, déploiement incomplet, aucune validation sandbox.** Le GO Git+runtime a été reçu après le PASS local ci-dessus.
+
+Faits vérifiés :
+
+- Les 19 fichiers ont été comparés au manifeste de sauvegarde avant staging. Seule correction mécanique de préparation : retrait d'une ligne vide en fin de `manage-maritime-fee-decision/index.test.ts` ; les 13 tests du handler ont été rejoués avec succès, réseau interdit, puis le diff indexé contrôlé.
+- Commit atomique applicatif `148f1bc505f9d33b2e914252468d8a09209f0b36`, poussé sur `work`. [CI GitHub 33321011812](https://github.com/douania/dakar-cargo-quotes/actions/runs/33321011812) intégralement verte : configuration des fonctions, typecheck frontend, tests frontend, baseline Deno, tests Deno, lint baseline et build.
+- Migration `20260829234500_create_maritime_fee_decisions_p1b1.sql` appliquée via Lovable dans une transaction gardée contre les collisions, puis inscrite au ledger avec le contenu Git exact. Une seule entrée, une seule chaîne SQL ; MD5 `47b0543b665b1bea8e523e6731f33a9f`, SHA-256 du fichier `df96fcd304165ce42c6d73fbecd839946663e7aca637f3a386d0a187e79f489b`. **Ne pas réappliquer ni réécrire cette migration live.**
+- Contrôles post-migration : registre vide ; RLS active ; trigger d'interdiction UPDATE actif ; aucun SELECT/INSERT direct pour authenticated, aucun SELECT pour anon ; accès service_role attendu.
+- Rapport de déploiement Lovable : `maritime-fee-proposals` déployée ; `manage-maritime-fee-decision` refusée avec `Module not found .../supabase/functions/maritime-fee-proposals/index.ts` à son import ligne 23 ; `run-pricing` non tentée, arrêt séquentiel. Aucun autre Edge déployé. Ces résultats ne constituent pas une recette fonctionnelle.
+- Le graphe local `deno info` se résout, mais ne reproduit pas l'empaquetage Lovable : `import.meta.main` empêche seulement le démarrage du handler importé, pas l'échec de résolution d'un fichier sibling absent du bundle.
+- Régénération Lovable `e4ca5742`, puis `9d63697ba362b136ecd0f9e714e0d43143b99bbb` : diff exact limité à **118 lignes de types** pour la nouvelle table et les deux RPC dans `src/integrations/supabase/types.ts`. Aucun changement Auth, backend, configuration ou tarif. Comportement bénin inspecté et accepté sans revert ; alignement local fast-forward.
+- [CI GitHub 33321153373](https://github.com/douania/dakar-cargo-quotes/actions/runs/33321153373) également intégralement verte sur ce SHA intégrant les types générés. Ces tests ne prouvent pas la compatibilité avec le bundler Lovable.
+- Contrôle final des données : 64 dossiers, 162 runs, 9 versions, 45 brouillons et 5 utilisateurs, identiques au départ ; zéro décision maritime. Les empreintes complètes des six tables contrôlées (pricing_rate_cards, local_transport_rates, carrier_billing_templates, border_clearing_rates, destination_terminal_rates, demurrage_rates) sont inchangées.
+- Le formulaire de demande synthétique a été préparé mais **jamais soumis**, puis vidé. Aucun dossier sandbox, PDF, brouillon ou email créé ; aucun objet à supprimer. Le projet reste privé et non publié.
+- Preuves de transaction, préconditions, contrôles et rapport de déploiement conservées hors dépôt dans `outputs/p1b-publication-20260830/` du miroir local du projet ChatGPT.
+
+**Correctif minimal proposé, non exécuté :** extraire uniquement le mapping pur `FactRow`, `resolveOperationTypeFromRequestType`, `mapFactsToMaritimeInput` et ses helpers vers un module `_shared`, modifier les imports des trois fonctions et des tests concernés sans changer la logique, puis vérifier l'absence d'import cross-fonction dans leurs dépendances locales. Pas de refactor global, aucun changement tarifaire, PAD, TVA, Auth ou migration.
+
+**Reprise sous GO distinct :** Claude Code pour ce lot de compatibilité bundler, Codex en contre-revue, test de résolution dans un périmètre isolé limité à la fonction et `_shared` (pas seulement `deno info` dans le dépôt complet), CI complète, commit/push atomique, déploiement coordonné des trois consommateurs concernés puis recette sandbox complète initialement prévue et nettoyage. Conserver le ledger et ses traces ; aucun rollback destructif spéculatif. P1-C reste suspendu jusqu'au PASS runtime P1-B.
 
 ### PACK P1-C — `final_request_state`
 
