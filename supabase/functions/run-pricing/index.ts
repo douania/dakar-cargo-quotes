@@ -37,6 +37,31 @@ import {
   resolveExplicitlyRemovedServiceKeys,
   SERVICE_PACKAGES,
 } from "../_shared/service-scope.ts";
+// ═══ P1-B2 — consommation des décisions humaines maritimes ═══
+// Toute la doctrine (table close des correspondances, fraîcheur, dédoublonnage,
+// codes de blocage) vit dans le module PUR ci-dessous ; run-pricing ne fait que
+// lire le registre et appliquer le plan retourné.
+import {
+  buildMaritimeFeeConsumption,
+  hasActiveMaritimeDecision,
+  MARITIME_FEE_DECISION_BLOCKER_MESSAGES,
+  MARITIME_FEE_DECISION_MULTI_LOT_UNSUPPORTED,
+  MARITIME_FEE_DECISION_READ_FAILED,
+  type MaritimeFeeConsumptionResult,
+  type MaritimeFeeDecisionRow,
+} from "../_shared/maritime-fee-decisions/pricing-consumption.ts";
+import {
+  computeCurrentProposalIdentities,
+  type CurrentProposalIdentity,
+} from "../_shared/maritime-fee-decisions/proposal-identity.ts";
+import {
+  buildMaritimeFeeProposals,
+  type Parametrage,
+} from "../_shared/maritime-fee-proposals/engine.ts";
+import maritimeParametrageJson from "../_shared/maritime-fee-proposals/dcq_pad_parametrage.json" with {
+  type: "json",
+};
+import { mapFactsToMaritimeInput } from "../maritime-fee-proposals/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1163,6 +1188,77 @@ export function isAmbiguousCarrierPortChargeBasic(charge: any): boolean {
   return code === 'COLL' && ambiguousLabels.some((label) => containsPortLabel(labelText, label));
 }
 
+// ═══ P1-B2: lecture du registre des décisions humaines maritimes ═══
+
+const MARITIME_PARAMETRAGE = maritimeParametrageJson as unknown as Parametrage;
+
+/** Colonnes STRICTEMENT nécessaires au pricing — pas de `select('*')`. */
+const MARITIME_FEE_DECISION_COLUMNS =
+  'id,decision_key,proposal_id,proposal_category,decision_action,suggested_amount_xof,' +
+  'decided_amount_xof,currency,evidence_level,source_reference,decision_source,justification,' +
+  'proposal_fingerprint,input_snapshot_hash,proposal_snapshot,decision_version,decided_by,created_at';
+
+export interface MaritimeFeeDecisionRead {
+  rows: MaritimeFeeDecisionRow[];
+  /** Indicateur de disponibilité ; toute erreur bloque le pricing. */
+  registryAvailable: boolean;
+  /** `true` = lecture en échec : on ne sait rien, donc on bloque. */
+  readFailed: boolean;
+  errorMessage: string | null;
+}
+
+/** Lecture service_role minimale, bornée au dossier courant. Aucun UPDATE. */
+export async function readMaritimeFeeDecisions(
+  client: { from: (table: string) => {
+    select: (columns: string, options: {count: 'exact'}) => {
+      eq: (column: string, value: string) => PromiseLike<{
+        data: unknown[] | null;
+        error: {message?: string} | null;
+        count: number | null;
+      }>;
+    };
+  } },
+  caseId: string,
+): Promise<MaritimeFeeDecisionRead> {
+  try {
+    const { data, error, count } = await client
+      .from('maritime_fee_decisions')
+      .select(MARITIME_FEE_DECISION_COLUMNS, { count: 'exact' })
+      .eq('case_id', caseId);
+
+    if (error) {
+      return {
+        rows: [],
+        registryAvailable: true,
+        readFailed: true,
+        errorMessage: String(error?.message ?? 'unknown_error'),
+      };
+    }
+
+    // SELECT tronqué (limite PostgREST) ou résultat non attesté : on ne sait
+    // pas quelles versions sont courantes. Ne jamais choisir dans un historique
+    // partiel. Un cache de schéma absent ne prouve pas une table vide non plus.
+    if (!Array.isArray(data) || !Number.isSafeInteger(count) || count !== data.length) {
+      return { rows: [], registryAvailable: true, readFailed: true,
+        errorMessage: 'Registre maritime incomplet ou décompte non vérifiable' };
+    }
+
+    return {
+      rows: (data ?? []) as MaritimeFeeDecisionRow[],
+      registryAvailable: true,
+      readFailed: false,
+      errorMessage: null,
+    };
+  } catch (readError) {
+    return {
+      rows: [],
+      registryAvailable: true,
+      readFailed: true,
+      errorMessage: readError instanceof Error ? readError.message : String(readError),
+    };
+  }
+}
+
 if (Deno.env.get("RUN_PRICING_DISABLE_SERVE") !== "1") {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -1375,6 +1471,51 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ═══ P1-B2: registre des décisions humaines maritimes (lecture unique) ═══
+    // Placée ici, APRÈS l'auth et les gardes d'entrée, AVANT la bifurcation
+    // mono/multi-lot : les deux branches en dépendent et aucune ne doit lire le
+    // registre une seconde fois. Aucun UPDATE, aucune écriture, dossier courant
+    // uniquement.
+    const maritimeDecisionRead = await readMaritimeFeeDecisions(
+      serviceClient as unknown as Parameters<typeof readMaritimeFeeDecisions>[0], case_id,
+    );
+    if (maritimeDecisionRead.readFailed) {
+      console.error(
+        `[P1-B2] Lecture du registre des décisions maritimes en échec: ${maritimeDecisionRead.errorMessage}`,
+      );
+      const { data: mfdReadRunNumber } = await serviceClient
+        .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+      const mfdReadMessage =
+        MARITIME_FEE_DECISION_BLOCKER_MESSAGES[MARITIME_FEE_DECISION_READ_FAILED];
+
+      await serviceClient.from("pricing_runs").insert({
+        case_id,
+        run_number: mfdReadRunNumber || 1,
+        inputs_json: { servicePackage: pkg, incoterm: incotermEarly },
+        facts_snapshot: [],
+        status: "blocked",
+        error_message: mfdReadMessage,
+        outputs_json: {
+          pricing_blockers: [MARITIME_FEE_DECISION_READ_FAILED],
+          message: mfdReadMessage,
+          maritime_fee_decisions: { registry_read_failed: true },
+        },
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+        created_by: userId,
+      });
+
+      return new Response(
+        JSON.stringify({
+          pricing_blockers: [MARITIME_FEE_DECISION_READ_FAILED],
+          message: mfdReadMessage,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const maritimeDecisionRows = maritimeDecisionRead.rows;
+
     const { count: mlCount } = await serviceClient
       .from("quote_request_lines")
       .select("*", { count: "exact", head: true })
@@ -1464,6 +1605,9 @@ Deno.serve(async (req) => {
         source_type: f.source_type, confidence: f.confidence,
       }));
 
+      // P1-B2 — évalué UNE fois pour tout le dossier, appliqué à chaque lot.
+      const maritimeMultiLotBlocked = hasActiveMaritimeDecision(maritimeDecisionRows);
+
       // Per-lot coherence checks
       const lotChecks: Array<{
         lot_index: number; lot_label: string; request_type_hint: string;
@@ -1525,6 +1669,20 @@ Deno.serve(async (req) => {
           );
         }
         lotBlockers.push(...lotTerminalBlockers);
+
+        // P1-B2 — MARITIME-DECISION multi-lot : une décision humaine porte sur
+        // le DOSSIER, jamais sur un lot. Rien dans `maritime_fee_decisions` ne
+        // permet de dire à QUEL lot un frais confirmé appartient : l'affecter à
+        // un lot serait une invention, l'ignorer une perte silencieuse. On
+        // bloque donc tous les lots tant qu'une décision courante n'est pas
+        // révoquée. À REMPLACER (jamais simplement supprimer) le jour où le
+        // registre portera une identité de lot.
+        if (maritimeMultiLotBlocked) {
+          console.warn(
+            `[P1-B2][multi-lot ${lotIndex}] ${MARITIME_FEE_DECISION_MULTI_LOT_UNSUPPORTED}: décision maritime active sans identité de lot.`,
+          );
+          lotBlockers.push(MARITIME_FEE_DECISION_MULTI_LOT_UNSUPPORTED);
+        }
 
         // HS code check
         if (lotScopeWantsDuties) {
@@ -3874,6 +4032,122 @@ ${JSON.stringify(refPayload)}`;
       );
     }
 
+    // ═══ P1-B2: consommation des décisions humaines maritimes (mono-lot) ═══
+    //
+    // Placée APRÈS tous les enrichissements et AVANT le calcul des totaux, pour
+    // trois raisons indissociables :
+    //  - elle voit l'état FINAL des lignes, donc elle peut dédoublonner un frais
+    //    déjà porté par un template ou par le moteur ;
+    //  - rien de ce qu'elle produit n'échappe à `computeCommercialTotals`, qui
+    //    lit les lignes juste après ;
+    //  - `service.overrides.remove` a déjà été appliqué en amont : la table close
+    //    du module refuse en plus de produire une ligne pour un service retiré,
+    //    donc aucune ligne retirée ne peut réapparaître par ce chemin.
+    //
+    // Le moteur PUR décide ; ce bloc ne fait que lui donner l'état du dossier et
+    // appliquer son verdict.
+    const maritimeRemovedServiceKeys = resolveExplicitlyRemovedServiceKeys(
+      readOverridesFromFacts(facts || []),
+    );
+    let maritimeIdentities: CurrentProposalIdentity[] = [];
+    if (hasActiveMaritimeDecision(maritimeDecisionRows)) {
+      // Fraîcheur = empreinte B1 recalculée sur les faits COURANTS, via le même
+      // module que `manage-maritime-fee-decision`. Calculée seulement s'il existe
+      // une décision à juger : zéro coût pour les dossiers sans décision.
+      const maritimeInput = mapFactsToMaritimeInput(
+        caseData.request_type,
+        facts || [],
+      );
+      const { proposals: maritimeProposals } = buildMaritimeFeeProposals(
+        maritimeInput,
+        MARITIME_PARAMETRAGE,
+      );
+      maritimeIdentities = await computeCurrentProposalIdentities(
+        maritimeInput,
+        maritimeProposals,
+      );
+    }
+
+    const maritimeConsumption: MaritimeFeeConsumptionResult = buildMaritimeFeeConsumption({
+      decisions: maritimeDecisionRows,
+      identities: maritimeIdentities,
+      lines: engineResponse.lines || engineResponse.quotationLines || [],
+      removedServiceKeys: maritimeRemovedServiceKeys,
+      carrierCode: normalizeCarrierCode(inputs.carrier),
+      registryAvailable: maritimeDecisionRead.registryAvailable,
+    });
+
+    if (maritimeConsumption.blockers.length > 0) {
+      const maritimeBlockMessage = maritimeConsumption.message ??
+        "Décision maritime non consommable : chiffrage bloqué.";
+      console.warn(
+        `[P1-B2] Pricing bloqué: ${maritimeConsumption.blockers.join(', ')} — ` +
+          maritimeConsumption.blocker_details.map((d) => `${d.code}/${d.decision_key}: ${d.detail}`).join(' | '),
+      );
+
+      await serviceClient
+        .from("pricing_runs")
+        .update({
+          status: "blocked",
+          error_message: maritimeBlockMessage,
+          outputs_json: {
+            pricing_blockers: maritimeConsumption.blockers,
+            message: maritimeBlockMessage,
+            maritime_fee_decisions: {
+              blockers: maritimeConsumption.blockers,
+              blocker_details: maritimeConsumption.blocker_details,
+              entries: maritimeConsumption.entries,
+            },
+          },
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+        })
+        .eq("id", pricingRun.id);
+
+      await rollbackToPreviousStatus(
+        serviceClient, case_id, previousStatus, "maritime_fee_decision_blocked",
+      );
+
+      await serviceClient.from("case_timeline_events").insert({
+        case_id,
+        event_type: "pricing_blocked",
+        event_data: {
+          blocker_code: maritimeConsumption.blockers[0],
+          blockers: maritimeConsumption.blockers,
+          blocker_details: maritimeConsumption.blocker_details,
+          run_number: runNumber,
+        },
+        related_pricing_run_id: pricingRun.id,
+        actor_type: "system",
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          status: "blocked",
+          pricing_blockers: maritimeConsumption.blockers,
+          message: maritimeBlockMessage,
+          maritime_fee_decisions: {
+            blockers: maritimeConsumption.blockers,
+            blocker_details: maritimeConsumption.blocker_details,
+          },
+          pricing_run_id: pricingRun.id,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    engineResponse.lines = maritimeConsumption.lines;
+    if (maritimeConsumption.entries.length > 0) {
+      console.log(
+        `[P1-B2] Décisions maritimes consommées: ${
+          maritimeConsumption.entries
+            .map((e) => `${e.decision_key}=${e.state}${e.amount_xof !== null ? `:${e.amount_xof}` : ''}`)
+            .join(', ')
+        }`,
+      );
+    }
+
     // 12. Parse and store results
     const tariffLines = engineResponse.lines || engineResponse.quotationLines || [];
     const engineTotals = engineResponse.totals;
@@ -3922,6 +4196,15 @@ ${JSON.stringify(refPayload)}`;
           ?? "N/A",
       },
       duty_breakdown: engineResponse.duty_breakdown || [],
+      // P1-B2 — état ferme / provisoire / exclu de chaque frais maritime décidé.
+      // Bloc PUREMENT documentaire : il ne porte aucun total et n'est lu par
+      // aucun calcul. La provenance qui compte reste portée par les lignes
+      // elles-mêmes (`maritime_fee_decision`), donc les raw lines suffisent au
+      // snapshot de version, au PDF et à l'e-mail — inchangés par ce lot.
+      maritime_fee_decisions: {
+        registry_available: maritimeDecisionRead.registryAvailable,
+        entries: maritimeConsumption.entries,
+      },
       metadata: {
         engine_version: engineResponse.version || "v4",
         computed_at: new Date().toISOString(),

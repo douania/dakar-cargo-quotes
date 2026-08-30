@@ -104,7 +104,9 @@ Deno.test("4 - USD sans usdToXofRate => commission suggested null + missing usd_
     },
     parametrage,
   );
-  const commission = res.proposals.find((p) => p.category === "commission_debours");
+  const commission = res.proposals.find((p) =>
+    p.category === "commission_debours"
+  );
   assert(commission, "proposition commission ONE attendue");
   assertEquals(commission!.suggested_amount_xof, null);
   assert(commission!.missing_confirmation.includes("usd_exchange_rate"));
@@ -211,16 +213,40 @@ Deno.test("9 - SEA_FCL_IMPORT => operation_type IMPORT", () => {
 
 Deno.test("9b - mapping request_type strict (import/export/transit/inconnu)", () => {
   assertEquals(resolveOperationTypeFromRequestType("SEA_LCL_IMPORT"), "IMPORT");
-  assertEquals(resolveOperationTypeFromRequestType("AIR_IMPORT"), "IMPORT");
+  assertEquals(
+    resolveOperationTypeFromRequestType("SEA_BREAKBULK_IMPORT"),
+    "IMPORT",
+  );
+  assertEquals(resolveOperationTypeFromRequestType("AIR_IMPORT"), null);
+  assertEquals(resolveOperationTypeFromRequestType("ROAD_IMPORT"), null);
+  assertEquals(resolveOperationTypeFromRequestType("MULTIMODAL_IMPORT"), null);
   assertEquals(resolveOperationTypeFromRequestType("EXPORT_SEA_FCL"), "EXPORT");
   assertEquals(resolveOperationTypeFromRequestType("TRANSIT"), "TRANSIT");
   assertEquals(resolveOperationTypeFromRequestType("TRANSSHIPMENT"), "TRANSIT");
-  assertEquals(resolveOperationTypeFromRequestType("TRANSBORDEMENT"), "TRANSIT");
+  assertEquals(
+    resolveOperationTypeFromRequestType("TRANSBORDEMENT"),
+    "TRANSIT",
+  );
   // Non reconnu / vide : null (aucune devinette).
   assertEquals(resolveOperationTypeFromRequestType("import"), null);
   assertEquals(resolveOperationTypeFromRequestType("SOMETHING_ELSE"), null);
   assertEquals(resolveOperationTypeFromRequestType(null), null);
   assertEquals(resolveOperationTypeFromRequestType(""), null);
+});
+
+Deno.test("9c - SEA_BREAKBULK_IMPORT fixe seulement le mode conventionnel explicite", () => {
+  const input = mapFactsToMaritimeInput("SEA_BREAKBULK_IMPORT", []);
+  assertEquals(input.operation_type, "IMPORT");
+  assertEquals(input.cargo_mode, "CONVENTIONNEL");
+});
+
+Deno.test("9d - AIR_IMPORT reste hors périmètre maritime même avec des conteneurs", () => {
+  const input = mapFactsToMaritimeInput("AIR_IMPORT", [
+    { fact_key: "cargo.containers", value_json: [{ type: "20GP" }] },
+  ]);
+  const res = buildProposalOnlyEnvelope(input, parametrage);
+  assertEquals(input.operation_type, null);
+  assertEquals(res.proposals, []);
 });
 
 // 10. Chaîne complète case-like : SEA_FCL_IMPORT -> proposals via l'enveloppe.

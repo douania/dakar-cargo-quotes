@@ -251,6 +251,9 @@ verify_jwt = false
 [functions.maritime-fee-proposals]
 verify_jwt = false
 
+[functions.manage-maritime-fee-decision]
+verify_jwt = false
+
 # P0-C — PAD/classification functions that were deployable without an explicit
 # section. Same doctrine as every other function here: verify_jwt = false for
 # ES256 signing-keys compatibility, application-level auth enforced in code

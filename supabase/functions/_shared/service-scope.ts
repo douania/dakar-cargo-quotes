@@ -78,6 +78,12 @@ type ServiceOverrideFactMap = Record<
 
 export const ALL_KNOWN_SERVICE_KEYS = new Set(Object.keys(PACKAGE_SERVICE_DEFAULT_UNITS));
 
+// P1-B2: retrait des frais canoniques uniquement. Ces clés ne deviennent
+// JAMAIS des services ajoutables/générables dans un package.
+const MARITIME_REMOVE_ONLY_KEYS = new Set([
+  'PAD_DROIT_PASSAGE', 'CMA_CGM_COMM', 'GRIMALDI_COMM', 'HAPAG_LLOYD_COLL',
+]);
+
 export function readOverridesFromFacts(
   facts: ServiceOverrideFactMap | ServiceOverrideFact[],
 ): ServiceOverrides {
@@ -96,14 +102,15 @@ export function readOverridesFromFacts(
     if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return empty; } }
     if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { return empty; } }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
-    const sanitize = (arr: unknown): string[] => {
+    const sanitize = (arr: unknown, allowMaritimeRemoval = false): string[] => {
       if (!Array.isArray(arr)) return [];
       return arr.filter((v): v is string => typeof v === 'string')
         .map(v => v.trim().toUpperCase())
-        .filter(v => v && ALL_KNOWN_SERVICE_KEYS.has(v));
+        .filter(v => v && (ALL_KNOWN_SERVICE_KEYS.has(v) ||
+          (allowMaritimeRemoval && MARITIME_REMOVE_ONLY_KEYS.has(v))));
     };
     const parsedRecord = parsed as Record<string, unknown>;
-    return { add: sanitize(parsedRecord.add), remove: sanitize(parsedRecord.remove) };
+    return { add: sanitize(parsedRecord.add), remove: sanitize(parsedRecord.remove, true) };
   } catch { return empty; }
 }
 

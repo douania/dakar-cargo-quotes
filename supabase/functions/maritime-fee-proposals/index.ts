@@ -9,17 +9,14 @@
 //  - La réponse ne contient JAMAIS de clé lines / tariff_lines / total_ht /
 //    total_ttc / totals.
 //  - Aucun appel run-pricing. Aucun appel quotation-engine. Aucune écriture DB.
-//  - La seule interaction DB possible est un SELECT read-only pour construire un
+//  - La seule interaction DB possible est un SELECT read-only après preuve
+//    `has_case_read_access` sous le JWT appelant, pour construire un
 //    `MaritimeFeeInput` à partir d'un `case_id` (faits strictement nécessaires).
 //
 // Le moteur B1 n'est pas modifié : import strict, sans changement de doctrine.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import {
-  errorResponse,
-  handleCors,
-  jsonResponse,
-} from "../_shared/cors.ts";
+import { errorResponse, handleCors, jsonResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import {
   buildMaritimeFeeProposals,
@@ -145,8 +142,14 @@ export function resolveOperationTypeFromRequestType(
     .toUpperCase();
   if (!rt) return null;
 
-  // IMPORT maritime/aérien explicite.
-  if (rt === "SEA_FCL_IMPORT" || rt === "SEA_LCL_IMPORT" || rt === "AIR_IMPORT") {
+  // IMPORT maritime explicite uniquement. AIR/ROAD/MULTIMODAL restent hors du
+  // périmètre de ce lecteur : MULTIMODAL ne permet pas de prouver à lui seul
+  // qu'un segment maritime est applicable.
+  if (
+    rt === "SEA_FCL_IMPORT" ||
+    rt === "SEA_LCL_IMPORT" ||
+    rt === "SEA_BREAKBULK_IMPORT"
+  ) {
     return "IMPORT";
   }
   // EXPORT_* (toutes déclinaisons).
@@ -174,8 +177,16 @@ export function mapFactsToMaritimeInput(
   // operation_type : depuis quote_cases.request_type via mapping strict ; sinon null.
   const operation_type = resolveOperationTypeFromRequestType(requestType);
 
-  // cargo_mode : déduit UNIQUEMENT depuis un fait évident (cargo.containers non vide).
-  const cargo_mode = factText(m, "cargo.containers") !== null ? "CONTENEUR" : null;
+  // cargo_mode : déduit UNIQUEMENT depuis un fait conteneur évident ou depuis le
+  // request_type maritime breakbulk explicite. RoRo/ConRo restent à confirmer si
+  // aucun conteneur n'est présent : le type de terminal ne suffit pas à déduire
+  // la colonne PAD applicable.
+  const normalizedRequestType = String(requestType ?? "").trim().toUpperCase();
+  const cargo_mode = factText(m, "cargo.containers") !== null
+    ? "CONTENEUR"
+    : normalizedRequestType === "SEA_BREAKBULK_IMPORT"
+    ? "CONVENTIONNEL"
+    : null;
 
   // carrier : carrier.name
   const carrier = factText(m, "carrier.name");
@@ -249,36 +260,43 @@ export async function handleRequest(req: Request): Promise<Response> {
     } else if (typeof body?.case_id === "string" && body.case_id.length) {
       // (2) case_id : lecture read-only des faits strictement nécessaires.
       const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-      if (!supabaseUrl || !serviceKey) {
+      if (!supabaseUrl || !anonKey || !serviceKey) {
         return errorResponse("Missing Supabase environment variables.", 503);
       }
-      const client = createClient(supabaseUrl, serviceKey);
-
-      const { data: caseRow, error: caseErr } = await client
-        .from("quote_cases")
-        .select("id, request_type")
-        .eq("id", body.case_id)
-        .maybeSingle();
-      if (caseErr) {
-        return errorResponse(`quote_cases read failed: ${caseErr.message}`, 500);
+      // Le reset canonique n'accorde pas de SELECT direct sur quote_cases /
+      // quote_facts. La RPC SECURITY DEFINER existante prouve l'accès partagé
+      // sous le JWT appelant ; l'élévation read-only n'arrive qu'APRÈS ce oui.
+      const caller = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false },
+        global: { headers: { Authorization: `Bearer ${auth.token}` } },
+      });
+      const { data: canRead, error: accessError } = await caller.rpc(
+        "has_case_read_access",
+        { _case_id: body.case_id },
+      );
+      if (accessError || canRead !== true) {
+        return errorResponse("Dossier introuvable ou accès refusé.", 403);
       }
-      if (!caseRow) {
-        return errorResponse(`case_id introuvable: ${body.case_id}`, 404);
+      const client = createClient(supabaseUrl, serviceKey, {
+        auth: { persistSession: false },
+      });
+      const { data: caseContext, error: contextError } = await client.rpc(
+        "read_maritime_fee_case_context",
+        { p_case_id: body.case_id },
+      );
+      if (contextError || !caseContext) {
+        return errorResponse("Lecture du dossier impossible.", 500);
       }
-
-      const { data: facts, error: factsErr } = await client
-        .from("quote_facts")
-        .select("fact_key, value_text, value_number, value_json")
-        .eq("case_id", body.case_id)
-        .eq("is_current", true);
-      if (factsErr) {
-        return errorResponse(`quote_facts read failed: ${factsErr.message}`, 500);
-      }
+      const context = caseContext as {
+        request_type?: string | null;
+        facts?: FactRow[];
+      };
 
       input = mapFactsToMaritimeInput(
-        (caseRow as { request_type?: string | null }).request_type,
-        (facts ?? []) as FactRow[],
+        context.request_type ?? null,
+        Array.isArray(context.facts) ? context.facts : [],
       );
     } else {
       return errorResponse(
