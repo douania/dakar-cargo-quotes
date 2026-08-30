@@ -15,6 +15,7 @@
  */
 
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +25,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { usePricingResultData, QuotationVersion } from '@/hooks/usePricingResultData';
+import type { QuotationVersion } from '@/hooks/usePricingResultData';
 
 // ── Qualification types & helpers ────────────────────────────────────────────
 
@@ -143,30 +144,106 @@ interface QuotationVersionCardProps {
   refreshToken?: number;
 }
 
-export function QuotationVersionCard({ caseId, isLocked = false, refreshToken }: QuotationVersionCardProps) {
-  const { versions, refetchVersions } = usePricingResultData(caseId, refreshToken);
-  const [exportingId, setExportingId] = useState<string | null>(null);
-  const [selectingId, setSelectingId] = useState<string | null>(null);
-  const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
+export function QuotationVersionCard(props: QuotationVersionCardProps) {
+  // Isolate in-flight mutations and transient PDF state when changing dossiers.
+  return <QuotationVersionCardInner key={props.caseId} {...props} />;
+}
 
+function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: QuotationVersionCardProps) {
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  // This card must observe errors from the very read it displays, not a separate
+  // confirmation query. Keep the existing historical scenario exclusion unchanged.
+  const { data: versions = [], isError: versionsError, refetch: refetchVersions } = useQuery({
+    queryKey: ['quotation-versions', caseId, refreshToken],
+    queryFn: async (): Promise<QuotationVersion[]> => {
+      const { data, error } = await supabase.from('quotation_versions')
+        .select('id, version_number, status, is_selected, snapshot, created_at, created_by')
+        .eq('case_id', caseId).order('version_number', { ascending: false });
+      if (error) throw error;
+      return (data ?? []).filter((version) => {
+        const snapshot = version.snapshot;
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return true;
+        const meta = snapshot.meta;
+        return !(meta && typeof meta === 'object' && !Array.isArray(meta) && meta.source_kind === 'scenario');
+      });
+    },
+  });
+
+  // Selection is a mutation (mutationKey scoped to caseId) so SendQuotationPanel
+  // can observe the in-flight window via useIsMutating and stay in sync without a reload.
+  const selectVersionMutation = useMutation({
+    mutationKey: ['select-quotation-version', caseId],
+    mutationFn: async (versionId: string) => {
+      let rpcFailed = false;
+      try {
+        const { error } = await supabase.rpc('select_quotation_version', {
+          p_version_id: versionId,
+          p_case_id: caseId,
+        });
+        rpcFailed = !!error;
+      } catch {
+        rpcFailed = true;
+      }
+
+      // The RPC's error field alone doesn't prove nothing happened: a network
+      // failure can surface after the write already committed server-side.
+      // Always resync the real server-selected data before this mutation
+      // settles — never assume the previous version is still selected just
+      // because the RPC call itself errored.
+      // Invalidate inactive queries too: a remounted panel must not reuse an old
+      // selection. Settle BOTH reads before releasing the mutation's action lock.
+      const reads = await Promise.allSettled([
+        queryClient.invalidateQueries(
+          { queryKey: ['send-quotation-data', caseId], exact: true },
+          { throwOnError: true },
+        ),
+        queryClient.invalidateQueries(
+          { queryKey: ['quotation-versions', caseId] },
+          { throwOnError: true },
+        ),
+      ]);
+      if (reads.some((read) => read.status === 'rejected')) {
+        throw new Error('REFRESH_FAILED');
+      }
+      if (rpcFailed) {
+        throw new Error('RPC_ERROR_RESYNCED');
+      }
+    },
+    onSuccess: () => {
+      toast.success('Version sélectionnée');
+    },
+    onError: (err) => {
+      console.error('Select version error:', err);
+      const message = err instanceof Error ? err.message : undefined;
+      if (message === 'REFRESH_FAILED') {
+        toast.error('Erreur lors de la sélection', {
+          description: 'La sélection a peut-être été enregistrée mais l\'actualisation a échoué. Réessayez.',
+        });
+      } else if (message === 'RPC_ERROR_RESYNCED') {
+        toast.error('Erreur lors de la sélection', {
+          description: 'La confirmation a échoué ; l\'affichage a été resynchronisé avec l\'état réel du serveur.',
+        });
+      } else {
+        toast.error('Erreur lors de la sélection');
+      }
+    },
+  });
+
+  if (versionsError) return (
+    <Card><CardContent className="pt-4 space-y-2">
+      <p role="alert">Impossible d'actualiser les versions du devis.</p>
+      <Button variant="outline" onClick={() => void refetchVersions()}>Réessayer les versions</Button>
+    </CardContent></Card>
+  );
   if (versions.length === 0) return null;
 
-  const handleSelectVersion = async (versionId: string) => {
-    setSelectingId(versionId);
-    try {
-      const { error: rpcError } = await supabase.rpc('select_quotation_version', {
-        p_version_id: versionId,
-        p_case_id: caseId,
-      });
-      if (rpcError) throw rpcError;
-      toast.success('Version sélectionnée');
-      await refetchVersions();
-    } catch (err) {
-      console.error('Select version error:', err);
-      toast.error('Erreur lors de la sélection');
-    } finally {
-      setSelectingId(null);
-    }
+  const handleSelectVersion = (versionId: string) => {
+    // Guard against concurrent selections (double-click, or clicking another version
+    // while one is still in flight): only one selection may be in flight at a time.
+    if (isLocked || queryClient.isMutating({ mutationKey: ['select-quotation-version', caseId], exact: true }) > 0) return;
+    selectVersionMutation.mutate(versionId);
   };
 
   const handleExportPdf = async (version: QuotationVersion) => {
@@ -340,10 +417,10 @@ export function QuotationVersionCard({ caseId, isLocked = false, refreshToken }:
                           variant="outline"
                           size="sm"
                           onClick={() => handleSelectVersion(version.id)}
-                          disabled={selectingId === version.id}
+                          disabled={selectVersionMutation.isPending}
                           className="gap-1"
                         >
-                          {selectingId === version.id ? (
+                          {selectVersionMutation.isPending && selectVersionMutation.variables === version.id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             <Check className="h-3 w-3" />

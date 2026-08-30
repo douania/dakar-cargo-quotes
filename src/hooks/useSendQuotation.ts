@@ -58,7 +58,7 @@ interface SendQuotationData {
 export function useSendQuotation(caseId: string | undefined) {
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery<SendQuotationData>({
+  const { data, isLoading, isError, isFetching } = useQuery<SendQuotationData>({
     queryKey: ['send-quotation-data', caseId],
     enabled: !!caseId,
     queryFn: async () => {
@@ -103,6 +103,14 @@ export function useSendQuotation(caseId: string | undefined) {
           .in('status', ['drafted', 'sent', 'answered']),
       ]);
 
+      // Critical fields (selected version, case status, owner draft) must not be
+      // trusted from a Supabase error response: {data:null,error} resolves rather
+      // than rejecting, so a silent version/status mismatch would otherwise slip
+      // through canSend. PDF/communication-warning reads stay best-effort by design
+      // (informational only, never part of canSend).
+      if (versionResult.error) throw versionResult.error;
+      if (caseResult.error) throw caseResult.error;
+
       const selectedVersion = versionResult.data ?? null;
 
       // Step 2: fetch draft + PDF in parallel (only if version exists)
@@ -129,6 +137,8 @@ export function useSendQuotation(caseId: string | undefined) {
             .limit(1)
             .maybeSingle(),
         ]);
+
+        if (draftResult.error) throw draftResult.error;
 
         ownerDraft = draftResult.data ?? null;
         latestPdf = pdfResult.data ?? null;
@@ -171,6 +181,7 @@ export function useSendQuotation(caseId: string | undefined) {
   // canSend is NOT affected by communication warnings (operator discretion)
   const canSend = !!ownerDraft
     && !!selectedVersion
+    && !isError && !isFetching
     && ownerDraft.status !== 'sent'
     && caseStatus === 'QUOTED_VERSIONED'
     && hasRecipient && hasSubject && hasBody;
@@ -179,9 +190,20 @@ export function useSendQuotation(caseId: string | undefined) {
   const isCaseSent = caseStatus === 'SENT' || caseStatus === 'ACCEPTED' || caseStatus === 'REJECTED';
   const sentAt = ownerDraft?.sent_at ?? null;
 
+  // Recheck the live cache at action time as well as disabling UI buttons. A
+  // handler captured before selection starts must not act on the old version.
+  const canActOnSelection = () => {
+    const state = queryClient.getQueryState<SendQuotationData>(['send-quotation-data', caseId]);
+    return !!caseId && !!selectedVersion
+      && queryClient.isMutating({ mutationKey: ['select-quotation-version', caseId], exact: true }) === 0
+      && state?.status === 'success' && state.fetchStatus === 'idle' && !state.isInvalidated
+      && state.data?.selectedVersion?.id === selectedVersion.id
+      && state.data?.ownerDraft?.id === ownerDraft?.id;
+  };
+
   const sendMutation = useMutation({
     mutationFn: async () => {
-      if (!caseId || !ownerDraft || !selectedVersion) {
+      if (!caseId || !ownerDraft || !selectedVersion || !canSend || !canActOnSelection()) {
         throw new Error('Missing required data for sending');
       }
 
@@ -237,6 +259,9 @@ export function useSendQuotation(caseId: string | undefined) {
     sentAt,
     sendMutation,
     isLoading,
+    isError,
+    isFetching,
+    canActOnSelection,
     // P0 Hardening flags
     hasPdf,
     hasRecipient,

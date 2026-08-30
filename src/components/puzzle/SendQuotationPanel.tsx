@@ -27,7 +27,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useSendQuotation } from '@/hooks/useSendQuotation';
 import { supabase } from '@/integrations/supabase/client';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 interface SendQuotationPanelProps {
@@ -47,11 +47,20 @@ function PreCheckItem({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
+export function SendQuotationPanel(props: SendQuotationPanelProps) {
+  return <SendQuotationPanelInner key={props.caseId} {...props} />;
+}
+
+function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
   const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [useAiEnrichment, setUseAiEnrichment] = useState(false);
+
+  // Reflects QuotationVersionCard's selection mutation (same mutationKey, scoped to
+  // this caseId): while a version selection is being applied and the server-selected
+  // data is being refreshed, no action here may run against soon-to-be-stale data.
+  const isSelectingVersion = useIsMutating({ mutationKey: ['select-quotation-version', caseId] }) > 0;
 
   const {
     ownerDraft,
@@ -62,6 +71,9 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     sentAt,
     sendMutation,
     isLoading,
+    isError,
+    isFetching,
+    canActOnSelection,
     hasPdf,
     hasRecipient,
     hasSubject,
@@ -73,6 +85,10 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
     openClientGaps,
     hasCommunicationWarnings,
   } = useSendQuotation(caseId);
+
+  // Fail-closed: block generation/save/send while a selection refresh is pending, or
+  // if the last refresh of the server-selected data failed (stale version/draft risk).
+  const actionsLocked = isSelectingVersion || isError || isFetching;
 
   // Unified lock flag: draft sent OR case in terminal state
   const isFinalized = isSent || isCaseSent;
@@ -88,6 +104,13 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
       setEditTo(ownerDraft.to_addresses?.[0] ?? '');
       setEditSubject(ownerDraft.subject ?? '');
       setEditBody(ownerDraft.body_text ?? '');
+    } else {
+      // No draft for the currently selected version (e.g. just switched to a version
+      // without one): clear any leftover unsaved text instead of leaking it across
+      // versions/drafts.
+      setEditTo('');
+      setEditSubject('');
+      setEditBody('');
     }
   }, [ownerDraft?.id, ownerDraft?.subject, ownerDraft?.body_text, ownerDraft?.to_addresses?.[0]]);
 
@@ -116,7 +139,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   }
 
   // Don't render if no draft and no version
-  if (!ownerDraft && !selectedVersion && !isFinalized) {
+  if (!ownerDraft && !selectedVersion && !isFinalized && !isError) {
     return null;
   }
 
@@ -128,7 +151,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
   const formatAmount = (amount: number) => new Intl.NumberFormat('fr-FR').format(amount);
 
   const handleSaveDraft = async () => {
-    if (!ownerDraft || !selectedVersion) return;
+    if (!ownerDraft || !selectedVersion || actionsLocked || !canActOnSelection()) return;
     setIsSaving(true);
     try {
       const trimmedTo = editTo.trim();
@@ -203,6 +226,25 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
             </div>
           )}
         </div>
+
+        {/* Selection refresh in-flight / failed: block actions until confirmed fresh */}
+        {!isFinalized && isSelectingVersion && (
+          <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Actualisation de la version sélectionnée en cours…
+          </div>
+        )}
+        {!isFinalized && !isSelectingVersion && isError && (
+          <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-destructive">
+              Impossible d'actualiser les données du devis après un changement de version. Les actions restent bloquées tant que l'actualisation n'a pas réussi.
+            </p>
+            <Button variant="outline" disabled={isFetching} onClick={() => void queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true })}>
+              Réessayer le brouillon
+            </Button>
+          </div>
+        )}
 
         {/* Pre-verification checklist */}
         {!isFinalized && ownerDraft && (
@@ -291,8 +333,8 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
             <Button
               variant="outline"
               className="w-full gap-2"
-              disabled={isGenerating}
               onClick={async () => {
+                if (actionsLocked || !canActOnSelection()) return;
                 setIsGenerating(true);
                 try {
                   const { data, error } = await supabase.functions.invoke('create-quotation-email-draft', {
@@ -316,6 +358,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
                   setIsGenerating(false);
                 }
               }}
+              disabled={isGenerating || actionsLocked}
             >
               {isGenerating ? (
                 <>
@@ -381,7 +424,7 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
               size="sm"
               className="w-full gap-2"
               onClick={handleSaveDraft}
-              disabled={isSaving}
+              disabled={isSaving || actionsLocked}
             >
               {isSaving ? (
                 <>
@@ -418,11 +461,11 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
 
         {/* Mark as sent button with confirmation */}
         {!isFinalized && (
-          <AlertDialog>
+          <AlertDialog key={selectedVersion?.id}>
             <AlertDialogTrigger asChild>
               <Button
                 className="w-full gap-2"
-                disabled={!canSend || sendMutation.isPending || hasUnsavedChanges}
+                disabled={!canSend || sendMutation.isPending || hasUnsavedChanges || actionsLocked}
               >
                 {sendMutation.isPending ? (
                   <>
@@ -496,8 +539,15 @@ export function SendQuotationPanel({ caseId }: SendQuotationPanelProps) {
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={sendMutation.isPending}>Annuler</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => sendMutation.mutate()}
-                  disabled={sendMutation.isPending}
+                  onClick={() => {
+                    // The dialog may have been opened before a version selection went
+                    // in flight (or its refresh failed): re-check actionsLocked at the
+                    // moment of confirmation, not just when the dialog was opened, so a
+                    // stale/soon-to-be-stale version or draft is never marked as sent.
+                    if (actionsLocked || !canSend || hasUnsavedChanges || !canActOnSelection()) return;
+                    sendMutation.mutate();
+                  }}
+                  disabled={sendMutation.isPending || actionsLocked || !canSend || hasUnsavedChanges}
                 >
                   {sendMutation.isPending ? (
                     <>
