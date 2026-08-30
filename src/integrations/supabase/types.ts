@@ -2967,6 +2967,96 @@ export type Database = {
         }
         Relationships: []
       }
+      maritime_fee_decisions: {
+        Row: {
+          case_id: string
+          created_at: string
+          currency: string
+          decided_amount_xof: number | null
+          decided_by: string
+          decision_action: string
+          decision_key: string
+          decision_source: string
+          decision_version: number
+          evidence_level: string
+          id: string
+          idempotency_key: string
+          input_snapshot_hash: string
+          justification: string
+          proposal_category: string
+          proposal_fingerprint: string
+          proposal_id: string
+          proposal_snapshot: Json
+          request_fingerprint: string
+          source_reference: string
+          suggested_amount_xof: number | null
+          supersedes_id: string | null
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          currency?: string
+          decided_amount_xof?: number | null
+          decided_by: string
+          decision_action: string
+          decision_key: string
+          decision_source: string
+          decision_version: number
+          evidence_level: string
+          id?: string
+          idempotency_key: string
+          input_snapshot_hash: string
+          justification: string
+          proposal_category: string
+          proposal_fingerprint: string
+          proposal_id: string
+          proposal_snapshot: Json
+          request_fingerprint: string
+          source_reference: string
+          suggested_amount_xof?: number | null
+          supersedes_id?: string | null
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          currency?: string
+          decided_amount_xof?: number | null
+          decided_by?: string
+          decision_action?: string
+          decision_key?: string
+          decision_source?: string
+          decision_version?: number
+          evidence_level?: string
+          id?: string
+          idempotency_key?: string
+          input_snapshot_hash?: string
+          justification?: string
+          proposal_category?: string
+          proposal_fingerprint?: string
+          proposal_id?: string
+          proposal_snapshot?: Json
+          request_fingerprint?: string
+          source_reference?: string
+          suggested_amount_xof?: number | null
+          supersedes_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maritime_fee_decisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maritime_fee_decisions_supersedes_same_case"
+            columns: ["case_id", "supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "maritime_fee_decisions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
       market_intelligence: {
         Row: {
           category: string
@@ -7285,6 +7375,34 @@ export type Database = {
       quote_scenario_unknown_key: {
         Args: { p_allowed: string[]; p_node: Json }
         Returns: string
+      }
+      read_maritime_fee_case_context: {
+        Args: { p_case_id: string }
+        Returns: Json
+      }
+      record_maritime_fee_decision: {
+        Args: {
+          p_actor_user_id: string
+          p_case_id: string
+          p_currency: string
+          p_decided_amount_xof: number
+          p_decision_action: string
+          p_decision_key: string
+          p_decision_source: string
+          p_evidence_level: string
+          p_expected_decision_version: number
+          p_idempotency_key: string
+          p_input_snapshot_hash: string
+          p_justification: string
+          p_proposal_category: string
+          p_proposal_fingerprint: string
+          p_proposal_id: string
+          p_proposal_snapshot: Json
+          p_request_fingerprint: string
+          p_source_reference: string
+          p_suggested_amount_xof: number
+        }
+        Returns: Json
       }
       record_quote_scenario_pricing_run: {
         Args: {
