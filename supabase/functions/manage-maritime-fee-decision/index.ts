@@ -20,7 +20,7 @@ import parametrageJson from "../_shared/maritime-fee-proposals/dcq_pad_parametra
 import {
   type FactRow,
   mapFactsToMaritimeInput,
-} from "../maritime-fee-proposals/index.ts";
+} from "../_shared/maritime-fee-proposals/fact-mapping.ts";
 import {
   buildDecisionKey,
   buildProposalSnapshot,

@@ -12,11 +12,11 @@ import {
   assertNotEquals,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
+import { buildProposalOnlyEnvelope } from "./index.ts";
 import {
-  buildProposalOnlyEnvelope,
   mapFactsToMaritimeInput,
   resolveOperationTypeFromRequestType,
-} from "./index.ts";
+} from "../_shared/maritime-fee-proposals/fact-mapping.ts";
 import type { Parametrage } from "../_shared/maritime-fee-proposals/engine.ts";
 import parametrageJson from "../_shared/maritime-fee-proposals/dcq_pad_parametrage.json" with {
   type: "json",

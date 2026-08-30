@@ -61,7 +61,7 @@ import {
 import maritimeParametrageJson from "../_shared/maritime-fee-proposals/dcq_pad_parametrage.json" with {
   type: "json",
 };
-import { mapFactsToMaritimeInput } from "../maritime-fee-proposals/index.ts";
+import { mapFactsToMaritimeInput } from "../_shared/maritime-fee-proposals/fact-mapping.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
