@@ -62,7 +62,7 @@ import {
   STATUS_LABELS,
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
-import { mapSourceType, toFactPayload } from "./case-view/helpers";
+import { mapSourceType, toFactPayload, shouldShowPricingPanel, isPricingRerun } from "./case-view/helpers";
 import { FactHistoryPopover } from "./case-view/FactHistoryPopover";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
@@ -2031,12 +2031,10 @@ export default function CaseView() {
           const canProvisionalDdp = prechecks.length > 0
             && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
 
-          // Lot 4.1: montage si pricing explicitement débloqué ou rerun.
-          // L'exception canProvisionalDdp est conservée pour le pilote DDP provisoire.
+          // Reprise manuelle autorisée après versionnement, jamais après envoi/clôture.
+          // L'exception DDP provisoire ne contourne pas ces verrous de statut.
           // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
-          const showPricingPanel =
-            ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', 'PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)
-            || canProvisionalDdp;
+          const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
 
           if (!showPricingPanel) return null;
 
@@ -2047,7 +2045,7 @@ export default function CaseView() {
               <PricingLaunchPanel
                 caseId={caseId!}
                 onComplete={handlePricingComplete}
-                isRerun={['PRICED_DRAFT', 'HUMAN_REVIEW'].includes(caseData.status)}
+                isRerun={isPricingRerun(caseData.status)}
                 blockedByIntent={(() => {
                   const intentEvents = events
                     .filter((e: any) => e.event_type === "thread_intent_v1")

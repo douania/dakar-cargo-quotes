@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Loader2, Calculator, Info, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -59,6 +60,7 @@ interface PricingLaunchPanelProps {
 }
 
 export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false }: PricingLaunchPanelProps) {
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +177,8 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       onComplete?.();
     } finally {
       setIsLoading(false);
+      // Every attempt, including early error returns, refreshes this case's latest-run alert.
+      void queryClient.invalidateQueries({ queryKey: ['pricing-run-recovery', caseId], exact: true });
     }
   };
 

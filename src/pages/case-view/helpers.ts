@@ -120,3 +120,17 @@ export function toFactPayload(f: Record<string, unknown>) {
 
   return { fact_key: factKey, value_text: valueText, value_number: valueNumber, value_json: valueJson };
 }
+
+const PRICING_RERUN_STATUSES = ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED'];
+const PRICING_PANEL_STATUSES = ['READY_TO_PRICE', 'ACK_READY_FOR_PRICING', ...PRICING_RERUN_STATUSES];
+const PRICING_LOCKED_STATUSES = ['PRICING_RUNNING', 'SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'];
+
+/** Manual recovery remains available after versioning, never after sending/closing. */
+export function shouldShowPricingPanel(status: string, canProvisionalDdp: boolean): boolean {
+  if (PRICING_LOCKED_STATUSES.includes(status)) return false;
+  return PRICING_PANEL_STATUSES.includes(status) || canProvisionalDdp;
+}
+
+export function isPricingRerun(status: string): boolean {
+  return PRICING_RERUN_STATUSES.includes(status);
+}
