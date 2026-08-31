@@ -2105,6 +2105,400 @@ export type Database = {
           },
         ]
       }
+      final_request_commands: {
+        Row: {
+          action: string
+          actor_id: string
+          case_id: string
+          created_at: string
+          fingerprint: string
+          id: string
+          request: Json
+          request_key: string
+          response: Json
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          case_id: string
+          created_at?: string
+          fingerprint: string
+          id?: string
+          request: Json
+          request_key: string
+          response: Json
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          case_id?: string
+          created_at?: string
+          fingerprint?: string
+          id?: string
+          request?: Json
+          request_key?: string
+          response?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_commands_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      final_request_grant_events: {
+        Row: {
+          active: boolean
+          actor_id: string
+          created_at: string
+          generation: number
+          id: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          active: boolean
+          actor_id: string
+          created_at?: string
+          generation: number
+          id?: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          actor_id?: string
+          created_at?: string
+          generation?: number
+          id?: string
+          reason?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_grant_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_reviewer_grants"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      final_request_heads: {
+        Row: {
+          capture_id: string | null
+          case_id: string
+          generation: number
+          review_event_id: string | null
+          revision_id: string | null
+        }
+        Insert: {
+          capture_id?: string | null
+          case_id: string
+          generation?: number
+          review_event_id?: string | null
+          revision_id?: string | null
+        }
+        Update: {
+          capture_id?: string | null
+          case_id?: string
+          generation?: number
+          review_event_id?: string | null
+          revision_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_heads_case_id_capture_id_fkey"
+            columns: ["case_id", "capture_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_commands"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_heads_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: true
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_request_heads_case_id_review_event_id_fkey"
+            columns: ["case_id", "review_event_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_review_events"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_heads_case_id_revision_id_fkey"
+            columns: ["case_id", "revision_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_revisions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
+      final_request_review_events: {
+        Row: {
+          action: string
+          actor_id: string
+          candidate_ref: string | null
+          case_id: string
+          created_at: string
+          generation: number
+          id: string
+          needs_fact_reconciliation: boolean
+          previous_id: string | null
+          reason: string
+          revision_id: string
+          target: Json
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          candidate_ref?: string | null
+          case_id: string
+          created_at?: string
+          generation: number
+          id?: string
+          needs_fact_reconciliation?: boolean
+          previous_id?: string | null
+          reason: string
+          revision_id: string
+          target: Json
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          candidate_ref?: string | null
+          case_id?: string
+          created_at?: string
+          generation?: number
+          id?: string
+          needs_fact_reconciliation?: boolean
+          previous_id?: string | null
+          reason?: string
+          revision_id?: string
+          target?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_review_events_case_id_previous_id_fkey"
+            columns: ["case_id", "previous_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_review_events"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_review_events_case_id_revision_id_fkey"
+            columns: ["case_id", "revision_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_revisions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
+      final_request_reviewer_grants: {
+        Row: {
+          active: boolean
+          changed_at: string
+          changed_by: string
+          generation: number
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          active: boolean
+          changed_at?: string
+          changed_by: string
+          generation: number
+          reason: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          changed_at?: string
+          changed_by?: string
+          generation?: number
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      final_request_revision_sources: {
+        Row: {
+          case_id: string
+          revision_id: string
+          source_version_id: string
+        }
+        Insert: {
+          case_id: string
+          revision_id: string
+          source_version_id: string
+        }
+        Update: {
+          case_id?: string
+          revision_id?: string
+          source_version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_revision_sources_case_id_revision_id_fkey"
+            columns: ["case_id", "revision_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_revisions"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_revision_sources_case_id_source_version_id_fkey"
+            columns: ["case_id", "source_version_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_source_versions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
+      final_request_revisions: {
+        Row: {
+          capture_id: string
+          case_id: string
+          created_at: string
+          created_by: string
+          id: string
+          input: Json
+          input_hash: string
+          limitations: Json
+          parent_id: string | null
+          raw_result: Json
+          resolver_version: string
+          result_hash: string
+          version_number: number
+        }
+        Insert: {
+          capture_id: string
+          case_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          input: Json
+          input_hash: string
+          limitations: Json
+          parent_id?: string | null
+          raw_result: Json
+          resolver_version: string
+          result_hash: string
+          version_number: number
+        }
+        Update: {
+          capture_id?: string
+          case_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          input?: Json
+          input_hash?: string
+          limitations?: Json
+          parent_id?: string | null
+          raw_result?: Json
+          resolver_version?: string
+          result_hash?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_revisions_case_id_capture_id_fkey"
+            columns: ["case_id", "capture_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_commands"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_revisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_request_revisions_case_id_parent_id_fkey"
+            columns: ["case_id", "parent_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_revisions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
+      final_request_source_versions: {
+        Row: {
+          attested_by: string | null
+          author_role: string
+          case_id: string
+          content_class: string
+          created_at: string
+          created_by: string
+          id: string
+          origin_id: string
+          origin_kind: string
+          previous_id: string | null
+          reason: string | null
+          sent_at: string | null
+          source_data: Json
+          source_hash: string
+          version_number: number
+        }
+        Insert: {
+          attested_by?: string | null
+          author_role?: string
+          case_id: string
+          content_class?: string
+          created_at?: string
+          created_by: string
+          id?: string
+          origin_id: string
+          origin_kind: string
+          previous_id?: string | null
+          reason?: string | null
+          sent_at?: string | null
+          source_data: Json
+          source_hash: string
+          version_number: number
+        }
+        Update: {
+          attested_by?: string | null
+          author_role?: string
+          case_id?: string
+          content_class?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          origin_id?: string
+          origin_kind?: string
+          previous_id?: string | null
+          reason?: string | null
+          sent_at?: string | null
+          source_data?: Json
+          source_hash?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_source_versions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_request_source_versions_case_id_previous_id_fkey"
+            columns: ["case_id", "previous_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_source_versions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
       fuel_price_tracking: {
         Row: {
           country: string
@@ -7218,6 +7612,65 @@ export type Database = {
         Returns: undefined
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
+      frs_admin_set_reviewer: {
+        Args: {
+          p_active: boolean
+          p_operator: string
+          p_reason: string
+          p_user: string
+        }
+        Returns: number
+      }
+      frs_apply_review: {
+        Args: {
+          p: Json
+          p_actor: string
+          p_case: string
+          p_generation: number
+          p_revision: string
+        }
+        Returns: Json
+      }
+      frs_assertions_valid: { Args: { i: Json }; Returns: boolean }
+      frs_build_capture: {
+        Args: {
+          p_actor: string
+          p_capture: string
+          p_case: string
+          p_generation: number
+          p_head: string
+          p_inventory: Json
+        }
+        Returns: Json
+      }
+      frs_hash: { Args: { j: Json }; Returns: string }
+      frs_instant: { Args: { s: string }; Returns: boolean }
+      frs_inventory: { Args: { p_case: string }; Returns: Json }
+      frs_keys: {
+        Args: { j: Json; optional?: string[]; required: string[] }
+        Returns: boolean
+      }
+      frs_mutate: {
+        Args: {
+          p_action: string
+          p_actor: string
+          p_case: string
+          p_expected_generation: number
+          p_expected_revision: string
+          p_key: string
+          p_payload: Json
+        }
+        Returns: Json
+      }
+      frs_read: {
+        Args: { p_actor: string; p_case: string; p_revision?: string }
+        Returns: Json
+      }
+      frs_result_valid: { Args: { i: Json; r: Json }; Returns: boolean }
+      frs_target: { Args: { a: Json }; Returns: Json }
+      frs_text: { Args: { j: Json; max_len?: number }; Returns: boolean }
+      frs_utf16_length: { Args: { s: string }; Returns: number }
+      frs_value: { Args: { field: string; j: Json }; Returns: boolean }
       get_next_pricing_run_number: {
         Args: { p_case_id: string }
         Returns: number
