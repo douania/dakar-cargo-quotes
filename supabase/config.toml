@@ -301,3 +301,6 @@ verify_jwt = false
 
 [functions.generate-scenario-quotation-version]
 verify_jwt = false
+
+[functions.manage-final-request-state]
+verify_jwt = false
