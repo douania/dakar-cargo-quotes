@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +12,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { functions: { invoke: vi.fn() } },
 }));
 import { supabase } from "@/integrations/supabase/client";
+import { attestedSentAtIso } from "@/lib/finalRequestState";
 import { FinalRequestStatePanel } from "../FinalRequestStatePanel";
 
 const invokeMock = supabase.functions.invoke as unknown as ReturnType<
@@ -413,6 +420,185 @@ describe("FinalRequestStatePanel P1-C2-B", () => {
       first.idempotency_key,
     );
     expect(first).not.toHaveProperty("expectedSourceHash");
+  });
+
+  function attestationEnvelope(
+    kind: "attachment" | "document" | "email",
+    sourceSentAt: string | null = null,
+  ) {
+    return envelope({
+      captureRecord: {
+        capture: { limitations: [] },
+        inventory: {
+          sources: [{
+            kind,
+            id: "source-1",
+            fileName: "instructions.pdf",
+            author: "Client fixture",
+            sentAt: sourceSentAt,
+            text: "Instruction fixture",
+          }],
+        },
+        sourceAttestationRefs: [{ originKind: kind, originId: "source-1" }],
+      },
+    });
+  }
+  async function openAttestation(
+    user: ReturnType<typeof userEvent.setup>,
+    kind: "attachment" | "document" | "email",
+    sourceSentAt: string | null = null,
+  ) {
+    const loaded = attestationEnvelope(kind, sourceSentAt);
+    invokeMock.mockResolvedValueOnce({ data: loaded, error: null })
+      .mockResolvedValueOnce({
+        data: { ok: true, data: { pricingAuthorized: false } },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: loaded, error: null });
+    render(<FinalRequestStatePanel caseId={CASE} />);
+    await user.click(screen.getByRole("button", { name: /Ouvrir la revue/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /Attester cette source/i }),
+    );
+    await user.type(
+      screen.getByLabelText(/Justification/i),
+      "Original consulté",
+    );
+  }
+
+  const DATE_LABEL = /Date et heure du document/i;
+  it.each([
+    ["attachment", "2026-08-30T10:00:00Z"],
+    ["document", null],
+  ] as const)(
+    "P1-C2-H1 exige un choix de complétude explicite pour une source %s",
+    async (kind, sourceSentAt) => {
+      const user = userEvent.setup();
+      await openAttestation(user, kind, sourceSentAt);
+      const save = screen.getByRole("button", {
+        name: /Enregistrer l’attestation/i,
+      });
+      const select = screen.getByRole("combobox", {
+        name: /Complétude du texte capturé/i,
+      });
+      // Aucune valeur complete par défaut : le placeholder reste affiché et la
+      // soumission est impossible tant que le reviewer n'a pas choisi.
+      expect(select).toHaveTextContent(/Choix obligatoire/i);
+      expect(select).not.toHaveTextContent(/^Complet —/);
+      expect(save).toBeDisabled();
+      expect(screen.getByText(/document original/i)).toBeInTheDocument();
+      // Tant que « complete » n'est pas choisi, aucune date n'est demandée.
+      expect(screen.queryByLabelText(DATE_LABEL)).toBeNull();
+
+      await choose(user, /Complétude du texte capturé/i, /^Complet —/);
+      const expectsDate = sourceSentAt === null;
+      if (expectsDate) {
+        // Document autonome : la capture serveur le date à null, donc la date
+        // attestée par l'opérateur est obligatoire avant toute soumission.
+        const field = screen.getByLabelText(DATE_LABEL);
+        expect(field).toHaveValue("");
+        expect(save).toBeDisabled();
+        fireEvent.change(field, { target: { value: "2026-08-30T14:30" } });
+      } else {
+        // La pièce jointe hérite de la date de son email : aucun override.
+        expect(screen.queryByLabelText(DATE_LABEL)).toBeNull();
+      }
+      expect(save).toBeEnabled();
+      await user.click(save);
+      await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
+      const body = invokeMock.mock.calls[1][1].body;
+      expect(Object.keys(body).sort()).toEqual([
+        "author_role",
+        "case_id",
+        "completeness",
+        "content_class",
+        "expected_generation",
+        "expected_revision_id",
+        "idempotency_key",
+        "operation",
+        "origin_id",
+        "origin_kind",
+        ...(expectsDate ? ["sent_at"] : []),
+        "reason",
+      ].sort());
+      expect(body).toMatchObject({
+        operation: "attest_source",
+        origin_kind: kind,
+        origin_id: "source-1",
+        completeness: "complete",
+        reason: "Original consulté",
+      });
+      if (expectsDate) {
+        expect(body.sent_at).toBe(new Date("2026-08-30T14:30").toISOString());
+        expect(body.sent_at).toMatch(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        );
+      } else {
+        expect(body).not.toHaveProperty("sent_at");
+      }
+    },
+  );
+
+  it("P1-C2-H1 transmet un partiel explicite qui laisse la source bloquante", async () => {
+    const user = userEvent.setup();
+    await openAttestation(user, "document");
+    await choose(user, /Complétude du texte capturé/i, /^Partiel —/);
+    expect(screen.getByText(/maintient le blocage/i)).toBeInTheDocument();
+    // Partial reste volontairement bloquant : aucune date n'est exigée.
+    expect(screen.queryByLabelText(DATE_LABEL)).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: /Enregistrer l’attestation/i }),
+    );
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
+    const body = invokeMock.mock.calls[1][1].body;
+    expect(body.completeness).toBe("partial");
+    expect(body).not.toHaveProperty("sent_at");
+  });
+
+  it("P1-C2-H1 n'invente aucune date tant que la saisie est incomplète", async () => {
+    const user = userEvent.setup();
+    await openAttestation(user, "document");
+    await choose(user, /Complétude du texte capturé/i, /^Complet —/);
+    const field = screen.getByLabelText(DATE_LABEL);
+    const save = screen.getByRole("button", {
+      name: /Enregistrer l’attestation/i,
+    });
+    // Ni date seule, ni heure seule, ni instant impossible : rien n'est déduit.
+    for (const value of ["", "2026-08-30", "14:30", "2026-02-30T14:30"]) {
+      fireEvent.change(field, { target: { value } });
+      expect(save).toBeDisabled();
+    }
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("P1-C2-H1 refuse directement les dates locales impossibles", () => {
+    expect(attestedSentAtIso("2026-02-30T14:30")).toBeNull();
+    expect(attestedSentAtIso("2026-04-31T09:15:00")).toBeNull();
+    expect(attestedSentAtIso("2026-08-30T14:30")).toBe(
+      new Date("2026-08-30T14:30").toISOString(),
+    );
+  });
+
+  it("P1-C2-H1 laisse l'attestation d'un email strictement inchangée", async () => {
+    const user = userEvent.setup();
+    await openAttestation(user, "email");
+    expect(
+      screen.queryByRole("combobox", { name: /Complétude du texte capturé/i }),
+    ).toBeNull();
+    expect(screen.queryByLabelText(DATE_LABEL)).toBeNull();
+    const save = screen.getByRole("button", {
+      name: /Enregistrer l’attestation/i,
+    });
+    expect(save).toBeEnabled();
+    await user.click(save);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
+    const body = invokeMock.mock.calls[1][1].body;
+    expect(body).not.toHaveProperty("completeness");
+    expect(body).toMatchObject({
+      operation: "attest_source",
+      origin_kind: "email",
+      origin_id: "source-1",
+    });
   });
 
   it("ignore la réponse tardive de l'ancien dossier et efface les brouillons", async () => {

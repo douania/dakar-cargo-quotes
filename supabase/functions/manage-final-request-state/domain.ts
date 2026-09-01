@@ -47,6 +47,9 @@ export type FinalRequestCommand =
     authorRole: "client" | "operator" | "partner" | "unknown";
     contentClass: "current" | "quoted" | "historical" | "hypothesis";
     sentAt?: string | null;
+    // Attestation humaine de complétude, exigée pour une pièce jointe ou un
+    // document, refusée pour un email dont le contrat reste captureMode.
+    completeness?: "complete" | "partial";
     reason: string;
   })
   | (MutationBase & {
@@ -224,7 +227,7 @@ export function validateFinalRequestCommand(
       "reason",
     ];
     if (
-      !exact(raw, [...common, ...fields], ["sent_at"]) ||
+      !exact(raw, [...common, ...fields], ["sent_at", "completeness"]) ||
       !["email", "attachment", "document"].includes(String(raw.origin_kind)) ||
       !uuid(raw.origin_id) ||
       !["client", "operator", "partner", "unknown"].includes(
@@ -239,6 +242,20 @@ export function validateFinalRequestCommand(
     ) {
       throw new OrchestratorError("VALIDATION_FAILED", "Attestation invalide");
     }
+    // Valeur fermée, jamais déduite : une pièce jointe ou un document exige un
+    // choix humain explicite ; un email n'accepte pas ce champ, sinon il
+    // deviendrait un contournement implicite de captureMode=full_sanitized.
+    const nonEmail = raw.origin_kind !== "email";
+    if (
+      nonEmail
+        ? !["complete", "partial"].includes(String(raw.completeness))
+        : Object.hasOwn(raw, "completeness")
+    ) {
+      throw new OrchestratorError(
+        "VALIDATION_FAILED",
+        "Complétude de la source invalide",
+      );
+    }
     return {
       ...base,
       operation: "attest_source",
@@ -249,6 +266,9 @@ export function validateFinalRequestCommand(
       reason: raw.reason,
       ...(raw.sent_at !== undefined
         ? { sentAt: raw.sent_at as string | null }
+        : {}),
+      ...(nonEmail
+        ? { completeness: raw.completeness as "complete" | "partial" }
         : {}),
     };
   }
@@ -464,6 +484,9 @@ export async function executeFinalRequestCommand(
     };
     if (Object.hasOwn(command, "sentAt")) {
       payload.sentAt = command.sentAt ?? null;
+    }
+    if (command.completeness !== undefined) {
+      payload.completeness = command.completeness;
     }
     return mutationResult(
       await deps.mutate({ ...base, action: "attest_source", payload }),

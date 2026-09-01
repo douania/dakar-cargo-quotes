@@ -24,11 +24,16 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { FinalRequestAssertionEditor } from "@/components/case/FinalRequestAssertionEditor";
 import {
+  attestedSentAtIso,
+  FINAL_REQUEST_COMPLETENESS_OPTIONS,
   finalRequestErrorMessage,
+  type FinalRequestCompleteness,
   type FinalRequestReviewTarget,
   type FinalRequestSource,
   type FinalRequestStateView,
   newFinalRequestKey,
+  requiresAttestedSentAt,
+  requiresCompletenessAttestation,
   targetLabel,
   unwrapFinalRequestResponse,
 } from "@/lib/finalRequestState";
@@ -41,6 +46,10 @@ interface AttestationDraft {
   key: string;
   authorRole: string;
   contentClass: string;
+  // null tant que le reviewer n’a pas choisi : aucune valeur complete par défaut.
+  completeness: FinalRequestCompleteness | null;
+  // Saisie `datetime-local` brute, vide par défaut : aucune date n’est déduite.
+  sentAt: string;
   reason: string;
 }
 interface ReviewDraft {
@@ -153,6 +162,20 @@ export function FinalRequestStatePanel({ caseId }: Props) {
   const sources = view?.captureRecord?.inventory?.sources ?? [];
   const attestationRefs = view?.captureRecord?.sourceAttestationRefs ?? [];
   const limitations = view?.captureRecord?.capture?.limitations ?? [];
+  // Pièce jointe ou document : la complétude doit être attestée explicitement.
+  // Un email garde son contrat historique et n’expose aucun choix humain ici.
+  const completenessRequired = attestation !== null &&
+    requiresCompletenessAttestation(attestation.source);
+  const completenessMissing = completenessRequired &&
+    attestation?.completeness === null;
+  // Un document autonome n’a aucune date en amont : sans date attestée il reste
+  // SOURCE_DATE_UNKNOWN, donc invalidable, même déclaré complet.
+  const sentAtRequired = attestation !== null &&
+    requiresAttestedSentAt(attestation.source, attestation.completeness);
+  const attestedSentAt = attestation && sentAtRequired
+    ? attestedSentAtIso(attestation.sentAt)
+    : null;
+  const sentAtMissing = sentAtRequired && attestedSentAt === null;
   const capture = view?.captureRecord?.capture;
   const baseInput = capture?.baseInput;
   const revisionInput = view?.revision?.input;
@@ -354,6 +377,8 @@ export function FinalRequestStatePanel({ caseId }: Props) {
                               key: newFinalRequestKey("attest"),
                               authorRole: "client",
                               contentClass: "current",
+                              completeness: null,
+                              sentAt: "",
                               reason: "",
                             })}
                         >
@@ -405,6 +430,60 @@ export function FinalRequestStatePanel({ caseId }: Props) {
                     </Select>
                   </div>
                 </div>
+                {completenessRequired && (
+                  <div className="space-y-1">
+                    <Label>Complétude du texte capturé</Label>
+                    <Select
+                      value={attestation.completeness ?? ""}
+                      onValueChange={(v) =>
+                        setAttestation({
+                          ...attestation,
+                          completeness: v as FinalRequestCompleteness,
+                        })}
+                    >
+                      <SelectTrigger aria-label="Complétude du texte capturé">
+                        <SelectValue placeholder="Choix obligatoire — aucune valeur par défaut" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FINAL_REQUEST_COMPLETENESS_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      « Complet » signifie que vous avez ouvert le document
+                      original et vérifié que le texte capturé reprend
+                      intégralement les instructions utiles. « Partiel »
+                      maintient le blocage de cette source. Aucune complétude
+                      n’est déduite automatiquement.
+                    </p>
+                  </div>
+                )}
+                {sentAtRequired && (
+                  <div className="space-y-1">
+                    <Label htmlFor="frs-attest-sent-at">
+                      Date et heure du document
+                    </Label>
+                    <Input
+                      id="frs-attest-sent-at"
+                      type="datetime-local"
+                      value={attestation.sentAt}
+                      onChange={(e) =>
+                        setAttestation({
+                          ...attestation,
+                          sentAt: e.target.value,
+                        })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Date et heure attestées par l’opérateur : ce document
+                      autonome n’en fournit aucune, et sans elle la source reste
+                      bloquante. Saisissez l’instant réel du document dans votre
+                      fuseau ; aucune date n’est déduite.
+                    </p>
+                  </div>
+                )}
                 <Label htmlFor="frs-attest-reason">Justification</Label>
                 <Textarea
                   id="frs-attest-reason"
@@ -416,7 +495,8 @@ export function FinalRequestStatePanel({ caseId }: Props) {
                   <Button
                     type="button"
                     size="sm"
-                    disabled={busy || attestation.reason.trim().length < 3}
+                    disabled={busy || completenessMissing || sentAtMissing ||
+                      attestation.reason.trim().length < 3}
                     onClick={() =>
                       void mutate({
                         operation: "attest_source",
@@ -428,6 +508,10 @@ export function FinalRequestStatePanel({ caseId }: Props) {
                         origin_id: attestation.source.id,
                         author_role: attestation.authorRole,
                         content_class: attestation.contentClass,
+                        ...(completenessRequired && attestation.completeness
+                          ? { completeness: attestation.completeness }
+                          : {}),
+                        ...(attestedSentAt ? { sent_at: attestedSentAt } : {}),
                         reason: attestation.reason.trim(),
                       }, () => setAttestation(null))}
                   >

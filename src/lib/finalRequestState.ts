@@ -12,6 +12,67 @@ export interface FinalRequestSource {
   text?: string | null;
   captureMode?: string | null;
 }
+export type FinalRequestCompleteness = "complete" | "partial";
+// Valeur fermée, jamais déduite. Le serveur exige ce choix humain pour toute
+// source non-email et le refuse pour un email, dont la complétude reste
+// décidée en amont par captureMode=full_sanitized.
+export const FINAL_REQUEST_COMPLETENESS_OPTIONS: ReadonlyArray<
+  { value: FinalRequestCompleteness; label: string }
+> = [
+  {
+    value: "complete",
+    label:
+      "Complet — j’ai consulté le document original et le texte capturé reprend intégralement les instructions utiles",
+  },
+  {
+    value: "partial",
+    label:
+      "Partiel — extraction incomplète ou non vérifiée ; la source reste bloquante",
+  },
+];
+// Fail-closed : tout ce qui n’est pas exactement un email exige l’attestation.
+export function requiresCompletenessAttestation(
+  source: FinalRequestSource,
+): boolean {
+  return source.kind !== "email";
+}
+// Un document autonome (case_documents) n’a aucune date en amont : l’inventaire
+// serveur la donne à null et la capture pose SOURCE_DATE_UNKNOWN. Sans date
+// attestée, une source « complete » resterait donc bloquée pour toujours. La
+// question n’est posée que là où la date manque réellement, et seulement pour
+// « complete » : « partial » laisse la source volontairement bloquante.
+export function requiresAttestedSentAt(
+  source: FinalRequestSource,
+  completeness: FinalRequestCompleteness | null,
+): boolean {
+  return requiresCompletenessAttestation(source) && completeness === "complete" &&
+    (source.sentAt === null || source.sentAt === undefined ||
+      source.sentAt === "");
+}
+// `datetime-local` ne produit une valeur que si la date ET l’heure sont saisies.
+// Rien n’est déduit : ni midi, ni minuit, ni la date du jour. Le fuseau du poste
+// opérateur est explicité en UTC avant l’envoi, jamais laissé implicite.
+const LOCAL_DATE_TIME_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+export function attestedSentAtIso(localValue: string): string | null {
+  const match = LOCAL_DATE_TIME_RE.exec(localValue);
+  if (!match) return null;
+  const parsed = new Date(localValue);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  // `Date` normalise silencieusement certaines dates impossibles (par exemple
+  // le 30 février). Refuser tout instant dont les composantes locales relues ne
+  // correspondent pas exactement à la saisie de l'opérateur.
+  if (
+    parsed.getFullYear() !== Number(year) ||
+    parsed.getMonth() + 1 !== Number(month) ||
+    parsed.getDate() !== Number(day) ||
+    parsed.getHours() !== Number(hour) ||
+    parsed.getMinutes() !== Number(minute) ||
+    parsed.getSeconds() !== Number(second)
+  ) return null;
+  return parsed.toISOString();
+}
 export interface FinalRequestBaseInputSource {
   id: string;
   kind: string;

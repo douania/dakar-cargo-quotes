@@ -450,6 +450,176 @@ Deno.test("P1-C2-B une mutation avec expected_generation:null reste rejetée fai
   );
 });
 
+const ATTACHMENT = "88888888-8888-4888-8888-888888888888";
+const DOCUMENT = "99999999-9999-4999-8999-999999999999";
+function attachmentState() {
+  return state({
+    captureRecord: {
+      capture,
+      inventory: { sources: [] },
+      sourceAttestationRefs: [
+        { originKind: "email", originId: SOURCE, sourceHash: "b".repeat(64) },
+        {
+          originKind: "attachment",
+          originId: ATTACHMENT,
+          sourceHash: "c".repeat(64),
+        },
+        {
+          originKind: "document",
+          originId: DOCUMENT,
+          sourceHash: "d".repeat(64),
+        },
+      ],
+    },
+  });
+}
+function attestation(extra: Record<string, unknown> = {}) {
+  return {
+    operation: "attest_source",
+    ...common,
+    origin_kind: "attachment",
+    origin_id: ATTACHMENT,
+    author_role: "client",
+    content_class: "current",
+    reason: "Original consulté par le cotateur",
+    ...extra,
+  };
+}
+
+Deno.test("P1-C2-H1 une pièce jointe sans complétude explicite est refusée", () => {
+  assertThrows(
+    () => validateFinalRequestCommand(attestation()),
+    OrchestratorError,
+    "Complétude de la source invalide",
+  );
+  for (const value of [null, "", "full", "COMPLETE", true, 1, "unknown"]) {
+    assertThrows(
+      () => validateFinalRequestCommand(attestation({ completeness: value })),
+      OrchestratorError,
+      "Complétude de la source invalide",
+    );
+  }
+});
+
+Deno.test("P1-C2-H1 un document sans complétude explicite est refusé", () => {
+  assertThrows(
+    () =>
+      validateFinalRequestCommand(
+        attestation({ origin_kind: "document" }),
+      ),
+    OrchestratorError,
+    "Complétude de la source invalide",
+  );
+});
+
+Deno.test("P1-C2-H1 un email ne peut jamais porter de complétude humaine", () => {
+  for (const value of ["complete", "partial", null]) {
+    assertThrows(
+      () =>
+        validateFinalRequestCommand(attestation({
+          origin_kind: "email",
+          origin_id: SOURCE,
+          completeness: value,
+        })),
+      OrchestratorError,
+      "Complétude de la source invalide",
+    );
+  }
+  // Contrat historique strictement préservé : sans le champ, l'email passe.
+  const command = validateFinalRequestCommand(
+    attestation({ origin_kind: "email", origin_id: SOURCE }),
+  );
+  assertEquals(Object.hasOwn(command, "completeness"), false);
+});
+
+Deno.test("P1-C2-H1 la complétude attestée est transmise telle quelle à la RPC", async () => {
+  for (const completeness of ["complete", "partial"] as const) {
+    const d = deps(attachmentState());
+    const command = validateFinalRequestCommand(attestation({ completeness }));
+    const result = await executeFinalRequestCommand(command, ACTOR, d.value);
+    const mutation =
+      (d.calls[1] as [string, { payload: Record<string, unknown> }])[1];
+    assertEquals(Object.keys(mutation.payload).sort(), [
+      "authorRole",
+      "completeness",
+      "contentClass",
+      "expectedSourceHash",
+      "originId",
+      "originKind",
+      "reason",
+    ]);
+    assertEquals(mutation.payload.completeness, completeness);
+    assertEquals(mutation.payload.expectedSourceHash, "c".repeat(64));
+    assertEquals(result.pricingAuthorized, false);
+  }
+});
+
+Deno.test("P1-C2-H1 une attestation d'email n'envoie aucune clé de complétude", async () => {
+  const d = deps(attachmentState());
+  const command = validateFinalRequestCommand(
+    attestation({ origin_kind: "email", origin_id: SOURCE }),
+  );
+  const result = await executeFinalRequestCommand(command, ACTOR, d.value);
+  const mutation =
+    (d.calls[1] as [string, { payload: Record<string, unknown> }])[1];
+  assertEquals(Object.hasOwn(mutation.payload, "completeness"), false);
+  assertEquals(mutation.payload.expectedSourceHash, "b".repeat(64));
+  assertEquals(result.pricingAuthorized, false);
+});
+
+Deno.test("P1-C2-H1 la date attestée d'un document autonome est transmise telle quelle", async () => {
+  const d = deps(attachmentState());
+  const command = validateFinalRequestCommand(attestation({
+    origin_kind: "document",
+    origin_id: DOCUMENT,
+    completeness: "complete",
+    sent_at: "2026-08-30T12:30:00.000Z",
+  }));
+  const result = await executeFinalRequestCommand(command, ACTOR, d.value);
+  const mutation =
+    (d.calls[1] as [string, { payload: Record<string, unknown> }])[1];
+  assertEquals(mutation.payload.sentAt, "2026-08-30T12:30:00.000Z");
+  assertEquals(mutation.payload.completeness, "complete");
+  assertEquals(result.pricingAuthorized, false);
+  // Sans date attestée, aucune clé n'est inventée côté serveur.
+  const bare = deps(attachmentState());
+  await executeFinalRequestCommand(
+    validateFinalRequestCommand(attestation({ completeness: "partial" })),
+    ACTOR,
+    bare.value,
+  );
+  assertEquals(
+    Object.hasOwn(
+      (bare.calls[1] as [string, { payload: Record<string, unknown> }])[1]
+        .payload,
+      "sentAt",
+    ),
+    false,
+  );
+});
+
+Deno.test("P1-C2-H1 la complétude ne contourne pas le contrôle de source ni le CAS", async () => {
+  const absent = validateFinalRequestCommand(attestation({
+    completeness: "complete",
+  }));
+  await assertRejects(
+    () => executeFinalRequestCommand(absent, ACTOR, deps().value),
+    OrchestratorError,
+    "Source absente",
+  );
+  const stale = deps(
+    state({
+      head: { generation: 2, revision_id: null, capture_id: CAPTURE },
+      captureRecord: attachmentState().captureRecord,
+    }),
+  );
+  await assertRejects(
+    () => executeFinalRequestCommand(absent, ACTOR, stale.value),
+    OrchestratorError,
+    "demande a changé",
+  );
+});
+
 Deno.test("P1-C2-B acteur injecté invalide est refusé", async () => {
   await assertRejects(
     () =>

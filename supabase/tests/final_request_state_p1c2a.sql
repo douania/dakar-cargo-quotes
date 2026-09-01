@@ -103,6 +103,159 @@ SELECT pg_temp.frs_expect('TRUNCATE public.final_request_grant_events','42501','
 SELECT pg_temp.frs_expect($q$DELETE FROM public.quote_cases WHERE id='ca200000-0000-4000-8200-000000000001'$q$,'23503','foreign key');
 SELECT pg_temp.frs_expect($q$INSERT INTO public.final_request_source_versions(id,case_id,origin_kind,origin_id,version_number,previous_id,source_data,source_hash,created_by)
  VALUES('ca200000-0000-4000-8400-000000000001','ca200000-0000-4000-8200-000000000001','email','ca200000-0000-4000-8300-000000000001',2,'ca200000-0000-4000-8400-000000000001','{}',repeat('a',64),'ca200000-0000-4000-8000-000000000001')$q$,'23514','FRS_SOURCE_CHAIN');
+-- P1-C2-H1 — la complétude attestée d'une pièce jointe / d'un document.
+-- Fuseau figé : frs_instant n'accepte qu'un offset ISO borné, la date de source
+-- ne doit pas dépendre du fuseau de la machine qui exécute la suite.
+SET LOCAL TIME ZONE 'UTC';
+-- Deuxième email dédié : la suppression finale ne porte que sur le premier.
+INSERT INTO public.emails(id,message_id,from_address,to_addresses,body_text,sent_at,thread_ref,body_capture_mode)
+VALUES('ca200000-0000-4000-8300-000000000002','sql2@sandbox.invalid','client@sandbox.invalid',ARRAY['operator@sandbox.invalid'],
+ 'Voir pièce jointe','2026-08-01T10:00:00Z','ca200000-0000-4000-8100-000000000001','full_sanitized');
+INSERT INTO public.email_attachments(id,email_id,filename,extracted_text)
+VALUES('ca200000-0000-4000-8500-000000000001','ca200000-0000-4000-8300-000000000002','instructions.pdf','Instructions jointes lisibles');
+INSERT INTO public.case_documents(id,case_id,file_name,document_type,extracted_text,storage_path,uploaded_by) VALUES
+ ('ca200000-0000-4000-8600-000000000001','ca200000-0000-4000-8200-000000000001','partiel.pdf','instruction','Extraction partielle','p/1','ca200000-0000-4000-8000-000000000001'),
+ ('ca200000-0000-4000-8600-000000000002','ca200000-0000-4000-8200-000000000001','volumineux.pdf','instruction',repeat('x',10001),'p/2','ca200000-0000-4000-8000-000000000001'),
+ ('ca200000-0000-4000-8600-000000000003','ca200000-0000-4000-8200-000000000001','jamais_atteste.pdf','instruction','Extraction jamais attestée','p/3','ca200000-0000-4000-8000-000000000001'),
+ ('ca200000-0000-4000-8600-000000000004','ca200000-0000-4000-8200-000000000001','autonome.pdf','instruction','Instructions autonomes lisibles','p/4','ca200000-0000-4000-8000-000000000001');
+DO $h1$
+DECLARE cap jsonb; lim jsonb; res jsonb; bad jsonb; st text; msg text; ok boolean; i integer:=0;
+ mail_v uuid; att_v uuid; doc_v uuid; big_v uuid; legacy_v uuid; att_v2 uuid; auto_v uuid; auto_v2 uuid;
+ h_att text; h_doc text; h_big text; h_mail text; h_auto text;
+ c_actor uuid:='ca200000-0000-4000-8000-000000000001'; c_case uuid:='ca200000-0000-4000-8200-000000000001';
+ c_att uuid:='ca200000-0000-4000-8500-000000000001'; c_doc uuid:='ca200000-0000-4000-8600-000000000001';
+ c_big uuid:='ca200000-0000-4000-8600-000000000002'; c_mail uuid:='ca200000-0000-4000-8300-000000000002';
+ c_auto uuid:='ca200000-0000-4000-8600-000000000004';
+BEGIN
+ cap:=public.frs_mutate(c_actor,c_case,'sql-h1-capture-1','capture',NULL,1,'{}');
+ ASSERT cap->'pricingAuthorized'='false'::jsonb,'H1 capture authorized pricing';
+ lim:=cap->'capture'->'limitations';
+ SELECT id INTO att_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='attachment' AND origin_id=c_att ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO doc_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_doc ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO big_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_big ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO legacy_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id='ca200000-0000-4000-8600-000000000003' ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO mail_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='email' AND origin_id=c_mail ORDER BY version_number DESC LIMIT 1;
+ -- Avant toute attestation, chaque source non-email reste bloquée exactement comme avant P1-C2-H1.
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||att_v),'Attachment not truncated by default';
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||doc_v),'Document not truncated by default';
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||legacy_v),'Legacy document not truncated by default';
+ ASSERT NOT (lim @> jsonb_build_array('SOURCE_TRUNCATED:'||mail_v)),'full_sanitized email wrongly truncated';
+ -- Un document autonome n'a aucune date en amont : frs_inventory le date à null.
+ SELECT id INTO auto_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_auto ORDER BY version_number DESC LIMIT 1;
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||auto_v),'Standalone document not truncated by default';
+ ASSERT lim @> jsonb_build_array('SOURCE_DATE_UNKNOWN:'||auto_v),'Standalone document silently dated';
+ ASSERT (SELECT count(*) FROM public.final_request_source_versions WHERE case_id=c_case AND completeness IS NOT NULL)=0,'Completeness deduced without attestation';
+
+ SELECT value->>'sourceHash' INTO h_att FROM jsonb_array_elements(cap->'sourceAttestationRefs') WHERE value->>'originKind'='attachment' AND value->>'originId'=c_att::text;
+ SELECT value->>'sourceHash' INTO h_doc FROM jsonb_array_elements(cap->'sourceAttestationRefs') WHERE value->>'originKind'='document' AND value->>'originId'=c_doc::text;
+ SELECT value->>'sourceHash' INTO h_big FROM jsonb_array_elements(cap->'sourceAttestationRefs') WHERE value->>'originKind'='document' AND value->>'originId'=c_big::text;
+ SELECT value->>'sourceHash' INTO h_mail FROM jsonb_array_elements(cap->'sourceAttestationRefs') WHERE value->>'originKind'='email' AND value->>'originId'=c_mail::text;
+ SELECT value->>'sourceHash' INTO h_auto FROM jsonb_array_elements(cap->'sourceAttestationRefs') WHERE value->>'originKind'='document' AND value->>'originId'=c_auto::text;
+
+ -- Attestations non-email sans complétude fermée, et tentative de contournement email : toutes refusées.
+ FOR bad IN SELECT * FROM (VALUES
+  (jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Sans complétude')),
+  (jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Vide','completeness','')),
+  (jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Inconnue','completeness','unknown')),
+  (jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Nulle','completeness',NULL)),
+  (jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Booléenne','completeness',true)),
+  (jsonb_build_object('originKind','document','originId',c_doc,'expectedSourceHash',h_doc,'authorRole','client','contentClass','current','reason','Sans complétude')),
+  (jsonb_build_object('originKind','email','originId',c_mail,'expectedSourceHash',h_mail,'authorRole','client','contentClass','current','reason','Contournement email','completeness','complete'))
+ ) v(p) LOOP
+  i:=i+1; ok:=false;
+  BEGIN
+   PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-refuse-'||i,'attest_source',NULL,2,bad);
+  EXCEPTION WHEN OTHERS THEN
+   GET STACKED DIAGNOSTICS st=RETURNED_SQLSTATE,msg=MESSAGE_TEXT;
+   ok:=(st='22023' AND position('FRS_ATTESTATION_INVALID' IN msg)>0);
+  END;
+  ASSERT ok,'Attestation completeness contract not fail-closed: '||bad::text;
+ END LOOP;
+ -- Le nouveau champ ne relâche ni le CAS ni le hash de source.
+ ok:=false;
+ BEGIN PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-stale','attest_source',NULL,7,
+  jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','CAS périmé','completeness','complete'));
+ EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS st=RETURNED_SQLSTATE,msg=MESSAGE_TEXT; ok:=(st='40001' AND position('FRS_STALE_HEAD' IN msg)>0); END;
+ ASSERT ok,'Completeness bypassed the head CAS';
+ ok:=false;
+ BEGIN PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-forged','attest_source',NULL,2,
+  jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',repeat('a',64),'authorRole','client','contentClass','current','reason','Hash forgé','completeness','complete'));
+ EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS st=RETURNED_SQLSTATE,msg=MESSAGE_TEXT; ok:=(st='40001' AND position('FRS_STALE_SOURCE' IN msg)>0); END;
+ ASSERT ok,'Completeness bypassed the source hash binding';
+
+ -- Attestations humaines explicites : complete borné, partial, complete sur texte > 10k.
+ res:=public.frs_mutate(c_actor,c_case,'sql-h1-attest-att','attest_source',NULL,2,
+  jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Original PDF consulté','completeness','complete'));
+ ASSERT res->'pricingAuthorized'='false'::jsonb,'Attestation authorized pricing';
+ att_v2:=(res->>'sourceVersionId')::uuid;
+ -- Idempotence : rejeu identique, puis conflit sur une complétude différente.
+ ASSERT public.frs_mutate(c_actor,c_case,'sql-h1-attest-att','attest_source',NULL,2,
+  jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Original PDF consulté','completeness','complete'))=res,'Attestation replay diverged';
+ ok:=false;
+ BEGIN PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-attest-att','attest_source',NULL,2,
+  jsonb_build_object('originKind','attachment','originId',c_att,'expectedSourceHash',h_att,'authorRole','client','contentClass','current','reason','Original PDF consulté','completeness','partial'));
+ EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS st=RETURNED_SQLSTATE,msg=MESSAGE_TEXT; ok:=(st='23505' AND position('FRS_IDEMPOTENCY_CONFLICT' IN msg)>0); END;
+ ASSERT ok,'Completeness escaped the idempotency fingerprint';
+ PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-attest-doc','attest_source',NULL,3,
+  jsonb_build_object('originKind','document','originId',c_doc,'expectedSourceHash',h_doc,'authorRole','client','contentClass','current','reason','Extraction non vérifiée','completeness','partial'));
+ PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-attest-big','attest_source',NULL,4,
+  jsonb_build_object('originKind','document','originId',c_big,'expectedSourceHash',h_big,'authorRole','client','contentClass','current','reason','Original consulté mais très long','completeness','complete'));
+ PERFORM public.frs_mutate(c_actor,c_case,'sql-h1-attest-mail','attest_source',NULL,5,
+  jsonb_build_object('originKind','email','originId',c_mail,'expectedSourceHash',h_mail,'authorRole','client','contentClass','current','reason','Email client identifié'));
+ ASSERT (SELECT completeness FROM public.final_request_source_versions WHERE id=att_v2)='complete','Completeness not stored';
+ ASSERT (SELECT count(*) FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='email' AND completeness IS NOT NULL)=0,'Email stored a human completeness';
+
+ -- Document autonome : complétude ET date attestées par l'opérateur, jamais déduites.
+ res:=public.frs_mutate(c_actor,c_case,'sql-h1-attest-auto','attest_source',NULL,6,
+  jsonb_build_object('originKind','document','originId',c_auto,'expectedSourceHash',h_auto,'authorRole','client','contentClass','current',
+   'completeness','complete','sentAt','2026-08-02T09:30:00.000Z','reason','Original consulté, date relevée sur le document'));
+ auto_v2:=(res->>'sourceVersionId')::uuid;
+ ASSERT res->'pricingAuthorized'='false'::jsonb,'Dated attestation authorized pricing';
+ ASSERT (SELECT sent_at FROM public.final_request_source_versions WHERE id=auto_v2)='2026-08-02T09:30:00Z'::timestamptz,'Attested date not stored';
+
+ -- Nouvelle capture : seule la source attestée complete et <=10k perd SOURCE_TRUNCATED.
+ cap:=public.frs_mutate(c_actor,c_case,'sql-h1-capture-2','capture',NULL,7,'{}');
+ lim:=cap->'capture'->'limitations';
+ ASSERT (SELECT id FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='attachment' AND origin_id=c_att ORDER BY version_number DESC LIMIT 1)=att_v2,'Attested version was superseded';
+ ASSERT NOT (lim @> jsonb_build_array('SOURCE_TRUNCATED:'||att_v2)),'Attested complete attachment still truncated';
+ ASSERT NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(lim) AS t(l) WHERE t.l LIKE '%'||att_v2::text),'Attested complete attachment still blocked';
+ SELECT id INTO doc_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_doc ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO big_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_big ORDER BY version_number DESC LIMIT 1;
+ SELECT id INTO mail_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='email' AND origin_id=c_mail ORDER BY version_number DESC LIMIT 1;
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||doc_v),'Explicit partial document unblocked';
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||big_v),'Complete but oversized document unblocked';
+ ASSERT lim @> jsonb_build_array('SOURCE_TRUNCATED:'||legacy_v),'Legacy null completeness unblocked';
+ ASSERT NOT (lim @> jsonb_build_array('SOURCE_TRUNCATED:'||mail_v)),'Attested full_sanitized email truncated';
+ -- Le document autonome attesté complete ET daté ne porte plus aucune limitation.
+ ASSERT (SELECT id FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='document' AND origin_id=c_auto ORDER BY version_number DESC LIMIT 1)=auto_v2,'Dated version was superseded';
+ ASSERT NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(lim) AS t(l) WHERE t.l LIKE '%'||auto_v2::text),'Attested dated document still blocked';
+ ASSERT (SELECT value->>'sentAt' FROM jsonb_array_elements(cap->'capture'->'baseInput'->'sources') WHERE value->>'id'=auto_v2::text)='2026-08-02T09:30:00+00:00','Attested date not exposed to C1';
+
+ -- Une modification amont recrée une version sans complétude : le blocage revient seul.
+ UPDATE public.email_attachments SET extracted_text='Instructions jointes modifiées' WHERE id=c_att;
+ cap:=public.frs_mutate(c_actor,c_case,'sql-h1-capture-3','capture',NULL,8,'{}');
+ SELECT id INTO att_v FROM public.final_request_source_versions WHERE case_id=c_case AND origin_kind='attachment' AND origin_id=c_att ORDER BY version_number DESC LIMIT 1;
+ ASSERT att_v<>att_v2,'Changed attachment reused the attested version';
+ ASSERT (SELECT completeness FROM public.final_request_source_versions WHERE id=att_v) IS NULL,'New version inherited a completeness';
+ ASSERT cap->'capture'->'limitations' @> jsonb_build_array('SOURCE_TRUNCATED:'||att_v),'Changed attachment stayed unblocked';
+
+ -- Aucun fait, run de pricing, devis, brouillon ou tarif n'a été écrit par ce lot.
+ ASSERT (SELECT count(*) FROM public.quote_facts)=0,'Facts written';
+ ASSERT (SELECT count(*) FROM public.quotation_versions)=0,'Quotations written';
+ ASSERT (SELECT count(*) FROM public.cargo_lines)+(SELECT count(*) FROM public.quote_request_lines)=0,'Lot lines written';
+ ASSERT (SELECT count(*) FROM public.final_request_revisions)=0,'A revision was committed';
+ ASSERT (SELECT count(*) FROM public.final_request_review_events)=0,'A review event was written';
+ ASSERT NOT EXISTS(SELECT 1 FROM public.final_request_commands WHERE case_id=c_case AND response->'pricingAuthorized' IS DISTINCT FROM 'false'::jsonb),'A command authorized pricing';
+END $h1$;
+-- La contrainte de stockage refuse seule un email complété ou une complétude non attestée.
+SELECT pg_temp.frs_expect($q$INSERT INTO public.final_request_source_versions(case_id,origin_kind,origin_id,version_number,source_data,source_hash,author_role,content_class,attested_by,reason,created_by,completeness)
+ VALUES('ca200000-0000-4000-8200-000000000001','email','ca200000-0000-4000-8300-000000000009',1,'{}',repeat('b',64),'client','current','ca200000-0000-4000-8000-000000000001','Contournement','ca200000-0000-4000-8000-000000000001','complete')$q$,'23514','final_request_source_versions_completeness_check');
+SELECT pg_temp.frs_expect($q$INSERT INTO public.final_request_source_versions(case_id,origin_kind,origin_id,version_number,source_data,source_hash,created_by,completeness)
+ VALUES('ca200000-0000-4000-8200-000000000001','document','ca200000-0000-4000-8600-000000000009',1,'{}',repeat('c',64),'ca200000-0000-4000-8000-000000000001','complete')$q$,'23514','final_request_source_versions_completeness_check');
+SELECT pg_temp.frs_expect($q$INSERT INTO public.final_request_source_versions(case_id,origin_kind,origin_id,version_number,source_data,source_hash,author_role,content_class,attested_by,reason,created_by,completeness)
+ VALUES('ca200000-0000-4000-8200-000000000001','document','ca200000-0000-4000-8600-000000000009',1,'{}',repeat('d',64),'client','current','ca200000-0000-4000-8000-000000000001','Valeur libre','ca200000-0000-4000-8000-000000000001','full')$q$,'23514','final_request_source_versions_completeness_check');
+SELECT pg_temp.frs_expect($q$UPDATE public.final_request_source_versions SET completeness='complete' WHERE case_id='ca200000-0000-4000-8200-000000000001'$q$,'42501','FRS_APPEND_ONLY');
+
 -- Immutable proof survives upstream source deletion. No source-table FK cascade to the ledger.
 DELETE FROM public.emails WHERE id='ca200000-0000-4000-8300-000000000001';
 DO $$ BEGIN
