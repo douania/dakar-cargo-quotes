@@ -2435,6 +2435,7 @@ export type Database = {
           attested_by: string | null
           author_role: string
           case_id: string
+          completeness: string | null
           content_class: string
           created_at: string
           created_by: string
@@ -2452,6 +2453,7 @@ export type Database = {
           attested_by?: string | null
           author_role?: string
           case_id: string
+          completeness?: string | null
           content_class?: string
           created_at?: string
           created_by: string
@@ -2469,6 +2471,7 @@ export type Database = {
           attested_by?: string | null
           author_role?: string
           case_id?: string
+          completeness?: string | null
           content_class?: string
           created_at?: string
           created_by?: string
