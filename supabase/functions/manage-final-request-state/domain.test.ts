@@ -362,6 +362,94 @@ Deno.test("P1-C2-B mapping RPC ne divulgue pas les messages SQL", () => {
   );
 });
 
+Deno.test("P1-C2-B lecture normalise en null un head/revision PostgreSQL composites sans ligne", async () => {
+  // frs_read utilise des locals %ROWTYPE (h, r) : sans ligne correspondante,
+  // SELECT INTO laisse le record non-null avec toutes ses colonnes à null ;
+  // to_jsonb() sérialise alors ce composite vide comme un objet, pas comme
+  // un JSON null. C'est la réponse SQL réelle pour un dossier neuf.
+  const emptyHead = {
+    case_id: null,
+    generation: null,
+    revision_id: null,
+    capture_id: null,
+    review_event_id: null,
+  };
+  const emptyRevision = {
+    id: null,
+    case_id: null,
+    version_number: null,
+    parent_id: null,
+    capture_id: null,
+    resolver_version: null,
+    input: null,
+    raw_result: null,
+    input_hash: null,
+    result_hash: null,
+    limitations: null,
+    created_by: null,
+    created_at: null,
+  };
+  const d = deps({
+    head: emptyHead,
+    revision: emptyRevision,
+    captureRecord: null,
+    reviews: [],
+    history: [],
+    historyTruncated: false,
+    selectedRevisionMatchesHeadCapture: false,
+    pricingAuthorized: false,
+  });
+  const result = await executeFinalRequestCommand(
+    validateFinalRequestCommand({ operation: "read", case_id: CASE }),
+    ACTOR,
+    d.value,
+  );
+  // Exposition publique : le faux head/faux revision composites ne doivent
+  // jamais fuiter vers le frontend comme des objets tronqués.
+  assertEquals(result.head, null);
+  assertEquals(result.revision, null);
+  assertEquals(
+    (result.calculationStatus as { kind: string }).kind,
+    "not_calculated",
+  );
+});
+
+Deno.test("P1-C2-B capture initiale avec expected_generation:0 réussit après normalisation du head vide", async () => {
+  const d = deps();
+  const command = validateFinalRequestCommand({
+    operation: "capture",
+    case_id: CASE,
+    idempotency_key: "fixture-key-initial",
+    expected_revision_id: null,
+    expected_generation: 0,
+  });
+  await executeFinalRequestCommand(command, ACTOR, d.value);
+  assertEquals(d.calls, [["mutate", {
+    actorId: ACTOR,
+    caseId: CASE,
+    key: "fixture-key-initial",
+    action: "capture",
+    expectedRevisionId: null,
+    expectedGeneration: 0,
+    payload: {},
+  }]]);
+});
+
+Deno.test("P1-C2-B une mutation avec expected_generation:null reste rejetée fail-closed", () => {
+  assertThrows(
+    () =>
+      validateFinalRequestCommand({
+        operation: "capture",
+        case_id: CASE,
+        idempotency_key: "fixture-key",
+        expected_revision_id: null,
+        expected_generation: null,
+      }),
+    OrchestratorError,
+    "Commande ou CAS invalide",
+  );
+});
+
 Deno.test("P1-C2-B acteur injecté invalide est refusé", async () => {
   await assertRejects(
     () =>

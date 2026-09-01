@@ -99,6 +99,20 @@ function record(value: unknown): JsonRecord | null {
     ? value as JsonRecord
     : null;
 }
+// frs_read's plpgsql %ROWTYPE locals (`h`, `r`) stay non-null after a
+// no-match SELECT INTO; to_jsonb() then serializes them as an object whose
+// every column is null instead of a JSON null. Collapse that empty
+// PostgreSQL composite back to null so "no head yet" / "no revision yet"
+// reach the frontend (and expected_generation/expected_revision_id) as null
+// heads, not as a truthy fake head/revision.
+function normalizedComposite(value: unknown): JsonRecord | null {
+  const raw = record(value);
+  if (!raw) return null;
+  const keys = Object.keys(raw);
+  return keys.length > 0 && keys.every((key) => raw[key] === null)
+    ? null
+    : raw;
+}
 function exact(
   raw: JsonRecord,
   required: string[],
@@ -323,9 +337,10 @@ function readModel(rawValue: unknown, internal = false): JsonRecord {
   if (!raw) {
     throw new OrchestratorError("UPSTREAM_DB_ERROR", "Lecture indisponible");
   }
+  const head = normalizedComposite(raw.head);
+  const revision = normalizedComposite(raw.revision);
   const captureRecord = record(raw.captureRecord);
   const capture = captureRecord?.capture;
-  const revision = record(raw.revision);
   const input = record(revision?.input);
   let reviewTargets: ReviewTarget[] = [];
   let calculationStatus: JsonRecord = { kind: "not_calculated" };
@@ -342,8 +357,8 @@ function readModel(rawValue: unknown, internal = false): JsonRecord {
     }
   }
   return {
-    head: raw.head ?? null,
-    revision: raw.revision ?? null,
+    head,
+    revision,
     captureRecord: internal
       ? raw.captureRecord ?? null
       : withoutAttestationHashes(raw.captureRecord ?? null),
