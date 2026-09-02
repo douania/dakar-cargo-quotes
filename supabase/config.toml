@@ -304,3 +304,6 @@ verify_jwt = false
 
 [functions.manage-final-request-state]
 verify_jwt = false
+
+[functions.manage-final-request-projection]
+verify_jwt = false
