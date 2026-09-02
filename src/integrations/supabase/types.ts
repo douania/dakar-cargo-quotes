@@ -2240,6 +2240,153 @@ export type Database = {
           },
         ]
       }
+      final_request_projection_commands: {
+        Row: {
+          action: string
+          actor_id: string
+          case_id: string
+          created_at: string
+          fingerprint: string
+          id: string
+          request: Json
+          request_key: string
+          response: Json
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          case_id: string
+          created_at?: string
+          fingerprint: string
+          id?: string
+          request: Json
+          request_key: string
+          response: Json
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          case_id?: string
+          created_at?: string
+          fingerprint?: string
+          id?: string
+          request?: Json
+          request_key?: string
+          response?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_projection_commands_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      final_request_projections: {
+        Row: {
+          artifact: Json
+          artifact_hash: string
+          capture_id: string
+          case_id: string
+          command_id: string
+          created_at: string
+          created_by: string
+          head_generation: number
+          id: string
+          input_hash: string
+          inventory_hash: string
+          previous_id: string | null
+          result_hash: string
+          review_event_id: string
+          revision_id: string
+          state: string
+          version_number: number
+        }
+        Insert: {
+          artifact: Json
+          artifact_hash: string
+          capture_id: string
+          case_id: string
+          command_id: string
+          created_at?: string
+          created_by: string
+          head_generation: number
+          id?: string
+          input_hash: string
+          inventory_hash: string
+          previous_id?: string | null
+          result_hash: string
+          review_event_id: string
+          revision_id: string
+          state: string
+          version_number: number
+        }
+        Update: {
+          artifact?: Json
+          artifact_hash?: string
+          capture_id?: string
+          case_id?: string
+          command_id?: string
+          created_at?: string
+          created_by?: string
+          head_generation?: number
+          id?: string
+          input_hash?: string
+          inventory_hash?: string
+          previous_id?: string | null
+          result_hash?: string
+          review_event_id?: string
+          revision_id?: string
+          state?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_request_projections_case_id_capture_id_fkey"
+            columns: ["case_id", "capture_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_commands"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_projections_case_id_command_id_fkey"
+            columns: ["case_id", "command_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_projection_commands"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_projections_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "final_request_projections_case_id_previous_id_fkey"
+            columns: ["case_id", "previous_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_projections"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_projections_case_id_review_event_id_fkey"
+            columns: ["case_id", "review_event_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_review_events"
+            referencedColumns: ["case_id", "id"]
+          },
+          {
+            foreignKeyName: "final_request_projections_case_id_revision_id_fkey"
+            columns: ["case_id", "revision_id"]
+            isOneToOne: false
+            referencedRelation: "final_request_revisions"
+            referencedColumns: ["case_id", "id"]
+          },
+        ]
+      }
       final_request_review_events: {
         Row: {
           action: string
@@ -7615,6 +7762,31 @@ export type Database = {
         Returns: undefined
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
+      frp_build_artifact: {
+        Args: {
+          p_capture: string
+          p_case: string
+          p_head_generation: number
+          p_inventory_hash: string
+          p_revision: string
+        }
+        Returns: Json
+      }
+      frp_mutate: {
+        Args: {
+          p_action: string
+          p_actor: string
+          p_case: string
+          p_expected_generation: number
+          p_expected_projection: string
+          p_expected_revision: string
+          p_key: string
+          p_payload: Json
+        }
+        Returns: Json
+      }
+      frp_no_promotion_key: { Args: { j: Json }; Returns: boolean }
+      frp_read: { Args: { p_actor: string; p_case: string }; Returns: Json }
       frs_admin_set_reviewer: {
         Args: {
           p_active: boolean
