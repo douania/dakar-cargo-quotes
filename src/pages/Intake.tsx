@@ -29,8 +29,8 @@ import {
   describeContainerPlan,
   parseTextOverrides,
   resolveContainerPlan,
-  toCanonicalContainers,
 } from "@/lib/intakeTextOverrides";
+import { buildIntakeFactBatch } from "@/lib/intakeFactBatch";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ACCEPTED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".jpg", ".jpeg", ".png", ".csv"];
@@ -299,149 +299,6 @@ export default function Intake() {
     return result;
   }
 
-  /**
-   * Inject facts into quote_facts with operator overrides taking priority.
-   *
-   * v5 — Verifiable injection:
-   * - returns { inserted, failed } summary
-   * - throws if a CRITICAL fact fails (so handleSubmit blocks "Ouvrir le dossier")
-   * - never silently swallows errors with console.warn alone
-   *
-   * Critical fact_keys (per CTO v5):
-   *   routing.destination_city, routing.transport_mode, cargo.containers,
-   *   routing.origin_port (if detected), routing.destination_port (if detected)
-   */
-  type FactPayload = {
-    fact_key: string;
-    value_text?: string | null;
-    value_number?: number | null;
-    value_json?: unknown;
-  };
-
-  type InjectFactsResult = {
-    inserted: string[];
-    failed: Array<{ fact_key: string; error: string }>;
-  };
-
-  async function injectFacts(
-    caseId: string,
-    analysis: Record<string, any>,
-    textOverrides: Record<string, any>
-  ): Promise<InjectFactsResult> {
-    // Merge: text overrides > document analysis
-    const containerPlan = resolveContainerPlan(textOverrides, analysis);
-    const weightKg = Number(analysis.weight_kg) || 0;
-    // Guard: if inland final destination is required but not extracted locally,
-    // do NOT inject mergedAnalysis.destination (e.g. Dakar) as routing.destination_city.
-    // Dakar must NEVER mask Kaolack.
-    const destination = textOverrides.destination
-      ?? (textOverrides.requires_final_destination ? null : (analysis.destination ?? null));
-    const originPort = textOverrides.origin_port ?? analysis.origin_port ?? null;
-    const pod = textOverrides.pod ?? null;
-
-    const facts: FactPayload[] = [];
-    const criticalKeys = new Set<string>();
-
-    // Container facts (canonical + legacy compat).
-    // An ambiguous declaration yields totalCount = 0 → nothing is published and
-    // the puzzle keeps asking the question (fail-closed).
-    if (containerPlan.totalCount >= 1) {
-      facts.push({ fact_key: "cargo.container_count", value_number: containerPlan.totalCount });
-      // Legacy single type only for a mono-type file: a mixed 20'/40' file has
-      // no honest single type, publishing one would be a lie.
-      if (containerPlan.legacyType) {
-        facts.push({ fact_key: "cargo.container_type", value_text: containerPlan.legacyType });
-      }
-      // Canonical: cargo.containers as JSON array, one entry per declared group
-      const containersJson = toCanonicalContainers(containerPlan);
-      facts.push({ fact_key: "cargo.containers", value_json: containersJson });
-      criticalKeys.add("cargo.containers");
-    }
-
-    if (weightKg > 0) {
-      facts.push({ fact_key: "cargo.weight_kg", value_number: weightKg });
-    }
-
-    // service.mode (legacy compat for some UI paths)
-    if (containerPlan.isFcl) {
-      facts.push({ fact_key: "service.mode", value_text: "SEA_FCL_IMPORT" });
-      // Canonical transport_mode (UI/runtime expects MARITIME — see SELECT_FACT_OPTIONS)
-      facts.push({ fact_key: "routing.transport_mode", value_text: "MARITIME" });
-      criticalKeys.add("routing.transport_mode");
-    }
-
-    // Origin port (if extracted)
-    if (originPort) {
-      facts.push({ fact_key: "routing.origin_port", value_text: String(originPort) });
-      criticalKeys.add("routing.origin_port");
-    }
-
-    // POD (port of discharge)
-    if (pod) {
-      facts.push({ fact_key: "routing.destination_port", value_text: String(pod) });
-      criticalKeys.add("routing.destination_port");
-    }
-
-    // Final destination — country vs city routing
-    if (destination) {
-      const KNOWN_COUNTRIES = new Set([
-        'MALI','SENEGAL','SÉNÉGAL','GUINEE','GUINÉE','GAMBIE',
-        'MAURITANIE','BURKINA','BURKINA FASO','NIGER',
-        "COTE D'IVOIRE","CÔTE D'IVOIRE",'GHANA','TOGO',
-        'BENIN','BÉNIN','NIGERIA','CAMEROUN',
-      ]);
-      const upper = destination.toUpperCase().trim();
-      if (KNOWN_COUNTRIES.has(upper)) {
-        facts.push({ fact_key: "routing.destination_country", value_text: destination });
-      } else {
-        facts.push({ fact_key: "routing.destination_city", value_text: destination });
-        criticalKeys.add("routing.destination_city");
-      }
-    }
-
-    // cargo.description — only if reliably extracted by analysis (no invention)
-    const cargoDesc = typeof analysis.cargo_description === "string" ? analysis.cargo_description.trim() : "";
-    if (cargoDesc.length > 0) {
-      facts.push({ fact_key: "cargo.description", value_text: cargoDesc });
-    }
-
-    const result: InjectFactsResult = { inserted: [], failed: [] };
-
-    for (const fact of facts) {
-      try {
-        const { data, error } = await supabase.functions.invoke("set-case-fact", {
-          body: { case_id: caseId, ...fact },
-        });
-        if (error) {
-          const msg = (error as any)?.message || String(error);
-          result.failed.push({ fact_key: fact.fact_key, error: msg });
-          console.warn(`[Intake.injectFacts] ${fact.fact_key} failed:`, msg);
-          continue;
-        }
-        if (data && (data as any).error) {
-          const msg = String((data as any).error);
-          result.failed.push({ fact_key: fact.fact_key, error: msg });
-          console.warn(`[Intake.injectFacts] ${fact.fact_key} returned error:`, msg);
-          continue;
-        }
-        result.inserted.push(fact.fact_key);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        result.failed.push({ fact_key: fact.fact_key, error: msg });
-        console.warn(`[Intake.injectFacts] ${fact.fact_key} threw:`, msg);
-      }
-    }
-
-    // CRITICAL guard — throw if any critical fact failed
-    const criticalFailures = result.failed.filter((f) => criticalKeys.has(f.fact_key));
-    if (criticalFailures.length > 0) {
-      const summary = criticalFailures.map((f) => `${f.fact_key}: ${f.error}`).join(" | ");
-      throw new Error(`Échec d'injection des faits critiques — ${summary}`);
-    }
-
-    return result;
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -463,29 +320,42 @@ export default function Intake() {
       const correctedData = correctAssumptions(data, extractedAnalysis, textOverrides);
 
       if (data.case_id) {
-        // Step A: Ensure quote_cases row exists in DB (via service-role Edge Function)
-        // This MUST happen before any fact injection, document upload, or timeline event
-        const { data: ensureData, error: ensureErr } = await supabase.functions.invoke("ensure-quote-case", {
-          body: { case_id: data.case_id, mode: "intake", workflow_key: data.workflow_key || "WF_SIMPLE_QUOTE" },
+        // Step A: create/retrieve the canonical case AND persist every intake
+        // fact in one PostgreSQL transaction. The Edge Function calls its RPC
+        // under the user's JWT; it never uses set-case-fact or service-role for
+        // canonical writes. Railway analysis and document storage remain outside
+        // this transaction by design.
+        const factBatch = buildIntakeFactBatch({
+          caseId: data.case_id,
+          text,
+          analysis: extractedAnalysis,
+          textOverrides,
+          hasExtractedDocument: Boolean(extractedAnalysis || extractionSource),
+          workflowKey: data.workflow_key || null,
         });
-        if (ensureErr || ensureData?.error) {
+        const { data: batchData, error: batchError } = await supabase.functions.invoke(
+          "set-intake-facts-batch",
+          { body: factBatch },
+        );
+        const batchResult = batchData?.data;
+        if (
+          batchError ||
+          batchData?.ok !== true ||
+          batchResult?.case_id !== data.case_id ||
+          !Array.isArray(batchResult?.facts) ||
+          batchResult.facts.length !== factBatch.facts.length
+        ) {
           throw new Error(
-            "Création du dossier en base impossible: " +
-            (ensureData?.error || ensureErr?.message || "réponse invalide")
+            "Création atomique du dossier impossible: " +
+            (batchData?.error?.message || batchError?.message || "réponse invalide")
           );
         }
 
-        // Step B: Inject facts (AWAITED + verifiable). Throws on critical failure.
-        if (extractedAnalysis || Object.keys(textOverrides).length > 0) {
-          const summary = await injectFacts(data.case_id, extractedAnalysis || {}, textOverrides);
-          console.log("[Intake] facts inserted:", summary.inserted, "failed:", summary.failed);
-        }
-
-        // Critical injection succeeded — surface the result and unlock "Ouvrir le dossier"
+        // The whole canonical batch succeeded (or was replayed identically).
         setResult(correctedData);
         setCriticalInjectionOk(true);
 
-        // Step C: Store uploaded document in case-documents (best-effort, non-blocking)
+        // Step B: Store uploaded document in case-documents (best-effort, non-blocking)
         if (uploadedFile) {
           try {
             const { data: userData } = await supabase.auth.getUser();

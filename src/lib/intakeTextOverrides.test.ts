@@ -41,6 +41,13 @@ const EXCEL_STRUCTURED_TEXT = ["container_count;1", "container_type;20' Dry Van 
 /** Analyse document fiable associée à cette extraction. */
 const EXCEL_ANALYSIS = { container_count: 1, container_type: "20' Dry Van (20 DV)" };
 
+/** Texte de régression PHNX, reproduit à l'identique. */
+const PHNX_TEXT =
+  "50 tonnes de sel en sacs de 25 kg, conditionnées dans deux conteneurs de 20 pieds.";
+
+/** Texte de régression INT Nordic, reproduit à l'identique. */
+const INT_NORDIC_TEXT = "1 pallet, 200 kgs / 80x60x75 cm / Non stackable, general cargo.";
+
 describe("parseTextOverrides — régression P0-E (dossier mixte 20'/40')", () => {
   const overrides = parseTextOverrides(P0E_TEXT);
 
@@ -104,6 +111,106 @@ describe("resolveContainerPlan — P0-E", () => {
   });
 });
 
+describe("parseTextOverrides — régression PHNX (deux conteneurs de 20 pieds)", () => {
+  const overrides = parseTextOverrides(PHNX_TEXT);
+
+  it("reconnaît honnêtement 2 conteneurs de 20 pieds", () => {
+    expect(overrides.containers).toEqual([{ count: 2, type: "20'" }]);
+    expect(overrides.container_count).toBe(2);
+    expect(overrides.container_type).toBe("20'");
+    expect(overrides.containers_ambiguous).toBeUndefined();
+  });
+
+  it("produit un payload canonique typé, accepté par set-case-fact", () => {
+    const plan = resolveContainerPlan(overrides, {});
+    expect(plan.totalCount).toBe(2);
+    expect(plan.legacyType).toBe("20'");
+    expect(plan.isFcl).toBe(true);
+    expect(plan.ambiguous).toBe(false);
+
+    const canonical = toCanonicalContainers(plan);
+    expect(canonical).toEqual([{ type: "20'", quantity: 2 }]);
+    // Contrat set-case-fact : type toujours chaîne non vide ≤ 32, jamais null.
+    for (const c of canonical) {
+      expect(typeof c.type).toBe("string");
+      expect((c.type as string).length).toBeGreaterThan(0);
+      expect((c.type as string).length).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it('variante chiffrée "2 conteneurs de 20 pieds" — même lecture', () => {
+    const o = parseTextOverrides("Cotation pour 2 conteneurs de 20 pieds au départ de Dakar.");
+    expect(o.containers).toEqual([{ count: 2, type: "20'" }]);
+    expect(o.container_count).toBe(2);
+    expect(o.container_type).toBe("20'");
+  });
+
+  it('"un conteneur de 40 tonnes" : un poids ne devient jamais une taille', () => {
+    const o = parseTextOverrides("Prévoir un conteneur de 40 tonnes de riz.");
+    expect(o.container_count).toBe(1);
+    expect(o.container_type).toBeUndefined();
+    expect(o.containers).toBeUndefined();
+  });
+});
+
+describe("parseTextOverrides — régression INT Nordic (dimensions de palette)", () => {
+  const overrides = parseTextOverrides(INT_NORDIC_TEXT);
+
+  it("80x60x75 cm est une dimension de palette — aucun conteneur inventé", () => {
+    expect(overrides.containers).toBeUndefined();
+    expect(overrides.container_count).toBeUndefined();
+    expect(overrides.container_type).toBeUndefined();
+    expect(overrides.containers_ambiguous).toBeUndefined();
+  });
+
+  it("aucune donnée conteneur n'atteint le plan ni le payload canonique", () => {
+    const plan = resolveContainerPlan(overrides, {});
+    expect(plan.totalCount).toBe(0);
+    expect(plan.groups).toEqual([]);
+    expect(plan.isFcl).toBe(false);
+    expect(plan.ambiguous).toBe(false);
+    expect(toCanonicalContainers(plan)).toEqual([]);
+  });
+
+  it("n'exige pas de destination finale inland sur ce texte", () => {
+    expect(overrides.requires_final_destination).toBe(false);
+  });
+
+  it("une chaîne de dimensions contenant une taille conteneur reste une dimension", () => {
+    const o = parseTextOverrides("Colis de 100x40x60 cm sur 1 pallet.");
+    expect(o.containers).toBeUndefined();
+    expect(o.container_count).toBeUndefined();
+  });
+
+  it("une mesure suivie d'une unité de longueur n'est pas un conteneur", () => {
+    const o = parseTextOverrides("Caisse : 2 x 45 cm de large.");
+    expect(o.container_count).toBeUndefined();
+    expect(o.containers).toBeUndefined();
+  });
+
+  it('"1 x 20 tonnes" est un poids, pas un conteneur 20 pieds', () => {
+    const o = parseTextOverrides("Merci de coter 1 x 20 tonnes de sel en sacs.");
+    expect(o.containers).toBeUndefined();
+    expect(o.container_count).toBeUndefined();
+  });
+});
+
+describe("toCanonicalContainers — jamais de type null dans le payload", () => {
+  it("un compte sans taille publie la quantité SANS clé type (contrat set-case-fact)", () => {
+    const plan = resolveContainerPlan(parseTextOverrides("Nous avons 3 conteneurs."), {});
+    const canonical = toCanonicalContainers(plan);
+    expect(canonical).toEqual([{ quantity: 3 }]);
+    expect("type" in canonical[0]).toBe(false);
+  });
+
+  it("un compte issu de l'analyse document sans type est lui aussi émis sans clé type", () => {
+    const plan = resolveContainerPlan({}, { container_count: 4 });
+    const canonical = toCanonicalContainers(plan);
+    expect(canonical).toEqual([{ quantity: 4 }]);
+    expect("type" in canonical[0]).toBe(false);
+  });
+});
+
 describe("parseTextOverrides — formats conteneurs documentés (non-régression)", () => {
   it('"1 conteneur 40\'" → 1 × 40\'', () => {
     const o = parseTextOverrides("Merci de coter 1 conteneur 40' au départ de Dakar.");
@@ -155,6 +262,13 @@ describe("parseTextOverrides — formats conteneurs documentés (non-régression
     const o = parseTextOverrides("Nous avons 3 conteneurs à dédouaner.");
     expect(o.container_count).toBe(3);
     expect(o.container_type).toBeUndefined();
+  });
+
+  it('"2 x conteneurs" : le connecteur x devant le mot métier reste reconnu', () => {
+    const o = parseTextOverrides("Prévoir 2 x conteneurs pour ce lot.");
+    expect(o.container_count).toBe(2);
+    expect(o.container_type).toBeUndefined();
+    expect(o.containers).toBeUndefined();
   });
 
   it('"1 conteneur" / "1 container" nus restent reconnus', () => {

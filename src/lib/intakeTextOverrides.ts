@@ -47,6 +47,15 @@
  *   → containers = [{count:1,type:"20' Dry"},{count:1,type:"40' Dry"}]
  *     container_count = 2, container_type = undefined (mixte),
  *     pod = "Dakar", destination = "Mbour" (JAMAIS Dakar).
+ *
+ * @test-manual PHNX — « 50 tonnes de sel en sacs de 25 kg, conditionnées dans
+ *   deux conteneurs de 20 pieds. »
+ *   → containers = [{count:2, type:"20'"}] : 2 × 20' honnêtes, et le payload
+ *     canonique ne porte JAMAIS type:null (contrat set-case-fact).
+ *
+ * @test-manual INT Nordic — « 1 pallet, 200 kgs / 80x60x75 cm / Non stackable,
+ *   general cargo. »
+ *   → 80x60x75 est une dimension de palette : AUCUNE donnée conteneur inventée.
  */
 
 export interface IntakeContainerGroup {
@@ -85,7 +94,12 @@ export interface ContainerPlan {
 }
 
 export interface CanonicalIntakeContainer {
-  type: string | null;
+  /**
+   * Type normalisé. Clé ABSENTE (jamais null) quand le type n'est pas déclaré :
+   * le validateur fail-closed de set-case-fact accepte un type omis mais
+   * rejette null et la chaîne vide.
+   */
+  type?: string;
   quantity: number;
 }
 
@@ -129,15 +143,27 @@ const QUALIFIER_ALTERNATION = Object.keys(CONTAINER_QUALIFIERS).join("|");
 const CONTAINER_WORD_END = "(?=s?(?:[^_A-Za-zÀ-ÿ]|$))";
 
 /**
+ * Garde anti-mesures : refuse de lire comme taille conteneur un nombre qui
+ * appartient à une chaîne de dimensions ("80x60x75", "100 x 40 x 60 cm") ou à
+ * une mesure physique ("20 tonnes", "40 t", "25 kg", "20 m", "3 m3").
+ * INT Nordic : "80x60x75 cm" est une dimension de palette, jamais des
+ * conteneurs. Lookahead pur, appliqué juste après la taille candidate.
+ */
+const NOT_MEASUREMENT =
+  `(?!\\s*(?:[x\\u00d7*]\\s*\\d|cm\\b|mm\\b|m\\b|m3\\b|m\\u00b3|cbm\\b|tonnes?\\b|t\\b|kgs?\\b|kilos?\\b))`;
+
+/**
  * Groupe conteneur explicite : quantité + connecteur + taille (+ unité, apostrophe, type).
- * Couvre "1 conteneur 40'", "1 x 40HC", "20 x 40’ HC", "1 x 20 pieds Dry"
- * et la variante naturelle "1 x conteneur 20 pieds Dry" observée en recette.
+ * Couvre "1 conteneur 40'", "1 x 40HC", "20 x 40’ HC", "1 x 20 pieds Dry",
+ * la variante naturelle "1 x conteneur 20 pieds Dry" observée en recette et
+ * "2 conteneurs de 20 pieds" (PHNX, connecteur "de").
  * La taille est OBLIGATOIRE ici : les mentions sans taille retombent sur le
- * parsing "compte seul" plus bas, qui ne publie aucun type.
+ * parsing "compte seul" plus bas, qui ne publie aucun type. NOT_MEASUREMENT
+ * empêche une dimension ou un poids de passer pour une taille conteneur.
  */
 const CONTAINER_GROUP_PATTERN = new RegExp(
-  `(\\d{1,4})\\s*(?:seul\\s+)?(?:conteneurs?|containers?|(?:x|\\u00d7|\\*)\\s*(?:conteneurs?|containers?)?)\\s*` +
-    `(20|40|45)(?!\\d)\\s*(?:pieds?|feet|foot|ft\\.?)?\\s*${APOS}?\\s*[-\\u2013]?\\s*` +
+  `(\\d{1,4})\\s*(?:seul\\s+)?(?:conteneurs?|containers?|(?:x|\\u00d7|\\*)\\s*(?:conteneurs?|containers?)?)\\s*(?:de\\s+)?` +
+    `(20|40|45)(?!\\d)${NOT_MEASUREMENT}\\s*(?:pieds?|feet|foot|ft\\.?)?\\s*${APOS}?\\s*[-\\u2013]?\\s*` +
     `(?:(${QUALIFIER_ALTERNATION})(?![A-Za-z]))?`,
   "gi",
 );
@@ -289,12 +315,15 @@ export function describeContainerPlan(plan: ContainerPlan): string {
     .join(", ");
 }
 
-/** Contrat canonique consommé par build-case-puzzle et run-pricing. */
+/**
+ * Contrat canonique consommé par build-case-puzzle et run-pricing.
+ * Un type inconnu est OMIS, jamais émis à null : le validateur fail-closed de
+ * set-case-fact rejette type:null et JSON.stringify ne préserve pas undefined.
+ */
 export function toCanonicalContainers(plan: ContainerPlan): CanonicalIntakeContainer[] {
-  return plan.groups.map((group) => ({
-    type: group.type,
-    quantity: group.count,
-  }));
+  return plan.groups.map((group) =>
+    group.type ? { type: group.type, quantity: group.count } : { quantity: group.count },
+  );
 }
 
 /**
@@ -323,33 +352,35 @@ export function parseTextOverrides(inputText: string): IntakeTextOverrides {
     }
   }
 
-  // Pattern 2 : quantité sans taille — "1 conteneur", "2 containers".
-  // CONTAINER_WORD_END est indispensable ici : aucune taille n'est exigée après
-  // le mot, donc c'est le seul rempart contre un libellé structuré
+  // Pattern 2 : quantité sans taille — "1 conteneur", "2 containers",
+  // "2 x conteneurs". Le mot métier est OBLIGATOIRE : un "x" nu entre nombres
+  // est une chaîne de dimensions ("80x60x75 cm" = palette INT Nordic, jamais
+  // 80 conteneurs), et toute taille valide après le mot est déjà couverte par
+  // le Pattern 1. CONTAINER_WORD_END reste indispensable : aucune taille n'est
+  // exigée après le mot, donc c'est le seul rempart contre un libellé structuré
   // ("…;1\ncontainer_type;…") lu comme une déclaration de conteneurs.
   if (overrides.container_count == null && !overrides.containers_ambiguous) {
     const countOnly = normalized.match(
       new RegExp(
-        `(\\d+)\\s*(?:seul\\s+)?(?:(?:conteneur|container)${CONTAINER_WORD_END}|x)\\s*` +
-          `(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
+        `(\\d+)\\s*(?:seul\\s+)?(?:(?:x|\\u00d7|\\*)\\s*)?(?:conteneur|container)${CONTAINER_WORD_END}`,
         "i",
       ),
     );
     if (countOnly) {
-      const count = parseInt(countOnly[1], 10);
-      overrides.container_count = count;
-      if (countOnly[2]) {
-        const type = formatContainerType(countOnly[2], countOnly[3]);
-        overrides.container_type = type;
-        overrides.containers = [{ count, type }];
-      }
+      overrides.container_count = parseInt(countOnly[1], 10);
     }
   }
 
-  // Pattern 3 : nombres en toutes lettres — "un des huit conteneurs 40'"
+  // Pattern 3 : nombres en toutes lettres — "un des huit conteneurs 40'",
+  // "deux conteneurs de 20 pieds" (PHNX). La taille est restreinte aux tailles
+  // conteneur réelles (20/40/45) et NOT_MEASUREMENT refuse qu'une mesure
+  // ("de 40 tonnes") passe pour une taille : le compte seul est alors publié.
   if (overrides.container_count == null && !overrides.containers_ambiguous) {
     const wordPattern = new RegExp(
-      `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?(?:conteneur|container)s?${CONTAINER_WORD_END}\\s*(\\d{2})?${APOS}?\\s*(HC|DV|OT|FR|GP)?`,
+      `(?:^|\\s)(${Object.keys(FRENCH_NUMBERS).join("|")})\\s+(?:seul\\s+|des\\s+\\w+\\s+)?` +
+        `(?:conteneur|container)s?${CONTAINER_WORD_END}\\s*(?:de\\s+)?` +
+        `(?:(20|40|45)(?!\\d)${NOT_MEASUREMENT})?\\s*(?:pieds?|feet|foot|ft\\.?)?\\s*${APOS}?\\s*[-\\u2013]?\\s*` +
+        `(?:(${QUALIFIER_ALTERNATION})(?![A-Za-z]))?`,
       "i",
     );
     const wordMatch = normalized.match(wordPattern);
