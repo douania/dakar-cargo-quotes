@@ -3,6 +3,7 @@
 Répondre en français. Rôle : exécutant technique sous gouvernance CTO.
 
 ## Sources de vérité (lire dans cet ordre, ne rien supposer d'autre)
+0. `docs/CTO_GO_QUEUE.md` — file d'attente d'arbitrage CTO (mode autopilot planifié). **Toujours vérifier en premier.** S'il existe des entrées `PENDING`, les traiter en priorité (donner GO / NO-GO / demander une info manquante) avant tout nouveau travail.
 1. `docs/CTO_DEVELOPMENT_ROADMAP.md` — feuille de route canonique, état vérifié, packs, GO en cours. **Lire la section 1 et la section 2 en entier, puis seulement la section du pack actif.** Ne pas relire tout le document à chaque tour.
 2. `docs/MASTER_CONTEXT.md` — doctrine et architecture des modules (consulter par module concerné).
 3. `docs/SECURITY_CONTRACT.md`, `docs/STATUS_REGISTRY.md`, `docs/DEFERRED_BACKLOG.md` — subordonnés à la roadmap ; ouvrir uniquement si le lot les concerne.
