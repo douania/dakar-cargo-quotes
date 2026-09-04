@@ -96,6 +96,17 @@ GO CTO reçu dans la continuité du lot n°1. Périmètre exécuté, sans migrat
 
 Preuves locales : gate configuration 93 fonctions PASS ; typecheck app/node PASS ; 372 tests Vitest PASS ; lint baseline 744/19 PASS ; build PASS. Gates Deno locaux toujours bloqués par la politique réseau ; juge : CI GitHub.
 
+### 3.5 Lot dégraissage n°3 — orphelins induits par le déroutage legacy (4 septembre 2026)
+
+GO CTO reçu. Méthode : analyse d'atteignabilité complète du graphe d'imports depuis `main.tsx`, comparée entre l'état antérieur au lot n°1 et l'état courant, pour ne supprimer que les modules rendus injoignables par la clôture du parcours legacy — jamais de la dette antérieure sous ce GO.
+
+- **32 fichiers supprimés (~4 800 lignes)**, tous vérifiés sans importeur vivant : `HistoricalRateReminders`, `LearnFromEmailPanel`, `SimilarQuotationsPanel`, `puzzle/ClarificationPanel`, les 11 composants `features/quotation/components` (dont les **six FROZEN Phase 3B** — arbitrage : le gel protégeait leur comportement dans le parcours legacy, désormais clos ; tableau README mis à jour), `domain/` complet, `useCargoLines`, `useServiceLines`, `threadLoader`, `types.ts`, `utils/{parsing,consolidation,detection}`, `useQuotationHistory`, `useTariffSuggestions`, et les 3 fichiers de tests de ces modules (−23 cas Vitest, tous sujets morts).
+- `features/quotation/constants.ts` conservé (encore importé par l'app vivante). `BlockingGapsPanel` et `QuotationExcelExport` conservés (utilisés par les modales admin).
+- **Dette morte antérieure au lot n°1, volontairement hors périmètre et à arbitrer séparément** : 17 primitives shadcn `src/components/ui/*` jamais importées, et `src/lib/pad/{resolvePadClassification,invoiceLabelAliases,types}.ts` + test (copie frontend morte du résolveur PAD, doublonnant `_shared/pad/` backend — sensible, ne pas supprimer sans arbitrage PAD).
+- Baseline lint verrouillée : 744/19 → **742/19**.
+
+Preuves locales : typecheck app/node PASS ; 349 tests Vitest PASS ; lint baseline 742/19 PASS ; build PASS ; configuration 93 fonctions inchangée. Aucune fonction Edge, migration, donnée ni policy touchée.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale

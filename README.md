@@ -94,16 +94,9 @@ npx vitest
 
 Test files location: `src/**/__tests__/*.test.tsx`
 
-### Frozen Components (Phase 3B)
+### Frozen Components (Phase 3B) — retirés
 
-| Component | Location | Frozen Since |
-|-----------|----------|--------------|
-| ThreadTimelineCard | `src/features/quotation/components/` | Phase 3B.4 |
-| QuotationHeader | `src/features/quotation/components/` | Phase 3B |
-| AlertsPanel | `src/features/quotation/components/` | Phase 3B |
-| RegulatoryInfoCard | `src/features/quotation/components/` | Phase 3B |
-| SuggestionsCard | `src/features/quotation/components/` | Phase 3B |
-| QuickActionsCard | `src/features/quotation/components/` | Phase 3B |
+Les six composants FROZEN Phase 3B (`ThreadTimelineCard`, `QuotationHeader`, `AlertsPanel`, `RegulatoryInfoCard`, `SuggestionsCard`, `QuickActionsCard`) ont été supprimés le 4 septembre 2026 (lot dégraissage n°3, GO CTO) : ils n'étaient plus atteignables depuis l'application après le déroutage du parcours legacy `/quotation`. Le gel protégeait leur comportement dans ce parcours, désormais clos. Voir `docs/CTO_DEVELOPMENT_ROADMAP.md` §3.5.
 
 ---
 
