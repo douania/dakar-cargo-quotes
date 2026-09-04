@@ -107,6 +107,8 @@ GO CTO reçu. Méthode : analyse d'atteignabilité complète du graphe d'imports
 
 Preuves locales : typecheck app/node PASS ; 349 tests Vitest PASS ; lint baseline 742/19 PASS ; build PASS ; configuration 93 fonctions inchangée. Aucune fonction Edge, migration, donnée ni policy touchée.
 
+Contrôle runtime Lovable du 4 septembre 2026, lecture seule : projet synchronisé sur `9d49a452` (lot n°3), preview fonctionnelle ; baselines métier intactes (162 runs / 9 versions / 45 brouillons / 5 users ; 72 dossiers vs 64 au 31 août, croissance organique email) ; `quotation_history` intacte (87 lignes) ; ledger migrations aligné (`20260902120000`). **Résiduel connu** : sondes HTTP du 4 septembre (`healthz` 200, `hs-lookup` 401) — les 7 fonctions supprimées du dépôt (lots n°1-2) restent déployées en zombie dans le runtime, authentification et RLS toujours actives, plus aucun appelant dans le code. Dépublication explicite à faire lors d'un prochain passage Lovable sous GO runtime dédié ; non urgent, non bloquant.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
