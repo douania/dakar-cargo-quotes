@@ -119,6 +119,15 @@ GO CTO reçu (« lot n°4 complet avec le volet PAD »). Atteignabilité re-vér
 
 Preuves locales : typecheck app/node PASS ; 323 tests Vitest PASS (−26, doublons PAD) ; lint baseline 742/16 PASS ; build PASS ; 93 fonctions Edge inchangées. Aucune migration, donnée, policy ni fichier backend touché. Le frontend ne contient plus aucun fichier applicatif injoignable depuis `main.tsx`.
 
+### 3.7 Décision tarifaire — transport intérieur Sénégal (4 septembre 2026)
+
+Décision métier SODATRA explicite : le transport intérieur Sénégal est coté **exclusivement** par la grille officielle `TARIFS_LIVRAISONS_CONTENEURS_20P_40P_OFFICIELS` (60 lignes `local_transport_rates` actives, `validated_internal`, débours TTC — héritage P0-D). Tous les autres tarifs applicatifs pour les mêmes destinations sont éliminés :
+
+- **6 `pricing_rate_cards` rejetées** (live + migration Git idempotente `20260904140000`) : TRUCKING zone urbaine 20DV/40HC, Dakar→Saint-Louis, Dakar→Kédougou (3 500 000 XOF contre 1 739 320 officiel — divergence qui justifiait à elle seule le rejet), ON_CARRIAGE zone Dakar, et la ligne LCL à 0 XOF. État live vérifié après application : 29 `to_confirm` + 6 `rejected`.
+- Les TRUCKING transit (Bamako/Banjul) ne sont pas de l'intérieur Sénégal : conservées `to_confirm` pour la phase 2.
+- Les 81 `local_transport_rates` `historical_only` inactives restent en l'état (historique, non cotable) ; aucune suppression de données.
+- Constat annexe : la « formule par km » évoquée n'existe ni dans le code ni dans les docs — seule la grille fixe par destination est intégrée. Si un tarif hors des 30 destinations officielles est demandé, c'est un gap, pas un calcul improvisé.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
