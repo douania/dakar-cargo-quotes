@@ -364,68 +364,6 @@ const TEST_CASES: TestCase[] = [
   },
 
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // generate-quotation (3 tests)
-  // ─────────────────────────────────────────────────────────────────────────
-  {
-    function: 'generate-quotation',
-    scenario: 'AUTH',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [401],
-    expectedErrorCodes: ['AUTH_MISSING_JWT'],
-    body: { quotation_id: FAKE_UUID },
-    requiresAuth: false,
-  },
-  {
-    function: 'generate-quotation',
-    scenario: 'VALIDATION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400],
-    expectedErrorCodes: ['VALIDATION_FAILED'],
-    body: {},
-    requiresAuth: true,
-    verifyRuntimeEvent: true,
-  },
-  {
-    function: 'generate-quotation',
-    scenario: 'EXECUTION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400, 403, 404, 500],
-    body: { quotation_id: FAKE_UUID },
-    requiresAuth: true,
-  },
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // generate-quotation-pdf (3 tests)
-  // ─────────────────────────────────────────────────────────────────────────
-  {
-    function: 'generate-quotation-pdf',
-    scenario: 'AUTH',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [401],
-    // No expectedErrorCodes - Gateway rejection, no runtime contract
-    body: { quotation_id: FAKE_UUID },
-    requiresAuth: false,
-    verifyJwtTrue: true, // Gateway-level auth
-  },
-  {
-    function: 'generate-quotation-pdf',
-    scenario: 'VALIDATION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400],
-    expectedErrorCodes: ['VALIDATION_FAILED'],
-    body: {},
-    requiresAuth: true,
-    verifyRuntimeEvent: true,
-  },
-  {
-    function: 'generate-quotation-pdf',
-    scenario: 'EXECUTION',
-    expectedOutcome: 'EXPECTED_ERROR',
-    expectedStatuses: [400, 403, 404, 500],
-    body: { quotation_id: FAKE_UUID },
-    requiresAuth: true,
-  },
 ];
 
 // ============================================================================

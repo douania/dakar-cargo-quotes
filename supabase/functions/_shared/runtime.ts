@@ -254,9 +254,7 @@ export async function logRuntimeEvent(
 const DEFAULT_RATE_LIMITS: Record<string, { limit: number; windowSeconds: number }> = {
   'commit-decision': { limit: 10, windowSeconds: 60 },
   'generate-response': { limit: 5, windowSeconds: 60 },
-  
-  'generate-quotation': { limit: 10, windowSeconds: 60 },
-  'generate-quotation-pdf': { limit: 10, windowSeconds: 60 },
+
   'chat': { limit: 30, windowSeconds: 60 },
   'firecrawl-search': { limit: 20, windowSeconds: 60 },
   'firecrawl-scrape': { limit: 20, windowSeconds: 60 },

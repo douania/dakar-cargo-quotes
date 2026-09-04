@@ -12,8 +12,8 @@
  */
 import { ESLint } from 'eslint';
 
-const BASELINE_ERRORS = 749;
-const BASELINE_WARNINGS = 27;
+const BASELINE_ERRORS = 744;
+const BASELINE_WARNINGS = 19;
 
 const eslint = new ESLint();
 const results = await eslint.lintFiles(['.']);

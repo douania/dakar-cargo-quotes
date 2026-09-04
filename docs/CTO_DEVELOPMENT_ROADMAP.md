@@ -83,6 +83,19 @@ GO CTO reçu après audit de trajectoire du 4 septembre 2026. Périmètre exécu
 
 Preuves locales : gate configuration 96 fonctions PASS ; typecheck app/node PASS ; 372 tests Vitest PASS (20 fichiers) ; lint baseline 749/27 PASS ; build PASS (avertissement de taille connu). Les deux gates Deno n'ont pas pu tourner localement (`deno.land` bloqué par la politique réseau de l'environnement d'exécution) ; aucun test Deno ne référence les fonctions supprimées et la CI GitHub reste le juge sur ces deux gates. Aucune migration, donnée runtime ou composant FROZEN touché.
 
+### 3.4 Lot dégraissage n°2 — clôture de la lignée devis legacy (4 septembre 2026)
+
+GO CTO reçu dans la continuité du lot n°1. Périmètre exécuté, sans migration, DB/RLS/Auth ni composant FROZEN :
+
+- suppression de `src/pages/QuotationSheet.tsx` (déroutée au lot n°1, plus aucun importeur), de `src/features/quotation/hooks/useQuotationDraft.ts` et de `src/components/QuotationPdfExport.tsx` (importé uniquement par QuotationSheet, seul invocateur de `generate-quotation-pdf`) ;
+- suppression des 3 Edge Functions de la lignée legacy `quotation_history` : `create-quotation-draft`, `generate-quotation`, `generate-quotation-pdf`, et de leurs sections `supabase/config.toml` (gate bidirectionnelle : 93 fonctions / 93 sections) ;
+- nettoyage des références résiduelles : 6 entrées du smoke test live `phase15_smoke_test.ts` et 2 entrées de rate-limit dans `_shared/runtime.ts` (fichier non FROZEN) ;
+- la table `quotation_history` et la page admin de consultation restent intactes ; `generate-quotation-version` / `export-quotation-version-pdf` (lignée courante) sont désormais l'unique chemin de génération devis/PDF ;
+- les modules rendus orphelins par cette suppression (dont les six composants FROZEN Phase 3B, `SimilarQuotationsPanel`, `LearnFromEmailPanel`, `QuotationExcelExport`, `CargoLinesForm`, `ServiceLinesForm`, `QuotationPreview`, `QuotationTotalsCard`, `useCargoLines`, `useServiceLines`) sont **volontairement conservés** : leur sort relève d'un lot n°3 sous GO distinct, avec vérification individuelle des importeurs et arbitrage FROZEN ;
+- baseline lint verrouillée à la baisse : 749/27 → **744/19**.
+
+Preuves locales : gate configuration 93 fonctions PASS ; typecheck app/node PASS ; 372 tests Vitest PASS ; lint baseline 744/19 PASS ; build PASS. Gates Deno locaux toujours bloqués par la politique réseau ; juge : CI GitHub.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
