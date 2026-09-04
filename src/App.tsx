@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 // Auth
 import { AuthProvider, RequireAuth } from "@/features/auth";
@@ -12,7 +12,6 @@ import LoginPage from "./pages/LoginPage";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
-import QuotationSheet from "./pages/QuotationSheet";
 import HsCodesAdmin from "./pages/admin/HsCodes";
 import TaxRatesAdmin from "./pages/admin/TaxRates";
 import DocumentsAdmin from "./pages/admin/Documents";
@@ -52,8 +51,9 @@ const App = () => (
             {/* Routes protégées */}
             <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
             <Route path="/chat" element={<RequireAuth><Index /></RequireAuth>} />
-            <Route path="/quotation/new" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
-            <Route path="/quotation/:emailId" element={<RequireAuth><QuotationSheet /></RequireAuth>} />
+            {/* Chemin legacy /quotation dérouté vers le pipeline canonique (lot dégraissage n°1) */}
+            <Route path="/quotation/new" element={<Navigate to="/intake" replace />} />
+            <Route path="/quotation/:emailId" element={<Navigate to="/" replace />} />
             <Route path="/admin/hs-codes" element={<RequireAuth><HsCodesAdmin /></RequireAuth>} />
             <Route path="/admin/tax-rates" element={<RequireAuth><TaxRatesAdmin /></RequireAuth>} />
             <Route path="/admin/customs-regimes" element={<RequireAuth><CustomsRegimesAdmin /></RequireAuth>} />

@@ -70,6 +70,19 @@ Ne pas recommencer ce chantier sans nouvelle preuve de divergence.
 
 Ces fondations ne signifient pas que les parcours opérationnels associés sont tous complets.
 
+### 3.3 Lot dégraissage n°1 — suppression des orphelins vérifiés et déroutage `/quotation` (4 septembre 2026)
+
+GO CTO reçu après audit de trajectoire du 4 septembre 2026. Périmètre exécuté, sans toucher aux zones FROZEN, migrations, DB/RLS/Auth :
+
+- suppression de 4 Edge Functions sans aucun appelant dans le dépôt (frontend, inter-fonctions, migrations, scripts) : `find-similar-quotations`, `import-historical-quotation`, `reclassify-threads`, `hs-lookup`, et de leurs 4 sections `supabase/config.toml` (gate bidirectionnelle repassée : 96 fonctions / 96 sections) ;
+- suppression de 8 modules frontend jamais importés : `QuotationRequestCard.tsx`, `NavLink.tsx`, `truck-loading/OptimizationConfig.tsx`, `truck-loading/LoadingPlanViewer.tsx`, `HistoricalSuggestionsCard.tsx`, `useHistoricalSuggestions.ts`, `useEmails.ts`, `lib/api/firecrawl.ts` ;
+- `src/lib/fetchWithRetry.ts`, initialement candidat, a été **retiré du lot** après contre-vérification : il est importé par `Dashboard.tsx` et `admin/Emails.tsx` ;
+- déroutage du chemin legacy : `/quotation/new` redirige vers `/intake`, `/quotation/:emailId` vers `/` ; les 4 points d'entrée internes (`Dashboard`, `KnowledgeSearch`, `HistoricalRateReminders`, `admin/QuotationHistory`) ne pointent plus vers `/quotation`. La fonctionnalité « Utiliser comme modèle » de l'historique, déjà morte (elle écrivait un `sessionStorage` que plus rien ne lit), a été retirée ;
+- `src/pages/QuotationSheet.tsx` est conservé volontairement (réversibilité) ; sa suppression, ainsi que la clôture de la lignée `quotation_history` (`create-quotation-draft`, `generate-quotation`, `generate-quotation-pdf`, `useQuotationDraft`), relève d'un lot dégraissage n°2 sous GO distinct après recette runtime ;
+- baseline lint verrouillée à la baisse : 756 → **749** erreurs.
+
+Preuves locales : gate configuration 96 fonctions PASS ; typecheck app/node PASS ; 372 tests Vitest PASS (20 fichiers) ; lint baseline 749/27 PASS ; build PASS (avertissement de taille connu). Les deux gates Deno n'ont pas pu tourner localement (`deno.land` bloqué par la politique réseau de l'environnement d'exécution) ; aucun test Deno ne référence les fonctions supprimées et la CI GitHub reste le juge sur ces deux gates. Aucune migration, donnée runtime ou composant FROZEN touché.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale

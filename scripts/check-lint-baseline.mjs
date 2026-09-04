@@ -12,7 +12,7 @@
  */
 import { ESLint } from 'eslint';
 
-const BASELINE_ERRORS = 756;
+const BASELINE_ERRORS = 749;
 const BASELINE_WARNINGS = 27;
 
 const eslint = new ESLint();

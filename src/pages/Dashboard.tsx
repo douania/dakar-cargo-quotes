@@ -410,7 +410,7 @@ export default function Dashboard() {
   }, [isProcessing, navigate]);
 
   const handleNewQuotation = () => {
-    navigate('/quotation/new');
+    navigate('/intake');
   };
 
   // Group emails into thread groups

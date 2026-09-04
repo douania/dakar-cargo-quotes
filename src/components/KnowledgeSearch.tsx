@@ -116,8 +116,8 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
     setQuery('');
   }, [onSelectResult]);
 
-  const handleSelectEmail = useCallback((email: EmailSearchResult) => {
-    navigate(`/quotation/${email.id}`);
+  const handleSelectEmail = useCallback(() => {
+    navigate('/');
     setOpen(false);
     setQuery('');
   }, [navigate]);
@@ -260,7 +260,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
                   <CommandItem
                     key={email.id}
                     value={`${email.subject || ''} ${email.from_address}`}
-                    onSelect={() => handleSelectEmail(email)}
+                    onSelect={handleSelectEmail}
                     className="flex items-center justify-between cursor-pointer"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">

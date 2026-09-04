@@ -13,10 +13,8 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
   Search, FileText, ArrowRight, Package, Calendar, DollarSign, 
-  Building, MapPin, Copy, Filter, ChevronLeft, ChevronRight
+  Building, MapPin, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 
 interface TariffLine {
   service: string;
@@ -75,7 +73,6 @@ function getStatusVariant(status: string | null | undefined): 'default' | 'secon
 const PAGE_SIZE = 20;
 
 export default function QuotationHistory() {
-  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [cargoFilter, setCargoFilter] = useState<string>('all');
   const [periodFilter, setPeriodFilter] = useState<string>('all');
@@ -154,19 +151,6 @@ export default function QuotationHistory() {
   const formatAmount = (amount: number | null, currency: string | null) => {
     if (!amount) return '-';
     return new Intl.NumberFormat('fr-FR').format(amount) + ' ' + (currency || 'FCFA');
-  };
-
-  const handleUseAsBase = (quotation: QuotationRecord) => {
-    // Store quotation data in sessionStorage for QuotationSheet to use
-    sessionStorage.setItem('quotation-template', JSON.stringify({
-      route_destination: quotation.route_destination,
-      cargo_type: quotation.cargo_type,
-      container_types: quotation.container_types,
-      incoterm: quotation.incoterm,
-      tariff_lines: quotation.tariff_lines,
-    }));
-    toast.success('Modèle chargé');
-    navigate('/quotation/new');
   };
 
   return (
@@ -266,7 +250,6 @@ export default function QuotationHistory() {
                       <TableHead>Cargo</TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead className="text-right">Montant</TableHead>
-                      <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -329,18 +312,6 @@ export default function QuotationHistory() {
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {formatAmount(q.total_amount, q.total_currency)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUseAsBase(q);
-                            }}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -466,14 +437,6 @@ export default function QuotationHistory() {
                     <span className="text-xl font-bold">
                       {formatAmount(selectedQuotation.total_amount, selectedQuotation.total_currency)}
                     </span>
-                  </div>
-
-                  {/* Action */}
-                  <div className="flex justify-end">
-                    <Button onClick={() => handleUseAsBase(selectedQuotation)}>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Utiliser comme modèle
-                    </Button>
                   </div>
                 </div>
               </>

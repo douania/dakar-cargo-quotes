@@ -15,9 +15,6 @@ verify_jwt = false
 [functions.import-hs-codes]
 verify_jwt = false
 
-[functions.hs-lookup]
-verify_jwt = false
-
 
 [functions.parse-document]
 verify_jwt = false
@@ -87,9 +84,6 @@ verify_jwt = false
 [functions.truck-optimization-proxy]
 verify_jwt = false
 
-[functions.reclassify-threads]
-verify_jwt = false
-
 [functions.generate-excel-quotation]
 verify_jwt = false
 
@@ -132,12 +126,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-quotation]
-verify_jwt = false
-
-[functions.import-historical-quotation]
-verify_jwt = false
-
-[functions.find-similar-quotations]
 verify_jwt = false
 
 [functions.suggest-historical-lines]

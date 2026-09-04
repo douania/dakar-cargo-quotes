@@ -7,7 +7,6 @@ import {
   TrendingUp, 
   TrendingDown, 
   Minus,
-  ExternalLink,
   ChevronDown,
   ChevronUp,
   Calendar,
@@ -257,17 +256,6 @@ export function HistoricalRateReminders({
                             </Badge>
                           )}
                         </div>
-                        {ref.sourceEmailId && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs"
-                            onClick={() => window.open(`/quotation/${ref.sourceEmailId}`, '_blank')}
-                          >
-                            <ExternalLink className="h-3 w-3 mr-1" />
-                            Voir
-                          </Button>
-                        )}
                       </div>
 
                       {/* Route info */}
