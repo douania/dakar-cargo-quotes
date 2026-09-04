@@ -128,6 +128,8 @@ Décision métier SODATRA explicite : le transport intérieur Sénégal est cot�
 - Les 81 `local_transport_rates` `historical_only` inactives restent en l'état (historique, non cotable) ; aucune suppression de données.
 - Constat annexe : la « formule par km » évoquée n'existe ni dans le code ni dans les docs — seule la grille fixe par destination est intégrée. Si un tarif hors des 30 destinations officielles est demandé, c'est un gap, pas un calcul improvisé.
 
+Extension DTHC (même jour, même décision métier) : le DTHC import est coté exclusivement par le tarif officiel DP World (`port_tariffs`, `DPW_TARIFS_2025_0001.pdf`, `official`, module fail-closed DTHC-1 branché sur `quotation-engine` et `price-service-lines`). Les **4 rate cards DTHC import**, doublons divergents (250 000 vs 155 000 XOF pour un 20' standard ; 350 000 vs 310 000 pour un 40' ; 450 000 vs 341 000 reefer), sont rejetées — live + migration `20260904150000`. État live vérifié : 25 `to_confirm` + 10 `rejected`. Les 3 DTHC transit restent `to_confirm` (phase 2 : la ligne officielle Transit TRIE existe mais inactive ; fail-closed maintenu). Question ouverte relevée : `EMPTY_RETURN` (150 000/200 000) pourrait recouvrir la manutention officielle `CONTENEUR_VIDE` (75 000/EVP actif) — à trancher métier avant validation.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
