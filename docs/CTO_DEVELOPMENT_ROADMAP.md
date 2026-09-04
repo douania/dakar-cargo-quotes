@@ -107,7 +107,17 @@ GO CTO reçu. Méthode : analyse d'atteignabilité complète du graphe d'imports
 
 Preuves locales : typecheck app/node PASS ; 349 tests Vitest PASS ; lint baseline 742/19 PASS ; build PASS ; configuration 93 fonctions inchangée. Aucune fonction Edge, migration, donnée ni policy touchée.
 
-Contrôle runtime Lovable du 4 septembre 2026, lecture seule : projet synchronisé sur `9d49a452` (lot n°3), preview fonctionnelle ; baselines métier intactes (162 runs / 9 versions / 45 brouillons / 5 users ; 72 dossiers vs 64 au 31 août, croissance organique email) ; `quotation_history` intacte (87 lignes) ; ledger migrations aligné (`20260902120000`). **Résiduel connu** : sondes HTTP du 4 septembre (`healthz` 200, `hs-lookup` 401) — les 7 fonctions supprimées du dépôt (lots n°1-2) restent déployées en zombie dans le runtime, authentification et RLS toujours actives, plus aucun appelant dans le code. Dépublication explicite à faire lors d'un prochain passage Lovable sous GO runtime dédié ; non urgent, non bloquant.
+Contrôle runtime Lovable du 4 septembre 2026, lecture seule (portée : lots n°1-3) : projet synchronisé sur `9d49a452`, preview fonctionnelle ; baselines métier intactes (162 runs / 9 versions / 45 brouillons / 5 users ; 72 dossiers vs 64 au 31 août, croissance organique email) ; `quotation_history` intacte (87 lignes) ; ledger migrations aligné (`20260902120000`). **Résiduel connu** : sondes HTTP (`healthz` 200, `hs-lookup` 401) — les 7 fonctions supprimées du dépôt restent déployées en zombie dans le runtime, authentification et RLS toujours actives, plus aucun appelant dans le code. Dépublication explicite à faire lors d'un prochain passage Lovable sous GO runtime dédié ; non urgent, non bloquant.
+
+### 3.6 Lot dégraissage n°4 — dette morte antérieure, volet PAD inclus (4 septembre 2026)
+
+GO CTO reçu (« lot n°4 complet avec le volet PAD »). Atteignabilité re-vérifiée après le lot n°3 : exactement 20 fichiers morts restants, tous supprimés :
+
+- **17 primitives shadcn `src/components/ui/`** jamais importées (~1 830 lignes) : aspect-ratio, breadcrumb, carousel, chart, context-menu, drawer, dropdown-menu, form, hover-card, input-otp, menubar, navigation-menu, pagination, resizable, toggle, toggle-group, use-toast. Réintroduction possible à tout moment via la CLI shadcn.
+- **Copie frontend du résolveur PAD** `src/lib/pad/{resolvePadClassification,invoiceLabelAliases,types}.ts` + test Vitest (26 cas). Arbitrage PAD : les trois fichiers ont été prouvés **byte-identiques** à `supabase/functions/_shared/pad/` (seule différence : suffixes d'import `.ts` Deno) — doublon pur, aucune logique ni doctrine perdue ; la source de vérité unique reste le backend `_shared/pad/`, couvert par son propre test Deno en CI.
+- Baseline lint verrouillée : 742/19 → **742/16**.
+
+Preuves locales : typecheck app/node PASS ; 323 tests Vitest PASS (−26, doublons PAD) ; lint baseline 742/16 PASS ; build PASS ; 93 fonctions Edge inchangées. Aucune migration, donnée, policy ni fichier backend touché. Le frontend ne contient plus aucun fichier applicatif injoignable depuis `main.tsx`.
 
 ## 4. Preuves de l'audit du 22 août 2026
 
