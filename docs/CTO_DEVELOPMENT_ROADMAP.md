@@ -151,6 +151,18 @@ Preuves locales : typecheck app/node PASS ; 323 tests Vitest PASS ; lint baselin
 
 Constats annexes du même run, à arbitrer (non traités ici) : les honoraires proviennent d'une troisième source `sodatra_fee_rules` (suivi 35 000/conteneur, dédouanement 0,4 % CAF × 0,6 min 75 000) qui **écrase** par dédoublonnage les rate cards AGENCY/CUSTOMS_DAKAR promues le 4 septembre ; ligne « Droits & taxes » à confirmer émise même en DAP ; surestaries « armateur non détecté ». Bug conteneurs (regex sur corps cité) et sync boîte `douane@sodatra.sn` consignés au §3.7.
 
+### 3.9 Lot DTHC-3 — passe-plat de la famille DP World jusqu'au moteur (8 septembre 2026)
+
+Recette DTHC-2 sur le dossier Cogoport : fait `pricing.dthc_family = STANDARD` écrit, mais la ligne « Terminal (DPW) » restait `TO_CONFIRM / FAMILY_UNDETERMINED`. Cause : la ligne retenue par le dédoublonnage `TERMINAL_HANDLING` est celle de `quotation-engine` (structurelle), qui appelait le résolveur partagé sans la famille ; `run-pricing` ne lisait pas le fait et ne le transmettait pas au moteur. Le câblage DTHC-2 ne couvrait que `price-service-lines`.
+
+GO CTO « lot DTHC-3 » : exception structurelle sur deux modules FROZEN, limitée à un passe-plat (commit `650f3417`, 2 fichiers, +12/−1) :
+- `run-pricing` : `buildPricingInputs` (commun mono-lot / multi-lot) lit `pricing.dthc_family` dans `inputs.dthcFamily`, transmis en `dthcFamily` dans les deux constructeurs de requête moteur.
+- `quotation-engine` : champ `dthcFamily?: string | null` sur `QuotationRequest`, et `family: normalizeDpwDthcFamily(request.dthcFamily)` dans le bloc DTHC-1. Famille absente ou invalide ⇒ `null` ⇒ inférence fail-closed strictement inchangée.
+
+Preuves : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, build PASS, `deno lint` sans finding sur les lignes ajoutées ; CI GitHub run 83 verte (gates Deno incluses). Runtime : `run-pricing` + `quotation-engine` redéployées par l'agent Lovable depuis `650f3417`, sondes 401. **Recette réelle PASS** — run 4 Cogoport (15:11) : « THC IMPORT 20GP » = 50 EVP × 155 000 = **7 750 000 XOF**, source OFFICIAL `port_tariffs` (DPW_TARIFS_2025_0001.pdf) ; total HT 12 687 000 → **20 437 000**, TTC 20 772 700.
+
+Reste ouvert sur ce dossier (voir §3.8) : arbitrage honoraires `sodatra_fee_rules` vs forfaits promus, ligne « Droits & taxes » en DAP, surestaries sans armateur, puis version → PDF → comparaison avec l'offre concurrente.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
