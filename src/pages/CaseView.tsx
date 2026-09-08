@@ -127,6 +127,10 @@ export default function CaseView() {
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
+  // DTHC-2 / UX : ajout d'un fait autorisé absent du dossier (aucun gap ouvert).
+  const [addFactKey, setAddFactKey] = React.useState<string>("");
+  const [addFactValue, setAddFactValue] = React.useState("");
+  const [isAddingFact, setIsAddingFact] = React.useState(false);
   const [isSavingFact, setIsSavingFact] = React.useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
@@ -921,6 +925,41 @@ export default function CaseView() {
       setIsSavingFact(false);
     }
   }
+
+  // DTHC-2 / UX : un fait absent du dossier n'est éditable nulle part (pas de ligne,
+  // pas de gap). Même allowlist que l'édition, même Edge Function, même garde.
+  async function handleAddFact() {
+    if (!caseId || !addFactKey) return;
+    setIsAddingFact(true);
+    try {
+      const payload: Record<string, unknown> = { case_id: caseId, fact_key: addFactKey };
+      if (NUMERIC_FACT_KEYS.has(addFactKey)) {
+        const num = Number(addFactValue);
+        if (!Number.isFinite(num) || num < 0) throw new Error("Valeur numérique invalide");
+        payload.value_number = num;
+        payload.value_text = null;
+      } else {
+        if (!addFactValue.trim()) throw new Error("Valeur requise");
+        payload.value_text = addFactValue.trim();
+        payload.value_number = null;
+      }
+      const { data, error } = await supabase.functions.invoke("set-case-fact", { body: payload });
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data?.error || "set-case-fact a échoué");
+      toast.success(`${addFactKey} enregistré`);
+      setAddFactKey("");
+      setAddFactValue("");
+      handleRefresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setIsAddingFact(false);
+    }
+  }
+
+  const addableFactKeys = [...EDITABLE_FACT_KEYS]
+    .filter((k) => k !== "cargo.articles_detail" && !(facts as Array<{ fact_key: string }>).some((f) => f.fact_key === k))
+    .sort();
 
   // ── Group facts by category ──
   const factsByCategory = facts.reduce<Record<string, typeof facts>>((acc, fact) => {
@@ -2265,6 +2304,54 @@ export default function CaseView() {
 
           {/* Facts Tab */}
           <TabsContent value="facts">
+            {!isLocked && addableFactKeys.length > 0 && (
+              <Card className="mb-4">
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base">Ajouter un fait</CardTitle>
+                  <CardDescription>
+                    Clés autorisées absentes du dossier — utile quand aucun gap n'est ouvert (famille DTHC, poids, code HS…).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0 flex flex-col gap-2 md:flex-row md:items-center">
+                  <Select value={addFactKey} onValueChange={(v) => { setAddFactKey(v); setAddFactValue(""); }}>
+                    <SelectTrigger className="h-8 md:w-72">
+                      <SelectValue placeholder="Choisir une clé" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addableFactKeys.map((k) => (
+                        <SelectItem key={k} value={k}>{k}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {addFactKey && SELECT_FACT_OPTIONS[addFactKey] ? (
+                    <Select value={addFactValue} onValueChange={setAddFactValue}>
+                      <SelectTrigger className="h-8 md:w-96">
+                        <SelectValue placeholder="Choisir une valeur" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SELECT_FACT_OPTIONS[addFactKey].map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      className="h-8 md:w-64"
+                      type={addFactKey && NUMERIC_FACT_KEYS.has(addFactKey) ? "number" : "text"}
+                      placeholder="Valeur"
+                      value={addFactValue}
+                      disabled={!addFactKey}
+                      onChange={(e) => setAddFactValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddFact(); }}
+                    />
+                  )}
+                  <Button size="sm" onClick={handleAddFact} disabled={!addFactKey || !addFactValue || isAddingFact}>
+                    {isAddingFact ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Enregistrer
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
             {Object.keys(factsByCategory).length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center space-y-3">

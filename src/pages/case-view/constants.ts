@@ -31,6 +31,19 @@ export const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: s
     { value: "RORO", label: "RoRo — navire roulier (Dakar Terminal)" },
     { value: "CONRO", label: "ConRo — roulier + conteneurs (Dakar Terminal)" },
   ],
+  /**
+   * DTHC-2 — famille tarifaire DP World choisie par l'opérateur (fait pricing.dthc_family).
+   * Sans ce fait, un conteneur sec dont la désignation n'est pas validée reste
+   * « tarif terminal à confirmer ». Valeurs strictes attendues par
+   * supabase/functions/_shared/dpw-dthc-tariff.ts (DPW_DTHC_FAMILIES).
+   */
+  "pricing.dthc_family": [
+    { value: "STANDARD", label: "STANDARD — produits standards (conteneur sec)" },
+    { value: "BASIC", label: "BASIC — produits de base (huile alimentaire, pharma, riz, sucre, lait)" },
+    { value: "DANGEROUS", label: "DANGEROUS — produits dangereux IMDG classes 1-9" },
+    { value: "REEFER", label: "REEFER — conteneurs frigorifiques" },
+    { value: "SPECIAL", label: "SPECIAL — conteneurs spéciaux (OOG, flat, open top, tank)" },
+  ],
 };
 
 /** P1a — Global fact keys ambiguous on multi-lot cases */
@@ -82,6 +95,7 @@ export const EDITABLE_FACT_KEYS = new Set([
   "routing.terminal_operation_mode",
   "cargo.pad_category",
   "cargo.pad_rate_fcfa_per_ton",
+  "pricing.dthc_family",
 ]);
 
 export const NUMERIC_FACT_KEYS = new Set([

@@ -139,6 +139,18 @@ Extension DTHC (même jour, même décision métier) : le DTHC import est coté 
 - **Deux classes de tarifs aux règles distinctes** : `internal_fee` (honoraires SODATRA — l'opérateur habilité fixe librement, traçabilité seule exigée) vs **débours tiers** (pièce justificative obligatoire). Les débours évoluent dans le temps : modification par **versionnement** — nouvelle ligne avec nouvelle pièce et nouvelle fenêtre de validité qui remplace l'ancienne (`effective_to`), jamais d'édition en place silencieuse.
 - Sélection au pricing : réutiliser le pattern fail-closed DTHC-1 (zéro ou plusieurs correspondances ⇒ TO_CONFIRM, jamais de premier-match).
 
+### 3.8 Lot DTHC-2 — famille tarifaire DP World fournie par l'opérateur (8 septembre 2026)
+
+GO CTO reçu après le premier run de pricing réel (dossier Cogoport `7f6fcf04`, 50 × 20GP lubrifiants, DAP Dakar) : l'acconage DP World sortait « famille non déterminable » alors que le tarif officiel est actif — le résolveur DTHC-1 n'infère STANDARD que depuis une liste validée à une seule désignation, et son entrée `family` (conçue, testée) n'était branchée nulle part. Lot purement additif (192 lignes, 0 suppression), fail-closed conservé : sans le fait, comportement strictement identique.
+
+- **Sous-lot A1 (pricing)** : `price-service-lines` lit le fait `pricing.dthc_family`, le normalise (`normalizeDpwDthcFamily`, liste fermée `DPW_DTHC_FAMILIES`) et le transmet en `family` aux deux appels du résolveur. `set-case-fact` (**FROZEN — exception structurelle, précédent TERMINAL-GAP du 25 août**) : clé ajoutée à l'allowlist, valeur texte stricte BASIC/STANDARD/REEFER/DANGEROUS/SPECIAL canonicalisée avant le RPC. `run-pricing` non touché.
+- **Sous-lot A2 (module pur)** : `dpw-dthc-tariff.ts` exporte la liste des familles et la normalisation ; alias intake exacts `20/40 DRY 8'6 → DV`, `40 DRY 9'6 → 40HC` (le libellé « 40 DRY 9'6 » du dossier CASSIS tombait en type non supporté). 3 tests Deno ajoutés (alias hauteur, famille opérateur 50 × 20DV = 7 750 000 XOF, normalisation stricte).
+- **Sous-lot B (UI)** : liste déroulante des cinq familles sur le fait, et carte **« Ajouter un fait »** dans l'onglet Faits — clés autorisées absentes du dossier — car un fait sans ligne ni gap n'était inscriptible nulle part (constat du même dossier : poids, famille DTHC).
+
+Preuves locales : typecheck app/node PASS ; 323 tests Vitest PASS ; lint baseline 742/16 PASS ; build PASS ; `deno lint` des 4 fichiers backend : 0 finding dans les lignes ajoutées (12 préexistants). Tests Deno **NOT_RUN localement** (`deno.land` bloqué par la politique réseau de l'environnement) — juge : CI GitHub. Recette runtime à faire sur le dossier Cogoport : fait `pricing.dthc_family = STANDARD` → re-pricing → ligne acconage 155 000 × 50 EVP = 7 750 000 XOF ferme.
+
+Constats annexes du même run, à arbitrer (non traités ici) : les honoraires proviennent d'une troisième source `sodatra_fee_rules` (suivi 35 000/conteneur, dédouanement 0,4 % CAF × 0,6 min 75 000) qui **écrase** par dédoublonnage les rate cards AGENCY/CUSTOMS_DAKAR promues le 4 septembre ; ligne « Droits & taxes » à confirmer émise même en DAP ; surestaries « armateur non détecté ». Bug conteneurs (regex sur corps cité) et sync boîte `douane@sodatra.sn` consignés au §3.7.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
