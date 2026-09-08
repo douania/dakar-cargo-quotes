@@ -87,6 +87,8 @@ interface PricingInputs {
   cargoValue?: number;
   cargoValueCurrency?: string;
   cargoDescription?: string;
+  // DTHC-3 : famille tarifaire DPW fournie par l'opérateur (fact pricing.dthc_family)
+  dthcFamily?: string;
   carrier?: string;
   clientEmail?: string;
   clientCompany?: string;
@@ -1900,6 +1902,7 @@ Deno.serve(async (req) => {
             carrier: lc.inputs.carrier,
             transportMode: lc.transportMode,
             cargoDescription: lc.inputs.cargoDescription,
+            dthcFamily: lc.inputs.dthcFamily,
             clientCompany: lc.inputs.clientCompany,
             hsCode: lc.inputs.hsCode,
             articlesDetail: lc.inputs.articlesDetail,
@@ -3006,6 +3009,7 @@ Deno.serve(async (req) => {
         carrier: inputs.carrier,
         transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
         cargoDescription: inputs.cargoDescription,
+        dthcFamily: inputs.dthcFamily,
         clientCompany: inputs.clientCompany,
         hsCode: inputs.hsCode,
         articlesDetail: inputs.articlesDetail,
@@ -4430,6 +4434,9 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       case "cargo.description":
         inputs.cargoDescription = String(value);
+        break;
+      case "pricing.dthc_family":
+        inputs.dthcFamily = String(value);
         break;
       case "carrier.name":
         inputs.carrier = String(value);

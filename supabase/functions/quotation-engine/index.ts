@@ -11,7 +11,7 @@ import {
   LOCAL_TRANSPORT_EVIDENCE_WHITELIST,
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
-import { resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
+import { normalizeDpwDthcFamily, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -503,6 +503,8 @@ interface QuotationRequest {
   // Cargo
   cargoType: string;
   cargoDescription?: string;
+  // DTHC-3 : famille DPW fournie par l'opérateur (fact pricing.dthc_family), passe-plat de run-pricing
+  dthcFamily?: string | null;
   cargoValue: number;
   cargoCurrency?: string;
   cargoWeight?: number; // en tonnes
@@ -1566,6 +1568,8 @@ async function generateQuotationLines(
       scope: effectiveOperationType === 'IMPORT' ? 'import' : String(effectiveOperationType).toLowerCase(),
       containers: [{ type: container.type, quantity: container.quantity }],
       cargoDescription: request.cargoDescription,
+      // DTHC-3 : famille opérateur prioritaire ; null => inférence inchangée (fail-closed)
+      family: normalizeDpwDthcFamily(request.dthcFamily),
       isDangerous: request.isIMO === true || request.isHazmat === true,
       asOfDate: new Date().toISOString().split('T')[0],
     });
