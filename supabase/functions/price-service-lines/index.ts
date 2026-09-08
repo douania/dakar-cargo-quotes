@@ -23,7 +23,10 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
-import { resolveOfficialLocalTransportRate } from "../_shared/local-transport-destination.ts";
+import {
+  deriveCargoWeightPerContainerKg,
+  resolveOfficialLocalTransportRate,
+} from "../_shared/local-transport-destination.ts";
 import {
   DPW_DTHC_EVIDENCE_WHITELIST,
   DPW_DTHC_PROVIDERS,
@@ -143,6 +146,7 @@ interface PricingContext {
   pad_rate_fcfa_per_ton: number | null;
   cargo_description: string | null; // DTHC-1: canonical fact cargo.description
   dthc_family: DpwDthcFamily | null; // DTHC-2: famille choisie par l'opérateur (fait pricing.dthc_family), jamais inférée ici
+  weight_per_container_kg: number | null; // TRUCKING-22T: poids marchandise par conteneur (fait cargo.weight_per_container_kg)
 }
 
 interface PricedLine {
@@ -453,6 +457,9 @@ function buildPricingContext(
     // DTHC-2 : famille fournie par l'opérateur. Absente ou invalide ⇒ null ⇒ le
     // résolveur garde son inférence fail-closed (désignation validée seulement).
     dthc_family: normalizeDpwDthcFamily(factsMap.get("pricing.dthc_family")?.value_text),
+    // TRUCKING-22T : poids marchandise par boîte, tel que saisi ; la dérivation
+    // (poids total ÷ boîtes) et la tare sont gérées par le résolveur partagé.
+    weight_per_container_kg: factsMap.get("cargo.weight_per_container_kg")?.value_number ?? null,
   };
 }
 
@@ -590,11 +597,23 @@ function findLocalTransportRate(
   const ctxClientCode = (pricingCtx as { client_code?: string | null }).client_code ?? null;
   const today = new Date().toISOString().split("T")[0];
 
+  // TRUCKING-22T : poids marchandise par boîte — fait explicite, sinon poids
+  // total ÷ nombre de boîtes si un seul type canonique, sinon null (le chemin
+  // aérien, où weight_kg peut porter le poids taxable, est exclu plus haut).
+  // Le résolveur ajoute la tare de référence : un 20' au-delà de 22 t est servi
+  // au tarif 40' ; poids inconnu ⇒ tarif 20' avec mention.
+  const cargoWeightPerContainerKg = deriveCargoWeightPerContainerKg({
+    explicitPerContainerKg: pricingCtx.weight_per_container_kg,
+    totalCargoWeightKg: pricingCtx.weight_kg,
+    containers: pricingCtx.containers,
+  });
+
   const resolution = resolveOfficialLocalTransportRate(preloadedRates, {
     destination: pricingCtx.destination_city,
     containerType: pricingCtx.container_type,
     clientCode: ctxClientCode,
     asOfDate: today,
+    cargoWeightPerContainerKg,
   });
 
   if (resolution.status !== "RESOLVED") {
@@ -612,7 +631,7 @@ function findLocalTransportRate(
     currency: resolution.currency,
     source: `local_transport_rate`,
     confidence: 0.90,
-    explanation: `local_transport: dest=${bestRate.destination}, container=${bestRate.container_type}, provider=${bestRate.provider || "unknown"}, client_code=${bestRate.client_code ?? "generic"}, rate=${resolution.amount}`,
+    explanation: `local_transport: dest=${bestRate.destination}, container=${bestRate.container_type}, provider=${bestRate.provider || "unknown"}, client_code=${bestRate.client_code ?? "generic"}, rate=${resolution.amount}, weight_rule=${resolution.weight.rule}${resolution.weight.note ? ` — ${resolution.weight.note}` : ""}`,
   };
 }
 
