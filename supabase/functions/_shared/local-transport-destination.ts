@@ -139,6 +139,137 @@ export const LOCAL_TRANSPORT_CONTAINER_ALIASES: Readonly<
   "40FTHC": LOCAL_TRANSPORT_CONTAINER_40,
 });
 
+/**
+ * TRUCKING-22T — règle de poids du barème syndical (décision CTO 2026-09-08) :
+ *   * un 20' dont le poids chargé, TARE INCLUSE, dépasse STRICTEMENT 22 t est
+ *     facturé au tarif 40' ; exactement 22 t reste au tarif 20' ;
+ *   * le poids marchandise par conteneur vient des faits (fait explicite
+ *     `cargo.weight_per_container_kg`, sinon poids total ÷ nombre de boîtes
+ *     quand tous les conteneurs sont du même type) ; la tare ajoutée est celle
+ *     du 20' Dry de référence (`container_specifications` 20DV, migration
+ *     20251219230618) ;
+ *   * poids inconnu ⇒ tarif 20' servi, la résolution porte la mention
+ *     « supposé ≤ 22 t » — jamais un blocage ;
+ *   * un 40' n'est jamais concerné.
+ */
+export const LOCAL_TRANSPORT_20_WEIGHT_THRESHOLD_KG = 22_000;
+export const LOCAL_TRANSPORT_20_DRY_TARE_KG = 2_230;
+
+export type LocalTransportWeightRule =
+  | "NOT_APPLICABLE"
+  | "UNDER_THRESHOLD"
+  | "OVER_THRESHOLD_40_RATE"
+  | "WEIGHT_UNKNOWN_ASSUMED_UNDER";
+
+export interface LocalTransportWeightAssessment {
+  rule: LocalTransportWeightRule;
+  cargoWeightPerContainerKg: number | null;
+  tareKg: number | null;
+  grossWeightPerContainerKg: number | null;
+  thresholdKg: number;
+  /** Mention FR prête à être portée par la ligne de devis ; null si sans objet. */
+  note: string | null;
+}
+
+function toPositiveFinite(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** "30230" -> "30 230 kg" — déterministe, sans dépendance ICU. */
+const formatKg = (kg: number): string =>
+  `${String(Math.round(kg)).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} kg`;
+
+/**
+ * Évalue la règle 22 t pour un type canonique déjà résolu. Pure, déterministe.
+ */
+export function assessLocalTransportWeightRule(
+  canonicalContainerType: string | null,
+  cargoWeightPerContainerKg: unknown,
+): LocalTransportWeightAssessment {
+  const thresholdKg = LOCAL_TRANSPORT_20_WEIGHT_THRESHOLD_KG;
+  if (canonicalContainerType !== LOCAL_TRANSPORT_CONTAINER_20) {
+    return {
+      rule: "NOT_APPLICABLE",
+      cargoWeightPerContainerKg: toPositiveFinite(cargoWeightPerContainerKg),
+      tareKg: null,
+      grossWeightPerContainerKg: null,
+      thresholdKg,
+      note: null,
+    };
+  }
+  const cargoKg = toPositiveFinite(cargoWeightPerContainerKg);
+  if (cargoKg === null) {
+    return {
+      rule: "WEIGHT_UNKNOWN_ASSUMED_UNDER",
+      cargoWeightPerContainerKg: null,
+      tareKg: LOCAL_TRANSPORT_20_DRY_TARE_KG,
+      grossWeightPerContainerKg: null,
+      thresholdKg,
+      note:
+        "Tarif 20' appliqué — poids par conteneur inconnu, supposé ≤ 22 t tare incluse.",
+    };
+  }
+  const tareKg = LOCAL_TRANSPORT_20_DRY_TARE_KG;
+  const grossKg = cargoKg + tareKg;
+  const detail = `${formatKg(cargoKg)} + tare ${formatKg(tareKg)} = ${
+    formatKg(grossKg)
+  }`;
+  if (grossKg > thresholdKg) {
+    return {
+      rule: "OVER_THRESHOLD_40_RATE",
+      cargoWeightPerContainerKg: cargoKg,
+      tareKg,
+      grossWeightPerContainerKg: grossKg,
+      thresholdKg,
+      note: `20' > 22 t tare incluse (${detail}) — tarif 40' appliqué.`,
+    };
+  }
+  return {
+    rule: "UNDER_THRESHOLD",
+    cargoWeightPerContainerKg: cargoKg,
+    tareKg,
+    grossWeightPerContainerKg: grossKg,
+    thresholdKg,
+    note: `20' ≤ 22 t tare incluse (${detail}) — tarif 20'.`,
+  };
+}
+
+/**
+ * Poids marchandise par conteneur, sans rien inventer :
+ *   1. le fait explicite prime ;
+ *   2. sinon poids total ÷ somme des quantités, uniquement si TOUS les
+ *      conteneurs résolvent vers le même type canonique du barème ;
+ *   3. sinon null (mélange de types, type hors barème, quantités invalides).
+ */
+export function deriveCargoWeightPerContainerKg(input: {
+  explicitPerContainerKg?: unknown;
+  totalCargoWeightKg?: unknown;
+  containers?: ReadonlyArray<{ type?: unknown; quantity?: unknown }> | null;
+}): number | null {
+  const explicit = toPositiveFinite(input.explicitPerContainerKg);
+  if (explicit !== null) return explicit;
+
+  const total = toPositiveFinite(input.totalCargoWeightKg);
+  if (total === null) return null;
+  const containers = Array.isArray(input.containers) ? input.containers : [];
+  if (containers.length === 0) return null;
+
+  let canonical: string | null = null;
+  let quantity = 0;
+  for (const container of containers) {
+    const type = resolveCanonicalLocalTransportContainerType(container?.type);
+    if (type === null) return null;
+    if (canonical === null) canonical = type;
+    else if (canonical !== type) return null;
+    const qty = toPositiveFinite(container?.quantity);
+    if (qty === null || !Number.isInteger(qty)) return null;
+    quantity += qty;
+  }
+  if (quantity <= 0) return null;
+  return total / quantity;
+}
+
 export type LocalTransportToConfirmReason =
   | "DESTINATION_MISSING"
   | "DESTINATION_UNKNOWN"
@@ -306,13 +437,22 @@ export interface LocalTransportResolutionInput {
   /** Filtres optionnels, appliqués seulement s'ils sont fournis. */
   origin?: string | null;
   cargoCategory?: string | null;
+  /**
+   * TRUCKING-22T : poids MARCHANDISE par conteneur en kg (hors tare, la tare
+   * de référence est ajoutée ici). Absent ⇒ tarif 20' avec mention.
+   */
+  cargoWeightPerContainerKg?: number | null;
 }
 
 export type LocalTransportResolution =
   | {
     status: "RESOLVED";
     canonicalDestination: string;
+    /** Type dont le tarif est SERVI (40' Dry quand la règle 22 t s'applique). */
     canonicalContainerType: string;
+    /** Type canonique DEMANDÉ (celui du conteneur du dossier). */
+    requestedContainerType: string;
+    weight: LocalTransportWeightAssessment;
     amount: number;
     currency: string;
     rate: LocalTransportRateCandidate;
@@ -324,6 +464,8 @@ export type LocalTransportResolution =
     message: string;
     canonicalDestination: string | null;
     canonicalContainerType: string | null;
+    requestedContainerType: string | null;
+    weight: LocalTransportWeightAssessment | null;
     amount: null;
     matchCount: number;
   };
@@ -335,6 +477,8 @@ function toConfirm(
   canonicalDestination: string | null,
   canonicalContainerType: string | null,
   matchCount = 0,
+  requestedContainerType: string | null = null,
+  weight: LocalTransportWeightAssessment | null = null,
 ): LocalTransportResolution {
   return {
     status: "TO_CONFIRM",
@@ -343,6 +487,8 @@ function toConfirm(
     message: LOCAL_TRANSPORT_TO_CONFIRM_MESSAGES[reason],
     canonicalDestination,
     canonicalContainerType,
+    requestedContainerType,
+    weight,
     amount: null,
     matchCount,
   };
@@ -392,12 +538,21 @@ export function resolveOfficialLocalTransportRate(
   if (!rawContainerKey) {
     return toConfirm("CONTAINER_MISSING", destination.canonical, null);
   }
-  const containerType = resolveCanonicalLocalTransportContainerType(
+  const requestedContainerType = resolveCanonicalLocalTransportContainerType(
     input.containerType,
   );
-  if (containerType === null) {
+  if (requestedContainerType === null) {
     return toConfirm("CONTAINER_UNSUPPORTED", destination.canonical, null);
   }
+
+  // TRUCKING-22T : un 20' au-delà de 22 t tare incluse est servi au tarif 40'.
+  const weight = assessLocalTransportWeightRule(
+    requestedContainerType,
+    input.cargoWeightPerContainerKg,
+  );
+  const containerType = weight.rule === "OVER_THRESHOLD_40_RATE"
+    ? LOCAL_TRANSPORT_CONTAINER_40
+    : requestedContainerType;
 
   const asOf = typeof input.asOfDate === "string" &&
       ISO_DATE.test(input.asOfDate.slice(0, 10))
@@ -463,6 +618,8 @@ export function resolveOfficialLocalTransportRate(
       destination.canonical,
       containerType,
       0,
+      requestedContainerType,
+      weight,
     );
   }
   if (candidates.length > 1) {
@@ -471,6 +628,8 @@ export function resolveOfficialLocalTransportRate(
       destination.canonical,
       containerType,
       candidates.length,
+      requestedContainerType,
+      weight,
     );
   }
 
@@ -484,6 +643,8 @@ export function resolveOfficialLocalTransportRate(
       destination.canonical,
       containerType,
       1,
+      requestedContainerType,
+      weight,
     );
   }
 
@@ -496,6 +657,8 @@ export function resolveOfficialLocalTransportRate(
     status: "RESOLVED",
     canonicalDestination: destination.canonical,
     canonicalContainerType: containerType,
+    requestedContainerType,
+    weight,
     amount,
     currency,
     rate,

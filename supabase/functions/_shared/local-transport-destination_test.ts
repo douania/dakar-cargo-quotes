@@ -3,8 +3,12 @@ import {
   assertEquals,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  assessLocalTransportWeightRule,
   buildLocalTransportDestinationIndex,
   CANONICAL_LOCAL_TRANSPORT_DESTINATIONS,
+  deriveCargoWeightPerContainerKg,
+  LOCAL_TRANSPORT_20_DRY_TARE_KG,
+  LOCAL_TRANSPORT_20_WEIGHT_THRESHOLD_KG,
   LOCAL_TRANSPORT_CONTAINER_20,
   LOCAL_TRANSPORT_CONTAINER_40,
   LOCAL_TRANSPORT_TO_CONFIRM_CODE,
@@ -847,4 +851,203 @@ Deno.test("TTC totals are the sum of transport + file fee + 18% VAT", () => {
       entry.raw_label,
     );
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRUCKING-22T — règle de poids du barème syndical (décision CTO 2026-09-08)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Grille Zone 1 : 20' = 82 600 TTC, 40' = 125 080 TTC (migration 20260823130000). */
+const ZONE1_20 = rate({
+  destination: "FORFAIT ZONE 1 <18 KM",
+  container_type: LOCAL_TRANSPORT_CONTAINER_20,
+  rate_amount: 82600,
+});
+const ZONE1_40 = rate({
+  destination: "FORFAIT ZONE 1 <18 KM",
+  container_type: LOCAL_TRANSPORT_CONTAINER_40,
+  rate_amount: 125080,
+});
+
+Deno.test("TRUCKING-22T: the threshold and the reference tare are pinned", () => {
+  assertEquals(LOCAL_TRANSPORT_20_WEIGHT_THRESHOLD_KG, 22_000);
+  // container_specifications.20DV (migration 20251219230618)
+  assertEquals(LOCAL_TRANSPORT_20_DRY_TARE_KG, 2_230);
+});
+
+Deno.test("TRUCKING-22T: a 20' above 22 t tare included is served the 40' tariff", () => {
+  // Dossier Cogoport : 50 x 20GP, 28 000 kg de marchandise par boîte.
+  const result = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+    destination: "Dakar",
+    containerType: "20GP",
+    asOfDate: TODAY,
+    cargoWeightPerContainerKg: 28_000,
+  });
+  assertEquals(result.status, "RESOLVED");
+  if (result.status !== "RESOLVED") return;
+  assertEquals(result.amount, 125080);
+  assertEquals(result.requestedContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+  assertEquals(result.canonicalContainerType, LOCAL_TRANSPORT_CONTAINER_40);
+  assertEquals(result.rate.container_type, LOCAL_TRANSPORT_CONTAINER_40);
+  assertEquals(result.weight.rule, "OVER_THRESHOLD_40_RATE");
+  assertEquals(result.weight.grossWeightPerContainerKg, 30_230);
+  assertEquals(
+    result.weight.note,
+    "20' > 22 t tare incluse (28 000 kg + tare 2 230 kg = 30 230 kg) — tarif 40' appliqué.",
+  );
+});
+
+Deno.test("TRUCKING-22T: exactly 22 t tare included stays on the 20' tariff, one kilo more switches", () => {
+  const atThreshold = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+    destination: "Dakar",
+    containerType: "20' Dry",
+    asOfDate: TODAY,
+    cargoWeightPerContainerKg: 22_000 - LOCAL_TRANSPORT_20_DRY_TARE_KG, // 19 770 kg
+  });
+  assertEquals(atThreshold.status, "RESOLVED");
+  if (atThreshold.status !== "RESOLVED") return;
+  assertEquals(atThreshold.amount, 82600);
+  assertEquals(atThreshold.canonicalContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+  assertEquals(atThreshold.weight.rule, "UNDER_THRESHOLD");
+  assertEquals(atThreshold.weight.grossWeightPerContainerKg, 22_000);
+  assertEquals(
+    atThreshold.weight.note,
+    "20' ≤ 22 t tare incluse (19 770 kg + tare 2 230 kg = 22 000 kg) — tarif 20'.",
+  );
+
+  const justAbove = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+    destination: "Dakar",
+    containerType: "20' Dry",
+    asOfDate: TODAY,
+    cargoWeightPerContainerKg: 22_000 - LOCAL_TRANSPORT_20_DRY_TARE_KG + 1,
+  });
+  assertEquals(justAbove.status, "RESOLVED");
+  if (justAbove.status !== "RESOLVED") return;
+  assertEquals(justAbove.amount, 125080);
+  assertEquals(justAbove.weight.rule, "OVER_THRESHOLD_40_RATE");
+});
+
+Deno.test("TRUCKING-22T: an unknown weight keeps the 20' tariff with an explicit assumption note", () => {
+  for (const weight of [undefined, null, 0, -5, Number.NaN, "abc"]) {
+    const result = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+      destination: "Dakar",
+      containerType: "20DV",
+      asOfDate: TODAY,
+      cargoWeightPerContainerKg: weight as number | null | undefined,
+    });
+    assertEquals(result.status, "RESOLVED", `weight ${String(weight)}`);
+    if (result.status !== "RESOLVED") continue;
+    assertEquals(result.amount, 82600);
+    assertEquals(result.canonicalContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+    assertEquals(result.weight.rule, "WEIGHT_UNKNOWN_ASSUMED_UNDER");
+    assertEquals(
+      result.weight.note,
+      "Tarif 20' appliqué — poids par conteneur inconnu, supposé ≤ 22 t tare incluse.",
+    );
+  }
+});
+
+Deno.test("TRUCKING-22T: a 40' is never affected by the weight rule", () => {
+  for (const weight of [null, 5_000, 28_000, 40_000]) {
+    const result = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+      destination: "Dakar",
+      containerType: "40HC",
+      asOfDate: TODAY,
+      cargoWeightPerContainerKg: weight,
+    });
+    assertEquals(result.status, "RESOLVED");
+    if (result.status !== "RESOLVED") continue;
+    assertEquals(result.amount, 125080);
+    assertEquals(result.weight.rule, "NOT_APPLICABLE");
+    assertEquals(result.weight.note, null);
+  }
+});
+
+Deno.test("TRUCKING-22T: a heavy 20' without a 40' row is TO_CONFIRM, never served the 20' tariff", () => {
+  const result = resolveOfficialLocalTransportRate([ZONE1_20], {
+    destination: "Dakar",
+    containerType: "20' Dry",
+    asOfDate: TODAY,
+    cargoWeightPerContainerKg: 28_000,
+  });
+  assertEquals(result.status, "TO_CONFIRM");
+  if (result.status !== "TO_CONFIRM") return;
+  assertEquals(result.reason, "NO_MATCHING_RATE");
+  assertEquals(result.canonicalContainerType, LOCAL_TRANSPORT_CONTAINER_40);
+  assertEquals(result.requestedContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+  assertEquals(result.weight?.rule, "OVER_THRESHOLD_40_RATE");
+});
+
+Deno.test("TRUCKING-22T: the assessment helper is pure and only speaks for the 20' Dry", () => {
+  assertEquals(
+    assessLocalTransportWeightRule(LOCAL_TRANSPORT_CONTAINER_40, 30_000).rule,
+    "NOT_APPLICABLE",
+  );
+  assertEquals(assessLocalTransportWeightRule(null, 30_000).rule, "NOT_APPLICABLE");
+  const over = assessLocalTransportWeightRule(LOCAL_TRANSPORT_CONTAINER_20, 25_000);
+  assertEquals(over.rule, "OVER_THRESHOLD_40_RATE");
+  assertEquals(over.cargoWeightPerContainerKg, 25_000);
+  assertEquals(over.tareKg, LOCAL_TRANSPORT_20_DRY_TARE_KG);
+  assertEquals(over.grossWeightPerContainerKg, 27_230);
+  assertEquals(over.thresholdKg, 22_000);
+});
+
+Deno.test("TRUCKING-22T: per-container weight is derived without inventing anything", () => {
+  // 1. Le fait explicite prime sur toute dérivation.
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      explicitPerContainerKg: 28_000,
+      totalCargoWeightKg: 1_000,
+      containers: [{ type: "20GP", quantity: 50 }],
+    }),
+    28_000,
+  );
+  // 2. Total ÷ quantité quand un seul type canonique (20GP et 20DV = 20' Dry).
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      totalCargoWeightKg: 1_400_000,
+      containers: [{ type: "20GP", quantity: 30 }, { type: "20DV", quantity: 20 }],
+    }),
+    28_000,
+  );
+  // 3. Mélange 20' / 40', type hors barème, quantité invalide, total absent : null.
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      totalCargoWeightKg: 1_400_000,
+      containers: [{ type: "20GP", quantity: 25 }, { type: "40HC", quantity: 25 }],
+    }),
+    null,
+  );
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      totalCargoWeightKg: 1_400_000,
+      containers: [{ type: "20RF", quantity: 50 }],
+    }),
+    null,
+  );
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      totalCargoWeightKg: 1_400_000,
+      containers: [{ type: "20GP", quantity: 2.5 }],
+    }),
+    null,
+  );
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      totalCargoWeightKg: 1_400_000,
+      containers: [{ type: "20GP", quantity: 0 }],
+    }),
+    null,
+  );
+  assertEquals(
+    deriveCargoWeightPerContainerKg({
+      containers: [{ type: "20GP", quantity: 50 }],
+    }),
+    null,
+  );
+  assertEquals(deriveCargoWeightPerContainerKg({ totalCargoWeightKg: 1_400_000 }), null);
+  assertEquals(
+    deriveCargoWeightPerContainerKg({ totalCargoWeightKg: 1_400_000, containers: [] }),
+    null,
+  );
 });
