@@ -27,7 +27,9 @@ import { resolveOfficialLocalTransportRate } from "../_shared/local-transport-de
 import {
   DPW_DTHC_EVIDENCE_WHITELIST,
   DPW_DTHC_PROVIDERS,
+  normalizeDpwDthcFamily,
   resolveDpwDthcTariff,
+  type DpwDthcFamily,
   type DpwDthcTariffRow,
 } from "../_shared/dpw-dthc-tariff.ts";
 import {
@@ -140,6 +142,7 @@ interface PricingContext {
   pad_category: string | null; // PAD droit de passage category, cargo.* takes precedence over pricing.*
   pad_rate_fcfa_per_ton: number | null;
   cargo_description: string | null; // DTHC-1: canonical fact cargo.description
+  dthc_family: DpwDthcFamily | null; // DTHC-2: famille choisie par l'opérateur (fait pricing.dthc_family), jamais inférée ici
 }
 
 interface PricedLine {
@@ -447,6 +450,9 @@ function buildPricingContext(
     // DTHC-1 : désignation marchandise, seule entrée qui permet de trancher la
     // famille DTHC d'un conteneur sec.
     cargo_description: factsMap.get("cargo.description")?.value_text ?? null,
+    // DTHC-2 : famille fournie par l'opérateur. Absente ou invalide ⇒ null ⇒ le
+    // résolveur garde son inférence fail-closed (désignation validée seulement).
+    dthc_family: normalizeDpwDthcFamily(factsMap.get("pricing.dthc_family")?.value_text),
   };
 }
 
@@ -785,6 +791,7 @@ async function resolveWithoutClientOverride(
       scope: pricingCtx.scope,
       containers: pricingCtx.containers,
       cargoDescription: pricingCtx.cargo_description,
+      family: pricingCtx.dthc_family,
       asOfDate: new Date().toISOString().split("T")[0],
     });
     if (dthc.status !== "RESOLVED") return null;
@@ -1258,6 +1265,7 @@ Deno.serve(async (req) => {
           scope: pricingCtx.scope,
           containers: pricingCtx.containers,
           cargoDescription: pricingCtx.cargo_description,
+          family: pricingCtx.dthc_family,
           asOfDate: new Date().toISOString().split("T")[0],
         });
 

@@ -13,6 +13,13 @@ import {
   normalizeTerminalOperationFactWrite,
   TERMINAL_OPERATION_MODE_FACT_KEY,
 } from "../_shared/terminal-operation-mode.ts";
+import { normalizeDpwDthcFamily } from "../_shared/dpw-dthc-tariff.ts";
+
+// DTHC-2 (GO CTO 2026-09-08) : famille tarifaire DP World choisie par l'opérateur.
+// Seule entrée qui permet au résolveur DTHC de chiffrer un conteneur sec dont la
+// désignation n'est pas dans la liste validée. Sans cette entrée dans l'allowlist,
+// le fait n'est inscriptible par personne (même justification que TERMINAL-GAP).
+const DTHC_FAMILY_FACT_KEY = "pricing.dthc_family";
 
 // ── Strict whitelist ──
 const ALLOWED_FACT_KEYS = new Set([
@@ -49,6 +56,7 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.pad_category",
   "cargo.pad_rate_fcfa_per_ton",
   "cargo.freight_exchange_rate",
+  DTHC_FAMILY_FACT_KEY,
 ]);
 
 // ── Category detection from prefix ──
@@ -131,6 +139,19 @@ Deno.serve(async (req) => {
         });
       }
       canonicalValueText = normalizedMode;
+    }
+
+    // DTHC-2 : valeur texte stricte parmi les cinq familles, canonicalisée AVANT le RPC.
+    if (fact_key === DTHC_FAMILY_FACT_KEY) {
+      const family = normalizeDpwDthcFamily(value_text);
+      if (!family || value_number != null || value_json != null) {
+        return respondError({
+          code: "VALIDATION_FAILED",
+          message: `${DTHC_FAMILY_FACT_KEY} accepte uniquement une valeur texte BASIC, STANDARD, REEFER, DANGEROUS ou SPECIAL, sans value_number ni value_json`,
+          correlationId,
+        });
+      }
+      canonicalValueText = family;
     }
 
     // 4b-bis. Structural validation for cargo.containers (DCQ-P0-INTAKE-FACTS-PERSISTENCE v5)
