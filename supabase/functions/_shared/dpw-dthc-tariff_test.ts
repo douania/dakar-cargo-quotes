@@ -16,6 +16,7 @@ import {
   type DpwDthcFamily,
   type DpwDthcResolutionInput,
   type DpwDthcTariffRow,
+  normalizeDpwDthcFamily,
   normalizeDthcContainerType,
   normalizeDthcLabel,
   resolveDpwDthcTariff,
@@ -128,6 +129,40 @@ Deno.test("DTHC: aliases intake secs explicites résolvent sans heuristique", ()
     assertEquals(r.status, "RESOLVED", input);
     if (r.status !== "RESOLVED") continue;
     assertEquals([r.evpQuantity, r.amount], [evpQuantity, amount], input);
+  }
+});
+
+Deno.test("DTHC-2: alias intake avec hauteur — 9'6 = high cube, 8'6 = standard", () => {
+  assertEquals(normalizeDthcContainerType("40 DRY 9'6"), "40HC");
+  assertEquals(normalizeDthcContainerType("40 DRY 8'6"), "40DV");
+  assertEquals(normalizeDthcContainerType("20 DRY 8'6"), "20DV");
+  const r = resolve(LIVE, [{ type: "40 DRY 9'6", quantity: 1 }]);
+  assertEquals(r.status, "RESOLVED");
+  if (r.status !== "RESOLVED") return;
+  assertEquals([r.family, r.evpQuantity, r.amount], ["STANDARD", 2, 310000]);
+});
+
+Deno.test("DTHC-2: famille opérateur STANDARD débloque une désignation non validée (50 x 20DV)", () => {
+  const containers = [{ type: "20DV", quantity: 50 }];
+  const withoutFamily = resolve(LIVE, containers, { cargoDescription: "Non-Hazardous Lubricant" });
+  assertEquals(withoutFamily.status, "TO_CONFIRM");
+  if (withoutFamily.status === "TO_CONFIRM") {
+    assertEquals(withoutFamily.reason, "FAMILY_UNDETERMINED");
+  }
+  const r = resolve(LIVE, containers, { cargoDescription: "Non-Hazardous Lubricant", family: "STANDARD" });
+  assertEquals(r.status, "RESOLVED");
+  if (r.status !== "RESOLVED") return;
+  assertEquals(
+    [r.family, r.evpQuantity, r.baseUnitAmount, r.amount, r.tariff.id],
+    ["STANDARD", 50, 155000, 7750000, "std-01"],
+  );
+});
+
+Deno.test("DTHC-2: normalizeDpwDthcFamily est strict, insensible à la casse et aux espaces", () => {
+  assertEquals(normalizeDpwDthcFamily(" standard "), "STANDARD");
+  assertEquals(normalizeDpwDthcFamily("Reefer"), "REEFER");
+  for (const bad of ["", "STD", "PRODUITS STANDARDS", 42, null, undefined, {}]) {
+    assertEquals(normalizeDpwDthcFamily(bad), null, String(bad));
   }
 });
 

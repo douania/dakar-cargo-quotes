@@ -32,6 +32,28 @@ export type DpwDthcFamily =
   | "SPECIAL";
 
 /**
+ * DTHC-2 (GO CTO 2026-09-08) : liste fermée des familles, pour valider une
+ * famille FOURNIE par l'opérateur (fait `pricing.dthc_family`). Toute autre
+ * valeur vaut « absent » (null) : le résolveur retombe alors sur l'inférence
+ * fail-closed ci-dessous. Aucune famille n'est jamais devinée ici.
+ */
+export const DPW_DTHC_FAMILIES: readonly DpwDthcFamily[] = [
+  "BASIC",
+  "STANDARD",
+  "REEFER",
+  "DANGEROUS",
+  "SPECIAL",
+];
+
+export function normalizeDpwDthcFamily(raw: unknown): DpwDthcFamily | null {
+  if (typeof raw !== "string") return null;
+  const upper = raw.trim().toUpperCase();
+  return (DPW_DTHC_FAMILIES as readonly string[]).includes(upper)
+    ? (upper as DpwDthcFamily)
+    : null;
+}
+
+/**
  * Libellé `classification` attendu par famille, hors parenthèse d'énumération.
  * Le contrôle est une égalité stricte après normalisation : une ligne dont le
  * `cargo_type` dit STANDARD mais dont le libellé dit « Transbordement » est
@@ -165,6 +187,11 @@ const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   "20DRY": "20DV",
   "40DRY": "40DV",
   "20DRYVAN20DV": "20DV",
+  // DTHC-2 : libellés intake avec hauteur — 8'6 = standard, 9'6 = high cube.
+  // "40 DRY 9'6" -> "40DRY96" -> 40HC. Alias exacts, aucun rapprochement partiel.
+  "20DRY86": "20DV",
+  "40DRY86": "40DV",
+  "40DRY96": "40HC",
 };
 
 /**
