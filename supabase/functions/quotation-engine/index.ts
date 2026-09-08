@@ -8,6 +8,7 @@ import {
   type LocalTransportDeboursAccounting,
 } from "../_shared/local-transport-debours.ts";
 import {
+  deriveCargoWeightPerContainerKg,
   LOCAL_TRANSPORT_EVIDENCE_WHITELIST,
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
@@ -505,6 +506,8 @@ interface QuotationRequest {
   cargoDescription?: string;
   // DTHC-3 : famille DPW fournie par l'opérateur (fact pricing.dthc_family), passe-plat de run-pricing
   dthcFamily?: string | null;
+  // TRUCKING-22T : poids marchandise par conteneur en kg (fact cargo.weight_per_container_kg), passe-plat de run-pricing
+  weightPerContainerKg?: number | null;
   cargoValue: number;
   cargoCurrency?: string;
   cargoWeight?: number; // en tonnes
@@ -1947,20 +1950,35 @@ async function generateQuotationLines(
         .eq('is_active', true)
         .in('evidence_level', [...LOCAL_TRANSPORT_EVIDENCE_WHITELIST]);
 
+      // TRUCKING-22T : poids marchandise par boîte — fait explicite, sinon poids
+      // total ÷ nombre de boîtes si un seul type canonique — jamais inventé.
+      // Le résolveur ajoute la tare de référence et sert le tarif 40' au-delà
+      // de 22 t ; poids inconnu ⇒ tarif 20' avec mention.
+      const cargoWeightPerContainerKg = deriveCargoWeightPerContainerKg({
+        explicitPerContainerKg: request.weightPerContainerKg,
+        totalCargoWeightKg: typeof request.cargoWeight === 'number' ? request.cargoWeight * 1000 : null,
+        containers: containers.map((c) => ({ type: c.type, quantity: c.quantity })),
+      });
+
       for (const container of containers) {
         const localTransport = resolveOfficialLocalTransportRate(officialLocalRates ?? [], {
           destination: request.finalDestination,
           containerType: container.type,
           clientCode: request.clientCode ?? null,
           asOfDate: localTransportAsOf,
+          cargoWeightPerContainerKg,
         });
 
         if (localTransport.status === 'RESOLVED') {
+          const weightRuleSuffix = localTransport.weight.rule === 'OVER_THRESHOLD_40_RATE'
+            ? " — tarif 40' (> 22 t)"
+            : '';
           lines.push(withLocalTransportDebours({
             id: `transport_${container.type.toLowerCase()}_${lines.length}`,
             bloc: 'operationnel' as const,
             category: 'Transport',
-            description: `Transport ${container.type} → ${localTransport.canonicalDestination}`,
+            description: `Transport ${container.type} → ${localTransport.canonicalDestination}${weightRuleSuffix}`,
+            ...(localTransport.weight.note ? { notes: localTransport.weight.note } : {}),
             amount: localTransport.amount * container.quantity,
             currency: localTransport.currency || 'FCFA',
             containerType: container.type,

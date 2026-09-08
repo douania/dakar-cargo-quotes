@@ -89,6 +89,8 @@ interface PricingInputs {
   cargoDescription?: string;
   // DTHC-3 : famille tarifaire DPW fournie par l'opérateur (fact pricing.dthc_family)
   dthcFamily?: string;
+  // TRUCKING-22T : poids marchandise par conteneur (fact cargo.weight_per_container_kg), kg
+  weightPerContainerKg?: number;
   carrier?: string;
   clientEmail?: string;
   clientCompany?: string;
@@ -1903,6 +1905,7 @@ Deno.serve(async (req) => {
             transportMode: lc.transportMode,
             cargoDescription: lc.inputs.cargoDescription,
             dthcFamily: lc.inputs.dthcFamily,
+            weightPerContainerKg: lc.inputs.weightPerContainerKg,
             clientCompany: lc.inputs.clientCompany,
             hsCode: lc.inputs.hsCode,
             articlesDetail: lc.inputs.articlesDetail,
@@ -3010,6 +3013,7 @@ Deno.serve(async (req) => {
         transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
         cargoDescription: inputs.cargoDescription,
         dthcFamily: inputs.dthcFamily,
+        weightPerContainerKg: inputs.weightPerContainerKg,
         clientCompany: inputs.clientCompany,
         hsCode: inputs.hsCode,
         articlesDetail: inputs.articlesDetail,
@@ -4438,6 +4442,13 @@ function buildPricingInputs(facts: any[]): PricingInputs {
       case "pricing.dthc_family":
         inputs.dthcFamily = String(value);
         break;
+      case "cargo.weight_per_container_kg": {
+        const perContainerKg = Number(value);
+        if (Number.isFinite(perContainerKg) && perContainerKg > 0) {
+          inputs.weightPerContainerKg = perContainerKg;
+        }
+        break;
+      }
       case "carrier.name":
         inputs.carrier = String(value);
         break;
