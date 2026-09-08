@@ -163,6 +163,18 @@ Preuves : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, build PASS, `deno l
 
 Reste ouvert sur ce dossier (voir §3.8) : arbitrage honoraires `sodatra_fee_rules` vs forfaits promus, ligne « Droits & taxes » en DAP, surestaries sans armateur, puis version → PDF → comparaison avec l'offre concurrente.
 
+### 3.10 Lot TRUCKING-22T — règle des 22 tonnes du barème syndical de livraison conteneur (8 septembre 2026)
+
+Pièce fournie par SODATRA : barème syndical « Dakar et villes de l'intérieur, à compter du 15 mai 2002 » (HT). Vérification contre `local_transport_rates` : même grille — colonne 20' identique au franc, colonne 40' identique + 1 000 XOF de frais de dossier, stockée en TTC (× 1,18) et classée débours tiers (P0-D-2/3). Aucun montant modifié. Trois destinations « suivant cotation » dans le PDF (Bignona, Ziguinchor, Cap Skirring) gardent leurs montants fermes en base — décision CTO. La règle « TC 20' > 22 t = tarif 40' » n'existait nulle part : le résolveur partagé ne recevait aucun poids.
+
+Décisions CTO (8 septembre) : strictement > 22 t ⇒ tarif 40', exactement 22 t reste 20' ; **tare incluse** dans le seuil ; 20' sans poids ⇒ tarif 20' servi avec mention « supposé ≤ 22 t » (jamais un blocage).
+
+- **A — module pur + tests** (`2bb84081`) : `resolveOfficialLocalTransportRate` reçoit `cargoWeightPerContainerKg` (poids marchandise) ; la tare de référence du 20' Dry (`container_specifications` 20DV = 2 230 kg, migration 20251219230618) est ajoutée avant comparaison au seuil 22 000 kg ; au-delà, la ligne 40' Dry est servie. La résolution porte `requestedContainerType` et une évaluation `weight` (règle, kg, mention FR). Helper `deriveCargoWeightPerContainerKg` : fait explicite, sinon poids total ÷ boîtes si un seul type canonique, sinon null. 8 tests Deno ajoutés, **43/43 PASS en local** (std shimmé, `--allow-read`).
+- **B — exception structurelle FROZEN** (`656a4f5b`, précédent DTHC-3) : `run-pricing` lit `cargo.weight_per_container_kg` et le transmet au moteur ; `quotation-engine` dérive le poids par boîte et le passe au résolveur ; libellé suffixé « tarif 40' (> 22 t) », mention portée en `notes`.
+- **C — `price-service-lines`** (`1a360345`) : même dérivation, même paramètre, explication enrichie de la règle.
+
+Gates locales : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, function-config OK, build PASS, `deno lint` sans nouveau finding (137 / 7 inchangés). CI GitHub : voir run du HEAD `1a360345`. Recette attendue sur Cogoport (50 × 20GP à 28 t, Zone 1) : transport 50 × 125 080 = **6 254 000** au lieu de 4 130 000.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
