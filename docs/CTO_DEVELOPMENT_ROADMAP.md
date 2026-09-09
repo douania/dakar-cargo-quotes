@@ -173,7 +173,7 @@ Décisions CTO (8 septembre) : strictement > 22 t ⇒ tarif 40', exactement 22 t
 - **B — exception structurelle FROZEN** (`656a4f5b`, précédent DTHC-3) : `run-pricing` lit `cargo.weight_per_container_kg` et le transmet au moteur ; `quotation-engine` dérive le poids par boîte et le passe au résolveur ; libellé suffixé « tarif 40' (> 22 t) », mention portée en `notes`.
 - **C — `price-service-lines`** (`1a360345`) : même dérivation, même paramètre, explication enrichie de la règle.
 
-Gates locales : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, function-config OK, build PASS, `deno lint` sans nouveau finding (137 / 7 inchangés). CI GitHub : voir run du HEAD `1a360345`. Recette attendue sur Cogoport (50 × 20GP à 28 t, Zone 1) : transport 50 × 125 080 = **6 254 000** au lieu de 4 130 000.
+Gates locales : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, function-config OK, build PASS, `deno lint` sans nouveau finding (137 / 7 inchangés). CI GitHub run 86 verte (gates Deno incluses) ; `run-pricing`, `quotation-engine`, `price-service-lines` redéployées par l'agent Lovable depuis `17cba92a`, sondes 401. **Recette réelle PASS** — run 5 Cogoport (8 septembre, 18:16) : « Transport 20GP → FORFAIT ZONE 1 <18 KM — tarif 40' (> 22 t) » = 50 × 125 080 = **6 254 000 XOF** (au lieu de 4 130 000), note « 28 000 kg + tare 2 230 kg = 30 230 kg », source OFFICIAL barème 20P/40P ; acconage DTHC 7 750 000 conservé ; total HT 20 437 000 → **22 561 000**, TTC 22 896 700.
 
 ## 4. Preuves de l'audit du 22 août 2026
 
