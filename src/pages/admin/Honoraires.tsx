@@ -43,23 +43,32 @@ import { supabase } from '@/integrations/supabase/client';
 
 // Codes de service déjà utilisés par le moteur (quotation-engine) et par
 // price-service-lines : une ligne d'honoraires portant l'un de ces codes
-// écraserait ou entrerait en conflit avec une ligne structurelle ou de
-// catalogue. Source : VALID_SERVICE_KEYS + SERVICE_KEY_LABELS dans
-// supabase/functions/price-service-lines/index.ts et supabase/functions/
-// run-pricing/index.ts, plus les clés structurelles émises par
-// quotation-engine (PAD_DROIT_PASSAGE, CMA_CGM_COMM,
-// TERMINAL_STORAGE_PROVISION_ESTIMATE). À tenir synchronisé si ces listes
-// évoluent ; H2-d2 portera le même garde-fou en contrainte SQL.
+// serait facturée deux fois (ligne structurelle + ligne d'honoraires) ou
+// disparaîtrait silencieusement à la déduplication. Source : VALID_SERVICE_KEYS
+// et SERVICE_KEY_LABELS (supabase/functions/price-service-lines/index.ts,
+// supabase/functions/run-pricing/index.ts), clés structurelles des couches
+// d'enrichissement et groupes de DEDUP_GROUP_MAP.
+//
+// AGENCY et CUSTOMS_DAKAR sont volontairement ABSENTS : ce sont les deux
+// honoraires internes que ce modèle sert depuis H2-c (INTERNAL_FEE_SERVICE_KEYS),
+// ils existent déjà comme lignes et doivent rester modifiables.
+//
+// Miroir de public.fee_line_code_is_reserved() (migration H2-d2,
+// 20260909170000), qui est le garde-fou effectif : la base refuse aussi les
+// clés dynamiques <compagnie>_<code de charge> des templates compagnie actifs,
+// que cet écran ne peut pas connaître sans requête supplémentaire.
 const RESERVED_SERVICE_KEYS = new Set([
   'DTHC', 'ON_CARRIAGE', 'EMPTY_RETURN', 'DISCHARGE',
   'PORT_CHARGES', 'TRUCKING', 'CUSTOMS', 'PORT_DAKAR_HANDLING',
-  'CUSTOMS_DAKAR', 'CUSTOMS_EXPORT', 'BORDER_FEES', 'AGENCY',
+  'CUSTOMS_EXPORT', 'BORDER_FEES',
   'SURVEY', 'CUSTOMS_BAMAKO', 'TRANSIT_DOCS',
   'AIR_HANDLING', 'AIR_FREIGHT',
   'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT',
   'THC_EXPORT', 'DOCUMENTATION_BL', 'VGM_WEIGHING',
   'STUFFING_FACTORY', 'STUFFING_CFS', 'EMPTY_REPO',
   'PAD_DROIT_PASSAGE', 'CMA_CGM_COMM', 'TERMINAL_STORAGE_PROVISION_ESTIMATE',
+  'TERMINAL_HANDLING', 'TERMINAL_STORAGE',
+  'SUIVI_OPERATIONNEL', 'OUVERTURE_DOSSIER', 'FRAIS_DOCUMENTATION', 'DEDOUANEMENT',
 ]);
 
 const ANY = '__any__';
@@ -492,11 +501,16 @@ export default function Honoraires() {
 
   const validateLine = (): string | null => {
     const code = lineForm.code.trim().toUpperCase();
-    if (!/^[A-Z0-9_]{2,40}$/.test(code)) {
-      return "Le code doit être en majuscules, chiffres et tirets bas (2 à 40 caractères).";
-    }
-    if (RESERVED_SERVICE_KEYS.has(code)) {
-      return `Le code « ${code} » est déjà utilisé par une ligne de service du moteur ou du catalogue. Choisissez un autre code.`;
+    // Le code n'est modifiable qu'à la création (champ désactivé en édition) :
+    // ne le valider qu'à ce moment, sinon toute modification d'une ligne
+    // existante serait bloquée par un contrôle qui ne la concerne pas.
+    if (!editingLine) {
+      if (!/^[A-Z0-9_]{2,40}$/.test(code)) {
+        return "Le code doit être en majuscules, chiffres et tirets bas (2 à 40 caractères).";
+      }
+      if (RESERVED_SERVICE_KEYS.has(code)) {
+        return `Le code « ${code} » est déjà une clé de service du moteur de chiffrage. Choisissez un autre code.`;
+      }
     }
     if (!lineForm.label_fr.trim()) return 'Le libellé est requis.';
     return null;
