@@ -206,6 +206,13 @@ GO CTO « go H2-a avec tes recommandations ». Migration `20260909120000_h2a_fee
 
 Preuves : PostgreSQL 16 jetable avec stubs Supabase, deux passes idempotentes, 12 politiques, 4 triggers, 24 contrôles comportementaux PASS (recouvrement, tranches adjacentes, scope client, contraintes, RLS avec et sans rôle). Live : `clients=2 fee_lines=2 fee_rules=2 policies=12 triggers=4`, garde-fou vérifié (insertion en doublon refusée, code 23P01, rien persisté). Suite : H2-b résolveur pur + tests, H2-c bascule `price-service-lines`, H2-d écran ; attribution du rôle `tariff_admin` au compte administrateur sur décision CTO.
 
+### 3.14 Lots H2-a2 (gestion des rôles) et H2-b (résolveur d'honoraires) — 9 septembre 2026
+
+- **H2-a2** (`b8c666ae`, migration `20260909140000_h2a2_role_admin_self_service.sql`, appliquée en production) : la contrainte de `app_roles` n'admettait que `pad_admin` / `pad_supervisor` ; elle admet désormais `tariff_admin` et `role_admin`. `has_role_admin_role()` (même patron que PAD-C2) ; politiques `app_roles` pour les `role_admin` (lecture de tout, attribution, retrait), lecture « ses propres lignes » conservée pour les autres ; trigger interdisant de supprimer ou rétrograder le dernier `role_admin`. Validé sur PostgreSQL 16 jetable (stubs `auth.uid()`, contrainte PAD-C2 reproduite) : deux passes, 12 contrôles PASS. **Compte CTO doté de `tariff_admin` et `role_admin` en production** (opération service_role, aucun identifiant dans Git).
+- **H2-b** (`1d92fe1e`) : module pur `_shared/fee-rules.ts`. Conditions cumulatives ; fait absent = condition indéterminée, ni oui ni non ; scope client d'abord puis générique ; exactement une règle certaine, sinon conflit ou « donnée manquante » nommée, sinon comportement de ligne (à confirmer / absente). Méthodes forfait, par conteneur 20'/40' (45' compté 40', famille restreignant les boîtes comptées), par tonne entamée, pourcentage CAF ou valeur marchandise (assiette absente ⇒ à confirmer, jamais 0), minimum puis maximum, arrondi XOF, message et détail FR. `deriveShipmentProfile` traduit type de demande et package en mode / sens / type d'envoi. `dpw-dthc-tariff` exporte `resolveContainerProfile` sans changement de comportement. 17 tests Deno PASS en local (parité Cogoport avec HONORAIRES-1, grille groupage, mixte 20'/40', frigo, pourcentage, primauté client sans repli silencieux, conflits, validité) ; suite DTHC 37/37 inchangée ; lint 737/16.
+
+Suite : H2-c bascule `price-service-lines` sur le résolveur (contexte dossier depuis les faits, retrait des rate cards honoraires), H2-d écran `/admin/honoraires` (lignes, règles, nouvelle version à date d'effet, simulation sur dossier, gestion des rôles).
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
