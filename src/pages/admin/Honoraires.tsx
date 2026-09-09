@@ -9,6 +9,9 @@ import {
   PowerOff,
   ShieldAlert,
   Building2,
+  CalendarClock,
+  FlaskConical,
+  Loader2,
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -212,11 +215,55 @@ interface ClientFormData {
 
 const EMPTY_CLIENT_FORM: ClientFormData = { code: '', legal_name: '', ninea: '', country_code: '' };
 
+/** Résolution d'une ligne renvoyée par la fonction simulate-fee-lines. */
+interface FeeLineResolution {
+  lineCode: string;
+  label: string;
+  status: 'RESOLVED' | 'TO_CONFIRM' | 'SKIPPED';
+  amount: number | null;
+  currency: string;
+  ruleLabel: string | null;
+  clientSpecific: boolean;
+  reason: string | null;
+  message: string;
+  detail: string;
+}
+
+interface SimulationResult {
+  case_id: string;
+  as_of_date: string;
+  context: Record<string, unknown>;
+  lines: FeeLineResolution[];
+  firm_total_xof: number;
+  scope_note: string | null;
+}
+
+interface CaseOption {
+  id: string;
+  request_type: string | null;
+  status: string | null;
+  created_at: string;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const fmtAmount = (n: number, currency = 'XOF') => new Intl.NumberFormat('fr-FR').format(n) + ' ' + currency;
 
 const num = (s: string): number | null => (s.trim() === '' ? null : Number(s));
+
+/** Veille d'une date ISO (AAAA-MM-JJ), pour clôturer la règle remplacée. */
+function previousDayIso(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Lendemain d'une date ISO (AAAA-MM-JJ). */
+function nextDayIso(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
 function summarizeConditions(r: FeeRule): string {
   const parts: string[] = [];
@@ -263,7 +310,14 @@ export default function Honoraires() {
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
   const [ruleTargetLineId, setRuleTargetLineId] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<FeeRule | null>(null);
+  // Règle dont on crée une nouvelle version à date d'effet (H2-d2) : elle sera
+  // clôturée la veille et référencée par supersedes_rule_id.
+  const [supersededRule, setSupersededRule] = useState<FeeRule | null>(null);
   const [ruleForm, setRuleForm] = useState<RuleFormData>(EMPTY_RULE_FORM);
+
+  const [simCaseId, setSimCaseId] = useState('');
+  const [simDate, setSimDate] = useState(todayIso());
+  const [simResult, setSimResult] = useState<SimulationResult | null>(null);
 
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [clientForm, setClientForm] = useState<ClientFormData>(EMPTY_CLIENT_FORM);
@@ -315,6 +369,19 @@ export default function Honoraires() {
         .order('code');
       if (error) throw error;
       return data as ClientRow[];
+    },
+  });
+
+  const { data: recentCases = [] } = useQuery({
+    queryKey: ['fee-simulation-cases'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('quote_cases')
+        .select('id, request_type, status, created_at')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data as CaseOption[];
     },
   });
 
@@ -432,6 +499,89 @@ export default function Honoraires() {
     onError: (e) => toast.error(`Erreur : ${e.message}`),
   });
 
+  // H2-d2 : nouvelle version d'une règle à une date d'effet. La règle
+  // remplacée est d'abord clôturée la veille — sans quoi le trigger
+  // anti-chevauchement (H2-a) refuserait la nouvelle règle — puis la nouvelle
+  // est créée en la référençant. Si la création échoue, la clôture est annulée
+  // pour ne pas laisser la ligne sans règle après la date d'effet.
+  const supersedeRuleMutation = useMutation({
+    mutationFn: async (data: RuleFormData & { fee_line_id: string; superseded: FeeRule }) => {
+      const { superseded } = data;
+      const closingDate = previousDayIso(data.effective_from);
+      const previousEffectiveTo = superseded.effective_to;
+
+      const { error: closeError } = await supabase
+        .from('fee_rules')
+        .update({ effective_to: closingDate })
+        .eq('id', superseded.id);
+      if (closeError) throw closeError;
+
+      const payload = {
+        fee_line_id: data.fee_line_id,
+        label: data.label.trim() || null,
+        transport_mode: data.transport_mode === ANY ? null : data.transport_mode,
+        direction: data.direction === ANY ? null : data.direction,
+        shipment_type: data.shipment_type === ANY ? null : data.shipment_type,
+        customs_regime_code: data.customs_regime_code.trim() || null,
+        container_family: data.container_family === ANY ? null : data.container_family,
+        dangerous_goods: data.dangerous_goods === ANY ? null : data.dangerous_goods === 'true',
+        weight_min_kg: num(data.weight_min_kg),
+        weight_max_kg: num(data.weight_max_kg),
+        value_min: num(data.value_min),
+        value_max: num(data.value_max),
+        client_code: data.client_code === ANY ? null : data.client_code,
+        method: data.method,
+        amount: data.method === 'FIXED' || data.method === 'PER_TONNE' ? num(data.amount) : null,
+        amount_20: data.method === 'PER_CONTAINER' ? num(data.amount_20) : null,
+        amount_40: data.method === 'PER_CONTAINER' ? num(data.amount_40) : null,
+        percent: data.method === 'PERCENT_OF_VALUE' ? num(data.percent) : null,
+        value_basis: data.method === 'PERCENT_OF_VALUE' && data.value_basis !== ANY ? data.value_basis : null,
+        min_amount: num(data.min_amount),
+        max_amount: num(data.max_amount),
+        effective_from: data.effective_from,
+        effective_to: data.effective_to.trim() || null,
+        is_active: data.is_active,
+        source_reference: data.source_reference.trim() || null,
+        notes: data.notes.trim() || null,
+        supersedes_rule_id: superseded.id,
+      };
+
+      const { error: insertError } = await supabase.from('fee_rules').insert(payload);
+      if (insertError) {
+        // Rétablir la validité d'origine : mieux vaut l'ancien tarif qu'un trou.
+        await supabase
+          .from('fee_rules')
+          .update({ effective_to: previousEffectiveTo })
+          .eq('id', superseded.id);
+        throw insertError;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['fee-rules'] });
+      toast.success('Nouvelle version créée, règle précédente clôturée');
+      setRuleDialogOpen(false);
+      setSupersededRule(null);
+      setEditingRule(null);
+    },
+    onError: (e) => toast.error(`Erreur : ${e.message}`),
+  });
+
+  const simulateMutation = useMutation({
+    mutationFn: async ({ caseId, asOfDate }: { caseId: string; asOfDate: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulate-fee-lines', {
+        body: { case_id: caseId, as_of_date: asOfDate },
+      });
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data?.error?.message || 'Simulation refusée');
+      return data.data as SimulationResult;
+    },
+    onSuccess: (result) => setSimResult(result),
+    onError: (e) => {
+      setSimResult(null);
+      toast.error(`Simulation impossible : ${e.message}`);
+    },
+  });
+
   const toggleRuleActiveMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
       const { error } = await supabase.from('fee_rules').update({ is_active }).eq('id', id);
@@ -525,10 +675,18 @@ export default function Honoraires() {
 
   // ── Dialog : règle ─────────────────────────────────────────────
 
-  const openRuleDialog = (lineId: string, rule?: FeeRule) => {
+  const openRuleDialog = (lineId: string, rule?: FeeRule, mode: 'edit' | 'supersede' = 'edit') => {
     setRuleTargetLineId(lineId);
+    if (rule && mode === 'supersede') {
+      // Nouvelle version : mêmes conditions et mêmes montants, à réviser, avec
+      // une date d'effet au lendemain de ce qui est déjà couvert.
+      setEditingRule(null);
+      setSupersededRule(rule);
+    } else {
+      setSupersededRule(null);
+    }
     if (rule) {
-      setEditingRule(rule);
+      if (mode === 'edit') setEditingRule(rule);
       setRuleForm({
         label: rule.label || '',
         transport_mode: rule.transport_mode || ANY,
@@ -550,9 +708,16 @@ export default function Honoraires() {
         value_basis: rule.value_basis || ANY,
         min_amount: rule.min_amount?.toString() ?? '',
         max_amount: rule.max_amount?.toString() ?? '',
-        effective_from: rule.effective_from,
-        effective_to: rule.effective_to || '',
-        is_active: rule.is_active,
+        // Nouvelle version : elle prend effet aujourd'hui, ou au lendemain de
+        // la prise d'effet de la règle remplacée si celle-ci est plus récente
+        // (la veille de la nouvelle date sert à clôturer l'ancienne, elle ne
+        // peut donc pas précéder sa propre date d'effet).
+        effective_from:
+          mode === 'supersede'
+            ? (todayIso() > rule.effective_from ? todayIso() : nextDayIso(rule.effective_from))
+            : rule.effective_from,
+        effective_to: mode === 'supersede' ? '' : (rule.effective_to || ''),
+        is_active: mode === 'supersede' ? true : rule.is_active,
         source_reference: rule.source_reference || '',
         notes: rule.notes || '',
       });
@@ -585,6 +750,9 @@ export default function Honoraires() {
     if (ruleForm.effective_to && ruleForm.effective_to < ruleForm.effective_from) {
       return "La date de fin doit être postérieure à la date d'effet.";
     }
+    if (supersededRule && ruleForm.effective_from <= supersededRule.effective_from) {
+      return `La nouvelle version doit prendre effet après le ${supersededRule.effective_from}, date d'effet de la règle remplacée.`;
+    }
     return null;
   };
 
@@ -593,7 +761,20 @@ export default function Honoraires() {
     if (!ruleTargetLineId) return;
     const err = validateRule();
     if (err) { toast.error(err); return; }
+    if (supersededRule) {
+      supersedeRuleMutation.mutate({
+        ...ruleForm,
+        fee_line_id: ruleTargetLineId,
+        superseded: supersededRule,
+      });
+      return;
+    }
     saveRuleMutation.mutate({ ...ruleForm, id: editingRule?.id, fee_line_id: ruleTargetLineId });
+  };
+
+  const runSimulation = () => {
+    if (!simCaseId) { toast.error('Choisissez un dossier à simuler.'); return; }
+    simulateMutation.mutate({ caseId: simCaseId, asOfDate: simDate });
   };
 
   // ── Dialog : client ────────────────────────────────────────────
@@ -759,6 +940,13 @@ export default function Honoraires() {
                                   </Button>
                                   <Button
                                     variant="ghost" size="icon" disabled={!isTariffAdmin}
+                                    onClick={() => openRuleDialog(line.id, r, 'supersede')}
+                                    title="Nouvelle version à une date d'effet (clôture celle-ci la veille)"
+                                  >
+                                    <CalendarClock className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost" size="icon" disabled={!isTariffAdmin}
                                     onClick={() => toggleRuleActiveMutation.mutate({ id: r.id, is_active: !r.is_active })}
                                     title={r.is_active ? 'Désactiver' : 'Activer'}
                                   >
@@ -785,6 +973,92 @@ export default function Honoraires() {
                 })}
                 {feeLines.length === 0 && <p className="text-sm text-muted-foreground">Aucune ligne d'honoraires.</p>}
               </Accordion>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Simulation sur un dossier ────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2"><FlaskConical className="h-5 w-5" /> Simulation sur un dossier</CardTitle>
+            <CardDescription>
+              Applique le paramétrage courant aux faits d'un dossier réel, sans rien écrire ni relancer le
+              chiffrage. Même code que le calcul réel : ce qui s'affiche ici est ce que produirait un chiffrage.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2 md:col-span-2">
+                <Label>Dossier</Label>
+                <Select value={simCaseId} onValueChange={setSimCaseId}>
+                  <SelectTrigger><SelectValue placeholder="Choisir un dossier récent…" /></SelectTrigger>
+                  <SelectContent>
+                    {recentCases.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.request_type || 'Type inconnu'} · {new Date(c.created_at).toLocaleDateString('fr-FR')} · {c.id.slice(0, 8)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Date d'évaluation</Label>
+                <Input type="date" value={simDate} onChange={(e) => setSimDate(e.target.value)} />
+              </div>
+            </div>
+            <Button size="sm" onClick={runSimulation} disabled={simulateMutation.isPending}>
+              {simulateMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Simulation…</>
+                : <><FlaskConical className="h-4 w-4 mr-1" /> Simuler</>}
+            </Button>
+
+            {simResult && (
+              <div className="space-y-3">
+                {simResult.scope_note && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 border-l-2 border-amber-400 pl-2">
+                    {simResult.scope_note}
+                  </p>
+                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ligne</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Montant</TableHead>
+                      <TableHead>Explication</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {simResult.lines.map((l) => (
+                      <TableRow key={l.lineCode}>
+                        <TableCell>
+                          <span className="font-mono text-xs">{l.lineCode}</span>
+                          <div>{l.label}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={l.status === 'RESOLVED' ? 'default' : l.status === 'SKIPPED' ? 'secondary' : 'outline'}>
+                            {l.status === 'RESOLVED' ? 'Chiffrée' : l.status === 'SKIPPED' ? 'Absente' : 'À confirmer'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {typeof l.amount === 'number' ? fmtAmount(l.amount, l.currency) : '—'}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {l.message}
+                          {l.clientSpecific && <Badge variant="outline" className="ml-2">tarif client</Badge>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {simResult.lines.length === 0 && (
+                      <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Aucune ligne d'honoraires active.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+                <p className="text-sm">
+                  Total ferme des honoraires (hors lignes à confirmer) :{' '}
+                  <span className="font-semibold">{fmtAmount(simResult.firm_total_xof)}</span>
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -846,7 +1120,17 @@ export default function Honoraires() {
         {/* ── Dialog règle ─────────────────────────────────────── */}
         <Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{editingRule ? 'Modifier la règle' : 'Nouvelle règle'}</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>
+                {supersededRule ? 'Nouvelle version de la règle' : editingRule ? 'Modifier la règle' : 'Nouvelle règle'}
+              </DialogTitle>
+            </DialogHeader>
+            {supersededRule && (
+              <p className="text-xs text-muted-foreground border-l-2 border-amber-400 pl-2">
+                La règle en vigueur depuis le {supersededRule.effective_from} sera clôturée la veille de la date
+                d'effet choisie ci-dessous. Les devis déjà établis ne sont pas modifiés.
+              </p>
+            )}
             <form onSubmit={submitRule} className="space-y-4">
               <div className="space-y-2">
                 <Label>Libellé (repère interne)</Label>
@@ -1043,7 +1327,9 @@ export default function Honoraires() {
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setRuleDialogOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={saveRuleMutation.isPending}>{editingRule ? 'Enregistrer' : 'Créer'}</Button>
+                <Button type="submit" disabled={saveRuleMutation.isPending || supersedeRuleMutation.isPending}>
+                  {supersededRule ? 'Créer la nouvelle version' : editingRule ? 'Enregistrer' : 'Créer'}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
