@@ -289,3 +289,6 @@ verify_jwt = false
 
 [functions.set-intake-facts-batch]
 verify_jwt = false
+
+[functions.simulate-fee-lines]
+verify_jwt = false

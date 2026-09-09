@@ -25,11 +25,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
 import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
-  buildFeeCaseContext,
   type FeeLineRow,
   type FeeRuleRow,
   resolveFeeLine,
 } from "../_shared/fee-rules.ts";
+import { buildFeeCaseContextFromFacts } from "../_shared/fee-case-facts.ts";
 import {
   deriveCargoWeightPerContainerKg,
   resolveOfficialLocalTransportRate,
@@ -961,18 +961,25 @@ Deno.serve(async (req) => {
 
     // ═══ H2-c : contexte du résolveur d'honoraires, dérivé des faits ═══
     // Le fait « marchandise dangereuse » n'existe pas encore (DG-1) : inconnu.
-    const feeCtx = buildFeeCaseContext({
+    // H2-d2 : contexte d'honoraires dérivé par le module partagé, celui-là même
+    // qu'utilise `simulate-fee-lines` — une simulation ne peut annoncer un
+    // montant que ce chiffrage ne produirait pas. Le contexte de chiffrage déjà
+    // calculé (faits + `pricing_context_override` du lot en multi-lot) est
+    // transmis en override, donc le comportement est inchangé.
+    const feeCtx = buildFeeCaseContextFromFacts({
+      factsMap,
       requestType,
-      servicePackage: pricingCtx.service_package,
-      scope: pricingCtx.scope,
-      containers: pricingCtx.containers,
-      weightKg: pricingCtx.weight_kg,
-      cafValue: pricingCtx.caf_value,
-      cargoValue: pricingCtx.cargo_value,
-      clientCode: pricingCtx.client_code,
-      customsRegimeCode: pricingCtx.customs_regime_code,
-      dangerousGoods: null,
       asOfDate: new Date().toISOString().slice(0, 10),
+      override: {
+        scope: pricingCtx.scope,
+        service_package: pricingCtx.service_package,
+        containers: pricingCtx.containers,
+        weight_kg: pricingCtx.weight_kg,
+        caf_value: pricingCtx.caf_value,
+        cargo_value: pricingCtx.cargo_value,
+        client_code: pricingCtx.client_code,
+        customs_regime_code: pricingCtx.customs_regime_code,
+      },
     });
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
