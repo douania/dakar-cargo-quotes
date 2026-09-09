@@ -69,7 +69,7 @@ const EXPECTED_CLASSIFICATION: Readonly<Record<DpwDthcFamily, string>> = {
 
 /** Nature de l'équipement. `DRY` ne conclut RIEN à lui seul : un sec peut être
  * standard, de base ou dangereux. */
-type DthcEquipment = "DRY" | "REEFER" | "SPECIAL";
+export type DthcEquipment = "DRY" | "REEFER" | "SPECIAL";
 
 /**
  * Types de conteneur pris en charge par le produit — strictement ceux de
@@ -293,6 +293,21 @@ function toConfirm(
 /**
  * Quantité EVP et famille déduites du contenant. Unique lieu du facteur EVP.
  */
+/**
+ * H2-b : profil d'un type de conteneur (taille en pieds, équipement, EVP) pour
+ * les règles d'honoraires « par conteneur 20'/40' » et « famille de conteneur ».
+ * Même table CONTAINER_PROFILES, même normalisation d'alias ; type inconnu ⇒ null.
+ */
+export function resolveContainerProfile(
+  raw: unknown,
+): { key: string; sizeFt: 20 | 40 | 45; equipment: DthcEquipment; evp: number } | null {
+  const key = normalizeDthcContainerType(raw);
+  const profile = key ? CONTAINER_PROFILES[key] : undefined;
+  if (!profile) return null;
+  const sizeFt = key.startsWith("45") ? 45 : key.startsWith("40") ? 40 : 20;
+  return { key, sizeFt, equipment: profile.equipment, evp: profile.evp };
+}
+
 export function resolveDthcContainerBasis(
   containers: readonly { type?: unknown; quantity?: unknown }[] | null | undefined,
 ):
