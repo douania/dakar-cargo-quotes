@@ -23,6 +23,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
+import { isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
   deriveCargoWeightPerContainerKg,
   resolveOfficialLocalTransportRate,
@@ -1322,8 +1323,16 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // ═══ HONORAIRES-1 : source unique des honoraires internes ═══
+      // AGENCY et CUSTOMS_DAKAR sont servis UNIQUEMENT par les rate cards
+      // (source `internal`, paramétrables par l'administrateur). Les paliers
+      // douaniers et le catalogue sont court-circuités pour ces deux clés ;
+      // l'override client (ci-dessus) reste prioritaire. Sans rate card active
+      // exacte, la ligne tombe en TO_CONFIRM — jamais un autre barème.
+      const singleSourceInternalFee = isInternalFeeServiceKey(serviceKey);
+
       // ═══ Phase PRICING V2: Customs tier resolver (priority over catalogue for CUSTOMS_*) ═══
-      if (serviceKey.startsWith("CUSTOMS_")) {
+      if (serviceKey.startsWith("CUSTOMS_") && !singleSourceInternalFee) {
         const caf = pricingCtx.caf_value;
         const transportMode_v2 = isAirMode ? "AIR" : "SEA";
 
@@ -1386,7 +1395,7 @@ Deno.serve(async (req) => {
       const cafResolved = serviceKey.startsWith("CUSTOMS_") && pricingCtx.caf_value && pricingCtx.caf_value > 0 &&
         pricedLines.some(pl => pl.id === line.id && pl.source?.startsWith("customs_tier"));
 
-      if (serviceKey.startsWith("CUSTOMS_") && !cafResolved) {
+      if (serviceKey.startsWith("CUSTOMS_") && !cafResolved && !singleSourceInternalFee) {
         const weight = pricingCtx.weight_kg;
         const transportMode_v3 = isAirMode ? "AIR" : "SEA";
 
@@ -1467,7 +1476,7 @@ Deno.serve(async (req) => {
         catalogueEntry?.base_price === 0 &&
         isTarifAConfirmer(catalogueEntry?.description);
 
-      if (catalogueEntry && scopeOk && priceOk && qtyOk && !isCatalogPlaceholder) {
+      if (catalogueEntry && scopeOk && priceOk && qtyOk && !isCatalogPlaceholder && !singleSourceInternalFee) {
         // Calculate lineTotal based on pricing_mode
         let lineTotal = 0;
         if (catalogueEntry.pricing_mode === "UNIT_RATE") {
