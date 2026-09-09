@@ -222,6 +222,15 @@ GO CTO « go H2-c ». Deux sous-lots : `e0346f0a` (`buildFeeCaseContext` dans le
 
 **Recette réelle PASS** — run 7 Cogoport (9 septembre, 15:30) : « Frais d'agence » 200 000 et « Dédouanement Dakar » 350 000, bloc honoraires, source `fee_rule`, explications du résolveur (« forfait 200 000 XOF = 200 000 XOF ») ; honoraires HT 550 000, TVA 99 000, total HT 21 246 000, TTC 21 345 000 — identique au franc au run 6. Reste H2-c2 (exception structurelle `run-pricing`) pour que les lignes créées librement par l'administrateur, hors AGENCY / CUSTOMS_DAKAR, entrent d'elles-mêmes dans le devis et l'assiette TVA ; puis H2-d écran.
 
+### 3.16 Lot H2-c2 — lignes d'honoraires libres de l'administrateur dans le devis (9 septembre 2026)
+
+GO CTO « go H2-c2 ». Deux sous-lots : `128b2e5d` (aide partagée `_shared/internal-fees.ts` : clés internes = AGENCY / CUSTOMS_DAKAR + tout code de ligne d'honoraires active ; 3 tests Deno PASS en local) et `4d857312` (exception structurelle bornée sur `run-pricing` + `price-service-lines` ; 4 fichiers sur le lot). CI run 102 verte ; `run-pricing` et `price-service-lines` redéployées par l'agent Lovable depuis `4d857312` (sondes 401).
+
+- `run-pricing` charge les `fee_lines` actives (code, libellé) une fois par run et ajoute leurs codes aux clés manquantes de l'enrichissement P5 (mono-lot et multi-lot import / transit ; export intact) : libellé FR de la ligne, bloc `honoraires`, ligne `fee_rule_skipped` (règle conditionnelle non applicable) absente du devis ; les honoraires fermes issus des lignes paramétrées s'ajoutent à `totals.honoraires` (assiette TVA 18 % SODATRA) puis DAP / DDP.
+- `price-service-lines` accepte tout code de ligne d'honoraires active comme clé de service et le sert par le résolveur H2-b (surcharges client, paliers douaniers et catalogue court-circuités pour ces clés).
+
+**Recette réelle PASS** — ligne temporaire `TEST_H2C2` (« Test technique H2-c2 (0 XOF) », forfait 0, IMPORT) créée en base ; run 8 Cogoport (9 septembre, 16:06) : 10 lignes contre 9 au run 7, la ligne de test apparaît à 0 dans le bloc honoraires avec source `fee_rule`, AGENCY 200 000 et CUSTOMS_DAKAR 350 000 inchangés, total HT 21 246 000 / TTC 21 345 000 identiques au run 7. Ligne et règle de test supprimées après recette (état live : AGENCY 1 règle, CUSTOMS_DAKAR 2 règles). Reste H2-d : écran `/admin/honoraires` (lignes, règles, nouvelle version par date d'effet, simulation sur un dossier) + onglet rôles, avec interdiction des codes de ligne entrant en collision avec les clés de service réservées.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
