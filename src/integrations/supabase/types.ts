@@ -712,6 +712,45 @@ export type Database = {
           },
         ]
       }
+      clients: {
+        Row: {
+          code: string
+          country_code: string | null
+          created_at: string
+          created_by: string | null
+          email_domains: string[]
+          is_active: boolean
+          legal_name: string
+          ninea: string | null
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          country_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          email_domains?: string[]
+          is_active?: boolean
+          legal_name: string
+          ninea?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          country_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          email_domains?: string[]
+          is_active?: boolean
+          legal_name?: string
+          ninea?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       commodity_categories: {
         Row: {
           cargo_type: string | null
@@ -2101,6 +2140,175 @@ export type Database = {
             columns: ["source_email_id"]
             isOneToOne: false
             referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fee_lines: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          display_order: number
+          id: string
+          is_active: boolean
+          label_fr: string
+          missing_rule_behavior: string
+          updated_at: string
+          vat_applicable: boolean
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          label_fr: string
+          missing_rule_behavior?: string
+          updated_at?: string
+          vat_applicable?: boolean
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          label_fr?: string
+          missing_rule_behavior?: string
+          updated_at?: string
+          vat_applicable?: boolean
+        }
+        Relationships: []
+      }
+      fee_rules: {
+        Row: {
+          amount: number | null
+          amount_20: number | null
+          amount_40: number | null
+          client_code: string | null
+          container_family: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          customs_regime_code: string | null
+          dangerous_goods: boolean | null
+          direction: string | null
+          effective_from: string
+          effective_to: string | null
+          fee_line_id: string
+          id: string
+          is_active: boolean
+          label: string | null
+          max_amount: number | null
+          method: string
+          min_amount: number | null
+          notes: string | null
+          percent: number | null
+          shipment_type: string | null
+          source_reference: string | null
+          supersedes_rule_id: string | null
+          transport_mode: string | null
+          updated_at: string
+          value_basis: string | null
+          value_max: number | null
+          value_min: number | null
+          weight_max_kg: number | null
+          weight_min_kg: number | null
+        }
+        Insert: {
+          amount?: number | null
+          amount_20?: number | null
+          amount_40?: number | null
+          client_code?: string | null
+          container_family?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          customs_regime_code?: string | null
+          dangerous_goods?: boolean | null
+          direction?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          fee_line_id: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          max_amount?: number | null
+          method: string
+          min_amount?: number | null
+          notes?: string | null
+          percent?: number | null
+          shipment_type?: string | null
+          source_reference?: string | null
+          supersedes_rule_id?: string | null
+          transport_mode?: string | null
+          updated_at?: string
+          value_basis?: string | null
+          value_max?: number | null
+          value_min?: number | null
+          weight_max_kg?: number | null
+          weight_min_kg?: number | null
+        }
+        Update: {
+          amount?: number | null
+          amount_20?: number | null
+          amount_40?: number | null
+          client_code?: string | null
+          container_family?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          customs_regime_code?: string | null
+          dangerous_goods?: boolean | null
+          direction?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          fee_line_id?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          max_amount?: number | null
+          method?: string
+          min_amount?: number | null
+          notes?: string | null
+          percent?: number | null
+          shipment_type?: string | null
+          source_reference?: string | null
+          supersedes_rule_id?: string | null
+          transport_mode?: string | null
+          updated_at?: string
+          value_basis?: string | null
+          value_max?: number | null
+          value_min?: number | null
+          weight_max_kg?: number | null
+          weight_min_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fee_rules_client_code_fkey"
+            columns: ["client_code"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fee_rules_fee_line_id_fkey"
+            columns: ["fee_line_id"]
+            isOneToOne: false
+            referencedRelation: "fee_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fee_rules_supersedes_rule_id_fkey"
+            columns: ["supersedes_rule_id"]
+            isOneToOne: false
+            referencedRelation: "fee_rules"
             referencedColumns: ["id"]
           },
         ]
@@ -7898,6 +8106,8 @@ export type Database = {
       has_case_read_access: { Args: { _case_id: string }; Returns: boolean }
       has_case_write_access: { Args: { _case_id: string }; Returns: boolean }
       has_pad_admin_role: { Args: never; Returns: boolean }
+      has_role_admin_role: { Args: never; Returns: boolean }
+      has_tariff_admin_role: { Args: never; Returns: boolean }
       insert_historical_quotation_atomic: {
         Args: { p_lines: Json; p_metadata?: Json; p_quotation: Json }
         Returns: string
