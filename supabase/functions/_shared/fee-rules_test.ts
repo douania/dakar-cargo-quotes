@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  buildFeeCaseContext,
   deriveShipmentProfile,
   type FeeCaseContext,
   type FeeLineRow,
@@ -228,4 +229,41 @@ Deno.test("H2-b: shipment profile is derived from canonical request types and pa
   assertEquals(deriveShipmentProfile(null, "TRANSIT_GAMBIA_ALL_IN"), { transportMode: "SEA", direction: "TRANSIT", shipmentType: "FCL" });
   assertEquals(deriveShipmentProfile(null, "EXPORT_SENEGAL"), { transportMode: "SEA", direction: "EXPORT", shipmentType: null });
   assertEquals(deriveShipmentProfile("n'importe quoi", 42), { transportMode: null, direction: null, shipmentType: null });
+});
+
+
+Deno.test("H2-c: the case context is built from facts only, scope completes an unknown direction", () => {
+  const ctx = buildFeeCaseContext({
+    requestType: "SEA_FCL_IMPORT",
+    servicePackage: "DAP_PROJECT_IMPORT",
+    scope: "import",
+    containers: [{ type: "20GP", quantity: 50 }],
+    weightKg: "1400000",
+    cafValue: null,
+    cargoValue: 0,
+    clientCode: " ai0cargo ",
+    customsRegimeCode: null,
+    asOfDate: TODAY,
+  });
+  assertEquals(ctx, {
+    transportMode: "SEA",
+    direction: "IMPORT",
+    shipmentType: "FCL",
+    customsRegimeCode: null,
+    containers: [{ type: "20GP", quantity: 50 }],
+    dangerousGoods: null,
+    weightKg: 1_400_000,
+    cafValue: null,
+    cargoValue: null,
+    clientCode: "AI0CARGO",
+    asOfDate: TODAY,
+  });
+
+  const fromScope = buildFeeCaseContext({
+    requestType: null, servicePackage: null, scope: "transit", containers: null,
+    weightKg: null, cafValue: "abc", cargoValue: -5, clientCode: "", customsRegimeCode: "im4", asOfDate: TODAY,
+  });
+  assertEquals([fromScope.direction, fromScope.transportMode, fromScope.shipmentType], ["TRANSIT", null, null]);
+  assertEquals([fromScope.containers, fromScope.weightKg, fromScope.cafValue, fromScope.cargoValue, fromScope.clientCode, fromScope.customsRegimeCode], [[], null, null, null, null, "IM4"]);
+  assertEquals(buildFeeCaseContext({ requestType: "SEA_FCL_IMPORT", servicePackage: null, scope: "export", containers: [], weightKg: 1, cafValue: 1, cargoValue: 1, clientCode: null, customsRegimeCode: null, dangerousGoods: false, asOfDate: TODAY }).direction, "IMPORT", "le type de demande prime sur le scope");
 });

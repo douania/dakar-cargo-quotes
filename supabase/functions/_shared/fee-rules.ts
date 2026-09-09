@@ -469,3 +469,46 @@ export function deriveShipmentProfile(
 
   return { transportMode, direction, shipmentType };
 }
+
+/**
+ * H2-c : contexte du dossier pour le résolveur, construit par price-service-lines
+ * depuis les faits (jamais deviné). `scope` (import / export / transit, déjà
+ * dérivé par l'appelant) complète le sens quand le type de demande ne le dit pas.
+ */
+export function buildFeeCaseContext(input: {
+  requestType: unknown;
+  servicePackage: unknown;
+  scope?: unknown;
+  containers: ReadonlyArray<{ type?: unknown; quantity?: unknown }> | null | undefined;
+  weightKg: unknown;
+  cafValue: unknown;
+  cargoValue: unknown;
+  clientCode: unknown;
+  customsRegimeCode: unknown;
+  dangerousGoods?: boolean | null;
+  asOfDate: string;
+}): FeeCaseContext {
+  const profile = deriveShipmentProfile(input.requestType, input.servicePackage);
+  let direction = profile.direction;
+  if (direction === null) {
+    const scope = upper(input.scope);
+    if (scope === "IMPORT" || scope === "EXPORT" || scope === "TRANSIT") direction = scope;
+  }
+  const positive = (raw: unknown): number | null => {
+    const n = num(raw);
+    return n !== null && n > 0 ? n : null;
+  };
+  return {
+    transportMode: profile.transportMode,
+    direction,
+    shipmentType: profile.shipmentType,
+    customsRegimeCode: upper(input.customsRegimeCode),
+    containers: Array.isArray(input.containers) ? input.containers : [],
+    dangerousGoods: input.dangerousGoods === true || input.dangerousGoods === false ? input.dangerousGoods : null,
+    weightKg: positive(input.weightKg),
+    cafValue: positive(input.cafValue),
+    cargoValue: positive(input.cargoValue),
+    clientCode: upper(input.clientCode),
+    asOfDate: input.asOfDate,
+  };
+}
