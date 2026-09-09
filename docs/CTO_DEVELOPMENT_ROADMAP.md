@@ -213,6 +213,15 @@ Preuves : PostgreSQL 16 jetable avec stubs Supabase, deux passes idempotentes, 1
 
 Suite : H2-c bascule `price-service-lines` sur le résolveur (contexte dossier depuis les faits, retrait des rate cards honoraires), H2-d écran `/admin/honoraires` (lignes, règles, nouvelle version à date d'effet, simulation sur dossier, gestion des rôles).
 
+### 3.15 Lot H2-c — honoraires internes servis par les règles paramétrables (9 septembre 2026)
+
+GO CTO « go H2-c ». Deux sous-lots : `e0346f0a` (`buildFeeCaseContext` dans le résolveur, 18 tests Deno PASS) et `fe08aabb` (`price-service-lines` + migration `20260909150000_h2c_supersede_fee_rate_cards.sql`). CI run 98 verte ; `price-service-lines` redéployée par l'agent Lovable (sources byte-identiques à `fe08aabb`, sonde 401) **avant** l'application de la migration en production.
+
+- `price-service-lines` charge `fee_lines` / `fee_rules` actives, construit le contexte du dossier depuis les faits (type de demande, package, scope, conteneurs, poids, CAF, valeur marchandise, client, régime ; marchandise dangereuse inconnue jusqu'à DG-1) et sert AGENCY / CUSTOMS_DAKAR par `resolveFeeLine` : montant déjà multiplié (ligne au forfait, source `fee_rule` / `fee_rule_client`), ligne conditionnelle absente ⇒ 0 en règle métier, sinon `TO_CONFIRM` avec le message FR du résolveur. Surcharges client, paliers douaniers et catalogue ne s'appliquent plus à ces clés ; repli rate cards H1 conservé seulement s'il n'existe aucune ligne d'honoraires. Audit : `fee_rule*` ⇒ `internal`.
+- Migration (validée deux fois sur PostgreSQL 16 jetable, appliquée live) : les deux rate cards provisoires passent en `superseded` ; la surcharge client AI0CARGO sur CUSTOMS_DAKAR (forfait 200 000) est reprise à l'identique comme règle client de la ligne puis désactivée — source unique sans perte du tarif négocié. État live : `AGENCY/*/200 000`, `CUSTOMS_DAKAR/*/350 000`, `CUSTOMS_DAKAR/AI0CARGO/200 000`.
+
+Recette attendue sur Cogoport (run 7) : lignes identiques au franc (200 000 + 350 000, HT 21 246 000), sources `fee_rule`, explications du résolveur. Reste H2-c2 (exception structurelle `run-pricing`) pour que les lignes créées librement par l'administrateur, hors AGENCY / CUSTOMS_DAKAR, entrent d'elles-mêmes dans le devis et l'assiette TVA ; puis H2-d écran.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
