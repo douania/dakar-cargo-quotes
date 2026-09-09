@@ -25,6 +25,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
 import { isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
+  buildFeeCaseContext,
+  type FeeLineRow,
+  type FeeRuleRow,
+  resolveFeeLine,
+} from "../_shared/fee-rules.ts";
+import {
   deriveCargoWeightPerContainerKg,
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
@@ -148,6 +154,9 @@ interface PricingContext {
   cargo_description: string | null; // DTHC-1: canonical fact cargo.description
   dthc_family: DpwDthcFamily | null; // DTHC-2: famille choisie par l'opérateur (fait pricing.dthc_family), jamais inférée ici
   weight_per_container_kg: number | null; // TRUCKING-22T: poids marchandise par conteneur (fait cargo.weight_per_container_kg)
+  cargo_value: number | null; // H2-c: fait cargo.value (assiette « valeur marchandise » des règles d'honoraires)
+  customs_regime_code: string | null; // H2-c: fait customs.regime_code
+  service_package: string | null; // H2-c: fait service.package (profil d'envoi)
 }
 
 interface PricedLine {
@@ -461,6 +470,10 @@ function buildPricingContext(
     // TRUCKING-22T : poids marchandise par boîte, tel que saisi ; la dérivation
     // (poids total ÷ boîtes) et la tare sont gérées par le résolveur partagé.
     weight_per_container_kg: factsMap.get("cargo.weight_per_container_kg")?.value_number ?? null,
+    // H2-c : entrées du résolveur d'honoraires, faits canoniques uniquement.
+    cargo_value: factsMap.get("cargo.value")?.value_number ?? null,
+    customs_regime_code: factsMap.get("customs.regime_code")?.value_text?.trim().toUpperCase() || null,
+    service_package: servicePackage || null,
   };
 }
 
@@ -946,8 +959,24 @@ Deno.serve(async (req) => {
     // Lot 1.2: preuve de réception clientCode dans le contexte effectif (post-merge override)
     console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
 
+    // ═══ H2-c : contexte du résolveur d'honoraires, dérivé des faits ═══
+    // Le fait « marchandise dangereuse » n'existe pas encore (DG-1) : inconnu.
+    const feeCtx = buildFeeCaseContext({
+      requestType,
+      servicePackage: pricingCtx.service_package,
+      scope: pricingCtx.scope,
+      containers: pricingCtx.containers,
+      weightKg: pricingCtx.weight_kg,
+      cafValue: pricingCtx.caf_value,
+      cargoValue: pricingCtx.cargo_value,
+      clientCode: pricingCtx.client_code,
+      customsRegimeCode: pricingCtx.customs_regime_code,
+      dangerousGoods: null,
+      asOfDate: new Date().toISOString().slice(0, 10),
+    });
+
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult, dthcTariffsResult] = await Promise.all([
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult, dthcTariffsResult, feeLinesResult, feeRulesResult] = await Promise.all([
       serviceClient.from("service_quantity_rules").select("*"),
       serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
       // [LOT3-A] Provenance filter: only consume rate cards with status='active'.
@@ -974,7 +1003,15 @@ Deno.serve(async (req) => {
         .in("provider", [...DPW_DTHC_PROVIDERS])
         .eq("is_active", true)
         .in("evidence_level", [...DPW_DTHC_EVIDENCE_WHITELIST]),
+      // H2-c : lignes et règles d'honoraires paramétrables (source unique des
+      // honoraires internes). Sélection large ; la validité, le scope client et
+      // l'unicité appartiennent au résolveur pur.
+      serviceClient.from("fee_lines").select("*").eq("is_active", true),
+      serviceClient.from("fee_rules").select("*").eq("is_active", true),
     ]);
+
+    const feeLines = (feeLinesResult.data || []) as FeeLineRow[];
+    const feeRules = (feeRulesResult.data || []) as FeeRuleRow[];
 
     // Phase PRICING V2: Customs tiers array
     const customsTiers = (customsTiersResult.data || []) as Array<{
@@ -1123,8 +1160,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // ═══ HONORAIRES-1 / H2-c : source unique des honoraires internes ═══
+      // AGENCY et CUSTOMS_DAKAR sont servis par les règles paramétrables
+      // (fee_lines / fee_rules, scope client inclus). Surcharges client,
+      // paliers douaniers et catalogue sont court-circuités pour ces clés ;
+      // sans ligne d'honoraires paramétrée, repli rate cards (H1) conservé.
+      const singleSourceInternalFee = isInternalFeeServiceKey(serviceKey);
+
       // ═══ Phase PRICING V3.2: Client override resolver (highest priority) ═══
-      if (pricingCtx.client_code) {
+      if (pricingCtx.client_code && !singleSourceInternalFee) {
         // CTO Fix: scoped lookup (AIR/SEA) then fallback to generic (*)
         const transportMode_co = isAirMode ? "AIR" : "SEA";
         const keyScoped = `${pricingCtx.client_code}::${serviceKey}::${transportMode_co}`;
@@ -1208,6 +1252,46 @@ Deno.serve(async (req) => {
               continue; // Skip all downstream resolvers
             }
           }
+        }
+      }
+
+      // ═══ H2-c : honoraires internes par les règles paramétrables ═══
+      if (singleSourceInternalFee) {
+        const feeLine = feeLines.find((l) => l.code === serviceKey);
+        if (feeLine) {
+          const resolution = resolveFeeLine(feeLine, feeRules, feeCtx);
+          if (resolution.status === "RESOLVED" && resolution.amount !== null) {
+            pricedLines.push({
+              id: line.id,
+              rate: resolution.amount,
+              currency: "XOF",
+              source: resolution.clientSpecific ? "fee_rule_client" : "fee_rule",
+              confidence: 0.95,
+              explanation: resolution.detail ? `${resolution.message} — ${resolution.detail}` : resolution.message,
+              // Le résolveur rend un montant déjà multiplié (conteneurs, tonnes) : ligne au forfait.
+              quantity_used: 1,
+              unit_used: "forfait",
+              rule_id: computed.rule_id,
+              conversion_used: `fee_rule:${resolution.ruleId}`,
+            });
+          } else if (resolution.status === "SKIPPED") {
+            pricedLines.push({
+              id: line.id, rate: 0, currency: "XOF", source: "business_rule",
+              confidence: 1, explanation: resolution.message,
+              quantity_used: 1, unit_used: "forfait", rule_id: computed.rule_id,
+              conversion_used: "fee_rule:skipped",
+            });
+          } else {
+            pricedLines.push({
+              id: line.id, rate: null, currency: "XOF", source: "TO_CONFIRM",
+              confidence: 0, explanation: resolution.message,
+              quantity_used: computed.quantity_used, unit_used: computed.unit_used,
+              rule_id: computed.rule_id,
+              conversion_used: `fee_rule:${resolution.reason ?? "TO_CONFIRM"}`,
+            });
+            missing.push(serviceKey);
+          }
+          continue;
         }
       }
 
@@ -1322,14 +1406,6 @@ Deno.serve(async (req) => {
         missing.push(serviceKey);
         continue;
       }
-
-      // ═══ HONORAIRES-1 : source unique des honoraires internes ═══
-      // AGENCY et CUSTOMS_DAKAR sont servis UNIQUEMENT par les rate cards
-      // (source `internal`, paramétrables par l'administrateur). Les paliers
-      // douaniers et le catalogue sont court-circuités pour ces deux clés ;
-      // l'override client (ci-dessus) reste prioritaire. Sans rate card active
-      // exacte, la ligne tombe en TO_CONFIRM — jamais un autre barème.
-      const singleSourceInternalFee = isInternalFeeServiceKey(serviceKey);
 
       // ═══ Phase PRICING V2: Customs tier resolver (priority over catalogue for CUSTOMS_*) ═══
       if (serviceKey.startsWith("CUSTOMS_") && !singleSourceInternalFee) {
@@ -1605,6 +1681,7 @@ Deno.serve(async (req) => {
       if (source === "TO_CONFIRM") return "no_match";
       if (source.startsWith("port_tariffs")) return "port_tariffs";
       if (source.startsWith("rate_card")) return "internal";
+      if (source.startsWith("fee_rule")) return "internal"; // H2-c
       // Strip "+modifiers" suffix for CHECK constraint
       const base = source.replace(/\+modifiers$/, "");
       if (["client_override", "client_override_percentage", "catalogue_sodatra",
@@ -1628,6 +1705,10 @@ Deno.serve(async (req) => {
       }
       if (src === "business_rule") {
         // Already human-readable (e.g. "EMPTY_RETURN: Obligation contractuelle...")
+        return pl.explanation;
+      }
+      if (src.startsWith("fee_rule")) {
+        // H2-c : message et détail FR produits par le résolveur d'honoraires.
         return pl.explanation;
       }
       if (src === "catalogue_sodatra") {
