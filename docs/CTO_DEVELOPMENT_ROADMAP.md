@@ -231,6 +231,18 @@ GO CTO « go H2-c2 ». Deux sous-lots : `128b2e5d` (aide partagée `_shared/inte
 
 **Recette réelle PASS** — ligne temporaire `TEST_H2C2` (« Test technique H2-c2 (0 XOF) », forfait 0, IMPORT) créée en base ; run 8 Cogoport (9 septembre, 16:06) : 10 lignes contre 9 au run 7, la ligne de test apparaît à 0 dans le bloc honoraires avec source `fee_rule`, AGENCY 200 000 et CUSTOMS_DAKAR 350 000 inchangés, total HT 21 246 000 / TTC 21 345 000 identiques au run 7. Ligne et règle de test supprimées après recette (état live : AGENCY 1 règle, CUSTOMS_DAKAR 2 règles). Reste H2-d : écran `/admin/honoraires` (lignes, règles, nouvelle version par date d'effet, simulation sur un dossier) + onglet rôles, avec interdiction des codes de ligne entrant en collision avec les clés de service réservées.
 
+### 3.17 Lot H2-d — écrans d'administration des honoraires et des rôles (9 septembre 2026)
+
+GO CTO « go H2-d ». Six sous-lots, chacun ≤ 3 fichiers : `d6c73701` (écran honoraires), `7e4ba5f3` (écran rôles), `e834a757` (garde-fou base de données des codes réservés), `e5ffb679` (module partagé de contexte), `1c103816` (fonction de simulation), `89ffabc6` (simulation et versionnement à l'écran). CI runs 104 à 106 vertes.
+
+- **Écran `/admin/honoraires`** : registre clients, lignes `fee_lines` et règles `fee_rules` par ligne (toutes les conditions et méthodes du modèle H2-a), validation miroir des contraintes SQL. Écriture masquée hors rôle `tariff_admin` ; la RLS reste le seul garde-fou serveur. **Écran `/admin/roles`** : attributions `app_roles` par identifiant utilisateur, avec le garde-fou du dernier `role_admin`. Aucune fonction Edge de résolution email vers identifiant n'a été créée : cela aurait touché l'API admin Auth, hors périmètre du GO.
+- **Garde-fou des codes réservés en base** (migration `20260909170000`, appliquée live) : `fee_line_code_is_reserved()` et trigger sur `fee_lines`. Trois familles couvertes — clés servies par `price-service-lines`, clés structurelles et groupes de déduplication de `run-pricing`, et clés **dynamiques** `<compagnie>_<code de charge>` reconstituées depuis `carrier_billing_templates` (48 clés actives en production, non énumérables statiquement, d'où un trigger et non une contrainte CHECK). `AGENCY` et `CUSTOMS_DAKAR` restent autorisés : ce modèle est leur source depuis H2-c. Validé sur 10 cas en PostgreSQL 16 jetable puis 4 sondes en production.
+- **Défaut de H2-d1 corrigé dans le même lot** : la validation du code refusait aussi la *modification* des lignes `AGENCY` et `CUSTOMS_DAKAR` existantes. Le contrôle ne s'applique plus qu'à la création et la liste d'écran est alignée sur la base.
+- **Simulation fidèle** : nouveau module partagé `_shared/fee-case-facts.ts` (13 tests Deno) qui dérive le contexte d'honoraires des faits du dossier ; `price-service-lines` bascule dessus en transmettant son contexte déjà calculé en override, donc comportement strictement inchangé, multi-lot compris. Nouvelle fonction `simulate-fee-lines`, en lecture seule stricte (aucune écriture, aucun `pricing_run`), utilisée par l'écran : ce qu'elle affiche est ce que produirait un chiffrage. Un dossier multi-lot est signalé, la simulation portant alors sur le dossier entier.
+- **Versionnement par date d'effet** : la règle remplacée est clôturée la veille avant création de la nouvelle (sans quoi le trigger anti-chevauchement H2-a la refuserait), avec `supersedes_rule_id` et annulation de la clôture si la création échoue.
+
+Reste ouvert : le fait DG-1 (marchandise dangereuse), sans lequel toute règle conditionnée sur ce critère reste « à confirmer » ; la raison sociale et le NINEA des deux clients amorcés, à compléter par l'administrateur.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
