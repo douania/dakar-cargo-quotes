@@ -68,18 +68,21 @@ Deno.test("P0-E: every PAD scope marker is stripped from the enrichment list", (
 Deno.test("P0-E: DAP_PROJECT_IMPORT enriches everything except the PAD marker", () => {
   const effective = resolveEffectiveServiceKeys("DAP_PROJECT_IMPORT", NO_OVERRIDES);
   // Unfiltered scope is untouched — it is what the PAD guard reads.
+  // HONORAIRES-1 (2026-09-09) : AGENCY fait partie des packages import conteneur.
   assertEquals(effective, [
     "PORT_DAKAR_HANDLING",
     "DTHC",
     "TRUCKING",
     "EMPTY_RETURN",
     "CUSTOMS_DAKAR",
+    "AGENCY",
   ]);
   assertEquals(excludePadScopeKeysForEnrichment(effective), [
     "DTHC",
     "TRUCKING",
     "EMPTY_RETURN",
     "CUSTOMS_DAKAR",
+    "AGENCY",
   ]);
 });
 
@@ -249,7 +252,7 @@ Deno.test("P0-E: DDP_PROJECT_IMPORT enriches DTHC and excludes the PAD marker", 
     excludePadScopeKeysForEnrichment(
       resolveEffectiveServiceKeys("DDP_PROJECT_IMPORT", NO_OVERRIDES),
     ),
-    ["DTHC", "TRUCKING", "EMPTY_RETURN", "CUSTOMS_DAKAR"],
+    ["DTHC", "TRUCKING", "EMPTY_RETURN", "CUSTOMS_DAKAR", "AGENCY"],
   );
 });
 
