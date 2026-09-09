@@ -185,6 +185,15 @@ Constat (run 5 Cogoport) : cinq sources concurrentes d'honoraires — `sodatra_f
 
 `sodatra_fee_rules` et `pricing_customs_tiers` ne sont plus lus pour ces clés (tables conservées, suppression en H2). Gates locales : typecheck PASS, 323 Vitest PASS, lint 737/16 PASS, function-config OK, build PASS ; tests Deno des packages NOT_RUN localement (imports `jsr:` hors ligne), CI juge. Test P0-E réaligné (`2a9f8eba`), CI run 90 verte ; trois fonctions redéployées par l'agent Lovable depuis `2a9f8eba`, sondes 401. **Recette réelle PASS** — run 6 Cogoport (9 septembre, 10:45) : lignes « Frais d'agence » 200 000 et « Dédouanement Dakar » 350 000, bloc honoraires, source `internal` (rate cards), plus aucune ligne moteur ; `honoraires_ht` 550 000, TVA 99 000 ; total HT 22 561 000 → **21 246 000**, TTC 21 345 000. Acconage 7 750 000 et transport 6 254 000 inchangés. Suite : H2 (modèle dédié lignes + règles, écran administrateur, politiques d'écriture — GO DB/RLS), H3 (bascule du lecteur et retrait des rate cards honoraires).
 
+### 3.12 Programme convenu après HONORAIRES-1 — ordre à respecter (9 septembre 2026)
+
+Rappel CTO du 9 septembre : la documentation DP World / PAD (IMO, OOG, HSSE) ne remplace pas le travail engagé avant son partage. Ordre convenu :
+
+1. **H2 — honoraires paramétrables** (GO attendu « go H2-a »). Décisions déjà prises : source unique rate cards en H1 puis modèle dédié `fee_lines` + `fee_rules` ; conditions cumulatives (mode, sens, régime, type d'envoi, famille de conteneur, tranche poids, tranche valeur CAF, client), OU par règles disjointes, exactement une règle applicable sinon « à confirmer » ; méthodes forfait / par conteneur avec montants 20' et 40' sur la même règle / par tonne / % valeur CAF avec min-max, CAF absente ⇒ « à confirmer » jamais 0 ; registre clients (code, raison sociale, NINEA facultatif, domaines) ; critères « famille de conteneur » et « marchandise dangereuse » ; versionnement par date d'effet. Restent à trancher : écriture réservée au rôle `tariff_admin` (recommandé) et bouton « simuler sur un dossier » (recommandé). Sous-lots : a migration, b résolveur pur, c bascule `price-service-lines`, d écran.
+2. **Premier livrable réel Cogoport** dès H2 recetté : version de devis → PDF → comparaison avec l'offre concurrente → conversion USD. Points §3.8 encore ouverts : ligne « Droits & taxes » en DAP, surestaries sans armateur.
+3. **Programme IMO / OOG / HSSE** (recommandations du 9 septembre, non encore GO) : DG-1 fait marchandise dangereuse ; IMO-RULES-1 table de référence Annexe 1 v4.0 (mode de séjour, franchise 0/3 jours au lieu de 15) ; livraison sous palan ; CHECKLIST-1 documents et échéances ETA ; OOG-1 dimensions vers le moteur ; PARTNERS-1 registre transporteurs avec attestation HSSE.
+4. **Lots consignés antérieurement** : regex conteneurs sur corps cité (`build-case-puzzle`), parseur de chaîne citée, synchronisation boîte `douane@sodatra.sn`, corrections barèmes armateurs (factures ONE / Maersk / Hapag-Lloyd attendues), suppression de `sodatra_fee_rules` et `pricing_customs_tiers` en H2.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
