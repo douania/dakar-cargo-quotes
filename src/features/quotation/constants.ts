@@ -52,7 +52,8 @@ export const serviceTemplates = [
  * Utilisé par l'overlay M3.6 pour pré-remplir les lignes de service
  */
 export const SERVICE_PACKAGES: Record<string, string[]> = {
-  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  // HONORAIRES-1 : AGENCY inclus d'office dans les packages import conteneur (parité _shared/service-scope.ts).
+  DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR', 'AGENCY'],
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],
   EXPORT_SENEGAL: ['PORT_CHARGES', 'THC_EXPORT', 'CUSTOMS_EXPORT', 'DOCUMENTATION_BL', 'VGM_WEIGHING', 'SEA_FREIGHT', 'AGENCY'],
   BREAKBULK_PROJECT: ['DISCHARGE', 'PORT_DAKAR_HANDLING', 'TRUCKING', 'SURVEY', 'CUSTOMS_DAKAR'],
@@ -62,7 +63,7 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   // P3a: EXW/FCA/FAS variants — include origin services
   DAP_PROJECT_IMPORT_EXW: [
     'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'SEA_FREIGHT',
-    'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR',
+    'PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR', 'AGENCY',
   ],
   AIR_IMPORT_EXW: [
     'PICKUP_ORIGIN', 'PRE_CARRIAGE', 'AIR_FREIGHT',
@@ -79,7 +80,7 @@ export const SERVICE_PACKAGES: Record<string, string[]> = {
   LCL_IMPORT_DDP: ['PORT_DAKAR_HANDLING', 'CUSTOMS_DAKAR', 'TRUCKING', 'AGENCY'],
   // Import project DDP: alias service-identique de DAP_PROJECT_IMPORT.
   // La sémantique DDP (droits/taxes inclus) est portée par routing.incoterm + customs.
-  DDP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR'],
+  DDP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR', 'AGENCY'],
 };
 
 /**
