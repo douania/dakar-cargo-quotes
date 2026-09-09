@@ -194,6 +194,18 @@ Rappel CTO du 9 septembre : la documentation DP World / PAD (IMO, OOG, HSSE) ne 
 3. **Programme IMO / OOG / HSSE** (recommandations du 9 septembre, non encore GO) : DG-1 fait marchandise dangereuse ; IMO-RULES-1 table de référence Annexe 1 v4.0 (mode de séjour, franchise 0/3 jours au lieu de 15) ; livraison sous palan ; CHECKLIST-1 documents et échéances ETA ; OOG-1 dimensions vers le moteur ; PARTNERS-1 registre transporteurs avec attestation HSSE.
 4. **Lots consignés antérieurement** : regex conteneurs sur corps cité (`build-case-puzzle`), parseur de chaîne citée, synchronisation boîte `douane@sodatra.sn`, corrections barèmes armateurs (factures ONE / Maersk / Hapag-Lloyd attendues), suppression de `sodatra_fee_rules` et `pricing_customs_tiers` en H2.
 
+### 3.13 Lot H2-a — modèle dédié d'honoraires paramétrables, registre clients, rôle `tariff_admin` (9 septembre 2026)
+
+GO CTO « go H2-a avec tes recommandations ». Migration `20260909120000_h2a_fee_lines_rules_clients.sql` (commit `43525177`), appliquée sur Lovable Cloud le 9 septembre. Aucune fonction Edge ne lit encore ces tables : les rate cards AGENCY / CUSTOMS_DAKAR restent servies jusqu'à H2-c.
+
+- `has_tariff_admin_role()` : miroir de `has_pad_admin_role()` (PAD-C2), rôle `tariff_admin` dans `app_roles`. Écriture des trois tables réservée à ce rôle, lecture pour tout utilisateur authentifié. Attribution du rôle par SQL en service_role uniquement ; aucun utilisateur seedé.
+- `clients` : code stable (référencé par `client.code`, surcharges client, règles), raison sociale, NINEA facultatif unique, domaines email. Amorcé avec les deux codes déjà présents (AI0CARGO, AKSA_ENERGY), raison sociale = code à compléter.
+- `fee_lines` : lignes créées librement par l'administrateur ; code = clé de service de la ligne de devis ; TVA ; comportement sans règle applicable (`TO_CONFIRM` ligne attendue / `SKIP` supplément conditionnel).
+- `fee_rules` : conditions cumulatives facultatives (mode, sens, type d'envoi, régime, famille de conteneur, marchandise dangereuse, tranches poids et valeur [min, max), client) ; méthodes FIXED / PER_CONTAINER (montants 20' et 40') / PER_TONNE / PERCENT_OF_VALUE (assiette CAF ou valeur marchandise) avec min-max ; date d'effet, `supersedes_rule_id`. Trigger `fee_rules_reject_overlap` : une ligne est une grille sans cases qui se recouvrent, par scope client ; primauté client sur générique laissée au résolveur (H2-b).
+- Amorçage : AGENCY 200 000 et CUSTOMS_DAKAR 350 000, FIXED, IMPORT, effet 2026-09-04 (reprise des forfaits provisoires).
+
+Preuves : PostgreSQL 16 jetable avec stubs Supabase, deux passes idempotentes, 12 politiques, 4 triggers, 24 contrôles comportementaux PASS (recouvrement, tranches adjacentes, scope client, contraintes, RLS avec et sans rôle). Live : `clients=2 fee_lines=2 fee_rules=2 policies=12 triggers=4`, garde-fou vérifié (insertion en doublon refusée, code 23P01, rien persisté). Suite : H2-b résolveur pur + tests, H2-c bascule `price-service-lines`, H2-d écran ; attribution du rôle `tariff_admin` au compte administrateur sur décision CTO.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
