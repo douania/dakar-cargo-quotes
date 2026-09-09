@@ -175,6 +175,16 @@ Décisions CTO (8 septembre) : strictement > 22 t ⇒ tarif 40', exactement 22 t
 
 Gates locales : typecheck PASS, 323 Vitest PASS, lint 742/16 PASS, function-config OK, build PASS, `deno lint` sans nouveau finding (137 / 7 inchangés). CI GitHub run 86 verte (gates Deno incluses) ; `run-pricing`, `quotation-engine`, `price-service-lines` redéployées par l'agent Lovable depuis `17cba92a`, sondes 401. **Recette réelle PASS** — run 5 Cogoport (8 septembre, 18:16) : « Transport 20GP → FORFAIT ZONE 1 <18 KM — tarif 40' (> 22 t) » = 50 × 125 080 = **6 254 000 XOF** (au lieu de 4 130 000), note « 28 000 kg + tare 2 230 kg = 30 230 kg », source OFFICIAL barème 20P/40P ; acconage DTHC 7 750 000 conservé ; total HT 20 437 000 → **22 561 000**, TTC 22 896 700.
 
+### 3.11 Lot HONORAIRES-1 — source unique paramétrable des honoraires internes (9 septembre 2026)
+
+Constat (run 5 Cogoport) : cinq sources concurrentes d'honoraires — `sodatra_fee_rules` (11 lignes semées en février, sans pièce, lues par le moteur : dédouanement 0,4 % CAF × 0,6 min 75 000, suivi 35 000/conteneur, dossier 25 000, documentation 15 000 = 1 865 000), repli codé en dur, `pricing_customs_tiers` (12 paliers), rate cards AGENCY 200 000 / CUSTOMS_DAKAR 350 000 promues le 4 septembre, catalogue. Les lignes structurelles du moteur couvraient CUSTOMS_DAKAR et masquaient tout paramétrage ; AGENCY était absent des packages import conteneur ; les quatre tables sont en lecture seule (RLS SELECT). Décisions CTO : source unique = `pricing_rate_cards` (source `internal`), deux clés (AGENCY, CUSTOMS_DAKAR), AGENCY inclus d'office, paramétrage libre par l'administrateur à concevoir (H2/H3).
+
+- **A** (`9f13d3ff`) : module pur `_shared/internal-fees.ts` (clés, bloc, `sumFirmInternalFeePackageLines`, 2 tests) ; `price-service-lines` sert AGENCY / CUSTOMS_DAKAR uniquement depuis les rate cards (paliers et catalogue court-circuités, override client conservé, sinon TO_CONFIRM).
+- **B** (`88f2ec91`, exception structurelle FROZEN) : `quotation-engine` n'émet plus le bloc honoraires (−202 lignes : bloc, loader, imports) ; `run-pricing` marque les lignes package internes `bloc: honoraires` et ajoute leurs montants fermes à `totals.honoraires / dap / ddp` après enrichissement P5 (mono et multi-lot, hors export déjà classé) — la TVA SODATRA 18 % s'applique une seule fois.
+- **C** (`b6adfe69`) : AGENCY dans DAP_PROJECT_IMPORT, DDP_PROJECT_IMPORT, DAP_PROJECT_IMPORT_EXW (partagé + miroir frontend) ; baseline lint verrouillée 742 → 737.
+
+`sodatra_fee_rules` et `pricing_customs_tiers` ne sont plus lus pour ces clés (tables conservées, suppression en H2). Gates locales : typecheck PASS, 323 Vitest PASS, lint 737/16 PASS, function-config OK, build PASS ; tests Deno des packages NOT_RUN localement (imports `jsr:` hors ligne), CI juge. Recette attendue Cogoport : honoraires 1 865 000 → 550 000 (agence 200 000 + dédouanement 350 000), TVA 99 000, total HT 22 561 000 → 21 246 000.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
