@@ -34,6 +34,7 @@ import CarrierBillingTemplates from "./pages/admin/CarrierBillingTemplates";
 import CommodityCategories from "./pages/admin/CommodityCategories";
 import TariffOverview from "./pages/admin/TariffOverview";
 import TerminalStorage from "./pages/admin/TerminalStorage";
+import Honoraires from "./pages/admin/Honoraires";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +74,7 @@ const App = () => (
             <Route path="/admin/commodity-categories" element={<RequireAuth><CommodityCategories /></RequireAuth>} />
             <Route path="/admin/tariff-overview" element={<RequireAuth><TariffOverview /></RequireAuth>} />
             <Route path="/admin/terminal-storage" element={<RequireAuth><TerminalStorage /></RequireAuth>} />
+            <Route path="/admin/honoraires" element={<RequireAuth><Honoraires /></RequireAuth>} />
             <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
             <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />
             <Route path="/case/:caseId" element={<RequireAuth><CaseView /></RequireAuth>} />

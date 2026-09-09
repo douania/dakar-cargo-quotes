@@ -66,9 +66,10 @@ const mainNavItems = [
   },
 ];
 
-import { TrendingUp, Briefcase, History, Coins, Layers, Eye, Warehouse } from 'lucide-react';
+import { TrendingUp, Briefcase, History, Coins, Layers, Eye, Warehouse, Receipt } from 'lucide-react';
 
 const adminItems = [
+  { title: 'Honoraires', url: '/admin/honoraires', icon: Receipt },
   { title: 'Vue tarifs consolidée', url: '/admin/tariff-overview', icon: Eye },
   { title: 'Magasinage Terminal', url: '/admin/terminal-storage', icon: Warehouse },
   { title: 'Catégories marchandises', url: '/admin/commodity-categories', icon: Layers },
