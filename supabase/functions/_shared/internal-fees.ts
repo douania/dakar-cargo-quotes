@@ -20,9 +20,34 @@ export const INTERNAL_FEE_SERVICE_KEYS: ReadonlySet<string> = new Set([
 /** Bloc de présentation des honoraires dans les lignes de chiffrage. */
 export const INTERNAL_FEE_BLOC = "honoraires" as const;
 
-export function isInternalFeeServiceKey(serviceKey: unknown): boolean {
-  return typeof serviceKey === "string" &&
-    INTERNAL_FEE_SERVICE_KEYS.has(serviceKey.trim().toUpperCase());
+/**
+ * H2-c2 : une clé est un honoraire interne si elle fait partie des deux clés
+ * historiques OU si elle est le code d'une ligne d'honoraires active
+ * (`fee_lines.code`, créée librement par l'administrateur). Les codes sont
+ * fournis par l'appelant (lecture en base), jamais devinés.
+ */
+export function isInternalFeeServiceKey(
+  serviceKey: unknown,
+  feeLineCodes?: ReadonlySet<string> | null,
+): boolean {
+  if (typeof serviceKey !== "string") return false;
+  const key = serviceKey.trim().toUpperCase();
+  if (INTERNAL_FEE_SERVICE_KEYS.has(key)) return true;
+  return !!feeLineCodes && feeLineCodes.has(key);
+}
+
+/** Codes normalisés (majuscules) des lignes d'honoraires actives. */
+export function collectFeeLineCodes(
+  feeLines: ReadonlyArray<{ code?: unknown; is_active?: boolean | null }> | null | undefined,
+): Set<string> {
+  const codes = new Set<string>();
+  for (const line of Array.isArray(feeLines) ? feeLines : []) {
+    if (line?.is_active === false) continue;
+    if (typeof line?.code === "string" && line.code.trim() !== "") {
+      codes.add(line.code.trim().toUpperCase());
+    }
+  }
+  return codes;
 }
 
 /** Forme minimale d'une ligne de chiffrage canonisée par run-pricing. */
@@ -53,12 +78,13 @@ function isToConfirm(line: InternalFeeLineLike): boolean {
  */
 export function sumFirmInternalFeePackageLines(
   lines: ReadonlyArray<InternalFeeLineLike> | null | undefined,
+  feeLineCodes?: ReadonlySet<string> | null,
 ): number {
   if (!Array.isArray(lines)) return 0;
   let total = 0;
   for (const line of lines) {
     if (line?.canonical?.origin_layer !== "package_enrichment") continue;
-    if (!isInternalFeeServiceKey(line?.canonical?.service_key)) continue;
+    if (!isInternalFeeServiceKey(line?.canonical?.service_key, feeLineCodes)) continue;
     if (isToConfirm(line)) continue;
     const amount = finiteAmount(line?.amount);
     if (amount > 0) total += amount;

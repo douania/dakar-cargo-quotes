@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  collectFeeLineCodes,
   INTERNAL_FEE_BLOC,
   INTERNAL_FEE_SERVICE_KEYS,
   isInternalFeeServiceKey,
@@ -41,4 +42,23 @@ Deno.test("HONORAIRES-1: firm package internal fees are summed, nothing else", (
   assertEquals(sumFirmInternalFeePackageLines([]), 0);
   assertEquals(sumFirmInternalFeePackageLines(null), 0);
   assertEquals(sumFirmInternalFeePackageLines(undefined), 0);
+});
+
+Deno.test("H2-c2: administrator-created fee line codes are internal fees too, never guessed", () => {
+  const codes = collectFeeLineCodes([
+    { code: "AGENCY" }, { code: " suppl_dg ", is_active: true }, { code: "OLD", is_active: false }, { code: "" }, { code: 42 },
+  ]);
+  assertEquals([...codes].sort(), ["AGENCY", "SUPPL_DG"]);
+  assertEquals(isInternalFeeServiceKey("SUPPL_DG"), false, "sans codes fournis, seules les deux clés historiques");
+  assertEquals(isInternalFeeServiceKey("suppl_dg", codes), true);
+  assertEquals(isInternalFeeServiceKey("OLD", codes), false, "ligne inactive ignorée");
+  assertEquals(isInternalFeeServiceKey("DTHC", codes), false);
+
+  const lines = [
+    pkg("AGENCY", 200_000),
+    pkg("SUPPL_DG", 50_000),
+    pkg("TRUCKING", 1),
+  ];
+  assertEquals(sumFirmInternalFeePackageLines(lines), 200_000, "sans codes : ligne libre non comptée");
+  assertEquals(sumFirmInternalFeePackageLines(lines, codes), 250_000, "avec codes : ligne libre comptée dans l'assiette");
 });
