@@ -16,6 +16,7 @@ import {
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
 import {
+  collectFeeLineCodes,
   INTERNAL_FEE_BLOC,
   isInternalFeeServiceKey,
   sumFirmInternalFeePackageLines,
@@ -1306,6 +1307,21 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
+    // ═══ H2-c2 : lignes d'honoraires actives (source unique paramétrable) ═══
+    // Codes : classification honoraires / assiette TVA et enrichissement des
+    // packages import-transit ; libellés : ligne de devis. Lecture seule.
+    const { data: activeFeeLinesData } = await serviceClient
+      .from('fee_lines')
+      .select('code, label_fr, is_active')
+      .eq('is_active', true);
+    const activeFeeLines = (activeFeeLinesData || []) as Array<{ code?: string | null; label_fr?: string | null }>;
+    const feeLineCodes = collectFeeLineCodes(activeFeeLines);
+    const feeLineLabels = new Map<string, string>(
+      activeFeeLines
+        .filter((l) => typeof l.code === 'string' && typeof l.label_fr === 'string' && l.label_fr.trim() !== '')
+        .map((l) => [String(l.code).trim().toUpperCase(), String(l.label_fr)]),
+    );
+
     // 2. Parse request
     const body = await req.json();
     const case_id: string = body.case_id;
@@ -2004,6 +2020,14 @@ Deno.serve(async (req) => {
               const lotMissingKeys = excludePadScopeKeysForEnrichment(
                 lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k)),
               );
+              // H2-c2 : toute ligne d'honoraires active entre d'elle-même dans
+              // l'enrichissement des lots import / transit (les lots export gardent
+              // leur classification propre), sauf si le moteur ou le package la couvre.
+              if (!lotPackageKey.startsWith('EXPORT_')) {
+                for (const code of feeLineCodes) {
+                  if (!lotCoveredKeys.has(code) && !lotMissingKeys.includes(code)) lotMissingKeys.push(code);
+                }
+              }
 
               console.log(
                 `[P5] Lot ${lc.lot_index}: categories=${lotCoverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(lotCoveredKeys).join(', ') || 'none'}; missing=${lotMissingKeys.join(', ') || 'none'}${lotCoverage.matchedByDescription.length ? `; desc_fallback=${lotCoverage.matchedByDescription.join(' | ')}` : ''}`,
@@ -2056,15 +2080,17 @@ Deno.serve(async (req) => {
                   const pslData = await pslRes.json();
                   const pricedLines = pslData?.data?.priced_lines || [];
                   for (const pl of pricedLines) {
+                    // H2-c2 : ligne d'honoraires conditionnelle non applicable au dossier — absente du devis.
+                    if (pl.source === 'fee_rule_skipped') continue;
                     const serviceKey = idToServiceKey.get(pl.id) || pl.id;
-                    const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                    const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                     const packageLine = canonicalizeLine({
                       category: serviceKey,
                       label: label,
                       amount: pl.rate ?? 0,
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
-                      bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
+                      bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
                       source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                       quantity: pl.quantity_used ?? 1,
                       unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -2094,7 +2120,7 @@ Deno.serve(async (req) => {
           // `totals.honoraires` (assiette TVA SODATRA) ainsi que dap / ddp.
           // Les lots export gardent leur propre classification ci-dessous.
           if (!isLotExportFlow && lotEngineResponse.totals && typeof lotEngineResponse.totals === 'object') {
-            const packageInternalFees = sumFirmInternalFeePackageLines(taggedLines);
+            const packageInternalFees = sumFirmInternalFeePackageLines(taggedLines, feeLineCodes);
             if (packageInternalFees > 0) {
               const t = lotEngineResponse.totals as Record<string, unknown>;
               for (const field of ['honoraires', 'dap', 'ddp']) {
@@ -2855,8 +2881,10 @@ Deno.serve(async (req) => {
               const pricedLines = pslData?.data?.priced_lines || [];
               const firmLines: any[] = [];
               for (const pl of pricedLines) {
+                // H2-c2 : ligne d'honoraires conditionnelle non applicable au dossier — absente du devis.
+                if (pl.source === 'fee_rule_skipped') continue;
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
-                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                 firmLines.push(canonicalizeLine({
                   category: serviceKey,
                   label: label,
@@ -2976,15 +3004,17 @@ Deno.serve(async (req) => {
             const pricedLines = pslData?.data?.priced_lines || [];
             const exportLines: any[] = [];
             for (const pl of pricedLines) {
+              // H2-c2 : ligne d'honoraires conditionnelle non applicable au dossier — absente du devis.
+              if (pl.source === 'fee_rule_skipped') continue;
               const serviceKey = idToServiceKey.get(pl.id) || pl.id;
-              const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+              const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
               exportLines.push(canonicalizeLine({
                 category: serviceKey,
                 label: label,
                 amount: pl.rate ?? 0,
                 currency: pl.currency || 'XOF',
                 type: 'service_package',
-                bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
+                bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
                 source: { type: pl.source || 'price-service-lines', reference: 'P5-export', confidence: pl.confidence ?? 0 },
                 quantity: pl.quantity_used ?? 1,
                 unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3122,6 +3152,10 @@ Deno.serve(async (req) => {
           const missingKeys = excludePadScopeKeysForEnrichment(
             effectiveKeys.filter(k => !coveredKeys.has(k)),
           );
+          // H2-c2 : voir le bloc multi-lot — lignes d'honoraires actives ajoutées.
+          for (const code of feeLineCodes) {
+            if (!coveredKeys.has(code) && !missingKeys.includes(code)) missingKeys.push(code);
+          }
 
           console.log(
             `[P5] Mono-lot: categories=${coverage.categoriesSeen.join(' | ') || 'none'}; covered=${Array.from(coveredKeys).join(', ') || 'none'}; missing=${missingKeys.join(', ') || 'none'}${coverage.matchedByDescription.length ? `; desc_fallback=${coverage.matchedByDescription.join(' | ')}` : ''}`,
@@ -3155,15 +3189,17 @@ Deno.serve(async (req) => {
               // Inject into engineResponse.lines so tariffLines picks them up
               const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
               for (const pl of pricedLines) {
+                // H2-c2 : ligne d'honoraires conditionnelle non applicable au dossier — absente du devis.
+                if (pl.source === 'fee_rule_skipped') continue;
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
-                const label = SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
                 const packageLine = canonicalizeLine({
                   category: serviceKey,
                   label: label,
                   amount: pl.rate ?? 0,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
-                  bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
+                  bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
                   source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3182,7 +3218,7 @@ Deno.serve(async (req) => {
               // ═══ HONORAIRES-1 : honoraires internes servis par la couche package ═══
               // Voir le bloc multi-lot : mêmes règles, mêmes champs (honoraires, dap, ddp).
               if (engineResponse.totals && typeof engineResponse.totals === 'object') {
-                const packageInternalFees = sumFirmInternalFeePackageLines(engineLines);
+                const packageInternalFees = sumFirmInternalFeePackageLines(engineLines, feeLineCodes);
                 if (packageInternalFees > 0) {
                   const t = engineResponse.totals as Record<string, unknown>;
                   for (const field of ['honoraires', 'dap', 'ddp']) {

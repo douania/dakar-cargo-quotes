@@ -23,7 +23,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
-import { isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
+import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
   buildFeeCaseContext,
   type FeeLineRow,
@@ -1012,6 +1012,8 @@ Deno.serve(async (req) => {
 
     const feeLines = (feeLinesResult.data || []) as FeeLineRow[];
     const feeRules = (feeRulesResult.data || []) as FeeRuleRow[];
+    // H2-c2 : les codes des lignes d'honoraires actives sont des clés de service valides.
+    const feeLineCodes = collectFeeLineCodes(feeLines);
 
     // Phase PRICING V2: Customs tiers array
     const customsTiers = (customsTiersResult.data || []) as Array<{
@@ -1093,7 +1095,7 @@ Deno.serve(async (req) => {
 
     for (const line of service_lines) {
       const serviceKey = line.service;
-      if (!VALID_SERVICE_KEYS.has(serviceKey)) {
+      if (!VALID_SERVICE_KEYS.has(serviceKey) && !feeLineCodes.has(serviceKey)) {
         structuredLog({ level: "warn", service: FUNCTION_NAME, op: "unknown_service_key", correlationId, meta: { service_key: serviceKey } });
         missing.push(serviceKey);
         pricedLines.push({
@@ -1165,7 +1167,7 @@ Deno.serve(async (req) => {
       // (fee_lines / fee_rules, scope client inclus). Surcharges client,
       // paliers douaniers et catalogue sont court-circuités pour ces clés ;
       // sans ligne d'honoraires paramétrée, repli rate cards (H1) conservé.
-      const singleSourceInternalFee = isInternalFeeServiceKey(serviceKey);
+      const singleSourceInternalFee = isInternalFeeServiceKey(serviceKey, feeLineCodes);
 
       // ═══ Phase PRICING V3.2: Client override resolver (highest priority) ═══
       if (pricingCtx.client_code && !singleSourceInternalFee) {
@@ -1275,8 +1277,9 @@ Deno.serve(async (req) => {
               conversion_used: `fee_rule:${resolution.ruleId}`,
             });
           } else if (resolution.status === "SKIPPED") {
+            // H2-c2 : signal runtime lu par run-pricing, qui n'ajoute pas la ligne au devis.
             pricedLines.push({
-              id: line.id, rate: 0, currency: "XOF", source: "business_rule",
+              id: line.id, rate: 0, currency: "XOF", source: "fee_rule_skipped",
               confidence: 1, explanation: resolution.message,
               quantity_used: 1, unit_used: "forfait", rule_id: computed.rule_id,
               conversion_used: "fee_rule:skipped",
