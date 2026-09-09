@@ -16,6 +16,11 @@ import {
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
 import {
+  INTERNAL_FEE_BLOC,
+  isInternalFeeServiceKey,
+  sumFirmInternalFeePackageLines,
+} from "../_shared/internal-fees.ts";
+import {
   PAD_SCOPE_SERVICE_KEYS,
   type PadScopeFact,
   readPadPricingInputs,
@@ -2059,6 +2064,7 @@ Deno.serve(async (req) => {
                       amount: pl.rate ?? 0,
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
+                      bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
                       source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                       quantity: pl.quantity_used ?? 1,
                       unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -2079,6 +2085,24 @@ Deno.serve(async (req) => {
               }
             } catch (p5LotError) {
               console.warn(`[P5] Lot ${lc.lot_index}: package enrichment failed, continuing:`, p5LotError);
+            }
+          }
+
+          // ═══ HONORAIRES-1 : honoraires internes servis par la couche package ═══
+          // Le moteur n'émet plus de bloc honoraires ; les lignes AGENCY /
+          // CUSTOMS_DAKAR fermes de price-service-lines rejoignent
+          // `totals.honoraires` (assiette TVA SODATRA) ainsi que dap / ddp.
+          // Les lots export gardent leur propre classification ci-dessous.
+          if (!isLotExportFlow && lotEngineResponse.totals && typeof lotEngineResponse.totals === 'object') {
+            const packageInternalFees = sumFirmInternalFeePackageLines(taggedLines);
+            if (packageInternalFees > 0) {
+              const t = lotEngineResponse.totals as Record<string, unknown>;
+              for (const field of ['honoraires', 'dap', 'ddp']) {
+                if (typeof t[field] === 'number' && Number.isFinite(t[field] as number)) {
+                  t[field] = (t[field] as number) + packageInternalFees;
+                }
+              }
+              console.log(`[HONORAIRES-1] Lot ${lc.lot_index}: honoraires package ajoutés aux totaux — ${packageInternalFees}`);
             }
           }
 
@@ -2960,6 +2984,7 @@ Deno.serve(async (req) => {
                 amount: pl.rate ?? 0,
                 currency: pl.currency || 'XOF',
                 type: 'service_package',
+                bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
                 source: { type: pl.source || 'price-service-lines', reference: 'P5-export', confidence: pl.confidence ?? 0 },
                 quantity: pl.quantity_used ?? 1,
                 unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3138,6 +3163,7 @@ Deno.serve(async (req) => {
                   amount: pl.rate ?? 0,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
+                  bloc: isInternalFeeServiceKey(serviceKey) ? INTERNAL_FEE_BLOC : undefined,
                   source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3152,6 +3178,21 @@ Deno.serve(async (req) => {
               // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
               engineResponse.lines = engineLines;
               console.log(`[P5] Mono-lot: merged ${pricedLines.length} priced service lines`);
+
+              // ═══ HONORAIRES-1 : honoraires internes servis par la couche package ═══
+              // Voir le bloc multi-lot : mêmes règles, mêmes champs (honoraires, dap, ddp).
+              if (engineResponse.totals && typeof engineResponse.totals === 'object') {
+                const packageInternalFees = sumFirmInternalFeePackageLines(engineLines);
+                if (packageInternalFees > 0) {
+                  const t = engineResponse.totals as Record<string, unknown>;
+                  for (const field of ['honoraires', 'dap', 'ddp']) {
+                    if (typeof t[field] === 'number' && Number.isFinite(t[field] as number)) {
+                      t[field] = (t[field] as number) + packageInternalFees;
+                    }
+                  }
+                  console.log(`[HONORAIRES-1] Mono-lot: honoraires package ajoutés aux totaux — ${packageInternalFees}`);
+                }
+              }
             } else {
               console.warn(`[P5] price-service-lines failed (${pslRes.status}), continuing with engine lines only`);
             }

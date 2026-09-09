@@ -27,7 +27,6 @@ import {
   getEVPMultiplier,
   checkExceptionalTransport,
   calculateCAF,
-  calculateSodatraFees,
   calculateHistoricalMatchScore,
   SOURCE_CONFIDENCE,
   normalizeIncoterm,
@@ -35,7 +34,6 @@ import {
   type ZoneConfig,
   type DataSourceType,
   type QuotationLineSource,
-  type SodatraFeeParams,
 } from "../_shared/quotation-rules.ts";
 
 // Provider aliases — centralised to avoid hardcoded mismatches (DPW vs DP_WORLD)
@@ -168,120 +166,6 @@ function identifyZoneFromDB(destination: string, zones: Record<string, ZoneConfi
   }
   
   return zones['THIES_REGION'] || Object.values(zones)[0];
-}
-
-/** Load SODATRA fee rules from DB, compute fees */
-interface SodatraFeeFromDB {
-  dedouanement: number;
-  suivi: number;
-  ouvertureDossier: number;
-  documentation: number;
-  commission: number;
-  total: number;
-  complexity: { factor: number; reasons: string[] };
-  fromDB: boolean;
-}
-
-async function calculateSodatraFeesFromDB(
-  supabase: any,
-  params: SodatraFeeParams,
-  zone: ZoneConfig
-): Promise<SodatraFeeFromDB> {
-  try {
-    const { data: rules, error } = await supabase
-      .from('sodatra_fee_rules')
-      .select('*')
-      .eq('is_active', true)
-      .or(`transport_mode.eq.ALL,transport_mode.eq.${params.transportMode}`);
-    
-    if (error || !rules || rules.length === 0) {
-      console.log('[M1.3] sodatra_fee_rules empty, using hardcoded fallback');
-      const fallback = calculateSodatraFees(params);
-      return { ...fallback, fromDB: false };
-    }
-    
-    // Calculate complexity factor from DB rules
-    let complexityFactor = 1.0;
-    const complexityReasons: string[] = [];
-    
-    // Get complexity_factors from the DEDOUANEMENT rule (which has them)
-    const dedouanementRule = rules.find((r: any) => r.fee_code === 'DEDOUANEMENT');
-    if (dedouanementRule?.complexity_factors) {
-      const cf = dedouanementRule.complexity_factors;
-      if (params.isIMO && cf.imo) { complexityFactor += cf.imo; complexityReasons.push('Marchandise IMO'); }
-      if (params.isOOG && cf.oog) { complexityFactor += cf.oog; complexityReasons.push('Hors gabarit'); }
-      if (params.isTransit && cf.transit) { complexityFactor += cf.transit; complexityReasons.push('Transit'); }
-      if (params.isReefer && cf.reefer) { complexityFactor += cf.reefer; complexityReasons.push('Conteneur réfrigéré'); }
-    }
-    
-    if (zone.multiplier > 1.5) {
-      complexityFactor += (zone.multiplier - 1) * 0.3;
-      complexityReasons.push(`Zone éloignée: ${zone.name}`);
-    }
-    
-    const roundTo5k = (n: number) => Math.round(n / 5000) * 5000;
-    
-    // DEDOUANEMENT
-    let dedouanement = 75000;
-    if (dedouanementRule) {
-      const ratePercent = parseFloat(dedouanementRule.rate_percent) || 0.004;
-      const valueFactor = parseFloat(dedouanementRule.value_factor) || 0.6;
-      const minAmt = parseFloat(dedouanementRule.min_amount) || 75000;
-      const maxAmt = parseFloat(dedouanementRule.max_amount) || 500000;
-      
-      const valueBased = Math.min(Math.max(params.cargoValue * ratePercent, 100000), maxAmt);
-      dedouanement = Math.max(roundTo5k(valueBased * valueFactor * complexityFactor), minAmt);
-    }
-    
-    // SUIVI
-    let suivi = 35000;
-    const suiviRule = rules.find((r: any) => 
-      r.fee_code === 'SUIVI' || (r.fee_code === 'SUIVI_TONNE' && params.containerCount === 0)
-    );
-    if (suiviRule) {
-      if (suiviRule.calculation_method === 'PER_CONTAINER' && params.containerCount > 0) {
-        suivi = Math.max(roundTo5k(parseFloat(suiviRule.base_amount) * params.containerCount * complexityFactor), parseFloat(suiviRule.min_amount) || 35000);
-      } else if (suiviRule.calculation_method === 'PER_TONNE') {
-        suivi = Math.max(roundTo5k(parseFloat(suiviRule.base_amount) * params.weightTonnes * complexityFactor), parseFloat(suiviRule.min_amount) || 35000);
-      }
-    }
-    
-    // OUVERTURE_DOSSIER
-    let ouvertureDossier = 25000;
-    const dossierRule = rules.find((r: any) => r.fee_code === 'OUVERTURE_DOSSIER' && (r.transport_mode === params.transportMode || r.transport_mode === 'ALL'));
-    if (dossierRule) {
-      ouvertureDossier = parseFloat(dossierRule.base_amount);
-    }
-    
-    // DOCUMENTATION
-    let documentation = 15000;
-    const docRule = rules.find((r: any) => r.fee_code === 'DOCUMENTATION');
-    if (docRule) {
-      documentation = parseFloat(docRule.base_amount);
-    }
-    
-    // COMMISSION (calculated later in main flow from débours total)
-    const commission = 0;
-    
-    const total = dedouanement + suivi + ouvertureDossier + documentation;
-    
-    console.log(`[M1.3] SODATRA fees from DB: dedouanement=${dedouanement}, suivi=${suivi}, dossier=${ouvertureDossier}, docs=${documentation}`);
-    
-    return {
-      dedouanement,
-      suivi,
-      ouvertureDossier,
-      documentation,
-      commission,
-      total,
-      complexity: { factor: complexityFactor, reasons: complexityReasons },
-      fromDB: true,
-    };
-  } catch (e) {
-    console.error('[M1.3] Error loading sodatra_fee_rules:', e);
-    const fallback = calculateSodatraFees(params);
-    return { ...fallback, fromDB: false };
-  }
 }
 
 /** Fetch operational costs for exceptional transport (M1.3.4) */
@@ -2113,93 +1997,14 @@ async function generateQuotationLines(
   }
   
   // =====================================================
-  // 8. BLOC HONORAIRES - SODATRA FEES (M1.3: from sodatra_fee_rules DB)
+  // 8. BLOC HONORAIRES — retiré (HONORAIRES-1, GO CTO 2026-09-09)
   // =====================================================
-  
-  // Don't include SODATRA fees for transit/tender contexts
-  const shouldIncludeSodatraFees = !isTransit || request.includeCustomsClearance;
-  
-  if (shouldIncludeSodatraFees) {
-    const sodatraParams: SodatraFeeParams = {
-      transportMode: request.transportMode,
-      cargoValue: request.cargoValue,
-      weightTonnes: totalWeightTonnes,
-      volumeM3: request.volumeM3 || 0,
-      containerCount: containers.reduce((s, c) => s + c.quantity, 0),
-      containerTypes: containers.map(c => c.type),
-      destinationZone: zone.code,
-      isIMO: request.isIMO || false,
-      isOOG: request.dimensions ? checkExceptionalTransport(request.dimensions).isExceptional : false,
-      isTransit: isTransit,
-      isReefer: request.isReefer || false
-    };
-    
-    const sodatraFees = await calculateSodatraFeesFromDB(supabase, sodatraParams, zone);
-    const feeSourceRef = sodatraFees.fromDB ? 'sodatra_fee_rules (DB)' : 'Grille SODATRA (fallback)';
-    
-    lines.push({
-      id: 'fee_clearance',
-      bloc: 'honoraires',
-      category: 'Dédouanement',
-      description: isTransit ? 'Honoraires transit SN' : 'Honoraires de dédouanement',
-      amount: sodatraFees.dedouanement,
-      currency: 'FCFA',
-      source: {
-        type: 'CALCULATED',
-        reference: feeSourceRef,
-        confidence: 0.9
-      },
-      notes: sodatraFees.complexity.reasons.length > 0 
-        ? `Facteur complexité: ${sodatraFees.complexity.factor.toFixed(2)} (${sodatraFees.complexity.reasons.join(', ')})`
-        : undefined,
-      isEditable: true
-    });
-    
-    lines.push({
-      id: 'fee_follow_up',
-      bloc: 'honoraires',
-      category: 'Suivi',
-      description: 'Suivi opérationnel',
-      amount: sodatraFees.suivi,
-      currency: 'FCFA',
-      source: {
-        type: 'CALCULATED',
-        reference: feeSourceRef,
-        confidence: 0.9
-      },
-      isEditable: true
-    });
-    
-    lines.push({
-      id: 'fee_file',
-      bloc: 'honoraires',
-      category: 'Administratif',
-      description: 'Ouverture de dossier',
-      amount: sodatraFees.ouvertureDossier,
-      currency: 'FCFA',
-      source: {
-        type: 'CALCULATED',
-        reference: feeSourceRef,
-        confidence: 1.0
-      },
-      isEditable: false
-    });
-    
-    lines.push({
-      id: 'fee_docs',
-      bloc: 'honoraires',
-      category: 'Administratif',
-      description: 'Frais de documentation',
-      amount: sodatraFees.documentation,
-      currency: 'FCFA',
-      source: {
-        type: 'CALCULATED',
-        reference: feeSourceRef,
-        confidence: 1.0
-      },
-      isEditable: false
-    });
-  }
+  // Les honoraires internes (frais d'agence, honoraires de dédouanement) ont
+  // une source unique paramétrable par l'administrateur : `pricing_rate_cards`
+  // (source `internal`), servie par price-service-lines sur les clés AGENCY et
+  // CUSTOMS_DAKAR du package, puis classée honoraires (TVA SODATRA) par
+  // run-pricing. Le moteur n'émet plus aucune ligne `bloc: 'honoraires'` ;
+  // `sodatra_fee_rules` et le repli codé en dur ne sont plus lus.
   
   // =====================================================
   // 8d. TRANSPORT EXCEPTIONNEL (M1.3.4: from operational_costs_senegal)
