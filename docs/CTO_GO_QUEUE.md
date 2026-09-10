@@ -91,11 +91,28 @@ Constats nouveaux issus de cette facture :
 - **E** — le code conteneur **`20FL`** n'existe nulle part dans le produit. `CONTAINER_PROFILES`
   connaît `20FR` mais pas `20FL` ; le seul alias `20FLATRACK → 20FR` vit dans `audit-coherence`, qui
   n'alimente pas le résolveur DTHC. Une facture réelle prouve que DP World émet ce code.
-- **F** — `RELEVAGE` : la facture donne **18 280 par conteneur** (4 × 18 280 = 73 120). La base porte
-  `CONTENEUR_20 = 36 560` (2 × 18 280) et `CONTENEUR_40 = 73 120` (4 × 18 280), source
-  `Taleb_Quote_2024` — un devis, pas le tarif officiel — et `quotation-engine:1515` calcule
-  `amount × quantity`. Hypothèse à confirmer : un total de ligne repris comme taux unitaire. Le
-  moteur n'applique par ailleurs le relevage qu'en transit, alors que cette facture est un import.
+- **F** — `RELEVAGE`. **DÉCISION CTO DU 2026-09-10 : le relevage vaut 18 280 FCFA par EVP, soit le
+  double pour un 40 pieds (36 560).** La facture 3384292 le confirme (4 × 18 280 = 73 120 pour quatre
+  20 pieds). La base porte `CONTENEUR_20 = 36 560` et `CONTENEUR_40 = 73 120`, soit **exactement le
+  double du barème dans les deux cas**, sur une source `Taleb_Quote_2024` (un devis, pas le tarif
+  officiel). `quotation-engine:1515` calcule `amount × quantity` : chaque ligne de relevage émise
+  jusqu'ici est **surévaluée de 100 %**.
+  Deuxième défaut, indépendant : le bloc est encadré par `if (isTransit)` (`quotation-engine:1505`),
+  alors que la facture 3384292 est un **import** et porte bien une ligne relevage. En import, la
+  ligne est donc **totalement omise** — l'erreur inverse.
+  Troisième défaut : la ligne émise porte `source.type: 'OFFICIAL'` et `confidence: 0.95` en dur
+  (`:1519-1522`), quel que soit le niveau de preuve réel de la ligne tarifaire. Un devis est présenté
+  au client comme un tarif officiel. `evidence_level` des deux lignes non vérifié à ce jour (MCP
+  Lovable indisponible au moment du constat).
+  **Correction proposée, sous-lot F1 (migration seule, aucun code, aucun module FROZEN)** :
+  `CONTENEUR_20` 36 560 → **18 280**, `CONTENEUR_40` 73 120 → **36 560**, `unit` harmonisée en
+  `FCFA/CNT`, `source_document` → « Facture DP World Dakar n° 3384292 du 31/07/2026 + décision CTO
+  2026-09-10 », `evidence_level` → `validated_internal` tant que la page tarif officielle n'est pas
+  fournie. Ligne 45 pieds absente : 2,25 EVP × 18 280 = 41 130 — **dérivée de la règle EVP, à
+  confirmer avant écriture**, pas encodée sans accord.
+  **Sous-lot F2 (touche `quotation-engine`, FROZEN, GO distinct)** : ouvrir le relevage à l'import, et
+  à terme remplacer les deux lignes par un taux unique de 18 280/EVP multiplié au même endroit que le
+  DTHC — un seul point d'application du facteur EVP dans toute la chaîne.
 - **G** — `ACCONAGE` et `IMPRIMES` (1 400) n'existent pas dans le produit. L'acconage est le DTHC sous
   son nom de facturation DP World : utile pour le rapprochement facture / devis.
 - **H** — TVA 18 % appliquée sur l'ensemble des lignes DP World ; à vérifier côté devis.
