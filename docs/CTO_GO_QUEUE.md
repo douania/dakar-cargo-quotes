@@ -24,6 +24,70 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-10 17:09 UTC] PENDING — DTHC-4 : cumul « conteneur spécial × marchandise dangereuse »
+
+**Origine** : session interactive
+**Type** : décision CTO rendue, GO d'implémentation en attente
+
+**DÉCISION CTO DU 2026-09-10** — un conteneur qui est **à la fois** hors gabarit / spécial **et**
+IMDG classe 1 à 9 se tarife au **taux conteneur spécial majoré de 50 %**, soit
+**310 000 × 1,5 = 465 000 FCFA par EVP** (manutention DP World Dakar).
+
+Cette décision lève l'ambiguïté que le dépliant DP World ne tranche pas : il présente « Produits
+dangereux 155 000 + 50 % » et « Autres conteneurs spéciaux 310 000, surcharge Néant » comme deux
+lignes distinctes, sans dire ce qui s'applique au cumul. Le code refusait de trancher
+(`dpw-dthc-tariff.ts:366-368`, `FAMILY_AMBIGUOUS`) — comportement correct jusqu'ici.
+
+**Lecture structurelle qu'elle induit** (hypothèse, à confirmer) : les 50 % ne sont pas une famille
+mais une **surcharge appliquée au taux de base de l'équipement**. Cela rend cohérente la ligne
+« dangereux » du dépliant, qui vaut exactement STANDARD (155 000) + 50 %.
+
+**Questions restant ouvertes, à trancher avant écriture** :
+1. **Niveau de preuve** : `official` (si confirmation écrite de DP World disponible) ou
+   `validated_internal` (décision CTO). Les deux sont acceptés par le résolveur
+   (`DPW_DTHC_EVIDENCE_WHITELIST`), mais inscrire `official` sans document serait faux.
+2. **Portée** : la majoration de 50 % s'étend-elle à `REEFER` (170 500 → 255 750) et à `BASIC`
+   (70 000 → 105 000), ou vaut-elle uniquement pour `STANDARD` et `SPECIAL` ? Ne rien généraliser
+   sans réponse.
+
+**Encodage recommandé** : ajouter une 6e famille `SPECIAL_DANGEROUS` (`amount` 310 000,
+`surcharge_percent` 50) plutôt qu'une surcharge orthogonale appliquée après coup — la ligne
+`DANGEROUS` porte déjà ses 50 %, une surcharge transverse les appliquerait deux fois. L'ajout d'une
+famille préserve le contrat « cargo_type exact + classification exacte » sur lequel repose tout le
+résolveur.
+
+**Fichiers concernés** : `supabase/functions/_shared/dpw-dthc-tariff.ts` (non FROZEN) + son test,
+migration d'ajout de ligne dans `port_tariffs`. Sous-lot du lot `DTHC-4` décrit ci-dessous.
+
+**Enjeu chiffré, dossier GoTrans `5e9cd222`** : 39 unités BESS à 1 EVP. Au taux standard
+6 045 000 FCFA, au taux cumulé **18 135 000 FCFA**. Écart **12 090 000 FCFA** sur la seule
+manutention terminal.
+
+**Reste du lot `DTHC-4`, audité le 2026-09-10, aucun fichier modifié** :
+- **A** — `cargo.dangerous_goods` n'atteint jamais le DTHC : `isIMO`/`isHazmat` sont déclarés
+  (`quotation-engine:421,425`), lus (`:1460`) et **jamais renseignés** par `run-pricing`
+  (`engineParams`, `:3072-3093`). La majoration de 50 % ne part donc jamais automatiquement.
+- **B** — `20HQ`/`20HC` absents de `CONTAINER_PROFILES` alors que `40HC`/`40HQ` y sont : les
+  52 conteneurs du dossier tombent en `CONTAINER_TYPE_UNSUPPORTED`.
+- **C** — aucun fait ne route une unité hors gabarit ou en surpoids vers `SPECIAL` : un dry OOG reste
+  `DRY`. S'appuiera sur `cargo.weight_per_container_kg`, qui existe déjà (TRUCKING-22T).
+- **D** — cinq lignes actives de `port_tariffs` absentes du dépliant (`CONTENEUR_40` à 232 500,
+  `CONTENEUR_VIDE` et `CONTENEUR_20 Transbordement` à 75 000, en import et export). Le résolveur les
+  ignore, mais `generate-response:1498-1526` les envoie toutes à l'IA sous « UTILISER CES MONTANTS
+  EXACTS ». Un 40 pieds standard vaut 2 EVP × 155 000 = 310 000, pas 232 500. **Exposition client
+  directe, sous-lot le plus urgent.**
+- **Hors lot** : le résolveur est limité à l'import (`dpw-dthc-tariff.ts:382`) alors que les grilles
+  EXPORT et TRANSIT existent en base et sont conformes au dépliant. Donnée morte.
+
+**Vérifié le 2026-09-10** : les cinq familles de `port_tariffs` (import, export, transit) concordent
+au franc près avec le dépliant DP World « Nouveaux tarifs de manutention de conteneurs » 2024
+(70 000 / 155 000 / 170 500 / 155 000 + 50 % / 310 000 ; transit 110 000 ; 20' = 1 EVP, 40' = 2 EVP,
+45' = 2,25 EVP). Page 2 du dépliant non fournie.
+
+**Référence** : branche `work`, HEAD `c0304c65`. Pièce reçue : `DPWDakarLandsideTariff2024_1_2.pdf`.
+
+---
+
 ## [2026-09-10 16:49 UTC] PENDING — Contradiction pont-bascule / dépliant officiel sur les limites d'essieux T12S4
 
 **Origine** : session interactive
