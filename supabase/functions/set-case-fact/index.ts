@@ -14,6 +14,10 @@ import {
   TERMINAL_OPERATION_MODE_FACT_KEY,
 } from "../_shared/terminal-operation-mode.ts";
 import { normalizeDpwDthcFamily } from "../_shared/dpw-dthc-tariff.ts";
+import {
+  DANGEROUS_GOODS_FACT_KEY,
+  normalizeDangerousGoodsFactValue,
+} from "../_shared/dangerous-goods.ts";
 
 // DTHC-2 (GO CTO 2026-09-08) : famille tarifaire DP World choisie par l'opérateur.
 // Seule entrée qui permet au résolveur DTHC de chiffrer un conteneur sec dont la
@@ -57,6 +61,11 @@ const ALLOWED_FACT_KEYS = new Set([
   "cargo.pad_rate_fcfa_per_ton",
   "cargo.freight_exchange_rate",
   DTHC_FAMILY_FACT_KEY,
+  // DG-1 (GO CTO 2026-09-10) : caractère dangereux de la marchandise. Sans cette
+  // entrée, le fait n'est inscriptible par personne et toute règle d'honoraires
+  // conditionnée à ce critère reste « à confirmer » (même justification que
+  // TERMINAL-GAP et DTHC-2).
+  DANGEROUS_GOODS_FACT_KEY,
 ]);
 
 // ── Category detection from prefix ──
@@ -152,6 +161,23 @@ Deno.serve(async (req) => {
         });
       }
       canonicalValueText = family;
+    }
+
+    // DG-1 : valeur texte stricte YES / NO, canonicalisée AVANT le RPC. Les
+    // formes usuelles (oui / non / true / false / 1 / 0) sont acceptées à
+    // l'écriture puis ramenées à la valeur canonique ; toute autre chaîne est
+    // refusée plutôt qu'interprétée — un « peut-être » inscrit en base ferait
+    // appliquer ou écarter à tort une règle d'honoraires.
+    if (fact_key === DANGEROUS_GOODS_FACT_KEY) {
+      const dangerous = normalizeDangerousGoodsFactValue(value_text);
+      if (!dangerous || value_number != null || value_json != null) {
+        return respondError({
+          code: "VALIDATION_FAILED",
+          message: `${DANGEROUS_GOODS_FACT_KEY} accepte uniquement une valeur texte YES ou NO (oui/non, true/false, 1/0 admis), sans value_number ni value_json`,
+          correlationId,
+        });
+      }
+      canonicalValueText = dangerous;
     }
 
     // 4b-bis. Structural validation for cargo.containers (DCQ-P0-INTAKE-FACTS-PERSISTENCE v5)

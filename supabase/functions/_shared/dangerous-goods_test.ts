@@ -1,0 +1,108 @@
+/**
+ * DG-1 — Tests du fait canonique « marchandise dangereuse ».
+ *
+ * Enjeu : ce fait décide de l'application de règles d'honoraires et, demain, de
+ * franchises de séjour. Une valeur devinée produirait un montant faux ; les cas
+ * ci-dessous verrouillent le caractère fail-closed et l'unidirectionnalité du
+ * repli depuis la famille tarifaire DP World.
+ */
+
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  DANGEROUS_GOODS_FACT_KEY,
+  normalizeDangerousGoodsFactValue,
+  resolveDangerousGoods,
+} from "./dangerous-goods.ts";
+
+Deno.test("clé du fait : préfixe cargo, donc catégorie cargo côté set-case-fact", () => {
+  assertEquals(DANGEROUS_GOODS_FACT_KEY, "cargo.dangerous_goods");
+  assertEquals(DANGEROUS_GOODS_FACT_KEY.split(".")[0], "cargo");
+});
+
+Deno.test("normalisation : formes acceptées pour oui", () => {
+  for (const raw of ["YES", "yes", " Oui ", "OUI", "true", "TRUE", "1"]) {
+    assertEquals(normalizeDangerousGoodsFactValue(raw), "YES", `valeur refusée : ${raw}`);
+  }
+});
+
+Deno.test("normalisation : formes acceptées pour non", () => {
+  for (const raw of ["NO", "no", "Non", "NON", "false", "FALSE", "0"]) {
+    assertEquals(normalizeDangerousGoodsFactValue(raw), "NO", `valeur refusée : ${raw}`);
+  }
+});
+
+Deno.test("normalisation : tout le reste est refusé, jamais interprété", () => {
+  for (const raw of ["", "   ", "peut-être", "IMDG", "classe 3", "Y", "N", "vrai", 1, 0, true, false, null, undefined, {}]) {
+    assertEquals(
+      normalizeDangerousGoodsFactValue(raw),
+      null,
+      `valeur acceptée à tort : ${JSON.stringify(raw)}`,
+    );
+  }
+});
+
+Deno.test("fait explicite oui : dangereux, origine le fait", () => {
+  const r = resolveDangerousGoods("YES");
+  assertEquals(r.dangerous, true);
+  assertEquals(r.origin, "FACT");
+});
+
+Deno.test("fait explicite non : non dangereux, origine le fait", () => {
+  const r = resolveDangerousGoods("NON");
+  assertEquals(r.dangerous, false);
+  assertEquals(r.origin, "FACT");
+});
+
+Deno.test("fait absent : inconnu, jamais « non dangereux »", () => {
+  const r = resolveDangerousGoods(null);
+  assertEquals(r.dangerous, null);
+  assertEquals(r.origin, "UNKNOWN");
+});
+
+Deno.test("fait illisible : inconnu, jamais deviné", () => {
+  const r = resolveDangerousGoods("à confirmer");
+  assertEquals(r.dangerous, null);
+  assertEquals(r.origin, "UNKNOWN");
+});
+
+Deno.test("repli : famille DP World DANGEROUS vaut déclaration de danger", () => {
+  const r = resolveDangerousGoods(null, "DANGEROUS");
+  assertEquals(r.dangerous, true);
+  assertEquals(r.origin, "DTHC_FAMILY");
+});
+
+Deno.test("repli unidirectionnel : une autre famille ne prouve PAS l'absence de danger", () => {
+  for (const family of ["STANDARD", "BASIC", "REEFER", "SPECIAL"]) {
+    const r = resolveDangerousGoods(null, family);
+    assertEquals(r.dangerous, null, `famille ${family} a conclu à tort`);
+    assertEquals(r.origin, "UNKNOWN");
+  }
+});
+
+Deno.test("le fait explicite prime sur la famille tarifaire, dans les deux sens", () => {
+  const contredit = resolveDangerousGoods("NO", "DANGEROUS");
+  assertEquals(contredit.dangerous, false);
+  assertEquals(contredit.origin, "FACT");
+
+  const confirme = resolveDangerousGoods("YES", "STANDARD");
+  assertEquals(confirme.dangerous, true);
+  assertEquals(confirme.origin, "FACT");
+});
+
+Deno.test("famille illisible : ignorée, le dossier reste inconnu", () => {
+  for (const family of ["", "DANGER", "IMDG", 42, null, undefined]) {
+    assertEquals(resolveDangerousGoods(null, family).dangerous, null);
+  }
+});
+
+Deno.test("chaque réponse porte une explication française non vide", () => {
+  for (const r of [
+    resolveDangerousGoods("YES"),
+    resolveDangerousGoods("NO"),
+    resolveDangerousGoods(null),
+    resolveDangerousGoods(null, "DANGEROUS"),
+  ]) {
+    assertEquals(typeof r.message, "string");
+    assertEquals(r.message.trim().length > 0, true);
+  }
+});
