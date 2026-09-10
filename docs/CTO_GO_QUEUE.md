@@ -63,6 +63,48 @@ migration d'ajout de ligne dans `port_tariffs`. Sous-lot du lot `DTHC-4` décrit
 6 045 000 FCFA, au taux cumulé **18 135 000 FCFA**. Écart **12 090 000 FCFA** sur la seule
 manutention terminal.
 
+**PREUVE DE FACTURATION (reçue le 2026-09-10)** — facture DP World Dakar n° 3384292 du 31/07/2026,
+client 2HL SARL (compte 4111000) P/C NEW ENERGY AFRICA-KOLDA SA, BL SHZ8041934, navire LION réf
+22323I, SHEKOU → DAKAR, DO import DPWHJ2307774. Quatre conteneurs **20FL** (HDTU5200312, 333, 349,
+354), marchandise déclarée « MATERIELS ELECTRIQUES », **33,050 T chacun**.
+
+| Ligne facturée | Unités | Taux | Montant |
+|---|---|---|---|
+| IMPRIMES | 1 | 1 400 | 1 400 |
+| RELEVAGE | 4 | **18 280** | 73 120 |
+| **ACCONAGE C7** | 4 × 1 | **310 000** | 1 240 000 |
+| Total HT | | | 1 314 520 |
+| TVA 18 % | | | 236 614 |
+| Net à payer | | | 1 551 134 |
+
+Ce que la facture établit :
+- le taux « conteneurs spéciaux » de 310 000 est bien appliqué en facturation réelle, sous le libellé
+  DP World **« ACCONAGE C7 »**, **par conteneur** (1 unité pour un 20 pieds) ;
+- la majoration de 50 % n'a pas été appliquée sur cette facture, la marchandise étant déclarée
+  « matériels électriques » ;
+- 33,050 T sur un 20 pieds dépasse la masse brute ISO de 30 480 kg, d'où le flat rack et le
+  classement spécial : ces unités ne sont pas classées spéciales par excès de zèle du terminal ;
+- coter ces quatre conteneurs au tarif standard aurait donné 620 000 au lieu de 1 240 000 facturés,
+  soit **une sous-cotation de 100 %** sur la seule manutention.
+
+Constats nouveaux issus de cette facture :
+- **E** — le code conteneur **`20FL`** n'existe nulle part dans le produit. `CONTAINER_PROFILES`
+  connaît `20FR` mais pas `20FL` ; le seul alias `20FLATRACK → 20FR` vit dans `audit-coherence`, qui
+  n'alimente pas le résolveur DTHC. Une facture réelle prouve que DP World émet ce code.
+- **F** — `RELEVAGE` : la facture donne **18 280 par conteneur** (4 × 18 280 = 73 120). La base porte
+  `CONTENEUR_20 = 36 560` (2 × 18 280) et `CONTENEUR_40 = 73 120` (4 × 18 280), source
+  `Taleb_Quote_2024` — un devis, pas le tarif officiel — et `quotation-engine:1515` calcule
+  `amount × quantity`. Hypothèse à confirmer : un total de ligne repris comme taux unitaire. Le
+  moteur n'applique par ailleurs le relevage qu'en transit, alors que cette facture est un import.
+- **G** — `ACCONAGE` et `IMPRIMES` (1 400) n'existent pas dans le produit. L'acconage est le DTHC sous
+  son nom de facturation DP World : utile pour le rapprochement facture / devis.
+- **H** — TVA 18 % appliquée sur l'ensemble des lignes DP World ; à vérifier côté devis.
+- **I** — recoupement possible avec les tickets de pesage du 15/08/2026 (tous vers KOLDA, dont un
+  « produit : BATTERIE » à 49 115 kg sur un T11S4). Si ce ticket portait l'un de ces conteneurs, la
+  tare de l'ensemble T11S4 vaut 49 115 − 33 050 = **16 065 kg** — le chiffre manquant du lot
+  `ROAD-LOAD-1`. À confirmer avec 2HL : deux semaines séparent les deux documents et rien ne prouve
+  la correspondance.
+
 **Reste du lot `DTHC-4`, audité le 2026-09-10, aucun fichier modifié** :
 - **A** — `cargo.dangerous_goods` n'atteint jamais le DTHC : `isIMO`/`isHazmat` sont déclarés
   (`quotation-engine:421,425`), lus (`:1460`) et **jamais renseignés** par `run-pricing`
