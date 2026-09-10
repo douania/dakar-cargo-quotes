@@ -3226,6 +3226,66 @@ export type Database = {
         }
         Relationships: []
       }
+      imo_terminal_rules: {
+        Row: {
+          created_at: string
+          document_version: string
+          effective_date: string
+          evidence_level: string
+          firefighter_supervision: boolean | null
+          id: string
+          imdg_class: string
+          loading_gate_in_hours_before_vessel: number | null
+          notes: string | null
+          pad_prior_approval: string | null
+          source_document: string
+          source_reference: string
+          storage_max_days: number | null
+          storage_regime: string
+          transshipment_max_days: number | null
+          un_numbers: number[]
+          un_scope: string
+        }
+        Insert: {
+          created_at?: string
+          document_version: string
+          effective_date: string
+          evidence_level?: string
+          firefighter_supervision?: boolean | null
+          id?: string
+          imdg_class: string
+          loading_gate_in_hours_before_vessel?: number | null
+          notes?: string | null
+          pad_prior_approval?: string | null
+          source_document: string
+          source_reference: string
+          storage_max_days?: number | null
+          storage_regime?: string
+          transshipment_max_days?: number | null
+          un_numbers?: number[]
+          un_scope: string
+        }
+        Update: {
+          created_at?: string
+          document_version?: string
+          effective_date?: string
+          evidence_level?: string
+          firefighter_supervision?: boolean | null
+          id?: string
+          imdg_class?: string
+          loading_gate_in_hours_before_vessel?: number | null
+          notes?: string | null
+          pad_prior_approval?: string | null
+          source_document?: string
+          source_reference?: string
+          storage_max_days?: number | null
+          storage_regime?: string
+          transshipment_max_days?: number | null
+          un_numbers?: number[]
+          un_scope?: string
+        }
+        Relationships: []
+      }
       incoterms_reference: {
         Row: {
           buyer_pays_import_customs: boolean
