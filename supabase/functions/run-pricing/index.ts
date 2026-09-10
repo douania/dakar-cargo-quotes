@@ -3629,7 +3629,8 @@ Deno.serve(async (req) => {
           // Franchise standard annoncée par le moteur, uniquement pour signaler
           // l'écart à l'opérateur. Jamais utilisée dans un calcul.
           const engineLinesForFranchise = engineResponse.lines || engineResponse.quotationLines || [];
-          const franchiseLine = engineLinesForFranchise.find((l: any) => l?.id === 'warehouse_franchise');
+          const franchiseLine = (engineLinesForFranchise as Array<{ id?: unknown; description?: unknown }>)
+            .find((l) => l?.id === 'warehouse_franchise');
           const standardFreeDaysMatch = typeof franchiseLine?.description === 'string'
             ? franchiseLine.description.match(/(\d+)\s*jours/)
             : null;
