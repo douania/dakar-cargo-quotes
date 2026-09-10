@@ -271,6 +271,20 @@ Le résolveur `_shared/imo-terminal-rules.ts` applique la précédence numéro O
 
 **Risque découvert, non traité faute de GO.** La table `imo_classes` (16 lignes, créées le 19 décembre 2025 par la génération initiale du projet) porte des surcharges portuaires et de magasinage de 25 % à 300 %, **sans colonne de source ni de niveau de preuve**, contrairement à `terminal_tariff_codes` qui cite systématiquement son document et son niveau de preuve. Ces valeurs ne passent pas dans le pipeline de chiffrage canonique, mais `analyze-risks` les injecte dans le contexte textuel des réponses rédigées au client par `generate-response` : une surcharge inventée peut donc être annoncée à un client. À arbitrer.
 
+### 3.20 Lot IMO-STORAGE-1 — le régime de séjour IMO entre dans le devis (10 septembre 2026)
+
+GO CTO « go pour le branchement magasinage et surestaries ». Trois sous-lots : `42411db2` (ligne d'information), `82aeb4b4` (exception structurelle `run-pricing`), `54b35d14` (clé réservée). CI verte, migration appliquée en production.
+
+**Défaut corrigé.** Le moteur annonçait la franchise magasinage standard à tout conteneur — 15 jours en FCL au barème PAD, 10 au barème DP World — y compris pour une marchandise dangereuse dont la procédure impose la livraison sous palan (aucun séjour) ou 3 jours. Un client qui se croyait couvert 15 jours découvrait la pénalité au 4e. La nouvelle couche `enrichment_imo_storage` ajoute, quand le dossier porte une classe IMDG, une ligne portant le régime réel et signalant explicitement que la franchise annoncée par ailleurs ne s'applique pas.
+
+**La ligne ne facture rien** : montant nul en toutes circonstances, aucun tarif de dépassement propre aux conteneurs IMO n'étant publié dans l'Annexe 1. Une classe interdite au terminal produit une ligne bloquante. Bloc entièrement sous try/catch : un référentiel indisponible ne fait pas échouer un chiffrage, et aucune ligne n'est émise sans classe IMDG — donc aucun devis existant n'est modifié.
+
+**SURESTARIES NON BRANCHÉES, décision assumée.** Elles proviennent de `demurrage_rates` (barème armateur) ; l'Annexe 1 est un document de terminal et ne les mentionne pas. Aucune source ne relie les deux, les brancher aurait exigé d'inventer ce lien. **En attente d'un document qui l'établisse.**
+
+**Contradiction de sources à arbitrer.** `warehouse_franchise` contient déjà une ligne `cargo_type = 'IMO'` à 5 jours (provider PAD, « Tarifs PAD 2024 », zone IMO, 500 XOF/tonne/jour). Elle n'est jamais sélectionnée par le moteur, qui ne teste que FCL / VEHICLE / BREAKBULK / EMPTY, et elle contredit les 0/3 jours du terminal DP World (juillet 2025). Port et terminal sont deux entités distinctes : la ligne n'a donc PAS été écrasée.
+
+Conséquence du garde-fou H2-d2 : la clé `IMO_TERMINAL_STORAGE_REGIME` est devenue un code réservé, sans quoi une ligne d'honoraires homonyme serait entrée en collision avec la ligne réglementaire.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
