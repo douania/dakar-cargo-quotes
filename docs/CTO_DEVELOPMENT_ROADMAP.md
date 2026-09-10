@@ -243,6 +243,20 @@ GO CTO « go H2-d ». Six sous-lots, chacun ≤ 3 fichiers : `d6c73701` (écran 
 
 Reste ouvert : le fait DG-1 (marchandise dangereuse), sans lequel toute règle conditionnée sur ce critère reste « à confirmer » ; la raison sociale et le NINEA des deux clients amorcés, à compléter par l'administrateur.
 
+### 3.18 Lot DG-1 — fait canonique « marchandise dangereuse » (10 septembre 2026)
+
+GO CTO « go DG-1 ». Trois sous-lots : `03836000` (module et exception structurelle), `2afb1c03` (branchement au contexte d'honoraires), `dc0f1077` (saisie opérateur). CI verte sur `dc0f1077`. `set-case-fact` doit être redéployée pour que le fait soit inscriptible : redéploiement demandé à l'agent Lovable, à confirmer avant recette.
+
+- **Le fait** : `cargo.dangerous_goods`, valeurs canoniques `YES` / `NO`, porté par le module pur `_shared/dangerous-goods.ts`. Les formes usuelles (oui/non, true/false, 1/0) sont acceptées à l'écriture puis ramenées à la valeur canonique ; toute autre chaîne est refusée plutôt qu'interprétée. **Fait absent ou illisible vaut INCONNU, jamais « non dangereux »** : la règle conditionnée sort « à confirmer ».
+- **Repli sûr et unidirectionnel** : une famille tarifaire DP World `DANGEROUS` est une déclaration explicite de danger et vaut « oui » ; aucune autre famille ne prouve l'absence de danger. Le fait explicite prime toujours, dans les deux sens.
+- **Exception structurelle sur `set-case-fact`** (FROZEN), strictement additive (26 insertions, 0 suppression) : sans entrée dans l'allowlist le fait ne serait inscriptible par personne — même justification et même patron de validation que TERMINAL-GAP et DTHC-2.
+- **Propagation** : le module partagé de contexte d'honoraires (H2-d2) étant le point d'entrée unique, le fait alimente d'un coup le chiffrage réel et la simulation, sans modifier `price-service-lines` ni `simulate-fee-lines`.
+- **Écran** : le fait est ajoutable et modifiable sur un dossier (liste Oui / Non) et signalé comme ambigu en multi-lot, la dangerosité pouvant différer d'un lot à l'autre.
+
+Tests : 13 cas Deno pour le module, 5 ajoutés au contexte d'honoraires ; suite `supabase/functions/_shared` complète 218 PASS avec les options de la CI. Frontend : typecheck, lint (baseline inchangée), 323 tests Vitest, build.
+
+Reste ouvert : la classe IMDG et le numéro ONU relèvent d'IMO-RULES-1 (non engagé) ; aucune règle d'honoraires conditionnée à la dangerosité n'existe encore en production, le paramétrage revient à l'administrateur.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
