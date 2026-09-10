@@ -18,6 +18,12 @@ import {
   DANGEROUS_GOODS_FACT_KEY,
   normalizeDangerousGoodsFactValue,
 } from "../_shared/dangerous-goods.ts";
+import {
+  IMO_CLASS_FACT_KEY,
+  UN_NUMBER_FACT_KEY,
+  normalizeImdgClass,
+  normalizeUnNumber,
+} from "../_shared/imo-classification.ts";
 
 // DTHC-2 (GO CTO 2026-09-08) : famille tarifaire DP World choisie par l'opérateur.
 // Seule entrée qui permet au résolveur DTHC de chiffrer un conteneur sec dont la
@@ -66,6 +72,12 @@ const ALLOWED_FACT_KEYS = new Set([
   // conditionnée à ce critère reste « à confirmer » (même justification que
   // TERMINAL-GAP et DTHC-2).
   DANGEROUS_GOODS_FACT_KEY,
+  // IMO-RULES-1 (GO CTO 2026-09-10) : classe IMDG et numéro ONU. Ils
+  // conditionnent la documentation exigée par le terminal et, à terme, le mode
+  // de séjour. Sans ces entrées les faits ne seraient inscriptibles par
+  // personne (même justification que TERMINAL-GAP, DTHC-2 et DG-1).
+  IMO_CLASS_FACT_KEY,
+  UN_NUMBER_FACT_KEY,
 ]);
 
 // ── Category detection from prefix ──
@@ -178,6 +190,36 @@ Deno.serve(async (req) => {
         });
       }
       canonicalValueText = dangerous;
+    }
+
+    // IMO-RULES-1 : classe IMDG stricte (nomenclature OMI), canonicalisée AVANT
+    // le RPC. Une classe à divisions saisie sans division est refusée : « 4 »
+    // ne décrit aucune matière, il faut 4.1, 4.2 ou 4.3.
+    if (fact_key === IMO_CLASS_FACT_KEY) {
+      const imdgClass = normalizeImdgClass(value_text);
+      if (!imdgClass || value_number != null || value_json != null) {
+        return respondError({
+          code: "VALIDATION_FAILED",
+          message: `${IMO_CLASS_FACT_KEY} accepte uniquement une classe IMDG (1.1 à 1.6, 2.1 à 2.3, 3, 4.1 à 4.3, 5.1, 5.2, 6.1, 6.2, 7, 8, 9), sans value_number ni value_json`,
+          correlationId,
+        });
+      }
+      canonicalValueText = imdgClass;
+    }
+
+    // IMO-RULES-1 : numéro ONU au format UN + quatre chiffres. Le format seul
+    // est vérifié : cette fonction ne détient pas la liste officielle des
+    // numéros attribués et ne certifie donc pas qu'un numéro bien formé existe.
+    if (fact_key === UN_NUMBER_FACT_KEY) {
+      const unNumber = normalizeUnNumber(value_text);
+      if (!unNumber || value_number != null || value_json != null) {
+        return respondError({
+          code: "VALIDATION_FAILED",
+          message: `${UN_NUMBER_FACT_KEY} accepte uniquement un numéro ONU à quatre chiffres (ex. UN1203), sans value_number ni value_json`,
+          correlationId,
+        });
+      }
+      canonicalValueText = unNumber;
     }
 
     // 4b-bis. Structural validation for cargo.containers (DCQ-P0-INTAKE-FACTS-PERSISTENCE v5)
