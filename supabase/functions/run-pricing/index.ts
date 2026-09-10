@@ -21,6 +21,11 @@ import {
   isInternalFeeServiceKey,
   sumFirmInternalFeePackageLines,
 } from "../_shared/internal-fees.ts";
+// IMO-STORAGE-1 : régime de séjour au terminal pour les conteneurs de
+// marchandises dangereuses (Annexe 1 v4.0 DP World).
+import { IMO_CLASS_FACT_KEY, UN_NUMBER_FACT_KEY } from "../_shared/imo-classification.ts";
+import { resolveImoTerminalRule, type ImoTerminalRuleRow } from "../_shared/imo-terminal-rules.ts";
+import { buildImoStorageNotice, IMO_STORAGE_SERVICE_KEY } from "../_shared/imo-storage-notice.ts";
 import {
   PAD_SCOPE_SERVICE_KEYS,
   type PadScopeFact,
@@ -114,6 +119,10 @@ interface PricingInputs {
   // Phase 3: PAD droit de passage (fact-based, mono-lot only)
   padCategory?: string;
   padRateFcfaPerTon?: number;
+  // IMO-STORAGE-1 : classification de la marchandise dangereuse, qui commande le
+  // régime de séjour au terminal (procédure DP World, Annexe 1 v4.0).
+  imoClass?: string;
+  unNumber?: string;
 }
 
 // Backend guard: pricing must not start while client or partner communication loops are still open.
@@ -861,7 +870,7 @@ function normalizeSourceType(raw: unknown): string | null {
 interface CanonicalBlock {
   service_key: string | null;
   dedup_group: string | null;
-  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage' | 'enrichment_carrier_commission' | 'enrichment_carrier_charges';
+  origin_layer: 'engine_structural' | 'package_enrichment' | 'manual_override' | 'enrichment_pad' | 'enrichment_terminal_storage' | 'enrichment_imo_storage' | 'enrichment_carrier_commission' | 'enrichment_carrier_charges';
   source_system: string | null;
   source_table: string | null;
   pricing_method: string | null;
@@ -976,6 +985,12 @@ export function canonicalizeLine(
     canonical.source_system = 'terminal_designations';
     canonical.source_table = 'terminal_tariff_codes';
     canonical.pricing_method = 'provision_estimate';
+  } else if (context.origin_layer === 'enrichment_imo_storage') {
+    canonical.service_key = IMO_STORAGE_SERVICE_KEY;
+    canonical.dedup_group = IMO_STORAGE_SERVICE_KEY;
+    canonical.source_system = 'imo_terminal_rules';
+    canonical.source_table = 'imo_terminal_rules';
+    canonical.pricing_method = 'regulatory_notice';
   } else if (context.origin_layer === 'enrichment_carrier_commission') {
     canonical.service_key = 'CMA_CGM_COMM';
     canonical.dedup_group = 'CMA_CGM_COMM';
@@ -3590,6 +3605,64 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ═══ IMO-STORAGE-1 : régime de séjour au terminal pour marchandise dangereuse ═══
+      // Le moteur annonce la franchise magasinage standard (15 jours en FCL au
+      // barème PAD, 10 au barème DP World). Pour un conteneur IMO cette annonce
+      // est fausse : la procédure DP World impose la livraison sous palan ou
+      // 3 jours. Cette couche ajoute l'information exacte, SANS AUCUN MONTANT :
+      // aucun tarif de dépassement propre aux conteneurs IMO n'est publié.
+      // Les surestaries restent inchangées : elles relèvent du barème armateur.
+      if (inputs.imoClass) {
+        try {
+          const { data: imoRules, error: imoRulesError } = await serviceClient
+            .from('imo_terminal_rules')
+            .select('id, imdg_class, un_scope, un_numbers, pad_prior_approval, firefighter_supervision, storage_regime, storage_max_days, transshipment_max_days, loading_gate_in_hours_before_vessel, source_reference, notes');
+
+          if (imoRulesError) throw imoRulesError;
+
+          const imoResolution = resolveImoTerminalRule(
+            (imoRules || []) as ImoTerminalRuleRow[],
+            inputs.imoClass,
+            inputs.unNumber,
+          );
+
+          // Franchise standard annoncée par le moteur, uniquement pour signaler
+          // l'écart à l'opérateur. Jamais utilisée dans un calcul.
+          const engineLinesForFranchise = engineResponse.lines || engineResponse.quotationLines || [];
+          const franchiseLine = engineLinesForFranchise.find((l: any) => l?.id === 'warehouse_franchise');
+          const standardFreeDaysMatch = typeof franchiseLine?.description === 'string'
+            ? franchiseLine.description.match(/(\d+)\s*jours/)
+            : null;
+          const standardFreeDays = standardFreeDaysMatch ? Number(standardFreeDaysMatch[1]) : null;
+
+          const notice = buildImoStorageNotice(imoResolution, standardFreeDays);
+
+          const imoLines = engineResponse.lines || engineResponse.quotationLines || [];
+          imoLines.push(canonicalizeLine({
+            category: IMO_STORAGE_SERVICE_KEY,
+            label: notice.label,
+            description: notice.description,
+            amount: notice.amount,
+            currency: 'FCFA',
+            unit: 'forfait',
+            quantity: 1,
+            bloc: 'operationnel',
+            source: {
+              type: notice.sourceType,
+              reference: notice.sourceReference,
+              confidence: notice.sourceType === 'OFFICIAL' ? 1 : 0,
+            },
+            notes: notice.notes,
+            isEditable: false,
+          }, { origin_layer: 'enrichment_imo_storage' }));
+          engineResponse.lines = imoLines;
+
+          console.log(`[IMO-STORAGE] class=${inputs.imoClass} un=${inputs.unNumber ?? 'none'} status=${imoResolution.status} regime=${imoResolution.storageRegime ?? 'none'} days=${imoResolution.storageMaxDays ?? 'none'} conflicting=${imoResolution.conflicting} standardFreeDays=${standardFreeDays ?? 'none'}`);
+        } catch (imoStorageErr) {
+          console.warn('[IMO-STORAGE] enrichment failed (non-blocking):', imoStorageErr);
+        }
+      }
+
       // ═══ Phase 3-B.1 + 3-A: Terminal Storage Provision Estimate (Dakar Terminal, P1, mono-lot only) ═══
       // Phase 3-B.1: Alias lookup (validated only) → Phase 3-A: Direct match fallback
       // Exact match only — 0 ILIKE, 0 fuzzy, 0 partial matching
@@ -4590,6 +4663,16 @@ function buildPricingInputs(facts: any[]): PricingInputs {
   // Read here through the same readers as resolvePadScopeBlocker; the keys stay unset
   // when no usable value exists, so the enrichment below still fails closed.
   Object.assign(inputs, readPadPricingInputs(facts));
+
+  // IMO-STORAGE-1 : classe IMDG et numéro ONU, lus en valeur texte canonique
+  // (set-case-fact les a déjà normalisés à l'écriture).
+  for (const fact of facts) {
+    if (fact?.fact_key === IMO_CLASS_FACT_KEY && typeof fact.value_text === "string") {
+      inputs.imoClass = fact.value_text;
+    } else if (fact?.fact_key === UN_NUMBER_FACT_KEY && typeof fact.value_text === "string") {
+      inputs.unNumber = fact.value_text;
+    }
+  }
 
   // P8: Fallback — export dossiers have destination_port but not destination_city
   if (!inputs.finalDestination) {
