@@ -44,6 +44,17 @@ export const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: s
     { value: "REEFER", label: "REEFER — conteneurs frigorifiques" },
     { value: "SPECIAL", label: "SPECIAL — conteneurs spéciaux (OOG, flat, open top, tank)" },
   ],
+  /**
+   * DG-1 — caractère dangereux de la marchandise (fait cargo.dangerous_goods).
+   * Valeurs strictes attendues par supabase/functions/_shared/dangerous-goods.ts.
+   * Fait absent : le caractère dangereux reste INCONNU et toute règle
+   * d'honoraires conditionnée à ce critère sort « à confirmer » — l'absence de
+   * saisie ne vaut jamais « non dangereux ».
+   */
+  "cargo.dangerous_goods": [
+    { value: "YES", label: "Oui — marchandise dangereuse (IMDG / IATA DGR)" },
+    { value: "NO", label: "Non — marchandise non dangereuse" },
+  ],
 };
 
 /** P1a — Global fact keys ambiguous on multi-lot cases */
@@ -55,6 +66,9 @@ export const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
   // Le moteur multi-lot exige une valeur déclarée par lot et ignore volontairement
   // ce fait global : le badge avertit l'opérateur qu'il ne résout pas les lots.
   "routing.terminal_operation_mode",
+  // DG-1 : la dangerosité peut différer d'un lot à l'autre ; une valeur globale
+  // s'appliquerait à tous les lots.
+  "cargo.dangerous_goods",
 ]);
 
 /**
@@ -96,6 +110,7 @@ export const EDITABLE_FACT_KEYS = new Set([
   "cargo.pad_category",
   "cargo.pad_rate_fcfa_per_ton",
   "pricing.dthc_family",
+  "cargo.dangerous_goods",
 ]);
 
 export const NUMERIC_FACT_KEYS = new Set([
