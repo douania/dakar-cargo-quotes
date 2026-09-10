@@ -18,6 +18,7 @@
 
 import { buildFeeCaseContext, type FeeCaseContext } from "./fee-rules.ts";
 import { DANGEROUS_GOODS_FACT_KEY, resolveDangerousGoods } from "./dangerous-goods.ts";
+import { IMO_CLASS_FACT_KEY } from "./imo-classification.ts";
 
 /** Une ligne de `quote_facts` telle que lue en base (champs utiles). */
 export interface FeeFactRow {
@@ -152,5 +153,6 @@ export function readDangerousGoodsFact(factsMap: FeeFactsMap): boolean | null {
   return resolveDangerousGoods(
     factsMap.get(DANGEROUS_GOODS_FACT_KEY)?.value_text,
     factsMap.get("pricing.dthc_family")?.value_text,
+    factsMap.get(IMO_CLASS_FACT_KEY)?.value_text,
   ).dangerous;
 }

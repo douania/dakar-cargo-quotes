@@ -242,6 +242,26 @@ Deno.test("DG-1 : le fait explicite prime sur la famille tarifaire", () => {
   assertEquals(ctx.dangerousGoods, false);
 });
 
+Deno.test("IMO-RULES-1 : une classe IMDG au dossier suffit à rendre la marchandise dangereuse", () => {
+  const ctx = buildFeeCaseContextFromFacts({
+    factsMap: facts({ "cargo.imo_class": { value_text: "6.1" } }),
+    requestType: "SEA_FCL_IMPORT",
+    asOfDate: AS_OF,
+  });
+
+  assertEquals(ctx.dangerousGoods, true);
+});
+
+Deno.test("IMO-RULES-1 : le fait explicite prime sur la classe déclarée", () => {
+  assertEquals(
+    readDangerousGoodsFact(facts({
+      "cargo.dangerous_goods": { value_text: "NO" },
+      "cargo.imo_class": { value_text: "3" },
+    })),
+    false,
+  );
+});
+
 Deno.test("DG-1 : valeur illisible en base, contexte inconnu plutôt que deviné", () => {
   assertEquals(readDangerousGoodsFact(facts({ "cargo.dangerous_goods": { value_text: "à confirmer" } })), null);
   assertEquals(readDangerousGoodsFact(facts({ "cargo.dangerous_goods": { value_text: "" } })), null);

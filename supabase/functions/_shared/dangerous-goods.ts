@@ -27,6 +27,7 @@
  */
 
 import { normalizeDpwDthcFamily } from "./dpw-dthc-tariff.ts";
+import { normalizeImdgClass } from "./imo-classification.ts";
 
 /** Clé du fait canonique. */
 export const DANGEROUS_GOODS_FACT_KEY = "cargo.dangerous_goods";
@@ -37,7 +38,7 @@ export const DANGEROUS_GOODS_VALUES = ["YES", "NO"] as const;
 export type DangerousGoodsValue = (typeof DANGEROUS_GOODS_VALUES)[number];
 
 /** Origine de la réponse, pour l'explication rendue à l'opérateur. */
-export type DangerousGoodsOrigin = "FACT" | "DTHC_FAMILY" | "UNKNOWN";
+export type DangerousGoodsOrigin = "FACT" | "IMO_CLASS" | "DTHC_FAMILY" | "UNKNOWN";
 
 export interface DangerousGoodsResolution {
   /** `true` / `false` si l'information est établie, `null` si inconnue. */
@@ -66,14 +67,16 @@ export function normalizeDangerousGoodsFactValue(raw: unknown): DangerousGoodsVa
 
 /**
  * Détermine le caractère dangereux d'un dossier à partir du fait explicite et,
- * à défaut, de la famille tarifaire DP World.
+ * à défaut, de la classe IMDG puis de la famille tarifaire DP World.
  *
  * @param factValue valeur du fait `cargo.dangerous_goods` (texte brut en base)
  * @param dthcFamily valeur du fait `pricing.dthc_family` (texte brut en base)
+ * @param imoClass valeur du fait `cargo.imo_class` (texte brut en base)
  */
 export function resolveDangerousGoods(
   factValue: unknown,
   dthcFamily?: unknown,
+  imoClass?: unknown,
 ): DangerousGoodsResolution {
   const normalized = normalizeDangerousGoodsFactValue(factValue);
 
@@ -90,6 +93,18 @@ export function resolveDangerousGoods(
       dangerous: false,
       origin: "FACT",
       message: "Marchandise déclarée non dangereuse sur le dossier.",
+    };
+  }
+
+  // Repli unidirectionnel : une classe IMDG renseignée classe la marchandise
+  // comme dangereuse — c'est la définition même de la nomenclature. L'absence
+  // de classe ne prouve rien en sens inverse.
+  const declaredClass = normalizeImdgClass(imoClass);
+  if (declaredClass) {
+    return {
+      dangerous: true,
+      origin: "IMO_CLASS",
+      message: `Marchandise dangereuse : classe IMDG ${declaredClass} déclarée sur le dossier.`,
     };
   }
 

@@ -95,6 +95,32 @@ Deno.test("famille illisible : ignorée, le dossier reste inconnu", () => {
   }
 });
 
+Deno.test("repli : une classe IMDG déclarée classe la marchandise comme dangereuse", () => {
+  for (const cls of ["1.4", "3", "6.1", "classe 8", "IMDG 2.3"]) {
+    const r = resolveDangerousGoods(null, null, cls);
+    assertEquals(r.dangerous, true, `classe ${cls} n'a pas conclu`);
+    assertEquals(r.origin, "IMO_CLASS");
+  }
+});
+
+Deno.test("repli classe : une classe illisible ne conclut rien", () => {
+  for (const cls of ["", "4", "10", "dangereux", null, undefined]) {
+    assertEquals(resolveDangerousGoods(null, null, cls).dangerous, null);
+  }
+});
+
+Deno.test("le fait explicite prime sur la classe IMDG, y compris pour dire non", () => {
+  const r = resolveDangerousGoods("NO", null, "3");
+  assertEquals(r.dangerous, false);
+  assertEquals(r.origin, "FACT");
+});
+
+Deno.test("la classe IMDG prime sur la famille tarifaire pour l'explication", () => {
+  const r = resolveDangerousGoods(null, "DANGEROUS", "6.1");
+  assertEquals(r.dangerous, true);
+  assertEquals(r.origin, "IMO_CLASS");
+});
+
 Deno.test("chaque réponse porte une explication française non vide", () => {
   for (const r of [
     resolveDangerousGoods("YES"),
