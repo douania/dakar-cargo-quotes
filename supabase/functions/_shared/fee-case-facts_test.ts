@@ -13,6 +13,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   buildFeeCaseContextFromFacts,
   readContainersFact,
+  readDangerousGoodsFact,
   readScopeFact,
   type FeeFactRow,
 } from "./fee-case-facts.ts";
@@ -192,4 +193,56 @@ Deno.test("override sans le champ concerné : le fait est conservé", () => {
   });
 
   assertEquals(ctx.cafValue, 120000000);
+});
+
+// ── DG-1 : caractère dangereux de la marchandise ──────────────────────
+
+Deno.test("DG-1 : le fait explicite alimente le contexte, dans les deux sens", () => {
+  const oui = buildFeeCaseContextFromFacts({
+    factsMap: facts({ "cargo.dangerous_goods": { value_text: "YES" } }),
+    requestType: "SEA_FCL_IMPORT",
+    asOfDate: AS_OF,
+  });
+  assertEquals(oui.dangerousGoods, true);
+
+  const non = buildFeeCaseContextFromFacts({
+    factsMap: facts({ "cargo.dangerous_goods": { value_text: "NO" } }),
+    requestType: "SEA_FCL_IMPORT",
+    asOfDate: AS_OF,
+  });
+  assertEquals(non.dangerousGoods, false);
+});
+
+Deno.test("DG-1 : fait absent, le contexte reste inconnu (règle à confirmer)", () => {
+  const ctx = buildFeeCaseContextFromFacts({
+    factsMap: facts({ "cargo.weight_kg": { value_number: 1000 } }),
+    requestType: "SEA_FCL_IMPORT",
+    asOfDate: AS_OF,
+  });
+
+  assertEquals(ctx.dangerousGoods, null);
+});
+
+Deno.test("DG-1 : repli sur la famille DP World DANGEROUS, jamais sur une autre", () => {
+  assertEquals(readDangerousGoodsFact(facts({ "pricing.dthc_family": { value_text: "DANGEROUS" } })), true);
+  assertEquals(readDangerousGoodsFact(facts({ "pricing.dthc_family": { value_text: "STANDARD" } })), null);
+  assertEquals(readDangerousGoodsFact(facts({ "pricing.dthc_family": { value_text: "REEFER" } })), null);
+});
+
+Deno.test("DG-1 : le fait explicite prime sur la famille tarifaire", () => {
+  const ctx = buildFeeCaseContextFromFacts({
+    factsMap: facts({
+      "cargo.dangerous_goods": { value_text: "NO" },
+      "pricing.dthc_family": { value_text: "DANGEROUS" },
+    }),
+    requestType: "SEA_FCL_IMPORT",
+    asOfDate: AS_OF,
+  });
+
+  assertEquals(ctx.dangerousGoods, false);
+});
+
+Deno.test("DG-1 : valeur illisible en base, contexte inconnu plutôt que deviné", () => {
+  assertEquals(readDangerousGoodsFact(facts({ "cargo.dangerous_goods": { value_text: "à confirmer" } })), null);
+  assertEquals(readDangerousGoodsFact(facts({ "cargo.dangerous_goods": { value_text: "" } })), null);
 });

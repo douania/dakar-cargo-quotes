@@ -17,6 +17,7 @@
  */
 
 import { buildFeeCaseContext, type FeeCaseContext } from "./fee-rules.ts";
+import { DANGEROUS_GOODS_FACT_KEY, resolveDangerousGoods } from "./dangerous-goods.ts";
 
 /** Une ligne de `quote_facts` telle que lue en base (champs utiles). */
 export interface FeeFactRow {
@@ -102,9 +103,10 @@ export function readScopeFact(factsMap: FeeFactsMap): string {
 /**
  * Contexte d'honoraires d'un dossier.
  *
- * `dangerousGoods` reste `null` : aucun fait canonique ne porte encore le
- * caractère dangereux de la marchandise (lot DG-1 à venir). Une règle
- * conditionnée sur ce critère restera donc « à confirmer », jamais devinée.
+ * DG-1 : `dangerousGoods` provient du fait `cargo.dangerous_goods`, avec repli
+ * unidirectionnel sur la famille tarifaire DP World `DANGEROUS`. Fait absent ou
+ * illisible ⇒ `null` : une règle conditionnée sur ce critère reste « à
+ * confirmer », jamais devinée.
  */
 export function buildFeeCaseContextFromFacts(input: {
   factsMap: FeeFactsMap;
@@ -136,7 +138,19 @@ export function buildFeeCaseContextFromFacts(input: {
     customsRegimeCode: has("customs_regime_code")
       ? override!.customs_regime_code
       : (text(factsMap.get("customs.regime_code")) ?? "").toUpperCase() || null,
-    dangerousGoods: null,
+    dangerousGoods: readDangerousGoodsFact(factsMap),
     asOfDate: input.asOfDate,
   });
+}
+
+/**
+ * Caractère dangereux du dossier (DG-1), lu du fait canonique puis, à défaut,
+ * de la famille tarifaire DP World. `null` quand l'information n'est pas
+ * établie — le résolveur laisse alors la ligne « à confirmer ».
+ */
+export function readDangerousGoodsFact(factsMap: FeeFactsMap): boolean | null {
+  return resolveDangerousGoods(
+    factsMap.get(DANGEROUS_GOODS_FACT_KEY)?.value_text,
+    factsMap.get("pricing.dthc_family")?.value_text,
+  ).dangerous;
 }
