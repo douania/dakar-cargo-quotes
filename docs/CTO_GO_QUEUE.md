@@ -104,7 +104,16 @@ Constats nouveaux issus de cette facture :
   (`:1519-1522`), quel que soit le niveau de preuve réel de la ligne tarifaire. Un devis est présenté
   au client comme un tarif officiel. `evidence_level` des deux lignes non vérifié à ce jour (MCP
   Lovable indisponible au moment du constat).
-  **Correction proposée, sous-lot F1 (migration seule, aucun code, aucun module FROZEN)** :
+  **CORRECTIF F1 APPLIQUÉ le 2026-09-10 (GO CTO)** — migration
+  `20260910180000_dthc4_f1_relevage_official_rate.sql`, commit `dc588eed`, appliquée en base live et
+  vérifiée : 18 280 / 36 560 / 41 130 FCFA, `unit` `FCFA/CNT`, `evidence_level` `official`, source
+  « Facture DP World Dakar n° 3384292 du 31/07/2026 ». Ligne 45 pieds créée sur GO CTO.
+  **Découverte faite à l'exécution** : les deux lignes étaient en `evidence_level = 'observed'`, hors
+  de la whitelist de provenance du runtime — elles étaient donc **invisibles au moteur**, et le
+  relevage n'était chiffré nulle part. Le diagnostic « surévalué de 100 % en transit » était
+  inexact : la ligne n'était pas émise du tout. Le correctif l'ACTIVE pour la première fois.
+
+  **Correction initialement proposée (conservée pour mémoire)** :
   `CONTENEUR_20` 36 560 → **18 280**, `CONTENEUR_40` 73 120 → **36 560**, `unit` harmonisée en
   `FCFA/CNT`, `source_document` → « Facture DP World Dakar n° 3384292 du 31/07/2026 + décision CTO
   2026-09-10 », `evidence_level` → `validated_internal` tant que la page tarif officielle n'est pas
