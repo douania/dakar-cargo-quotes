@@ -55,6 +55,34 @@ export const SELECT_FACT_OPTIONS: Record<string, Array<{ value: string; label: s
     { value: "YES", label: "Oui — marchandise dangereuse (IMDG / IATA DGR)" },
     { value: "NO", label: "Non — marchandise non dangereuse" },
   ],
+  /**
+   * IMO-RULES-1 — classe IMDG (fait cargo.imo_class). Nomenclature de
+   * l'Organisation maritime internationale, valeurs strictes attendues par
+   * supabase/functions/_shared/imo-classification.ts. Renseigner la classe
+   * suffit à classer la marchandise comme dangereuse.
+   */
+  "cargo.imo_class": [
+    { value: "1.1", label: "1.1 — Explosifs, risque d'explosion en masse" },
+    { value: "1.2", label: "1.2 — Explosifs, risque de projection" },
+    { value: "1.3", label: "1.3 — Explosifs, risque d'incendie" },
+    { value: "1.4", label: "1.4 — Explosifs, risque faible" },
+    { value: "1.5", label: "1.5 — Explosifs, matières très peu sensibles" },
+    { value: "1.6", label: "1.6 — Explosifs, objets extrêmement peu sensibles" },
+    { value: "2.1", label: "2.1 — Gaz inflammables" },
+    { value: "2.2", label: "2.2 — Gaz non inflammables, non toxiques" },
+    { value: "2.3", label: "2.3 — Gaz toxiques" },
+    { value: "3", label: "3 — Liquides inflammables" },
+    { value: "4.1", label: "4.1 — Matières solides inflammables" },
+    { value: "4.2", label: "4.2 — Matières sujettes à inflammation spontanée" },
+    { value: "4.3", label: "4.3 — Matières dégageant des gaz inflammables au contact de l'eau" },
+    { value: "5.1", label: "5.1 — Matières comburantes" },
+    { value: "5.2", label: "5.2 — Peroxydes organiques" },
+    { value: "6.1", label: "6.1 — Matières toxiques" },
+    { value: "6.2", label: "6.2 — Matières infectieuses" },
+    { value: "7", label: "7 — Matières radioactives" },
+    { value: "8", label: "8 — Matières corrosives" },
+    { value: "9", label: "9 — Matières et objets dangereux divers" },
+  ],
 };
 
 /** P1a — Global fact keys ambiguous on multi-lot cases */
@@ -66,9 +94,11 @@ export const MULTI_LOT_AMBIGUOUS_FACTS = new Set([
   // Le moteur multi-lot exige une valeur déclarée par lot et ignore volontairement
   // ce fait global : le badge avertit l'opérateur qu'il ne résout pas les lots.
   "routing.terminal_operation_mode",
-  // DG-1 : la dangerosité peut différer d'un lot à l'autre ; une valeur globale
-  // s'appliquerait à tous les lots.
+  // DG-1 et IMO-RULES-1 : la dangerosité et la classe peuvent différer d'un lot
+  // à l'autre ; une valeur globale s'appliquerait à tous les lots.
   "cargo.dangerous_goods",
+  "cargo.imo_class",
+  "cargo.un_number",
 ]);
 
 /**
@@ -111,6 +141,10 @@ export const EDITABLE_FACT_KEYS = new Set([
   "cargo.pad_rate_fcfa_per_ton",
   "pricing.dthc_family",
   "cargo.dangerous_goods",
+  // IMO-RULES-1 : classe IMDG (liste fermée) et numéro ONU (saisie libre au
+  // format UN + quatre chiffres, validé par set-case-fact).
+  "cargo.imo_class",
+  "cargo.un_number",
 ]);
 
 export const NUMERIC_FACT_KEYS = new Set([
