@@ -1,8 +1,19 @@
 /**
  * DTHC-1 — Sélection déterministe et fail-closed du DTHC DP World import
- * (`port_tariffs`, source_document `DPW_TARIFS_2025_0001.pdf`).
+ * (`port_tariffs`, source_document = l'arrêté d'homologation en vigueur).
  *
- * Décision CTO du 2026-08-25 : ce document est la source canonique en vigueur.
+ * La source canonique est l'arrêté ministériel n° 035532 du 28 novembre 2023
+ * portant révision des tarifs de manutention de conteneurs, publié au Journal
+ * officiel de la République du Sénégal n° 7723 du 6 avril 2024, page 471. Son
+ * annexe porte les cinq familles ci-dessous, au taux par EVP.
+ *
+ * Elle remplace la référence `DPW_TARIFS_2025_0001.pdf` retenue par la décision
+ * CTO du 2026-08-25, qui désignait un fichier interne et non le texte
+ * homologué. Les montants sont inchangés — le JO les confirme au franc près ;
+ * seule la provenance devient citable. La migration
+ * `20260911120000_dthc4_provenance_arrete_035532.sql` aligne `port_tariffs` sur
+ * cette constante et DOIT être déployée avec elle : appliquée seule, l'une ou
+ * l'autre fait tomber tout le DTHC en TO_CONFIRM.
  * Les cinq familles sont adressées par `cargo_type` EXACT, et la `classification`
  * doit correspondre à la famille attendue — aucun `includes`, aucun fuzzy, aucun
  * premier-match. Zéro ou plusieurs candidats ⇒ TO_CONFIRM, montant `null`.
@@ -15,7 +26,8 @@
  * le montant de ligne déjà multiplié. Module pur : aucune I/O, aucune horloge.
  */
 
-export const DPW_DTHC_SOURCE_DOCUMENT = "DPW_TARIFS_2025_0001.pdf";
+export const DPW_DTHC_SOURCE_DOCUMENT =
+  "Arrêté ministériel n° 035532 du 28/11/2023 - JORS n° 7723 du 06/04/2024 p. 471";
 export const DPW_DTHC_PROVIDERS: readonly string[] = ["DPW", "DP_WORLD"];
 export const DPW_DTHC_EVIDENCE_WHITELIST: readonly string[] = [
   "official",

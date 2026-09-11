@@ -299,8 +299,19 @@ Deno.test("DTHC: aucune ligne to_confirm / observed / historical n'est servie", 
   assertEquals(resolve(cards, [{ type: "20DV", quantity: 1 }]).status, "TO_CONFIRM");
 });
 
-Deno.test("DTHC: seul le document canonique DP World fait foi", () => {
-  for (const doc of ["Arrêté DPW 2025", "DPW_TARIFS_2015.pdf", "", null]) {
+Deno.test("DTHC: seul l'arrêté d'homologation en vigueur fait foi", () => {
+  // `DPW_TARIFS_2025_0001.pdf` désignait un fichier interne, pas le texte
+  // homologué : depuis le rattachement à l'arrêté n° 035532 il ne vaut plus.
+  for (
+    const doc of [
+      "Arrêté DPW 2025",
+      "DPW_TARIFS_2025_0001.pdf",
+      "DPW_TARIFS_2015.pdf",
+      "Arrêté ministériel n° 035532 du 28/11/2022 - JORS n° 7723 du 06/04/2024 p. 471",
+      "",
+      null,
+    ]
+  ) {
     assertEquals(
       resolve([row({ source_document: doc, amount: 133500 })], [{ type: "20DV", quantity: 1 }]).status,
       "TO_CONFIRM",
@@ -309,7 +320,7 @@ Deno.test("DTHC: seul le document canonique DP World fait foi", () => {
   }
   // Une localisation dans le document reste le même document.
   assertEquals(
-    resolve([row({ source_document: "DPW_TARIFS_2025_0001.pdf, Page 4" })], [
+    resolve([row({ source_document: `${DPW_DTHC_SOURCE_DOCUMENT}, Page 4` })], [
       { type: "20DV", quantity: 1 },
     ]).status,
     "RESOLVED",
