@@ -334,18 +334,57 @@ ask first ») l'a conduit à modifier et **auto-committer** deux fichiers sur `w
 **Mais il a été produit et poussé sans GO, sur un module partagé du runtime, contre une consigne
 explicite.** C'est le point qui appelle une décision, pas le contenu.
 
-**Décision attendue du CTO** :
-1. **Conserver** (recommandation de Claude Code) : le gain est réel, vérifié, sans effet d'exécution,
-   et la baseline abaissée verrouille l'acquis.
-2. **Révoquer** : `git revert 9275c799` restaure l'état antérieur ; il faudra alors aussi remonter la
-   baseline à 65, sinon le garde-fou échoue.
+**DÉCISION CTO DU 2026-09-11 : CONSERVER.** Les commits `86d32ef4`, `631464cc`, `7c251cb9`,
+`c480cbc6` et `9275c799` restent dans l'historique de `work`. La baseline Deno de référence est
+désormais **49**.
 
 **Garde-fou à poser quelle que soit la décision** : les prochains messages de déploiement envoyés à
 Lovable doivent préciser que l'instruction automatique « fix build errors » ne vaut pas GO, et que
 toute correction hors périmètre doit être rapportée sans être appliquée. La consigne « ne modifie
 aucun fichier » seule n'a pas suffi.
-- **C** — aucun fait ne route une unité hors gabarit ou en surpoids vers `SPECIAL` : un dry OOG reste
-  `DRY`. S'appuiera sur `cargo.weight_per_container_kg`, qui existe déjà (TRUCKING-22T).
+- **C** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `2488c7d7`**, mais **pas comme prévu**.
+  Le périmètre annoncé était « router vers `SPECIAL` sur le poids ». L'arrêté n° 035532, lu depuis,
+  l'interdit : son annexe porte « Néant » en surcharge partout sauf sur les dangereux — les surcharges
+  de poids de 2015 ne sont pas reconduites — et « hors gabarit » est une notion de **dimension**, pas
+  de masse. Router un conteneur sec vers `SPECIAL` sur son seul tonnage aurait inventé une règle
+  tarifaire. Un test verrouille ce refus.
+  Ce qui a été livré à la place, entièrement adossé à des pièces : le code **`FL`** que DP World
+  imprime (facture 3384292 : quatre `20FL` facturés ACCONAGE C7 à 310 000) et son pendant `40FL` ;
+  les formes `20FRDG` et `20FRDG SOC` présentes en base, traitées comme des flats — l'équipement fait
+  la famille, le fait `cargo.dangerous_goods` fait le danger. Un flat déclaré dangereux tombe en
+  `FAMILY_AMBIGUOUS`, le cumul restant non arbitré.
+
+---
+
+## [2026-09-11 12:40 UTC] PENDING — Garde de cohérence poids / type de conteneur : source du seuil
+
+**Origine** : session interactive, issue du sous-lot C
+**Type** : demande d'arbitrage sur un référentiel
+
+Le trou qui reste après le sous-lot C : **un conteneur sec déclaré avec un poids impossible**. Le
+dossier GoTrans annonce 55 t par unité en 20HQ, là où le 20 pieds sec du référentiel SODATRA plafonne
+à 30 410 kg de masse brute. Rien dans l'application ne le relève aujourd'hui.
+
+La protection juste n'est pas tarifaire mais documentaire : quand le poids déclaré dépasse la masse
+brute maximale du type déclaré, **refuser de chiffrer** avec un message explicite (« ce conteneur ne
+peut pas être un 20 pieds ordinaire à 55 t — classification à confirmer auprès du terminal »), au
+lieu de servir un THC standard. C'est exactement ce qui aurait évité la perte du confrère.
+
+**Ce qui bloque l'écriture : la source du seuil.** `container_specifications` porte 11 types avec
+leur `max_gross_weight_kg` (20 pieds : 30 410 ; 40 pieds : 30 430 ; 40FR : 44 900), mais **il lui
+manque `20HQ`, `20HC`, `20FL` et les variantes flat/DG** — dont le type même du dossier GoTrans.
+Compléter ce référentiel demande une source, et je n'en inventerai pas.
+
+**Question au CTO** : sur quoi complète-t-on `container_specifications` ?
+1. **La plaque CSC** des conteneurs réellement reçus — la plus opposable, mais disponible dossier par
+   dossier seulement.
+2. **La norme ISO 668** (30 480 kg de masse brute pour tout 20 pieds, high cube compris) — universelle
+   et stable, légèrement au-dessus des 30 410 déjà en base.
+3. **Les spécifications DP World**, si le terminal publie les siennes.
+
+**Conception proposée une fois la source choisie** : la limite est passée au résolveur par l'appelant,
+qui la lit dans `container_specifications` ; quand le type est absent du référentiel, la garde reste
+silencieuse. Aucun seuil en dur dans le code, aucune extrapolation.
 - **D** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `8cc21a40`.** Cinq lignes actives de
   `port_tariffs` étaient absentes du dépliant (`CONTENEUR_40` à 232 500, `CONTENEUR_VIDE` et
   `CONTENEUR_20 Transbordement` à 75 000, en import et export). Le résolveur les ignorait, mais
