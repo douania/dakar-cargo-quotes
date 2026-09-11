@@ -128,7 +128,18 @@ DP World, et non sur le texte. `evidence_level` doit être **`validated_internal
 comme indiqué le 2026-09-10 — sauf confirmation écrite de DP World, qui rendrait `official`
 légitime. **À trancher avant d'écrire la ligne.**
 
-**Lot proposé (migration seule, aucun code, aucun module FROZEN)** — corriger la provenance des
+**✅ PROVENANCE CORRIGÉE le 2026-09-11 (GO CTO), commit `c48f0119`.** Migration
+`20260911120000_dthc4_provenance_arrete_035532.sql` appliquée en base live et vérifiée : les
+11 lignes citent l'arrêté n° 035532, `effective_date` = 2024-04-06 (publication au JO, retenue par
+le CTO). La migration vérifie l'annexe ligne à ligne — montant ET surcharge — avant d'apposer la
+référence. Les lignes RORO, BREAKBULK, magasinage et RELEVAGE conservent leur source, conformément
+à l'article 3.
+**Changement couplé, à ne pas oublier** : `DPW_DTHC_SOURCE_DOCUMENT` a changé dans
+`_shared/dpw-dthc-tariff.ts`. **Le DTHC rendra `TO_CONFIRM` tant que les edge functions ne sont pas
+redéployées par Lovable** — dégradation fail-closed, jamais un montant faux, mais à lever au plus
+vite.
+
+**Lot initialement proposé (conservé pour mémoire)** — corriger la provenance des
 11 lignes canoniques de la grille THC :
 - `source_document` → « Arrêté ministériel n° 035532 du 28/11/2023 portant révision des tarifs de
   manutention de conteneurs — JORS n° 7723 du 06/04/2024, p. 471 » ;
