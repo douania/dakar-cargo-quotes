@@ -24,6 +24,84 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-11 10:05 UTC] PENDING — ERREUR F1 À CORRIGER : le relevage transit a été divisé par deux
+
+**Origine** : session interactive — **erreur introduite par Claude Code le 2026-09-10**
+**Type** : correctif urgent sur donnée live, GO requis
+
+**Ce qui s'est passé.** L'arrêté d'homologation des tarifs de manutention de conteneurs (Ministère du
+Commerce, Sénégal, 2015), reçu le 2026-09-11, fixe le relevage **par TEU et par classification** :
+
+| Classification | Relevage par TEU |
+|---|---|
+| C1 à C5 (coton, frigo, standards export, produits de base import, standards import) | **18 280** |
+| **C6 — transit (Imp/Exp sauf coton)** | **36 560** |
+
+Les deux lignes `RELEVAGE` de `port_tariffs` portaient `operation_type = 'TRANSIT'`, donc la
+classification **C6** : 20 pieds = 1 TEU × 36 560 = **36 560**, 40 pieds = 2 TEU × 36 560 = **73 120**.
+**Ces valeurs étaient exactes.** La facture DP World 3384292, qui donne 18 280, est un **import**
+(C1–C5) — un autre tarif, pas le même.
+
+J'ai comparé une facture d'import à des lignes de transit sans voir que la différence d'opération
+portait une différence de barème, et j'ai conclu à tort à un doublement. La migration
+`20260910180000_dthc4_f1_relevage_official_rate.sql` (commit `dc588eed`) a donc **appliqué le tarif
+import à des lignes de transit**, divisant par deux le relevage transit.
+
+**Exposition réelle, limitée** : avant F1 les deux lignes étaient en `evidence_level = 'observed'`,
+hors whitelist runtime — aucune cotation n'a jamais porté de relevage. Depuis F1 elles sont actives,
+donc toute cotation **transit** émise depuis le 2026-09-10 sous-évalue le relevage de 50 %.
+
+**Correction proposée (GO requis)** — restaurer le barème C6 sur les lignes transit :
+
+| `cargo_type` | Actuel (faux) | Cible C6 | Base |
+|---|---|---|---|
+| `CONTENEUR_20` | 18 280 | **36 560** | 1 TEU |
+| `CONTENEUR_40` | 36 560 | **73 120** | 2 TEU |
+| `CONTENEUR_45` | 41 130 | **82 260** | 2,25 TEU |
+
+Ce qui est acquis de F1 et reste valable : la provenance (`official`, source facture + arrêté),
+l'unité explicite, la ligne 45 pieds, et surtout l'activation de la ligne — le relevage n'était
+chiffré nulle part avant.
+
+**Question au CTO** : votre règle du 2026-09-10 (« 18 280 par EVP, le double pour un 40 pieds ») est
+exacte pour l'**import/export** (C1–C5). Confirmez-vous que le **transit** suit bien le C6 de
+l'arrêté à 36 560 par TEU ? Si oui je restaure ; si le barème transit a changé depuis 2015, il me
+faut le document.
+
+**À créer séparément** : des lignes `RELEVAGE` en `IMPORT` et `EXPORT` à 18 280 / 36 560 / 41 130
+(C1–C5). Elles resteront dormantes tant que le sous-lot F2 n'aura pas ouvert le relevage hors
+transit, mais la facture 3384292 prouve que DP World le facture à l'import.
+
+**Référence** : branche `work`, HEAD `479208f7`. Pièce reçue : `dpw_dakar_landside_tariff.pdf`
+(arrêté d'homologation, Ministère du Commerce, 2015), publié par DP World Dakar.
+
+---
+
+## [2026-09-11 10:05 UTC] PENDING — Codification C1–C7 et surcharges colis lourds de l'arrêté 2015
+
+**Origine** : session interactive
+**Type** : demande de GO avant travail
+
+L'arrêté 2015 apporte trois éléments que le produit ignore aujourd'hui :
+
+1. **La codification officielle C1 à C6**, qui est celle que DP World imprime sur ses factures
+   (« ACCONAGE **C7** » sur la facture 3384292). Le C7 n'existe pas dans l'arrêté 2015 : il a été créé
+   par un texte postérieur, pour les conteneurs spéciaux à 310 000. **C'est la preuve qu'un texte
+   plus récent existe**, même s'il n'est pas publié sur le site de DP World.
+2. **Deux surcharges de poids, absentes du produit et du dépliant 2024** :
+   - surcharge colis lourds **20 %** sur un 20 pieds > 15 T et un 40 pieds > 26 T ;
+   - **pénalité de surcharge 50 %** sur un 20 pieds > 20 T et un 40 pieds > 30 T (tonnage ISO).
+   Elles visent exactement les dossiers qui nous occupent : les BESS GoTrans à 55 T/unité et les
+   armoires de stockage à 33,050 T de la facture 3384292.
+3. **Le périmètre de la surcharge dangereuse a changé** : « classe 1 à 5 » en 2015, « classe 1 à 9 »
+   au dépliant 2024.
+
+**À trancher avant toute écriture** : ces deux surcharges de poids sont-elles toujours en vigueur ?
+Le dépliant 2024 porte « Néant » en surcharge sur toutes les lignes sauf les dangereux, ce qui
+suggère qu'elles ont été supprimées — mais le dépliant reçu est la page 1 sur 2.
+
+---
+
 ## [2026-09-10 17:09 UTC] PENDING — DTHC-4 : cumul « conteneur spécial × marchandise dangereuse »
 
 **Origine** : session interactive
