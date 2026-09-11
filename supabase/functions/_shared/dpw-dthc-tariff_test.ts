@@ -617,3 +617,72 @@ Deno.test("DTHC: le dossier GoTrans devient chiffrable", () => {
   assertEquals(r.status, "RESOLVED");
   if (r.status === "RESOLVED") assertEquals(r.evpQuantity, 58);
 });
+
+/* ------------------------------------------------------------------------- *
+ * DTHC-4-C — équipements spéciaux réellement déclarés.
+ *
+ * L'arrêté n° 035532 range « hors gabarit, Flat, Open Top, Tank… » dans la même
+ * ligne à 310 000. Le produit connaissait OT et FR, mais pas le code `FL` que
+ * DP World imprime lui-même : la facture 3384292 du 31/07/2026 porte quatre
+ * « 20FL » facturés ACCONAGE C7 à 310 000. Les flats porteurs de marchandise
+ * dangereuse (`20FRDG`) sont eux aussi présents en base et ne résolvaient rien.
+ * ------------------------------------------------------------------------- */
+
+Deno.test("DTHC: le code flat DP World « FL » vaut conteneur spécial", () => {
+  for (const [type, evp] of [["20FL", 1], ["40FL", 2]] as Array<[string, number]>) {
+    const p = resolveContainerProfile(type);
+    assertEquals(p?.equipment, "SPECIAL", type);
+    assertEquals(p?.evp, evp, type);
+  }
+});
+
+Deno.test("DTHC: quatre 20FL = 4 x 310 000, comme la facture 3384292", () => {
+  const r = resolve(LIVE, [{ type: "20FL", quantity: 4 }]);
+  assertEquals(r.status, "RESOLVED");
+  if (r.status !== "RESOLVED") return;
+  assertEquals([r.family, r.evpQuantity, r.baseUnitAmount, r.amount], ["SPECIAL", 4, 310000, 1240000]);
+});
+
+Deno.test("DTHC: FL et FR donnent le même résultat, ce sont deux noms du flat", () => {
+  const fl = resolve(LIVE, [{ type: "20FL", quantity: 2 }]);
+  const fr = resolve(LIVE, [{ type: "20FR", quantity: 2 }]);
+  assertEquals(fl.status, "RESOLVED");
+  assertEquals(fr.status, "RESOLVED");
+  if (fl.status === "RESOLVED" && fr.status === "RESOLVED") {
+    assertEquals(fl.amount, fr.amount);
+    assertEquals(fl.family, fr.family);
+  }
+});
+
+Deno.test("DTHC: les libellés flat/DG de la base résolvent l'ÉQUIPEMENT, pas le danger", () => {
+  // Le libellé porte « DG », mais la famille se déduit de l'équipement : c'est
+  // le fait `cargo.dangerous_goods` qui dit le danger, jamais le nom du contenant.
+  for (const label of ["20FRDG", "20 FR DG", "20FRDG SOC"]) {
+    assertEquals(normalizeDthcContainerType(label), "20FR", label);
+    const p = resolveContainerProfile(label);
+    assertEquals(p?.equipment, "SPECIAL", label);
+    assertEquals(p?.evp, 1, label);
+  }
+});
+
+Deno.test("DTHC: un flat déclaré dangereux n'est pas tranché en silence", () => {
+  // Cumul spécial x dangereux : la grille de l'arrêté ne l'arbitre pas, le
+  // module refuse donc de choisir. Fail-closed, jamais un montant inventé.
+  const r = resolve(LIVE, [{ type: "20FRDG", quantity: 1 }], { isDangerous: true });
+  assertEquals(r.status, "TO_CONFIRM");
+  if (r.status === "TO_CONFIRM") {
+    assertEquals([r.reason, r.amount], ["FAMILY_AMBIGUOUS", null]);
+  }
+});
+
+Deno.test("DTHC: le poids ne fabrique pas un conteneur spécial", () => {
+  // L'arrêté n° 035532 ne reconduit AUCUNE surcharge de poids (son annexe porte
+  // « Néant » partout sauf sur les dangereux) et « hors gabarit » est une notion
+  // de DIMENSION. Un conteneur sec reste donc sec quel que soit son tonnage :
+  // router vers SPECIAL sur le seul poids inventerait une règle tarifaire.
+  const r = resolve(LIVE, [{ type: "20DV", quantity: 1 }]);
+  assertEquals(r.status, "RESOLVED");
+  if (r.status === "RESOLVED") assertEquals([r.family, r.baseUnitAmount], ["STANDARD", 155000]);
+  assertEquals(resolveContainerProfile("20DV")?.equipment, "DRY");
+  assertEquals(resolveContainerProfile("20HQ")?.equipment, "DRY");
+});

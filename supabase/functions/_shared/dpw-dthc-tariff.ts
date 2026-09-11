@@ -105,6 +105,13 @@ const CONTAINER_PROFILES: Readonly<
   "20RF": { evp: 1, equipment: "REEFER" },
   "20OT": { evp: 1, equipment: "SPECIAL" },
   "20FR": { evp: 1, equipment: "SPECIAL" },
+  // DTHC-4-C : `FL` est le code que DP World imprime pour un flat — la facture
+  // 3384292 du 31/07/2026 porte quatre conteneurs « 20FL » facturés ACCONAGE C7
+  // à 310 000, soit la ligne « Autres conteneurs spéciaux (hors gabarit, Flat,
+  // Open Top, Tank…) » de l'arrêté n° 035532. Sans cette clé, ces dossiers
+  // tombaient en CONTAINER_TYPE_UNSUPPORTED alors qu'ils sont, eux, parfaitement
+  // qualifiés. `40FL` est le pendant symétrique, comme 20FR l'est de 40FR.
+  "20FL": { evp: 1, equipment: "SPECIAL" },
   "40DV": { evp: 2, equipment: "DRY" },
   "40DC": { evp: 2, equipment: "DRY" },
   "40GP": { evp: 2, equipment: "DRY" },
@@ -114,6 +121,7 @@ const CONTAINER_PROFILES: Readonly<
   "40RF": { evp: 2, equipment: "REEFER" },
   "40OT": { evp: 2, equipment: "SPECIAL" },
   "40FR": { evp: 2, equipment: "SPECIAL" },
+  "40FL": { evp: 2, equipment: "SPECIAL" },
   "45HC": { evp: 2.25, equipment: "DRY" },
   "45HQ": { evp: 2.25, equipment: "DRY" },
 };
@@ -214,6 +222,13 @@ const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   "40DRY96": "40HC",
   // DTHC-4-B : pendant strict du 40DRY96, pour le 20 pieds high cube.
   "20DRY96": "20HC",
+  // DTHC-4-C : formes réellement présentes dans `cargo.containers` pour un flat
+  // rack transportant de la marchandise dangereuse. L'ÉQUIPEMENT est le flat
+  // rack — c'est lui qui détermine la famille tarifaire ; le caractère dangereux
+  // vient du fait `cargo.dangerous_goods` (DTHC-4-A), pas du libellé du
+  // conteneur. Le cumul des deux reste volontairement non tranché par ce module.
+  "20FRDG": "20FR",
+  "20FRDGSOC": "20FR",
 };
 
 /**
