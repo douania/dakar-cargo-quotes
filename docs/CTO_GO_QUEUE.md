@@ -139,11 +139,18 @@ Constats nouveaux issus de cette facture :
   52 conteneurs du dossier tombent en `CONTAINER_TYPE_UNSUPPORTED`.
 - **C** — aucun fait ne route une unité hors gabarit ou en surpoids vers `SPECIAL` : un dry OOG reste
   `DRY`. S'appuiera sur `cargo.weight_per_container_kg`, qui existe déjà (TRUCKING-22T).
-- **D** — cinq lignes actives de `port_tariffs` absentes du dépliant (`CONTENEUR_40` à 232 500,
-  `CONTENEUR_VIDE` et `CONTENEUR_20 Transbordement` à 75 000, en import et export). Le résolveur les
-  ignore, mais `generate-response:1498-1526` les envoie toutes à l'IA sous « UTILISER CES MONTANTS
-  EXACTS ». Un 40 pieds standard vaut 2 EVP × 155 000 = 310 000, pas 232 500. **Exposition client
-  directe, sous-lot le plus urgent.**
+- **D** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `8cc21a40`.** Cinq lignes actives de
+  `port_tariffs` étaient absentes du dépliant (`CONTENEUR_40` à 232 500, `CONTENEUR_VIDE` et
+  `CONTENEUR_20 Transbordement` à 75 000, en import et export). Le résolveur les ignorait, mais
+  `generate-response` les envoyait toutes au modèle rédacteur sous « UTILISER CES MONTANTS EXACTS ».
+  **D1** (migration `20260911090000_dthc4_d1_retire_non_canonical_thc_rows.sql`) les désactive —
+  grille THC active réduite aux 11 lignes canoniques, vérifié en base live. **D2** ajoute la colonne
+  `Unité` au tableau transmis au modèle et y rappelle la règle de conversion EVP du dépliant : sans
+  elle, un montant en EVP se lisait comme un prix par conteneur et un 40 pieds était annonçable à
+  moitié prix. Aucun impact sur le devis structuré.
+  **Reste ouvert** : obtenir la **page 2 du dépliant DP World** (le document reçu est marqué « 1_2 »).
+  Si elle documente les services « conteneur vide » et « transbordement », réintroduire ces lignes
+  avec leur montant et leur source exacts — la désactivation est réversible.
 - **Hors lot** : le résolveur est limité à l'import (`dpw-dthc-tariff.ts:382`) alors que les grilles
   EXPORT et TRANSIT existent en base et sont conformes au dépliant. Donnée morte.
 
