@@ -12,6 +12,7 @@
  */
 
 import { corsHeaders } from "./cors.ts";
+import { type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 // ============================================================================
 // UTILITY TYPES (CTO FIX A2)
