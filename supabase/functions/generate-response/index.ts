@@ -1505,7 +1505,18 @@ serve(async (req) => {
 
     let portTariffsContext = '\n\n=== TARIFS PORTUAIRES OFFICIELS (port_tariffs) ===\n';
     portTariffsContext += '⚠️ UTILISER CES MONTANTS EXACTS - NE PAS ESTIMER\n\n';
-    
+    // DTHC-4-D2 : sans l'unité, un montant en EVP se lit comme un prix par
+    // conteneur et un 40 pieds est annoncé à moitié prix. La règle de conversion
+    // est celle du dépliant DP World « Nouveaux tarifs de manutention de
+    // conteneurs » ; elle est rappelée ici parce que le tableau ci-dessous est la
+    // seule source tarifaire dont dispose la rédaction.
+    portTariffsContext += 'LECTURE DE LA COLONNE « Unité » — obligatoire avant tout calcul :\n';
+    portTariffsContext += '- EVP = équivalent vingt pieds. Un conteneur 20 pieds = 1 EVP, un 40 pieds = 2 EVP, un 45 pieds = 2,25 EVP.\n';
+    portTariffsContext += '  Un montant en EVP se MULTIPLIE par le nombre d\'EVP : un 40 pieds à 155 000 FCFA/EVP coûte 310 000 FCFA.\n';
+    portTariffsContext += '- FCFA/CNT = montant par conteneur, quelle que soit sa taille : aucune multiplication par les EVP.\n';
+    portTariffsContext += '- /tonne, /unité : montant par tonne ou par unité manutentionnée, aucune conversion EVP.\n';
+    portTariffsContext += 'Aucun tarif ne doit être déduit, interpolé ou moyenné à partir d\'une autre ligne.\n\n';
+
     if (portTariffs && portTariffs.length > 0) {
       const byProvider = portTariffs.reduce((acc: Record<string, typeof portTariffs>, t) => {
         if (!acc[t.provider]) acc[t.provider] = [];
@@ -1515,11 +1526,11 @@ serve(async (req) => {
 
       for (const [provider, tariffs] of Object.entries(byProvider)) {
         portTariffsContext += `## ${provider} (Source: ${tariffs[0]?.source_document || 'Officiel'})\n`;
-        portTariffsContext += '| Opération | Classification | Cargo | Montant (FCFA) | Surcharge |\n';
-        portTariffsContext += '|-----------|----------------|-------|----------------|------------|\n';
+        portTariffsContext += '| Opération | Classification | Cargo | Montant (FCFA) | Unité | Surcharge |\n';
+        portTariffsContext += '|-----------|----------------|-------|----------------|-------|------------|\n';
         for (const t of tariffs) {
           const surcharge = t.surcharge_percent > 0 ? `+${t.surcharge_percent}% (${t.surcharge_conditions || 'conditions'})` : '-';
-          portTariffsContext += `| ${t.operation_type} | ${t.classification} | ${t.cargo_type || 'N/A'} | ${t.amount.toLocaleString('fr-FR')} | ${surcharge} |\n`;
+          portTariffsContext += `| ${t.operation_type} | ${t.classification} | ${t.cargo_type || 'N/A'} | ${t.amount.toLocaleString('fr-FR')} | ${t.unit || 'NON PRÉCISÉE — À CONFIRMER'} | ${surcharge} |\n`;
         }
         portTariffsContext += '\n';
       }
