@@ -119,6 +119,13 @@ export const EVP_CONVERSION: Record<string, number> = {
   '20RF': 1,
   '20OT': 1,
   '20FR': 1,
+  // DTHC-4-C avait ajouté `20FL`/`40FL` à `CONTAINER_PROFILES`
+  // (`_shared/dpw-dthc-tariff.ts`) sans les inscrire ici, alors que cette table
+  // se déclare « strictement » la même liste. Les deux clés tombaient donc dans
+  // le repli par taille de `getEVPMultiplier`, qui rend le bon chiffre par
+  // accident — même situation que le 20HC avant DTHC-4-B. L'EVP est une unité de
+  // LONGUEUR : un flat de 20 pieds vaut 1 EVP, son pendant 40 en vaut 2.
+  '20FL': 1,
   '40DV': 2,
   '40DC': 2,
   '40GP': 2,
@@ -128,6 +135,7 @@ export const EVP_CONVERSION: Record<string, number> = {
   '40RF': 2,
   '40OT': 2,
   '40FR': 2,
+  '40FL': 2,
   '45HC': 2.25,
   '45HQ': 2.25,
 };

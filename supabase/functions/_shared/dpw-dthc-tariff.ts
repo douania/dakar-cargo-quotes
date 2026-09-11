@@ -87,7 +87,7 @@ export type DthcEquipment = "DRY" | "REEFER" | "SPECIAL";
  * Types de conteneur pris en charge par le produit — strictement ceux de
  * `EVP_CONVERSION` (`_shared/quotation-rules.ts`) — avec leur facteur EVP.
  */
-const CONTAINER_PROFILES: Readonly<
+export const CONTAINER_PROFILES: Readonly<
   Record<string, { evp: number; equipment: DthcEquipment }>
 > = {
   "20DV": { evp: 1, equipment: "DRY" },
@@ -211,7 +211,7 @@ function hasDangerousToken(description: unknown): boolean {
  * seules (`20'`, `40'`) restent volontairement hors profil : elles ne disent
  * pas si l'équipement est dry, reefer ou spécial.
  */
-const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
+export const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   "20DRY": "20DV",
   "40DRY": "40DV",
   "20DRYVAN20DV": "20DV",
