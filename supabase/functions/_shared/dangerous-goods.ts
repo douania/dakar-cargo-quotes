@@ -126,3 +126,26 @@ export function resolveDangerousGoods(
       "Caractère dangereux de la marchandise inconnu : le fait « marchandise dangereuse » n'est pas renseigné sur ce dossier.",
   };
 }
+
+/**
+ * DTHC-4-A — Réponse booléenne attendue par `quotation-engine`, qui lit le
+ * caractère dangereux sous `isIMO` / `isHazmat` (`:1460` pour le DTHC, `:1626`
+ * pour la sûreté des frais armateur).
+ *
+ * Fail-closed, et c'est tout l'intérêt : seule une marchandise ÉTABLIE
+ * dangereuse rend `true`. Un dossier dont le caractère dangereux est inconnu
+ * rend `false` — le moteur reste alors sur sa propre inférence (jeton
+ * DG/IMO/IMDG dans la désignation, ou famille DTHC fournie par l'opérateur) et
+ * ses frais armateur DG restent « à confirmer », ce qui est le comportement
+ * voulu tant que le dossier n'est pas déclaré.
+ *
+ * Les mêmes replis que `resolveDangerousGoods` s'appliquent : classe IMDG
+ * déclarée, puis famille tarifaire DANGEROUS.
+ */
+export function isDangerousForEngine(
+  factValue: unknown,
+  dthcFamily?: unknown,
+  imoClass?: unknown,
+): boolean {
+  return resolveDangerousGoods(factValue, dthcFamily, imoClass).dangerous === true;
+}

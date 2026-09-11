@@ -24,6 +24,9 @@ import {
 // IMO-STORAGE-1 : régime de séjour au terminal pour les conteneurs de
 // marchandises dangereuses (Annexe 1 v4.0 DP World).
 import { IMO_CLASS_FACT_KEY, UN_NUMBER_FACT_KEY } from "../_shared/imo-classification.ts";
+// DTHC-4-A : le caractère dangereux du dossier doit atteindre le moteur, qui
+// l'attend sous `isIMO` mais ne le recevait de personne.
+import { DANGEROUS_GOODS_FACT_KEY, isDangerousForEngine } from "../_shared/dangerous-goods.ts";
 import { resolveImoTerminalRule, type ImoTerminalRuleRow } from "../_shared/imo-terminal-rules.ts";
 import { buildImoStorageNotice, IMO_STORAGE_SERVICE_KEY } from "../_shared/imo-storage-notice.ts";
 import {
@@ -123,6 +126,28 @@ interface PricingInputs {
   // régime de séjour au terminal (procédure DP World, Annexe 1 v4.0).
   imoClass?: string;
   unNumber?: string;
+  // DTHC-4-A : valeur brute du fait `cargo.dangerous_goods`, telle qu'écrite en
+  // base. La résolution (et ses replis) a lieu au moment de bâtir les paramètres
+  // moteur, pas ici : elle dépend aussi de `imoClass` et `dthcFamily`, qui
+  // peuvent être lus après ce fait.
+  dangerousGoods?: string;
+}
+
+/**
+ * DTHC-4-A — Caractère dangereux transmis au moteur.
+ *
+ * `quotation-engine` déclare `isIMO` et `isHazmat` et les lit (`:1460` pour le
+ * DTHC, `:1626` pour la sûreté des frais armateur), mais run-pricing ne les a
+ * jamais renseignés : les deux valaient `undefined` à l'exécution. Le fait
+ * `cargo.dangerous_goods` (DG-1) alimentait la ligne de séjour IMO et les règles
+ * d'honoraires, mais pas le DTHC — le supplément de 50 % de l'arrêté n° 035532
+ * ne partait donc jamais tout seul.
+ *
+ * La règle elle-même vit dans `_shared/dangerous-goods.ts`, où elle est testée
+ * sans réseau ; ici, simple passe-plat sur les trois faits du dossier.
+ */
+function resolveDangerousForEngine(i: PricingInputs): boolean {
+  return isDangerousForEngine(i.dangerousGoods, i.dthcFamily, i.imoClass);
 }
 
 // Backend guard: pricing must not start while client or partner communication loops are still open.
@@ -1941,6 +1966,8 @@ Deno.serve(async (req) => {
             transportMode: lc.transportMode,
             cargoDescription: lc.inputs.cargoDescription,
             dthcFamily: lc.inputs.dthcFamily,
+            // DTHC-4-A : caractère dangereux du lot, attendu par le moteur.
+            isIMO: resolveDangerousForEngine(lc.inputs),
             weightPerContainerKg: lc.inputs.weightPerContainerKg,
             clientCompany: lc.inputs.clientCompany,
             hsCode: lc.inputs.hsCode,
@@ -3083,6 +3110,8 @@ Deno.serve(async (req) => {
         transportMode: caseData.request_type?.includes("AIR") ? "aerien" : "maritime",
         cargoDescription: inputs.cargoDescription,
         dthcFamily: inputs.dthcFamily,
+        // DTHC-4-A : caractère dangereux du dossier, attendu par le moteur.
+        isIMO: resolveDangerousForEngine(inputs),
         weightPerContainerKg: inputs.weightPerContainerKg,
         clientCompany: inputs.clientCompany,
         hsCode: inputs.hsCode,
@@ -4592,6 +4621,10 @@ function buildPricingInputs(facts: any[]): PricingInputs {
         break;
       case "pricing.dthc_family":
         inputs.dthcFamily = String(value);
+        break;
+      // DTHC-4-A : fait DG-1, propagé au moteur sous `isIMO`.
+      case DANGEROUS_GOODS_FACT_KEY:
+        inputs.dangerousGoods = String(value);
         break;
       case "cargo.weight_per_container_kg": {
         const perContainerKg = Number(value);

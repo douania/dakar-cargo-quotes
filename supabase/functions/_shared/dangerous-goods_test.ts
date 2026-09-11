@@ -10,6 +10,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   DANGEROUS_GOODS_FACT_KEY,
+  isDangerousForEngine,
   normalizeDangerousGoodsFactValue,
   resolveDangerousGoods,
 } from "./dangerous-goods.ts";
@@ -130,5 +131,70 @@ Deno.test("chaque réponse porte une explication française non vide", () => {
   ]) {
     assertEquals(typeof r.message, "string");
     assertEquals(r.message.trim().length > 0, true);
+  }
+});
+
+/* ------------------------------------------------------------------------- *
+ * DTHC-4-A — réponse booléenne transmise au moteur sous `isIMO`.
+ *
+ * Enjeu direct : c'est ce booléen qui déclenche le supplément de 50 % lié au
+ * caractère dangereux (arrêté n° 035532 du 28/11/2023), et qui lève la mise en
+ * « à confirmer » des frais armateur DG. Un `true` de trop sur-facture, un
+ * `false` de trop sous-facture.
+ * ------------------------------------------------------------------------- */
+
+Deno.test("moteur : le fait déclaré commande, dans les deux sens", () => {
+  assertEquals(isDangerousForEngine("YES"), true);
+  assertEquals(isDangerousForEngine("OUI"), true);
+  assertEquals(isDangerousForEngine("NO"), false);
+  assertEquals(isDangerousForEngine("NON"), false);
+});
+
+Deno.test("moteur : caractère dangereux inconnu vaut false, jamais true", () => {
+  for (const raw of [undefined, null, "", "   ", "peut-être", 1, {}, []]) {
+    assertEquals(
+      isDangerousForEngine(raw),
+      false,
+      `valeur inexploitable rendue dangereuse : ${JSON.stringify(raw)}`,
+    );
+  }
+});
+
+Deno.test("moteur : un fait déclaré NON prime sur les replis", () => {
+  // Le dossier dit explicitement « non dangereux » : ni la classe IMDG ni la
+  // famille tarifaire ne doivent le contredire en silence.
+  assertEquals(isDangerousForEngine("NO", "DANGEROUS", "3"), false);
+});
+
+Deno.test("moteur : les replis du résolveur s'appliquent bien", () => {
+  // Classe IMDG déclarée, fait absent.
+  assertEquals(isDangerousForEngine(null, undefined, "9"), true);
+  assertEquals(isDangerousForEngine(null, undefined, "1.4"), true);
+  // Famille tarifaire DANGEROUS, fait et classe absents.
+  assertEquals(isDangerousForEngine(null, "DANGEROUS"), true);
+  // Une autre famille ne dit rien du danger.
+  for (const family of ["STANDARD", "BASIC", "REEFER", "SPECIAL", "n'importe quoi"]) {
+    assertEquals(isDangerousForEngine(null, family), false, `famille ${family}`);
+  }
+});
+
+Deno.test("moteur : le booléen suit exactement le résolveur", () => {
+  // Aucune divergence possible entre l'explication rendue à l'opérateur et le
+  // montant facturé.
+  for (
+    const args of [
+      ["YES", undefined, undefined],
+      ["NO", "DANGEROUS", "3"],
+      [null, undefined, "9"],
+      [null, "DANGEROUS", undefined],
+      [null, undefined, undefined],
+      ["n'importe quoi", "STANDARD", "pas une classe"],
+    ] as Array<[unknown, unknown, unknown]>
+  ) {
+    assertEquals(
+      isDangerousForEngine(args[0], args[1], args[2]),
+      resolveDangerousGoods(args[0], args[1], args[2]).dangerous === true,
+      `divergence sur ${JSON.stringify(args)}`,
+    );
   }
 });
