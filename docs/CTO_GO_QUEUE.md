@@ -286,9 +286,15 @@ Constats nouveaux issus de cette facture :
   la correspondance.
 
 **Reste du lot `DTHC-4`, audité le 2026-09-10, aucun fichier modifié** :
-- **A** — `cargo.dangerous_goods` n'atteint jamais le DTHC : `isIMO`/`isHazmat` sont déclarés
-  (`quotation-engine:421,425`), lus (`:1460`) et **jamais renseignés** par `run-pricing`
-  (`engineParams`, `:3072-3093`). La majoration de 50 % ne part donc jamais automatiquement.
+- **A** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `5b34d0ac`.** `cargo.dangerous_goods` n'atteignait
+  jamais le DTHC : `isIMO`/`isHazmat` étaient déclarés (`quotation-engine:421,425`), lus (`:1460`) et
+  **jamais renseignés** par `run-pricing`. La règle vit désormais dans
+  `_shared/dangerous-goods.ts` (`isDangerousForEngine`), testée sans réseau ; `run-pricing` n'est
+  qu'un passe-plat, en exception structurelle additive (33 insertions, 0 suppression). Les deux
+  chemins mono-lot et multi-lot sont couverts.
+  **Second effet, voulu** : la règle 5 de `evaluateCarrierChargeSafety` (`quotation-engine:1061`)
+  était inerte faute d'entrée — tout frais armateur au libellé DG restait « à confirmer ». Il devient
+  ferme sur un dossier déclaré dangereux. À surveiller sur les premiers dossiers IMO.
 - **B** — `20HQ`/`20HC` absents de `CONTAINER_PROFILES` alors que `40HC`/`40HQ` y sont : les
   52 conteneurs du dossier tombent en `CONTAINER_TYPE_UNSUPPORTED`.
 - **C** — aucun fait ne route une unité hors gabarit ou en surpoids vers `SPECIAL` : un dry OOG reste
