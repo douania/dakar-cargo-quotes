@@ -12,6 +12,7 @@
  */
 
 import { corsHeaders } from "./cors.ts";
+import { type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 // ============================================================================
 // UTILITY TYPES (CTO FIX A2)
@@ -223,7 +224,7 @@ function truncateMeta(meta?: JsonObject): JsonObject | undefined {
  * Uses service role client for insert.
  */
 export async function logRuntimeEvent(
-  serviceClient: { from: (table: string) => { insert: (data: unknown) => Promise<{ error: unknown }> } },
+  serviceClient: SupabaseClient,
   entry: RuntimeEventEntry
 ): Promise<void> {
   try {
@@ -266,7 +267,7 @@ const DEFAULT_RATE_LIMITS: Record<string, { limit: number; windowSeconds: number
  * Returns { allowed: true } if under limit, otherwise { allowed: false, retryAfterMs }.
  */
 export async function checkRateLimit(
-  serviceClient: { rpc: (fn: string, params: unknown) => Promise<{ data: unknown; error: unknown }> },
+  serviceClient: SupabaseClient,
   userId: string,
   functionName: string,
   customLimit?: number,
@@ -314,102 +315,6 @@ export async function checkRateLimit(
   }
 }
 
-/**
- * Simplified rate limit check without RPC (direct table access).
- * Falls back to this if RPC is not available.
- */
-export async function checkRateLimitDirect(
-  serviceClient: { from: (table: string) => unknown },
-  userId: string,
-  functionName: string,
-  customLimit?: number,
-  customWindowSeconds?: number
-): Promise<RateLimitResult> {
-  const config = DEFAULT_RATE_LIMITS[functionName] || { limit: 10, windowSeconds: 60 };
-  const limit = customLimit ?? config.limit;
-  const windowSeconds = customWindowSeconds ?? config.windowSeconds;
-
-  try {
-    const windowStart = new Date(
-      Math.floor(Date.now() / (windowSeconds * 1000)) * (windowSeconds * 1000)
-    ).toISOString();
-
-    // Atomic UPSERT using Supabase's upsert with onConflict
-    const client = serviceClient.from('rate_limit_buckets') as {
-      upsert: (data: unknown, opts: unknown) => { select: (cols: string) => { single: () => Promise<{ data: unknown; error: unknown }> } }
-    };
-
-    const { data, error } = await client
-      .upsert(
-        {
-          user_id: userId,
-          function_name: functionName,
-          window_start: windowStart,
-          request_count: 1,
-        },
-        {
-          onConflict: 'user_id,function_name,window_start',
-          ignoreDuplicates: false,
-        }
-      )
-      .select('request_count')
-      .single();
-
-    if (error) {
-      // Try increment if upsert failed (row exists)
-      const updateClient = serviceClient.from('rate_limit_buckets') as {
-        update: (data: unknown) => { 
-          eq: (col: string, val: string) => { 
-            eq: (col: string, val: string) => { 
-              eq: (col: string, val: string) => { 
-                select: (cols: string) => { 
-                  single: () => Promise<{ data: unknown; error: unknown }> 
-                } 
-              } 
-            } 
-          } 
-        }
-      };
-
-      const { data: updateData, error: updateError } = await updateClient
-        .update({ request_count: 1 }) // Will be incremented by trigger/RLS
-        .eq('user_id', userId)
-        .eq('function_name', functionName)
-        .eq('window_start', windowStart)
-        .select('request_count')
-        .single();
-
-      if (updateError) {
-        console.error('[runtime] Rate limit update failed:', updateError);
-        return { allowed: true };
-      }
-
-      const count = (updateData as { request_count?: number })?.request_count ?? 1;
-      if (count > limit) {
-        return {
-          allowed: false,
-          requestCount: count,
-          retryAfterMs: windowSeconds * 1000,
-        };
-      }
-      return { allowed: true, requestCount: count };
-    }
-
-    const requestCount = (data as { request_count?: number })?.request_count ?? 1;
-    if (requestCount > limit) {
-      return {
-        allowed: false,
-        requestCount,
-        retryAfterMs: windowSeconds * 1000,
-      };
-    }
-
-    return { allowed: true, requestCount };
-  } catch (err) {
-    console.error('[runtime] Rate limit exception:', err);
-    return { allowed: true };
-  }
-}
 
 // ============================================================================
 // HELPER: Determine status from error code
