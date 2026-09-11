@@ -87,7 +87,62 @@ transit, mais la facture 3384292 prouve que DP World le facture à l'import.
 
 ---
 
-## [2026-09-11 10:05 UTC] PENDING — Codification C1–C7 et surcharges colis lourds de l'arrêté 2015
+## [2026-09-11 11:20 UTC] PENDING — L'arrêté en vigueur est identifié : n° 035532 du 28 novembre 2023
+
+**Origine** : session interactive
+**Type** : demande de GO avant travail (correction de provenance)
+
+**Texte trouvé** : **Arrêté ministériel n° 035532 du 28 novembre 2023 portant révision des tarifs de
+manutention de conteneurs**, Ministère du Commerce, de la Consommation et des Petites et Moyennes
+Entreprises — publié au **Journal officiel de la République du Sénégal n° 7723 du 6 avril 2024,
+page 471**. Fondement : articles 6 et 7 du décret n° 2022-89 du 17 janvier 2022. Sanctions :
+loi n° 2021-25 sur les prix et la protection du consommateur.
+
+**Son annexe reproduit exactement la grille que porte l'application** (export et import : 70 000 /
+155 000 / 170 500 / 155 000 + 50 % dangereux / 310 000 ; transit 110 000, taux par EVP). Le dépliant
+DP World « Nouveaux tarifs de manutention de conteneurs » en est la reprise commerciale fidèle. Les
+cinq familles canoniques sont donc **opposables**, et `evidence_level = 'official'` est pleinement
+justifié — mais leur `source_document` cite aujourd'hui `DPW_TARIFS_2025_0001.pdf` ou
+« Arrêté DPW 2025 », deux références qui n'existent pas.
+
+**Article 3 — « Les tarifs de magasinage et de relevage, ainsi que des autres opérations annexes,
+restent inchangés. »** Le barème de relevage de l'arrêté 2015 (C1–C5 : 18 280/TEU ; C6 transit :
+36 560/TEU) est donc toujours en vigueur. **Le correctif F1b appliqué ce jour est confirmé par le
+texte.**
+
+**Les deux surcharges de poids de 2015 ont disparu.** L'annexe 2023 porte « Néant » en surcharge sur
+toutes les lignes sauf les dangereux : la surcharge colis lourds de 20 % (20' > 15 T, 40' > 26 T) et
+la pénalité de 50 % (20' > 20 T, 40' > 30 T) ne sont pas reconduites. La révision portant sur les
+tarifs de manutention, leur colonne « Surcharge » remplace celle de 2015. **Rien à encoder.**
+
+**Correction d'une hypothèse du 2026-09-11 matin** : l'arrêté ne codifie pas C1 à C7, il nomme les
+classifications en clair. Le « ACCONAGE **C7** » de la facture 3384292 est le **code interne de
+facturation DP World** pour la ligne « Autres conteneurs spéciaux » — catégorie effectivement créée
+par cet arrêté, absente de celui de 2015. Ce n'est donc pas la preuve d'un texte encore plus récent.
+
+**POINT DE GOUVERNANCE — cumul spécial × dangereux à 465 000.** L'arrêté porte **« Néant »** en
+surcharge sur la ligne « Autres Conteneurs spéciaux » à 310 000, et attache le supplément de 50 % à
+la seule ligne « Produits dangereux ». **Il n'écrit nulle part le cumul.** La décision CTO du
+2026-09-10 (465 000) reste donc une décision de gestion, appuyée sur la pratique de facturation de
+DP World, et non sur le texte. `evidence_level` doit être **`validated_internal`**, pas `official`
+comme indiqué le 2026-09-10 — sauf confirmation écrite de DP World, qui rendrait `official`
+légitime. **À trancher avant d'écrire la ligne.**
+
+**Lot proposé (migration seule, aucun code, aucun module FROZEN)** — corriger la provenance des
+11 lignes canoniques de la grille THC :
+- `source_document` → « Arrêté ministériel n° 035532 du 28/11/2023 portant révision des tarifs de
+  manutention de conteneurs — JORS n° 7723 du 06/04/2024, p. 471 » ;
+- `effective_date` → **2024-04-06** (publication au Journal officiel) au lieu de 2025-01-01.
+  À confirmer : la date de signature (2023-11-28) est une alternative, mais la publication est la
+  date à partir de laquelle le tarif est incontestablement opposable. Élargit l'applicabilité vers
+  l'arrière : les dossiers de 2024 résoudront désormais un tarif au lieu de tomber en `TO_CONFIRM`.
+
+**Référence** : pièce reçue `JO7723du06avril2024_1.pdf`, page 9 (page 471 du JO). Branche `work`,
+HEAD `fa3f2186`.
+
+---
+
+## [2026-09-11 10:05 UTC] TRAITÉ — Codification C1–C7 et surcharges colis lourds de l'arrêté 2015
 
 **Origine** : session interactive
 **Type** : demande de GO avant travail
