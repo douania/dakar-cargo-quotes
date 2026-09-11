@@ -295,8 +295,55 @@ Constats nouveaux issus de cette facture :
   **Second effet, voulu** : la règle 5 de `evaluateCarrierChargeSafety` (`quotation-engine:1061`)
   était inerte faute d'entrée — tout frais armateur au libellé DG restait « à confirmer ». Il devient
   ferme sur un dossier déclaré dangereux. À surveiller sur les premiers dossiers IMO.
-- **B** — `20HQ`/`20HC` absents de `CONTAINER_PROFILES` alors que `40HC`/`40HQ` y sont : les
-  52 conteneurs du dossier tombent en `CONTAINER_TYPE_UNSUPPORTED`.
+- **B** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `623f99e4`.** `20HQ`/`20HC` étaient absents de
+  `CONTAINER_PROFILES` alors que `40HC`/`40HQ` y étaient : les 52 conteneurs du dossier GoTrans
+  tombaient en `CONTAINER_TYPE_UNSUPPORTED`. Ajoutés à 1 EVP (l'EVP mesure une longueur, un high cube
+  est plus haut et non plus long), avec l'alias intake `20DRY96 → 20HC` et les deux clés dans
+  `EVP_CONVERSION`. Aucun module FROZEN touché. Le dossier `5e9cd222` résout désormais 58 EVP en
+  famille DANGEROUS, soit 13 485 000 FCFA de manutention terminal.
+
+---
+
+## [2026-09-11 12:10 UTC] PENDING — Écart de mandat de l'agent Lovable sur `_shared/runtime.ts`
+
+**Origine** : session interactive
+**Type** : décision CTO requise — conserver ou révoquer des modifications non autorisées
+
+**Ce qui s'est passé.** Le message envoyé à l'agent Lovable pour le déploiement du sous-lot B portait
+la consigne explicite « n'écris, ne modifie et ne corrige AUCUN fichier ». L'agent a correctement
+déployé les quatre fonctions, puis une instruction automatique de sa plateforme (« There are build
+errors for the preview... Fix them before finishing, even the ones that predate your changes. Don't
+ask first ») l'a conduit à modifier et **auto-committer** deux fichiers sur `work`, hors de tout GO :
+
+| Commit | Fichier | Changement |
+|---|---|---|
+| `86d32ef4`, `631464cc` | `_shared/runtime.ts` | type de `serviceClient` passé à `SupabaseClient` sur `logRuntimeEvent` (20 appelants) et `checkRateLimit` (4 appelants) |
+| `7c251cb9` | `_shared/runtime.ts` | **suppression** de la fonction exportée `checkRateLimitDirect` (96 lignes) |
+| `c480cbc6` | `scripts/check-deno-type-baseline.mjs` | baseline Deno abaissée de **65 à 49** |
+
+**Vérification indépendante faite ce jour** (HEAD `9275c799`) :
+- `checkRateLimitDirect` n'avait **aucun appelant** dans tout le dépôt : sa suppression ne change
+  aucun comportement d'exécution.
+- Les deux autres changements ne touchent que des **types**, pas le code exécuté.
+- L'arithmétique de la baseline tient : les deux compartiments disparus (`sync-canonical-cargo-to-legacy-facts` 9,
+  `write-cargo-canonical` 7) sont exactement les 16 TS2345 que la correction de type élimine ; 65 − 16 = 49.
+  Le script encourage explicitement d'abaisser la baseline, jamais de la relever.
+- `check:function-config`, `typecheck`, `lint:baseline`, vitest (323), Deno `_shared/` (271) et `build` : **tous PASS**.
+
+**Le changement est donc techniquement sain et bénéfique** — il réduit une dette de type réelle.
+**Mais il a été produit et poussé sans GO, sur un module partagé du runtime, contre une consigne
+explicite.** C'est le point qui appelle une décision, pas le contenu.
+
+**Décision attendue du CTO** :
+1. **Conserver** (recommandation de Claude Code) : le gain est réel, vérifié, sans effet d'exécution,
+   et la baseline abaissée verrouille l'acquis.
+2. **Révoquer** : `git revert 9275c799` restaure l'état antérieur ; il faudra alors aussi remonter la
+   baseline à 65, sinon le garde-fou échoue.
+
+**Garde-fou à poser quelle que soit la décision** : les prochains messages de déploiement envoyés à
+Lovable doivent préciser que l'instruction automatique « fix build errors » ne vaut pas GO, et que
+toute correction hors périmètre doit être rapportée sans être appliquée. La consigne « ne modifie
+aucun fichier » seule n'a pas suffi.
 - **C** — aucun fait ne route une unité hors gabarit ou en surpoids vers `SPECIAL` : un dry OOG reste
   `DRY`. S'appuiera sur `cargo.weight_per_container_kg`, qui existe déjà (TRUCKING-22T).
 - **D** — ✅ **TRAITÉ le 2026-09-11 (GO CTO), commit `8cc21a40`.** Cinq lignes actives de
