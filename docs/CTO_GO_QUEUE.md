@@ -24,7 +24,17 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
-## [2026-09-11 10:05 UTC] PENDING — ERREUR F1 À CORRIGER : le relevage transit a été divisé par deux
+## [2026-09-11 10:05 UTC] ✅ TRAITÉ — ERREUR F1 CORRIGÉE : le relevage transit est restauré
+
+**Correctif appliqué le 2026-09-11 (GO CTO)** — migration
+`20260911103000_dthc4_f1b_restore_transit_relevage.sql`, appliquée en base live et vérifiée :
+`CONTENEUR_20` 36 560, `CONTENEUR_40` 73 120, `CONTENEUR_45` 82 260, `unit` `FCFA/CNT`,
+`evidence_level` `official`, source « Arrêté portant homologation des tarifs de manutention de
+conteneurs (Ministère du Commerce, Sénégal, 2015) — annexe, RELEVAGE C6 : 36 560 FCFA par TEU ».
+Reste ouvert sous GO distinct : créer les lignes `RELEVAGE` IMPORT/EXPORT au barème C1–C5
+(18 280 / 36 560 / 41 130), dormantes tant que F2 n'aura pas ouvert le relevage hors transit.
+
+**Constat d'origine, conservé pour mémoire :**
 
 **Origine** : session interactive — **erreur introduite par Claude Code le 2026-09-10**
 **Type** : correctif urgent sur donnée live, GO requis
