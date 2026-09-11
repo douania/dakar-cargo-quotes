@@ -118,16 +118,34 @@ export const LOCAL_TRANSPORT_CONTAINER_ALIASES: Readonly<
   "20DV": LOCAL_TRANSPORT_CONTAINER_20,
   "20DC": LOCAL_TRANSPORT_CONTAINER_20,
   "20GP": LOCAL_TRANSPORT_CONTAINER_20,
+  "20ST": LOCAL_TRANSPORT_CONTAINER_20,
   "20STD": LOCAL_TRANSPORT_CONTAINER_20,
   "20FT": LOCAL_TRANSPORT_CONTAINER_20,
   "20FTDRY": LOCAL_TRANSPORT_CONTAINER_20,
   "20FTDRYVAN": LOCAL_TRANSPORT_CONTAINER_20,
+  // Les cinq orthographes high cube du 20 pieds, pendant strict des clés `40HC…`
+  // présentes depuis l'origine. Leur absence n'était pas une décision : le 40
+  // high cube était couvert, le 20 ne l'était pas, et un dossier en 20HQ tombait
+  // en CONTAINER_UNSUPPORTED côté livraison alors que la manutention portuaire
+  // le résolvait déjà (DTHC-4-B). Un high cube est plus HAUT, pas plus long : la
+  // caisse occupe le même plateau et relève du même tarif 20 pieds. La hauteur
+  // ne change pas le tarif ; elle change le châssis requis, qui est un sujet
+  // distinct et non traité ici.
+  "20HC": LOCAL_TRANSPORT_CONTAINER_20,
+  "20HQ": LOCAL_TRANSPORT_CONTAINER_20,
+  "20HCDRY": LOCAL_TRANSPORT_CONTAINER_20,
+  "20HCDRYVAN": LOCAL_TRANSPORT_CONTAINER_20,
+  "20FTHC": LOCAL_TRANSPORT_CONTAINER_20,
   "40": LOCAL_TRANSPORT_CONTAINER_40,
   "40DRY": LOCAL_TRANSPORT_CONTAINER_40,
   "40DRYVAN": LOCAL_TRANSPORT_CONTAINER_40,
   "40DV": LOCAL_TRANSPORT_CONTAINER_40,
   "40DC": LOCAL_TRANSPORT_CONTAINER_40,
   "40GP": LOCAL_TRANSPORT_CONTAINER_40,
+  // `40ST` / `20ST` : la forme courte du conteneur standard, déclarée côté
+  // manutention (`CONTAINER_PROFILES`) mais jamais ici, où seule la forme longue
+  // `…STD` figurait. Même trou silencieux que le high cube.
+  "40ST": LOCAL_TRANSPORT_CONTAINER_40,
   "40STD": LOCAL_TRANSPORT_CONTAINER_40,
   "40FT": LOCAL_TRANSPORT_CONTAINER_40,
   "40FTDRY": LOCAL_TRANSPORT_CONTAINER_40,
