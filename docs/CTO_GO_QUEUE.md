@@ -356,6 +356,66 @@ aucun fichier » seule n'a pas suffi.
 
 ---
 
+## [2026-09-11 13:05 UTC] PENDING — Les photos GoTrans étaient en base, analysées, et perdues
+
+**Origine** : session interactive
+**Type** : constat produit + faits à écrire sur le dossier `5e9cd222`
+
+Le fil GoTrans compte **deux** e-mails, tous deux `thread_ref 1a3fda08` (= le `thread_id` du dossier
+`5e9cd222`), reçus à 8 secondes d'intervalle le 2026-06-06 et tous deux enregistrés « (Sans sujet) » :
+- `0cb1365a` — corps court (1 970 car.), celui dont le dossier a tiré ses faits ;
+- **`afe8910c`** — corps long (30 489 car.) et **les deux photos**, datées du 27/05/2026.
+
+**Ce que les photos portent**, d'après l'extraction faite par l'application elle-même
+(`email_attachments.extracted_data`, `is_analyzed = true`) :
+
+| Pièce | Contenu extrait |
+|---|---|
+| `截屏2026-05-27 15.55.55.png` (1,7 Mo) | L'unité : « **2,9 m** », « **9'6"** », n° conteneur « **JTLU 005872 3** », marques « **Potis Edge** », « **REPT BATTERO** », « EMERGENCY STOP », « Remove before use » |
+| `截屏2026-05-27 15.56.45.png` (2,2 Mo) | Camion Scania tractant une **longue remorque plate**, cargaison volumineuse emballée marquée « Potis Edge » |
+
+**Ce que cela établit** :
+- **Ce sont bien des batteries.** Potis Edge est un intégrateur BESS (fondé en 2015 — iCCS, BMS, EMS,
+  systèmes conteneurisés, gamme OmniCube) ; REPT BATTERO fournit les cellules LFP. L'hypothèse du
+  2026-09-10 est confirmée par les photos du client, non plus par déduction. La classe 9 / UN3536 est
+  cohérente.
+- **La hauteur est celle d'un high cube standard** : 2,9 m = 9'6". **L'unité n'est donc PAS hors
+  gabarit en hauteur.** Cela retire une des hypothèses OOG du 2026-09-10 (l'enveloppe non-ISO de
+  6 558 × 2 938 × 3 396 mm relevée chez un autre fabricant ne s'applique pas ici).
+- Le préfixe `JTLU` n'est pas un préfixe d'armateur : cohérent avec la mention SOC.
+- REPT BATTERO produit des 20 pieds à 6,26 puis 6,9 MWh — la classe de densité où la filière annonce
+  ~50 t. **Les 55 t restent plausibles, sans être prouvés par ces pièces.**
+
+**RÉSERVE** : ces lectures sont celles de la vision de l'application, pas les miennes — le stockage
+n'est pas joignable depuis l'environnement de développement. La hauteur et le numéro de conteneur
+doivent être confirmés à l'œil avant d'être écrits comme faits.
+
+**LE CONSTAT PRODUIT, qui est le point important.** Les deux photos ont été **analysées**
+(`is_analyzed = true`), la hauteur, le numéro de conteneur et le fabricant en ont été **extraits** —
+et **aucun de ces éléments n'est devenu un fait du dossier**. `cargo.containers` ne porte ni
+dimensions ni numéro, `cargo.imo_class` et `cargo.un_number` sont toujours vides, et
+`cargo.weight_per_container_kg` n'existe pas. L'information était dans la maison depuis le
+2026-06-06 et n'a jamais atteint la cotation.
+
+**Deux anomalies d'intake relevées au passage** :
+1. **Chaque pièce jointe existe en double** — une copie analysée, une copie `is_analyzed = false`.
+   L'intake a tourné deux fois sur le même message.
+2. Les deux e-mails sont enregistrés « (Sans sujet) » alors que l'objet réel est
+   « Enquiry for Local Delivery (Dakar - N'Dioum) ». Le sujet ne s'est pas propagé.
+
+**Décisions attendues du CTO** :
+1. **Écrire les faits sur le dossier `5e9cd222`** après vérification visuelle : `cargo.un_number`
+   = UN3536 (l'e-mail le dit), `cargo.imo_class` = 9, et la hauteur / le numéro de conteneur si vous
+   les confirmez. Chacun sous GO, comme d'habitude.
+2. **Ouvrir un lot sur la remontée des faits extraits des pièces jointes vers le dossier** — c'est le
+   trou le plus coûteux constaté aujourd'hui : l'application voit, comprend, et oublie.
+3. Le doublonnage des pièces jointes et la perte de l'objet relèvent d'un lot intake distinct.
+
+**Référence** : e-mails `afe8910c` et `0cb1365a`, pièces jointes `1897346e` et `bd8e6943`. Branche
+`work`, HEAD `ac286a34`.
+
+---
+
 ## [2026-09-11 12:40 UTC] PENDING — Garde de cohérence poids / type de conteneur : source du seuil
 
 **Origine** : session interactive, issue du sous-lot C
