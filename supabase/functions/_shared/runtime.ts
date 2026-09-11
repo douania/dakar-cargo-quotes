@@ -224,7 +224,7 @@ function truncateMeta(meta?: JsonObject): JsonObject | undefined {
  * Uses service role client for insert.
  */
 export async function logRuntimeEvent(
-  serviceClient: { from: (table: string) => { insert: (data: unknown) => Promise<{ error: unknown }> } },
+  serviceClient: SupabaseClient,
   entry: RuntimeEventEntry
 ): Promise<void> {
   try {
@@ -267,7 +267,7 @@ const DEFAULT_RATE_LIMITS: Record<string, { limit: number; windowSeconds: number
  * Returns { allowed: true } if under limit, otherwise { allowed: false, retryAfterMs }.
  */
 export async function checkRateLimit(
-  serviceClient: { rpc: (fn: string, params: unknown) => Promise<{ data: unknown; error: unknown }> },
+  serviceClient: SupabaseClient,
   userId: string,
   functionName: string,
   customLimit?: number,
@@ -320,7 +320,7 @@ export async function checkRateLimit(
  * Falls back to this if RPC is not available.
  */
 export async function checkRateLimitDirect(
-  serviceClient: { from: (table: string) => unknown },
+  serviceClient: SupabaseClient,
   userId: string,
   functionName: string,
   customLimit?: number,
