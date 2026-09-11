@@ -1,12 +1,54 @@
 # BACKLOG DIFFÉRÉ — DAKAR CARGO QUOTES
 
-Dernière mise à jour : 2026-06-07
+Dernière mise à jour : 2026-09-11
 
 Source de vérité unique de tous les sujets volontairement reportés, laissés dormants, acceptés comme dette, ou déplacés à une phase ultérieure.
 
 > **Historique des lots clos** : les notes narratives de clôture (RFQ 451ab687, PAD-V5-SHADOW-DOC-UPDATE-1, MAP-6-EXEC-UI, MAP-6-SECURITY-GRANTS-FIX, MAP-6-EXEC-MIGRATION T1–T12, MAP-7B, MAP-8 Audit, MAP-8B) ont été déplacées vers `## Archive — Lots clos` → sous-section `[Header historique]` en fin de fichier. Contenu verbatim ; statuts, dates, SHA et verdicts conservés tels quels.
 
-> **Sujet ouvert restant** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO. Voir note d'audit V2 conservée plus bas dans ce header.
+> **Sujets ouverts restants** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO (voir note d'audit V2 conservée plus bas dans ce header). `EMAIL-INGEST-SECURITY-1` reste **OUVERT** — contient deux items de gravité élevée (S0, S1) volontairement différés par décision CTO du 2026-09-11.
+
+### EMAIL-INGEST-SECURITY-1 — DEFERRED / OUVERT (⚠️ contient 2 items gravité élevée)
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `EMAIL-INGEST-SECURITY-1` |
+| **Catégorie** | Sécurité Auth / ingestion email IMAP |
+| **Statut** | `DEFERRED / OUVERT` — différé sur décision CTO explicite du 2026-09-11 (« mettre cela dans les actions à faire plus tard ») |
+| **Priorité** | P0 pour S0/S1 · P1 pour S2 · P2 pour S3/S4/E1/M1 |
+| **Phase d'origine** | Lot E1 (diagnostic lecture seule `sync-emails`), déclenché par la demande d'accès MCP à la boîte `ramzi.hoballah@sodatra.sn` |
+| **Date** | 2026-09-11 |
+| **Base** | `work` @ `9292979b` — diagnostic intégralement en lecture seule, aucun code modifié |
+
+**Faits vérifiés (aucune hypothèse dans ce bloc) :**
+
+- **Aucune synchronisation automatique n'existe.** Ni `pg_cron` ni `pg_net` ne sont installés. Seuls appelants de `sync-emails` : `src/pages/admin/Emails.tsx:334` et `src/services/emailService.ts:78`. La synchro ne tourne que sur clic humain.
+- **Fenêtre de lecture figée aux 10 derniers messages.** `supabase/functions/sync-emails/index.ts:1938` (`limit = 10` par défaut) ; aucun appelant ne transmet `limit`. Lignes 1997-1998 : sélection par **numéro de séquence** sur la queue de l'INBOX (`startSeq:exists`), jamais par date. Conséquence arithmétique : tout ce qui dépasse 10 messages entre deux clics est **perdu définitivement** (la fenêtre étant ancrée à la queue, aucune synchro ultérieure ne peut y revenir).
+- **`last_sync_at` est écrit mais jamais lu.** Écrivain unique : `sync-emails/index.ts:2179`. Aucune recherche IMAP `SINCE` dans le dépôt. Champ décoratif.
+- **Second inséreur dans `emails`** : `import-thread/index.ts:1513`, qui ne touche pas `last_sync_at` — explique des insertions sans avancement du marqueur.
+- **Volumétrie mesurée** (2026-09-11) : 269 emails ; `last_sync_at` gelé au 2026-03-18 ; courbe mensuelle Oct 18 / Nov 33 / Déc 41 / Jan 42 / Fév 71 / Mar 29 / Avr 12 / Mai 5 / Juin 3 / **Juil 0 / Août 0** / Sep 1. Cette courbe mesure la fréquence de clic, pas le trafic réel.
+- **Mot de passe IMAP stocké en clair.** `sync-emails/index.ts:1980` passe `config.password_encrypted` brut à IMAP LOGIN ; aucun déchiffrement nulle part. Le nom de colonne ne correspond pas au contenu. *(Valeur jamais lue ni consignée.)*
+- **Atténuations vérifiées** : RLS `email_configs` = politique unique `« Deny all client access »` (`cmd=ALL`, `roles={public}`, `qual=false`) → aucun client ne lit la ligne. `email-admin/index.ts:427` et `:529` masquent le champ (`'********'`). `email-admin` et `data-admin` sont gardés par `requireAdmin` (liste blanche, *fail-closed*). `startTls()` est *fail-closed* : aucun repli en clair, le mot de passe ne transite jamais en clair.
+- **Exposition résiduelle du secret** : porteurs du `SERVICE_ROLE_KEY`, accès dashboard/DB, **sauvegardes (en clair)**, et **toute session d'agent disposant du MCP Lovable** (`query_database` atteint la ligne en service-role).
+- **DNS** : `imap.sodatra.sn` → `154.115.131.70`, nom canonique `imap.arc.sn` (hébergeur mutualisé sénégalais). Aucun connecteur MCP du catalogue public ne peut l'atteindre — Gmail / Superhuman sont exclus par construction.
+
+**Items différés :**
+
+| # | Item | Constat | Gravité |
+|---|------|---------|---------|
+| **S0** | 3 comptes `*@test.local` résiduels dans `auth.users` (créés 2026-04-03, phase smoke test 3A) dont **`smoketest_p3a_v2@test.local` confirmé et authentifié le 2026-04-03** | Distincts des users `map6-sec-test-*@example.test` supprimés sous `MAP-6-AUTH-TEST-USERS-CLEANUP` (clos 2026-05-14) — **ce résidu-ci n'a jamais été nettoyé**. Aucune trace de « smoketest » dans le dépôt : identifiant non committé. Suppression manuelle UI Cloud (Auth → Users), précédent établi par MAP-6 et MAP-5B-V10. | **Élevée** |
+| **S1** | `search-emails`, `force-download-attachment`, `hydrate-email-body`, `import-thread`, `sync-emails` gardés par `requireUser` et non `requireAdmin` | `requireUser` (`_shared/auth.ts:24`) ne valide qu'un JWT, **sans contrôle de rôle**. Tout compte authentifié peut donc fouiller la boîte en IMAP direct, télécharger toute pièce jointe et lire tout corps de message. Correctif : 5 fichiers, 1 ligne chacun, sans impact fonctionnel (appelants = écran d'administration). **Facteur aggravant non tranché : savoir si l'inscription libre est activée côté Supabase Auth — non vérifiable depuis l'environnement agent.** | **Élevée** |
+| **S2** | Mot de passe IMAP en clair en colonne | Rotation côté `arc.sn` puis stockage en secret Supabase (`Deno.env.get`) — viable car boîte unique ; chiffrement réel (Vault/pgsodium) requis si multi-boîtes. La rotation s'impose indépendamment du reste, le secret ayant été atteignable par des sessions d'agent. | **Modérée** |
+| **S3** | `src/services/emailService.ts:6,61-66,73` lit/écrit `email_configs` **depuis le navigateur** | Neutralisé aujourd'hui par la RLS `Deny all`, mais `:66` transmettrait un mot de passe depuis le client si la RLS était un jour assouplie. Code mort à supprimer. | **Faible, latente** |
+| **S4** | Colonne nommée `password_encrypted` alors que rien n'est chiffré | Nom trompeur ayant induit en erreur lors du diagnostic initial. À renommer avec S2. | **Faible** |
+| **E1-a** | Rendre la synchro incrémentale | Recherche IMAP `SINCE` fondée sur `last_sync_at`, en remplacement de la fenêtre aveugle de 10. 3 fichiers (`sync-emails` + 2 appelants). | Fonctionnelle |
+| **E1-b** | Marqueur non mis à jour | Déplacer l'écriture de `last_sync_at` **avant** `client.logout()` et isoler le logout dans son propre try/catch. 1 fichier. | Fonctionnelle |
+| **E1-c** | Aucun ordonnanceur | `pg_cron` + `pg_net`, ou tâche planifiée Lovable. **Extension DB = stop condition, GO explicite requis.** | Fonctionnelle |
+| **M1** | Serveur MCP maison (lecture seule) exposant le miroir mail à une session agent | Edge Function dédiée, transport MCP streamable HTTP, zéro outil d'écriture, secret IMAP jamais exposé, `imap.arc.sn` jamais exposé à Internet. **Décision de doctrine préalable requise** (exposition de courrier client à un service externe, impact `SECURITY_CONTRACT`). **Subordonné à E1-a** : branché sur un miroir troué, un MCP montrerait une boîte partielle. | Sur décision |
+
+**Déclencheur de réouverture** : activation de l'inscription libre côté Supabase Auth · création d'un compte applicatif hors cercle de confiance · besoin avéré d'accès MCP à la boîte · toute fuite suspectée sur `ramzi.hoballah@sodatra.sn`.
+
+**Hors périmètre de ce différé** : aucune modification RLS, aucun `run-pricing`, aucun composant FROZEN, aucune migration, aucun envoi d'email. Aucune valeur de mot de passe n'a été lue ni consignée (seul `length()` a été mesuré).
 
 ### CARRIER-CONTACT-CHANNELS-ADMIN-PANEL-1 — DEFERRED / IMPORTANT
 
