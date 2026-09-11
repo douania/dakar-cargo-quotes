@@ -52,7 +52,7 @@ export const ERROR_CONFIG: Record<ErrorCode, { httpStatus: number; retryable: bo
 // TYPES
 // ============================================================================
 
-export type RuntimeStatus = 'ok' | 'retryable_error' | 'fatal_error' | 'auth_error';
+export type RuntimeStatus = 'ok' | 'retryable_error' | 'fatal_error';
 
 export interface LogEntry {
   level: 'debug' | 'info' | 'warn' | 'error';

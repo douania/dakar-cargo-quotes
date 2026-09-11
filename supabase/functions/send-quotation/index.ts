@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       await logRuntimeEvent(serviceClient, {
         correlationId,
         functionName: FUNCTION_NAME,
-        status: "auth_error",
+        status: "fatal_error",
         errorCode: "AUTH_INVALID_JWT",
         httpStatus: 401,
         durationMs,
