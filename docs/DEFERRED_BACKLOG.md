@@ -6,7 +6,38 @@ Source de vérité unique de tous les sujets volontairement reportés, laissés 
 
 > **Historique des lots clos** : les notes narratives de clôture (RFQ 451ab687, PAD-V5-SHADOW-DOC-UPDATE-1, MAP-6-EXEC-UI, MAP-6-SECURITY-GRANTS-FIX, MAP-6-EXEC-MIGRATION T1–T12, MAP-7B, MAP-8 Audit, MAP-8B) ont été déplacées vers `## Archive — Lots clos` → sous-section `[Header historique]` en fin de fichier. Contenu verbatim ; statuts, dates, SHA et verdicts conservés tels quels.
 
-> **Sujets ouverts restants** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO (voir note d'audit V2 conservée plus bas dans ce header). `EMAIL-INGEST-SECURITY-1` reste **OUVERT** — contient deux items de gravité élevée (S0, S1) volontairement différés par décision CTO du 2026-09-11.
+> **Sujets ouverts restants** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO (voir note d'audit V2 conservée plus bas dans ce header). `EMAIL-INGEST-SECURITY-1` reste **OUVERT** — contient deux items de gravité élevée (S0, S1) volontairement différés par décision CTO du 2026-09-11. `TRANSPORT-SPECIAL-CASE-1` reste **OUVERT** — le barème de livraison sature au tarif 40 pieds et ne sait pas exprimer un convoi exceptionnel.
+
+### TRANSPORT-SPECIAL-CASE-1 — DEFERRED / OUVERT
+
+| Champ | Valeur |
+|-------|--------|
+| **ID** | `TRANSPORT-SPECIAL-CASE-1` |
+| **Catégorie** | Pricing transport terrestre / gabarit / hors norme |
+| **Statut** | `DEFERRED / OUVERT` — audit livré, exécution non engagée |
+| **Priorité** | P1 pour T2 · P2 pour T3/T4/T5 |
+| **Phase d'origine** | Audit « comment l'application gère un cas spécial », déclenché par le dossier GoTrans (BESS conteneurisé, 55 t déclarés) |
+| **Date** | 2026-09-11 |
+| **Base** | `work` @ `7bccf58e` — audit intégralement en lecture seule |
+
+**Cas de référence (faits vérifiés sur photos fournies par le client) :** conteneur `JTLU 0058723`, code ISO 6346 **`25SX`** — `2` = 20 pieds, `5` = hauteur 9'6" (2,896 m, high cube), `SX` = série non-`G`, sens exact **non certifié**. Marquages `Potis Edge` / `REPT BATTERO` (BESS). Plaque CSC présente mais **illisible** : la masse brute maximale n'est pas établie. Poids de **55 000 kg déclaré par le client**, retenu comme exact sur décision CTO. Transport photographié à l'origine : tracteur 6×4 + **remorque surbaissée à col de cygne (porte-char) à 5 essieux**, soit 8 essieux. Un 9'6" sur châssis porte-conteneur standard atteint ≈ 4,15 m, au-delà du plafond de gabarit retenu (4,00 m, à confirmer — la vérification du Règlement UEMOA 14 contre le dépliant Afrique Pesage reste un sujet parké). Repère normatif : la masse brute maximale ISO 668 d'un 20 pieds standard est de **30 480 kg** ; les 55 t déclarés en représentent 1,8 fois.
+
+**Items différés :**
+
+| # | Item | Constat vérifié | Gravité |
+|---|------|-----------------|---------|
+| **T2** | `TRUCKING-22T` sature au tarif 40 pieds | `local-transport-destination.ts:143` et `:548` : un 20 pieds au-delà de 22 t tare incluse est servi au tarif 40 pieds. **Il n'existe aucun palier au-dessus.** Un conteneur de 23 t, de 35 t et de 57 t sont facturés à l'identique. Recommandation de Claude Code : **ne pas inventer de montant** — au-delà d'un second seuil, `TO_CONFIRM` explicite (« convoi exceptionnel, cotation manuelle ») plutôt qu'un tarif 40 pieds qui donne une fausse impression de justesse. Le seuil de 22 t repose sur une décision CTO documentée (2026-09-08) ; un second seuil exige la même chose. | **Élevée** |
+| **T3** | Aucune notion de véhicule requis | Le module liste explicitement « low bed » (`:105`) parmi les formes qu'il refuse de résoudre. L'application ne peut pas exprimer « ceci exige un châssis surbaissé » ni « ceci exige une autorisation de convoi exceptionnel ». Règle envisagée, **purement dimensionnelle** : hauteur ≥ 2,9 m → châssis surbaissé ; poids > seuil → convoi exceptionnel. Mention portée au devis, **jamais un prix**. | Moyenne |
+| **T4** | Aucun code ISO 6346 reconnu en entrée | Ni `25SX`, ni `22G1`, ni aucun code taille/type n'existe dans les tables d'alias (vérifié : 0 occurrence). L'application ne comprend que des libellés commerciaux (`20DV`, `40HC`, `20' Dry Van`). **Le seul identifiant normalisé, celui peint sur la caisse et repris au connaissement, lui est inutilisable.** | Moyenne |
+| **T5** | `isOOG` est du code mort | Déclaré `quotation-rules.ts:460`, consommé `:482` (+25 % de complexité). **Aucun écrivain nulle part dans le dépôt** — deux occurrences en tout. La règle hors gabarit est inatteignable. À brancher ou à supprimer. | Faible |
+
+**Distinction à préserver (verrouillée par test depuis DTHC-4-C)** : la hauteur 9'6" **ne fait pas** le hors gabarit au sens DP World — c'est un conteneur ISO standard, manutentionné normalement. Elle fait le hors gabarit **routier**, parce que châssis + caisse dépasse le plafond. Deux régimes distincts ; les confondre serait un défaut.
+
+**Question commerciale ouverte, sans lot rattaché** : sur la facture DP World transmise, DP World avait facturé en OOG et voulait appliquer la surtaxe, avant d'y renoncer après intervention du gérant de 2HL. Le tarif encodé (famille DRY) reflète donc **le résultat d'une négociation, pas une règle** — il est indéfendable par le marquage `25SX`. Écart chiffré sur le dossier GoTrans : 58 EVP × 232 500 = 13 485 000 FCFA en DRY dangereux, contre 58 × 465 000 = 26 970 000 FCFA en SPECIAL dangereux. **Arbitrage CTO requis : la famille d'équipement suit-elle le marquage ISO ou l'usage négocié ?**
+
+**Déclencheur de réouverture** : nouveau dossier hors norme (BESS, engin, projet) · reclassement OOG facturé par DP World · publication d'un palier syndical au-delà du 40 pieds.
+
+**Hors périmètre de ce différé** : aucun composant FROZEN, aucune migration, aucun changement du seuil de 22 t existant.
 
 ### EMAIL-INGEST-SECURITY-1 — DEFERRED / OUVERT (⚠️ contient 2 items gravité élevée)
 
