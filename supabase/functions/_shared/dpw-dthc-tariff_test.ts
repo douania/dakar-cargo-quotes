@@ -19,6 +19,7 @@ import {
   normalizeDpwDthcFamily,
   normalizeDthcContainerType,
   normalizeDthcLabel,
+  resolveContainerProfile,
   resolveDpwDthcTariff,
   resolveDthcContainerBasis,
 } from "./dpw-dthc-tariff.ts";
@@ -544,4 +545,75 @@ Deno.test("DTHC: normalisation des libellés", () => {
   assertEquals(normalizeDthcLabel("Conteneurs spéciaux (OOG, flat)"), "CONTENEURS SPECIAUX");
   assertEquals(normalizeDthcLabel("  Produits   Dangereux "), "PRODUITS DANGEREUX");
   assertEquals(normalizeDthcLabel(42), "");
+});
+
+/* ------------------------------------------------------------------------- *
+ * DTHC-4-B — le 20 pieds high cube.
+ *
+ * Il manquait à `CONTAINER_PROFILES` alors que 40HC et 40HQ y étaient depuis
+ * l'origine : tout dossier en 20HQ tombait en CONTAINER_TYPE_UNSUPPORTED, donc
+ * sans DTHC. L'EVP mesure une LONGUEUR — un high cube est plus haut, pas plus
+ * long — d'où 1 EVP, conformément à l'arrêté n° 035532 (« Un 20 Pieds = 1 EVP »).
+ * ------------------------------------------------------------------------- */
+
+Deno.test("DTHC: le 20 pieds high cube vaut 1 EVP, comme tout 20 pieds", () => {
+  for (const type of ["20HC", "20HQ"]) {
+    const r = resolve([row()], [{ type, quantity: 1 }]);
+    assertEquals(r.status, "RESOLVED", type);
+    if (r.status === "RESOLVED") {
+      assertEquals(r.evpQuantity, 1, type);
+      assertEquals(r.family, "STANDARD", type);
+    }
+  }
+});
+
+Deno.test("DTHC: 20HQ et 20DV donnent exactement le même montant", () => {
+  const hq = resolve([row()], [{ type: "20HQ", quantity: 3 }]);
+  const dv = resolve([row()], [{ type: "20DV", quantity: 3 }]);
+  assertEquals(hq.status, "RESOLVED");
+  assertEquals(dv.status, "RESOLVED");
+  if (hq.status === "RESOLVED" && dv.status === "RESOLVED") {
+    assertEquals(hq.amount, dv.amount);
+    assertEquals(hq.evpQuantity, dv.evpQuantity);
+  }
+});
+
+Deno.test("DTHC: la symétrie 20/40 high cube est respectée", () => {
+  // Un 40 high cube vaut exactement deux 20 high cube.
+  const q20 = resolve([row()], [{ type: "20HQ", quantity: 2 }]);
+  const q40 = resolve([row()], [{ type: "40HQ", quantity: 1 }]);
+  assertEquals(q20.status, "RESOLVED");
+  assertEquals(q40.status, "RESOLVED");
+  if (q20.status === "RESOLVED" && q40.status === "RESOLVED") {
+    assertEquals(q20.evpQuantity, q40.evpQuantity);
+    assertEquals(q20.amount, q40.amount);
+  }
+});
+
+Deno.test("DTHC: le high cube reste un conteneur sec, jamais spécial", () => {
+  // La hauteur ne fait pas le hors gabarit : c'est le poids ou le débordement,
+  // que le résolveur ne connaît pas encore (sous-lot C).
+  const profils = ["20HC", "20HQ", "40HC", "40HQ"].map((t) => resolveContainerProfile(t));
+  for (const p of profils) {
+    assertEquals(p?.equipment, "DRY", JSON.stringify(p));
+  }
+  assertEquals(resolveContainerProfile("20HQ")?.sizeFt, 20);
+  assertEquals(resolveContainerProfile("20HC")?.sizeFt, 20);
+});
+
+Deno.test("DTHC: libellé intake « 20 DRY 9'6 » reconnu comme high cube", () => {
+  assertEquals(normalizeDthcContainerType("20 DRY 9'6"), "20HC");
+  assertEquals(normalizeDthcContainerType("20' HQ"), "20HQ");
+  assertEquals(normalizeDthcContainerType("20-HC"), "20HC");
+});
+
+Deno.test("DTHC: le dossier GoTrans devient chiffrable", () => {
+  // 39 + 13 conteneurs 20HQ et 3 conteneurs 40HQ : 52 + 6 = 58 EVP.
+  const r = resolve([row()], [
+    { type: "20HQ", quantity: 39 },
+    { type: "20HQ", quantity: 13 },
+    { type: "40HQ", quantity: 3 },
+  ]);
+  assertEquals(r.status, "RESOLVED");
+  if (r.status === "RESOLVED") assertEquals(r.evpQuantity, 58);
 });

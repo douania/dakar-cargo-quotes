@@ -94,6 +94,14 @@ const CONTAINER_PROFILES: Readonly<
   "20DC": { evp: 1, equipment: "DRY" },
   "20GP": { evp: 1, equipment: "DRY" },
   "20ST": { evp: 1, equipment: "DRY" },
+  // DTHC-4-B : le 20 pieds high cube manquait, alors que ses homologues 40HC et
+  // 40HQ étaient là depuis l'origine. L'EVP est une unité de LONGUEUR : un high
+  // cube est plus haut, pas plus long, donc 1 EVP comme tout 20 pieds — c'est ce
+  // que pose l'arrêté n° 035532 (« Un 20 Pieds = 1 EVP ») et ce que le produit
+  // applique déjà au 40HC. Sans ces deux clés, tout dossier en 20HQ tombait en
+  // CONTAINER_TYPE_UNSUPPORTED, donc sans DTHC.
+  "20HC": { evp: 1, equipment: "DRY" },
+  "20HQ": { evp: 1, equipment: "DRY" },
   "20RF": { evp: 1, equipment: "REEFER" },
   "20OT": { evp: 1, equipment: "SPECIAL" },
   "20FR": { evp: 1, equipment: "SPECIAL" },
@@ -204,6 +212,8 @@ const DTHC_CONTAINER_TYPE_ALIASES: Readonly<Record<string, string>> = {
   "20DRY86": "20DV",
   "40DRY86": "40DV",
   "40DRY96": "40HC",
+  // DTHC-4-B : pendant strict du 40DRY96, pour le 20 pieds high cube.
+  "20DRY96": "20HC",
 };
 
 /**

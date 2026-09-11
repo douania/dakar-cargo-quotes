@@ -111,6 +111,11 @@ export const EVP_CONVERSION: Record<string, number> = {
   '20DC': 1,
   '20GP': 1,
   '20ST': 1,
+  // DTHC-4-B : le 20 pieds high cube, absent alors que 40HC et 40HQ y figuraient.
+  // Il tombait jusqu'ici dans le repli par taille de `getEVPMultiplier`, qui rend
+  // le bon chiffre par accident ; l'inscrire explicitement enlève ce hasard.
+  '20HC': 1,
+  '20HQ': 1,
   '20RF': 1,
   '20OT': 1,
   '20FR': 1,
