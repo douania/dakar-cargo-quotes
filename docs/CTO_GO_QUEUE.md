@@ -24,6 +24,27 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-11 17:30 UTC] ✅ TRAITÉ — T6 + T1 livrés ; point de reprise de la session du 11 septembre
+
+**Origine** : session interactive
+**Type** : lot terminé + orientation de reprise pour la prochaine session (Codex, Claude Code ou autre)
+
+**Livré et poussé sur `work` ce jour** (au-delà du pack DTHC-4 déjà consigné dans les entrées ci-dessous) :
+`a34bd893` T6a — `EVP_CONVERSION` réaligné sur `CONTAINER_PROFILES` : DTHC-4-C avait ajouté `20FL`/`40FL` aux profils sans les inscrire dans la table d'EVP, alors que le code déclare les deux listes « strictement » identiques ; les clés tombaient dans le repli par taille de `getEVPMultiplier`, qui rendait le bon chiffre par accident. `7bccf58e` T6b/T1 — filet de cohérence `_shared/container-type-consistency_test.ts` (4 invariants, exclusion 45 pieds nommée et testée) + les cinq orthographes high cube du 20 pieds et les formes courtes `20ST`/`40ST` ajoutées au barème de livraison. Le filet a été **vérifié en échec** sur les sources d'avant le lot : 3 tests sur 5 tombent.
+Preuves : 282 Deno `_shared` PASS, 323 vitest PASS, typecheck PASS, `check:function-config` PASS, lint baseline 737/16 inchangé, build PASS. `typecheck:deno` **NOT_RUN** — imports distants injoignables depuis l'environnement agent, échec sur un fichier préexistant ; compensé par `deno check` local sur le périmètre du lot, PASS. Aucune migration, aucun composant FROZEN, aucun montant modifié.
+
+**Constat structurant à connaître avant tout travail sur les types de conteneur** : un type est déclaré dans **quatre tables indépendantes** réparties sur trois modules (`CONTAINER_PROFILES` et `DTHC_CONTAINER_TYPE_ALIASES` dans `_shared/dpw-dthc-tariff.ts`, `EVP_CONVERSION` dans `_shared/quotation-rules.ts`, `LOCAL_TRANSPORT_CONTAINER_ALIASES` dans `_shared/local-transport-destination.ts`), plus `container_specifications` en base. Rien ne les relie. Le filet de T6b échoue désormais si elles divergent — **ne pas le contourner par une liste d'exceptions.**
+
+**Ce qui reste à faire, par ordre de priorité** (détail complet dans `docs/DEFERRED_BACKLOG.md`, deux entrées ouvertes) :
+1. `EMAIL-INGEST-SECURITY-1` — **gravité élevée, différé sur décision CTO explicite.** S0 : trois comptes `*@test.local` résiduels dans `auth.users`, dont un confirmé et authentifié (suppression manuelle UI Cloud, ne nécessite aucun lot). S1 : `search-emails`, `force-download-attachment`, `hydrate-email-body`, `import-thread` et `sync-emails` gardés par `requireUser` sans contrôle de rôle — tout compte authentifié lit la boîte. S2 à S4, E1-a/b/c, M1 : voir l'entrée.
+2. `TRANSPORT-SPECIAL-CASE-1` — T2 (le barème sature au tarif 40 pieds, aucun palier au-dessus), T3 (aucune notion de véhicule requis), T4 (aucun code ISO 6346 reconnu en entrée), T5 (`isOOG` est du code mort, sans écrivain).
+
+**Arbitrages CTO encore en attente, sans lot rattaché** : niveau de preuve du cumul 465 000 (recommandation Claude Code : `validated_internal`, l'arrêté disant « Néant ») · extension éventuelle de la majoration 50 % aux familles `REEFER` (255 750) et `BASIC` (105 000) · sous-lot F2, relevage à l'import C1–C5, qui toucherait le composant FROZEN `quotation-engine` · famille d'équipement DP World pour les BESS : marquage ISO ou usage négocié (écart chiffré 13 485 000 vs 26 970 000 FCFA sur le dossier GoTrans) · source du seuil de poids pour compléter `container_specifications` · contradiction tickets de pesage / dépliant Afrique Pesage contre le Règlement UEMOA 14, toujours parkée en attente de réponse d'Afrique Pesage · page 2 du dépliant DP World non fournie · écriture de `cargo.un_number` / `cargo.imo_class` sur le dossier `5e9cd222` · propagation aux dossiers des faits extraits des pièces jointes, aujourd'hui analysées sans jamais devenir des faits.
+
+**Référence** : `work` @ `7bccf58e`, aligné avec `origin/work`. Edge functions redéployées le 2026-09-11 après T6a/T6b.
+
+---
+
 ## [2026-09-11 10:05 UTC] ✅ TRAITÉ — ERREUR F1 CORRIGÉE : le relevage transit est restauré
 
 **Correctif appliqué le 2026-09-11 (GO CTO)** — migration
