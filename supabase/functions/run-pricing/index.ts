@@ -24,6 +24,7 @@ import {
 // IMO-STORAGE-1 : régime de séjour au terminal pour les conteneurs de
 // marchandises dangereuses (Annexe 1 v4.0 DP World).
 import { IMO_CLASS_FACT_KEY, UN_NUMBER_FACT_KEY } from "../_shared/imo-classification.ts";
+import { resolveImoPricingFacts, scopeImoFactsForLot, IMO_LOT_CLASSIFICATION_REQUIRED } from "../_shared/imo-pricing-facts.ts";
 // DTHC-4-A : le caractère dangereux du dossier doit atteindre le moteur, qui
 // l'attend sous `isIMO` mais ne le recevait de personne.
 import { DANGEROUS_GOODS_FACT_KEY, isDangerousForEngine } from "../_shared/dangerous-goods.ts";
@@ -126,6 +127,8 @@ interface PricingInputs {
   // régime de séjour au terminal (procédure DP World, Annexe 1 v4.0).
   imoClass?: string;
   unNumber?: string;
+  // IMO-UN-AUTO (GO CTO) : preuve dérivée, distincte du snapshot des faits client.
+  imoResolution?: ReturnType<typeof resolveImoPricingFacts>;
   // DTHC-4-A : valeur brute du fait `cargo.dangerous_goods`, telle qu'écrite en
   // base. La résolution (et ses replis) a lieu au moment de bâtir les paramètres
   // moteur, pas ici : elle dépend aussi de `imoClass` et `dthcFamily`, qui
@@ -1687,7 +1690,8 @@ Deno.serve(async (req) => {
         const extractedFacts = Array.isArray(rl.extracted_facts_json) ? rl.extracted_facts_json : [];
 
         // Merge facts: lot-specific overrides global
-        const mergedFacts = mergeFactsForLot(globalFacts || [], extractedFacts);
+        const imoLotScope = scopeImoFactsForLot(mergeFactsForLot(globalFacts || [], extractedFacts), extractedFacts);
+        const mergedFacts = imoLotScope.facts;
         const lotInputs = buildPricingInputs(mergedFacts);
 
         // Resolve per-lot service package and transport mode
@@ -1705,6 +1709,7 @@ Deno.serve(async (req) => {
         const lotScopeWantsDuties = lotPkg.endsWith("_DDP") || lotPkg === "DDP" || lotIncoterm === "DDP";
 
         const lotBlockers: string[] = [];
+        lotBlockers.push(...imoLotScope.blockers, ...(lotInputs.imoResolution?.blockers ?? []));
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
         // P0-E: fail-closed. PAD_CATEGORY_REQUIRED when the PAD facts are missing (unchanged),
         // PAD_MULTI_LOT_UNSUPPORTED when they are present — the cargo.pad_* facts are GLOBAL and
@@ -1811,7 +1816,10 @@ Deno.serve(async (req) => {
         const { data: mlBlockedRunNumber } = await serviceClient
           .rpc("get_next_pricing_run_number", { p_case_id: case_id });
 
-        const mlBlockedMessage = `Le pricing multi-lot est bloqué : ${blockedLots.length} lot(s) incomplet(s).`;
+        const imoMessages = blockedLots.flatMap(bl => bl.blockers.includes(IMO_LOT_CLASSIFICATION_REQUIRED)
+          ? [`Lot ${bl.lot_index} : préciser sa classification IMO ; le numéro ONU global ne peut pas être attribué à ce lot.`]
+          : bl.inputs.imoResolution?.blockers.length ? [`Lot ${bl.lot_index} : ${bl.inputs.imoResolution.message}`] : []);
+        const mlBlockedMessage = `Le pricing multi-lot est bloqué : ${blockedLots.length} lot(s) incomplet(s). ${imoMessages.join(" ")}`.trim();
 
         await serviceClient.from("pricing_runs").insert({
           case_id,
@@ -1822,6 +1830,7 @@ Deno.serve(async (req) => {
             lots: lotChecks.map(lc => ({
               lot_index: lc.lot_index, request_type_hint: lc.request_type_hint,
               service_package: lc.servicePackage, transport_mode: lc.transportMode,
+              imo_resolution: lc.inputs.imoResolution,
             })),
           },
           facts_snapshot: globalFactsSnapshot,
@@ -1886,6 +1895,7 @@ Deno.serve(async (req) => {
         lots: lotChecks.map(lc => ({
           lot_index: lc.lot_index, request_type_hint: lc.request_type_hint,
           service_package: lc.servicePackage, transport_mode: lc.transportMode,
+          imo_resolution: lc.inputs.imoResolution,
         })),
       };
 
@@ -2102,6 +2112,7 @@ Deno.serve(async (req) => {
                   origin_port: lc.inputs.originPort || null,
                   client_code: resolveClientCode(globalFacts || []), // Lot 1.2: propagation depuis quote_facts
                   corridor: null,
+                  imo_facts: lc.mergedFacts.map((f: { fact_key: string; value_text?: unknown }) => ({ fact_key: f.fact_key, value_text: f.value_text })),
                 };
 
                 const pslUrl = `${supabaseUrl}/functions/v1/price-service-lines`;
@@ -2710,6 +2721,31 @@ Deno.serve(async (req) => {
 
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
+
+    // IMO-UN-AUTO — exception additive autorisée : avant tout appel de chiffrage,
+    // même en mode provisoire. Le fait client reste intact ; la preuve est figée.
+    if (inputs.imoResolution?.blockers.length) {
+      const imo = inputs.imoResolution;
+      try {
+        const { data: imoRunNumber, error: imoNumberError } = await serviceClient
+          .rpc("get_next_pricing_run_number", { p_case_id: case_id });
+        if (imoNumberError || imoRunNumber == null) {
+          throw imoNumberError ?? new Error("Numéro de run IMO absent");
+        }
+        const { error: imoInsertError } = await serviceClient.from("pricing_runs").insert({
+          case_id, run_number: imoRunNumber, inputs_json: inputs, facts_snapshot: factsSnapshot,
+          status: "blocked", error_message: imo.message,
+          outputs_json: { pricing_blockers: imo.blockers, message: imo.message, imo_resolution: imo },
+          started_at: new Date().toISOString(), completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime, created_by: userId,
+        });
+        if (imoInsertError) throw imoInsertError;
+        return new Response(JSON.stringify({ pricing_blockers: imo.blockers, message: imo.message, run_number: imoRunNumber }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } finally {
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "imo_classification_blocked");
+      }
+    }
 
     // 8b. Coherence check — FOB freight (last-resort drift detection, NO gap upsert)
     const incoterm = String(inputs.incoterm ?? '').trim().toUpperCase();
@@ -4570,7 +4606,7 @@ function resolveClientCode(facts: any[]): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-function buildPricingInputs(facts: any[]): PricingInputs {
+export function buildPricingInputs(facts: any[]): PricingInputs {
   const inputs: PricingInputs = {};
 
   for (const fact of facts) {
@@ -4708,6 +4744,12 @@ function buildPricingInputs(facts: any[]): PricingInputs {
     }
   }
 
+  // IMO-UN-AUTO : résolution commune, sans écrire cargo.imo_class en base.
+  // Fournit automatiquement la classe aux chemins DTHC et séjour IMO existants.
+  inputs.imoResolution = resolveImoPricingFacts(facts);
+  inputs.imoClass = inputs.imoResolution.classification.imdgClass ?? undefined;
+  inputs.unNumber = inputs.imoResolution.classification.unNumber ?? undefined;
+
   // P8: Fallback — export dossiers have destination_port but not destination_city
   if (!inputs.finalDestination) {
     inputs.finalDestination =
@@ -4735,7 +4777,7 @@ function summarizeInputs(inputs: PricingInputs): string {
  * P3b.1: Merge lot-specific extracted_facts_json over global facts by key.
  * CTO-corrected: converts values based on valueType (number, json, text).
  */
-function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
+export function mergeFactsForLot(globalFacts: any[], lotExtractedFacts: any[]): any[] {
   const merged = new Map<string, any>();
 
   for (const f of globalFacts) {

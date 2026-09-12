@@ -51,6 +51,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import PadNstSuggestionsPanel from "@/components/case/PadNstSuggestionsPanel";
 import MaritimeFeeProposalsPanel from "@/components/case/MaritimeFeeProposalsPanel";
 import CommodityClassificationCandidatesPanel from "@/components/case/CommodityClassificationCandidatesPanel";
+import ImoClassificationNotice from "@/components/case/ImoClassificationNotice";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
   SELECT_FACT_OPTIONS,
@@ -2304,6 +2305,13 @@ export default function CaseView() {
 
           {/* Facts Tab */}
           <TabsContent value="facts">
+            <ImoClassificationNotice
+              facts={facts}
+              isMultiLot={isMultiLot}
+              pendingFact={editingFactId
+                ? { key: facts.find(f => f.id === editingFactId)?.fact_key ?? "", value: editValue }
+                : addFactKey ? { key: addFactKey, value: addFactValue } : null}
+            />
             {!isLocked && addableFactKeys.length > 0 && (
               <Card className="mb-4">
                 <CardHeader className="py-3">

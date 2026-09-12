@@ -19,6 +19,7 @@
 import { buildFeeCaseContext, type FeeCaseContext } from "./fee-rules.ts";
 import { DANGEROUS_GOODS_FACT_KEY, resolveDangerousGoods } from "./dangerous-goods.ts";
 import { IMO_CLASS_FACT_KEY } from "./imo-classification.ts";
+import { resolveImoPricingFacts, type ImoFact } from "./imo-pricing-facts.ts";
 
 /** Une ligne de `quote_facts` telle que lue en base (champs utiles). */
 export interface FeeFactRow {
@@ -36,6 +37,8 @@ export type FeeFactsMap = ReadonlyMap<string, FeeFactRow>;
  * non ceux du dossier entier) : cet override doit primer ici aussi.
  */
 export interface FeeContextOverride {
+  /** Faits du lot, y compris tableau vide : ne jamais reprendre l'ONU global. */
+  imo_facts?: readonly ImoFact[];
   scope?: unknown;
   service_package?: unknown;
   containers?: ReadonlyArray<{ type?: unknown; quantity?: unknown }> | null;
@@ -139,7 +142,9 @@ export function buildFeeCaseContextFromFacts(input: {
     customsRegimeCode: has("customs_regime_code")
       ? override!.customs_regime_code
       : (text(factsMap.get("customs.regime_code")) ?? "").toUpperCase() || null,
-    dangerousGoods: readDangerousGoodsFact(factsMap),
+    dangerousGoods: has("imo_facts")
+      ? resolveImoPricingFacts(override!.imo_facts ?? []).dangerousGoods
+      : readDangerousGoodsFact(factsMap),
     asOfDate: input.asOfDate,
   });
 }
@@ -150,6 +155,9 @@ export function buildFeeCaseContextFromFacts(input: {
  * établie — le résolveur laisse alors la ligne « à confirmer ».
  */
 export function readDangerousGoodsFact(factsMap: FeeFactsMap): boolean | null {
+  if (factsMap.has("cargo.un_number")) {
+    return resolveImoPricingFacts([...factsMap].map(([fact_key, row]) => ({ fact_key, value_text: row.value_text }))).dangerousGoods;
+  }
   return resolveDangerousGoods(
     factsMap.get(DANGEROUS_GOODS_FACT_KEY)?.value_text,
     factsMap.get("pricing.dthc_family")?.value_text,

@@ -291,6 +291,22 @@ GO CTO « go pour le branchement magasinage et surestaries ». Trois sous-lots :
 
 Conséquence du garde-fou H2-d2 : la clé `IMO_TERMINAL_STORAGE_REGIME` est devenue un code réservé, sans quoi une ligne d'honoraires homonyme serait entrée en collision avec la ligne réglementaire.
 
+### 3.21 IMO-UN-AUTO — conversion ONU vers classe IMDG (12 septembre 2026)
+
+GO CTO confirmé : raccordement à l'affichage, aux honoraires et à `run-pricing`, avec blocage des contradictions. **PASS_WITH_BASELINE en local ; activation Lovable à vérifier**, base `work@206ef31c`. GO livraison reçu le 12 septembre : commit, push sur `work` et déploiement des trois fonctions dans la preview privée, sans publication.
+Référentiel BAM IMDG amendement 42-24 : projection exacte des 3 246 lignes source vers 2 347 numéros ONU ; licence dl-de/by-2-0, URL et SHA256 conservés dans `_shared/imo-un-reference.ts`.
+Module pur `_shared/imo-un-resolution.ts` : classe dérivée avec provenance, confirmation d'une classe concordante, contradiction explicite, numéro inconnu sans extrapolation.
+UN3536 résout en classe 9 ; UN0190, UN1950 et UN2037 exigent une division déclarée. Les groupes de compatibilité explosifs sont conservés en référence, distincts de la division.
+Projection commune `_shared/imo-pricing-facts.ts` : classe dérivée au pricing, danger au contexte d'honoraires réel/simulé, preuve dans les inputs du run ; aucun fait client écrit.
+Contradictions ONU/classe et ONU/NO bloquées avant moteur, y compris pricing provisoire ; un numéro inconnu sans classe ou une division manquante bloque. Précédence DG-1 conservée hors ONU.
+Multi-lot : ONU global non attribué implicitement aux lots ; classification locale ou NO explicite requis, contexte d'honoraires transmis par lot. Les régimes de séjour multi-lots ne sont pas ajoutés par ce lot.
+UI : notice sourcée dans les faits, aperçu pendant saisie, contradictions visibles ; aucune écriture automatique de classe ni changement de tarif.
+Exception ciblée `run-pricing` justifiée par le manque de propagation ; `quotation-engine`, `set-case-fact`, Auth et RLS inchangés. Aucune migration.
+Tests : 367 Vitest PASS (44 nouveaux), 5 nouveaux tests d'intégration Deno PASS ; suite Deno 1173 PASS / 1 FAIL / 6 ignorés. Échec Intake reproduit sur une exportation propre de `origin/work` (206ef31c), identique.
+`npm run ci` s'arrête sur cet échec baseline ; contrôles complétés séparément : typecheck PASS, Deno 49 diagnostics/5 groupes inchangés, lint 737/16 inchangé, fonction-config 94 PASS, build PASS, diff-check PASS. Test live NOT_RUN.
+Comparaison exhaustive aux 3 246 lignes du TSV et SHA256 PASS. Lovable revérifié privé/non publié, dernier SHA 206ef31c ; déployer le frontend et `run-pricing`, `price-service-lines`, `simulate-fee-lines` pour activer.
+Rollback après livraison : revert du commit du lot et redéploiement des trois fonctions, sans restauration de données client.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale

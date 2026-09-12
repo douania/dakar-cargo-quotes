@@ -136,6 +136,7 @@ interface ServiceLineInput {
 }
 
 interface PricingContext {
+  imo_facts?: readonly import("../_shared/imo-pricing-facts.ts").ImoFact[];
   scope: string;
   container_type: string | null;
   container_count: number | null;
@@ -979,6 +980,7 @@ Deno.serve(async (req) => {
         cargo_value: pricingCtx.cargo_value,
         client_code: pricingCtx.client_code,
         customs_regime_code: pricingCtx.customs_regime_code,
+        imo_facts: pricingCtx.imo_facts,
       },
     });
 
