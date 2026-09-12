@@ -293,7 +293,7 @@ Conséquence du garde-fou H2-d2 : la clé `IMO_TERMINAL_STORAGE_REGIME` est deve
 
 ### 3.21 IMO-UN-AUTO — conversion ONU vers classe IMDG (12 septembre 2026)
 
-GO CTO confirmé : raccordement à l'affichage, aux honoraires et à `run-pricing`, avec blocage des contradictions. **PASS_WITH_BASELINE en local ; activation Lovable à vérifier**, base `work@206ef31c`. GO livraison reçu le 12 septembre : commit, push sur `work` et déploiement des trois fonctions dans la preview privée, sans publication.
+GO CTO confirmé : raccordement à l'affichage, aux honoraires et à `run-pricing`, avec blocage des contradictions. **Livré dans `75810f65`, PASS_WITH_BASELINE**, base `work@206ef31c`. Commit, push et déploiement des trois fonctions confirmés le 12 septembre ; Git local/GitHub/Lovable alignés, privé/non publié.
 Référentiel BAM IMDG amendement 42-24 : projection exacte des 3 246 lignes source vers 2 347 numéros ONU ; licence dl-de/by-2-0, URL et SHA256 conservés dans `_shared/imo-un-reference.ts`.
 Module pur `_shared/imo-un-resolution.ts` : classe dérivée avec provenance, confirmation d'une classe concordante, contradiction explicite, numéro inconnu sans extrapolation.
 UN3536 résout en classe 9 ; UN0190, UN1950 et UN2037 exigent une division déclarée. Les groupes de compatibilité explosifs sont conservés en référence, distincts de la division.
@@ -304,8 +304,24 @@ UI : notice sourcée dans les faits, aperçu pendant saisie, contradictions visi
 Exception ciblée `run-pricing` justifiée par le manque de propagation ; `quotation-engine`, `set-case-fact`, Auth et RLS inchangés. Aucune migration.
 Tests : 367 Vitest PASS (44 nouveaux), 5 nouveaux tests d'intégration Deno PASS ; suite Deno 1173 PASS / 1 FAIL / 6 ignorés. Échec Intake reproduit sur une exportation propre de `origin/work` (206ef31c), identique.
 `npm run ci` s'arrête sur cet échec baseline ; contrôles complétés séparément : typecheck PASS, Deno 49 diagnostics/5 groupes inchangés, lint 737/16 inchangé, fonction-config 94 PASS, build PASS, diff-check PASS. Test live NOT_RUN.
-Comparaison exhaustive aux 3 246 lignes du TSV et SHA256 PASS. Lovable revérifié privé/non publié, dernier SHA 206ef31c ; déployer le frontend et `run-pricing`, `price-service-lines`, `simulate-fee-lines` pour activer.
+Comparaison exhaustive aux 3 246 lignes du TSV et SHA256 PASS. `run-pricing`, `price-service-lines`, `simulate-fee-lines` déployés ; preview : UN3536 → classe 9 et source BAM observés sans sauvegarde. Probes Lovable OPTIONS 200 / POST sans auth 401 ; chiffrage client NOT_RUN.
 Rollback après livraison : revert du commit du lot et redéploiement des trois fonctions, sans restauration de données client.
+
+### 3.22 IMO-GOODS-SOURCE — reconnaissance des groupes (12 septembre 2026)
+
+GO CTO : exceptions ciblées `build-case-puzzle`, puis `run-pricing` / `quotation-engine`, sans modifier les barèmes ni dupliquer les frais dossier. **PASS_WITH_BASELINE local ; livraison privée autorisée le 12 septembre**, base `work@75810f65`. Commit/push et déploiement coordonné des trois fonctions autorisés ; activation à vérifier, sans publication.
+Reconnaissance conservatrice des listes numérotées : ONU lié à sa ligne, classe dérivée BAM distincte de la déclaration ; source client exacte, citations/historique, troncature, révision et contradictions contrôlés. Aucun NO déduit d'une absence d'ONU.
+Projection pure par groupe : correspondance bijective équipement/quantité/conteneur SOC-COC ; unités de marchandise ≠ conteneurs. Statut inconnu, allocation ambiguë ou fait global contradictoire bloquent, sans écraser les faits.
+À chaque analyse : preuve timeline, empreinte des sources brutes et identité client, gap protégé ; levée du seul gap IMO après extraction si tous les groupes sont prouvés. Pièces jointes et autres formats hors couverture.
+Pricing : relecture des sources, cardinalité complète, preuve et faits avant calcul ; plan et référence BAM figés dans inputs_json. Export/aérien, multi-devis et mode provisoire avec groupes bloqués ; dossiers sans preuve IMO inchangés.
+Un seul appel moteur pour le dossier : THC par conteneurs rattachés ; frais communs une seule fois. Chargement mixte : honoraires conditionnés DG et surcharges DG armateur (IMPORT/ALL) à confirmer, jamais appliqués à tous les conteneurs.
+Séjour IMO informatif par groupe ; franchise standard exclut les groupes IMO. Provision magasinage globale non appliquée aux groupes faute de répartition poids/durée. Désignation dry non validée reste TO_CONFIRM ; aucune famille tarifaire inventée.
+Rejeu sans nouvelle preuve identique, UUID de transition déterministe et index unique de gap ouvert conservés. Concurrence DB réelle et recette Lovable NOT_RUN ; aucune garantie transactionnelle nouvelle revendiquée.
+Tests : 81 nouveaux Deno PASS (46 reconnaissance + 35 projection/moteur), dont moteur réel sur DB simulée, montants par groupe et frais dossier uniques ; 367 Vitest PASS. Suite finale Deno 1254 PASS / 1 FAIL Intake préexistant / 6 ignorés.
+`npm run ci` arrêté sur Intake : même assertion :193 et fichiers identiques à origin/work ; typecheck/config 94 PASS, Deno 49/5 et lint 737/16 sans aggravation, build/diff-check PASS. Trois corrections de typage moteur nécessaires à son import de test, sans changement de calcul.
+Diagnostic Lovable antérieur : original base64 présent et décodable, client_email du fil vide, aucune quote_request_lines. GoTrans nécessite encore identité client prouvée, allocation réelle des conteneurs et statut des autres groupes ; aucun fait ni devis runtime modifié.
+GitHub revérifié via connecteur à `75810f65`, comme le local et Lovable privé/non publié ; Git HTTPS direct indisponible. Livraison via connecteur possible avec contrôle des empreintes Git, sans force-push. Recette client et concurrence DB restent NOT_RUN ; ne pas livrer la reconnaissance isolément.
+Aucune migration, Auth/RLS/barèmes inchangés. Rollback après livraison : revert du commit de ce lot puis redéploiement coordonné des trois fonctions, sans restauration de faits client.
 
 ## 4. Preuves de l'audit du 22 août 2026
 

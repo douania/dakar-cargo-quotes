@@ -13,6 +13,7 @@ import {
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
 import { normalizeDpwDthcFamily, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
+import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -378,6 +379,7 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  imoGoodsPlan?: ImoGoodsPricingPlan;
   // Paramètres de la demande
   originPort?: string;
   destinationPort?: string;
@@ -1346,12 +1348,21 @@ async function matchHistoricalTariff(
 // MAIN QUOTATION LINE GENERATION
 // =====================================================
 
-async function generateQuotationLines(
+export async function generateQuotationLines(
   supabase: any,
   request: QuotationRequest
 ): Promise<{ lines: QuotationLine[]; warnings: string[]; dutyBreakdown: any[]; cargoValueFCFA: number }> {
   const lines: QuotationLine[] = [];
   const warnings: string[] = [];
+  const goodsPlan = request.imoGoodsPlan;
+  if (goodsPlan) {
+    assertImoGoodsPlan(goodsPlan, request.containers || []);
+    const family = normalizeDpwDthcFamily(request.dthcFamily);
+    if (request.transportMode !== 'maritime' ||
+      (family && family !== 'DANGEROUS' && goodsPlan.rows.some(r => r.dangerous)) ||
+      (family === 'DANGEROUS' && goodsPlan.rows.some(r => !r.dangerous))) throw new Error('IMO_GOODS_PLAN_CONFLICT');
+    if (goodsPlan.mixed) warnings.push('Chargement mixte : frais DG armateur et honoraires conditionnés au danger à confirmer ; aucune application au dossier entier.');
+  }
   const normalizedIncoterm = normalizeIncoterm(request.incoterm) ?? 'CIF';
 
   if (isLegacyDduAsDap(request.incoterm, normalizedIncoterm)) {
@@ -1443,7 +1454,9 @@ async function generateQuotationLines(
   // 3. BLOC OPÉRATIONNEL - THC PER CONTAINER TYPE
   // =====================================================
   
-  for (const container of containers) {
+  for (const [containerIndex, container] of containers.entries()) {
+    const goods = goodsPlan?.rows.find(r => r.containerIndex === containerIndex);
+    const goodsNote = goods ? `Groupe ${goods.ordinal}, e-mail ${goods.sourceEmailId}, ${goods.unNumber ?? 'non dangereux déclaré'}${goods.imoClass ? `, classe ${goods.imoClass} dérivée BAM` : ''}.` : '';
     const is40 = container.type.toUpperCase().includes('40');
     const cargoType = is40 ? 'CONTENEUR_40' : 'CONTENEUR_20';
 
@@ -1454,10 +1467,11 @@ async function generateQuotationLines(
     const dthc = resolveDpwDthcTariff(thcTariffs, {
       scope: effectiveOperationType === 'IMPORT' ? 'import' : String(effectiveOperationType).toLowerCase(),
       containers: [{ type: container.type, quantity: container.quantity }],
-      cargoDescription: request.cargoDescription,
+      // A global description containing IMO must not reclassify a non-DG group.
+      cargoDescription: goods ? undefined : request.cargoDescription,
       // DTHC-3 : famille opérateur prioritaire ; null => inférence inchangée (fail-closed)
       family: normalizeDpwDthcFamily(request.dthcFamily),
-      isDangerous: request.isIMO === true || request.isHazmat === true,
+      isDangerous: goods ? goods.dangerous : request.isIMO === true || request.isHazmat === true,
       asOfDate: new Date().toISOString().split('T')[0],
     });
 
@@ -1472,11 +1486,12 @@ async function generateQuotationLines(
         unit: 'EVP',
         quantity: dthc.evpQuantity,
         containerType: container.type,
+        ...(goods ? { notes: goodsNote } : {}),
         source: {
           type: 'OFFICIAL',
           reference: dthc.tariff.source_document || 'DP World Dakar 2025',
           confidence: 1.0,
-          validUntil: dthc.tariff.expiry_date
+          validUntil: dthc.tariff.expiry_date ?? undefined
         },
         isEditable: false
       });
@@ -1495,7 +1510,7 @@ async function generateQuotationLines(
           reference: `${dthc.code}/${dthc.reason}`,
           confidence: 0
         },
-        notes: `${dthc.message} Confirmation humaine requise auprès de DPW.`,
+        notes: `${goodsNote}${goodsNote ? ' ' : ''}${dthc.message} Confirmation humaine requise auprès de DPW.`,
         isEditable: true
       });
       warnings.push(`THC ${container.type} non résolu (${dthc.reason}) — à confirmer avec DPW`);
@@ -1623,8 +1638,9 @@ async function generateQuotationLines(
         cnt20,
         cnt40,
         totalEVP,
-        isIMO: request.isIMO === true,
-        isHazmat: request.isHazmat === true,
+        // A mixed shipment cannot establish a dossier-wide DG surcharge basis.
+        isIMO: goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isIMO === true,
+        isHazmat: goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isHazmat === true,
       });
 
       if (safety.status === 'TO_CONFIRM') {
@@ -2074,7 +2090,7 @@ async function generateQuotationLines(
         id: 'warehouse_franchise',
         bloc: 'operationnel',
         category: 'Magasinage',
-        description: `Franchise magasinage: ${franchise.free_days} jours (tarif: ${franchise.rate_per_day} ${franchise.rate_unit} après franchise)`,
+        description: `${goodsPlan ? 'Hors groupes IMO — ' : ''}Franchise magasinage: ${franchise.free_days} jours (tarif: ${franchise.rate_per_day} ${franchise.rate_unit} après franchise)`,
         amount: 0,
         currency: 'FCFA',
         source: {
@@ -2152,14 +2168,14 @@ async function generateQuotationLines(
 
       let demDescription: string;
       let demCurrency: string;
-      let demSourceType: string;
+      let demSourceType: DataSourceType;
       let demSourceRef: string;
       let demConfidence: number;
       let demNotes: string;
 
       if (tiers.length > 0) {
         // Tiers réels trouvés → description dynamique depuis les paliers officiels
-        const paliersDesc = tiers.map(t => {
+        const paliersDesc = tiers.map((t: { day_from: number; day_to: number | null; rate_per_day: number; currency: string }) => {
           const range = t.day_to ? `J${t.day_from}-${t.day_to}` : `J${t.day_from}+`;
           return `${range}: ${t.rate_per_day.toLocaleString()} ${t.currency}/j`;
         }).join(' | ');
@@ -2567,7 +2583,7 @@ async function generateQuotationLines(
 // =====================================================
 // HANDLER PRINCIPAL
 // =====================================================
-Deno.serve(async (req) => {
+if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }

@@ -25,6 +25,8 @@ import {
 // marchandises dangereuses (Annexe 1 v4.0 DP World).
 import { IMO_CLASS_FACT_KEY, UN_NUMBER_FACT_KEY } from "../_shared/imo-classification.ts";
 import { resolveImoPricingFacts, scopeImoFactsForLot, IMO_LOT_CLASSIFICATION_REQUIRED } from "../_shared/imo-pricing-facts.ts";
+import { IMO_GOODS_EVENT, imoGoodsSourceFingerprint, resolveImoGoodsPricing, imoGoodsFeeFacts, imoGoodsCarrierNeedsConfirmation,
+  type ImoGoodsAssessment, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 // DTHC-4-A : le caractère dangereux du dossier doit atteindre le moteur, qui
 // l'attend sous `isIMO` mais ne le recevait de personne.
 import { DANGEROUS_GOODS_FACT_KEY, isDangerousForEngine } from "../_shared/dangerous-goods.ts";
@@ -89,6 +91,7 @@ interface RunPricingRequest {
 }
 
 interface PricingInputs {
+  imoGoodsPlan?: ImoGoodsPricingPlan;
   originPort?: string;
   originAirport?: string;
   destinationPort?: string;
@@ -1481,6 +1484,37 @@ Deno.serve(async (req) => {
     const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
     const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
 
+    // IMO-GOODS: read server evidence, not a caller-supplied plan. Check BEFORE
+    // changing case status, including when an operator manually closed the gap.
+    const { data: goodsEvent, error: goodsEventError } = await serviceClient.from("case_timeline_events")
+      .select("id, event_data").eq("case_id", case_id).eq("event_type", IMO_GOODS_EVENT)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (goodsEventError) throw new Error(`IMO goods evidence read failed: ${goodsEventError.message}`);
+    const goodsAssessment = goodsEvent?.event_data as ImoGoodsAssessment | undefined;
+    let goodsPlan: ImoGoodsPricingPlan | undefined;
+    let goodsFingerprint = "";
+    if (goodsEvent) {
+      const [threadResult, emailsResult, factsResult, countResult] = await Promise.all([
+        serviceClient.from("email_threads").select("client_email").eq("id", caseData.thread_id).maybeSingle(),
+        serviceClient.from("emails").select("id, from_address, subject, body_text, sent_at", { count: "exact" }).eq("thread_ref", caseData.thread_id),
+        serviceClient.from("quote_facts").select("fact_key, value_text, value_json").eq("case_id", case_id).eq("is_current", true),
+        serviceClient.from("quote_request_lines").select("id", { count: "exact", head: true }).eq("case_id", case_id),
+      ]);
+      if (!goodsAssessment || threadResult.error || emailsResult.error || factsResult.error || countResult.error || countResult.count == null ||
+        emailsResult.count !== emailsResult.data?.length) {
+        throw new Error("IMO goods source verification failed");
+      }
+      goodsFingerprint = await imoGoodsSourceFingerprint(threadResult.data?.client_email, emailsResult.data || []);
+      goodsPlan = resolveImoGoodsPricing(goodsAssessment, factsResult.data || [], goodsFingerprint);
+      if (countResult.count >= 2 || pkg.startsWith("EXPORT_") || /AIR|EXPORT/.test(String(caseData.request_type).toUpperCase()) || allow_provisional) {
+        goodsPlan.status = "BLOCKED";
+        goodsPlan.reasons.push("GOODS_PRICING_SCOPE_UNSUPPORTED");
+      }
+      if (goodsPlan.status !== "READY") return new Response(JSON.stringify({
+        error: "IMO goods scope requires clarification", pricing_blockers: goodsPlan.reasons, imo_goods_plan: goodsPlan,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // 4a. Hard guard — ALL blocking gaps must be resolved
     // Lot 4.1 exception: if allow_provisional=true and the ONLY open blocking gap is cargo.value,
     // bypass this guard. The downstream PROVISIONAL-DDP-GUARD remains the final gatekeeper.
@@ -2722,6 +2756,37 @@ Deno.serve(async (req) => {
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
 
+    if (goodsAssessment) {
+      // Recheck source identity, mail snapshot and evidence transition after the
+      // orchestration guards too. A failure must restore the pre-pricing status.
+      try {
+        const [threadNow, emailsNow, eventNow, countNow] = await Promise.all([
+          serviceClient.from("email_threads").select("client_email").eq("id", caseData.thread_id).maybeSingle(),
+          serviceClient.from("emails").select("id, from_address, subject, body_text, sent_at", { count: "exact" }).eq("thread_ref", caseData.thread_id),
+          serviceClient.from("case_timeline_events").select("id").eq("case_id", case_id).eq("event_type", IMO_GOODS_EVENT)
+            .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          serviceClient.from("quote_request_lines").select("id", { count: "exact", head: true }).eq("case_id", case_id),
+        ]);
+        if (threadNow.error || emailsNow.error || eventNow.error || countNow.error || countNow.count == null ||
+          countNow.count >= 2 || eventNow.data?.id !== goodsEvent?.id || emailsNow.count !== emailsNow.data?.length) throw new Error("IMO goods evidence/scope changed");
+        goodsFingerprint = await imoGoodsSourceFingerprint(threadNow.data?.client_email, emailsNow.data || []);
+      } catch (error) {
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "imo_goods_verification_failed");
+        throw error;
+      }
+      goodsPlan = resolveImoGoodsPricing(goodsAssessment, facts || [], goodsFingerprint);
+      if (String(inputs.servicePackage ?? '').toUpperCase() !== pkg) {
+        goodsPlan.status = "BLOCKED";
+        goodsPlan.reasons.push("GOODS_PRICING_SCOPE_CHANGED");
+      }
+      if (goodsPlan.status !== "READY") {
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "imo_goods_scope_changed");
+        return new Response(JSON.stringify({ error: "IMO goods facts changed", pricing_blockers: goodsPlan.reasons }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      inputs.imoGoodsPlan = goodsPlan; // frozen provenance alongside the original facts
+    }
+
     // IMO-UN-AUTO — exception additive autorisée : avant tout appel de chiffrage,
     // même en mode provisoire. Le fait client reste intact ; la preuve est figée.
     if (inputs.imoResolution?.blockers.length) {
@@ -3138,6 +3203,7 @@ Deno.serve(async (req) => {
         originAirport: inputs.originAirport,
         incoterm: inputs.incoterm,
         containers: inputs.containers,
+        imoGoodsPlan: inputs.imoGoodsPlan,
         cargoWeight: inputs.cargoWeight,
         cargoVolume: inputs.cargoVolume,
         cargoValue: inputs.cargoValue,
@@ -3245,7 +3311,7 @@ Deno.serve(async (req) => {
             console.log(`[P5] Mono-lot: ${missingKeys.length} package services to enrich: ${missingKeys.join(', ')}`);
 
             // Build ServiceLineInput — exact same shape as QuotationSheet sends
-            const serviceLineInputs = missingKeys.map(sk => ({
+            const serviceLineInputs = missingKeys.filter(sk => !inputs.imoGoodsPlan || sk !== 'DTHC').map(sk => ({
               id: crypto.randomUUID(),
               service: sk,
               unit: PACKAGE_SERVICE_DEFAULT_UNITS[sk] || 'forfait',
@@ -3257,7 +3323,9 @@ Deno.serve(async (req) => {
             const pslRes = await fetch(pslUrl, {
               method: 'POST',
               headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
+              body: JSON.stringify({ case_id, service_lines: serviceLineInputs,
+                ...(inputs.imoGoodsPlan ? { pricing_context_override: { imo_facts: imoGoodsFeeFacts(inputs.imoGoodsPlan) } } : {}),
+              }),
             });
 
             // P5.1: Build UUID→service_key lookup before consuming response
@@ -3677,7 +3745,13 @@ Deno.serve(async (req) => {
       // 3 jours. Cette couche ajoute l'information exacte, SANS AUCUN MONTANT :
       // aucun tarif de dépassement propre aux conteneurs IMO n'est publié.
       // Les surestaries restent inchangées : elles relèvent du barème armateur.
-      if (inputs.imoClass) {
+      const imoStorageScopes = inputs.imoGoodsPlan
+        ? inputs.imoGoodsPlan.rows.filter(r => r.dangerous).map(r => ({
+          imoClass: r.imoClass!, unNumber: r.unNumber!, prefix: `Groupe ${r.ordinal} (${r.quantity} × ${r.type}) — `,
+          evidence: `E-mail ${r.sourceEmailId} ; ${r.excerpt}`,
+        }))
+        : inputs.imoClass ? [{ imoClass: inputs.imoClass, unNumber: inputs.unNumber, prefix: '', evidence: '' }] : [];
+      if (imoStorageScopes.length) {
         try {
           const { data: imoRules, error: imoRulesError } = await serviceClient
             .from('imo_terminal_rules')
@@ -3685,45 +3759,47 @@ Deno.serve(async (req) => {
 
           if (imoRulesError) throw imoRulesError;
 
-          const imoResolution = resolveImoTerminalRule(
-            (imoRules || []) as ImoTerminalRuleRow[],
-            inputs.imoClass,
-            inputs.unNumber,
-          );
+          for (const storageScope of imoStorageScopes) {
+            const imoResolution = resolveImoTerminalRule(
+              (imoRules || []) as ImoTerminalRuleRow[],
+              storageScope.imoClass,
+              storageScope.unNumber,
+            );
 
-          // Franchise standard annoncée par le moteur, uniquement pour signaler
-          // l'écart à l'opérateur. Jamais utilisée dans un calcul.
-          const engineLinesForFranchise = engineResponse.lines || engineResponse.quotationLines || [];
-          const franchiseLine = (engineLinesForFranchise as Array<{ id?: unknown; description?: unknown }>)
-            .find((l) => l?.id === 'warehouse_franchise');
-          const standardFreeDaysMatch = typeof franchiseLine?.description === 'string'
-            ? franchiseLine.description.match(/(\d+)\s*jours/)
-            : null;
-          const standardFreeDays = standardFreeDaysMatch ? Number(standardFreeDaysMatch[1]) : null;
+            // Franchise standard annoncée par le moteur, uniquement pour signaler
+            // l'écart à l'opérateur. Jamais utilisée dans un calcul.
+            const engineLinesForFranchise = engineResponse.lines || engineResponse.quotationLines || [];
+            const franchiseLine = (engineLinesForFranchise as Array<{ id?: unknown; description?: unknown }>)
+              .find((l) => l?.id === 'warehouse_franchise');
+            const standardFreeDaysMatch = typeof franchiseLine?.description === 'string'
+              ? franchiseLine.description.match(/(\d+)\s*jours/)
+              : null;
+            const standardFreeDays = standardFreeDaysMatch ? Number(standardFreeDaysMatch[1]) : null;
 
-          const notice = buildImoStorageNotice(imoResolution, standardFreeDays);
+            const notice = buildImoStorageNotice(imoResolution, standardFreeDays);
 
-          const imoLines = engineResponse.lines || engineResponse.quotationLines || [];
-          imoLines.push(canonicalizeLine({
-            category: IMO_STORAGE_SERVICE_KEY,
-            label: notice.label,
-            description: notice.description,
-            amount: notice.amount,
-            currency: 'FCFA',
-            unit: 'forfait',
-            quantity: 1,
-            bloc: 'operationnel',
-            source: {
-              type: notice.sourceType,
-              reference: notice.sourceReference,
-              confidence: notice.sourceType === 'OFFICIAL' ? 1 : 0,
-            },
-            notes: notice.notes,
-            isEditable: false,
-          }, { origin_layer: 'enrichment_imo_storage' }));
-          engineResponse.lines = imoLines;
+            const imoLines = engineResponse.lines || engineResponse.quotationLines || [];
+            imoLines.push(canonicalizeLine({
+              category: IMO_STORAGE_SERVICE_KEY,
+              label: `${storageScope.prefix}${notice.label}`,
+              description: `${storageScope.prefix}${notice.description}`,
+              amount: notice.amount,
+              currency: 'FCFA',
+              unit: 'forfait',
+              quantity: 1,
+              bloc: 'operationnel',
+              source: {
+                type: notice.sourceType,
+                reference: notice.sourceReference,
+                confidence: notice.sourceType === 'OFFICIAL' ? 1 : 0,
+              },
+              notes: `${notice.notes}${storageScope.evidence ? ` ${storageScope.evidence}` : ''}`,
+              isEditable: false,
+            }, { origin_layer: 'enrichment_imo_storage' }));
+            engineResponse.lines = imoLines;
 
-          console.log(`[IMO-STORAGE] class=${inputs.imoClass} un=${inputs.unNumber ?? 'none'} status=${imoResolution.status} regime=${imoResolution.storageRegime ?? 'none'} days=${imoResolution.storageMaxDays ?? 'none'} conflicting=${imoResolution.conflicting} standardFreeDays=${standardFreeDays ?? 'none'}`);
+            console.log(`[IMO-STORAGE] class=${storageScope.imoClass} un=${storageScope.unNumber ?? 'none'} status=${imoResolution.status} regime=${imoResolution.storageRegime ?? 'none'} days=${imoResolution.storageMaxDays ?? 'none'} conflicting=${imoResolution.conflicting} standardFreeDays=${standardFreeDays ?? 'none'}`);
+          }
         } catch (imoStorageErr) {
           console.warn('[IMO-STORAGE] enrichment failed (non-blocking):', imoStorageErr);
         }
@@ -3734,7 +3810,22 @@ Deno.serve(async (req) => {
       // Exact match only — 0 ILIKE, 0 fuzzy, 0 partial matching
       // handling_code is metadata only — not consumed for pricing
       // isMaritime already computed above (PAD-GAP-1 hoist)
-      if (isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
+      if (inputs.imoGoodsPlan) {
+        // Global weight/designation cannot price storage for groups with different regimes.
+        const storageLines = engineResponse.lines || engineResponse.quotationLines || [];
+        storageLines.push({ category: 'Magasinage',
+          label: 'Provision magasinage par groupe à confirmer',
+          description: 'Poids et durée de séjour à répartir par groupe ; aucun barème appliqué au poids global.',
+          amount: null, currency: 'FCFA', unit: 'forfait', quantity: 1, bloc: 'operationnel',
+          source: { type: 'TO_CONFIRM', reference: 'IMO_GOODS_STORAGE_ALLOCATION_REQUIRED', confidence: 0 },
+          isEditable: false,
+          canonical: { service_key: 'TERMINAL_STORAGE_PROVISION_ESTIMATE', dedup_group: 'TERMINAL_STORAGE',
+            origin_layer: 'enrichment_terminal_storage', source_system: 'imo_goods_scope',
+            source_table: null, pricing_method: 'unresolved_allocation' },
+        });
+        engineResponse.lines = storageLines;
+      }
+      if (!inputs.imoGoodsPlan && isMaritime && inputs.cargoDescription && inputs.cargoWeight && inputs.cargoWeight > 0) {
         try {
           // Normalize description for exact match
           const normalizedDesc = normalizePricingText(inputs.cargoDescription);
@@ -4087,7 +4178,10 @@ ${JSON.stringify(refPayload)}`;
               let srcType: string;
               let toConfirmReason: string | null = null;
 
-              if (isVar) {
+              if (imoGoodsCarrierNeedsConfirmation(inputs.imoGoodsPlan, t)) {
+                srcType = 'TO_CONFIRM';
+                toConfirmReason = 'Chargement mixte : portée de la surcharge DG/IMO à confirmer, aucun calcul sur tous les conteneurs';
+              } else if (isVar) {
                 srcType = 'TO_CONFIRM';
                 toConfirmReason = 'is_variable=true';
               } else if (amtMissing) {

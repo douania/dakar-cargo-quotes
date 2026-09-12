@@ -7,6 +7,10 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import {
+  IMO_GOODS_EVENT, IMO_GOODS_GAP, imoGoodsEvidenceId, syncImoGoodsRecognition, type ImoGoodsAssessment,
+  imoGoodsSourceFingerprint, resolveImoGoodsPricing, imoGoodsQuestion, type ImoGoodsPricingPlan,
+} from "../_shared/imo-goods-recognition.ts";
+import {
   EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
   EXPORT_SEA_FREIGHT_PARTNER_FACT_KEYS,
 } from "../_shared/partner-gap-policy.ts";
@@ -5159,13 +5163,15 @@ Deno.serve(async (req) => {
 
     // 4. Load all emails from thread (guard: skip if no thread_id)
     let emails: any[] = [];
+    let imoGoodsEmailsComplete = true;
     if (caseData.thread_id) {
-      const { data: threadEmails } = await serviceClient
+      const { data: threadEmails, count: threadEmailCount, error: threadEmailError } = await serviceClient
         .from("emails")
-        .select("id, from_address, to_addresses, subject, body_text, sent_at, is_quotation_request")
+        .select("id, from_address, to_addresses, subject, body_text, sent_at, is_quotation_request", { count: "exact" })
         .eq("thread_ref", caseData.thread_id)
         .order("sent_at", { ascending: true });
       emails = threadEmails || [];
+      imoGoodsEmailsComplete = !threadEmailError && threadEmailCount === emails.length;
     }
 
     // 4b. Count ALL case_documents (for guard check — includes docs without extracted_text)
@@ -5257,6 +5263,59 @@ Deno.serve(async (req) => {
     const inboundThreadContext = inboundEmails
       .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
       .join("\n\n---\n\n");
+
+    // IMO-GOODS-SOURCE (GO CTO 2026-09-12): recognize cargo groups, NOT
+    // quote-request lines. Evidence is isolated from client/pricing facts.
+    // A failed read/write aborts the analysis; never silently ignore the guard.
+    let imoGoodsPreviousEventId: string | null = null;
+    let imoGoodsPricingPlan: ImoGoodsPricingPlan | null = null;
+    const imoGoodsAssessment = await syncImoGoodsRecognition({
+      async readLast() {
+        const { data, error } = await serviceClient.from("case_timeline_events")
+          .select("id, event_data").eq("case_id", case_id).eq("event_type", IMO_GOODS_EVENT)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (error) throw new Error(`IMO goods evidence read failed: ${error.message}`);
+        imoGoodsPreviousEventId = data?.id ?? null;
+        const evidence = data?.event_data as ImoGoodsAssessment | null;
+        if (data && (!evidence || evidence.version !== 1 || !Array.isArray(evidence.groups) || !Array.isArray(evidence.reasons))) {
+          throw new Error("IMO goods evidence invalid; operator review required");
+        }
+        return evidence ?? null;
+      },
+      async ensureBlockingGap(question) {
+        const { data, error } = await serviceClient.from("quote_gaps")
+          .select("id, question_fr, is_blocking").eq("case_id", case_id)
+          .eq("gap_key", IMO_GOODS_GAP).eq("status", "open").maybeSingle();
+        if (error) throw new Error(`IMO goods gap read failed: ${error.message}`);
+        if (data?.is_blocking && data.question_fr === question) return;
+        const payload = { question_fr: question, is_blocking: true, priority: "critical" };
+        let result = data?.id
+          ? await serviceClient.from("quote_gaps").update(payload).eq("id", data.id)
+          : await serviceClient.from("quote_gaps").insert({ ...payload,
+            case_id, gap_key: IMO_GOODS_GAP, gap_category: "cargo", status: "open" });
+        if (!data?.id && result.error?.code === "23505") {
+          // The existing partial unique index enforces one open gap per key.
+          result = await serviceClient.from("quote_gaps").update(payload)
+            .eq("case_id", case_id).eq("gap_key", IMO_GOODS_GAP).eq("status", "open").select("id").single();
+        }
+        if (result.error) throw new Error(`IMO goods gap write failed: ${result.error.message}`);
+      },
+      async appendEvidence(assessment) {
+        const id = await imoGoodsEvidenceId(case_id, imoGoodsPreviousEventId, assessment);
+        const { error } = await serviceClient.from("case_timeline_events").upsert({
+          id, actor_user_id: userId,
+          case_id, event_type: IMO_GOODS_EVENT, event_data: assessment, actor_type: "system",
+        }, { onConflict: "id", ignoreDuplicates: true });
+        if (error) throw new Error(`IMO goods evidence write failed: ${error.message}`);
+      },
+    }, inboundEmails.map(e => {
+      const body = extractPlainTextFromMime(e.body_text || "");
+      return {
+        id: e.id, body, complete: imoGoodsEmailsComplete && body.length < 4000,
+        trustedClient: !!caseData.email_threads?.client_email &&
+          String(e.from_address).trim().toLowerCase() === caseData.email_threads.client_email.trim().toLowerCase(),
+      };
+    }), await imoGoodsSourceFingerprint(caseData.email_threads?.client_email, emails));
 
     const attachmentContext = (reloadedAttachments || [])
       .filter((a) => a.extracted_text || a.extracted_data)
@@ -7048,11 +7107,34 @@ Deno.serve(async (req) => {
     // gapsIdentified already initialized above (before doc-regex block)
 
     // Load existing DB facts BEFORE any gap logic (mandatory/orphan/A1)
-    const { data: existingDbFacts } = await serviceClient
+    const { data: existingDbFacts, error: existingDbFactsError } = await serviceClient
       .from("quote_facts")
-      .select("fact_key, value_text, value_number")
+      .select("fact_key, value_text, value_number, value_json")
       .eq("case_id", case_id)
       .eq("is_current", true);
+
+    // Resolve only our own guard after extraction, never a client fact or a tariff.
+    // run-pricing independently revalidates this evidence against current sources.
+    if (imoGoodsAssessment) {
+      if (existingDbFactsError) throw new Error(`IMO goods facts read failed: ${existingDbFactsError.message}`);
+      const plan = resolveImoGoodsPricing(imoGoodsAssessment, existingDbFacts || [],
+        await imoGoodsSourceFingerprint(caseData.email_threads?.client_email, emails));
+      const { count, error } = await serviceClient.from("quote_request_lines")
+        .select("id", { count: "exact", head: true }).eq("case_id", case_id);
+      if (error || count == null) throw new Error("IMO goods quote scope read failed");
+      const servicePackage = String(existingDbFacts?.find(f => f.fact_key === "service.package")?.value_text ?? "").toUpperCase();
+      const supported = count < 2 && !servicePackage.startsWith("EXPORT_") &&
+        !/AIR|EXPORT/.test(String(caseData.request_type).toUpperCase());
+      if (!supported) { plan.status = "BLOCKED"; plan.reasons.push("GOODS_PRICING_SCOPE_UNSUPPORTED"); }
+      imoGoodsPricingPlan = plan;
+      const { error: gapError } = plan.status === "READY" && supported
+        ? await serviceClient.from("quote_gaps").update({ status: "resolved", resolved_at: new Date().toISOString() })
+          .eq("case_id", case_id).eq("gap_key", IMO_GOODS_GAP).eq("status", "open")
+        : await serviceClient.from("quote_gaps").update({
+          question_fr: `${imoGoodsQuestion(imoGoodsAssessment)} Points à préciser : ${plan.reasons.join(", ")}.`,
+        }).eq("case_id", case_id).eq("gap_key", IMO_GOODS_GAP).eq("status", "open");
+      if (gapError) throw new Error(`IMO goods gap resolution failed: ${gapError.message}`);
+    }
 
     const existingDbKeys = (existingDbFacts || []).map((f: { fact_key: string }) => f.fact_key);
 
@@ -7145,6 +7227,7 @@ Deno.serve(async (req) => {
         "cargo.weight_total_confirmation",
         "cargo.value_conflict",
         "cargo.mixed_scope_confirmation",
+        IMO_GOODS_GAP, // recognition scope guard; never closed by generic orphan cleanup
       ]);
       for (const k of policyKeysAll) mandatorySet.add(k);
       for (const k of fclConstraintResult.protectedGapKeys) mandatorySet.add(k);
@@ -8201,6 +8284,8 @@ Deno.serve(async (req) => {
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,
+        imo_goods_assessment: imoGoodsAssessment,
+        imo_goods_pricing_plan: imoGoodsPricingPlan,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
