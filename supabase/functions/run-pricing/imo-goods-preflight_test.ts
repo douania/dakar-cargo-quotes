@@ -157,8 +157,10 @@ for (const scenario of [
       Deno.env.set("SUPABASE_ANON_KEY", "synthetic-anon-key");
       Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service-key");
       globalThis.fetch = (async (input, init) => {
-        const url = new URL(input instanceof Request ? input.url : String(input));
-        const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+        // Normalize fetch inputs without depending on RequestInit's ambient members.
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const method = request.method;
         assertEquals(url.origin, "https://unit-test.invalid");
         requests.push(url.pathname);
         if (method !== "GET" && method !== "HEAD") {
