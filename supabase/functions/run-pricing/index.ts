@@ -15,6 +15,7 @@ import {
   withLocalTransportDebours,
 } from "../_shared/local-transport-debours.ts";
 import { computeCommercialTotals } from "./commercial-totals.ts";
+import { resolvePricingGoodsEvidence } from "./imo-goods-preflight.ts";
 import {
   collectFeeLineCodes,
   INTERNAL_FEE_BLOC,
@@ -26,7 +27,7 @@ import {
 import { IMO_CLASS_FACT_KEY, UN_NUMBER_FACT_KEY } from "../_shared/imo-classification.ts";
 import { resolveImoPricingFacts, scopeImoFactsForLot, IMO_LOT_CLASSIFICATION_REQUIRED } from "../_shared/imo-pricing-facts.ts";
 import { IMO_GOODS_EVENT, imoGoodsSourceFingerprint, resolveImoGoodsPricing, imoGoodsFeeFacts, imoGoodsCarrierNeedsConfirmation,
-  type ImoGoodsAssessment, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
+  type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 // DTHC-4-A : le caractère dangereux du dossier doit atteindre le moteur, qui
 // l'attend sous `isIMO` mais ne le recevait de personne.
 import { DANGEROUS_GOODS_FACT_KEY, isDangerousForEngine } from "../_shared/dangerous-goods.ts";
@@ -1490,21 +1491,33 @@ Deno.serve(async (req) => {
       .select("id, event_data").eq("case_id", case_id).eq("event_type", IMO_GOODS_EVENT)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (goodsEventError) throw new Error(`IMO goods evidence read failed: ${goodsEventError.message}`);
-    const goodsAssessment = goodsEvent?.event_data as ImoGoodsAssessment | undefined;
+    // GO CTO 2026-09-14: old cases must not bypass IMO just because no puzzle
+    // event exists. Read the complete source snapshot; derive evidence in memory.
+    const goodsSourceResults = caseData.thread_id ? await Promise.all([
+      serviceClient.from("email_threads").select("client_email").eq("id", caseData.thread_id).maybeSingle(),
+      serviceClient.from("emails").select("id, from_address, subject, body_text, sent_at", { count: "exact" })
+        .eq("thread_ref", caseData.thread_id).order("sent_at", { ascending: true }),
+    ]) : undefined;
+    if ((goodsEvent && !goodsSourceResults) || (goodsSourceResults && (
+      goodsSourceResults[0].error || !goodsSourceResults[0].data || goodsSourceResults[1].error ||
+      goodsSourceResults[1].count == null || goodsSourceResults[1].count !== goodsSourceResults[1].data?.length
+    ))) throw new Error("IMO goods source verification failed");
+    const goodsAssessment = await resolvePricingGoodsEvidence(
+      goodsEvent ? goodsEvent.event_data : undefined,
+      goodsSourceResults?.[0].data?.client_email ?? null,
+      goodsSourceResults?.[1].data ?? [],
+    );
     let goodsPlan: ImoGoodsPricingPlan | undefined;
     let goodsFingerprint = "";
-    if (goodsEvent) {
-      const [threadResult, emailsResult, factsResult, countResult] = await Promise.all([
-        serviceClient.from("email_threads").select("client_email").eq("id", caseData.thread_id).maybeSingle(),
-        serviceClient.from("emails").select("id, from_address, subject, body_text, sent_at", { count: "exact" }).eq("thread_ref", caseData.thread_id),
+    if (goodsAssessment) {
+      const [factsResult, countResult] = await Promise.all([
         serviceClient.from("quote_facts").select("fact_key, value_text, value_json").eq("case_id", case_id).eq("is_current", true),
         serviceClient.from("quote_request_lines").select("id", { count: "exact", head: true }).eq("case_id", case_id),
       ]);
-      if (!goodsAssessment || threadResult.error || emailsResult.error || factsResult.error || countResult.error || countResult.count == null ||
-        emailsResult.count !== emailsResult.data?.length) {
+      if (factsResult.error || countResult.error || countResult.count == null) {
         throw new Error("IMO goods source verification failed");
       }
-      goodsFingerprint = await imoGoodsSourceFingerprint(threadResult.data?.client_email, emailsResult.data || []);
+      goodsFingerprint = await imoGoodsSourceFingerprint(goodsSourceResults?.[0].data?.client_email, goodsSourceResults?.[1].data || []);
       goodsPlan = resolveImoGoodsPricing(goodsAssessment, factsResult.data || [], goodsFingerprint);
       if (countResult.count >= 2 || pkg.startsWith("EXPORT_") || /AIR|EXPORT/.test(String(caseData.request_type).toUpperCase()) || allow_provisional) {
         goodsPlan.status = "BLOCKED";
