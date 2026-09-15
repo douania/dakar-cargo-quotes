@@ -44,6 +44,9 @@ jobs:
       - name: Edge function config (config.toml <-> supabase/functions)
         run: npm run check:function-config
 
+      - name: Scenario delivery dependency isolation
+        run: npm run check:scenario-bundles
+
       - name: Typecheck
         run: npm run typecheck
 

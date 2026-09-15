@@ -1130,6 +1130,38 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Suite autorisée : commit/push work, quotation-engine→run-scenario-pricing→manage-quote-scenario avec contrôles à chaque étape, recette privée sans envoi. Pas de création v2 pendant la fenêtre frontend/Edge.
 - Retour : Edge coordonné puis rollback SQL seulement à zéro ligne v2 ; ledger conservé et nouveau numéro pour relivraison. Aucun rollback exécuté dans le Cloud.
 
+#### Livraison scénarios — 15 septembre 2026, 10:39 UTC — PARTIAL, contrôle runtime incomplet
+
+- Commit applicatif `450913bd40994d59ac5864243d2e5227f2b55d7a` poussé sur work ; 22 fichiers, +2103/-53. SQL B/E1/E2/E3 PASS ci-dessus, ne pas rejouer.
+- Lovable a généré quatre lignes de types pour le helper v2 ; diff intégral contrôlé, aucun changement sous supabase/. Fast-forward local vers `1f5bc6a3c4fce3ed3b9c9a18405732ecf8c2cd7f`, sans annuler ces ajouts bénins.
+- quotation-engine seule déployée : succès rapporté Lovable, sources Git Edge/shared identiques au commit 450913bd ; OPTIONS 200, POST sans authentification 401, interface Cloud Active.
+- Bundle réellement déployé/version/empreinte non exposés par connecteur ou vue Cloud : NOT_VERIFIED. Ne pas présenter l'identité des sources Git comme une lecture du runtime.
+- Arrêt avant run-scenario-pricing et manage-quote-scenario ; sonde métier authentifiée et recette NOT_RUN. Aucun scénario v2 à créer pendant cette fenêtre frontend/Edge.
+- SELECT final 10:39:16 UTC : ledger 202, aucun scénario (v2 compris), 1409 faits. Première requête finale refusée sur nom de colonne scope, corrigée en scope_snapshot ; aucune écriture pendant ces contrôles.
+- Tests conservés : PASS_WITH_BASELINE (échec SIFB CRLF reproduit sur baseline), pas de CI intégralement verte ; aucun correctif hors lot, Auth/RLS, tarif, fait, envoi ou publication publique.
+- Suite : preuve runtime ou arbitrage explicite d'une preuve de remplacement (identité Git + déploiement confirmé + sondes authentifiées), puis deux Edge et recette sous le GO borné. Aucun rollback effectué ; SQL réversible seulement à zéro v2, ledger conservé.
+- Entrée CTO_GO_QUEUE actualisée pour commit dédié ; cette note de roadmap reste locale jusqu'au prochain commit autorisé contenant du code, pas de commit docs-only supplémentaire.
+
+#### Livraison scénarios — 15 septembre 2026, 10:46 UTC — PARTIAL, bundling Edge 2 FAIL
+
+- GO utilisateur reçu sur preuve de remplacement sources Git + confirmation déploiement + sondes authentifiées ; bundle non relisible documenté, plus bloquant à lui seul. Préflight local/GitHub/Lovable `7708526` aligné ; projet privé/non publié, seule roadmap sale attendue.
+- Sonde authentifiée moteur générique conforme : 1×20GP SOC, STANDARD, 10000 kg, DAP Dakar, valeur fictive 1000000 XOF ; HTTP200 success true, THC 155000 + transport 82600 = 237600 XOF indicatifs, postes non documentés TO_CONFIRM. Première sonde count au lieu de quantity exclue des preuves de calcul.
+- Déploiement run-scenario-pricing refusé par bundler : Module not found ../manage-quote-scenario/domain.ts, import confirmé domain.ts:2. Deployed: none ; manage-quote-scenario non tentée, recette scénarios NOT_RUN. quotation-engine du tour précédent inchangée.
+- Cause : tests sur dépôt complet, dépendance inter-fonctions absente du bundle isolé. Préparer sous GO un partage du validateur pur via _shared et un test de résolution dans le périmètre réel de chacun des trois bundles, sans changer les règles métier ni le moteur FROZEN.
+- SELECT avant/après sondes 10:45:35→10:46:32 : ledger 202, scénarios/runs scénario 0, faits 1409, runs canoniques 171, versions 9 ; empreintes complètes facts et port_tariffs identiques (méthode to_jsonb documentée dans queue). Aucun fait client, tarif, Auth/RLS, SQL métier, envoi ou publication modifié.
+- Queue actualisée pour commit dédié ; aucune correction applicative, aucun rollback. Ne créer aucun scénario v2 pendant cette fenêtre incomplète ; retour SQL seulement à zéro v2 et ledger conservé. Cette note reste locale jusqu'à commit applicatif autorisé.
+
+#### Correctif assemblage scénarios — 15 septembre 2026 — PASS local, livraison en cours
+
+- GO utilisateur explicite : correctif ciblé, tests et reprise livraison privée ; aucune nouvelle migration ni modification tarifaire. Base work/local/GitHub `3170e98`, note de roadmap antérieure conservée.
+- Domaine pur déplacé dans `_shared/quote-scenario-domain.ts`, ancienne façade export-star conservée, import run-scenario-pricing vers _shared. Comparaison automatisée ancien/nouveau identique après seule substitution du chemin d'import et normalisation EOL ; aucun changement de règle, Auth/RLS, moteur quotation-engine ou SQL.
+- Nouveau `check:scenario-bundles`, intégré à npm run ci et GitHub Actions : copies isolées fonction+_shared, résolution Deno info 39/36/33 modules PASS, contrôle négatif de l'ancien import sibling refusé. Ce test vérifie la fermeture des dépendances, pas le compilateur Lovable ni le bundle effectivement déployé.
+- Harnais Windows corrigé pendant développement : chemins d'entrée file:// et exigence d'un module ESM ; le contrôle négatif avait révélé le faux positif initial à un seul module. Aucun faux PASS conservé.
+- 97 tests Deno ciblés PASS ; suite générale 378 frontend PASS, 1336 Deno PASS/1 FAIL/6 ignorés (SIFB CRLF identique baseline) ; types frontend/config/build PASS, dette Deno 49 et lint 737/16 inchangée. PASS_WITH_BASELINE, pas CI locale intégralement verte.
+- Contre-revue Claude Code locale en lecture seule, session 4a747887-405b-4133-8ca2-b8e93ae4520b : GO technique avec deux réserves vérifiables levées localement (aucun export default, seuls imports résiduels dans tests). Première réponse CLI sans outils inexploitable écartée ; aucun résultat inventé repris. Aucun accès données client/backup, aucun droit d'écriture accordé.
+- Suite sous même GO : commit/push, déployer run-scenario-pricing puis manage-quote-scenario et vérifier sources/succès/sondes, recette privée. Pas de nouveau déploiement quotation-engine nécessaire (source inchangée, nouvelle dépendance non importée par ce moteur).
+- Rollback correctif : revert du commit + redéploiement des deux consommateurs ; pour restauration v1 SQL, zéro ligne v2 impératif, ledger conservé. Aucun retour Cloud effectué.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

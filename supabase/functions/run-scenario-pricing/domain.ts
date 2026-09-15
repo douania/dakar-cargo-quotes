@@ -1,5 +1,5 @@
 import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
-import { validateScopeSnapshot } from "../manage-quote-scenario/domain.ts";
+import { validateScopeSnapshot } from "../_shared/quote-scenario-domain.ts";
 
 /**
  * P1-A4 — domaine pur du pricing isolé par scénario.
